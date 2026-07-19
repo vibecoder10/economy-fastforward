@@ -366,8 +366,15 @@ async def connect_youtube(
 
 async def _import_channel_videos(
     tenant_id: str, channel_url: str, channel_name: str
-):
-    """Background: import user's own YouTube videos into channel_videos table."""
+) -> int:
+    """Background: import user's own YouTube videos into channel_videos table.
+
+    Returns the number of videos saved/updated (0 on "nothing found" or any
+    error) — added for checklist C41 (channel_dna.py::learn_channel), which
+    awaits this directly (not as a fire-and-forget background_tasks.add_task
+    like connect_youtube below) and needs a count to put in its per-learner
+    digest. The original background_tasks caller already discarded the
+    return value, so this is purely additive."""
     from routes.niche import _list_channel_videos
 
     try:
@@ -376,7 +383,7 @@ async def _import_channel_videos(
         )
         if not stubs:
             logger.info("[Onboarding] No videos found for channel %s", channel_name)
-            return
+            return 0
 
         saved = 0
         for stub in stubs:
@@ -404,8 +411,10 @@ async def _import_channel_videos(
                 logger.warning("[Onboarding] Failed to save channel video %s: %s", stub.get("id"), e)
 
         logger.info("[Onboarding] Imported %d/%d videos for %s", saved, len(stubs), channel_name)
+        return saved
     except Exception as e:
         logger.error("[Onboarding] Channel video import failed: %s", e)
+        return 0
 
 
 # ── Competitor Analysis ──────────────────────────────────────────

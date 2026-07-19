@@ -7420,3 +7420,119 @@ ff-merge.
 
 **Next chunk: C41 · P4.1b unified ingestion orchestrator** (`channel_dna.py::learn_channel` sequencing
 the existing learners) — see `tasks/todo.md` handoff.
+
+---
+
+## C41 — P4.1b unified Channel-DNA ingestion orchestrator: `channel_dna.py::learn_channel` (added 2026-07-19)
+
+Second build chunk of Phase 4 Pillar 1. Sequences the EXISTING channel-DNA learners behind one
+function — no new learner logic, this is refactor-to-call + sequencing + concurrency safety + a
+digest-ready result contract for C42 (the chat front door). Builds on C40's provenance envelope.
+
+### What `learn_channel` does
+
+`storyengine/backend/channel_dna.py::learn_channel(tenant_id, *, channel_url=None,
+example_script_text=None, reference_video_url=None, progress_cb=None) -> dict`, five steps, all
+fail-soft except the claim itself:
+
+| Step | Reuses | Runs when | Fail-soft behavior |
+|------|--------|-----------|---------------------|
+| 1. import | `routes.onboarding._import_channel_videos` (now returns a saved-count instead of `None` — the one signature change, backward-compatible since its only other caller discards the return value) | `channel_url` given (own channel or not — idempotent ON CONFLICT upsert either way) | zero videos found -> `failed`, sequence continues |
+| 2. identity_builder | `identity_builder.build_channel_identity` unmodified | always | transcript fetch / LLM failure -> `failed` with the reason, other steps still run |
+| 3. script_template | `routes.script_templates.analyze_and_save_template` unmodified | `example_script_text` given | too-short example / bad analysis -> `failed`; a pre-check query (`SELECT id FROM script_templates ...`) run BEFORE the call distinguishes "replaced your house template" from "saved your first one" (the function itself DELETEs first, so post-hoc you can't tell) |
+| 4. channel_format | `channel_format.set_channel_format` unmodified | always, gated by CONFIDENCE not by caller input | locks only when identity_builder detected both `style` AND `motion` across >= 2 analyzed videos (`_format_confident`) — otherwise `skipped` with the detection surfaced unlocked, since `channel_format.apply_format_defaults` reads the lock unconditionally on every future bare-title build |
+| 5. reference_video | `routes.model_video._parse_youtube_id` / `_resolve_claude_creds` / `_extract_video_info` (via `routes.niche`) / `_oembed_fallback` / `_fetch_transcript_supadata` / `_distill_dna`, all unmodified | `reference_video_url` given | any extraction/credential/distill failure -> `failed`; on success, folds `{summary, structured_metadata, source_url, source_title}` into a NEW `reference_video_style` field via `channel_dna_meta.stamp_identity_write(..., learner="reference_video")` — closes the audit finding that Model A Video's DNA never persisted past the one video it modeled |
+
+### Concurrency: channel-level claim (migration 104 + `generation_claims.py` additions)
+
+C40's decisions.md note flagged the read-modify-write race on `channel_identity` as future work "once
+C41's ingestion orchestrator can run" — this chunk closes it. `generation_claims` (C16a) is video-keyed
+(`video_id NOT NULL`), but `learn_channel` operates on a whole tenant, no single video. Rather than a
+parallel table, migration 104 makes `generation_claims.video_id` nullable and adds a SECOND partial
+unique index, `(tenant_id, stage) WHERE video_id IS NULL` — the ORIGINAL `(tenant_id, video_id, stage)`
+index never fires for NULL rows (Postgres treats NULLs as distinct), so without the new index two
+concurrent tenant-level claims could both insert. New `generation_claims.acquire_channel()` /
+`release_channel()` are the only callers that ever write a NULL-video-id row; every existing per-video
+`acquire()`/`release()`/`is_blocked()` call site and its SQL is untouched (verified: their own tests
+still pass unmodified). `learn_channel` acquires stage `"dna"` before any learner runs and releases in
+a `finally` (including on an unexpected exception) — a double `learn_channel` call, or a future
+identity-editing chat op sharing the same stage, now genuinely serializes instead of racing.
+
+### Result contract (for C42's confirmable digest card)
+
+```json
+{
+  "ok": true,
+  "busy": false,
+  "error": null,
+  "learners": {
+    "import_channel_videos": {"status": "learned", "summary": "Imported 12 video(s) from the channel.", "fields_written": ["channel_videos"], "error": null},
+    "identity_builder": {"status": "learned", "summary": "Learned voice, cadence, hooks, and structure, plus a thumbnail formula from 3 of your top video(s).", "fields_written": ["voice_tone", "cadence", "hook_style", "structure", "research_approach", "real_quotes", "signature_phrases", "visual_format", "thumbnail_style", "style_description", "hook_examples", "cadence_example", "structure_example"], "error": null},
+    "script_template": {"status": "skipped", "summary": "No example script provided.", "fields_written": [], "error": null},
+    "channel_format": {"status": "learned", "summary": "Locked your channel format: 3D animation / animated.", "fields_written": ["visual_format", "format_locked"], "error": null},
+    "reference_video": {"status": "skipped", "summary": "No reference video provided.", "fields_written": [], "error": null}
+  },
+  "identity": { "...current channel_identity dict, with _sources/_history..." }
+}
+```
+A denied claim short-circuits to `{"ok": false, "busy": true, "error": "Already learning this channel's DNA — try again in a moment.", "learners": {}, "identity": <current, unmodified>}` before any learner runs.
+
+### Cost per run (tenant's own key — BYOK, no new paid integration)
+
+identity_builder (always runs): up to (top_n+4)=7 Firecrawl scrape attempts (2 proxy modes each) to
+land 3 transcripts, 1 Claude distill call (~2200 max_tokens), +1 Claude vision call if thumbnails were
+found (~1400 max_tokens). script_template (optional): +1 Claude call (~1200 max_tokens). reference_video
+(optional): +up to 2 Claude calls (~2048 max_tokens, one retry on bad JSON). Worst case (all optional
+inputs supplied): ~4-5 Claude calls, roughly **$0.05-$0.30** per cost-awareness.md's Sonnet/Haiku
+per-call figures, plus Firecrawl scrape credits (external, not in that table). channel_format and the
+import step make no LLM calls.
+
+### Verify
+
+18 new tests: 14 in `storyengine/backend/tests/functional/test_c41_channel_dna.py` (orchestration —
+happy-path call order, optional-input skip vs channel_format's independent confidence gate, per-learner
+failure isolation, not-my-channel import-first, claim held/released incl. on an exception escaping a
+monkeypatched step, double-run busy refusal with zero learners run; plus two "for real" tests against a
+fake DB — script_template's replaced-vs-saved wording via the pre-check query, and reference_video's
+fold-in through the REAL `stamp_identity_write` proving `_sources["reference_video_style"].learner ==
+"reference_video"`) + 4 for `generation_claims.acquire_channel`/`release_channel` (fake-pool: acquire/
+deny/release/reacquire cycle, fail-closed on DB error, fail-soft release). Non-vacuous: `git stash` of
+`generation_claims.py` + `routes/onboarding.py` (the two modified files; `channel_dna.py` + the test
+file + the migration are new/untracked and stay) reproduces exactly **10 of 14** orchestration-file
+failures (every test touching `acquire_channel`/`release_channel`, directly or via `channel_dna`'s own
+`generation_claims` import) — confirmed live, then the stash was popped back.
+
+**Full backend suite**: `./venv/bin/python -m pytest tests/ -q` -> **1333 passed** (1319 baseline + 14
+new C41 tests in the channel_dna file; the 4 generation_claims fake-pool tests are counted inside that
+same 14) **/ 15 pre-existing failures / 1 pre-existing error** — matches baseline exactly, zero new
+failures. `py_compile` clean on all touched/new `.py` files.
+
+### Modified/New Files (C41)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/channel_dna.py` | NEW — `learn_channel` orchestrator + 5 `_run_*` per-learner step functions + `_format_confident` |
+| `storyengine/backend/migrations/104_generation_claims_channel_level.sql` | NEW — `generation_claims.video_id` nullable + partial unique index `(tenant_id, stage) WHERE video_id IS NULL` |
+| `storyengine/backend/generation_claims.py` | Additive: `acquire_channel()` / `release_channel()` (video-less claim variant). Existing `acquire()`/`release()`/`is_blocked()`/SQL untouched |
+| `storyengine/backend/routes/onboarding.py` | `_import_channel_videos` now returns an `int` (saved count) instead of `None` — the only other caller (`connect_youtube`'s `background_tasks.add_task`) discards the return value, so this is additive |
+| `storyengine/backend/tests/functional/test_c41_channel_dna.py` | NEW — 18 tests (14 orchestration/learner + 4 claim) |
+
+### Deploy-safety assessment
+
+One migration (104), additive: `ALTER COLUMN ... DROP NOT NULL` + `CREATE UNIQUE INDEX IF NOT EXISTS`
+— no data rewrite, no existing row can become NULL retroactively, every existing per-video claim path
+byte-identical (proven: their tests pass unmodified). `channel_dna.py` is a new module with no route
+wired to it yet — **not reachable from chat, UI, or onboarding until C42/C45 wire a door to it**; it is
+importable and covered by tests but has zero live callers today, so this chunk cannot regress any
+existing user-facing flow. `_import_channel_videos`'s new return value is additive (old caller ignored
+it; nothing reads a `None` return anywhere). Frontend untouched (confirmed via `git diff --stat` —
+`storyengine/frontend/` shows no changes). Safe to ff-merge.
+
+**Deferred to `tasks/live-verification-queue.md` §C41** (also the natural live test for **C42**, which
+gives this function its first real caller): running `learn_channel` against a real tenant + real
+channel — this chunk's `[V]` is unit-only per the checklist (no route, no UI yet).
+
+**Next chunk: C42 · P4.1c chat front door + confirmable digest card** — wire `learn_channel` behind a
+"learn this channel: <url>" chat intent (ack-now background-task pattern, `progress_cb` already
+supports this), render the digest as a per-field confirm-before-save card (closing identity_builder's
+save-without-review gap noted in the P4.1 scout), route corrections to C44's seam.

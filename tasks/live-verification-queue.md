@@ -2257,6 +2257,51 @@ pass before/alongside a `--with-frontend` deploy.
 
 ---
 
+## C41 — unified Channel-DNA ingestion orchestrator (`channel_dna.py::learn_channel`) · live learn-a-real-channel run
+
+Verified so far at unit level only (18 new tests, SYSTEM_STATE.md §C41) — `learn_channel` has **no
+route or chat/UI door wired to it yet** (that's C42/C45), so there is nothing to click through in the
+sandbox or on a dev server; the only way to exercise it live is to call it directly (a Python REPL/
+script on the VPS, or wait for C42's chat intent to land and use that instead — this is also C42's own
+natural live test, so consider doing both together rather than twice).
+
+- [ ] **Full sequence against a real tenant's own channel.** On the VPS: `await channel_dna.
+      learn_channel(tenant_id)` (no `channel_url` — learns from whatever's already in that tenant's
+      `channel_videos`). Confirm: (a) `learners["identity_builder"]["status"] == "learned"` with a
+      real `videos_analyzed` count > 0 (needs `FIRECRAWL_API_KEY` set and the tenant to already have
+      imported channel videos with transcripts fetchable — reuse an onboarding-connected test tenant);
+      (b) `se db "SELECT channel_identity FROM channel_profiles WHERE tenant_id='<id>'"` shows real
+      voice_tone/hook_style/real_quotes text, not placeholders; (c) `_sources`/`_history` envelope
+      present and readable.
+- [ ] **Not-my-channel path.** Call `learn_channel(tenant_id, channel_url="https://youtube.com/@
+      SomeOtherChannel")` for a channel the tenant has never imported. Confirm `learners
+      ["import_channel_videos"]["status"] == "learned"` with a real saved count, and that
+      `channel_videos` actually gained rows for that tenant (`se db "SELECT count(*) FROM
+      channel_videos WHERE tenant_id='<id>'"`).
+- [ ] **Example script replaces cleanly.** Call with `example_script_text=<a real script>` twice in a
+      row for the same tenant — confirm the SECOND call's `learners["script_template"]["summary"]`
+      says "replaced" and `se db "SELECT count(*) FROM script_templates WHERE tenant_id='<id>'"`
+      stays at 1 (single-slot, not accumulating).
+- [ ] **Reference video folds in.** Call with `reference_video_url=<a real public YouTube URL>` —
+      confirm `channel_identity->>'reference_video_style'` is populated with real summary text and
+      `_sources->'reference_video_style'->>'learner' = 'reference_video'`.
+- [ ] **Concurrency: two overlapping calls.** Fire `learn_channel(tenant_id)` twice back-to-back
+      (e.g. two terminal tabs, or `asyncio.gather`) — confirm the SECOND returns `{"busy": true}`
+      immediately rather than both running (check `se db "SELECT * FROM generation_claims WHERE
+      video_id IS NULL"` mid-run to see the "dna" claim row).
+- **Cost:** per SYSTEM_STATE.md §C41's estimate, roughly $0.05-$0.30 in Claude calls (tenant's own
+  BYOK key) per full run, plus Firecrawl scrape credits for the identity_builder step. Get a cost
+  quote/go-ahead per storyengine/CLAUDE.md's money rule before running the full-sequence checks above
+  on a real (not throwaway) tenant.
+- **Safety net:** every learner is individually fail-soft (a missing `FIRECRAWL_API_KEY` or a
+  transcript-fetch bot-block degrades that ONE learner to `"failed"` with a reason, never crashes the
+  whole call — see docs/env-vars.md's `YTDLP_COOKIES_FILE`/`YTDLP_PROXY` for the same bot-block this
+  reference_video step can hit). Since nothing calls `learn_channel` yet in production, there is no
+  regression risk from skipping this until C42 gives it a door — this item is a nice-to-have proof,
+  not a blocker.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

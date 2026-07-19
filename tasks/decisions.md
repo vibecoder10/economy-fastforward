@@ -308,3 +308,36 @@ if concurrent-write races on this column become a real problem later (e.g. once 
 orchestrator can run multiple learners writing distinct fields close together), the fix is additive
 (a row lock or an advisory lock keyed on tenant_id) — flagging for whoever builds C41+ to watch, not
 blocking this chunk on it.
+
+## 2026-07-19 — C41 channel-level claim: extend `generation_claims` (nullable video_id + second partial
+index), not a parallel table (worker, implementation-level)
+
+**Decision:** `channel_dna.py::learn_channel`'s concurrency guard reuses the SAME `generation_claims`
+table C16a built, via two additions rather than a new table: migration 104 drops `video_id`'s `NOT
+NULL` and adds `CREATE UNIQUE INDEX ... ON generation_claims (tenant_id, stage) WHERE video_id IS
+NULL`; `generation_claims.py` gets `acquire_channel()`/`release_channel()`, video-less siblings of
+`acquire()`/`release()` that always write/read `video_id = NULL` rows through the new index. Every
+existing per-video call site (`acquire`/`release`/`is_blocked`, their SQL, their money-safety
+guarantees) is untouched — proven by their own test file passing unmodified after this change.
+
+**Context:** `learn_channel` doesn't operate on a single video (it rebuilds tenant-wide
+`channel_profiles.channel_identity`), so the existing `(tenant_id, video_id, stage)` claim key has
+nothing to key on. The ORIGINAL unique index never fires for a `video_id IS NULL` row (Postgres
+treats NULLs as pairwise distinct in a plain unique index) — so without the second partial index, two
+concurrent channel-level claims for the same tenant+stage could both `INSERT` and neither would be
+denied. This is exactly the race C40's note above flagged as future work "once C41's ingestion
+orchestrator can run."
+
+**Alternatives considered:** (1) A brand-new `channel_claims` table mirroring the same shape —
+rejected: two claim tables split the "is this tenant/video busy" answer across two lookups forever,
+and the checklist explicitly said "reuse generation_claims." (2) Fake a `video_id` by pointing at some
+sentinel row — rejected: either requires a real (and misleading) `videos` row to satisfy the FK, or a
+magic UUID constant that every future per-video query would need to know to exclude; nullable + a
+second index is the standard Postgres pattern for "sometimes this FK doesn't apply" and needed no
+schema-wide awareness elsewhere.
+
+**Why this won:** Additive on both sides (nullable column can't retroactively null an existing row;
+the new index only ever matches NULL rows the old index never matched) — zero risk to the S7-1
+CRITICAL video-scoped guarantee, confirmed by running `generation_claims`' own test file after the
+migration. Same acquire/release/stale-sweep/fail-closed discipline as the proven video-scoped code,
+just re-keyed on `(tenant_id, stage)` instead of `(tenant_id, video_id, stage)`.

@@ -212,6 +212,75 @@ async def get_claimed_by(tenant_id: str, video_id: str) -> Optional[str]:
         return None
 
 
+async def acquire_channel(tenant_id: str, stage: str = "dna", claimed_by: Optional[str] = None) -> bool:
+    """Channel-level (video-less) counterpart to acquire(), for tenant-wide
+    learners — today only ``channel_dna.learn_channel`` (checklist C41) —
+    that rebuild ``channel_profiles.channel_identity`` and have no single
+    ``video_id`` to key a claim on. This is the fix C40's decisions.md note
+    flagged ("if concurrent-write races on this column become a real problem
+    later ... once C41's ingestion orchestrator can run"): two learn_channel
+    runs (or a learn + an identity-editing chat op sharing the same stage)
+    for the same tenant now genuinely serialize instead of racing the
+    fetch-then-write in channel_dna_meta.stamp_identity_write.
+
+    Stores the claim row with ``video_id = NULL`` and enforces uniqueness via
+    the ``(tenant_id, stage) WHERE video_id IS NULL`` partial index
+    (migration 104) — a DIFFERENT index than the per-video acquire() uses, so
+    this never contends with (or is blocked by) any video-scoped claim.
+    Mirrors acquire()'s exact discipline otherwise: TOCTOU-free per-tenant
+    advisory transaction lock, a 2h stale sweep, fail-CLOSED (returns False)
+    on any DB error.
+    """
+    try:
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+                    f"{tenant_id}:channel:{stage}",
+                )
+                await conn.execute(
+                    "DELETE FROM generation_claims WHERE tenant_id = $1 AND video_id IS NULL "
+                    "AND stage = $2 AND claimed_at < now() - interval '2 hours'",
+                    tenant_id, stage,
+                )
+                row = await conn.fetchrow(
+                    "INSERT INTO generation_claims (tenant_id, video_id, stage, claimed_by) "
+                    "VALUES ($1, NULL, $2, $3) "
+                    "ON CONFLICT (tenant_id, stage) WHERE video_id IS NULL DO NOTHING "
+                    "RETURNING stage",
+                    tenant_id, stage, claimed_by,
+                )
+                return row is not None
+    except Exception:
+        logger.exception(
+            "[generation_claims] acquire_channel failed tenant=%s stage=%s — "
+            "DENYING the claim (fail-closed: a DB error must never open the "
+            "double-spend/double-write window)", tenant_id, stage,
+        )
+        return False
+
+
+async def release_channel(tenant_id: str, stage: str = "dna") -> None:
+    """Best-effort release for a channel-level claim taken by
+    acquire_channel() — never raises, same fail-soft contract as release():
+    a failed DELETE just leaves the row for the next acquire_channel()'s
+    stale sweep (>2h) to clear."""
+    try:
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM generation_claims WHERE tenant_id = $1 AND video_id IS NULL AND stage = $2",
+                tenant_id, stage,
+            )
+    except Exception:
+        logger.warning(
+            "[generation_claims] release_channel failed tenant=%s stage=%s — "
+            "row will self-clear via the 2h stale sweep on the next acquire_channel",
+            tenant_id, stage, exc_info=True,
+        )
+
+
 async def is_blocked(tenant_id: str, video_id: str, stage: str) -> bool:
     """Read-only check used by routes/pipeline.py's ``_is_task_active`` so
     the DB is consulted as the authority alongside the in-process dict fast

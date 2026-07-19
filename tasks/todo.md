@@ -68,12 +68,51 @@
   pass unaffected — confirmed live). Full suite 1319P/15F/1E = baseline(1300P)+19, zero new failures.
   `py_compile` clean. Frontend untouched (backend-only diff). Not committed as its own commit yet at
   time of this note — see git log for the actual C40 commit. ff-merge candidate (additive JSONB shape
-  change, all writers' public return values unchanged, no migration to apply). **Next up: C41 · P4.1b
-  unified ingestion orchestrator** (`channel_dna.py::learn_channel` sequencing identity_builder →
-  script_templates.analyze → channel_format lock → optional model_video DNA distill; handles the
-  not-my-channel case via onboarding's `_import_channel_videos` pattern; per-learner fail-soft) —
-  NO new learner logic, just sequencing the existing ones behind one entry point.
-- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C40.
+  change, all writers' public return values unchanged, no migration to apply).
+- **Also done:** C41 · P4.1b unified Channel-DNA ingestion orchestrator — DONE 2026-07-19, full detail
+  in SYSTEM_STATE.md §C41. New `storyengine/backend/channel_dna.py::learn_channel(tenant_id, *,
+  channel_url=None, example_script_text=None, reference_video_url=None, progress_cb=None)` sequences
+  the FIVE existing learners behind one entry point (no new learner logic): (1) optional import via
+  `routes.onboarding._import_channel_videos` (now returns a saved-count int instead of `None` — its
+  only other caller already discarded the return value) when `channel_url` given (own or not-my-
+  channel — idempotent upsert either way); (2) `identity_builder.build_channel_identity` unmodified,
+  always runs; (3) optional `routes.script_templates.analyze_and_save_template` when an example script
+  is supplied — a pre-check query distinguishes "replaced your house template" from "saved your first
+  one" (the function itself DELETEs-then-INSERTs, so you can't tell after the fact); (4)
+  `channel_format.set_channel_format` — ALWAYS attempted but only actually locks when
+  `_format_confident()` (style+motion both detected AND >=2 videos analyzed) says so, otherwise
+  surfaces the detection unlocked; (5) optional reference-video style distill, reusing
+  `routes.model_video`'s extraction chain + `_distill_dna` unmodified, folded into a NEW
+  `reference_video_style` field via `channel_dna_meta.stamp_identity_write(..., learner=
+  "reference_video")` — closes the audit finding that Model A Video's DNA never persisted past the one
+  video it modeled. **Concurrency (closes C40's flagged race-window note):** new migration 104 makes
+  `generation_claims.video_id` nullable + adds a partial unique index `(tenant_id, stage) WHERE
+  video_id IS NULL`; new `generation_claims.acquire_channel()`/`release_channel()` (video-less variants)
+  wrap the whole `learn_channel` call, released in a `finally` — every existing per-video claim
+  call site/SQL is untouched (their own tests pass unmodified). Result contract is digest-ready for
+  C42: `{ok, busy, error, learners: {name: {status: learned|skipped|failed, summary, fields_written,
+  error}}, identity: <current channel_identity with _sources/_history>}`. Cost estimate documented in
+  the module docstring: ~$0.05-$0.30/run in Claude calls (tenant's BYOK key) worst case, plus Firecrawl
+  scrape credits — no new paid integration. **`learn_channel` has NO route/chat/UI door wired to it
+  yet** (that's C42/C45) — it is importable and fully tested but has zero live callers today.
+  VERIFIED: 18 new tests (`tests/functional/test_c41_channel_dna.py` — 14 orchestration/learner tests
+  incl. call order, per-learner fail-soft isolation, not-my-channel import-first, claim held/released
+  incl. on an exception, double-run busy refusal, script-template replaced-vs-saved wording, and
+  reference-video's real fold-in through `stamp_identity_write` proving the `reference_video` provenance
+  tag; + 4 `generation_claims.acquire_channel`/`release_channel` fake-pool tests). Non-vacuous: `git
+  stash` of the 2 modified tracked files (`generation_claims.py`, `routes/onboarding.py` — `channel_dna.py`
+  + the test file + the migration are new/untracked and stay) reproduces exactly 10/14 failures
+  (every claim-touching test), confirmed live, stash popped back. Full suite **1333P/15F/1E** =
+  baseline(1319P)+14 (the 4 claim tests live inside that same file/count), zero new failures.
+  `py_compile` clean. Frontend untouched (`git diff --stat` shows no `storyengine/frontend/` changes).
+  Live "learn a real channel" run deferred → `tasks/live-verification-queue.md` §C41 (also flagged as
+  C42's own natural live test — do both together). ff-merge candidate (additive migration, zero live
+  callers of the new module yet, so this chunk cannot regress any existing user-facing flow).
+  **Next up: C42 · P4.1c chat front door + confirmable digest card** — wire `learn_channel` behind a
+  "learn this channel: <url>" chat intent (ack-now background-task pattern — `progress_cb` already
+  supports it), render the digest as a per-field confirm-before-save card (closes identity_builder's
+  save-without-review gap), route corrections to C44's seam.
+- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C42 (C40, C41 done).
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 
 ## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)
