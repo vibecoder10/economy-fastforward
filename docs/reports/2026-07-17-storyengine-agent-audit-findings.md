@@ -280,3 +280,28 @@ learn_channel` sequencing existing learners + external-channel import) → C42 c
 before-save digest card (extend `_handle_build_identity`/`_format_identity`) → C43 consumption audit +
 system_prompts/identity convergence → C44 corrections-loop wiring into director_preferences → C45
 onboarding hookup + retire the dead-end `_build_intelligence_report` (graceful, it has live routes).
+
+---
+
+# C46 · Prior dial-in audit (2026-07-19) — the quality-rules engine formalizes EXISTING law
+
+**Headline: Ryan's prior sessions built far more than tuning — C46 is a generalization exercise.**
+On main today: the DvsU PLAN→WRITE→EDIT harness (code assigns evidence beats, model writes prose only
+under a narrow schema, EDIT loop resends the SAME draft with named violations, 2-round bound —
+pipeline_executor.py ~L2059/3746/10454/10486); `storyengine/notes/dvsu-quality-law.md` (74 laws
+QL-1..74 + QD-1..6, severity hard-gate/warn/guidance, triangle Build/Repair/Gate legs) + the Anton
+paragraph rubric; `originality.py::grade_script` (the generic fail-open LLM critic, verdict
+pass/revise/regenerate); `tenant_prompt_defaults` + `script_templates` precedence; `user_script.py`'s
+explicit "creator's word is final" no-gate boundary; shared/profiles/script's typed rule schema (worth
+stealing the shape). "5/23 pass" = 5 of 23 machines through the full gate in the bomber-roster video
+(HANDOFF.md G3a/G3d), live progress not a stale checklist. Ready-made backlog: quality-law doc §3
+DELTAS (11 named code-vs-law gaps) + §4 OPEN RULINGS (some already ruled by Ryan, not landed).
+Retired-do-not-resurrect: the monolithic 35-law single-prompt writer.
+
+**C46 chunks (queued as C46a-d):** C46a generalize the critic hook (grade_script shape + DvsU's
+2-round same-draft edit bound, ONE shared post-generation pre-save call site); C46b per-channel rules
+store (new table modeled on the QL/QD row shape + profiles/script's typed schema; NOT
+tenant_prompt_defaults, NOT channel_identity); C46c land the DvsU deltas as the reference tenant
+(D1/D2/D3/QL-12 as the first table-driven gates, replacing hardcoded constants); C46d trust
+boundaries (agent/MCP-submitted scripts pass the SAME critic; user_supplied verbatim scripts bypass —
+the C47 ingest tools' gate).
