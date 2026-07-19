@@ -305,3 +305,29 @@ tenant_prompt_defaults, NOT channel_identity); C46c land the DvsU deltas as the 
 (D1/D2/D3/QL-12 as the first table-driven gates, replacing hardcoded constants); C46d trust
 boundaries (agent/MCP-submitted scripts pass the SAME critic; user_supplied verbatim scripts bypass —
 the C47 ingest tools' gate).
+
+---
+
+# P4.2 · Tenant-autopilot port map (Phase 4 scout, 2026-07-19)
+
+**Headline: the SaaS already has a per-tenant autopilot HALF-BUILT** — `autopilot_config` (per-tenant,
+RLS'd, enabled/weights/thresholds/cadence), a scorer BETTER than legacy (`calculate_confidence_with_
+breakdown`: VPH 45% + freshness 35% + real distilled-intelligence 20% — no stub signals), manual
+`POST /launch/{candidate}` that already drives research→build stopping at needs_approval, an
+every-30-min in-process scheduler loop (`main.py` lifespan tasks; `_auto_produce_queue` →
+`auto_produce_next` with cadence/claim/FOR UPDATE SKIP LOCKED — the exact template), and a learnings
+loop that ACTUALLY RUNS (the SaaS fixed what legacy's C32-dead loop never did). Gaps: no auto-launch
+of SCORED candidates (only the creator queue), no early-warning CTR classifier, no notification push
+(dashboard-poll only), no per-tenant weekly budget, no kill switch distinct from `enabled`. All six
+safety layers (claims, skip-if-done, ledger, quota, per-video budget, quality gates, pattern confirms)
+confirmed CODE-LEVEL below the verb layer — autopilot inherits them by construction. Scheduling
+verdict: NO arq cron — a sibling in-process loop reusing auto_produce_next's pattern. Dial home:
+extend `autopilot_config` (dial_level, weekly_budget_cap + reset, kill_switch_tripped_at/reason —
+kill switch is an automatic trip requiring explicit human re-enable, distinct from the manual toggle).
+
+**P4.2 chunks (queued C50-C56):** C50 dial schema (P4.2-a) → C51 candidate auto-launch loop with
+propose-only dry-run mode (P4.2-b — FIRST SHIPPABLE, zero-spend) → C52 proposals surface + in-app
+notify (P4.2-c) → C53 auto-draft budget/approval verification (P4.2-d, audit-then-wire) → C54 weekly
+budget ceiling + kill-switch trip (P4.2-e) → C55 full-auto continuation under kill-switch enforcement
+(P4.2-f, highest scrutiny, ships LAST) → C56 per-launch pattern flywheel (P4.2-g, the C46e seam,
+parallel-safe). Critical path to live propose-only: C50→C51→C52.
