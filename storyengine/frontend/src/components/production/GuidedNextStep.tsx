@@ -12,11 +12,15 @@ import {
   updateVideo,
   designCharacters,
   getVideoAssets,
+  getVideoActions,
   getVideoCharacters,
   getVideoScript,
   lockStory,
   runPipelineStage,
+  runDraftPass,
+  runFinalize,
   clearStaleTask,
+  type VideoActionInfo,
   type VideoDetail,
 } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
@@ -47,6 +51,12 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
   const [skipConfirm, setSkipConfirm] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [researchStarting, setResearchStarting] = useState(false);
+  // C18 (checklist §1.3 [U] — UX map §2, "draft cheap, finish expensive"):
+  // two-tap confirm for the draft_pass/finalize buttons below, mirroring
+  // ScenesWorkspaceTab's existing `confirmable()` pattern (tap arms, tap
+  // again fires) rather than inventing a new confirm affordance.
+  const [confirmingVerb, setConfirmingVerb] = useState<"draft_pass" | "finalize" | null>(null);
+  const [firingVerb, setFiringVerb] = useState<"draft_pass" | "finalize" | null>(null);
 
   const doSkip = async () => {
     if (!action.skip) return;
@@ -102,11 +112,26 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     scenesWithPictures: new Set(assets.filter((a) => a.image_url).map((a) => a.scene)).size,
   });
 
+  // C18 (checklist §1.3 [U]): same "video-actions" query ScenesWorkspaceTab
+  // runs (shared React Query cache key, so this never fires a second
+  // request) — the live, server-computed quotes for draft_pass/finalize
+  // (cost, blocked reason, itemized breakdown incl. scene_count and
+  // all_premium_total). Every dollar figure below comes from here; never
+  // hardcoded and never computed client-side beyond simple addition.
+  const { data: videoActions } = useQuery({
+    queryKey: ["video-actions", video.id],
+    queryFn: () => getVideoActions(video.id),
+    staleTime: 15_000,
+  });
+  const draftInfo = videoActions?.actions.find((a) => a.verb === "draft_pass");
+  const finalizeInfo = videoActions?.actions.find((a) => a.verb === "finalize");
+
   const refreshAll = () => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     queryClient.invalidateQueries({ queryKey: ["video-script", video.id] });
     queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     queryClient.invalidateQueries({ queryKey: ["video-characters", video.id] });
+    queryClient.invalidateQueries({ queryKey: ["video-actions", video.id] });
   };
 
   const { running, message: taskMessage, markStarted } = useTaskWatcher({
@@ -140,6 +165,30 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
       toast.error(humanizeError(err, "Couldn't start research."));
     } finally {
       setResearchStarting(false);
+    }
+  };
+
+  // C18: fire the confirmed draft_pass/finalize verb — both routes claim +
+  // dedupe server-side and reply with a plain-English line either way, so
+  // the only thing this needs to distinguish is whether a background task
+  // actually started (`status === "running"`, watch it via markStarted) vs.
+  // a graceful no-op (`"skipped"` — already drafted, nothing approved yet,
+  // the lane's busy) that just needs a toast, never an error banner.
+  const fireDraftOrFinalize = async (verb: "draft_pass" | "finalize") => {
+    setFiringVerb(verb);
+    try {
+      const res = verb === "draft_pass" ? await runDraftPass(video.id) : await runFinalize(video.id);
+      setConfirmingVerb(null);
+      if (res.status === "running") {
+        markStarted();
+        toast.success(res.message);
+      } else {
+        toast.info(res.message);
+      }
+    } catch (err) {
+      toast.error(humanizeError(err, "Couldn't start that."));
+    } finally {
+      setFiringVerb(null);
     }
   };
 
@@ -297,6 +346,103 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
             style={{ color: "var(--green)", border: "1px solid var(--green)" }}
           >
             {action.label}
+          </button>
+        </div>
+      </GlassCard>
+      </>
+    );
+  }
+
+  // ---------- DRAFT / FINALIZE: the trust-ladder centerpiece (checklist §1.3
+  // [U], UX map §2) ----------
+  // "clips-taste" = pictures ready, nothing animated yet -> offer to draft
+  // the WHOLE video cheap instead of the old "animate scene 1" taste test.
+  // "thumbnail" (reached once every clip exists) -> offer to finalize
+  // whatever's approved, IF there's real work left to finalize. Both fall
+  // back to the pre-C18 flow whenever draft_pass/finalize aren't available
+  // for this video (no wired draft-tier model, or the lane's blocked) — a
+  // channel without a draft tier behaves exactly as it did before C18.
+  const draftOffer: VideoActionInfo | null =
+    action.key === "clips-taste" && draftInfo && !draftInfo.blocked ? draftInfo : null;
+  const finalizeOffer: VideoActionInfo | null =
+    !draftOffer && action.key === "thumbnail" && finalizeInfo && !finalizeInfo.blocked
+      && (finalizeInfo.breakdown?.scene_count ?? 0) > 0
+      ? finalizeInfo
+      : null;
+
+  if (draftOffer || finalizeOffer) {
+    const verb: "draft_pass" | "finalize" = draftOffer ? "draft_pass" : "finalize";
+    const info = (draftOffer ?? finalizeOffer)!;
+    const armed = confirmingVerb === verb;
+    const firing = firingVerb === verb;
+    const sceneCount = finalizeOffer?.breakdown?.scene_count ?? 0;
+    const label = draftOffer
+      ? `Draft the whole video (${draftOffer.cost_text})`
+      : `Finalize ${sceneCount} approved scene${sceneCount === 1 ? "" : "s"} (${finalizeOffer!.cost_text})`;
+
+    // Savings line — every number here is server-computed (draftInfo/
+    // finalizeInfo's own quotes); the only client-side arithmetic is adding
+    // the two totals together, which the spec explicitly allows.
+    const draftTotal = draftInfo?.breakdown?.total ?? draftInfo?.cost ?? 0;
+    const allPremium = draftInfo?.breakdown?.all_premium_total ?? null;
+    const finalizeTotal = finalizeInfo?.breakdown?.total ?? finalizeInfo?.cost ?? 0;
+    const finalizeSceneCount = finalizeInfo?.breakdown?.scene_count ?? 0;
+    const combinedTotal = Math.round((draftTotal + finalizeTotal) * 100) / 100;
+    const savingsLine = allPremium != null && draftTotal > 0
+      ? finalizeSceneCount > 0
+        ? `Draft $${draftTotal.toFixed(2)} now + finalize ${finalizeSceneCount} scene${finalizeSceneCount === 1 ? "" : "s"} `
+          + `$${finalizeTotal.toFixed(2)} later ≈ $${combinedTotal.toFixed(2)} total vs $${allPremium.toFixed(2)} all-premium`
+        : `Draft $${draftTotal.toFixed(2)} now ≈ $${draftTotal.toFixed(2)} total vs $${allPremium.toFixed(2)} all-premium if you stop there`
+      : null;
+
+    return (
+      <>
+      {researchChip}
+      <GlassCard className="!p-5 mb-4" style={{ border: "1px solid var(--turquoise)" }}>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex-1 min-w-[220px]">
+            <p className="text-[11px] font-mono uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
+              {reducedPlan ? "Next up" : `Step ${action.step} of ${NEXT_ACTION_TOTAL_STEPS} · Next up`}
+            </p>
+            <p className="text-base font-semibold mt-0.5" style={{ color: "var(--text-primary)" }}>
+              {draftOffer
+                ? "Judge the story before spending on real quality — draft every scene on the cheap model first."
+                : "Finish only the scenes you approved at their real quality."}
+            </p>
+          </div>
+          <button
+            onClick={() => (armed ? fireDraftOrFinalize(verb) : setConfirmingVerb(verb))}
+            disabled={firing}
+            title={info.blocked ?? undefined}
+            className="px-7 py-4 rounded-2xl text-base font-bold flex items-center gap-2.5 shrink-0 transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-60"
+            style={{
+              background: armed ? "var(--gold)" : "var(--turquoise)",
+              color: "var(--bg-void)",
+              boxShadow: "0 4px 24px rgba(0, 245, 212, 0.15)",
+            }}
+          >
+            {firing ? <Loader2 size={18} className="animate-spin" /> : null}
+            {firing ? "Starting…" : armed ? `Confirm — ${info.cost_text}` : label}
+            {!firing && <ArrowRight size={18} />}
+          </button>
+          {armed && !firing && (
+            <button onClick={() => setConfirmingVerb(null)} className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+              Cancel
+            </button>
+          )}
+        </div>
+        {savingsLine && (
+          <p className="text-xs mt-3 pt-3" style={{ color: "var(--text-secondary)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            {savingsLine}
+          </p>
+        )}
+        <div className="flex justify-end mt-2.5">
+          <button
+            onClick={start}
+            className="text-sm font-medium px-3 py-1.5 rounded-xl transition-all hover:brightness-110 hover:bg-white/10"
+            style={{ color: "var(--text-primary)", border: "1px solid rgba(255,255,255,0.25)" }}
+          >
+            {draftOffer ? "I'll animate scenes one at a time instead →" : "Skip — go straight to the thumbnail →"}
           </button>
         </div>
       </GlassCard>

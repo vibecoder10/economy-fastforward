@@ -846,6 +846,10 @@ export interface VideoActionInfo {
   blocked: string | null;
   cost: number;
   cost_text: string;
+  /** Itemized per-model/tier quote (C18, checklist §1.3) — the SAME shape
+   * chat's confirm cards carry (ChatCostBreakdown below). null when there's
+   * nothing real to itemize yet (e.g. before pictures exist). */
+  breakdown: ChatCostBreakdown | null;
 }
 
 export interface VideoActions {
@@ -862,6 +866,22 @@ export interface VideoActions {
 
 export const getVideoActions = (videoId: string) =>
   fetchApi<VideoActions>(`/api/pipeline/actions/${videoId}`);
+
+// C18 (checklist §1.3 [U]) — the clickable doors for C17's draft_pass/finalize
+// verbs (GuidedNextStep's "Draft the whole video" / "Finalize N approved
+// scenes" buttons) and C15b's scene-scoped approve, which was chat-only until
+// now. All three call the SAME actions.py runner chat already uses.
+export const runDraftPass = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/actions/${videoId}/draft-pass`, { method: "POST" });
+
+export const runFinalize = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/actions/${videoId}/finalize`, { method: "POST" });
+
+export const approveScene = (videoId: string, scene: number) =>
+  fetchApi<{ scene: number; message: string }>(`/api/pipeline/actions/${videoId}/approve-scene`, {
+    method: "POST",
+    body: JSON.stringify({ scene }),
+  });
 
 // Cost ledger (checklist §0.3d / C10) — the receipts behind videos.total_cost.
 // `total_cost` here is the SAME rollup VideoDetail.total_cost carries (both
@@ -2598,6 +2618,10 @@ export interface ChatCostBreakdown {
   total: number;
   all_premium_total: number | null;
   hero_scenes: { scene: number | null; model_id: string; display_name: string; reason: string }[];
+  /** Distinct scene count behind this itemization (C18, checklist §1.3) —
+   * "Draft the whole video" / "Finalize N approved scenes" reads N from
+   * here, never from counting asset rows (a scene has multiple). */
+  scene_count: number;
 }
 // Inline storyboards/keyframes card (id "scene_boards", C15b — director review
 // loop part 1, tasks/storyengine-copilot-ux-map.md): every url is already a

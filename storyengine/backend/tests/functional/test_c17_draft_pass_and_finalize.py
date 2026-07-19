@@ -319,6 +319,9 @@ def test_draft_pass_estimate_and_breakdown_price_every_row_at_draft_tier(monkeyp
     assert breakdown["lines"][0]["count"] == 3
     assert breakdown["total"] == cost
     assert round(sum(ln["subtotal"] for ln in breakdown["lines"]), 2) == breakdown["total"]
+    # C18 (checklist §1.3 [U]): distinct scene count, additive — GuidedNextStep's
+    # "Draft the whole video" reads this instead of guessing from row counts.
+    assert breakdown["scene_count"] == 3
 
 
 def test_finalize_estimate_and_breakdown_price_only_approved_scenes_at_routed_tier(monkeypatch):
@@ -344,6 +347,8 @@ def test_finalize_estimate_and_breakdown_price_only_approved_scenes_at_routed_ti
     assert breakdown["total"] == cost
     assert all(ln["model_id"] == "veo-3.1-quality" for ln in breakdown["lines"])
     assert round(sum(ln["subtotal"] for ln in breakdown["lines"]), 2) == breakdown["total"]
+    # C18: N approved scenes for "Finalize N approved scenes" — 2 here (1, 3).
+    assert breakdown["scene_count"] == 2
 
 
 def test_finalize_no_approved_scenes_costs_nothing(monkeypatch):

@@ -3532,3 +3532,160 @@ untouched (no UI surface this chunk — `[U]` is C18's). Live full-cycle
 regenerate → ledger shows both passes) deferred to
 `tasks/live-verification-queue.md` §C17 with an exact recipe — needs a live
 DB + paid API session, not available in the sandbox.
+
+## C18 — Draft/Finalize UI: GuidedNextStep Labels + Scene Approve Ticks + Savings Line (added 2026-07-19)
+
+**Problem (checklist §1.3 [U], UX map §2):** C17 shipped `draft_pass`/
+`finalize` chat-only. Three clickable-door gaps: GuidedNextStep's one-big-
+button never mentioned either verb; ScenesWorkspaceTab had NO approve
+affordance at all (C15b's own gap note — `approve_scene` was chat-only);
+nowhere showed the "draft now, finalize later, vs all-premium" savings math.
+
+**`[B]` thin — two doors, one registry, reused runners:** three new routes in
+`routes/pipeline.py`, all calling `actions.RUNNERS[verb]` DIRECTLY (the exact
+function chat's `_run_pending_action` already calls) — no parallel claim/
+dedupe/dispatch logic written into the route layer:
+- `POST /api/pipeline/actions/{video_id}/draft-pass` and `.../finalize` —
+  shared body `_run_action_runner()` calls the runner, then detects whether
+  it actually scheduled work by diffing `len(background_tasks.tasks)`
+  before/after (every guard branch inside the runner — no draft tier,
+  nothing to draft, already done, nothing approved, lane busy — returns
+  without ever calling `add_task`, so a zero delta is a reliable "did not
+  schedule" signal, unlike string-matching the runner's free-form chat
+  reply). A non-scheduled reply that equals `actions._ALREADY_WORKING_REPLY`
+  becomes HTTP 409 (concurrent-dispatch case); every OTHER non-scheduled
+  reply ("already drafted", "nothing approved yet") is a graceful 200
+  `status="skipped"` — a real "nothing to do yet" state is not an error.
+- `POST /api/pipeline/actions/{video_id}/approve-scene` (body `{scene: int}`)
+  — the missing clickable half of C15b's `approve_scene` verb. Calls
+  `actions.RUNNERS["approve_scene"]` with `background_tasks=None` (the verb
+  never schedules anything — free, synchronous, reversible), tenant-scoped
+  video existence check first.
+- `GET /api/pipeline/actions/{video_id}` (existing endpoint) gains an
+  additive `breakdown` field per action, calling `actions.cost_breakdown`
+  the same way chat's confirm cards already do — `None` for every verb
+  except animate/build/draft_pass/finalize. This is the ONLY new backend
+  math: `cost_breakdown` itself gains one additive key, `scene_count`
+  (`len({row scenes})`) — GuidedNextStep needs N ("Finalize N approved
+  scenes") server-computed, never guessed by counting asset rows (a scene
+  has multiple).
+
+**`[U]` — three pieces, existing components, existing design language:**
+1. **GuidedNextStep** (`frontend/src/components/production/GuidedNextStep.tsx`):
+   a new override branch, checked after the existing failure/running/
+   celebrate branches (so it can never pre-empt a real in-flight task or
+   error), sits between the old per-scene "Animate scene 1"/"Animate the
+   rest" ladder and the "Create your thumbnail" step. `action.key ===
+   "clips-taste"` (pictures ready, nothing animated) + a live, unblocked
+   `draft_pass` action → **"Draft the whole video (~$X)"**; `action.key ===
+   "thumbnail"` (everything animated) + a live, unblocked `finalize` action
+   with `scene_count > 0` → **"Finalize N approved scenes (~$Y)"**. Both
+   numbers are `cost_text` straight off `GET /api/pipeline/actions/{id}` —
+   never hardcoded. Confirm flow reuses ScenesWorkspaceTab's existing
+   two-tap `confirmable()` shape (tap arms → button becomes "Confirm — $X",
+   a "Cancel" link appears; tap again fires) rather than inventing a new
+   affordance or forcing a modal. On fire: `runDraftPass`/`runFinalize` →
+   `status==="running"` calls the SAME `markStarted()` the rest of the file
+   already uses (so the existing RUNNING banner + Stop button + poll-driven
+   completion toast all apply for free); `status==="skipped"` is a plain
+   info toast, never an error banner. A **"Skip"** link beside the button
+   reuses the file's OWN existing `start()` handler unchanged — for the
+   draft offer that's the pre-C18 "review, navigate to Scenes" behavior;
+   for the finalize offer that's literally running the thumbnail stage
+   directly (identical to what tapping the OLD "Create your thumbnail"
+   button already did) — a fail-safe escape hatch if the finalize offer
+   ever over-triggers (see gap note below). Whenever `draft_pass`/`finalize`
+   aren't wired/blocked for a video (no draft-tier model registered), both
+   offers resolve to `null` and the ORIGINAL pre-C18 ladder renders
+   byte-identical — this is a strict superset, not a replacement.
+2. **Scene Approve ticks** (`ScenesWorkspaceTab.tsx`'s scene header, next to
+   the `SegmentBadge`): a small pill — "Approve" (outline) when no asset in
+   the scene carries `status==='approved'`, "Approved ✓" (green, static)
+   once one does, mirroring `_approved_scenes`' own "any approved row in a
+   scene approves the whole scene" reading. Calls the new `approveScene()`
+   API function → the SAME `approve_scene` runner chat's "approve scene N"
+   already uses. Invalidates `["video-assets", id]` (the tick's own source
+   of truth) AND `["video-actions", id]` (so `finalize`'s live `scene_count`
+   /cost refreshes immediately — GuidedNextStep and this tab share that
+   query key/cache). Only rendered when the scene has pictures (`sceneCards.
+   length > 0`) — there's nothing to approve otherwise, matching the runner's
+   own "no pictures yet" reply.
+3. **Savings line**: computed in `GuidedNextStep.tsx` from the SAME two
+   `VideoActionInfo.breakdown` objects backing both buttons — `draftTotal`/
+   `allPremiumTotal` from `draft_pass`'s breakdown (its `all_premium_total`
+   covers every not-yet-clipped row in the video, a stable whole-video
+   reference regardless of whether draft already ran, since `cost_breakdown`
+   doesn't filter on clip existence), `finalizeTotal`/`sceneCount` from
+   `finalize`'s. The ONLY client-side arithmetic is `combinedTotal =
+   draftTotal + finalizeTotal` (explicitly allowed — "addition of two
+   server-provided numbers"). Renders as "Draft $X now + finalize N scene(s)
+   $Y later ≈ $Z total vs $W all-premium" once scenes are approved, or a
+   shorter "Draft $X now ≈ $X total vs $W all-premium if you stop there"
+   before anything's approved yet (N=0) — shown under BOTH the draft and
+   finalize buttons since it reads live off both actions regardless of
+   which one is currently offered.
+
+**Known gap, called out rather than silently accepted:** `cost_breakdown`'s
+`finalize` quote does not know whether an approved scene's clip was already
+regenerated by a PRIOR finalize call (it prices every currently-approved row
+at its routed tier unconditionally, matching C17's own pre-existing
+semantics — the money-safety backstop against a real double-spend is
+`generation_passes`' scene-set-hash dedup INSIDE the runner, not the
+estimator). Practical effect: after a finalize completes, if `action.key`
+is still `"thumbnail"` (true — finalize doesn't change `clipsDone`/
+`clipsTotal`) the Finalize button can keep re-offering itself with a
+nonzero quote. Tapping it again is SAFE (the runner's pass-hash dedup
+replies "already finalized… nothing's changed", `status="skipped"`, zero
+re-spend) — but it is a UX wrinkle, not fixed this chunk (would need a
+new "already finalized this exact set" signal threaded through
+`cost_breakdown`, a real backend change out of this UI-only chunk's scope).
+The "Skip — go straight to the thumbnail" link is the deliberate escape
+hatch for this case; flagged for a future chunk if it proves annoying in
+live use.
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/actions.py` | `cost_breakdown()` gains additive `scene_count` key (distinct scene count behind the itemization) |
+| `storyengine/backend/routes/pipeline.py` | New `_run_action_runner()` helper + `POST /actions/{id}/draft-pass`, `POST /actions/{id}/finalize`, `POST /actions/{id}/approve-scene` (+ `ApproveSceneRequest`); `list_video_actions` gains additive `breakdown` per action |
+| `storyengine/backend/tests/functional/test_c17_draft_pass_and_finalize.py` | +2 assertions (not new test functions) pinning `cost_breakdown["scene_count"]` for both draft_pass (3) and finalize (2) |
+| `storyengine/backend/tests/functional/test_c18_guided_actions_ui.py` (new) | 7 tests: draft-pass/finalize route 404 tenant-scoping, dispatch-through-the-same-runner proof, `_ALREADY_WORKING_REPLY` → 409 translation, graceful non-error "skipped" for a plain nothing-to-do reply, approve-scene route 404 + runner-passthrough-with-correct-scene, `list_video_actions` breakdown additive-and-None-elsewhere |
+| `storyengine/frontend/src/lib/api.ts` | `VideoActionInfo.breakdown: ChatCostBreakdown \| null`; `ChatCostBreakdown` gains `scene_count: number`; new `runDraftPass()`, `runFinalize()`, `approveScene()` |
+| `storyengine/frontend/src/components/production/GuidedNextStep.tsx` | New draft/finalize override branch (two-tap confirm, savings line, skip escape hatch) between the old clips-taste and thumbnail steps; `["video-actions", id]` query added, folded into `refreshAll()` |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | Scene header gains the Approve tick/badge; `handleApproveScene()`; `approvingScene` state |
+
+**Deploy-safety assessment:** ff-merge candidate, backend-leads-frontend
+safe both directions. New backend on old frontend: the three new routes and
+the `breakdown` field are pure additions an old frontend build never calls/
+reads — zero behavior change. New frontend on old backend (the real risk,
+since the VPS frontend only redeploys with `--with-frontend`): `GET .../
+actions/{id}` without a `breakdown` key would make `VideoActionInfo.
+breakdown` `undefined` at runtime despite the TS type claiming `| null` —
+every read is optional-chained (`draftInfo?.breakdown?.total`, `?? draftInfo
+?.cost ?? 0`), so both offers and the savings line fail closed to "nothing
+to show" rather than crashing or rendering `undefined`/`NaN`; the three POST
+routes would 404 on an old backend, caught by each handler's try/catch →
+toast, never an unhandled exception. Backend and frontend changes are
+correctness-additive on both sides of every skew direction — ff-merge safe
+either way, though shipping both together (`--with-frontend`) is still the
+intended path so the three new pieces actually appear.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c18_guided_actions_ui.py tests/functional/
+test_c17_draft_pass_and_finalize.py -q` — 20 passed. Non-vacuous: `git stash
+push -- storyengine/backend/actions.py storyengine/backend/routes/
+pipeline.py` then rerunning `test_c18_guided_actions_ui.py` alone — all 7
+fail (`KeyError: 'breakdown'`, `AttributeError` on the missing routes/
+attributes) against pre-C18 source; stash popped clean, re-verified green.
+`python -m py_compile` clean on `actions.py`, `routes/pipeline.py`, both test
+files. Full backend suite: `./venv/bin/python -m pytest tests/ -q` — 1008
+passed (1001 baseline + 7 new test functions; the 2 C17-file assertion
+additions don't add test count) / 16 pre-existing failures (identical file
+list to C15a-d/C16a-d/C17) / 1 pre-existing error — zero new failures.
+Frontend: `npx tsc --noEmit` clean; `npm run build` compiles + typechecks
+clean (fails only at static-prerender on the pre-existing sandbox gap,
+`NEXT_PUBLIC_API_URL` unset — unrelated, same as every prior chunk's build
+run). Live click-through (draft → tick 3 scenes → finalize → confirm
+savings-line numbers match the ledger) deferred to `tasks/live-
+verification-queue.md` §C18 — needs a live DB + paid API session, not
+available in the sandbox.

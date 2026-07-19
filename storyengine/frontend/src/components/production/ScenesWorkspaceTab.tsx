@@ -32,7 +32,7 @@ import {
   runPipelineStage, clearStaleTask, updateVideoStyles, updateVideo,
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
   deleteClip, recropAsset, getEnvironments, getVideoCharacters, updateVideoPrompt, updateImagePrompt, improvePrompt,
-  getModels, getVideoActions, updateAssetModelOverride,
+  getModels, getVideoActions, updateAssetModelOverride, approveScene,
 } from "@/lib/api";
 import type { VideoModelInfo } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
@@ -494,6 +494,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const [recropping, setRecropping] = useState<string | null>(null);
   const [generatingScene, setGeneratingScene] = useState<number | null>(null);
   const [clearingScene, setClearingScene] = useState<number | null>(null);
+  // C18: which scene's Approve tick is mid-flight (free/instant, so this is
+  // only ever set for the width of one request).
+  const [approvingScene, setApprovingScene] = useState<number | null>(null);
   const [clearingAllStoryboards, setClearingAllStoryboards] = useState(false);
   const [clearingExtracted, setClearingExtracted] = useState(false);
   const [uploadingGrid, setUploadingGrid] = useState<string | null>(null); // "scene-beat"
@@ -975,6 +978,22 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       toast.error((err as Error).message || "Couldn't save that override.");
     } finally {
       setSavingOverride(false);
+    }
+  }, [video.id, queryClient, toast]);
+
+  // C18 (checklist §1.3 [U]): the clickable door for the 'approve_scene' verb
+  // (C15b shipped chat-only). Free + reversible server-side — invalidate
+  // video-actions too, since finalize's quote/N reads _approved_scenes.
+  const handleApproveScene = useCallback(async (sceneNumber: number) => {
+    setApprovingScene(sceneNumber);
+    try {
+      await approveScene(video.id, sceneNumber);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      queryClient.invalidateQueries({ queryKey: ["video-actions", video.id] });
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't approve that scene.");
+    } finally {
+      setApprovingScene(null);
     }
   }, [video.id, queryClient, toast]);
 
@@ -1505,6 +1524,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         const sceneMissing = scene.assets.length - sceneCards.length;
         const sceneCost = priceForModel(model) * scenePending.length;
         const sceneKey = `scene-${scene.sceneNumber}`;
+        // C18 (checklist §1.3 [U]): approve_scene (C15b) sets status='approved'
+        // on EVERY row in the scene in one UPDATE, so any approved row means
+        // the whole scene counts as approved — same reading _approved_scenes
+        // (backend/actions.py) uses to build finalize's scene set.
+        const sceneApproved = sceneCards.some((a) => a.status === "approved");
         return (
           <GlassCard key={scene.sceneNumber} id={sceneKey} className="p-5">
             {/* Scene header: identity + per-scene verbs */}
@@ -1517,6 +1541,30 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                 <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {sceneCards.length - scenePending.length} of {sceneCards.length} animated
                 </span>
+              )}
+              {/* Approve tick (checklist §1.3/C18 — C15b noted this tab had NO
+                  approve affordance at all, chat-only). Finalize only touches
+                  approved scenes, so this is the gate a creator taps before
+                  "Finalize N approved scenes" does anything. Free + reversible
+                  server-side; re-approving is a no-op, so no unapprove control. */}
+              {sceneCards.length > 0 && (
+                sceneApproved ? (
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                    style={{ background: "rgba(0, 230, 138, 0.15)", color: "var(--green)", border: "1px solid rgba(0, 230, 138, 0.35)" }}>
+                    <Check size={11} /> Approved
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => handleApproveScene(scene.sceneNumber)}
+                    disabled={approvingScene === scene.sceneNumber}
+                    title="Lock in this scene's pictures — free. Finalize only regenerates approved scenes."
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all hover:brightness-110 disabled:opacity-40"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.14)" }}>
+                    {approvingScene === scene.sceneNumber ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                    {approvingScene === scene.sceneNumber ? "Approving…" : "Approve"}
+                  </button>
+                )
               )}
               <div className="ml-auto flex items-center gap-2 flex-wrap">
                 {generatingScene === scene.sceneNumber ? (

@@ -499,12 +499,18 @@ async def cost_breakdown(tenant_id, video_id, verb: str, scene: Optional[int],
     ]
     premium_price = _premium_reference_price()
     all_premium_total = round(premium_price * len(rows), 2) if premium_price else None
+    # C18 (checklist §1.3 [U]): distinct scene count behind this itemization —
+    # GuidedNextStep's "Finalize N approved scenes" / "Draft the whole video"
+    # labels and the draft+finalize savings line need N server-computed, never
+    # guessed from asset-row counts on the frontend (a scene has multiple rows).
+    scene_count = len({r.get("scene") for r in rows if r.get("scene") is not None})
 
     return {
         "lines": lines,
         "total": total,
         "all_premium_total": all_premium_total,
         "hero_scenes": hero_scenes,
+        "scene_count": scene_count,
     }
 
 

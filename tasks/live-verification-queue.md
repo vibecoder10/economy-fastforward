@@ -1341,6 +1341,77 @@ sandbox:
 
 ---
 
+## C18 — GuidedNextStep draft/finalize labels + scene Approve ticks + savings
+line (checklist §1.3 [U]) · live click-through check
+
+Checklist §1.3 `[U]`. C17's `draft_pass`/`finalize` verbs were chat-only;
+this chunk added the CLICKABLE door — GuidedNextStep's one-big-button now
+offers "Draft the whole video (~$X)" then "Finalize N approved scenes
+(~$Y)", ScenesWorkspaceTab's scene header gained an Approve tick, and a
+savings line renders under both buttons. Covered at the unit level (20
+tests across `test_c18_guided_actions_ui.py` + `test_c17_draft_pass_and_
+finalize.py`'s 2 new assertions, non-vacuous via `git stash`) with faked
+DB/runner boundaries — none of the following was driven through a real
+browser + backend + DB + paid Kie call in the sandbox. This is the SAME
+live scenario as §C17 above, now walked through the actual UI instead of
+raw verb calls — run this INSTEAD of (not in addition to) manually
+triggering the verbs, once both chunks are deployed together.
+
+- [ ] **Draft button appears and quotes correctly.** On a test video with
+      pictures but no clips yet, open the video page — GuidedNextStep's big
+      button should read "Draft the whole video (~$X)" where X matches
+      `GET /api/pipeline/actions/{id}`'s `draft_pass` action's `cost_text`
+      exactly (cross-check via `se db` or the network tab). Tap once — the
+      button becomes "Confirm — $X" with a "Cancel" link beside it; tap
+      Cancel and confirm it reverts to the original label with no request
+      fired. Tap the label again then Confirm — the RUNNING banner (spinner
+      + Stop button) should take over immediately.
+- [ ] **Scene Approve ticks flip and persist.** On the Scenes tab, each
+      scene with pictures should show an outline "Approve" pill next to its
+      "Scene N" badge; tap it — it flips to a green "Approved ✓" badge
+      within one request (no page reload needed), and stays approved after
+      a hard refresh. Approving a scene should NOT touch any other scene's
+      badge.
+- [ ] **Finalize button appears once ≥1 scene is approved, quotes N
+      correctly, and only regenerates ticked scenes.** After the draft pass
+      completes and you approve exactly 3 scenes via the tick above,
+      GuidedNextStep's button should read "Finalize 3 approved scenes
+      (~$Y)" — confirm the "3" matches the number of scenes actually ticked
+      (not a stale count from before a tick). Fire it; confirm only those 3
+      scenes' clips regenerate (cross-check against §C17's DB queries).
+- [ ] **Savings line reads correctly and matches the ledger.** Under the
+      Finalize button, confirm the line "Draft $X now + finalize 3 scenes
+      $Y later ≈ $Z total vs $W all-premium" appears, `Z` really is `X + Y`
+      to the cent, and `W` is at least `Z` (never less — all-premium is
+      supposed to be the expensive baseline). Cross-check `X`+`Y` loosely
+      against `se db "SELECT SUM(actual_cost) FROM generation_ledger WHERE
+      video_id='<id>' AND stage='clip'"` (ledger is real spend, the savings
+      line is a quote — they should be in the same ballpark, not identical).
+- [ ] **Skip escape hatch works both ways.** From the Draft offer, tap "I'll
+      animate scenes one at a time instead" — confirm it navigates to the
+      Scenes tab without spending anything. From the Finalize offer, tap
+      "Skip — go straight to the thumbnail" — confirm it runs the thumbnail
+      stage directly (same as the pre-C18 button would have) and does NOT
+      touch any approved scene's clip.
+- [ ] **Fail-safe with no wired draft tier (if testable).** On a channel/
+      video where no `tier="draft"` model is wired, confirm GuidedNextStep
+      falls back to the ORIGINAL pre-C18 ladder ("Animate scene 1" / "Animate
+      the rest") byte-identical to before this chunk — no broken button, no
+      `undefined`/`NaN` in any label.
+- **Cost:** same order of magnitude as §C17 above (draft ~$0.60-1.80 on a
+  6-8 scene test video, finalize on 3 scenes ~$1-5 depending on routed
+  tiers) — get an explicit cost-quote confirm from Ryan before running on a
+  real video, per storyengine/CLAUDE.md's money rule.
+- **Safety net:** every new frontend read is optional-chained with a `??`
+  fallback (`draftInfo?.breakdown?.total ?? draftInfo?.cost ?? 0`), so a
+  stale/old-backend response (missing `breakdown`) makes both offers and
+  the savings line resolve to "nothing to show" rather than crash — if the
+  draft/finalize buttons don't appear at all, check the deployed backend
+  actually carries C18 (`GET .../actions/{id}` response should include a
+  `breakdown` key per action) before assuming the UI is broken.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

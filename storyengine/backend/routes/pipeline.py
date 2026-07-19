@@ -2228,6 +2228,12 @@ async def list_video_actions(
     for verb, cfg in actions.ACTIONS.items():
         blocked = actions.blocked_reason(verb, summary)
         cost, cost_text = await actions.estimate_cost(tenant_id, video_id, verb, None, summary)
+        # C18 (checklist §1.3 [U]): the SAME itemized breakdown chat's confirm
+        # cards already carry (actions.cost_breakdown) — None for every verb
+        # except animate/build/draft_pass/finalize, so this is a cheap no-op
+        # for the other 15+ verbs. GuidedNextStep's draft/finalize labels and
+        # savings line read this instead of computing anything client-side.
+        breakdown = await actions.cost_breakdown(tenant_id, video_id, verb, None, summary)
         out.append({
             "verb": verb,
             "label": cfg["label"],
@@ -2237,6 +2243,7 @@ async def list_video_actions(
             "blocked": blocked,          # null = runnable now
             "cost": cost,
             "cost_text": cost_text,
+            "breakdown": breakdown,      # null = nothing to itemize yet
         })
     # The build meta-verb's next checkpoint, so a UI button can label itself.
     build_target = "pictures" if summary["status"] in actions.BUILD_TO_PICTURES else "finish"
@@ -2245,6 +2252,61 @@ async def list_video_actions(
         # The raw price table so the frontend never keeps its own copy.
         "prices": {"clip": actions.CLIP_COST, "picture": actions.PICTURE_COST},
     }
+
+
+async def _run_action_runner(video_id: str, tenant_id: str, background_tasks: BackgroundTasks, runner_verb: str) -> PipelineResponse:
+    """Shared body for the C18 thin clickable-door routes below: call the
+    SAME runner ``actions.py``'s registry hands chat (``actions.RUNNERS[verb]``)
+    so a button and a chat turn dispatch through exactly one implementation —
+    no parallel claim/dedupe/dispatch logic forked into routes/pipeline.py.
+    Detects whether the runner actually scheduled a background task (rather
+    than string-matching its reply, which is free-form English meant for
+    chat) by diffing ``background_tasks.tasks`` before/after the call — every
+    guard branch inside the runner (already drafted, nothing approved, lane
+    busy) returns without calling ``background_tasks.add_task``, so a zero
+    delta means nothing was dispatched."""
+    video = await fetch_one("SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    before = len(background_tasks.tasks)
+    message = await actions.RUNNERS[runner_verb](tenant_id, video_id, background_tasks, {})
+    scheduled = len(background_tasks.tasks) > before
+    if not scheduled and message == actions._ALREADY_WORKING_REPLY:
+        raise HTTPException(status_code=409, detail=message)
+    return PipelineResponse(video_id=video_id, status="running" if scheduled else "skipped", message=message)
+
+
+@router.post("/actions/{video_id}/draft-pass", response_model=PipelineResponse)
+async def run_draft_pass(video_id: str, background_tasks: BackgroundTasks, tenant_id: str = Depends(get_tenant_id)):
+    """Clickable door for the 'draft_pass' verb (checklist §1.3/C18 —
+    GuidedNextStep's "Draft the whole video (~$X)" button). C17 shipped this
+    chat-only; this is the missing clickable half — two doors, one verb."""
+    return await _run_action_runner(video_id, tenant_id, background_tasks, "draft_pass")
+
+
+@router.post("/actions/{video_id}/finalize", response_model=PipelineResponse)
+async def run_finalize(video_id: str, background_tasks: BackgroundTasks, tenant_id: str = Depends(get_tenant_id)):
+    """Clickable door for the 'finalize' verb (checklist §1.3/C18 —
+    GuidedNextStep's "Finalize N approved scenes (~$Y)" button)."""
+    return await _run_action_runner(video_id, tenant_id, background_tasks, "finalize")
+
+
+class ApproveSceneRequest(BaseModel):
+    scene: int
+
+
+@router.post("/actions/{video_id}/approve-scene")
+async def approve_scene_route(video_id: str, body: ApproveSceneRequest, tenant_id: str = Depends(get_tenant_id)):
+    """Clickable door for the 'approve_scene' verb (checklist §1.3/C18 — C15b
+    shipped this chat-only, noting the gap explicitly). Calls the SAME free
+    runner chat's 'approve scene N' calls (actions.RUNNERS['approve_scene']) —
+    one scene-scoped UPDATE, reachable from either door. Free + reversible,
+    so no claim/confirm needed (matches the runner's own docstring)."""
+    video = await fetch_one("SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    message = await actions.RUNNERS["approve_scene"](tenant_id, video_id, None, {"scene": body.scene})
+    return {"scene": body.scene, "message": message}
 
 
 class ImprovePromptRequest(BaseModel):
