@@ -88,6 +88,12 @@ CREATE TABLE videos (
   seo_description TEXT,
   seo_tags TEXT,
   seo_hashtags TEXT,
+  -- YouTube videoCategory id computed by generate_and_store_seo() (migration
+  -- 102, checklist §S10.6/C34c) from the video's own title+script — persisted
+  -- so upload_video_to_youtube() can actually pass it through instead of
+  -- always shipping the hardcoded _DEFAULT_CATEGORY ("27" — Education). NULL
+  -- (SEO never generated) falls back to _DEFAULT_CATEGORY at upload time.
+  seo_category_id TEXT,
 
   -- Research
   research_payload JSONB,

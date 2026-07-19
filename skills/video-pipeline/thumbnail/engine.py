@@ -261,7 +261,7 @@ class ThumbnailTitleEngine:
                 - topic: str
                 - Framework Angle: str
             preferred_formula: Force a specific title formula (formula_1..formula_6).
-            preferred_template: Force a specific template (template_a..template_d).
+            preferred_template: Force a specific template (template_a..template_e).
             thumbnail_style_override: Per-video override from Airtable.
                 - "REPLACE: ..." — use as entire prompt.
                 - "APPEND: ..." — append to selected template.

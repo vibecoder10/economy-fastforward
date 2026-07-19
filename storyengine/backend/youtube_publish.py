@@ -115,9 +115,9 @@ async def generate_and_store_seo(video_id: str, tenant_id: str) -> dict:
     hashtag_str = " ".join("#" + h for h in hashtags)
 
     await execute(
-        "UPDATE videos SET seo_description=$1, seo_tags=$2, seo_hashtags=$3, updated_at=now() "
-        "WHERE id=$4 AND tenant_id=$5",
-        description, ",".join(tags), hashtag_str, video_id, tenant_id)
+        "UPDATE videos SET seo_description=$1, seo_tags=$2, seo_hashtags=$3, "
+        "seo_category_id=$4, updated_at=now() WHERE id=$5 AND tenant_id=$6",
+        description, ",".join(tags), hashtag_str, category, video_id, tenant_id)
     return {"description": description, "tags": tags, "hashtags": hashtags,
             "category_id": category, "channel": channel}
 
@@ -209,8 +209,8 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
     """Upload the rendered video to the tenant's OWN connected YouTube channel as an
     unlisted draft, using the stored SEO. Writes youtube_url/upload_status back."""
     v = await fetch_one(
-        "SELECT video_title, final_video_url, thumbnail_url, seo_description, seo_tags "
-        "FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
+        "SELECT video_title, final_video_url, thumbnail_url, seo_description, seo_tags, "
+        "seo_category_id FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
     if not v:
         return {"error": "video not found"}
     if not v["final_video_url"]:
@@ -238,6 +238,10 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
     title = (v["video_title"] or "Untitled")[:100]
     description = v["seo_description"] or title
     tags = [t.strip() for t in (v["seo_tags"] or "").split(",") if t.strip()]
+    # C34c/S10-6: use the category the SEO pass actually computed for THIS
+    # video's real content; only fall back to Education when SEO was never
+    # generated (or predates migration 102) for this video.
+    category_id = (v["seo_category_id"] or "").strip() or _DEFAULT_CATEGORY
 
     workdir = tempfile.mkdtemp(prefix=f"ytup_{video_id[:8]}_")
     vpath = os.path.join(workdir, "final.mp4")
@@ -253,7 +257,7 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
                 thumb = None
         result = await asyncio.to_thread(
             _do_youtube_upload, cp["youtube_refresh_token"], vpath, thumb,
-            title, description, tags, _DEFAULT_CATEGORY, privacy, made_for_kids)
+            title, description, tags, category_id, privacy, made_for_kids)
         # Record ACTUAL spend (thumb may have failed to download and been
         # dropped above, so re-derive the real cost from what shipped rather
         # than the pre-flight estimate) after the upload succeeds — never

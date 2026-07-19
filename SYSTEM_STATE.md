@@ -6780,3 +6780,153 @@ migration. Safe to ff-merge; no VPS coordination needed beyond the routine hourl
 thumbnail fallback (currently a geopolitical world map template), neutral system-prompt default in
 `title_generator.py` (currently hardcodes "Economy FastForward finance channel"), and persisting the
 already-computed YouTube category instead of always uploading category 27. Then C35, C36, C37(Ryan).
+
+## C34c — S10-4/S10-5/S10-6 fix: thumbnail/title/category genericization (added 2026-07-19)
+
+Audit findings §S10-4/§S10-5/§S10-6 (docs/reports/2026-07-17-storyengine-agent-audit-findings.md, C34
+sweep). Same root shape as C34b: SaaS-tenant-reachable legacy code carrying Ryan's own Economy
+FastForward assumptions with no niche-neutral default underneath.
+
+### S10-4 — thumbnail template default was a blind world map
+
+`thumbnail/selector.py::select_template` fell back to Template A (Map + Barrier — a geopolitical
+satellite-map visual) UNCONDITIONALLY whenever a video's content matched none of the
+person/split/symbolic keyword lists — reachable for any brand-new tenant with no channel thumbnail
+history via `pipeline_executor.py::run_thumbnail`'s from-scratch-bot fallback. A cooking or ESL channel
+with a video about neither people nor geopolitics would still get a bright satellite map thumbnail.
+
+**Fix, two-signal:** Template A is now reached by (1) `GEO_KEYWORDS` — the video's OWN content is
+explicitly geopolitical/macro-economic (map, border, chokepoint, trade route, GDP, reserve currency,
+etc. — matches `templates.py`'s existing "best_for" for Template A), checked after person/split/
+symbolic exactly where the old blanket default used to sit, or (2) `GEO_NICHE_KEYWORDS` — a
+niche-informed fallback consulted ONLY when nothing else matched: the tenant's own niche (`finance`,
+`economic`, `geopolit`, `politic`, etc.) still earns Template A even on an ambiguous video. Niche
+reaches `select_template` two ways — an explicit `"niche"` key on `video_metadata` (now built by
+`thumbnail/run.py`), falling back to a new `CHANNEL_NICHE` env var that `pipeline_executor.py`'s
+`_load_prompt_overrides` exports from `IdentityContext.niche` (same cross-package seam pattern as the
+existing `VISUAL_STYLE_DESCRIPTION`, since `skills/` can't import the backend). Everything else falls
+through to a NEW **Template E (Subject Focus)** — a niche-neutral template (one dominant subject drawn
+from the video's own content, no map/country/geopolitics assumption baked into the prompt) added to
+`templates.py` + `prompt_builder.py`'s per-template variable-fill guidance. Ryan's legacy channel still
+lands on Template A either way (its content is inherently geopolitical AND its niche says so, when a
+niche signal is available at all) — the legacy Airtable-only pipeline (no `CHANNEL_NICHE` at all)
+reproduces the OLD keyword-only behavior for the content that actually earns it, byte-for-byte.
+
+### S10-5 — TITLE_GENERATION_SYSTEM_PROMPT hardcoded "Economy FastForward, a finance/economics
+YouTube channel" + a geopolitics-flavored MANDATORY caps-word vocabulary (PURGE/TRAP/WEAPONIZED/
+BLACKLISTED/...). Traced why it looked "unreachable" in practice: `_load_prompt_overrides` always
+resolves a non-blank `thumbnail` engine-template override for every StoryEngine tenant (fed to BOTH
+`ThumbnailPromptBuilder` and `TitleGenerator` via the same `pipeline.thumbnail_system_prompt` — worth
+flagging as a pre-existing mismatch, not fixed this chunk: title generation borrows the *thumbnail*
+craft template, not a dedicated `title` one, even though `engine_templates.py` already has a
+niche-neutral `title` key sitting unwired in `PROMPT_MAP`'s "intentionally left out for now — Phase 3
+wires it" comment). So the hardcoded prompt was dead for every current StoryEngine tenant and live only
+for (a) the legacy Airtable-only pipeline, which has no override mechanism at all, and (b) any future
+call site that forgets to wire one — the checklist's "unguarded regression trap."
+
+**Fix:** rewrote `TITLE_GENERATION_SYSTEM_PROMPT` niche-neutral in the same style as
+`engine_templates.py`'s already-neutral templates — generic "[Subject]" formula shapes (was
+"[Country]"), a caps-word rule that says MATCH the register to the video's own content instead of a
+fixed branded vocabulary, examples spanning cooking/language-learning/investigation registers. The
+mechanical contract (exactly one CAPS word, the JSON schema) is untouched — that's the thumbnail's
+yin-yang mechanism, not a niche assumption. `TITLE_FORMULAS` (the opt-in `preferred_formula` examples,
+reached by zero live callers today) is left as Ryan's preserved legacy pattern set, same treatment as
+`tasks/engine-identity-seeds/power-doctrine.md`. **Bonus fix caught in the same file:** the USER prompt
+(not just the system prompt) had `f'Generate a title for this Economy FastForward video:'` hardcoded
+UNCONDITIONALLY — this fired on every call regardless of override, meaning every StoryEngine tenant's
+title-generation call (Poco a Poco, Designed vs Used, Slow English) was ALSO leaking "Economy
+FastForward" into its user turn even with a proper tenant override in the system prompt. Fixed to a
+plain `'Generate a title for this video:'`.
+
+### S10-6 — computed YouTube category thrown away, upload always shipped category 27
+
+`youtube_publish.py::generate_and_store_seo` already computes a real `category_id`
+(education/entertainment/howto/people/news/science → YouTube's numeric id) from the video's own
+title+script via its SEO Claude call, and returns it in its response dict — but the UPDATE right below
+only persisted `seo_description`/`seo_tags`/`seo_hashtags`, dropping the category on the floor.
+`upload_video_to_youtube` then always passed the hardcoded `_DEFAULT_CATEGORY` ("27" — Education) to
+`_do_youtube_upload`, so every tenant's video landed in Education on YouTube regardless of what the SEO
+pass determined its real category to be.
+
+**Fix:** new `videos.seo_category_id TEXT` column (migration 102, applied LIVE via Supabase MCP to
+`wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`) — reuses the exact same
+storage/UPDATE pattern as the other three SEO fields, no new table. `generate_and_store_seo` now writes
+the computed category into it in the same UPDATE statement. `upload_video_to_youtube` SELECTs it and
+passes it through to `_do_youtube_upload` as the real `category_id` argument, falling back to
+`_DEFAULT_CATEGORY` only when the column is NULL or blank (SEO never generated, or a video that
+predates migration 102) — pure additive, backward-compatible. C16d's skip-if-done guard and C33's
+quota guard are both untouched (neither reads/writes category).
+
+### Verify
+
+**Non-vacuous via `git stash`:** stashed all 9 source-file changes (`git stash push -- <files>`, test
+files are untracked and unaffected) and re-ran the new tests against pre-fix code: 7 of 19
+`thumbnail/tests/` assertions correctly FAIL (the 3 neutral-default-template_e tests, the
+`test_preferred_template_override_bypasses_selection` 5-key set check, and 3 of the `title_generator`
+de-branding/leak pins), and 3 of 5 `test_c34c_seo_category.py` tests correctly FAIL (persistence +
+pass-through — the 2 already-defaults-to-27 tests pass unchanged, as expected, since that fallback
+behavior is pre-existing). Popped clean, re-ran green (19/19, 5/5).
+
+**24 new tests** —
+`skills/video-pipeline/thumbnail/tests/test_selector.py` (19): unmatched content + no/unmatched niche
+→ `template_e` (3 variants: no niche, cooking niche, ESL niche); content-level `GEO_KEYWORDS` still
+earns `template_a` even against a contradicting niche; niche-level fallback earns `template_a` on
+ambiguous content, both via the explicit `"niche"` key and via the `CHANNEL_NICHE` env-var seam
+(mirrors the legacy pipeline's shape — no `"niche"` key at all); a realistic Ryan-style headline still
+lands on `template_a`; B/C/D keyword priority unchanged (regression pins); the 5-template registry key
+set. `skills/video-pipeline/thumbnail/tests/test_title_generator.py` (5): no branding/geo-caps-word
+list literal-text pin; examples span multiple niches with no forced `[Country]`; JSON-schema mechanic
+unchanged; default-vs-override precedence; the user-prompt leak regression (proven against a tenant
+override, since that's exactly the case that was silently broken). `storyengine/backend/tests/
+functional/test_c34c_seo_category.py` (5): category persisted in the same UPDATE as the other SEO
+fields; unknown-category still defaults to "27"; upload passes through a stored category; falls back
+to "27" on `NULL` and on `""` (both round-trip shapes considered).
+
+`python -m py_compile` clean on every touched/new file. Full backend suite: **1266 passed / 15 failed /
+1 error** (baseline 1261/15/1 + this chunk's 5 new backend tests, identical pre-existing
+failure/error names — zero new failures). `skills/video-pipeline` thumbnail tests run standalone (no
+suite-wide `skills/video-pipeline/tests/` baseline exists to diff against — see C34b's note on the
+pre-existing environment-only collection failures there, unrelated to this chunk). Autopilot suite not
+re-run — grepped `autopilot/` for `select_template`/`title_generator`/`TEMPLATES`/`thumbnail.selector`:
+zero hits, this chunk touches nothing autopilot imports.
+
+**Frontend:** untouched — `git status --short storyengine/frontend/` empty; no new field is consumed
+by the frontend today (`generate-seo`'s response is displayed as-is; no `category_id`/`seo_category_id`
+reference anywhere in `frontend/src/`), so no wiring gap was created. No `npx tsc --noEmit` needed;
+explicitly flagged, not silently skipped.
+
+**Live verification deferred** to `tasks/live-verification-queue.md` §C34c: an actual thumbnail render
+for a non-geo/non-person/non-split/non-symbolic video on a tenant with no niche configured (confirm it
+really renders Template E's subject-focused look, not a map) and a real upload with a non-Education
+category resolved by the SEO pass (confirm the YouTube Studio category actually changes from
+Education).
+
+### Modified/New Files (C34c)
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/thumbnail/selector.py` | `GEO_KEYWORDS`/`GEO_NICHE_KEYWORDS` added; default fallback changed from unconditional `template_a` to niche-informed `template_a` → neutral `template_e` |
+| `skills/video-pipeline/thumbnail/templates.py` | New `TEMPLATE_E_SUBJECT_FOCUS` + `template_e` registry entry; docstring updated to five templates |
+| `skills/video-pipeline/thumbnail/prompt_builder.py` | `_get_variable_descriptions` branch for `template_e` |
+| `skills/video-pipeline/thumbnail/engine.py` | Docstring: `template_a..template_d` → `template_a..template_e` |
+| `skills/video-pipeline/thumbnail/run.py` | `video_metadata["niche"]` now sourced from the `CHANNEL_NICHE` env var |
+| `skills/video-pipeline/thumbnail/title_generator.py` | `TITLE_GENERATION_SYSTEM_PROMPT` rewritten niche-neutral; user-prompt "Economy FastForward" literal removed; module/class docstrings updated |
+| `storyengine/backend/pipeline_executor.py` | `_load_prompt_overrides` exports `CHANNEL_NICHE` env var from `IdentityContext.niche` |
+| `storyengine/backend/youtube_publish.py` | `generate_and_store_seo` persists `seo_category_id`; `upload_video_to_youtube` reads it and passes it through to `_do_youtube_upload`, falling back to `_DEFAULT_CATEGORY` |
+| `storyengine/backend/migrations/102_videos_seo_category_id.sql` | NEW — `ALTER TABLE videos ADD COLUMN IF NOT EXISTS seo_category_id TEXT` (applied live) |
+| `storyengine/schema.sql` | `videos.seo_category_id TEXT` added, documented |
+| `skills/video-pipeline/thumbnail/tests/__init__.py`, `test_selector.py`, `test_title_generator.py` | NEW — 19 + 5 tests |
+| `storyengine/backend/tests/functional/test_c34c_seo_category.py` | NEW — 5 tests |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Ryan's legacy Template A path is preserved: proven by `test_ryans_legacy_content_still_lands_on_template_a`
+(a realistic Economy FastForward-style headline with zero niche info, exactly the legacy Airtable
+pipeline's shape, still selects `template_a` via `GEO_KEYWORDS`) and
+`test_geopolitics_niche_env_var_fallback_selects_template_a` (the `CHANNEL_NICHE` env-var path). The
+migration is purely additive (`ADD COLUMN IF NOT EXISTS`, nullable, no backfill needed — existing rows
+read as `NULL` and fall back to the exact old "27" behavior). No paid path changed (SEO generation
+already called the same Claude endpoint; this chunk only changed what happens to the category value it
+already returns). Safe to ff-merge; no VPS coordination needed beyond the routine hourly
+`git pull --ff-only` (the migration is already live on Supabase, independent of the code deploy).
+
+**Next up: C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing.**

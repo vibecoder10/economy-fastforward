@@ -7319,6 +7319,14 @@ class PipelineExecutor:
         # the backend, so this env var is the seam (mirrors VISUAL_PROFILE).
         os.environ["VISUAL_STYLE_DESCRIPTION"] = self._identity.visual_style or ""
 
+        # Export the channel's NICHE the same way (checklist C34c, S10-4):
+        # thumbnail/selector.py reads CHANNEL_NICHE as the fallback signal for
+        # whether an unmatched video still belongs on Template A (Map +
+        # Barrier — a finance/geopolitics channel's home turf) or the
+        # niche-neutral Template E. Same seam pattern as VISUAL_STYLE_DESCRIPTION
+        # above; skills can't import the backend's IdentityContext directly.
+        os.environ["CHANNEL_NICHE"] = self._identity.niche or ""
+
         # Fetch tenant-level defaults
         tenant_overrides = {}
         try:

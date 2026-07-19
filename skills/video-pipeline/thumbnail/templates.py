@@ -1,10 +1,17 @@
-"""Thumbnail prompt templates for Economy FastForward.
+"""Thumbnail prompt templates.
 
-Four bright editorial illustration templates optimized for high CTR:
-  - Template A: Map + Barrier (highest CTR — geopolitical, chokepoints, trade)
+Five bright editorial illustration templates optimized for high CTR:
+  - Template A: Map + Barrier (geopolitical, chokepoints, trade — Ryan's
+    original Economy FastForward channel legitimately lives here; matched by
+    GEO_KEYWORDS/GEO_NICHE_KEYWORDS in selector.py, never the blind default)
   - Template B: Character + Bold Text (person/entity-focused stories)
   - Template C: Split Winner/Loser (versus/comparison stories)
   - Template D: Symbolic Action (metaphor-driven — fist, valve, trap)
+  - Template E: Subject Focus (niche-NEUTRAL default — checklist C34c/S10-4:
+    a cooking, ESL, or story channel with no geo/person/split/symbolic
+    keyword match must never ship a world-map thumbnail. Not part of the
+    weighted A-D rotation; selector.py reaches for it only as the fallback
+    when nothing else matches.)
 
 All templates produce 1280x720 (16:9) bright editorial illustrations
 via Nano Banana Pro with text baked directly into the image.
@@ -93,6 +100,29 @@ TEMPLATE_D_SYMBOLIC = (
 
 
 # ---------------------------------------------------------------------------
+# Template E: Subject Focus (niche-neutral default)
+# ---------------------------------------------------------------------------
+# Best for: ANY niche with no geo/person/split/symbolic keyword match — the
+# safe fallback (checklist C34c, S10-4). No map, no country labels, no
+# geopolitics assumption baked into the prompt itself — the dominant subject
+# is drawn straight from the video's own content.
+TEMPLATE_E_SUBJECT_FOCUS = (
+    "Bright colorful editorial illustration with ONE dominant subject — "
+    "{subject_description} — filling most of the frame, set against "
+    "{background_description}, with {supporting_elements} placed around it "
+    "for visual energy, bright saturated colors with high contrast, no dark "
+    "areas, clean editorial illustration style, {palette_suffix}. "
+    "In the {text_position}, enormous bold yellow text reading '{line_1}' on "
+    "the first line and '{line_2}' on the second line, the text is the "
+    "single largest and most dominant element in the entire image filling "
+    "65-70 percent of frame width, thick black outline on every letter with "
+    "heavy drop shadow, the text must be absolutely massive and impossible "
+    "to miss at any size. Bright but not oversaturated, clean editorial "
+    "style, 16:9 aspect ratio"
+)
+
+
+# ---------------------------------------------------------------------------
 # Template registry
 # ---------------------------------------------------------------------------
 TEMPLATES = {
@@ -137,6 +167,20 @@ TEMPLATES = {
         "variables": [
             "region", "highlight_country", "metaphor_description",
             "consequence_elements", "geographic_labels", "palette_suffix",
+            "line_1", "line_2",
+        ],
+    },
+    "template_e": {
+        "name": "Subject Focus (Neutral Default)",
+        "prompt": TEMPLATE_E_SUBJECT_FOCUS,
+        # Not part of the weighted A-D rotation used for keyword-matched
+        # content — this is the niche-neutral fallback, selected explicitly
+        # by selector.py, never by a weighted draw.
+        "usage_weight": 0.0,
+        "best_for": "any niche with no geo/person/split/symbolic keyword match",
+        "variables": [
+            "subject_description", "background_description",
+            "supporting_elements", "text_position", "palette_suffix",
             "line_1", "line_2",
         ],
     },

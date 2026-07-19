@@ -355,4 +355,32 @@ class ThumbnailPromptBuilder:
                     "'no labels' if the image reads without them."
                 ),
             }
+        elif template_key == "template_e":
+            return {
+                "subject_description": (
+                    "The single dominant subject of the thumbnail, drawn "
+                    "directly from THIS video's actual topic — a specific "
+                    "object, dish, character, place, or moment. Concrete and "
+                    "instantly recognizable, never a generic category or a "
+                    "map/world view."
+                ),
+                "background_description": (
+                    "A simple backdrop behind the subject — a plain color, a "
+                    "softly blurred setting, or a minimal environment that "
+                    "fits the niche. Must not compete with the subject for "
+                    "attention."
+                ),
+                "supporting_elements": (
+                    "1-2 small supporting details that reinforce the "
+                    "subject's story, drawn from the topic. Examples: steam "
+                    "rising off food, sparkles around a finished result, a "
+                    "highlighted number, a couple of related objects "
+                    "scattered nearby."
+                ),
+                "text_position": (
+                    "Where the text sits relative to the subject. Options: "
+                    "'upper half', 'lower third', 'center'. Choose based on "
+                    "where the subject leaves space."
+                ),
+            }
         return {}

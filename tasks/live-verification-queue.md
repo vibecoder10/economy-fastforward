@@ -218,6 +218,42 @@ this check, piggyback on a real tenant's normal voice run.
 
 ---
 
+## C34c — thumbnail/title/category genericization · needs a real thumbnail render + a real upload
+
+**Why deferred:** the fix is proven correct in-sandbox with fully monkeypatched clients/DB (24 tests —
+19 in `skills/video-pipeline/thumbnail/tests/`, 5 in
+`storyengine/backend/tests/functional/test_c34c_seo_category.py` — non-vacuous via `git stash`: 7/19 +
+3/5 correctly fail against pre-fix code). What's NOT provable without a real Kie.ai image-generation
+call and a real YouTube upload: does Template E actually RENDER as a clean, non-map, subject-focused
+thumbnail image, and does a real upload's category actually land somewhere other than Education on
+YouTube's own Studio UI.
+
+1. **Template E render check (paid — ~$0.05-0.15 for 1-3 thumbnail variants, per
+   `docs/cost-awareness.md`; get a cost quote + explicit yes first).** Pick a tenant with no channel
+   thumbnail history and no finance/geopolitics niche configured (or set `channel_profiles.niche` to
+   something like "cooking tutorials" for a test tenant), create a video whose title/summary is
+   deliberately NOT geopolitical/person/split/symbolic (e.g. "5 Ways to Fix a Broken Sauce"), and run
+   the thumbnail stage. Confirm: (a) the activity log / `se logs backend` shows `template_e` was
+   selected, not `template_a`; (b) the resulting thumbnail image genuinely shows a food-related subject
+   with no map, no country outlines, no satellite-view backdrop.
+2. **Template A still reachable, live.** Same tenant/setup but with a video whose content IS
+   geopolitical (e.g. mentions "trade route" or "chokepoint") — confirm the log shows `template_a`
+   selected despite the tenant's non-finance niche (content-level `GEO_KEYWORDS` win).
+3. **Ryan's legacy channel, live.** Confirm a real run of the legacy Airtable-only pipeline
+   (`skills/video-pipeline/orchestrator`) still selects `template_a` for a typical Economy FastForward
+   headline — no `CHANNEL_NICHE` env var exists in that process at all, so this exercises the
+   content-only `GEO_KEYWORDS` path exactly as it ran before this chunk.
+4. **Category persistence + upload, live.** Run `POST /api/videos/{id}/generate-seo` on a real video
+   whose actual topic maps to a non-Education category (e.g. a gaming or entertainment video) —
+   `se db "SELECT seo_category_id FROM videos WHERE id='<id>'"` should show the resolved numeric id
+   (not `27`). Then run a real upload (unlisted draft is fine) and confirm in YouTube Studio that the
+   video's category is NOT "Education" — it should match what `seo_category_id` held.
+5. **Fallback still correct, live.** Pick (or leave) a video that predates migration 102 (or one where
+   SEO was never generated) — `seo_category_id` should read `NULL` — and confirm a real upload still
+   lands in Education, exactly as before this chunk.
+
+---
+
 ## C33 — YouTube quota guard + own-video VPH · needs a real upload day + a real synced channel
 
 **Why deferred:** the quota tracker (`youtube_quota.py`) and VPH derivation (`own_vph.py`) are

@@ -7,6 +7,7 @@ Clients: anthropic, image_client, google, airtable, slack
 """
 
 import json
+import os
 
 from orchestrator.pipeline_constants import Statuses, IdeaFields, ScriptFields
 
@@ -102,6 +103,15 @@ async def run(pipeline) -> dict:
         IdeaFields.FRAMEWORK_ANGLE: pipeline.current_idea.get(IdeaFields.FRAMEWORK_ANGLE) or "",
         IdeaFields.FRAMEWORK: pipeline.current_idea.get(IdeaFields.FRAMEWORK) or "",
         "tags": [],
+        # Channel niche (checklist C34c, S10-4) — the fallback signal
+        # select_template() uses to decide whether unmatched content still
+        # belongs on Template A (a finance/geopolitics channel's home turf)
+        # or the niche-neutral Template E default. Exported by
+        # pipeline_executor.py's _load_prompt_overrides as CHANNEL_NICHE
+        # (mirrors the VISUAL_STYLE_DESCRIPTION seam); empty for the legacy
+        # Airtable-only pipeline, where select_template falls through to its
+        # keyword-only checks exactly as before.
+        "niche": os.environ.get("CHANNEL_NICHE", ""),
         # Gemini creative director context
         "research_payload": research_payload,
         "full_script": full_script_text,

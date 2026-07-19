@@ -1,15 +1,24 @@
-"""Title generator for Economy FastForward videos.
+"""Title generator.
 
-Produces titles that follow proven formula patterns.  Each title contains
-exactly ONE CAPS word that becomes the red_word in the paired thumbnail.
+Produces titles that follow proven formula SHAPES. Each title contains
+exactly ONE CAPS word that becomes the red_word in the paired thumbnail. The
+shapes are neutral placeholders — [Subject]/[Amount]/[Number]/[Entity] swap
+in whatever the video is actually about; no niche is assumed.
 
 Six formula families:
-  1. The [Noun] TRAP Nobody Sees Coming (Parenthetical)
-  2. [Country]'s $[Amount] [Mistake/Gamble] (The [Named Trap])
-  3. The Slow DEATH of [System] (And Who Controls What Comes Next)
-  4. Why [Country] is [ADJECTIVE]er Than You Think (The Hidden Strategy)
-  5. [Number] [Noun] [Warning] (Machiavelli Warned You)
+  1. The [Subject] TRAP Nobody Sees Coming (Parenthetical)
+  2. [Subject]'s $[Amount] [Mistake/Gamble] (The [Named Trap])
+  3. The Slow DEATH of [Subject] (And Who Controls What Comes Next)
+  4. Why [Subject] is [ADJECTIVE]er Than You Think (The Hidden Strategy)
+  5. [Number] [Subject] [Warning] (The Pattern Repeats)
   6. How [Entity] SWALLOWED [Target] (The [X]-Stage Playbook)
+
+TITLE_FORMULAS below preserves the ORIGINAL Economy FastForward examples
+verbatim — they're opt-in only (reached when a caller passes
+`preferred_formula`; no live caller does today), same treatment as the saved
+identity in tasks/engine-identity-seeds/power-doctrine.md. The DEFAULT
+prompt (TITLE_GENERATION_SYSTEM_PROMPT, used whenever no tenant/video
+override is set) must never assume that voice — see its docstring below.
 """
 
 import json
@@ -78,33 +87,53 @@ TITLE_FORMULAS = {
 }
 
 
-# System prompt for Claude to generate title + variables
+# System prompt for Claude to generate title + variables.
+#
+# Niche-neutral by design (checklist C34c, S10-5 — same treatment
+# engine_templates.py's ENGINE_TEMPLATES already got): this is the DEFAULT
+# used whenever no tenant/video system_prompt_override is set, so it can
+# never assume a channel name, niche, or subject matter that isn't in front
+# of it. The mechanical contract (exactly one CAPS word, the JSON schema)
+# stays — that's the thumbnail's yin-yang mechanism, not a niche assumption.
+# A channel that WANTS the original Economy FastForward power-word voice
+# gets it through an explicit override (mirrors how Power Doctrine became an
+# opt-in saved identity — tasks/engine-identity-seeds/power-doctrine.md —
+# never the invisible default again).
 TITLE_GENERATION_SYSTEM_PROMPT = """\
-You are the title strategist for Economy FastForward, a finance/economics YouTube channel.
+You are a title strategist for a YouTube channel. Write a title for THIS
+video's own subject and audience — never assume a niche, brand, or topic
+that isn't in the content you're given.
 
-Your job: Generate a click-worthy title that follows one of the proven formula patterns.
+Your job: Generate a click-worthy title that follows one of the proven
+formula SHAPES below, matched to whatever this video is actually about.
 
 RULES:
-1. The title MUST contain exactly ONE word in ALL CAPS — this is the curiosity trigger.
-2. The CAPS word becomes the red highlight in the thumbnail. It must trigger a visceral
-   emotional reaction — a gut punch, not a label.
-   BEST caps_words (prefer these): PURGE, TRAP, KILLED, CRUSHED, WEAPONIZED, BLACKLISTED,
-   BANNED, BETRAYED, RIGGED, DOOMED, BROKE, DEAD, SWALLOWED, COLLAPSE, DEATH, DYING
-   AVOID generic structural words: STAGE, STEP, PHASE, PATTERN, LAWS, RULES, SYSTEM, PLAN
-   The caps_word should make a viewer feel something, not describe a format.
+1. The title MUST contain exactly ONE word in ALL CAPS — this is the
+   curiosity trigger.
+2. The CAPS word becomes the red highlight in the thumbnail. Pick a word that
+   earns a genuine reaction for THIS video's subject — not a label. Match
+   its register to the content: a cooking or language-learning video wants
+   words like SECRET, INSTANT, MASTERED, WRONG; an investigation or exposé
+   wants words like EXPOSED, COLLAPSE, BETRAYED, RIGGED. Let the video decide
+   the register — never force one niche's intensity onto another's subject.
+   AVOID generic structural words that describe a format instead of making
+   someone feel something: STAGE, STEP, PHASE, PATTERN, LAWS, RULES, SYSTEM, PLAN.
 3. The main hook (before the parenthetical) should be 6-8 words.
 4. The parenthetical reveal should create a curiosity gap.
 5. Total title length should be under 70 characters for the main hook.
 
-FORMULA OPTIONS:
-1. "The [Noun] {CAPS} Nobody Sees Coming (Parenthetical)"
-2. "[Country]'s $[Amount] {CAPS} (Parenthetical)"
-3. "The Slow {CAPS} of [System] (Parenthetical)"
-4. "Why [Country] is {CAPS} Than You Think (Parenthetical)"
-5. "[Number] [Noun] {CAPS} (Parenthetical)"
+FORMULA SHAPES (neutral — swap in the real subject of THIS video; use only
+the ones that genuinely fit):
+1. "The [Subject] {CAPS} Nobody Sees Coming (Parenthetical)"
+2. "[Subject]'s [Amount/Detail] {CAPS} (Parenthetical)"
+3. "The Slow {CAPS} of [Subject] (Parenthetical)"
+4. "Why [Subject] is {CAPS} Than You Think (Parenthetical)"
+5. "[Number] [Subject] {CAPS} (Parenthetical)"
 6. "How [Entity] {CAPS} [Target] (Parenthetical)"
 
-Pick the formula that best fits the video topic. The CAPS word must feel like a revelation.
+Pick the shape that best fits the video topic — never bend the video to fit
+a shape it doesn't earn. The CAPS word must feel like a genuine revelation
+for this specific subject.
 
 OUTPUT FORMAT (JSON only, no markdown):
 {
@@ -149,7 +178,7 @@ CRITICAL:
 
 
 class TitleGenerator:
-    """Generates matched titles for Economy FastForward videos.
+    """Generates matched titles for any channel's videos.
 
     Uses Anthropic Claude to produce titles following proven formula patterns.
     Each title includes a CAPS word that becomes the red_word in the thumbnail.
@@ -192,7 +221,7 @@ class TitleGenerator:
                 line_2: str — thumbnail secondary text (2-3 words, ALL CAPS)
         """
         prompt_parts = [
-            f'Generate a title for this Economy FastForward video:',
+            f'Generate a title for this video:',
             f'',
             f'WORKING TITLE: "{video_title}"',
             f'VIDEO SUMMARY: {video_summary}',

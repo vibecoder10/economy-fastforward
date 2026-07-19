@@ -1,0 +1,24 @@
+-- seo_category_id: persists the YouTube videoCategory id that
+-- generate_and_store_seo() (youtube_publish.py) already computes from the
+-- video's own title+script via the SEO Claude call, so the upload step can
+-- actually USE it instead of silently always shipping the hardcoded
+-- _DEFAULT_CATEGORY ("27" — Education).
+--
+-- Checklist C34c / audit finding S10-6 (docs/reports/2026-07-17-storyengine-
+-- agent-audit-findings.md §S10): generate_and_store_seo() computed a real
+-- category_id (education/entertainment/howto/people/news/science -> the
+-- YouTube numeric id) and returned it in its response dict, but the UPDATE
+-- right below only wrote seo_description/seo_tags/seo_hashtags — the
+-- computed category was thrown away. upload_video_to_youtube() then always
+-- passed _DEFAULT_CATEGORY ("27") to _do_youtube_upload(), so every single
+-- upload landed in Education on YouTube regardless of what the SEO pass
+-- actually determined the video's real category to be.
+--
+-- Reusing the existing seo_description/seo_tags/seo_hashtags storage
+-- pattern (same videos row, same UPDATE, same nullable-TEXT shape) rather
+-- than a new table — this is one more field on the same SEO bundle, not a
+-- new concept. NULL means "SEO was never generated (or generated before
+-- this migration) for this video" — upload falls back to _DEFAULT_CATEGORY
+-- exactly as before, so this is a pure additive/backward-compatible change.
+
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS seo_category_id TEXT;
