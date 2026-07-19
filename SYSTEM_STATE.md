@@ -9077,3 +9077,111 @@ completes its `competitor_videos.our_video_id` write, racing to create two video
 `mark_decided`'s atomic guard prevents the proposal BOOKKEEPING from double-writing, but doesn't prevent
 the underlying double-launch — that race lives in `launch_candidate` itself, pre-existing, out of this
 chunk's scope.
+
+**FIXED by C53 below** (`launch_candidate`'s atomic claim) — this known gap is closed, see §C53.
+
+## C53 — auto-draft verification (audit-then-wire) + launch_candidate double-launch race fix (P4.2-d, added 2026-07-19)
+
+**Audit (half 1) — is the auto-draft money path gated at least as strictly as a human-clicked Launch?**
+Traced `routes/autopilot.py::launch_candidate` end to end (it's the ONE launch function — a human
+clicking "Launch" on `/autopilot` or `/calendar`, C52's `accept_proposal`, and C51's auto_draft dial
+level all call this exact same function, so there is no separate "human path" to be stricter than;
+whatever gates run here apply identically to every caller):
+
+1. **`actions.budget_check`** (the optional per-video `max_spend` cap) is NOT consulted anywhere on
+   this path — it only exists inside `routes/chat.py`'s confirm-card flow and `routes/mcp.py`'s tool
+   flow (both quote-then-tap doors), never inside `pipeline_executor.py`'s stage-running code that
+   `launch_candidate`'s background `_run_full_pipeline` loop actually drives. Since this applies
+   identically whether triggered by a human's Launch click or the auto_draft loop, it does NOT violate
+   the audit's actual invariant (auto ⪰ human strictness) — it's a pre-existing gap shared by both
+   doors, not a new asymmetry, so left unfixed per the chunk's explicit scope (only wire an asymmetry,
+   don't invent a new feature). Flagged here for a future chunk: `max_spend` caps are silently
+   unenforced on any video driven through `run_next_step`/`_run_full_pipeline` rather than through
+   chat/MCP.
+2. **The approval-gate stop** (`PipelineExecutor.APPROVAL_GATE_STATUSES`, `pipeline_executor.py`
+   ~L13304-13328: `ready_for_voice`/`ready_for_images`/`ready_for_thumbnail`) fires identically for
+   auto-launched videos — `_run_full_pipeline`'s loop calls the SAME `executor.run_next_step(video_id)`
+   a human's "Run Next Step" click calls, and breaks on `status in ("failed", "needs_approval",
+   "idle")`. It surfaces in the EXISTING approval UI with zero new plumbing: the stop is just the
+   `videos.status` column landing on one of those 3 values, which `frontend/src/lib/next-action.ts`
+   (read by `pipeline/[videoId]/page.tsx`, `PipelineStepper.tsx`, the dashboard) already maps to an
+   approval CTA — an auto-launched video reaching `ready_for_voice` shows the identical "needs
+   approval" banner a human-created video would.
+3. **`check_plan_limits`** (the 402 plan-limit gate) was the one genuine bypass. The regression lock
+   (`tests/functional/test_plan_limits_enforcement_lock.py`) covers exactly 3 UI create routes
+   (`videos.py::create_video`, `pipeline.py::create_idea`, `discovery.py::launch_idea`) —
+   `launch_candidate` was never in that list and never called `check_plan_limits` at all, so a
+   free-plan tenant's autopilot could create unlimited videos via auto_draft with zero human
+   double-click to notice. **Wired**: `launch_candidate` now calls
+   `check_plan_limits(tenant_id, "video")` as the FIRST thing in the function (before the candidate
+   fetch, matching `discovery.py::launch_idea`'s exact placement) and `increment_usage(tenant_id,
+   "videos_created")` right after the video INSERT (matching the same house pattern). Added as a 4th
+   entry point to `test_all_video_create_entrypoints_guarded` in the regression lock test, plus a
+   dedicated behavioral test (`tests/test_c53_launch_candidate_gates.py`) proving the gate actually
+   fires (AST inspection alone can't prove a call fires the right side effects at the right time).
+
+**Race fix (half 2) — the double-launch race documented in §C52's "Known gap" above.** `our_video_id`
+can't double as a claim sentinel (it's a real FK to `videos(id)`, migration 080 — no sentinel UUID
+exists before a video row does), so the fix is a plain new claim column rather than repurposing that
+one. Migration 109 (`competitor_videos.launch_claimed_at TIMESTAMPTZ`, applied LIVE via Supabase MCP
+against project `wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`) backs an atomic
+claim in `launch_candidate`:
+
+```sql
+UPDATE competitor_videos SET launch_claimed_at = NOW()
+WHERE id = $1 AND tenant_id = $2 AND our_video_id IS NULL
+  AND (launch_claimed_at IS NULL OR launch_claimed_at < NOW() - INTERVAL '10 minutes')
+RETURNING id
+```
+
+Only one concurrent caller can get a row back — Postgres's row lock serializes the two UPDATEs, and
+the second one's WHERE re-evaluates against the now-claimed row and matches nothing. The loser gets a
+clean `409 "Candidate already launched or a launch is already in progress"` before touching anything
+paid; zero second video row is created. `launch_candidate`'s body past the claim was split into a
+helper (`_do_launch_candidate`) wrapped in try/except: on success, the final `UPDATE ... SET
+our_video_id = $1, launch_claimed_at = NULL` makes the launch permanent; on ANY exception before that
+point, an except block clears `launch_claimed_at` back to NULL (guarded by `our_video_id IS NULL`, so
+it can never clobber a launch that actually succeeded) and re-raises — a failed launch releases the
+candidate instead of wedging it forever. The 10-minute window in the claim's WHERE clause is a
+belt-and-suspenders sweep for the one case the except-block release can't reach: the process getting
+killed mid-request, between acquiring the claim and running the except handler.
+
+### Verification (C53)
+
+6 new tests (`tests/test_c53_launch_candidate_gates.py`): plan-limit gate fires before any query,
+`increment_usage` fires after the insert, a genuine concurrent race (`asyncio.gather` with a
+deliberately-forced interleave point so both callers reach the claim check before either mutates —
+documented inline in the test as approximating what Postgres's row lock guarantees for the real single
+UPDATE statement) resolves to exactly one winner + one 409 loser + exactly one video row, an
+already-launched candidate is rejected via the fast 400 path, a failure after the claim releases it,
+and a retry right after that failure succeeds (proving the release isn't cosmetic). Non-vacuous via
+`git stash` on `routes/autopilot.py`: 4 of 6 fail against pre-C53 code (the other 2 pass either way —
+they're not testing the new gates specifically). `test_plan_limits_enforcement_lock.py`'s
+`test_all_video_create_entrypoints_guarded` also extended with `launch_candidate` as a 4th entry point,
+independently confirmed non-vacuous the same way (fails with `launch_candidate` stashed out). Full
+backend suite: **1720P/15F/1E** = baseline (1714P/15F/1E) + exactly 6 new tests, same 15 pre-existing
+failures/1 error, zero new failures. `python -m py_compile` clean on all touched/new files. No frontend
+touched (`git status` confirms zero `storyengine/frontend/` diffs) — matches the chunk's `[U]` scope
+(none this chunk; the approval UI already renders the stop via the existing status-driven components,
+confirmed by audit item 2 above, not built here).
+
+### Modified/New Files (C53)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/autopilot.py` | `launch_candidate` gains `check_plan_limits`/`increment_usage` + the atomic `launch_claimed_at` claim; body split into `_do_launch_candidate` helper for the try/except release-on-failure wrap |
+| `storyengine/backend/migrations/109_competitor_launch_claim.sql` | NEW — `competitor_videos.launch_claimed_at TIMESTAMPTZ`, applied live |
+| `storyengine/backend/tests/test_c53_launch_candidate_gates.py` | NEW — 6 tests |
+| `storyengine/backend/tests/functional/test_plan_limits_enforcement_lock.py` | `launch_candidate` added as a 4th guarded entry point |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate.** Additive migration (new nullable column, `ADD COLUMN IF NOT EXISTS`,
+idempotent). `check_plan_limits` now runs on a path that previously had none — this DOES change
+behavior for any tenant currently AT or OVER their plan limit using autopilot launch (they'll now get a
+402 instead of an unlimited extra video) — this is the intended fix, not a regression, but flagging the
+behavior change explicitly since the playbook's ff-merge bar asks for "the default/existing path is
+provably unchanged": for a tenant UNDER their limit (the default/common case), behavior is
+byte-identical. The race-fix claim column is a no-op for every existing row (`launch_claimed_at` starts
+NULL everywhere) and only ever matters under actual concurrent launch attempts, which is exactly the
+bug it fixes.

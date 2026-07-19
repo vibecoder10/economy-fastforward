@@ -869,7 +869,24 @@ async def launch_candidate(
 
     Creates a video record from the competitor video and triggers the full
     pipeline (research → script → voice → images → render → upload).
+
+    This is the ONE launch path — a human clicking "Launch" (autopilot page,
+    calendar page), `accept_proposal` below, and C51's auto_draft loop all
+    call this exact function, so there is no separate "human path" to be
+    stricter than; whatever gates run here apply identically regardless of
+    who/what triggered the call.
+
+    C53 (checklist P4.2-d): gated with `check_plan_limits` (the same
+    plan-limit check every other video-create entry point already enforces
+    — this route was the one bypass, see test_plan_limits_enforcement_lock.py)
+    and an atomic claim (`launch_claimed_at`, migration 109) that closes the
+    double-launch race documented in SYSTEM_STATE.md §C52: two concurrent
+    calls for the same candidate now can't both create a video — the loser
+    gets a clean 409 before touching anything paid.
     """
+    from routes.billing import check_plan_limits, increment_usage
+    await check_plan_limits(tenant_id, "video")
+
     # 1. Fetch candidate (only columns needed for launch — skip transcript)
     candidate = await fetch_one(
         """SELECT id, video_id, title, url, channel, channel_url, views, vph,
@@ -882,6 +899,52 @@ async def launch_candidate(
     if candidate.get("our_video_id"):
         raise HTTPException(status_code=400, detail="Candidate already launched")
 
+    # Atomic claim (C53 race fix): only ONE concurrent caller can win this
+    # UPDATE. A second caller racing between the SELECT check above and here
+    # (or a second request that arrives while this one is still mid-launch)
+    # gets zero rows back — RETURNING is empty, `claim` is None — and is
+    # rejected with a clean 409 rather than being allowed to create a SECOND
+    # video row for the same candidate. The 10-minute window is a
+    # belt-and-suspenders sweep for the rare case where the except-block
+    # release below itself never runs (process killed mid-request); the
+    # normal case clears the claim explicitly on both the success and
+    # failure paths.
+    claim = await fetch_one(
+        """UPDATE competitor_videos
+           SET launch_claimed_at = NOW()
+           WHERE id = $1 AND tenant_id = $2 AND our_video_id IS NULL
+             AND (launch_claimed_at IS NULL OR launch_claimed_at < NOW() - INTERVAL '10 minutes')
+           RETURNING id""",
+        candidate_id, tenant_id,
+    )
+    if not claim:
+        raise HTTPException(
+            status_code=409,
+            detail="Candidate already launched or a launch is already in progress",
+        )
+
+    try:
+        return await _do_launch_candidate(candidate, candidate_id, tenant_id, background_tasks, increment_usage)
+    except Exception:
+        # Failed launch must not permanently wedge the candidate: only clear
+        # the claim if our_video_id never got set (if it DID get set, the
+        # candidate is legitimately launched — a failure past that point is a
+        # background-pipeline problem, not a claim problem — so the
+        # `our_video_id IS NULL` guard here protects against clobbering a
+        # completed launch).
+        await execute(
+            """UPDATE competitor_videos SET launch_claimed_at = NULL
+               WHERE id = $1 AND tenant_id = $2 AND our_video_id IS NULL""",
+            candidate_id, tenant_id,
+        )
+        raise
+
+
+async def _do_launch_candidate(candidate, candidate_id, tenant_id, background_tasks, increment_usage):
+    """The actual launch body — split out of launch_candidate() so the C53
+    claim's except/release wraps it cleanly. Runs after the atomic claim is
+    held; ends by marking the candidate our_video_id (permanent) and clearing
+    launch_claimed_at."""
     # 2. Fetch distilled intelligence to pass through pipeline
     intel_context = None
     try:
@@ -963,6 +1026,7 @@ async def launch_candidate(
         system_guidance or None,
     )
     video_id = str(result["id"])
+    await increment_usage(tenant_id, "videos_created")
 
     # House script format + locked channel format + locked cast ride autopilot
     # launches too (all fail-soft inside).
@@ -973,10 +1037,14 @@ async def launch_candidate(
     from routes.characters import apply_locked_cast
     await apply_locked_cast(tenant_id, video_id)
 
-    # 4. Mark candidate as modeled
+    # 4. Mark candidate as modeled — our_video_id set here is what makes the
+    # launch permanent; launch_claimed_at is cleared in the same write since
+    # the claim's job (blocking a concurrent second launch) is now
+    # superseded by the FK itself (our_video_id IS NULL is what both the
+    # atomic claim above and any future check gate on).
     await execute(
         """UPDATE competitor_videos
-           SET modeled = true, modeled_at = NOW(), our_video_id = $1
+           SET modeled = true, modeled_at = NOW(), our_video_id = $1, launch_claimed_at = NULL
            WHERE id = $2 AND tenant_id = $3""",
         video_id, candidate_id, tenant_id,
     )

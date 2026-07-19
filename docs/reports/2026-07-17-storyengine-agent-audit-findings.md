@@ -331,3 +331,32 @@ notify (P4.2-c) → C53 auto-draft budget/approval verification (P4.2-d, audit-t
 budget ceiling + kill-switch trip (P4.2-e) → C55 full-auto continuation under kill-switch enforcement
 (P4.2-f, highest scrutiny, ships LAST) → C56 per-launch pattern flywheel (P4.2-g, the C46e seam,
 parallel-safe). Critical path to live propose-only: C50→C51→C52.
+
+---
+
+## C53 — auto-draft verification audit (P4.2-d, 2026-07-19)
+
+Full trace of `routes/autopilot.py::launch_candidate` (the ONE launch function — human "Launch"
+click, C52's `accept_proposal`, and C51's auto_draft dial level all call it verbatim, so "auto vs.
+human" gates are trivially identical: whatever runs here runs for every caller).
+
+1. **`actions.budget_check`** (optional per-video `max_spend` cap): NOT consulted anywhere on this
+   path. It's wired only into `routes/chat.py`'s confirm-card flow and `routes/mcp.py`'s tool flow —
+   both quote-then-tap doors — never into `pipeline_executor.py` itself, which is what
+   `launch_candidate`'s background loop actually drives. This is a PRE-EXISTING gap shared equally by
+   the human-click path and the auto_draft path (same function), so it does not violate the "auto ⪰
+   human" invariant this chunk's audit was scoped to check — left unfixed, flagged for a future chunk:
+   any video driven by `run_next_step` outside chat/MCP has no `max_spend` enforcement at all.
+2. **Approval-gate stop** (`PipelineExecutor.APPROVAL_GATE_STATUSES`): fires identically for
+   auto-launched videos, since `_run_full_pipeline`'s loop calls the same `run_next_step` a manual "Run
+   Next Step" click calls. Surfaces in the EXISTING approval UI for free — it's just `videos.status`
+   landing on `ready_for_voice`/`ready_for_images`/`ready_for_thumbnail`, which
+   `frontend/src/lib/next-action.ts` (read by `PipelineStepper.tsx`, `pipeline/[videoId]/page.tsx`, the
+   dashboard) already turns into an approval CTA. No new UI needed.
+3. **`check_plan_limits`**: genuine bypass — `launch_candidate` was never one of the 3 routes
+   `test_plan_limits_enforcement_lock.py` covers, and never called it. **Wired** (see SYSTEM_STATE.md
+   §C53 for the full diff/verification): `check_plan_limits(tenant_id, "video")` first, `increment_
+   usage(tenant_id, "videos_created")` after the insert, added as a 4th locked entry point.
+
+Same chunk also fixed the §C52-documented double-launch race (`launch_candidate` claim column,
+migration 109) — see SYSTEM_STATE.md §C53 for the mechanism.

@@ -1,0 +1,28 @@
+-- C53 (checklist P4.2-d): fixes the double-launch race documented in
+-- SYSTEM_STATE.md §C52's "Known gap" — two concurrent `launch_candidate`
+-- calls for the SAME competitor_videos row (two accept clicks, an accept
+-- racing the C51 auto_draft loop, or a plain double-click) could both pass
+-- the `our_video_id IS NULL` "already launched?" check before either one's
+-- write landed, so both created a `videos` row from the same candidate
+-- (double paid spend), with `competitor_videos.our_video_id` just ending up
+-- pointing at whichever write happened to land last.
+--
+-- `our_video_id` itself can't double as the claim flag: it's a real FK to
+-- videos(id) (migration 080), so it can't hold a sentinel value before a
+-- video row exists. This column is a plain claim marker instead —
+-- `routes/autopilot.py`'s `launch_candidate` does an atomic
+-- `UPDATE competitor_videos SET launch_claimed_at = NOW() WHERE id = $1
+-- AND our_video_id IS NULL AND (launch_claimed_at IS NULL OR
+-- launch_claimed_at < NOW() - INTERVAL '10 minutes') RETURNING id` before
+-- doing anything else; only the request that gets a row back proceeds, the
+-- loser gets a clean 409. A launch that fails before reaching the final
+-- `our_video_id` write clears `launch_claimed_at` back to NULL in an
+-- except/finally so a crashed launch doesn't wedge the candidate — the
+-- 10-minute window is a belt-and-suspenders sweep for the case where that
+-- release itself never runs (process killed mid-request).
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — applied LIVE via Supabase MCP
+-- against project wrromlupsmyzrrcqlucn, confirmed via
+-- information_schema.columns (same pattern as migrations 103/107/108).
+
+ALTER TABLE competitor_videos ADD COLUMN IF NOT EXISTS launch_claimed_at TIMESTAMPTZ;

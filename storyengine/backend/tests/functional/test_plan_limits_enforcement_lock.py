@@ -9,9 +9,9 @@ entry points or the render entry point — either by accident or by a
 users get unlimited pipeline spend and the whole paid-tier structure
 collapses.
 
-The current enforcement shape (across 4 entry points):
+The current enforcement shape (across 5 entry points):
 
-  # videos create / pipeline create / discovery launch
+  # videos create / pipeline create / discovery launch / autopilot launch
   await check_plan_limits(tenant_id, "video")
   ...do the thing...
   await increment_usage(tenant_id, "videos_created")
@@ -31,6 +31,15 @@ This test pins:
   - The render entry still calls with action="render".
   - `increment_usage` still exists and is called after successful
     creates (videos.py + pipeline.py).
+
+C53 (checklist P4.2-d) added `routes/autopilot.py::launch_candidate` to the
+guarded-entry-points list below: it was the ONE video-create route this lock
+never covered, and it's the path C51's unattended auto_draft dial level and
+C52's `accept_proposal` both funnel through — an unguarded launch_candidate
+meant autopilot could create unlimited videos for a free-plan tenant with no
+human in the loop to notice. See
+tests/test_c53_launch_candidate_gates.py for the behavioral (non-AST) proof
+that the gate actually fires and blocks the launch.
 """
 import ast
 import os
@@ -59,6 +68,10 @@ def _pipeline_py() -> Path:
 
 def _discovery_py() -> Path:
     return _backend_root() / "routes" / "discovery.py"
+
+
+def _autopilot_py() -> Path:
+    return _backend_root() / "routes" / "autopilot.py"
 
 
 def test_check_plan_limits_defined_and_raises_402():
@@ -102,14 +115,19 @@ def test_check_plan_limits_defined_and_raises_402():
 
 
 def test_all_video_create_entrypoints_guarded():
-    """Three entry points create videos: `POST /videos`, `POST /pipeline`
-    (create_idea), and `POST /discovery/{id}/launch`. Each MUST call
+    """Four entry points create videos: `POST /videos`, `POST /pipeline`
+    (create_idea), `POST /discovery/{id}/launch`, and
+    `POST /autopilot/launch/{id}` (launch_candidate — added C53; this is
+    also the path C51's auto_draft loop and C52's accept_proposal call, so
+    it runs unattended, not just from a human click). Each MUST call
     `check_plan_limits(tenant_id, "video")` before any INSERT. Missing
-    the call on even one path = free users route around the limit."""
+    the call on even one path = free users (or an unattended autopilot
+    loop) route around the limit."""
     entry_points = [
         (_videos_py(), "create_video"),
         (_pipeline_py(), "create_idea"),
         (_discovery_py(), "launch_idea"),
+        (_autopilot_py(), "launch_candidate"),
     ]
     failures: list[str] = []
     for path, fn_name in entry_points:
