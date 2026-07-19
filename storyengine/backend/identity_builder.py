@@ -24,9 +24,14 @@ from typing import Any, Optional
 
 import httpx
 
-from database import execute, fetch_all
+from database import execute, fetch_all, fetch_one
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
 from actions import CLAUDE_MODELS, claude_model_for_direct_client
+# Provenance envelope (checklist C40) — every channel_identity writer must
+# read-modify-write through this so unrelated fields (another writer's
+# visual_format, thumbnail_blueprint, ...) and the _sources/_history
+# envelope survive a rebuild instead of being clobbered by a blind overwrite.
+from channel_dna_meta import coerce_identity, stamp_identity_write
 
 FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape"
 _YT_VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos"
@@ -258,11 +263,24 @@ async def build_channel_identity(tenant_id: str, top_n: int = 3) -> dict[str, An
         identity["real_quotes"] = [q for q in identity["real_quotes"] if _verify_quote(q, corpus_norm)]
 
     prose = (identity.get("style_description") or "").strip()
+
+    # Read-modify-write: this rebuild only knows about voice/hook/structure/
+    # research/thumbnail fields, but the SAME column may already hold a
+    # channel_format.set_channel_format visual_format/format_locked or a
+    # pipeline_executor thumbnail_blueprint cache. A blind overwrite here
+    # would silently erase those (and any prior provenance envelope) every
+    # time the identity is rebuilt — stamp_identity_write merges instead.
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id = $1", tenant_id
+    )
+    current = coerce_identity((row or {}).get("channel_identity"))
+    merged = stamp_identity_write(current, identity, learner="identity_builder")
+
     await execute(
         "UPDATE channel_profiles "
         "SET style_description = COALESCE(NULLIF($2, ''), style_description), "
-        "    channel_identity = $3, updated_at = now() "
+        "    channel_identity = $3::jsonb, updated_at = now() "
         "WHERE tenant_id = $1",
-        tenant_id, prose, json.dumps(identity),
+        tenant_id, prose, json.dumps(merged),
     )
     return {"ok": True, "identity": identity, "videos_analyzed": [t for t, _ in analyzed]}

@@ -7329,3 +7329,94 @@ wording render correctly in the actual UI/dock).
 
 **BUILD queue complete after this chunk. Next up: C37 — Ryan's decision chunk (create-surface
 convergence, per-user BYOK slice), composed by the orchestrator, not built by a worker session.**
+
+---
+
+## C40 — P4.1a Channel DNA digest data model: provenance envelope on `channel_identity` (added 2026-07-19)
+
+First build chunk of Phase 4 (Channel DNA ingestion, decisions.md 2026-07-19 "Phase 4 Pillar 1").
+Storage discipline every later ingestion chunk (C41-C45) builds on — no ingestion orchestration, no
+UI, no chat changes here.
+
+### The problem: 3 writers, 2 merge styles, 0 provenance
+
+`channel_profiles.channel_identity` JSONB (migration 070) is written by THREE different call sites,
+each its own way:
+- `identity_builder.build_channel_identity` — a full rebuild of voice/hook/structure/research/
+  thumbnail_style from the channel's own top videos, written with a **blind overwrite**
+  (`channel_identity = $3`) that silently erased whatever channel_format or the thumbnail-formula
+  cache had written.
+- `channel_format.set_channel_format` — chat-driven visual_format/format_locked edits, via a SQL
+  `INSERT ... ON CONFLICT DO UPDATE ... COALESCE(...) || $2::jsonb` merge (fine for its own field,
+  blind to any envelope).
+- `pipeline_executor._run_channel_formula_thumbnail`'s thumbnail_blueprint cache — the same kind of
+  SQL `||` merge, best-effort (wrapped in try/except, "cache is a bonus").
+
+No record of WHO set a field, WHEN, or what it replaced. `identity.py::build_identity_context` was
+named in the chunk brief as a reader to guard, but it turns out its SQL never selects
+`channel_identity` at all (it reads `channel_name`/`niche`/`target_audience`/`style_description`/
+`frameworks` off channel_profiles directly) — so it was already structurally safe; pinned with a test
+so a future refactor can't start leaking the envelope through it.
+
+### The fix: one shared helper, three migrated writers
+
+New `storyengine/backend/channel_dna_meta.py` — the ONE place that mutates the JSONB from now on:
+- `stamp_identity_write(identity, fields, learner, confidence=None) -> dict` — read-modify-write
+  merge. Core contract (quoting the module): *"every field NOT passed in `fields` (including ones
+  from a DIFFERENT writer ...) is preserved byte-for-byte; the envelope itself (`_sources`,
+  `_history`) is preserved and extended, never clobbered; a write can never smuggle new content INTO
+  the envelope keys."* Adds `_sources: {field: {learner, at, confidence}}` (stamped for every touched
+  field, even a no-op re-confirmation) and appends one `_history` entry (`{at, learner,
+  fields_changed, previous}`) only when a value actually changed, capped at `HISTORY_LIMIT = 20`
+  (oldest dropped first).
+- `field_provenance(identity, field)` / `restore_field(identity, field, history_index)` — read one
+  field's provenance, or undo a specific historical change (itself stamped `learner="restore"`, so
+  it's provenance-tracked and reversible in turn).
+- `coerce_identity(raw)` — the asyncpg-no-codec JSONB-as-string normalizer, deduplicated out of
+  `channel_format._identity` and reused by every writer.
+
+All three writers now fetch the current `channel_identity`, call `stamp_identity_write`, and do a
+plain `channel_identity = $N::jsonb` UPDATE with the merged result (Python-side merge replaces the
+old SQL `||`/blind-overwrite approaches). `pipeline_executor`'s cache write was extracted to a
+module-level `_cache_channel_thumbnail_blueprint()` function (was inline in a method) so it's
+independently unit-testable without invoking the surrounding thumbnail-generation method.
+
+### Verify
+
+19 new tests in `storyengine/backend/tests/test_channel_dna_meta.py`: helper unit tests (stamp/
+provenance/restore/history-bound/full identity_builder-shaped write), a reader byte-identity test
+(`build_identity_context_from_rows` produces an identical `IdentityContext` with or without an
+envelope-carrying `channel_identity` key on the row), and one merge test PER real writer
+(monkeypatched `fetch_one`/`execute`, no live DB) proving each one's update preserves the OTHER two
+writers' fields + provenance + history. Non-vacuous: `git stash` of the three modified writer files
+(keeping the new helper + test file) reproduces exactly 3 failures (the per-writer merge tests) and
+16 passes (the pure-helper/reader tests, unaffected by the writers) — confirmed live.
+
+**Full backend suite**: `./venv/bin/python -m pytest tests/ -q` → **1319 passed** (1300 baseline + 19
+new C40 tests) **/ 15 pre-existing failures / 1 pre-existing error** — matches the documented
+baseline exactly, zero new failures. `py_compile` clean on all touched `.py` files.
+
+### Modified/New Files (C40)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/channel_dna_meta.py` | NEW — `stamp_identity_write`, `field_provenance`, `restore_field`, `coerce_identity` |
+| `storyengine/backend/identity_builder.py` | `build_channel_identity`'s final write now fetches current `channel_identity`, merges via `stamp_identity_write`, writes `$3::jsonb` instead of a blind `$3` overwrite |
+| `storyengine/backend/channel_format.py` | `_identity()` now delegates to `coerce_identity`; `set_channel_format` fetches the FULL current identity (not just the format sub-fields), merges via `stamp_identity_write`, writes a plain `$2::jsonb` (SQL `||` merge removed — Python already merged) |
+| `storyengine/backend/pipeline_executor.py` | New module-level `_cache_channel_thumbnail_blueprint()` (above `class PipelineExecutor`) replaces the inline SQL `||` cache write in `_run_channel_formula_thumbnail` |
+| `storyengine/backend/tests/test_channel_dna_meta.py` | NEW — 19 tests |
+
+### Deploy-safety assessment
+
+No new table, no migration (JSONB shape change only, per checklist C40 `[D]`) — nothing to apply on
+deploy. All three writers' PUBLIC behavior is unchanged (`set_channel_format` still returns the same
+`fmt` dict, `build_channel_identity` still returns the same `identity` dict, the thumbnail cache still
+caches the same blueprint string) — only the JSONB actually persisted grows two extra top-level keys
+that every real reader already ignores structurally (they pluck specific known keys, never iterate).
+Existing rows with no `_sources`/`_history` keys degrade gracefully (`coerce_identity`/
+`stamp_identity_write` treat a missing envelope as empty and start one on the next write) — no
+backfill needed. Frontend untouched (backend-only diff, confirmed via `git diff --stat`). Safe to
+ff-merge.
+
+**Next chunk: C41 · P4.1b unified ingestion orchestrator** (`channel_dna.py::learn_channel` sequencing
+the existing learners) — see `tasks/todo.md` handoff.

@@ -15,6 +15,11 @@ import logging
 from typing import Any, Optional
 
 from database import execute, fetch_one
+# Provenance envelope (checklist C40) — read-modify-write through this so an
+# identity_builder rebuild (or another writer) can never clobber this
+# module's visual_format/format_locked, and the edit itself gets a
+# _sources/_history stamp.
+from channel_dna_meta import coerce_identity, stamp_identity_write
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +27,7 @@ FORMAT_FIELDS = ("style", "motion", "segmentation", "on_camera")
 
 
 def _identity(row) -> dict:
-    ci = (row or {}).get("channel_identity")
-    if isinstance(ci, str):
-        try:
-            ci = json.loads(ci)
-        except (ValueError, TypeError):
-            ci = {}
-    return ci if isinstance(ci, dict) else {}
+    return coerce_identity((row or {}).get("channel_identity"))
 
 
 async def get_channel_format(tenant_id) -> tuple[dict, bool]:
@@ -44,18 +43,23 @@ async def get_channel_format(tenant_id) -> tuple[dict, bool]:
 async def set_channel_format(tenant_id, fields: dict[str, Any]) -> dict:
     """Merge the given format fields into visual_format and lock it. Returns
     the merged visual_format."""
-    fmt, _ = await get_channel_format(tenant_id)
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id = $1", tenant_id
+    )
+    current = _identity(row)
+    fmt = dict(current.get("visual_format") or {})
     for k in FORMAT_FIELDS:
         if fields.get(k) is not None and str(fields[k]).strip():
             fmt[k] = str(fields[k]).strip()[:200]
-    payload = json.dumps({"visual_format": fmt, "format_locked": True})
+    merged = stamp_identity_write(
+        current, {"visual_format": fmt, "format_locked": True}, learner="channel_format"
+    )
     await execute(
         """INSERT INTO channel_profiles (tenant_id, channel_identity)
            VALUES ($1, $2::jsonb)
-           ON CONFLICT (tenant_id) DO UPDATE SET channel_identity =
-               COALESCE(channel_profiles.channel_identity, '{}'::jsonb) || $2::jsonb,
+           ON CONFLICT (tenant_id) DO UPDATE SET channel_identity = $2::jsonb,
                updated_at = now()""",
-        tenant_id, payload,
+        tenant_id, json.dumps(merged),
     )
     return fmt
 

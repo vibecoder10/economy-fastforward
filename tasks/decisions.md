@@ -275,3 +275,36 @@ it" — the ultimate-YouTuber-tool pitch.
    entries; the storyboard pipeline stage and the in-page Storyboard tab are untouched. → micro
    chunk C39.
 5. Deploy timing: not yet answered — remains open.
+
+## 2026-07-19 — C40 Channel DNA provenance envelope: Python read-modify-write, not SQL merge (worker, implementation-level)
+
+**Decision:** `channel_dna_meta.stamp_identity_write()` fetches the CURRENT `channel_identity` JSONB,
+merges in Python, and writes back a plain `channel_identity = $N::jsonb` replace — not a SQL-side
+`jsonb_set`/`||` merge. Two of the three pre-existing writers (`channel_format.set_channel_format`,
+`pipeline_executor`'s thumbnail_blueprint cache) used to do the merge atomically in SQL
+(`COALESCE(...) || $2::jsonb`); the third (`identity_builder.build_channel_identity`) did a blind
+overwrite. All three now go through the same read-then-merge-then-write shape.
+
+**Context:** The provenance envelope needs dict-of-dicts merging (`_sources`) and bounded-array
+append-with-eviction (`_history`, cap 20) — both awkward/unreadable in raw `jsonb_set` SQL, trivial
+in Python, and this is where all the unit-testable logic (stamp/provenance/restore) needs to live
+for C40's `[V]` (non-vacuous tests, no live DB). The tradeoff: a fetch-then-write pair is not atomic,
+so two concurrent writers on the same tenant could race (last write wins for whichever field the
+loser touched) — a narrower window than before for channel_format/thumbnail_blueprint (previously
+atomic), unchanged for identity_builder (was never atomic-safe against other writers to begin with,
+since it blind-overwrote regardless).
+
+**Alternatives considered:** (1) Keep SQL-side merges and bolt provenance on via nested
+`jsonb_set(jsonb_set(...))` calls — rejected, unreadable and untestable without a live DB. (2)
+`SELECT ... FOR UPDATE` row lock around the fetch+write — rejected as scope creep for a `[D]` "no
+migration expected, JSONB shape change only" chunk; these three writers are low-frequency
+(identity rebuild is an explicit chat action, format lock is a one-time chat edit, thumbnail cache
+writes once and then short-circuits on cache hit), so the race window is real but low-odds and not
+worth new locking infra here.
+
+**Why this won:** Matches the checklist's own "simplicity-first, reversible" framing for the
+envelope choice itself; keeps 100% of the provenance logic pure-Python and unit-testable per `[V]`;
+if concurrent-write races on this column become a real problem later (e.g. once C41's ingestion
+orchestrator can run multiple learners writing distinct fields close together), the fix is additive
+(a row lock or an advisory lock keyed on tenant_id) — flagging for whoever builds C41+ to watch, not
+blocking this chunk on it.

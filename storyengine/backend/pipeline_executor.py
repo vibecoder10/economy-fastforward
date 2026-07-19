@@ -6207,6 +6207,29 @@ def _resolve_script_profile_id(idea: dict) -> str:
     return (idea.get(IdeaFields.SCRIPT_PROFILE) or "").strip() or "neutral_v1"
 
 
+async def _cache_channel_thumbnail_blueprint(tenant_id: str, blueprint: str) -> None:
+    """Cache a freshly-extracted thumbnail_blueprint onto channel_identity.
+
+    Checklist C40: read-modify-write through the shared provenance helper
+    (module-level, not a method, so it's independently unit-testable) so this
+    best-effort cache write can never clobber identity_builder's fields,
+    channel_format's visual_format/format_locked, or the _sources/_history
+    envelope — this used to be a SQL `||` merge, which was fine for THIS one
+    field but blind to the envelope."""
+    import json as _json
+    from channel_dna_meta import coerce_identity, stamp_identity_write
+
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id = $1", tenant_id)
+    current = coerce_identity((row or {}).get("channel_identity"))
+    merged = stamp_identity_write(
+        current, {"thumbnail_blueprint": blueprint}, learner="thumbnail_formula"
+    )
+    await execute(
+        "UPDATE channel_profiles SET channel_identity = $2::jsonb "
+        "WHERE tenant_id = $1", tenant_id, _json.dumps(merged))
+
+
 class PipelineExecutor:
     """Executes pipeline stages with StoryEngine integration.
 
@@ -14389,11 +14412,12 @@ separate scenes."""
             if not (blueprint or "").strip():
                 return None
             try:
-                await execute(
-                    "UPDATE channel_profiles SET channel_identity = "
-                    "COALESCE(channel_identity, '{}'::jsonb) || "
-                    "jsonb_build_object('thumbnail_blueprint', $2::text) "
-                    "WHERE tenant_id = $1", self.tenant_id, blueprint)
+                # Checklist C40: routes through the shared provenance helper
+                # (module-level _cache_channel_thumbnail_blueprint, above the
+                # class) so this best-effort cache write can never clobber
+                # identity_builder's fields, channel_format's visual_format/
+                # format_locked, or the _sources/_history envelope.
+                await _cache_channel_thumbnail_blueprint(self.tenant_id, blueprint)
             except Exception:  # noqa: BLE001 — cache is a bonus
                 pass
 
