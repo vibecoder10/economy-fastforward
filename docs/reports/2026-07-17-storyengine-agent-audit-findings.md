@@ -224,3 +224,32 @@ point with a regression test; dev bypass needs DEV_TOKEN+DEV_MODE. The proxy is 
 - **S5-7 MED — /api/health/detailed fails OPEN when HEALTH_TOKEN unset** (main.py:659-669). Fail closed. → C25b
 - **S5-8 LOW — vault plaintext fallback when SECRETS_MASTER_KEY unset** (vault.py:64-66, documented).
   CONFIRM the env var is actually set in prod before C26 widens DB-leak blast radius. → live queue (VPS check)
+
+---
+
+# S10 · Multi-tenant branding sweep (C34, 2026-07-19) — findings
+
+**Verdict: 3 fix chunks (C34a upload-fallback FIRST AND ALONE; C34b voice+Slack; C34c thumbnail/title/category).**
+Clean: the native SEO/upload path (youtube_publish.py), engine_templates/identity/prompt_defaults (regression-tested
+de-branded), script/visual profiles (neutral defaults, C24-pinned), frontend copy. All leaks are LEGACY FALLBACKS.
+
+- **S10-1 HIGH/CRITICAL — upload fallback ships a tenant's video onto Ryan's own channel.** `pipeline_executor.py
+  :15201-15227` run_upload falls through to the legacy bot when `channel_profiles.youtube_refresh_token` is NULL
+  (no gate in routes/pipeline.py:2085-2124). Legacy `upload/seo_generator.py:16/28/41/207` hardcodes
+  @Power_Doctrine subscribe CTA + #PowerDoctrine hashtags + "geopolitics channel" SEO prompt, written into the
+  TENANT'S videos row; `upload/youtube_uploader.py:30-33,43` uses the SHARED VPS OAuth token files (Ryan's channel,
+  category 25) and BYPASSES the C33 quota guard. Fix: delete the fallback branch / hard-block with "connect your
+  YouTube channel first". → C34a
+- **S10-2 HIGH — default ElevenLabs voice is Ryan's cloned voice** (`pipeline_constants.py:415` G17SuINrv2H9FC6nvetn;
+  executor restores process default when no vault override, pipeline_executor.py:6245-6279). Fix: explicit voice
+  choice at onboarding, stock-voice default. → C34b
+- **S10-3 MED — SlackClient posts tenant content to Ryan's workspace** (slack_client.py:17 C0A9U1X8NSW, global env
+  token; thumbnail/run.py + upload/run.py post tenant titles/thumbnails/URLs). Fix: no-op Slack for SaaS tenant
+  runs. → C34b
+- **S10-4 HIGH — thumbnail fallback template is a geopolitical world map** (`thumbnail/selector.py` Template A
+  default + geo keyword vocabulary; reachable for any new tenant without channel_videos history via
+  pipeline_executor.py:14838-14851). Fix: niche-neutral default / select via tenant niche. → C34c
+- **S10-5 LOW-MED — title_generator.py:41 hardcoded "Economy FastForward finance channel" system prompt** —
+  shadowed today by _load_prompt_overrides but an unguarded regression trap. Fix: neutral default at source. → C34c
+- **S10-6 MED — computed YouTube category silently dropped** (`youtube_publish.py` computes category_id in SEO,
+  then always uploads _DEFAULT_CATEGORY "27"). Fix: persist + pass through. → C34c
