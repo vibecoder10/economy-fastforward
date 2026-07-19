@@ -341,3 +341,18 @@ the new index only ever matches NULL rows the old index never matched) — zero 
 CRITICAL video-scoped guarantee, confirmed by running `generation_claims`' own test file after the
 migration. Same acquire/release/stale-sweep/fail-closed discipline as the proven video-scoped code,
 just re-keyed on `(tenant_id, stage)` instead of `(tenant_id, video_id, stage)`.
+
+## 2026-07-19 — C46 APPROVED with an ADDITIVITY constraint + the MCP-as-setup-brain insight (Ryan, direct)
+Ryan: yes to C46 (script quality-rules engine), with: "I want to make sure what we're doing is ADDING
+to the enhancement — I have done many extensive sessions trying to dial in the script and the research
+steps. I have done it all through Claude sessions, not through the platform." Constraints and insight:
+1. **C46 must AUDIT-THEN-ABSORB the prior dial-in work before building anything**: the DvsU
+   PLAN→WRITE→EDIT writer restructure (git history, "5/23 pass" checklist state), existing script/
+   research tuning artifacts in-repo (script profiles, tenant_prompt_defaults, script_system_prompt,
+   script_templates, machine-research prompts, GOAL.md/HANDOFF.md at storyengine root), and treat them
+   as the FOUNDATION the rules engine formalizes — never a parallel path that ignores hard-won tuning.
+2. **MCP is the setup brain**: the dial-in itself happened in Claude sessions because Claude-level
+   intelligence is the right tool for CONFIGURATION, not just production. Product implication: the MCP
+   surface should expose the SETUP layer (system prompts, script templates, quality rules, channel DNA
+   read/corrections) so anyone can configure their StoryEngine channel from Claude/any agent without
+   ever using the StoryEngine door — "use Claude to set up StoryEngine" is a first-class path. → C47.
