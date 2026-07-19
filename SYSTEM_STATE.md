@@ -4481,3 +4481,66 @@ paid Anthropic/Kie key in the sandbox) — extended checklist in
 `tasks/live-verification-queue.md` §C21b (both-axes-through-chat, the new
 card's rarity/optionality, the vision classifier's unaffected behavior, and
 the DB-error fail-soft path).
+
+---
+
+## C19b — S9-6 dead-code delete (added 2026-07-19)
+
+**What:** Deleted 13 confirmed-dead frontend files (4,017 lines total) flagged by the S9 sweep
+(`docs/reports/2026-07-17-storyengine-agent-audit-findings.md` §S9-6). Every deletion was
+re-verified fresh with `grep -rn` for both the import path and the bare component/JSX name across
+all of `storyengine/frontend/src` (not just trusted from the prior audit, since code had moved
+since C19a/C21a/C21b touched adjacent files) — zero importers found for any of them.
+
+**Deleted — `components/video-detail/`** (10 of 12 files; the other 2 gained a 3rd live sibling
+since the sweep — see below):
+| File | Lines |
+|------|-------|
+| `info-tab.tsx` | 348 |
+| `panel-magnifier.tsx` | 28 |
+| `performance-tab.tsx` | 182 |
+| `pipeline-action-bar.tsx` | 114 |
+| `scene-editor.tsx` | 158 |
+| `script-tab.tsx` | 149 |
+| `segment-list.tsx` | 113 |
+| `stage-advancer.tsx` | 227 |
+| `storyboard-viewer.tsx` | 514 |
+| `thumbnail-tab.tsx` | 195 |
+
+**Kept in `video-detail/` (3, not 2 — re-verified live):** `cost-ledger-chip.tsx` (imported by
+`app/pipeline/[videoId]/page.tsx`), `prompt-expander.tsx` and `voice-player.tsx` (both imported by
+`components/production/ScenesWorkspaceTab.tsx`; `prompt-expander.tsx` also by `StoryboardTab.tsx`
+before it was deleted — its only other importer is the still-live ScenesWorkspaceTab, so it stays).
+
+**Deleted — `components/production/`:**
+| File | Lines | Why |
+|------|-------|-----|
+| `ScriptTab.tsx` | 1,114 | Superseded by `ScriptVoiceTab.tsx`; frozen field-name bug; zero importers |
+| `StoryboardTab.tsx` | 350 | Zero importers (confirmed fresh, not just re-trusting C19a's note) |
+| `VoiceReviewTab.tsx` | 525 | Zero importers |
+
+**Kept — `app/pipeline/[videoId]/storyboards/page.tsx` (348 lines): FLAGGED, NOT deleted.**
+The audit called this route orphaned (no in-app `Link`/`router.push` targets it — confirmed by
+grepping every `` `/pipeline/${...}` `` navigation site in the tree; all target the base
+`/pipeline/${id}` page, none append `/storyboards`). But it is NOT undocumented dead weight:
+`storyengine/agents/blueprints/frontend.md`'s route catalog (line 40) still lists it as a real,
+purposeful page ("Full-page storyboard review — scene grids, panel detail modal, extract all"),
+and `docs/reports/WIRING_STATUS.md` (lines 45, 174) marks it WIRED with real backend actions
+(Approve→`advanceVideo`, Regenerate, Extract All). The chunk spec's own instruction was explicit:
+"if the operating docs reference it, flag instead of delete." Both do. Left in place pending a
+follow-up that either (a) confirms the blueprint/WIRING_STATUS entries are stale documentation of
+an already-consolidated route and deletes file + doc entries together, or (b) re-links it from the
+video-detail page's Storyboard tab if it's meant to stay reachable. Not this chunk's call to make
+unilaterally — no code changes needed either way, so leaving it doesn't block anything.
+
+**Verify:** `npx tsc --noEmit` clean. `npm run build` — compiles + typechecks clean with
+`NEXT_PUBLIC_API_URL` set (`Compiled successfully`, `Finished TypeScript`, all 32 routes including
+`/pipeline/[videoId]/storyboards` build); without the env var it fails only at the same
+pre-existing prerender gap every prior frontend chunk hits (`NEXT_PUBLIC_API_URL is required in
+production builds` — unrelated to this change). No backend files touched — backend test suite not
+re-run for this chunk.
+
+**Deploy-safety assessment:** ff-merge candidate. Pure deletion of code with zero live importers,
+proven by fresh grep at delete-time, not by trusting a two-day-old audit. No behavior change for
+any reachable path. The one file NOT deleted (`storyboards/page.tsx`) is left exactly as it was —
+no risk either way.
