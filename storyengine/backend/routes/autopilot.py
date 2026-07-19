@@ -1201,10 +1201,20 @@ async def _do_launch_candidate(candidate, candidate_id, tenant_id, background_ta
             return
         terminal = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
         for _ in range(20):
-            video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
+            # C55 (P4.2-f): SELECT * (not just status) — full_auto_may_continue
+            # needs source/video_title/etc. to decide whether 'rendered' should
+            # really stop this loop.
+            video = await fetch_one("SELECT * FROM videos WHERE id = $1", video_id)
             status = (video or {}).get("status", "")
             if status in terminal:
-                break
+                # 'rendered' is otherwise a human-click-only stop (the Upload
+                # tab) even for auto_draft today — full-auto's contract is to
+                # proceed through finalize+upload, so give it one chance here
+                # before honoring the terminal break. Every other terminal
+                # status (already uploaded/done/published) always breaks.
+                if not (status == "rendered" and await executor.full_auto_may_continue(
+                        video_id, video or {}, "rendered (pre-upload)")):
+                    break
             step_result = await executor.run_next_step(video_id)
             step_status = step_result.get("status", "")
             if step_status in ("failed", "needs_approval", "idle"):

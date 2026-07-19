@@ -9503,3 +9503,129 @@ platform-launched videos (not the whole `channel_videos` table), and the whole b
 `propose_patterns_from_analytics` scan (see "Analysis brain" above), so this is a one-time, self-limiting
 cost rather than a recurring one — but it's still worth flagging as a first-sync cost bump for a
 long-running channel adopting this feature late.
+
+## C55 — full-auto continuation past an approval gate (P4.2-f, added 2026-07-19)
+
+dial=full_auto is supposed to proceed through finalize+upload UNLESS the kill switch is tripped or the
+weekly cap is breached, checked at every stage transition. Two DIFFERENT stop-points needed this, both
+hit by the SAME two pre-existing loops (`routes/autopilot.py`'s and `routes/queue.py`'s
+`_run_full_pipeline` closures, which already call `run_next_step` in a for-cycle) — no new scheduler:
+
+1. The `needs_approval` stop `PipelineExecutor._run_next_step_status_map` produces at the three
+   `APPROVAL_GATE_STATUSES` (`ready_for_voice`/`ready_for_images`/`ready_for_thumbnail`).
+2. A stop the checklist's own framing hadn't named but tracing found: BOTH `_run_full_pipeline` loops
+   hardcode `"rendered"` into their terminal-status set and `break` **before ever calling
+   `run_next_step` again** — so even for `auto_draft` today, a rendered video never reaches
+   `run_upload` without a human's "Upload" click. Full-auto's contract ("proceeds through
+   finalize+upload") is unmet unless this stop is ALSO passed for eligible videos — fixed as part of
+   this chunk, not deferred.
+
+**`storyengine/backend/pipeline_executor.py`** gains the ONE eligibility check both stops share,
+`PipelineExecutor.full_auto_may_continue(video_id, video, checkpoint) -> bool` (public — the loops that
+need it for stop #2 live outside the class):
+- Scope: `video.source` must start with `'autopilot'` — `'autopilot_<channel>'` for a candidate launch
+  (`routes/autopilot.py::_do_launch_candidate`) or `'autopilot_queue'` for an autopilot-drained queue
+  item (see the `routes/queue.py` bullet below). A human-launched video's source never matches, so it
+  always stops, at any dial_level — checked FIRST, before any dial read.
+- `dial_level == 'full_auto'` exactly (`auto_draft`/`propose_only` never continue).
+- `kill_switch_tripped_at IS NULL`.
+- `weekly_budget_cap IS NOT NULL` — C54b's runtime-demotion invariant re-applied at this seam: an
+  elevated dial with no cap is treated as NOT full_auto (logged, never a kill-switch trip).
+- `check_weekly_budget()` says ok — a breach trips the kill switch (C54's law: never a silent pause)
+  and returns False, so the video parks exactly like an ordinary stop; nothing already generated is
+  rolled back.
+- On True: writes ONE `bot_activity` row (`bot_name='autopilot_full_auto'`) per checkpoint passed —
+  attribution that can never be mistaken for a human approval, mirroring
+  `routes/videos.py::advance_video`'s `stage_transitions.triggered_by='user'` (the existing "who
+  approved" record for the images/thumbnail gates).
+
+`_full_auto_continue_past_gate(video_id, video, gate_status)` wraps the eligibility check for stop #1
+and, when eligible, calls `_full_auto_pass_gate` — the gate-specific action a human would otherwise
+trigger, mirroring the real human path exactly (never a parallel status machine):
+- `ready_for_voice`: calls `run_voice()` (which advances the status itself, same as a human's "Generate
+  Voice" click).
+- `ready_for_thumbnail`: calls `run_thumbnail()` ONLY if `thumbnail_url` isn't already set (mirrors the
+  human path's "Generate Thumbnail" then "Approve & Advance"), then advances.
+- `ready_for_images`: advances directly (the human's only remaining action here is "Approve &
+  Advance" — `routes/videos.py::advance_video`). "Advance" means the SAME chokepoint every stage handler
+  already uses (`_update_video_status`, which honors a reduced `pipeline_stages` plan) plus a
+  `stage_transitions` row with `triggered_by='autopilot_full_auto'`.
+
+`_run_next_step_status_map` calls `_full_auto_continue_past_gate` at the exact point it would otherwise
+return `needs_approval` — the only change to that method.
+
+**`storyengine/backend/routes/autopilot.py`** and **`storyengine/backend/routes/queue.py`** — stop #2:
+both `_run_full_pipeline` closures now `SELECT *` (not just `status`) and, when the freshly-read status
+is `'rendered'`, call `executor.full_auto_may_continue(video_id, video, "rendered (pre-upload)")` before
+honoring the terminal break; only when that's False does the loop actually break. Every OTHER terminal
+status (`uploaded`/`uploaded_draft`/`done`/`published`/`failed`) always breaks — upload's own
+skip-if-already-uploaded guard (`run_upload`'s `force=False` default, C16e) means this can never mint a
+second draft even if `run_next_step` gets called after a video is somehow already uploaded.
+
+**`storyengine/backend/routes/queue.py`** — `launch_queue_item` gains an `via: str = "queue"` keyword
+(default unchanged — every human `/next/launch`/`/{item_id}/launch` click). `auto_produce_next` (the
+autopilot queue-drain loop) now passes `via="autopilot_queue"` instead — the ONLY thing that lets
+`full_auto_may_continue`'s scope check tell an autopilot-drained queue launch apart from a manual one
+(both otherwise build an identical video row). The existing cadence/in-flight dedup queries (here and in
+`autopilot_launch.py`) already match `source LIKE 'autopilot%' OR source = 'queue'`, so this rename
+doesn't drop `'autopilot_queue'` rows from either check.
+
+**`storyengine/backend/autopilot_launch.py`** — docstring/comments updated to point at the real
+implementation above (previously said "carrying a full_auto draft through to finalize+upload is C55, not
+this chunk" — now names `full_auto_may_continue`/`_full_auto_continue_past_gate` and where they're
+consulted). No logic change in this file — `full_auto` and `auto_draft` still launch identically; the
+difference is entirely downstream, in whether the build continues past the stops.
+
+**`docs/failure-modes.md`** — the "upload" resumability row was stale (claimed "no re-upload guard...
+flagged as a follow-up — not fixed in C16d"); C16e (commit a43110b, prior to this chunk) already added
+the skip-if-done guard for EVERY caller. Corrected during this chunk's audit since C55's item 5 depends
+on that fact being right.
+
+### Verification (C55)
+
+16 new tests (`tests/test_c55_full_auto_continuation.py`): the 5-gate eligibility contract on
+`full_auto_may_continue` (scope short-circuit with proof the dial is never even read, both non-full_auto
+dial levels, kill-switch-tripped, elevated-no-cap-never-trips, budget-breach-trips-and-stops,
+happy-path-with-attribution-row); the real `_run_next_step_status_map` seam (eligible video continues,
+human-launched video with the SAME dial=full_auto still stops, dial-turned-down-mid-build stops);
+`_full_auto_pass_gate`'s three per-gate mechanics (voice calls run_voice, thumbnail generates only if
+missing then advances with the right `triggered_by`, images advances directly); the 'rendered'
+pre-upload stop run via the ACTUAL `routes.autopilot._do_launch_candidate` closure (captured through a
+fake `BackgroundTasks`, then awaited directly — not a reimplementation) for both the eligible-continues
+and ineligible-still-stops cases; and `routes.queue.auto_produce_next`'s source-tagging fix. NON-VACUOUS
+via `git stash` on the 5 touched source files (test file kept): 13 of 16 fail against pre-C55 code (the
+3 "should still stop" tests pass both before and after, correctly — they're regression guards for
+unchanged behavior, not proofs of new behavior). Full backend suite: **1815P/15F/1E** = baseline
+(1799P/15F/1E) + 16 new tests, SAME 15 pre-existing failures (verified by name-diff, not just count) +
+same 1 error, zero new failures. `py_compile` clean on all touched `.py` files. No frontend changes
+(none expected — the dial UI already exists from C54, and the pipeline UI already shows stage progress;
+an auto-continued gate simply never shows an "approval needed" affordance, no code change needed for
+that).
+
+### Modified/New Files (C55)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | NEW `full_auto_may_continue`, `_full_auto_continue_past_gate`, `_full_auto_pass_gate`, `_FULL_AUTO_SOURCE_PREFIX`; `_run_next_step_status_map` calls the continuation check at its `needs_approval` return; `get_next_status_supabase` added to the `status_map` import |
+| `storyengine/backend/routes/autopilot.py` | `_run_full_pipeline` (inside `_do_launch_candidate`) fetches the full video row and consults `full_auto_may_continue` before honoring the `'rendered'` terminal break |
+| `storyengine/backend/routes/queue.py` | `launch_queue_item` gains `via` kwarg (default `'queue'`, unchanged); `auto_produce_next` passes `via='autopilot_queue'`; its own `_run_full_pipeline` gets the same `'rendered'` full-auto check as autopilot.py's |
+| `storyengine/backend/autopilot_launch.py` | Docstring/comments only — points at the real C55 implementation |
+| `docs/failure-modes.md` | Corrected the stale "upload has no re-upload guard" row (fixed since C16e) |
+| `storyengine/backend/tests/test_c55_full_auto_continuation.py` | NEW — 16 tests |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate — but see the live-verification-queue recipe before ever setting a real
+tenant to full_auto.** Every existing tenant/video is provably unaffected on the default path:
+`full_auto_may_continue` returns `False` at the very first check (`video.source` prefix) for every video
+that isn't autopilot-launched — which is 100% of videos today outside of C51's candidate/queue-autopilot
+paths, since `dial_level` defaults to `'propose_only'` and no tenant has ever set `full_auto` (the dial
+UI only shipped the 3-option selector in C54; nothing before this chunk could even reach `full_auto`
+behavior, since `full_auto` and `auto_draft` were identical until now). For a tenant who HAS explicitly
+dialed to `full_auto` with a cap set, this chunk is the intended, requested behavior change — not an
+accidental one — and every dial/kill-switch/budget invariant from C50/C54/C54b is re-checked fresh at
+every checkpoint, so a human can stop it at any time via the existing kill-switch/dial UI. Money-path
+risk is bounded by the SAME weekly cap C54 already enforces, re-checked at each of the (at most) 4
+checkpoints a build can cross (voice, images, thumbnail, pre-upload) — not a new spend surface, just
+removing the human click between existing paid stages for a tenant who asked for that. Backend-only
+change; no frontend deploy needed.

@@ -25,9 +25,16 @@ get_autopilot_dial``) — this is the FIRST real reader of ``dial_level``:
   construction, not by an if-check that could be gotten wrong.
 - ``dial_level in ('auto_draft', 'full_auto')`` -> calls the EXISTING
   ``routes.autopilot.launch_candidate`` verbatim (same gates, same
-  needs_approval stop as a manual click today). ``full_auto`` is treated
-  identically to ``auto_draft`` here — carrying a draft through to
-  finalize+upload unattended is checklist C55, not this chunk. C54 (P4.2-e)
+  needs_approval stop as a manual click today, the SAME launch call either
+  way). ``full_auto`` and ``auto_draft`` launch identically — the
+  difference is entirely downstream, in whether the build CONTINUES past
+  the needs_approval stops: ``pipeline_executor.py``'s
+  ``PipelineExecutor.full_auto_may_continue`` /
+  ``_full_auto_continue_past_gate`` (checklist C55, P4.2-f), consulted at
+  every APPROVAL_GATE_STATUSES gate and again at the pre-upload 'rendered'
+  stop in this module's own caller loop
+  (``routes.autopilot._do_launch_candidate``'s ``_run_full_pipeline`` and
+  ``routes.queue.launch_queue_item``'s). C54 (P4.2-e)
   adds one more gate on THIS branch only, immediately before the launch
   call: ``autopilot_dial.check_weekly_budget`` — a breach trips the kill
   switch and returns None instead of launching. propose_only never reaches
@@ -209,10 +216,13 @@ async def auto_launch_best_candidate(tenant_id: str) -> Optional[dict]:
             "message": "Candidate scored and proposed (propose-only) — no video created, no spend.",
         }
 
-    # dial_level == 'auto_draft' (or 'full_auto', treated identically here —
-    # carrying a full_auto draft through to finalize+upload is C55, not this
-    # chunk). Calls the EXISTING launch path verbatim; all its gates
-    # (already-launched check, needs_approval stop) apply unchanged.
+    # dial_level == 'auto_draft' (or 'full_auto', launched identically here).
+    # Calls the EXISTING launch path verbatim; all its gates (already-launched
+    # check, needs_approval stop) apply unchanged. Carrying a full_auto draft
+    # through to finalize+upload unattended is checklist C55 (P4.2-f) — see
+    # PipelineExecutor.full_auto_may_continue, consulted inside
+    # routes.autopilot._do_launch_candidate's own pipeline loop below THIS
+    # call, not here (this function only decides whether to LAUNCH).
     #
     # C54 (P4.2-e): re-check the weekly budget HERE, immediately before
     # launching — not just once at the loop level (main.py::_produce_for_

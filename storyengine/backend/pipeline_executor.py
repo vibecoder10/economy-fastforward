@@ -51,7 +51,7 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 from database import fetch_one, fetch_all, execute
 from generation_ledger import record_ledger_entry
 from error_utils import humanize_error, user_facing
-from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage, resolve_planned_status
+from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage, resolve_planned_status, get_next_status_supabase
 from vault import get_secret
 from extraction import extract_grid
 from storage import upload_from_url
@@ -13322,6 +13322,14 @@ separate scenes."""
         # Check approval gates — block auto-advance at these statuses
         gate_message = self.APPROVAL_GATE_STATUSES.get(current_status)
         if gate_message:
+            # C55 (P4.2-f): this is the ONLY place a needs_approval stop is
+            # produced, so it is the single seam every _run_full_pipeline
+            # loop (routes/autopilot.py, routes/queue.py) already hits —
+            # no new scheduler needed. Full-auto gets ONE chance, right
+            # here, to continue instead of parking.
+            continuation = await self._full_auto_continue_past_gate(video_id, video, current_status)
+            if continuation is not None:
+                return continuation
             return {
                 "status": "needs_approval",
                 "message": gate_message,
@@ -13361,6 +13369,165 @@ separate scenes."""
             }
 
         return await handler(video_id)
+
+    # --- Full-auto continuation past an approval gate (C55, P4.2-f) -------------
+    # dial=full_auto is supposed to proceed through finalize+upload UNLESS the
+    # kill switch is tripped or the weekly cap is breached. Two stop-points
+    # need this, both hit by the SAME pre-existing loops (routes/autopilot.py's
+    # and routes/queue.py's `_run_full_pipeline`, which already call
+    # run_next_step in a for-cycle) — no new scheduler:
+    #   1. The needs_approval stop `_run_next_step_status_map` produces at the
+    #      three APPROVAL_GATE_STATUSES — handled right here via
+    #      `_full_auto_continue_past_gate`, called from that method.
+    #   2. The 'rendered' status, which those two loops treat as terminal
+    #      BEFORE ever calling run_next_step again (so run_upload is never
+    #      reached even for auto_draft today) — handled by the loops calling
+    #      the public `full_auto_may_continue` directly before honoring their
+    #      terminal-status break, since that stop lives outside this class.
+    #
+    # Scope is autopilot-launched videos ONLY: videos.source starts with
+    # 'autopilot' — 'autopilot_<channel>' for a candidate launch
+    # (routes/autopilot.py::_do_launch_candidate) or 'autopilot_queue' for an
+    # autopilot-drained queue item (routes/queue.py::auto_produce_next, tagged
+    # distinctly from a human's manual '.../queue/{id}/launch' click, which
+    # keeps plain 'queue' — see routes/queue.py for why the two needed to be
+    # told apart). A human-launched video's source NEVER matches this prefix,
+    # so it always stops at the gate, at any dial_level, exactly as today.
+    _FULL_AUTO_SOURCE_PREFIX = "autopilot"
+
+    async def full_auto_may_continue(self, video_id: str, video: dict, checkpoint: str) -> bool:
+        """The ONE eligibility check for continuing an autopilot-launched
+        build past ANY stop-point full-auto is meant to sail through —
+        the three APPROVAL_GATE_STATUSES gates below via
+        `_full_auto_continue_past_gate`, AND the 'rendered' stop
+        routes/autopilot.py's and routes/queue.py's `_run_full_pipeline`
+        loops treat as terminal today (upload is otherwise a human-click-only
+        step exactly like the approval gates in spirit — it's just
+        implemented as a loop-level terminal-status set instead of
+        APPROVAL_GATE_STATUSES, so it needs the SAME check, called from the
+        loop instead of from here). Public (no leading underscore) because
+        those two loops live outside this class.
+
+        True iff ALL of:
+          1. video.source starts with 'autopilot' (scope — see the class
+             comment above `_FULL_AUTO_SOURCE_PREFIX`). A human-launched
+             video's source never matches, so it always returns False here.
+          2. dial_level == 'full_auto' EXACTLY (auto_draft/propose_only never
+             continue past a checkpoint — unchanged from before this chunk).
+          3. kill_switch_tripped_at IS NULL.
+          4. weekly_budget_cap IS NOT NULL — C54b's runtime demotion: an
+             elevated dial with no cap is treated as NOT full_auto here too
+             (never a free pass just because the writer-side invariant was
+             somehow bypassed).
+          5. check_weekly_budget() says ok. A breach trips the kill switch
+             (C54's law — never a silent pause) and this returns False, so
+             the video parks at the checkpoint exactly like a normal
+             needs_approval/terminal stop; nothing already generated is
+             rolled back.
+
+        The dial is re-read fresh on every call (every checkpoint, every
+        tick) — never frozen at launch — so turning the dial down mid-build
+        takes effect at the very next checkpoint the build reaches.
+
+        Logs ONE bot_activity attribution row (contract item 4) whenever it
+        returns True — under a bot_name that can never be mistaken for a
+        human approval, mirroring routes/videos.py::advance_video's
+        stage_transitions.triggered_by='user' (the existing "who approved"
+        record for the images/thumbnail gates)."""
+        source = str(video.get("source") or "")
+        if not source.startswith(self._FULL_AUTO_SOURCE_PREFIX):
+            return False
+
+        from autopilot_dial import check_weekly_budget, get_autopilot_dial, trip_kill_switch
+
+        try:
+            dial = await get_autopilot_dial(self.tenant_id)
+        except Exception:
+            _logger.exception(
+                "[FullAuto] Tenant %s: dial read failed — stopping at %s",
+                str(self.tenant_id)[:8], checkpoint)
+            return False
+
+        if dial.dial_level != "full_auto":
+            return False
+        if dial.kill_switch_tripped_at is not None:
+            return False
+        if dial.weekly_budget_cap is None:
+            _logger.warning(
+                "[FullAuto] Tenant %s: dial_level=full_auto but no weekly_budget_cap "
+                "set — config anomaly, treating as NOT full_auto (stopping at %s)",
+                str(self.tenant_id)[:8], checkpoint)
+            return False
+
+        try:
+            ok, spent, cap = await check_weekly_budget(self.tenant_id)
+        except Exception:
+            _logger.exception(
+                "[FullAuto] Tenant %s: budget check failed — stopping at %s",
+                str(self.tenant_id)[:8], checkpoint)
+            return False
+        if not ok:
+            reason = f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f})"
+            await trip_kill_switch(self.tenant_id, reason)
+            _logger.warning(
+                "[FullAuto] Tenant %s: %s — stopped at %s", str(self.tenant_id)[:8], reason, checkpoint)
+            return False
+
+        await self._log_activity(
+            "autopilot_full_auto", video_id, "completed",
+            f"Full-auto continued past {checkpoint} for "
+            f"{video.get('video_title') or video_id}",
+        )
+        return True
+
+    async def _full_auto_continue_past_gate(
+        self, video_id: str, video: dict, gate_status: str
+    ) -> Optional[dict]:
+        """Returns a run_next_step-shaped dict (so the caller's loop just
+        keeps going) when full-auto legitimately continues past this
+        APPROVAL_GATE_STATUSES gate; None means "stop at the gate exactly
+        like today" (see `full_auto_may_continue` for the eligibility
+        contract this defers to)."""
+        if not await self.full_auto_may_continue(video_id, video, gate_status):
+            return None
+        return await self._full_auto_pass_gate(video_id, gate_status, video)
+
+    async def _full_auto_pass_gate(self, video_id: str, gate_status: str, video: dict) -> dict:
+        """The gate-specific action a human would otherwise have to trigger —
+        mirrors the real human path for each gate exactly, never a parallel
+        status machine:
+
+          - ready_for_voice: a human clicks "Generate Voice", which calls
+            run_voice() — run_voice ADVANCES THE STATUS ITSELF on success
+            (to ready_for_image_prompts or wherever the video's reduced
+            stage plan reroutes it). Full-auto does the identical call.
+          - ready_for_thumbnail: a human clicks "Generate Thumbnail"
+            (run_thumbnail — deliberately does NOT advance, so Regenerate
+            keeps working) then "Approve & Advance". Mirrored as
+            run_thumbnail (skip-if-already-generated, same as the human
+            path) followed by the same advance as ready_for_images below.
+          - ready_for_images: the human's only remaining action is
+            "Approve & Advance" (routes/videos.py::advance_video). Mirrored
+            here via the SAME status-advance chokepoint every stage handler
+            already uses (self._update_video_status, which honors a reduced
+            pipeline_stages plan) plus a stage_transitions row.
+        """
+        if gate_status == "ready_for_voice":
+            return await self.run_voice(video_id)
+
+        if gate_status == "ready_for_thumbnail":
+            if not (video.get("thumbnail_url") or "").strip():
+                r = await self.run_thumbnail(video_id)
+                if r.get("status") == "failed":
+                    return r
+
+        next_status = get_next_status_supabase(gate_status)
+        if not next_status:
+            return {"status": "idle", "message": f"No next stage after {gate_status}."}
+        await self._update_video_status(video_id, next_status, video)
+        await self._log_transition(
+            video_id, gate_status, next_status, triggered_by="autopilot_full_auto")
+        return {"status": next_status, "video_id": video_id}
 
     # --- Unified live image path (GOAL v2 Phase 0) ------------------------------
     # The coverage flow (scripts/coverage_to_app.py) is the single live image

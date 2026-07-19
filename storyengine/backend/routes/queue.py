@@ -159,11 +159,23 @@ async def _unclaim(tenant_id, item_id) -> None:
     )
 
 
-async def launch_queue_item(tenant_id, item: dict, background_tasks=None) -> dict:
+async def launch_queue_item(tenant_id, item: dict, background_tasks=None, *, via: str = "queue") -> dict:
     """Create the video for a CLAIMED queue item and start the pipeline —
     the queue mirror of autopilot's launch_candidate (same video shape, same
     learnings guidance, same run_research -> run_next_step loop). On any
-    failure before the pipeline starts, the item is un-claimed."""
+    failure before the pipeline starts, the item is un-claimed.
+
+    `via` (C55, P4.2-f): the video's `source` value. Defaults to the
+    pre-existing 'queue' (every human `/next/launch` and `/{item_id}/launch`
+    click, unchanged). `auto_produce_next` below passes 'autopilot_queue'
+    instead — the ONLY thing that tells an autopilot-drained queue launch
+    apart from a manual one (both otherwise build an identical video row),
+    which pipeline_executor.py's full-auto continuation gates on
+    (`source` must start with 'autopilot'). Cadence/in-flight dedup queries
+    here and in autopilot_launch.py already match `source LIKE 'autopilot%'`
+    OR `source = 'queue'`, so this rename doesn't drop 'autopilot_queue' rows
+    from either check.
+    """
     item_id = str(item["id"])
     try:
         # Proven channel patterns ride into the script stage, same as autopilot.
@@ -192,7 +204,7 @@ async def launch_queue_item(tenant_id, item: dict, background_tasks=None) -> dic
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
             RETURNING id""",
             tenant_id, str(project["id"]), item["title"], "idea_logged",
-            item["title"], "queue",
+            item["title"], via,
             item.get("framework_angle"), item.get("writer_guidance"),
             learnings_text or None,
         )
@@ -226,10 +238,21 @@ async def launch_queue_item(tenant_id, item: dict, background_tasks=None) -> dic
         if res.get("status") == "failed":
             return
         for _ in range(20):
-            video = await fetch_one("SELECT status FROM videos WHERE id = $1", video_id)
+            # C55 (P4.2-f): SELECT * (not just status) — full_auto_may_continue
+            # needs source/video_title/etc. to decide whether 'rendered' should
+            # really stop this loop.
+            video = await fetch_one("SELECT * FROM videos WHERE id = $1", video_id)
             status = (video or {}).get("status", "")
             if status in TERMINAL_STATUSES:
-                break
+                # 'rendered' is otherwise a human-click-only stop (the Upload
+                # tab) even for a plain queue launch today — full-auto's
+                # contract is to proceed through finalize+upload, so give it
+                # one chance here before honoring the terminal break. Every
+                # other terminal status (failed/already uploaded/done/
+                # published) always breaks.
+                if not (status == "rendered" and await executor.full_auto_may_continue(
+                        video_id, video or {}, "rendered (pre-upload)")):
+                    break
             step_result = await executor.run_next_step(video_id)
             if step_result.get("status", "") in ("failed", "needs_approval", "idle"):
                 break
@@ -301,7 +324,7 @@ async def auto_produce_next(tenant_id) -> Optional[dict]:
     item = await _claim_next(tenant_id)
     if not item:
         return None
-    return await launch_queue_item(tenant_id, item)
+    return await launch_queue_item(tenant_id, item, via="autopilot_queue")
 
 
 # --- routes ------------------------------------------------------------------

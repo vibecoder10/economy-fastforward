@@ -2759,6 +2759,79 @@ tapped against a real `channel_patterns` row.
 
 ---
 
+## C55 — full-auto continuation past an approval gate (P4.2-f) · needs a real tenant, a live DB, and REAL MONEY awareness — read this whole section before flipping the dial
+
+**This is the chunk that lets a tenant's money spend all the way to a YouTube draft with zero clicks.**
+Everything is proven at unit/code-trace level in the sandbox (SYSTEM_STATE.md §C55 — 16 new tests,
+non-vacuous via `git stash`; full suite 1815P/15F/1E, zero new vs. the 1799P/15F/1E baseline) — the
+sandbox has no `DATABASE_URL`, no Kie/ElevenLabs key, and no route to the VPS, so no real dial has ever
+actually been set to `full_auto` and watched run. Do NOT skip straight to a real tenant's channel —
+follow the supervised recipe below first.
+
+### 🔦 First supervised full-auto run (do this BEFORE trusting the feature with a real channel)
+
+1. **Pick (or make) a throwaway/test tenant.** Not Ryan's real channel's tenant for run #1.
+2. **Set the cheapest possible model routing first** (`channel_profiles`/`render_style` — z-image for
+   pictures if wired, Grok Imagine 720p for clips, the shortest `video_length_minutes` the UI allows) so
+   a full unattended run costs cents, not dollars, if something goes wrong.
+3. **Set a $5 weekly_budget_cap** via `/autopilot`'s Autonomy & Budget card (or
+   `POST /api/autopilot/config {"weekly_budget_cap": 5}`) — small enough that even a runaway loop trips
+   the kill switch after one video's worth of spend, not a month's.
+4. **Set dial_level to `full_auto`** on that same call/screen. Confirm the write actually landed:
+   `se db "SELECT dial_level, weekly_budget_cap FROM autopilot_config WHERE tenant_id='<uuid>'"`.
+5. **Get one autopilot-launched video going** — either let the normal autopilot cadence tick fire
+   (queue drain or candidate scoring, whichever the tenant is set up for), or force one directly:
+   `python -c "import asyncio; from autopilot_launch import auto_launch_best_candidate; ..."`-equivalent,
+   or just wait for the next 30-min `_auto_produce_queue` tick. Confirm the resulting video's `source`
+   starts with `'autopilot'` — `se db "SELECT id, source, status FROM videos WHERE tenant_id='<uuid>' ORDER BY created_at DESC LIMIT 1"`.
+6. **WATCH EVERY GATE — don't walk away.** Tail `bot_activity` for this video in another terminal:
+   `se db "SELECT bot_name, status, message, created_at FROM bot_activity WHERE tenant_id='<uuid>' AND video_id='<video-id>' ORDER BY created_at"`
+   (re-run every minute or two). You should see the normal per-stage bot rows, PLUS one
+   `bot_name='autopilot_full_auto'` row for EACH of: `ready_for_voice`, `ready_for_images`,
+   `ready_for_thumbnail`, and `rendered (pre-upload)` — confirming attribution landed for every gate this
+   build actually crossed (a video whose reduced stage plan skips a gate simply won't have that row,
+   which is correct, not a bug).
+7. **Confirm it actually reaches YouTube.** `se db "SELECT status, youtube_url, youtube_video_id FROM videos WHERE id='<video-id>'"`
+   should end at `status='uploaded_draft'` with both fields set. Open the URL — confirm it's **unlisted**,
+   not public (contract item 6 — this chunk changes nothing about upload visibility).
+8. **Confirm the money math.** `se db "SELECT stage, actual_cost FROM generation_ledger WHERE video_id='<video-id>' ORDER BY created_at"`
+   and total it against the $5 cap — should be well under. Then `se db "SELECT weekly_spend_reset_at FROM autopilot_config WHERE tenant_id='<uuid>'"`
+   to confirm the spend is actually being tracked against that tenant's window.
+9. **Only after all 8 pass on a throwaway tenant** should full_auto be offered/enabled for a real channel,
+   and even then start with a conservative cap.
+
+### Targeted checks (once the recipe above has run clean at least once)
+
+1. **Kill switch stops it mid-build.** While a full_auto video is mid-pipeline, trip the kill switch by
+   hand (`se db --write "UPDATE autopilot_config SET kill_switch_tripped_at=now(), kill_switch_reason='manual test' WHERE tenant_id='<uuid>'"`)
+   and confirm the NEXT gate the build reaches parks as a normal `needs_approval` (check `bot_activity`
+   for the video — no more `autopilot_full_auto` rows appear after the trip) rather than continuing.
+2. **Dial turned down mid-build stops it too.** Same test, but instead of tripping the kill switch,
+   `PATCH` `dial_level` back to `auto_draft` mid-build — confirm the very next gate stops.
+3. **A human-launched video never auto-continues, even at dial=full_auto.** With the tenant still at
+   `full_auto`, launch a video through a normal human door (the Create page, or a manual
+   `/api/queue/{item_id}/launch` click) and confirm it stops at its first approval gate exactly as
+   before this chunk — `source` on that video will be `'discovery_*'`/`'queue'` (plain, not
+   `'autopilot_queue'`), which is the scope check this whole chunk depends on.
+4. **The 'rendered' pre-upload stop specifically.** Confirm a video that reaches `status='rendered'`
+   under `auto_draft` (NOT full_auto) still requires the human's Upload-tab click — this was ALREADY
+   true before C55 (an accidental side-effect of the loop's hardcoded terminal set, not something this
+   chunk introduced), but worth re-confirming it didn't regress for the non-full_auto case.
+5. **Re-upload guard holds for the auto path too.** If a video somehow re-enters `run_upload` after
+   already having a `youtube_video_id` (shouldn't happen in normal flow — this is a belt-and-suspenders
+   check), confirm NO second YouTube draft is created (`run_upload`'s pre-existing C16e guard, which this
+   chunk's auto path reuses verbatim, with no new call site).
+- **Cost:** this chunk adds NO new spend category — it only removes the human click between existing
+  paid stages for a tenant that explicitly opted into `full_auto` with a cap set. The real risk is
+  velocity (a full pipeline running to completion unattended in one sitting instead of paused across
+  several human sessions), which is exactly why the $5-cap supervised recipe above exists.
+- **Safety net:** every invariant (scope/dial/kill-switch/cap) is provably a no-op for every tenant that
+  has never set `dial_level='full_auto'` with a cap — SYSTEM_STATE.md §C55's deploy-safety assessment.
+  A live check that finds "nothing continued past a gate" on an `auto_draft` or `propose_only` tenant is
+  not a failure — it's confirming the default path is unchanged.
+
+---
+
 ## C56 — per-launch pattern flywheel (P4.2-g) · needs a real tenant, a real synced video, and a real sync
 
 Everything is proven at unit level in the sandbox (SYSTEM_STATE.md §C56 — 28 new tests, non-vacuous via
