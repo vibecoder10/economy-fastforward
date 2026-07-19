@@ -16,7 +16,7 @@ import {
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useToast } from "@/components/ui/toast";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import {
   approveCast,
   deleteCharacter,
@@ -39,6 +39,8 @@ import { toDisplayImageUrl } from "@/lib/utils";
 interface CharactersTabProps {
   video: VideoDetail & { id: string };
   onApproved?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a). */
+  taskWatcher: TaskWatcherBridge;
 }
 
 /**
@@ -47,7 +49,7 @@ interface CharactersTabProps {
  * regenerate / edit / upload replacements, then Approve the cast. Approved
  * references lock character appearance across storyboards and images.
  */
-export function CharactersTab({ video, onApproved }: CharactersTabProps) {
+export function CharactersTab({ video, onApproved, taskWatcher }: CharactersTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
@@ -88,10 +90,9 @@ export function CharactersTab({ video, onApproved }: CharactersTabProps) {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
   };
 
-  const { message: taskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: taskRunning,
-    interval: 3000,
     onComplete: (msg) => {
       setTaskRunning(false);
       refresh();

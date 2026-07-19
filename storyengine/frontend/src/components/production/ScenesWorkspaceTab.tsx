@@ -36,7 +36,7 @@ import {
 } from "@/lib/api";
 import type { VideoModelInfo } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
-import { useTaskWatcher } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { Modal } from "@/components/ui/modal";
 import type { VideoDetail, Asset } from "@/lib/api";
@@ -252,9 +252,12 @@ interface ScenesWorkspaceTabProps {
   onGoToEnvironments?: () => void;
   onGoToCharacters?: () => void;
   onAdvanced?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a) — replaces this tab's own
+   * useTaskWatcher so it doesn't duplicate-poll against GuidedNextStep. */
+  taskWatcher: TaskWatcherBridge;
 }
 
-export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onGoToCharacters, onAdvanced }: ScenesWorkspaceTabProps) {
+export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onGoToCharacters, onAdvanced, taskWatcher }: ScenesWorkspaceTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const model = video.video_model || "grok-imagine";
@@ -543,8 +546,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // ALWAYS-ON watcher (lessons, twice): the strip must show whatever holds
   // the video's task slot — banner runs, silent prompt auto-run, recrop
   // chains — not just work this component started.
-  const { running, message: taskMessage, markStarted } = useTaskWatcher({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     onProgress: () => {
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
     },
@@ -592,6 +595,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       refreshAll();
     },
   });
+  const { running, markStarted } = taskWatcher;
 
   // Stop must stand down any queued chain stage: a cancelled task reads as
   // "completed" to pollers, which would otherwise fire the next paid stage.

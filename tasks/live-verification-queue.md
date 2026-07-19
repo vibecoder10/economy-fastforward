@@ -1473,6 +1473,56 @@ the sandbox.
 
 ---
 
+## C19a — task-watcher consolidation + GuidedNextStep price source
+(§S9-1/S9-2/S9-8, gate before C21) · live click-through check
+
+Frontend-only refactor, verified so far by `tsc --noEmit` + `npm run build`
+(compile+typecheck clean) and grep-proofs (exactly one `useTaskWatcher(`
+mount, `useSharedTaskWatcher(` in all 9 live consumers). No frontend
+unit-test harness exists in this repo, so none of the following was driven
+through a real running build this session — do this on the next dev-server
+pass before/alongside a `--with-frontend` deploy.
+
+- [ ] **One build running → banner + tab both reflect progress.** Kick off
+      any pipeline stage from a tab (e.g. Sound tab → "Generate All SFX").
+      Confirm: (a) GuidedNextStep's banner (visible once you switch to a
+      non-Scenes tab) shows "running" state within ~3s, not stale; (b) the
+      Sound tab's own button shows its "Generating…" state; (c) open the
+      Network tab — only ONE request to `/api/pipeline/task-status` (or
+      equivalent) fires every ~3s, not two/three concurrent identical ones.
+- [ ] **Completion refreshes assets exactly once, not 2-3x.** Same run — on
+      completion, confirm `video-assets`/`video-script`/`video` queries
+      refetch/invalidate a bounded number of times (watch Network tab or
+      React Query devtools), not visibly duplicated bursts from multiple
+      watchers reacting to the same transition.
+- [ ] **Tab-switch mid-run doesn't lose the banner.** Start a run from the
+      Scenes tab (ScenesWorkspaceTab's own command bar), switch to another
+      tab mid-run — GuidedNextStep's banner should appear and show live
+      progress (it was hidden while Scenes was active, per the existing
+      `currentTab !== "scenes"` guard — unchanged by this chunk).
+- [ ] **GuidedNextStep's clip price is never the $0.30 fallback on a video
+      whose real per-clip price differs.** Open a video with clips pending
+      on a non-default model (e.g. Seedance 2.0) directly via URL (fresh
+      page load, not a client-side nav from another video) — the "Animate
+      scene 1" / "Animate the rest" cost text should show that model's real
+      price immediately, not a stale/fallback number that then jumps a
+      moment later.
+- [ ] **RenderTab's now-faster cadence doesn't do anything surprising.**
+      Start a render, confirm the RenderTab UI updates its progress
+      smoothly (no visible jank from the cadence change from 10s→3s) and
+      that completion is reported once render actually finishes, not early.
+- **Cost:** free — every check above only needs a running pipeline stage on
+  an existing test video; no new paid generation required beyond whatever
+  stage you were already exercising.
+- **Safety net:** if the banner ever looks "stuck" after this change,
+  check whether the tab's local `taskRunning`/equivalent flag ever got set
+  without a matching completion (the `enabled` gate on `useSharedTaskWatcher`
+  is unchanged from the old `useTaskPoller` `enabled` prop, so a stuck flag
+  reproduces a pre-existing bug in that tab, not something this chunk
+  introduced — confirm against `main` before assuming regression).
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

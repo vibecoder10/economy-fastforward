@@ -168,3 +168,69 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
 
   return { running, message, markStarted };
 }
+
+export interface TaskWatcherHandlers {
+  onComplete?: (message?: string | null) => void;
+  onFailed?: (error: string) => void;
+  onProgress?: (message: string | null) => void;
+}
+
+/**
+ * Bridge exposed by the ONE page-level useTaskWatcher (see
+ * pipeline/[videoId]/page.tsx) so GuidedNextStep and every tab can react to
+ * the video's single task slot without each mounting its own 3s poll against
+ * the same getPipelineTaskStatus endpoint (S9-1/C19a — this used to be 2-3
+ * concurrent identical pollers: GuidedNextStep + the active tab + sometimes
+ * page.tsx's own).
+ */
+export interface TaskWatcherBridge {
+  running: boolean;
+  message: string | null;
+  markStarted: () => void;
+  /** Register handlers against the one shared poll stream; returns the
+   * unsubscribe fn. A consumer only hears about completions/failures while
+   * subscribed — see useSharedTaskWatcher's `enabled` gate below, which
+   * mirrors the old per-tab useTaskPoller `enabled` semantics exactly. */
+  subscribe: (handlers: TaskWatcherHandlers) => () => void;
+}
+
+/**
+ * Drop-in replacement for a tab's own useTaskPoller: same enabled-gated
+ * on{Complete,Failed,Progress} contract (a tab only reacts to a task it
+ * believes it started, via its own local `taskRunning`/`enabled` flag), but
+ * it rides the page's ONE shared watcher instead of opening a second 3s
+ * interval against the same endpoint. `enabled` defaults to true for
+ * always-on consumers (GuidedNextStep, ScenesWorkspaceTab) that watch
+ * whatever holds the video's task slot regardless of who started it.
+ */
+export function useSharedTaskWatcher({
+  bridge,
+  enabled = true,
+  onComplete,
+  onFailed,
+  onProgress,
+}: {
+  bridge: TaskWatcherBridge;
+  enabled?: boolean;
+  onComplete?: (message?: string | null) => void;
+  onFailed?: (error: string) => void;
+  onProgress?: (message: string | null) => void;
+}): { message: string | null } {
+  const onCompleteRef = useRef(onComplete);
+  const onFailedRef = useRef(onFailed);
+  const onProgressRef = useRef(onProgress);
+  onCompleteRef.current = onComplete;
+  onFailedRef.current = onFailed;
+  onProgressRef.current = onProgress;
+
+  useEffect(() => {
+    if (!enabled) return;
+    return bridge.subscribe({
+      onComplete: (msg) => onCompleteRef.current?.(msg),
+      onFailed: (err) => onFailedRef.current?.(err),
+      onProgress: (msg) => onProgressRef.current?.(msg),
+    });
+  }, [bridge, enabled]);
+
+  return { message: bridge.message };
+}

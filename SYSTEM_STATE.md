@@ -3993,3 +3993,90 @@ prompts carry its style system" end-to-end check (checklist §2.1's own
 `[V]` line) deferred to `tasks/live-verification-queue.md` §C20 — needs a
 live DB + a real pipeline run, and completes together with C21 once the
 picker UI exists to drive it from.
+
+## C19a — Frontend-state fixes: poll consolidation + price source + redundancy trim (added 2026-07-19)
+
+**Trigger:** §S9 frontend-state sweep (S9-1/S9-2/S9-8), the pre-C21 gate. Frontend-only, no
+new features, no visual changes — a behavior-preserving refactor.
+
+**S9-1 — ONE task watcher per video page.** `pipeline/[videoId]/page.tsx` used to run its own
+gated `useTaskPoller` (Run-Next flow) WHILE `GuidedNextStep` (always-on) and the active tab
+(`ScenesWorkspaceTab` always-on, or one of 7 other tabs gated by their own local `taskRunning`)
+each mounted a SECOND independent `useTaskWatcher`/`useTaskPoller` — up to 3 concurrent 3s
+`setInterval`s hitting `getPipelineTaskStatus` for the same video. Fix: `page.tsx` now owns the
+ONE `useTaskWatcher` call; a new `TaskWatcherBridge` (`{running, message, markStarted, subscribe}`)
+is passed down as a prop to `GuidedNextStep` and all 9 live tabs. A new `useSharedTaskWatcher`
+hook (in `hooks/use-task-poller.ts`) is the drop-in replacement for both the old always-on
+`useTaskWatcher` (GuidedNextStep, ScenesWorkspaceTab — `enabled` defaults `true`) and the old
+gated `useTaskPoller` (7 other tabs — `enabled: <tab's own local taskRunning>`, same semantics as
+before: a tab's `onComplete`/`onFailed` only fires while it believes it started the work, exactly
+like the standalone poller's `enabled` prop used to gate its own interval). Chose **props over
+context**: only 10 direct children of one page component consume the bridge, no deep nesting —
+React Context would add indirection for zero benefit here.
+
+**S9-2 — GuidedNextStep price source.** `getNextAction()` (`lib/next-action.ts`) computed clip
+cost via `clipCost()`, which reads the mutable `CLIP_COST_PER_MODEL` module cache — populated by
+`page.tsx`'s own `useEffect` one render AFTER `videoActions.prices.clip` arrives, so the banner
+could show the `$0.30` fallback (or a previous video's price) on first paint. Fix: `NextActionInputs`
+gained an optional `clipPriceByModel` field; a new `resolveClipCost()` helper prefers it over the
+cache, falling back to `clipCost()` unchanged when absent (so `getNextAction`'s only other would-be
+caller, if one is ever added, keeps the old behavior for free). `GuidedNextStep` now passes
+`videoActions?.prices?.clip` (a query it already ran) straight through — reactive on the SAME
+render the fetch resolves, mirroring `ScenesWorkspaceTab`'s `priceForModel`/`perClip` pattern
+referenced in the finding.
+
+**S9-8 — redundancy trim: decided to KEEP, not drop.** The video page runs 3 freshness mechanisms
+against `["video-assets", videoId]` during a running task: the hoisted watcher's `onProgress`
+invalidation (registered only by `ScenesWorkspaceTab`, only while it's the mounted/active tab),
+`page.tsx`'s own 5s `refetchInterval` (unconditional, every tab, drives the cost estimate), and SSE
+(`onTaskProgress` — fires only on the terminal `"completed"` status, never mid-stage; `onStageChange`
+— fires only on a backend status-string transition). These do NOT cover the same events: the 5s
+interval is the ONLY thing keeping `video-assets` (and the cost estimate) fresh page-wide while a
+non-Scenes tab is active during a running stage. Removing it would go stale under that condition —
+a real regression. Left in place, with the reasoning inline as a comment at the query site
+(`page.tsx`, `costAssets` query).
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/frontend/src/hooks/use-task-poller.ts` | New `TaskWatcherHandlers`/`TaskWatcherBridge` types + `useSharedTaskWatcher()` hook (subscribes to the bridge instead of opening its own interval) |
+| `storyengine/frontend/src/app/pipeline/[videoId]/page.tsx` | Hosts the ONE `useTaskWatcher`; builds the `subscribe`-based bridge; its own Run-Next flow becomes a `useSharedTaskWatcher` subscriber; `taskWatcher` passed to `GuidedNextStep` + all 9 tabs; S9-8 reasoning documented at the `costAssets` query |
+| `storyengine/frontend/src/lib/next-action.ts` | `NextActionInputs.clipPriceByModel` (optional) + `resolveClipCost()` helper; both `clips-taste`/`clips-rest` cost computations use it |
+| `storyengine/frontend/src/components/production/GuidedNextStep.tsx` | Takes `taskWatcher` prop, drops its own `useTaskWatcher`; passes `videoActions.prices.clip` into `getNextAction()` |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | Takes `taskWatcher` prop, drops its own `useTaskWatcher` |
+| `storyengine/frontend/src/components/production/{ResearchTab,ScriptVoiceTab,CharactersTab,EnvironmentsTab,SoundTab,ThumbnailTab,RenderTab}.tsx` | Take `taskWatcher` prop; swap `useTaskPoller` → `useSharedTaskWatcher` (same `enabled`-gated `onComplete`/`onFailed`/`onProgress` bodies, unchanged) |
+
+**Known minor deviation (disclosed, not hidden):** `RenderTab` previously polled at a slower 10s
+cadence (render is a 10-20 minute job); it now rides the shared watcher's fixed 3s cadence like
+every other consumer, since one shared interval can't serve two cadences. This can only make
+Render's own completion/progress checks land SOONER, never later — the extra lightweight status
+GETs over a 10-20 minute render are immaterial. Everything else was already 3s.
+
+**Out of scope (confirmed dead, left untouched — S9-6/C19b's job):** `ScriptTab.tsx`,
+`StoryboardTab.tsx`, `VoiceReviewTab.tsx` still call the standalone `useTaskPoller` — none are
+imported by `pipeline/[videoId]/page.tsx` (verified via `grep -rln` for each component name across
+`app/`+`components/`); leaving them alone rather than wiring dead code into the new bridge.
+
+**Deploy-safety assessment:** ff-merge candidate. Behavior-preserving refactor: every tab's
+`onComplete`/`onFailed`/`onProgress` body is byte-identical to before, only the wrapper hook
+changed; the `enabled` gate (per-tab `taskRunning` flag) is preserved exactly, so no tab can now
+fire its side effects for work it didn't start (verified by reading every onFailed body — several
+show attributed toasts/alerts, e.g. `"Sound generation failed"`, that would have been a real
+regression if subscriptions were unconditional instead of `enabled`-gated). Frontend-only; no
+backend/schema/route touched. What could regress: a stale `taskWatcher` prop reference across
+renders causing a missed subscription — ruled out by `useMemo`-stabilizing the bridge object on
+`[running, message, markStarted, subscribe]` and `subscribeTaskWatcher`/dispatch callbacks using
+refs internally (same pattern the pre-existing hooks already used), so `tsc`/build catch any
+prop-shape mismatch and did.
+
+**Verify:** `cd storyengine/frontend && npx tsc --noEmit` — clean. `npm run build` — compiles and
+typechecks clean; fails at the prerender step on `NEXT_PUBLIC_API_URL is required in production
+builds`, confirmed pre-existing by `git stash`-ing this chunk's changes and re-running the same
+build (identical failure against unmodified `main`). Grep-proof: exactly one `useTaskWatcher(`
+mount remains (`page.tsx`), and `useSharedTaskWatcher(` appears in all 9 live consumers (`page.tsx`,
+`GuidedNextStep`, `ScenesWorkspaceTab`, `ResearchTab`, `ScriptVoiceTab`, `CharactersTab`,
+`EnvironmentsTab`, `SoundTab`, `ThumbnailTab`, `RenderTab`) and zero dead files. No backend files
+touched — no Python suite run, correctly (nothing to run). No frontend unit-test harness exists in
+this repo; no Playwright click-through was run this session — deferred to
+`tasks/live-verification-queue.md` §C19a (one build running → banner + tab both show progress;
+completion refreshes assets exactly once, not 2-3x).

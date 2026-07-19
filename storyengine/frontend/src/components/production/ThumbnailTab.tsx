@@ -6,7 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useQueryClient } from "@tanstack/react-query";
 import { runPipelineStage, advanceVideo, updateVideo, clearStaleTask, acceptSuggestion, rejectSuggestion, getDefaultThumbnailPrompt } from "@/lib/api";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import type { VideoDetail } from "@/lib/api";
@@ -20,9 +20,11 @@ interface ThumbnailTabProps {
     thumbnailUrl?: string | null;
   };
   onAdvanced?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a). */
+  taskWatcher: TaskWatcherBridge;
 }
 
-export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
+export function ThumbnailTab({ video, onAdvanced, taskWatcher }: ThumbnailTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -40,10 +42,9 @@ export function ThumbnailTab({ video, onAdvanced }: ThumbnailTabProps) {
   const currentStageIdx = getStageIndex(video.status || "");
   const isReadyForThumbnail = currentStageIdx >= minStageIdx;
 
-  const { message: taskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: taskRunning,
-    interval: 3000,
     onComplete: () => {
       setTaskRunning(false);
       setIsRegenerating(false);

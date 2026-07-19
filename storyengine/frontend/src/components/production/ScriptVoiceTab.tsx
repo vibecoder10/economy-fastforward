@@ -20,7 +20,7 @@ import {
 } from "@/lib/api";
 import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview, MachineScriptPreviewReadiness } from "@/lib/api";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm, type ConfirmFn } from "@/components/ui/confirm";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -37,6 +37,8 @@ import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 interface ScriptVoiceTabProps {
   video: any;
   onAdvanced?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a). */
+  taskWatcher: TaskWatcherBridge;
 }
 
 interface SentenceState {
@@ -1151,7 +1153,7 @@ function CustomVoiceCard() {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
+export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const confirmDialog = useConfirm();
@@ -1204,10 +1206,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
 
   // Task polling (script generation)
   const [scriptTaskRunning, setScriptTaskRunning] = useState(false);
-  const { message: scriptTaskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: scriptTaskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: scriptTaskRunning,
-    interval: 3000,
     onComplete: async () => {
       setScriptTaskRunning(false);
       setRegeneratingScript(false);
@@ -1233,10 +1234,9 @@ export function ScriptVoiceTab({ video, onAdvanced }: ScriptVoiceTabProps) {
 
   // Task polling (voice generation)
   const [voiceTaskRunning, setVoiceTaskRunning] = useState(false);
-  const { message: voiceTaskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: voiceTaskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: voiceTaskRunning,
-    interval: 3000,
     onComplete: () => {
       setVoiceTaskRunning(false);
       setGeneratingVoiceAll(false);

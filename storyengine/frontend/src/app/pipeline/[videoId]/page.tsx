@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -13,7 +13,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getVideo, getVideoAssets, getVideoActions, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useTaskWatcher, useSharedTaskWatcher, type TaskWatcherBridge, type TaskWatcherHandlers } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PipelineStepper } from "@/components/production/PipelineStepper";
@@ -173,6 +173,18 @@ export default function VideoDetailPage() {
   // dominate). The backend never rolls up videos.total_cost, so the counter sat at
   // $0.00 — compute it from the artifacts instead. Shares the cached assets query.
   // ponytail: an estimate from counts, not a per-API-call ledger.
+  //
+  // S9-8/C19a: this 5s refetchInterval looks redundant against the hoisted
+  // task watcher's onProgress invalidation + SSE, but it isn't — KEPT, not
+  // dropped. Evidence: (1) the watcher's onProgress→invalidate(video-assets)
+  // is only registered by ScenesWorkspaceTab, and only fires while that tab
+  // is the mounted/active one — this query (and the cost estimate below) has
+  // to stay fresh page-wide, on every other tab too. (2) SSE's
+  // onTaskProgress only fires on the terminal "completed" status (see
+  // use-pipeline-sse.ts), never on the running per-tick progress a
+  // long-running images/clips stage produces — it can't stand in for a
+  // live-during-the-stage refresh. So watcher+SSE do NOT cover the same
+  // events this interval does; leaving it in place.
   const { data: costAssets } = useQuery({
     queryKey: ["video-assets", videoId],
     queryFn: () => getVideoAssets(videoId),
@@ -256,10 +268,42 @@ export default function VideoDetailPage() {
       return next;
     });
 
-  useTaskPoller({
+  // ONE task watcher for the whole page (S9-1/C19a). GuidedNextStep and every
+  // production tab used to each mount their own useTaskWatcher/useTaskPoller
+  // — a 3s setInterval against the SAME getPipelineTaskStatus endpoint — so
+  // up to 3 identical polls ran concurrently (GuidedNextStep always-on + the
+  // active tab's own + this page's own Run-Next poller). This is now the
+  // only place that opens the interval; everyone else subscribes via the
+  // bridge below (useSharedTaskWatcher), so each consumer's own
+  // onComplete/onFailed/onProgress side effects are preserved exactly —
+  // only the polling itself is de-duplicated.
+  const taskCallbacksRef = useRef<Set<TaskWatcherHandlers>>(new Set());
+  const subscribeTaskWatcher = useCallback((handlers: TaskWatcherHandlers) => {
+    taskCallbacksRef.current.add(handlers);
+    return () => { taskCallbacksRef.current.delete(handlers); };
+  }, []);
+  const { running: sharedTaskRunning, message: sharedTaskMessage, markStarted: markTaskStarted } = useTaskWatcher({
     videoId,
+    onProgress: (msg) => taskCallbacksRef.current.forEach((h) => h.onProgress?.(msg)),
+    onComplete: (msg) => taskCallbacksRef.current.forEach((h) => h.onComplete?.(msg)),
+    onFailed: (err) => taskCallbacksRef.current.forEach((h) => h.onFailed?.(err)),
+  });
+  const taskWatcher: TaskWatcherBridge = useMemo(
+    () => ({
+      running: sharedTaskRunning,
+      message: sharedTaskMessage,
+      markStarted: markTaskStarted,
+      subscribe: subscribeTaskWatcher,
+    }),
+    [sharedTaskRunning, sharedTaskMessage, markTaskStarted, subscribeTaskWatcher],
+  );
+
+  // This page's own "Run Next" flow (the reset-confirm modal's quick action)
+  // is just another subscriber, gated by its own `taskRunning` exactly like
+  // it gated its old standalone useTaskPoller.
+  useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: taskRunning,
-    interval: 3000,
     onComplete: (message) => {
       setTaskRunning(false);
       setRunningNext(false);
@@ -702,7 +746,7 @@ export default function VideoDetailPage() {
           Hidden on the Scenes tab: the workspace's own green command bar (status +
           "Animate everything") is the single banner there, so they don't stack. */}
       {currentTab !== "scenes" && !machineResearchIncomplete && (
-        <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} />
+        <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} taskWatcher={taskWatcher} />
       )}
 
       {/* Tab navigation */}
@@ -758,14 +802,14 @@ export default function VideoDetailPage() {
 
       {/* Tab content */}
       <motion.div variants={item}>
-        {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} />}
-        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("scenes")} />}
-        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("environments")} />}
-        {currentTab === "environments" && <EnvironmentsTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} />}
-        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onGoToEnvironments={() => setActiveTab("environments")} onGoToCharacters={() => setActiveTab("characters")} onAdvanced={() => setActiveTab("sound")} />}
-        {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} />}
-        {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} />}
-        {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} />}
+        {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} taskWatcher={taskWatcher} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("scenes")} taskWatcher={taskWatcher} />}
+        {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("environments")} taskWatcher={taskWatcher} />}
+        {currentTab === "environments" && <EnvironmentsTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} taskWatcher={taskWatcher} />}
+        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onGoToEnvironments={() => setActiveTab("environments")} onGoToCharacters={() => setActiveTab("characters")} onAdvanced={() => setActiveTab("sound")} taskWatcher={taskWatcher} />}
+        {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} taskWatcher={taskWatcher} />}
+        {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} taskWatcher={taskWatcher} />}
+        {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} taskWatcher={taskWatcher} />}
         {currentTab === "upload" && <UploadTab video={videoForTabs} onAdvanced={() => setActiveTab("performance")} />}
         {currentTab === "performance" && <PerformanceTab video={videoForTabs} />}
       </motion.div>

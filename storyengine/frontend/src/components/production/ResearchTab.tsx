@@ -18,13 +18,15 @@ import {
   runRosterOrchestrator,
 } from "@/lib/api";
 import type { MachineScriptPreview, MachineScriptPreviewReadiness, OneMachineResearchResult } from "@/lib/api";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm, type ConfirmFn } from "@/components/ui/confirm";
 
 interface ResearchTabProps {
   video: any;
   onApproved?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a). */
+  taskWatcher: TaskWatcherBridge;
 }
 
 function machineLabel(item: any): string {
@@ -858,7 +860,7 @@ function EditableText({ text, mono }: { text: string; mono?: boolean }) {
   );
 }
 
-export function ResearchTab({ video, onApproved }: ResearchTabProps) {
+export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const confirmDialog = useConfirm();
@@ -883,10 +885,9 @@ export function ResearchTab({ video, onApproved }: ResearchTabProps) {
   const [readinessCheckingMachine, setReadinessCheckingMachine] = useState("");
   const [localMachinePreview, setLocalMachinePreview] = useState<MachineScriptPreview | null>(null);
 
-  const { message: taskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: taskRunning,
-    interval: 3000,
     onComplete: () => {
       setTaskRunning(false);
       setIsResearching(false);

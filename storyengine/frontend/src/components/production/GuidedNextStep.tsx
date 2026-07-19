@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Lock, RefreshCw, Sear
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 import { useToast } from "@/components/ui/toast";
-import { useTaskWatcher } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import {
   advanceVideo,
   updateVideo,
@@ -32,6 +32,10 @@ interface GuidedNextStepProps {
   /** The video's stage plan. When it's a reduced plan, the "Step X of 10"
    * counter (which counts the full pipeline) is dropped — it would be wrong. */
   planStages?: string[] | null;
+  /** The ONE page-level task watcher (S9-1/C19a) — replaces this
+   * component's own useTaskWatcher so it doesn't duplicate-poll against the
+   * active tab's watcher. */
+  taskWatcher: TaskWatcherBridge;
 }
 
 /**
@@ -41,7 +45,7 @@ interface GuidedNextStepProps {
  * slot continuously); a PERSISTENT error card when something fails.
  * Grandma flow: click the big button → wait → click the next big button.
  */
-export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStepProps) {
+export function GuidedNextStep({ video, onNavigate, planStages, taskWatcher }: GuidedNextStepProps) {
   const reducedPlan = !!planStages && planStages.length > 0;
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -92,6 +96,18 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     queryFn: () => getVideoAssets(video.id),
   });
 
+  // C18 (checklist §1.3 [U]): same "video-actions" query ScenesWorkspaceTab
+  // runs (shared React Query cache key, so this never fires a second
+  // request) — the live, server-computed quotes for draft_pass/finalize
+  // (cost, blocked reason, itemized breakdown incl. scene_count and
+  // all_premium_total). Every dollar figure below comes from here; never
+  // hardcoded and never computed client-side beyond simple addition.
+  const { data: videoActions } = useQuery({
+    queryKey: ["video-actions", video.id],
+    queryFn: () => getVideoActions(video.id),
+    staleTime: 15_000,
+  });
+
   const scenes = scriptData ?? [];
   const assets = assetData ?? [];
   const action = getNextAction({
@@ -110,18 +126,12 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     // with no pictures has NO asset rows, so asset counts alone can't tell it's
     // missing — compare this against totalScenes to avoid a premature "Animate".
     scenesWithPictures: new Set(assets.filter((a) => a.image_url).map((a) => a.scene)).size,
-  });
-
-  // C18 (checklist §1.3 [U]): same "video-actions" query ScenesWorkspaceTab
-  // runs (shared React Query cache key, so this never fires a second
-  // request) — the live, server-computed quotes for draft_pass/finalize
-  // (cost, blocked reason, itemized breakdown incl. scene_count and
-  // all_premium_total). Every dollar figure below comes from here; never
-  // hardcoded and never computed client-side beyond simple addition.
-  const { data: videoActions } = useQuery({
-    queryKey: ["video-actions", video.id],
-    queryFn: () => getVideoActions(video.id),
-    staleTime: 15_000,
+    // S9-2/C19a: read this render's own videoActions.prices.clip instead of
+    // letting getNextAction fall back to the mutable CLIP_COST_PER_MODEL
+    // cache — that cache is only synced by page.tsx's useEffect one render
+    // after the fetch lands, so the banner could show the $0.30 fallback (or
+    // a PREVIOUS video's price) on first paint.
+    clipPriceByModel: videoActions?.prices?.clip ?? null,
   });
   const draftInfo = videoActions?.actions.find((a) => a.verb === "draft_pass");
   const finalizeInfo = videoActions?.actions.find((a) => a.verb === "finalize");
@@ -134,8 +144,8 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
     queryClient.invalidateQueries({ queryKey: ["video-actions", video.id] });
   };
 
-  const { running, message: taskMessage, markStarted } = useTaskWatcher({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     onComplete: (msg) => {
       setFailure(null); // a finished run supersedes any earlier failure card
       refreshAll();
@@ -147,6 +157,7 @@ export function GuidedNextStep({ video, onNavigate, planStages }: GuidedNextStep
       setFailure(humanizeError(error, "That step didn't finish."));
     },
   });
+  const { running, markStarted } = taskWatcher;
 
   // One-tap enable for the research-transparency chip (checklist P0.5/C06):
   // the default autobuild skips research for speed, so this reuses the SAME

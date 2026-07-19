@@ -9,13 +9,15 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { SystemPromptEditor } from "@/components/ui/SystemPromptEditor";
 import { getVideoScript, getVideoAssets, runPipelineStage, advanceVideo, clearStaleTask, getDefaultSoundCurationPrompt, updateVideo } from "@/lib/api";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import type { ScriptScene, Asset } from "@/lib/api";
 
 interface SoundTabProps {
   video: any;
   onAdvanced?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a). */
+  taskWatcher: TaskWatcherBridge;
 }
 
 interface SoundScene {
@@ -54,7 +56,7 @@ function buildSoundScenes(scripts: ScriptScene[], assets: Asset[]): SoundScene[]
   });
 }
 
-export function SoundTab({ video, onAdvanced }: SoundTabProps) {
+export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [taskRunning, setTaskRunning] = useState(false);
@@ -71,10 +73,9 @@ export function SoundTab({ video, onAdvanced }: SoundTabProps) {
     queryFn: () => getVideoAssets(video.id),
   });
 
-  const { message: taskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: taskRunning,
-    interval: 3000,
     onComplete: () => {
       setTaskRunning(false);
       setGenerating(false);

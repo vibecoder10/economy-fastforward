@@ -7,7 +7,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { ProgressRing } from "@/components/ui/ProgressRing";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advanceVideo } from "@/lib/api";
-import { useTaskPoller } from "@/hooks/use-task-poller";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
 import { toDisplayVideoUrl } from "@/lib/utils";
 import type { VideoDetail, Asset } from "@/lib/api";
@@ -19,6 +19,12 @@ interface RenderTabProps {
     videoLengthMin?: number | null;
   };
   onAdvanced?: () => void;
+  /** The ONE page-level task watcher (S9-1/C19a). Note: this tab's own
+   * poller used to run at a slower 10s cadence (render is a 10-20 minute
+   * job); it now rides the shared 3s watcher instead — completion/progress
+   * is noticed sooner, never later, and the extra lightweight status GETs
+   * over a 10-20 minute render are immaterial. */
+  taskWatcher: TaskWatcherBridge;
 }
 
 function formatDuration(minutes: number | null | undefined): string {
@@ -36,7 +42,7 @@ interface TimelineSegment {
   duration: string;
 }
 
-export function RenderTab({ video, onAdvanced }: RenderTabProps) {
+export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [isRendering, setIsRendering] = useState(false);
@@ -45,10 +51,9 @@ export function RenderTab({ video, onAdvanced }: RenderTabProps) {
   const [taskRunning, setTaskRunning] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
-  const { message: taskMessage } = useTaskPoller({
-    videoId: video.id,
+  const { message: taskMessage } = useSharedTaskWatcher({
+    bridge: taskWatcher,
     enabled: taskRunning,
-    interval: 10000,
     onComplete: () => {
       setTaskRunning(false);
       setIsRendering(false);

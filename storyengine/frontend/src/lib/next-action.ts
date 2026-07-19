@@ -54,6 +54,28 @@ export interface NextActionInputs {
   clipsTotal?: number;
   /** Distinct scenes that already have pictures (coverage flow: missing scenes have no rows) */
   scenesWithPictures?: number;
+  /** Live per-clip price by model — GET /api/pipeline/actions/{id}'s
+   * `prices.clip` map, read reactively on the SAME render it arrives.
+   * S9-2/C19a: without this, cost text below fell back to clipCost()'s
+   * CLIP_COST_PER_MODEL mutable cache, which a later useEffect populates one
+   * render too late (the exact anti-pattern ScenesWorkspaceTab's own
+   * `priceForModel` already works around — see its comment). Omit/pass null
+   * to keep the old cache+fallback behavior (other getNextAction callers,
+   * if any get added, aren't forced onto this). */
+  clipPriceByModel?: Record<string, number> | null;
+}
+
+/** Per-clip price for `model`, preferring the caller's live price map (this
+ * render's fetched data) over the mutable CLIP_COST_PER_MODEL cache that
+ * clipCost() reads — see NextActionInputs.clipPriceByModel above. */
+function resolveClipCost(
+  model: string | null | undefined,
+  count: number,
+  liveByModel: Record<string, number> | null | undefined,
+): number {
+  const live = liveByModel?.[model || "grok-imagine"];
+  if (live != null) return live * count;
+  return clipCost(model, count);
 }
 
 /** Per-clip price by model. NOT hardcoded — the single source of truth is
@@ -197,7 +219,7 @@ export function getNextAction(i: NextActionInputs): NextAction {
     }
     const clipsTotal = i.clipsTotal ?? 0;
     const clipsDone = i.clipsDone ?? 0;
-    const perClip = clipCost(v.video_model, 1);
+    const perClip = resolveClipCost(v.video_model, 1, i.clipPriceByModel);
     if (clipsTotal > 0 && clipsDone === 0) {
       return { key: "clips-taste", label: "Animate scene 1", step: 8, tab: "scenes", kind: "review",
         description: "Tap any picture on the Clips tab to bring it to life — start with scene 1 and make sure the motion feels right before animating everything.",
@@ -208,7 +230,7 @@ export function getNextAction(i: NextActionInputs): NextAction {
       const left = clipsTotal - clipsDone;
       return { key: "clips-rest", label: "Animate the rest", step: 8, tab: "scenes", kind: "review",
         description: `${left} picture${left === 1 ? "" : "s"} still need${left === 1 ? "s" : ""} motion. Happy with how it moves? Finish the set — you'll see the exact price and confirm first.`,
-        cost: `≈ $${clipCost(v.video_model, left).toFixed(2)}`,
+        cost: `≈ $${resolveClipCost(v.video_model, left, i.clipPriceByModel).toFixed(2)}`,
         skip: { to: "ready_for_thumbnail", note: "Keep the clips you have — pictures without one use gentle zoom." } };
     }
     if (clipsTotal > 0) {
