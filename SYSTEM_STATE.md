@@ -9629,3 +9629,75 @@ risk is bounded by the SAME weekly cap C54 already enforces, re-checked at each 
 checkpoints a build can cross (voice, images, thumbnail, pre-upload) — not a new spend surface, just
 removing the human click between existing paid stages for a tenant who asked for that. Backend-only
 change; no frontend deploy needed.
+
+## C57 — MCP ⇄ existing-billing wiring: "the token IS the paywall" (added 2026-07-19)
+
+decisions.md's MCP-monetization entry + its CORRECTION: Stripe billing ALREADY EXISTS
+(`routes/billing.py`) — this chunk wires the MCP agent-token surface into it, no new billing system.
+
+**Good-standing helper (NEW, `storyengine/backend/routes/billing.py`):** no pre-existing "good
+standing" concept existed to extract — `check_plan_limits`/`_get_tenant_plan` only ever read
+`plan`/`trial_ends_at`, never `stripe_status` (written by every webhook handler in this file but,
+until now, dead data for gating purposes). Added `_good_standing_from_fields(*, trial_ends_at,
+stripe_subscription_id, stripe_status) -> (ok, reason)` — the ONE decision function, mirroring TWO
+dichotomies this file already draws elsewhere rather than inventing a third: (1)
+`_handle_subscription_updated`'s own `sub_status != "active"` fail-closed/open line; (2) the
+trial-downgrade cron's `stripe_subscription_id IS NULL` safety filter for "is this a genuine trial"
+(test_trial_downgrade_wire.py). Verdict table: `stripe_status IS NULL` (never subscribed) → good;
+`'active'` → good; active trial (`trial_ends_at` future AND no `stripe_subscription_id`) → good;
+anything else (`past_due`/`canceled`/`unpaid`/`incomplete`/theoretical `trialing`) → NOT good ("has
+lapsed"). Honest inherited quirk: Stripe's `trialing` status is fail-closed here, same as the webhook
+already treats it — moot today since `create_checkout` never sets `trial_period_days`.
+`is_account_in_good_standing(tenant_id)` wraps it with the SAME membership→accounts join
+`_get_tenant_plan` uses, extended with the 3 extra columns that join never needed.
+
+**Mint gate:** `storyengine/backend/routes/agent_access.py::create_token` calls
+`is_account_in_good_standing` before minting — 402 `subscription_lapsed` with a `/billing` renew
+pointer when not in good standing. A commented SEAM sits right below it for the NOT-YET-decided
+"which tier gets MCP" tier check (item 5 — deliberately unimplemented).
+
+**Verify gate + the piggyback (`storyengine/backend/agent_tokens.py`):** new
+`authenticate_with_standing(token) -> (tenant_id, ok, reason)`, additive alongside the untouched
+`authenticate()` (still used by `rate_limit.py`'s tenant-resolution path, unaffected). Piggybacks the
+account's good-standing fields onto the SAME per-request token-row query via one JOIN
+(`agent_tokens` → `memberships` → `accounts`) instead of a second round trip — avoids doubling the
+DB cost `auth_agent.py` already pays every MCP call. Calls the SAME `_good_standing_from_fields` (ONE
+definition, locked by a regression test). `storyengine/backend/auth_agent.py::get_agent_tenant_id`
+now calls this instead of `authenticate()`: unknown/revoked token → unchanged 401; valid token, lapsed
+account → NEW 402 with a renew-here message that surfaces in the agent's chat — existing tokens die
+same-day with zero revocation machinery, since every call re-checks live.
+
+**Plan-gate audit (the free-tenant-unlimited-via-Claude risk) — REAL FINDING:** `create_video`
+(MCP) and `accept_autopilot_proposal` (MCP) were ALREADY gated — both dispatch through the exact
+route/function (`routes.videos.create_video`, `routes.autopilot.launch_candidate` via
+`accept_proposal`) the existing `check_plan_limits('video')` lock already pins. But the `render`/
+`build` MCP tools (and the IDENTICAL chat verbs, and autopilot's full-auto continuation loop) call
+`PipelineExecutor.run_render` DIRECTLY via `actions.py`'s dispatcher — bypassing
+`routes/pipeline.py::run_render`, the ONLY place that ever called `check_plan_limits(tenant_id,
+"render")`. Render-minute cap enforcement was a no-op for chat, MCP, and full-auto alike — not an
+MCP-specific bug, a shared-path one this audit was built to catch. **Fixed at the ONE method every
+caller converges on:** `PipelineExecutor.run_render` (`storyengine/backend/pipeline_executor.py`) now
+calls `check_plan_limits(self.tenant_id, "render")` itself, failing the same way its other error
+paths already do (`{"status": "failed", "error": ...}`, never raises) so every caller's existing
+error handling picks it up unchanged. The route's own pre-check is left in place (redundant, harmless,
+faster synchronous 402 before a background task even queues).
+
+**Tests:** new `tests/functional/test_c57_mcp_billing_gate.py` (24 tests: good-standing decision
+matrix, mint/verify gates, ONE-definition lock). Extended `test_plan_limits_enforcement_lock.py`
+(+3: `run_render` executor-level gate, MCP create_video/accept_autopilot_proposal confirmatory
+locks). Extended `test_c26_mcp_agent_tokens.py`/`test_c29_mcp_full_session_dry_run.py`'s DB fakes to
+answer the new piggybacked JOIN query (existing happy-path tests simulate a free-tier "good
+standing" account — unaffected). Non-vacuous via stash: 25 of the 27 new/changed tests fail without
+the fix (the 2 that don't — the MCP create_video/accept_autopilot_proposal locks — are confirmatory
+of ALREADY-correct pre-C57 behavior, not new fixes). Full suite **1842P/15F/1E** = baseline(1815P) +
+27, same 15 failures/1 error by name, zero new.
+
+**No migration** — `stripe_status`/`stripe_subscription_id`/`trial_ends_at`/`plan` all already exist
+(migrations 022/026). **No frontend.** **Deploy-skew:** MCP surface stays dark (`MCP_ENABLED` off in
+prod) except the `PipelineExecutor.run_render` fix, which is live the moment this merges — it only
+ADDS enforcement to a path that was silently unenforced for chat's render/build verbs and autopilot's
+full-auto loop today; the default (no cap set, or under-cap) behavior is byte-identical.
+
+**Parked decision added:** checklist's C37 OPEN list gains item 6, "which tier gets MCP" (recommend
+pro+agency) — was only in decisions.md's correction entry before, not the tracked parked-decisions
+list.

@@ -70,6 +70,7 @@ import agent_tokens  # noqa: E402
 import auth  # noqa: E402
 import confirm_tokens  # noqa: E402
 import database  # noqa: E402
+import routes.billing as billing  # noqa: E402
 import routes.chat as chat  # noqa: E402
 import routes.videos as videos_mod  # noqa: E402
 
@@ -130,6 +131,24 @@ def _patch_agent_tokens(store: _FakeAgentTokenStore):
             for row in store.rows.values():
                 if row["token_hash"] == token_hash and row["revoked_at"] is None:
                     return dict(row)  # carries id/tenant_id/name — callers pick what they need
+            return None
+        # C57: auth_agent.get_agent_tenant_id's per-request gate now calls
+        # agent_tokens.authenticate_with_standing, which piggybacks the
+        # tenant's good-standing fields onto this same token-row lookup (one
+        # JOIN through memberships -> accounts) instead of a second round
+        # trip. No accounts/memberships fake exists in this session — a
+        # free-tier account (no stripe subscription, no trial) is good
+        # standing per routes.billing._good_standing_from_fields, so the
+        # whole session's happy path is unaffected.
+        if "JOIN memberships m ON m.tenant_id = t.tenant_id" in query:
+            (token_hash,) = args
+            for row in store.rows.values():
+                if row["token_hash"] == token_hash and row["revoked_at"] is None:
+                    return {
+                        "token_id": row["id"], "tenant_id": row["tenant_id"],
+                        "trial_ends_at": None, "stripe_subscription_id": None,
+                        "stripe_status": None,
+                    }
             return None
         raise AssertionError(f"unexpected agent_tokens fetch_one query: {query!r}")
 
@@ -270,6 +289,8 @@ def test_full_external_client_mcp_session_dry_run():
     with p_fetch_one, p_fetch_all, p_execute, \
          _patch_confirm(confirm_store), \
          patch.object(database, "fetch_one", _fake_plan_fetch_one), \
+         patch.object(billing, "is_account_in_good_standing",
+                      AsyncMock(return_value=(True, "no subscription on file (free tier)"))), \
          patch.object(actions, "video_summary", _fake_video_summary), \
          patch.object(actions, "blocked_reason", lambda verb, summary: None), \
          patch.object(actions, "estimate_cost", AsyncMock(return_value=(1.50, "~$1.50"))), \

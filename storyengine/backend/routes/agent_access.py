@@ -38,6 +38,34 @@ async def create_token(
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
+
+    # C57 ("the agent token IS the paywall" — decisions.md 2026-07-19 + its
+    # CORRECTION): refuse to mint a new token for a lapsed subscription.
+    # Same standing check auth_agent.py's per-request verify uses
+    # (routes.billing._good_standing_from_fields) — a canceled/past_due
+    # tenant can't mint a fresh token to route around a dead one.
+    from routes.billing import is_account_in_good_standing
+    ok, reason = await is_account_in_good_standing(tenant_id)
+    if not ok:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "subscription_lapsed",
+                "message": (
+                    f"Can't create an agent token — {reason} — renew at "
+                    "/billing first."
+                ),
+                "upgrade_url": "/billing",
+            },
+        )
+    # SEAM (C57 item 5, NOT implemented): if/when Ryan decides MCP access is
+    # a tier-gated feature (recommended: pro+agency — decisions.md's parked
+    # "which tier gets MCP" question, tasks/live-verification-queue.md), a
+    # `require_plan("pro")`-style check slots in right here, alongside the
+    # good-standing check above. Today ANY plan in good standing (including
+    # free) can mint a token — this function only answers "has a
+    # subscription lapsed", not "is the plan high enough".
+
     plaintext, row = await agent_tokens.create_agent_token(tenant_id, name)
     return {
         "id": str(row["id"]),

@@ -74,6 +74,14 @@ def _autopilot_py() -> Path:
     return _backend_root() / "routes" / "autopilot.py"
 
 
+def _pipeline_executor_py() -> Path:
+    return _backend_root() / "pipeline_executor.py"
+
+
+def _mcp_py() -> Path:
+    return _backend_root() / "routes" / "mcp.py"
+
+
 def test_check_plan_limits_defined_and_raises_402():
     """The function must still exist, still raise 402 (Payment Required)
     when over limit for both action types. 402 is the frontend's cue to
@@ -274,12 +282,117 @@ def test_increment_usage_called_after_create():
     print("✅ test_increment_usage_called_after_create")
 
 
+def test_pipeline_executor_run_render_guarded():
+    """C57 audit finding: `test_render_entrypoint_guarded` above only pins
+    the HTTP door (routes/pipeline.py::run_render). But chat's "render"/
+    "build" verbs and MCP's SAME tools (both dispatch through
+    actions.py -> actions.make_action_step/make_autobuild_step) call
+    `PipelineExecutor.run_render` DIRECTLY — bypassing that route (and its
+    check_plan_limits call) entirely. Before C57, chat/MCP/autopilot's
+    full-auto continuation loop (which also reaches this method via
+    `run_next_step`'s status-map dispatch) could render past the plan's
+    render-minute cap with zero enforcement. C57 moved the gate into this
+    ONE method every caller converges on. Losing it here again reopens the
+    exact same bypass for chat AND MCP at once."""
+    text = _pipeline_executor_py().read_text()
+    tree = ast.parse(text)
+    fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "run_render":
+            fn = node
+            break
+    assert fn is not None, (
+        "C57 regression — `PipelineExecutor.run_render` no longer defined "
+        "in pipeline_executor.py. If renamed, update this test."
+    )
+    src = ast.unparse(fn)
+    assert re.search(r"check_plan_limits\s*\([^)]*,\s*['\"]render['\"]", src), (
+        "C57 regression — `PipelineExecutor.run_render` no longer calls "
+        "`check_plan_limits(..., 'render')`. Chat's render/build verbs, "
+        "MCP's SAME tools, and autopilot's full-auto continuation all call "
+        "this method directly (not the HTTP route) — the render-minute cap "
+        "is unenforced for all three the moment this check is dropped."
+    )
+    print("✅ test_pipeline_executor_run_render_guarded")
+
+
+def test_mcp_create_video_dispatches_through_gated_route():
+    """C57 plan-gate audit: MCP's `create_video` tool must keep calling the
+    REAL `routes.videos.create_video` (which `test_all_video_create_
+    entrypoints_guarded` above already pins to `check_plan_limits(...,
+    'video')`) rather than a second, parallel INSERT that could silently
+    drift out of that gate's coverage."""
+    text = _mcp_py().read_text()
+    tree = ast.parse(text)
+    fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_call_create_video":
+            fn = node
+            break
+    assert fn is not None, (
+        "C57 regression — routes/mcp.py::_call_create_video not found. If "
+        "renamed, update this test."
+    )
+    src = ast.unparse(fn)
+    assert "create_video as _create_video_route" in src or "routes.videos" in src, (
+        "C57 regression — MCP's create_video tool no longer imports "
+        "routes.videos.create_video. If it now does its own INSERT, it may "
+        "have silently lost the check_plan_limits('video') gate that route "
+        "carries."
+    )
+    assert re.search(r"_create_video_route\s*\(", src), (
+        "C57 regression — MCP's create_video tool no longer CALLS the real "
+        "routes.videos.create_video — the plan-limit gate lives inside "
+        "that function; a tool that stops calling it stops being gated."
+    )
+    print("✅ test_mcp_create_video_dispatches_through_gated_route")
+
+
+def test_mcp_accept_autopilot_proposal_dispatches_through_gated_launch():
+    """C57 plan-gate audit: MCP's `accept_autopilot_proposal` tool must keep
+    calling `routes.autopilot.accept_proposal`, which itself calls
+    `launch_candidate` — the function `test_all_video_create_entrypoints_
+    guarded` above already pins to `check_plan_limits(..., 'video')` (C53).
+    An MCP tool that stopped calling accept_proposal (e.g. reimplementing
+    the launch inline) would silently exit that gate's coverage — this is
+    the exact risk decisions.md's C57 entry flagged and asked this chunk to
+    verify, not just assume."""
+    text = _mcp_py().read_text()
+    tree = ast.parse(text)
+    fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_call_accept_autopilot_proposal":
+            fn = node
+            break
+    assert fn is not None, (
+        "C57 regression — routes/mcp.py::_call_accept_autopilot_proposal "
+        "not found. If renamed, update this test."
+    )
+    src = ast.unparse(fn)
+    assert "from routes.autopilot import accept_proposal" in src, (
+        "C57 regression — MCP's accept_autopilot_proposal tool no longer "
+        "imports routes.autopilot.accept_proposal — if it now launches some "
+        "other way, verify it still funnels through launch_candidate's "
+        "check_plan_limits('video') gate."
+    )
+    assert re.search(r"(?<!_)accept_proposal\s*\(", src), (
+        "C57 regression — MCP's accept_autopilot_proposal tool no longer "
+        "CALLS routes.autopilot.accept_proposal — the plan-limit gate lives "
+        "downstream of that call (via launch_candidate); a tool that stops "
+        "calling it stops being gated."
+    )
+    print("✅ test_mcp_accept_autopilot_proposal_dispatches_through_gated_launch")
+
+
 TESTS = [
     test_check_plan_limits_defined_and_raises_402,
     test_all_video_create_entrypoints_guarded,
     test_render_entrypoint_guarded,
     test_plan_check_precedes_mutation,
     test_increment_usage_called_after_create,
+    test_pipeline_executor_run_render_guarded,
+    test_mcp_create_video_dispatches_through_gated_route,
+    test_mcp_accept_autopilot_proposal_dispatches_through_gated_launch,
 ]
 
 

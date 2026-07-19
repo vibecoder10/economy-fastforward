@@ -146,3 +146,59 @@ async def authenticate(token: str) -> Optional[_uuid.UUID]:
         pass
     tenant_id = row["tenant_id"]
     return tenant_id if isinstance(tenant_id, _uuid.UUID) else _uuid.UUID(str(tenant_id))
+
+
+async def authenticate_with_standing(token: str) -> tuple:
+    """Like authenticate(), but for auth_agent.py's per-request MCP gate
+    ONLY (checklist C57): every MCP call already pays for one DB round trip
+    here (this token-row lookup) — rather than adding a SECOND round trip
+    to check billing.is_account_in_good_standing(tenant_id) afterwards,
+    this piggybacks the account's good-standing fields onto the SAME
+    query via one JOIN through memberships -> accounts. rate_limit.py's
+    tenant-resolution path and the plain authenticate() above (and its
+    C26/C27 tests) are UNCHANGED — this is a new, additive function, not a
+    replacement; only auth_agent.get_agent_tenant_id calls it.
+
+    Returns (tenant_id, ok, reason):
+      - tenant_id is None on any auth failure (bad/malformed/unknown/
+        revoked token) — same as authenticate()'s None-on-failure contract.
+        ok/reason are meaningless in that case (caller must check
+        tenant_id first).
+      - Otherwise tenant_id is the owning tenant, and (ok, reason) come
+        from routes.billing._good_standing_from_fields — the ONE place
+        that decision is made (see that function's docstring).
+    """
+    if not token or not token.startswith(TOKEN_PREFIX):
+        return None, False, ""
+    token_hash = _hash_token(token)
+    row = await fetch_one(
+        """SELECT t.id AS token_id, t.tenant_id AS tenant_id,
+                  a.trial_ends_at AS trial_ends_at,
+                  a.stripe_subscription_id AS stripe_subscription_id,
+                  a.stripe_status AS stripe_status
+           FROM agent_tokens t
+           JOIN memberships m ON m.tenant_id = t.tenant_id
+           JOIN accounts a ON a.id = m.user_id
+           WHERE t.token_hash = $1 AND t.revoked_at IS NULL
+           LIMIT 1""",
+        token_hash,
+    )
+    if not row:
+        return None, False, ""
+    # Fail-soft: last_used_at is telemetry only, never allowed to block auth.
+    try:
+        await execute(
+            "UPDATE agent_tokens SET last_used_at = now() WHERE id = $1",
+            row["token_id"],
+        )
+    except Exception:
+        pass
+    tenant_id = row["tenant_id"]
+    tenant_id = tenant_id if isinstance(tenant_id, _uuid.UUID) else _uuid.UUID(str(tenant_id))
+    from routes.billing import _good_standing_from_fields
+    ok, reason = _good_standing_from_fields(
+        trial_ends_at=row.get("trial_ends_at"),
+        stripe_subscription_id=row.get("stripe_subscription_id"),
+        stripe_status=row.get("stripe_status"),
+    )
+    return tenant_id, ok, reason

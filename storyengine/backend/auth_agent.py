@@ -34,23 +34,44 @@ async def get_agent_tenant_id(
     """FastAPI dependency for MCP routes only.
 
     Parses `Authorization: Bearer se_agent_<secret>`, verifies it against
-    agent_tokens.authenticate() (DB-row-backed, individually revocable —
-    S5-3), and returns the owning tenant_id. 401 on anything else: missing
-    header, wrong scheme, wrong/missing prefix, unknown hash, or a revoked
-    token.
+    agent_tokens.authenticate_with_standing() (DB-row-backed, individually
+    revocable — S5-3), and returns the owning tenant_id. 401 on anything
+    else: missing header, wrong scheme, wrong/missing prefix, unknown hash,
+    or a revoked token.
 
     Deliberately does NOT fall back to auth.verify_token for any reason
     (S5-4) — a session JWT presented here is just an unrecognized bearer
     string and gets the exact same flat 401 as garbage input (see
     tests/functional/test_c26_mcp_agent_tokens.py's cross-acceptance tests
     for the non-vacuous proof in both directions).
+
+    C57: a valid, non-revoked token whose tenant's subscription has lapsed
+    (billing.is_account_in_good_standing's decision, piggybacked onto this
+    same DB query — see authenticate_with_standing's docstring) gets a 402
+    with a renew-here message INSTEAD of a 401 — the token itself is still
+    valid, the account just isn't in good standing. This is what makes
+    existing tokens "die same-day" on a lapsed subscription with no
+    separate revocation step: every call re-checks live, never a cached
+    claim.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing agent token")
     token = authorization[len("Bearer "):].strip()
     if not token.startswith(agent_tokens.TOKEN_PREFIX):
         raise HTTPException(status_code=401, detail="Not a valid agent token")
-    tenant_id = await agent_tokens.authenticate(token)
+    tenant_id, ok, reason = await agent_tokens.authenticate_with_standing(token)
     if tenant_id is None:
         raise HTTPException(status_code=401, detail="Invalid or revoked agent token")
+    if not ok:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "subscription_lapsed",
+                "message": (
+                    f"Your StoryEngine subscription has lapsed ({reason}) — "
+                    "renew at /billing to keep using the MCP agent."
+                ),
+                "upgrade_url": "/billing",
+            },
+        )
     return tenant_id

@@ -15780,8 +15780,35 @@ separate scenes."""
             pass
 
     async def run_render(self, video_id: str, orientation: str = "auto") -> dict:
-        """Render final video."""
+        """Render final video.
+
+        C57 audit fix: routes/pipeline.py::run_render (the HTTP door) calls
+        `check_plan_limits(tenant_id, "render")` BEFORE ever reaching this
+        method — but chat's "render"/"build" verbs (actions.make_action_step/
+        make_autobuild_step -> this method directly), MCP's SAME "render"/
+        "build" tools (they dispatch through the identical actions.py path),
+        and the autopilot full-auto continuation loop (PipelineExecutor.
+        run_next_step's status-map dispatch -> self.run_render) all call
+        THIS method directly, bypassing that route entirely. Only the HTTP
+        door was ever gated; render-minute cap enforcement was a no-op for
+        every other caller. The gate belongs at the ONE method every caller
+        converges on, not duplicated at each door — fail the SAME way this
+        method's other error paths already do (a {"status":"failed",
+        "error":...} dict, never raise) so every caller's existing
+        `result.get("error")` handling picks it up unchanged. The route's
+        own pre-check is left in place (redundant, but harmless — a fast,
+        synchronous 402 before it even queues a background task).
+        """
         await self._ensure_initialized()
+        from fastapi import HTTPException as _HTTPException
+        from routes.billing import check_plan_limits
+        try:
+            await check_plan_limits(self.tenant_id, "render")
+        except _HTTPException as e:
+            detail = e.detail
+            if isinstance(detail, dict):
+                detail = detail.get("message") or "Render limit reached for your plan."
+            return {"status": "failed", "error": detail}
         bot_name = "Render Bot"
 
         try:

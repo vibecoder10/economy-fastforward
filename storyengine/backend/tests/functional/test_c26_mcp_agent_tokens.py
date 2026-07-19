@@ -85,6 +85,28 @@ def _patched(store: _FakeStore):
                 if row["token_hash"] == token_hash and row["revoked_at"] is None:
                     return {"id": row["id"], "tenant_id": row["tenant_id"]}
             return None
+        # C57: auth_agent.get_agent_tenant_id now calls
+        # agent_tokens.authenticate_with_standing (piggybacks good-standing
+        # fields onto this SAME token-row lookup via a JOIN through
+        # memberships -> accounts, instead of a second round trip). This
+        # fake has no accounts/memberships table — simulating a fresh
+        # tenant with a free-tier account (no stripe subscription at all,
+        # no trial) is exactly "good standing" per
+        # routes.billing._good_standing_from_fields, so every existing
+        # valid-token test above keeps passing unchanged. C57's OWN
+        # good-standing/lapsed-subscription behavior is tested against a
+        # real fake in tests/functional/test_c57_mcp_billing_gate.py, not
+        # here — this file's job is the C26 token plumbing.
+        if "JOIN memberships m ON m.tenant_id = t.tenant_id" in query:
+            (token_hash,) = args
+            for row in store.rows.values():
+                if row["token_hash"] == token_hash and row["revoked_at"] is None:
+                    return {
+                        "token_id": row["id"], "tenant_id": row["tenant_id"],
+                        "trial_ends_at": None, "stripe_subscription_id": None,
+                        "stripe_status": None,
+                    }
+            return None
         raise AssertionError(f"unexpected fetch_one query: {query!r}")
 
     async def _fetch_all(query, *args):

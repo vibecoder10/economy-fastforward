@@ -405,6 +405,87 @@ async def _get_tenant_plan(tenant_id: _uuid.UUID) -> str:
     return plan
 
 
+# =============================================
+# Good standing (C57 — "the agent token IS the paywall", decisions.md
+# 2026-07-19 MCP-monetization entry + its CORRECTION). MCP agent-token
+# mint (routes/agent_access.py) and per-request verify (auth_agent.py) both
+# need to answer "has this tenant's subscription lapsed" — a question
+# distinct from `check_plan_limits`'s "is this tenant over their usage cap
+# THIS MONTH", which only ever reads `plan`/`trial_ends_at`, never
+# `stripe_status`. `stripe_status` is written by every webhook handler
+# above (_handle_checkout_completed/_handle_subscription_updated/
+# _handle_payment_failed/_handle_subscription_deleted) but, until this
+# function, was never READ by anything — dead data for gating purposes.
+#
+# `_good_standing_from_fields` mirrors two dichotomies THIS FILE already
+# draws elsewhere, rather than inventing a third:
+#   1. `_handle_subscription_updated`'s own `if sub_status != "active":` is
+#      the ONE place Stripe subscription health is judged fail-closed vs
+#      fail-open — good standing draws its active/not-active line in the
+#      SAME place. (Honest inherited quirk: Stripe's theoretical `trialing`
+#      status is fail-closed by that same webhook branch today, since this
+#      app's own `create_checkout` never sets `trial_period_days` — so a
+#      real subscription in Stripe-side trial cannot currently occur here;
+#      if it ever did, this function would call it "lapsed", same as the
+#      webhook already effectively does by flipping `plan` to 'free'.)
+#   2. The trial-downgrade cron (email_tasks.check_trial_expired, pinned by
+#      test_trial_downgrade_wire.py) treats an account as genuinely-trialing
+#      only while `stripe_subscription_id IS NULL` — this function uses the
+#      SAME safety filter for "is this an active free trial", not a new one.
+# A tenant with `stripe_status IS NULL` has never been through checkout at
+# all (free tier from day one) — that's good standing too. Whether
+# free-tier accounts should be ALLOWED to use MCP at all is a SEPARATE,
+# not-yet-decided tier-gate (decisions.md's parked "which tier gets MCP"
+# question) — this function only answers "has a subscription lapsed", not
+# "is the plan high enough". See routes/agent_access.py's `create_token`
+# for the seam where a future `require_plan`-style tier check would slot
+# in, right next to this check.
+# =============================================
+
+def _good_standing_from_fields(*, trial_ends_at, stripe_subscription_id, stripe_status) -> tuple:
+    """The ONE place the good/bad decision is made from raw account fields.
+    Both consumers below funnel through this: `is_account_in_good_standing`
+    (tenant_id-keyed, used by the mint route) and agent_tokens.
+    authenticate_with_standing (token-keyed, piggybacked onto the
+    per-request MCP auth query — see that function's docstring for why it
+    doesn't call `is_account_in_good_standing` directly). Returns
+    (ok: bool, reason: str) — reason is a human string safe to surface in
+    a 402 detail message.
+    """
+    if trial_ends_at and stripe_subscription_id is None:
+        from datetime import datetime, timezone
+        if trial_ends_at > datetime.now(timezone.utc):
+            return True, "active free trial"
+    if stripe_status is None:
+        return True, "no subscription on file (free tier)"
+    if stripe_status == "active":
+        return True, "active subscription"
+    return False, f"your StoryEngine subscription status is '{stripe_status}'"
+
+
+async def is_account_in_good_standing(tenant_id) -> tuple:
+    """Whether tenant_id's account is in good standing to mint/use an MCP
+    agent token. Same membership->account join `_get_tenant_plan` uses,
+    extended with the stripe_status/stripe_subscription_id columns that
+    join never needed. Returns (ok, reason) — see
+    `_good_standing_from_fields` for the actual decision logic.
+    """
+    row = await fetch_one(
+        """SELECT a.trial_ends_at, a.stripe_subscription_id, a.stripe_status
+           FROM accounts a
+           JOIN memberships m ON m.user_id = a.id
+           WHERE m.tenant_id = $1 LIMIT 1""",
+        tenant_id,
+    )
+    if not row:
+        return False, "no account found for this tenant"
+    return _good_standing_from_fields(
+        trial_ends_at=row.get("trial_ends_at"),
+        stripe_subscription_id=row.get("stripe_subscription_id"),
+        stripe_status=row.get("stripe_status"),
+    )
+
+
 async def increment_usage(tenant_id, field: str, amount: int = 1):
     """Increment a usage counter for the current month."""
     valid_fields = {"videos_created", "api_calls", "render_minutes", "storage_bytes"}

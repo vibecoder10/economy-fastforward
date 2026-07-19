@@ -2884,6 +2884,53 @@ Everything is proven at unit level in the sandbox (SYSTEM_STATE.md §C56 — 28 
 
 ---
 
+## C57 — MCP ⇄ existing-billing wiring: mint/verify gates + render bypass fix · needs a real tenant with a real (or test-mode) Stripe subscription
+
+Everything is proven at unit level in the sandbox (SYSTEM_STATE.md §C57 — 27 new/changed tests,
+non-vacuous via `git stash`: 25/27 genuinely fail without the fix, the other 2 are confirmatory locks
+on already-correct pre-C57 behavior; full suite 1842P/15F/1E, zero new vs. the 1815P/15F/1E baseline)
+— the sandbox has no live Stripe/DB, so the actual 402-on-lapsed behavior has never fired against a
+real `accounts` row. What's deferred:
+
+- [ ] **A live lapsed-account mint refusal.** Pick (or make, in Stripe test mode) a tenant whose
+      `accounts.stripe_status` is `'past_due'` or `'canceled'` (e.g. cancel a test subscription via the
+      Stripe test dashboard and let the webhook land, or `se db --write "UPDATE accounts SET
+      stripe_status='canceled' WHERE id='<test-account-id>'"` for a pure DB-level simulation — no real
+      card needed). Mint a token via the real UI (Settings → Agent access → "Create token") or `POST
+      /api/agent-tokens` with a real session — confirm a 402 with `error: "subscription_lapsed"` and a
+      `/billing` pointer, NOT a 500 and NOT a silently-minted token.
+- [ ] **The SAME account's existing token dies same-day, no revocation needed.** Before flipping the
+      account to lapsed, mint a token while in good standing and confirm one live MCP call succeeds
+      (`initialize` or `tools/list` against `/api/mcp` with `MCP_ENABLED=true`). Flip the account to
+      lapsed (same DB write as above). Re-issue the IDENTICAL MCP call with the SAME still-valid,
+      never-revoked token — confirm 402 `subscription_lapsed`, not 401 — proving the per-request gate
+      re-checks live every call rather than caching the mint-time verdict.
+- [ ] **Flip back to good standing, same token works again.** `se db --write "UPDATE accounts SET
+      stripe_status='active' WHERE id='<test-account-id>'"` (or a real Stripe reactivation) — the SAME
+      token (never re-minted) should immediately start working again on the next call, no restart
+      needed (every check is a live DB read, no cache anywhere in this path).
+- [ ] **Free-tier (never-subscribed) tenant can still mint + use MCP.** A tenant with
+      `stripe_status IS NULL` and `plan='free'` should mint successfully and make MCP calls
+      successfully (gated by the ordinary `check_plan_limits` usage caps, same as the UI/chat doors —
+      NOT blocked by the good-standing check, which only judges "has a subscription lapsed").
+- [ ] **The render-minute cap now actually bites via chat/MCP.** Pick a tenant already at/over
+      `PLAN_LIMITS[plan]['render_minutes']` for the current month (or temporarily lower the limit in a
+      scratch session — never in a live commit). Trigger a render via chat ("render this video") AND
+      via the MCP `render`/`build` tool — confirm BOTH now return a plan-limit error message (via
+      `PipelineExecutor.run_render`'s new `check_plan_limits` call) instead of silently rendering past
+      the cap, which was the pre-C57 behavior for both doors (only the HTTP `POST /pipeline/render/{id}`
+      route was ever gated).
+- **Cost:** free — `is_account_in_good_standing`/`authenticate_with_standing` are pure DB reads, no new
+  Claude/Kie calls. The render-cap check above should be run against a video that's ALREADY built (no
+  new paid generation needed to prove the gate fires — a capped tenant's render attempt should fail
+  before any compute runs).
+- **Safety net:** if the webhook-driven `stripe_status` flip doesn't land promptly (Stripe test-mode
+  webhook delivery can lag), the direct `se db --write` UPDATE above is an equally valid way to exercise
+  every check in this section — the code never distinguishes "stripe_status set by a real webhook" from
+  "stripe_status set by hand," which is exactly the point (one column, one source of truth).
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:
