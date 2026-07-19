@@ -241,6 +241,15 @@ _DVSU_TWIST_TYPES = (
 # MUST substitute one of these payloads.
 _DVSU_TWIST_SUBSTITUTES = ("superlative", "legacy", "irony", "anti_twist")
 
+# QL-12 baseline: ad hoc subjective-superlative phrase list (pre-dates the
+# table-driven QL-12 banned-ADJECTIVE list; checklist C46c UNIONS a seeded
+# QL-12 row's list with this one rather than replacing it - the two lists
+# catch different things and additivity never regresses coverage).
+_ANTON_HYPE_PHRASES = (
+    "one of the greatest", "one of the most incredible", "arguably the greatest",
+    "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
+)
+
 # B1 closer ruling (2026-07-16): nationality/geographic proper adjectives and
 # place nouns are EDITORIAL COLOR in a closer ("over German skies") - advisory,
 # never blocking. Curated for the military-history domain; extend as needed.
@@ -4728,10 +4737,19 @@ def _is_year_like_key(key: Any) -> bool:
 # _final_sentence_novel_words helper is gone with it.
 
 
-def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) -> tuple[str, list[str]]:
-    """Validate one Anton-style paragraph against sourced slot evidence."""
+def _validate_machine_story_sentences(
+    machine: str, plan: dict, bundle: dict, rule_overrides: Optional[dict] = None,
+) -> tuple[str, list[str]]:
+    """Validate one Anton-style paragraph against sourced slot evidence.
+
+    ``rule_overrides`` (checklist C46c): a tenant's resolved DvsU delta
+    overrides (``quality_rules.resolve_dvsu_overrides``) — forwarded into the
+    twist-gate (D2/QL-3), twist-menu (D3/QL-4), and the nested word-floor/
+    hype (QL-1/QL-12) checks inside ``_validate_static_unit_paragraph``. None
+    (the default) is exactly pre-C46c behavior."""
     import re
 
+    rule_overrides = rule_overrides or {}
     warnings: list[str] = []
     if not isinstance(bundle, dict):
         return "", ["story distiller must return a JSON object"]
@@ -4782,25 +4800,35 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     # its designed-vs-used twist from the expanded menu; a machine used exactly
     # as designed ("absent") MUST name a substitute payload. The deliberately-
     # bare tag is the only exemption.
+    # Checklist C46c: severity/menu are TABLE-DRIVEN when a QL-3/QL-4 row is
+    # seeded (quality_rules.resolve_dvsu_overrides); absent -> today's
+    # hardcoded hard-gate severity and 16-type menu, byte-identical.
     deliberately_bare = bool(((plan.get("contract") or {}) if isinstance(plan, dict) else {}).get("deliberately_bare"))
+    twist_gate_override = rule_overrides.get("twist_gate") or {}
+    twist_gate_blocking = twist_gate_override.get("severity", "hard_gate") == "hard_gate"
+    twist_gate_prefix = "" if twist_gate_blocking else _ADVISORY_PREFIX
+    twist_menu_override = rule_overrides.get("twist_menu") or {}
+    twist_menu = tuple(twist_menu_override.get("types") or ()) or _DVSU_TWIST_TYPES
+    twist_menu_blocking = twist_menu_override.get("severity", "guidance") == "hard_gate"
     twist = bundle.get("twist") if isinstance(bundle.get("twist"), dict) else {}
     twist_type = str(twist.get("type") or "").strip().lower().replace("-", "_").replace(" ", "_")
     twist_substitute = str(twist.get("substitute") or "").strip().lower().replace("-", "_").replace(" ", "_")
     if not deliberately_bare:
         if not twist_type:
             warnings.append(
-                "entry declares no designed-vs-used twist - built for X, used as Y is the engine; "
+                twist_gate_prefix + "entry declares no designed-vs-used twist - built for X, used as Y is the engine; "
                 "declare twist.type from the menu or tag the entry deliberately bare"
             )
         elif twist_type == "absent":
             if twist_substitute not in _DVSU_TWIST_SUBSTITUTES:
                 warnings.append(
-                    "no gap and no substitute - reads as a spec dump; a used-as-designed entry must "
+                    twist_gate_prefix + "no gap and no substitute - reads as a spec dump; a used-as-designed entry must "
                     "substitute one of: " + ", ".join(_DVSU_TWIST_SUBSTITUTES)
                 )
-        elif twist_type != "other" and twist_type not in _DVSU_TWIST_TYPES:
+        elif twist_type != "other" and twist_type not in twist_menu:
             warnings.append(
-                _ADVISORY_PREFIX + f"twist type `{twist_type}` is not on the menu - pick the closest named subtype "
+                ("" if twist_menu_blocking else _ADVISORY_PREFIX)
+                + f"twist type `{twist_type}` is not on the menu - pick the closest named subtype "
                 "(counted as `other` for the script-run budget)"
             )
 
@@ -5425,14 +5453,26 @@ def _validate_machine_story_sentences(machine: str, plan: dict, bundle: dict) ->
     if plan_supplies_evidence and unsupported_risk_terms:
         warnings.append("paragraph used high-risk term(s) absent from sourced evidence: " + ", ".join(unsupported_risk_terms))
 
-    warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph))
+    warnings.extend(PipelineExecutor._validate_static_unit_paragraph(machine, paragraph, rule_overrides))
     return paragraph, list(dict.fromkeys(warnings))
 
 
-def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragraph: str, warnings: list[str]) -> dict:
-    """Small deterministic checklist for judging one machine against Anton's contract."""
+def _anton_preview_quality_audit(
+    machine: str, plan: dict, bundle: dict, paragraph: str, warnings: list[str],
+    rule_overrides: Optional[dict] = None,
+) -> dict:
+    """Small deterministic checklist for judging one machine against Anton's contract.
+
+    ``rule_overrides``: only the "word_range" check's bounds are threaded
+    (checklist C46c) - every other check already derives pass/fail from the
+    ``warnings`` list, which is itself table-driven upstream, so it self-
+    adapts with no separate override needed here."""
     import re
 
+    rule_overrides = rule_overrides or {}
+    word_floor_override = rule_overrides.get("word_floor") or {}
+    audit_hard_min = int(word_floor_override.get("hard_min") or _ANTON_PARAGRAPH_HARD_MIN_WORDS)
+    audit_hard_max = int(word_floor_override.get("hard_max") or _ANTON_PARAGRAPH_HARD_MAX_WORDS)
     paragraph = " ".join(str(paragraph or "").split())
     # Token-matched pass/fail keys off BLOCKING warnings only; advisory
     # (warn-severity) flags surface via the advisory validator_warnings row.
@@ -5550,8 +5590,9 @@ def _anton_preview_quality_audit(machine: str, plan: dict, bundle: dict, paragra
         check(
             "word_range",
             # QD-6: hard window 80-170; the register band is guidance.
-            f"{_ANTON_PARAGRAPH_HARD_MIN_WORDS}-{_ANTON_PARAGRAPH_HARD_MAX_WORDS} words hard window",
-            _ANTON_PARAGRAPH_HARD_MIN_WORDS <= word_count <= _ANTON_PARAGRAPH_HARD_MAX_WORDS,
+            # Checklist C46c: bounds come from a seeded QL-1 row when present.
+            f"{audit_hard_min}-{audit_hard_max} words hard window",
+            audit_hard_min <= word_count <= audit_hard_max,
             f"{word_count} words (register target {narrative_target})",
         ),
         check(
@@ -9907,10 +9948,19 @@ class PipelineExecutor:
         return paragraph.strip()
 
     @staticmethod
-    def _validate_static_unit_paragraph(machine: str, paragraph: str) -> list[str]:
-        """Deterministic per-machine gate for static-docu script-hold output."""
+    def _validate_static_unit_paragraph(
+        machine: str, paragraph: str, rule_overrides: Optional[dict] = None,
+    ) -> list[str]:
+        """Deterministic per-machine gate for static-docu script-hold output.
+
+        ``rule_overrides`` (checklist C46c, ``quality_rules.resolve_dvsu_
+        overrides``): when the tenant has seeded QL-1 (word floor) and/or
+        QL-12 (banned hype words) rows, the TABLE VALUE wins for that check;
+        absent/unparseable keys fall back to today's hardcoded constants
+        byte-identically. None (the default) is exactly pre-C46c behavior."""
         import re
 
+        rule_overrides = rule_overrides or {}
         warnings: list[str] = []
         text = str(paragraph or "").strip()
         wc = _spoken_word_count(text)
@@ -9923,17 +9973,25 @@ class PipelineExecutor:
         # is an advisory warn band ("confirm terse on purpose"); the register
         # band itself is guidance handled by the narrative-weight advisory.
         # Code is authoritative; model self-counts are ignored.
-        if text and wc < _ANTON_PARAGRAPH_HARD_MIN_WORDS:
+        word_floor = rule_overrides.get("word_floor") or {}
+        hard_min = int(word_floor.get("hard_min") or _ANTON_PARAGRAPH_HARD_MIN_WORDS)
+        warn_top = int(word_floor.get("warn_top") or _ANTON_PARAGRAPH_MIN_WORDS)
+        hard_max = int(word_floor.get("hard_max") or _ANTON_PARAGRAPH_HARD_MAX_WORDS)
+        # D2/QL-12 pattern: a non-hard_gate severity on the seeded row demotes
+        # a floor/ceiling miss to advisory rather than blocking.
+        floor_blocking = word_floor.get("severity", "hard_gate") == "hard_gate"
+        floor_prefix = "" if floor_blocking else _ADVISORY_PREFIX
+        if text and wc < hard_min:
             warnings.append(
-                f"word count {wc} under the {_ANTON_PARAGRAPH_HARD_MIN_WORDS}-word hard floor - thicken or fold the entry"
+                floor_prefix + f"word count {wc} under the {hard_min}-word hard floor - thicken or fold the entry"
             )
-        elif wc > _ANTON_PARAGRAPH_HARD_MAX_WORDS:
+        elif wc > hard_max:
             warnings.append(
-                f"word count {wc} over the {_ANTON_PARAGRAPH_HARD_MAX_WORDS}-word hard ceiling - split or cut the entry"
+                floor_prefix + f"word count {wc} over the {hard_max}-word hard ceiling - split or cut the entry"
             )
-        elif text and wc < _ANTON_PARAGRAPH_MIN_WORDS:
+        elif text and wc < warn_top:
             warnings.append(
-                _ADVISORY_PREFIX + f"word count {wc} in the {_ANTON_PARAGRAPH_HARD_MIN_WORDS}-{_ANTON_PARAGRAPH_MIN_WORDS} "
+                _ADVISORY_PREFIX + f"word count {wc} in the {hard_min}-{warn_top} "
                 "warn band - confirm the entry is terse on purpose"
             )
         normalized_text = re.sub(r"[^A-Z0-9]", "", text.upper())
@@ -9971,11 +10029,18 @@ class PipelineExecutor:
                     for abbr in unit_abbreviations
                 )
             )
-        if any(term in lower for term in (
-            "one of the greatest", "one of the most incredible", "arguably the greatest",
-            "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
-        )):
-            warnings.append("contains forbidden Anton/DVsU hype language")
+        # QL-12 (checklist C46c): a seeded row's parsed banned-adjective list
+        # is UNIONED with this baseline (never replaces it - additivity is
+        # sacred; the law's list and this ad hoc superlative-phrase list
+        # catch different things). Severity on the seeded row governs the
+        # whole check once present; absent = today's hard/blocking behavior.
+        banned_hype = rule_overrides.get("banned_hype_words") or {}
+        hype_terms = _ANTON_HYPE_PHRASES + tuple(banned_hype.get("words") or ())
+        hype_blocking = banned_hype.get("severity", "hard_gate") == "hard_gate"
+        if any(term in lower for term in hype_terms):
+            warnings.append(
+                ("" if hype_blocking else _ADVISORY_PREFIX) + "contains forbidden Anton/DVsU hype language"
+            )
         list_transition_patterns = (
             r"\bmoving\s+(?:on|down)\s+(?:to|the list)\b",
             r"\bnext\s+(?:is|was|came|comes)\b",
@@ -10037,6 +10102,31 @@ class PipelineExecutor:
             if re.search(r"\b(?:retired|retirement|decommissioned)\b", last_sentence) and re.search(r"\b(?:18|19|20)\d{2}\b|\b\d+\s+years?\b", last_sentence):
                 warnings.append("final sentence ends on a retirement/date fact instead of a landed Anton line")
         return warnings
+
+    async def _load_dvsu_rule_overrides(self, video: dict) -> dict:
+        """Checklist C46c: fetch this tenant's ACTIVE ``quality_rules`` rows,
+        scope-match them against THIS video's own shape data (deterministic,
+        never LLM judgment - the same ``quality_rules.active_rules_for_video``
+        C46b's script critic already uses), and resolve the DvsU delta
+        overrides (``quality_rules.resolve_dvsu_overrides``) that the
+        static-docu script-hold's deterministic gates read before falling
+        back to their own hardcoded constants.
+
+        Fails OPEN: any error (no table yet, bad JSON, etc.) returns ``{}``,
+        which is exactly today's pre-C46c hardcoded behavior for every
+        non-seeded tenant and for DvsU itself before the seed script runs."""
+        try:
+            import quality_rules
+
+            rule_rows = await fetch_all(
+                "SELECT rule_id, law, evidence, severity, applies_to "
+                "FROM quality_rules WHERE tenant_id = $1 AND active",
+                self.tenant_id,
+            )
+            matched = quality_rules.active_rules_for_video(video, rule_rows or [])
+            return quality_rules.resolve_dvsu_overrides(matched)
+        except Exception:
+            return {}
 
     async def _run_static_script_hold(
         self,
@@ -10267,6 +10357,10 @@ class PipelineExecutor:
         )
         voice_id = (rows[0].get("voice_id") if rows else None) or "1SM7GgM6IMuvQlz2BwM3"
 
+        # Checklist C46c: resolved ONCE per script-hold run (not per machine)
+        # and threaded into every validator call below.
+        dvsu_rule_overrides = await self._load_dvsu_rule_overrides(video)
+
         # Stage every replacement paragraph in memory. Existing script rows remain
         # untouched unless the complete roster validates successfully.
         paragraphs: list[str] = []
@@ -10482,7 +10576,7 @@ class PipelineExecutor:
                 bundle = _parse_planned_story_sentences(raw_story, beat_plan)
                 bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
                 bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
-                paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle, dvsu_rule_overrides)
                 # EDIT loop: same draft back with only the violations - minimal
                 # local fixes converge where fresh re-rolls oscillated.
                 edit_round = 0
@@ -10515,7 +10609,7 @@ class PipelineExecutor:
                     edited["twist"] = edited.get("twist") or bundle.get("twist")
                     bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, edited)
                     bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
-                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle, dvsu_rule_overrides)
                 research_source_kind = "structured_story_plan"
             else:
                 prompt = (
@@ -10550,7 +10644,7 @@ class PipelineExecutor:
                     temperature=0.45,
                 )
                 paragraph = self._clean_static_unit_paragraph(paragraph)
-                warnings = self._validate_static_unit_paragraph(machine, paragraph)
+                warnings = self._validate_static_unit_paragraph(machine, paragraph, dvsu_rule_overrides)
                 warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
             # Warn-severity (advisory-prefixed) flags never trigger a repair round.
@@ -10614,7 +10708,7 @@ class PipelineExecutor:
                     bundle = _parse_machine_story_sentences(raw_story)
                     bundle = _repair_machine_story_bundle_mechanics(machine, story_plan, bundle)
                     bundle = _trim_machine_story_bundle_to_contract(machine, story_plan, bundle)
-                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle)
+                    paragraph, warnings = _validate_machine_story_sentences(machine, story_plan, bundle, dvsu_rule_overrides)
                 else:
                     repair_prompt = (
                         f"Write a fresh replacement paragraph for LOCKED MACHINE: {machine}.\n"
@@ -10639,7 +10733,7 @@ class PipelineExecutor:
                         temperature=0.25,
                     )
                     paragraph = self._clean_static_unit_paragraph(paragraph)
-                    warnings = self._validate_static_unit_paragraph(machine, paragraph)
+                    warnings = self._validate_static_unit_paragraph(machine, paragraph, dvsu_rule_overrides)
                     warnings.extend(_opening_assignment_warnings(machine, paragraph, opening_brief))
 
             # QL-7: classify and STORE the opener type; budget the name-openers.
@@ -10676,6 +10770,7 @@ class PipelineExecutor:
                 bundle or {},
                 paragraph,
                 warnings,
+                dvsu_rule_overrides,
             ) if complete_inventory_mode else {}
             audit_checks = (quality_audit or {}).get("checks") if isinstance(quality_audit, dict) else []
             audit_blocking_checks_passed = bool(audit_checks) and all(

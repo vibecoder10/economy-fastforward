@@ -473,3 +473,100 @@ async def parse_rules_document(text: str, *, client: Any = None) -> list[dict]:
     if rows:
         return rows
     return await llm_parse_rules_prose(text, client)
+
+
+# ---------------------------------------------------------------------------
+# DvsU delta overrides (checklist C46c) — the reference-tenant table-driven
+# gates. Pure function: given a video's already ACTIVE + SCOPE-MATCHED
+# ``quality_rules`` rows (the same list ``active_rules_for_video`` returns),
+# extract the structured VALUES ``pipeline_executor._validate_machine_story_
+# sentences`` / ``_validate_static_unit_paragraph`` read before falling back
+# to their own hardcoded constants. Each key below is populated ONLY when
+# the corresponding rule_id is present AND its `law` text parses with the
+# extractor's pattern — a present-but-unparseable row (wording drifted from
+# the pattern) is silently skipped for that key alone, never raises, never
+# partially applies a broken value. No DB, no network — callers fetch rows
+# themselves, same layering discipline as the rest of this module.
+# ---------------------------------------------------------------------------
+
+_QL1_WORD_LAW_RE = re.compile(
+    r"under\s+(\d+)\s+spoken\s+words.*?warn\s+(\d+)\s*-\s*(\d+).*?over\s+(\d+)",
+    re.IGNORECASE | re.DOTALL,
+)
+_QL4_SUBTYPES_RE = re.compile(r"recurring subtypes:\s*([^.]+)\.", re.IGNORECASE)
+_QL12_BANNED_WORDS_RE = re.compile(r"thumbnail-hype adjectives\s*\(([^)]+)\)", re.IGNORECASE)
+
+# QL-4's five canonical types are named only in the doc's Evidence column
+# (discarded by parse_markdown_table, never part of `law`), so they stay a
+# small hardcoded constant here rather than something re-parsed per seed —
+# unioned with whatever QL-4's `law` text supplies as the 11 recurring
+# subtypes. Mirrors pipeline_executor.py's own `_DVSU_TWIST_TYPES` canonical
+# half exactly (by design: this IS the same taxonomy, read from the same
+# source doc).
+_QL4_CANONICAL_TYPES = (
+    "role_change", "obsolete_but_enduring", "myth_vs_reality",
+    "cheap_beats_good", "ambition_outran_tech",
+)
+
+
+def _normalize_twist_token(raw: str) -> str:
+    return re.sub(r"[\s/-]+", "_", raw.strip().lower()).strip("_")
+
+
+def resolve_dvsu_overrides(rules: list[dict]) -> dict:
+    """Extract the DvsU delta overrides from a tenant's scope-matched rule
+    rows. Returns a dict with only the keys whose backing rule parsed:
+
+      "word_floor": {"hard_min": int, "warn_top": int, "hard_max": int,
+                      "severity": str}                      -- from QL-1
+      "twist_gate": {"severity": str}                        -- from QL-3
+      "twist_menu": {"types": tuple[str, ...], "severity": str} -- from QL-4
+      "banned_hype_words": {"words": tuple[str, ...], "severity": str} -- QL-12
+
+    An empty return (``{}``) means every check falls back to today's
+    hardcoded constants — the exact behavior for any non-seeded tenant and
+    for DvsU itself before the seed script runs."""
+    overrides: dict = {}
+    by_id = {str(r.get("rule_id") or "").strip().upper(): r for r in (rules or [])}
+
+    ql1 = by_id.get("QL-1")
+    if ql1:
+        m = _QL1_WORD_LAW_RE.search(str(ql1.get("law") or ""))
+        if m:
+            hard_min, _warn_lo, warn_top, hard_max = (int(g) for g in m.groups())
+            overrides["word_floor"] = {
+                "hard_min": hard_min, "warn_top": warn_top, "hard_max": hard_max,
+                "severity": ql1.get("severity") if ql1.get("severity") in SEVERITIES else "hard_gate",
+            }
+
+    ql3 = by_id.get("QL-3")
+    if ql3:
+        overrides["twist_gate"] = {
+            "severity": ql3.get("severity") if ql3.get("severity") in SEVERITIES else "hard_gate",
+        }
+
+    ql4 = by_id.get("QL-4")
+    if ql4:
+        m = _QL4_SUBTYPES_RE.search(str(ql4.get("law") or ""))
+        if m:
+            subtypes = tuple(
+                _normalize_twist_token(item)
+                for item in m.group(1).split(",")
+                if item.strip()
+            )
+            overrides["twist_menu"] = {
+                "types": tuple(dict.fromkeys(_QL4_CANONICAL_TYPES + subtypes)),
+                "severity": ql4.get("severity") if ql4.get("severity") in SEVERITIES else "guidance",
+            }
+
+    ql12 = by_id.get("QL-12")
+    if ql12:
+        m = _QL12_BANNED_WORDS_RE.search(str(ql12.get("law") or ""))
+        if m:
+            words = tuple(item.strip().lower() for item in m.group(1).split(",") if item.strip())
+            overrides["banned_hype_words"] = {
+                "words": words,
+                "severity": ql12.get("severity") if ql12.get("severity") in SEVERITIES else "hard_gate",
+            }
+
+    return overrides

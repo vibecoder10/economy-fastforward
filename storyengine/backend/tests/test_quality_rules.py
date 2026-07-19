@@ -439,3 +439,139 @@ def test_deactivate_rule_returns_false_when_not_found(monkeypatch):
     monkeypatch.setattr(qr, "fetch_one", fake_fetch_one)
     ok = asyncio.run(qr.deactivate_rule("tenant-xyz", "missing-id"))
     assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# resolve_dvsu_overrides (checklist C46c) — the reference-tenant deltas.
+# Rows here are REAL law text copied verbatim from
+# storyengine/notes/dvsu-quality-law.md so the extractor patterns are proven
+# against the actual doc, not a paraphrase.
+# ---------------------------------------------------------------------------
+
+_QL1_LAW = (
+    "Reject under 80 spoken words; warn 80-95; reject over 170. Hit the "
+    "register median, not a fixed number: tight-production 85-105, "
+    "spec-block naval 100-120, long-form (crew/sunk/never-built) 110-130; "
+    "the folded-outro final entry may reach 160."
+)
+_QL4_LAW = (
+    'Name the twist from an expanded menu; do not default to "other." The '
+    "five canonical types cover about half the corpus; add the recurring "
+    "subtypes: lost-fly-off, treaty/politics-cancelled, cost-killed, "
+    "mission-obsoleted-by-countermeasure, redundant-backup, "
+    "incremental-stopgap, peaked-obsolete-concept, "
+    "killed-by-secondary-threat, self-destruction, "
+    "role-discontinued-by-budget, built-for-a-threat-that-never-existed."
+)
+_QL12_LAW = (
+    "Ban thumbnail-hype adjectives (incredible, amazing, stunning, insane, "
+    "epic, jaw-dropping, mind-blowing, game-changing, breathtaking, "
+    "unbelievable, spectacular). Superlatives allowed ONLY when anchored to "
+    "a verifiable fact. Avoid free-floating emotive nouns (nightmare, "
+    "death-trap, killer)."
+)
+
+
+def test_resolve_dvsu_overrides_empty_when_no_matching_rule_ids():
+    assert qr.resolve_dvsu_overrides([]) == {}
+    assert qr.resolve_dvsu_overrides([_rule("QL-99", {"all": True})]) == {}
+
+
+def test_resolve_dvsu_overrides_ql1_word_floor_parses_real_law_text():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-1", "law": _QL1_LAW, "evidence": None,
+         "severity": "hard_gate", "applies_to": {"story": True}},
+    ])
+    assert overrides["word_floor"] == {
+        "hard_min": 80, "warn_top": 95, "hard_max": 170, "severity": "hard_gate",
+    }
+
+
+def test_resolve_dvsu_overrides_ql1_skipped_when_law_text_unparseable():
+    """A row present but reworded away from the extractor's pattern is
+    skipped for that key alone -- never raises, never half-applies."""
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-1", "law": "Keep paragraphs reasonably sized.",
+         "evidence": None, "severity": "hard_gate", "applies_to": {"story": True}},
+    ])
+    assert "word_floor" not in overrides
+
+
+def test_resolve_dvsu_overrides_ql3_twist_gate_severity():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-3", "law": "twist law", "evidence": None,
+         "severity": "warn", "applies_to": {"story": True}},
+    ])
+    assert overrides["twist_gate"] == {"severity": "warn"}
+
+
+def test_resolve_dvsu_overrides_ql4_twist_menu_unions_canonical_and_parsed_subtypes():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-4", "law": _QL4_LAW, "evidence": None,
+         "severity": "guidance", "applies_to": {"story": True}},
+    ])
+    menu = overrides["twist_menu"]
+    assert menu["severity"] == "guidance"
+    # The 5 canonical types (not named in the law column, only Evidence) ...
+    for canonical in ("role_change", "obsolete_but_enduring", "myth_vs_reality",
+                       "cheap_beats_good", "ambition_outran_tech"):
+        assert canonical in menu["types"]
+    # ... unioned with all 11 subtypes parsed straight out of the law text.
+    for subtype in (
+        "lost_fly_off", "treaty_politics_cancelled", "cost_killed",
+        "mission_obsoleted_by_countermeasure", "redundant_backup",
+        "incremental_stopgap", "peaked_obsolete_concept",
+        "killed_by_secondary_threat", "self_destruction",
+        "role_discontinued_by_budget", "built_for_a_threat_that_never_existed",
+    ):
+        assert subtype in menu["types"]
+    assert len(menu["types"]) == 16
+
+
+def test_resolve_dvsu_overrides_ql12_banned_words_parsed_from_real_law_text():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-12", "law": _QL12_LAW, "evidence": None,
+         "severity": "hard_gate", "applies_to": {"all": True}},
+    ])
+    assert overrides["banned_hype_words"] == {
+        "words": (
+            "incredible", "amazing", "stunning", "insane", "epic",
+            "jaw-dropping", "mind-blowing", "game-changing", "breathtaking",
+            "unbelievable", "spectacular",
+        ),
+        "severity": "hard_gate",
+    }
+
+
+def test_resolve_dvsu_overrides_only_includes_present_rule_ids():
+    """A tenant seeded with only QL-12 (not QL-1/QL-3/QL-4) gets ONLY the
+    QL-12 override key -- proves the mechanism is per-rule, not all-or-nothing."""
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-12", "law": _QL12_LAW, "evidence": None,
+         "severity": "hard_gate", "applies_to": {"all": True}},
+    ])
+    assert set(overrides.keys()) == {"banned_hype_words"}
+
+
+def test_resolve_dvsu_overrides_generalizes_to_a_second_non_dvsu_tenant():
+    """checklist C46c requirement: at least one law that is NOT DvsU-specific
+    demonstrated working for a HYPOTHETICAL second tenant purely via table
+    rows + scope matching -- no code specialization. QL-1's word-floor shape
+    (hard floor / warn band / hard ceiling) is a generic craft law; a second
+    tenant ("Acme Explainers") writing a completely different word-count
+    contract (a 40-word hard floor, warn under 60, 300-word ceiling) gets
+    ITS OWN numbers back from the exact same resolver -- nothing here reads
+    "DvsU" or knows about aircraft."""
+    acme_rules = [
+        {"rule_id": "QL-1",
+         "law": "Reject under 40 spoken words; warn 40-60; reject over 300.",
+         "evidence": None, "severity": "hard_gate", "applies_to": {"all": True}},
+    ]
+    overrides = qr.resolve_dvsu_overrides(acme_rules)
+    assert overrides["word_floor"] == {
+        "hard_min": 40, "warn_top": 60, "hard_max": 300, "severity": "hard_gate",
+    }
+    assert overrides["word_floor"] != qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-1", "law": _QL1_LAW, "evidence": None,
+         "severity": "hard_gate", "applies_to": {"all": True}},
+    ])["word_floor"]

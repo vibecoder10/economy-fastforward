@@ -2497,6 +2497,63 @@ actually changes a real Claude judge's grading behavior.
 
 ---
 
+## C46c — DvsU deltas as the reference-tenant table-driven gates · live seed run
+
+Everything this chunk touches was proven at unit level only (28 tests, SYSTEM_STATE.md §C46c) — real law
+text copied verbatim into test fixtures, but no live run has ever seeded the ACTUAL `quality_rules` table
+for the ACTUAL DvsU tenant, nor confirmed a real script-hold generation reads the seeded values. This
+chunk deliberately did NOT touch the live DB (DvsU is a real production tenant on the shared sandbox DB) —
+that's this section's job.
+
+- [ ] **Dry run first (always).** From `storyengine/backend` on the VPS (or anywhere with `DATABASE_URL`
+      set):
+      ```bash
+      cd storyengine/backend
+      ./venv/bin/python scripts/seed_dvsu_quality_rules.py --tenant-id <DvsU's tenant UUID>
+      ```
+      (or `--channel-name "<substring of DvsU's channel_profiles.channel_name>"` if the UUID isn't handy
+      — the script refuses to proceed unless that substring matches EXACTLY one tenant). Confirm the
+      printed report: **74 rows**, scope split **story 49 / research 21 / all 4**, severity split
+      **hard_gate 53 / warn 14 / guidance 7**. No DB write happens in this step — sanity-check the numbers
+      before going further.
+- [ ] **Confirm the live table is still empty for DvsU** before seeding (expected — C46b's own live check
+      confirmed 0 rows for every tenant): `se db "SELECT count(*) FROM quality_rules WHERE tenant_id =
+      '<uuid>'"` → expect `0`.
+- [ ] **Apply the seed:**
+      ```bash
+      ./venv/bin/python scripts/seed_dvsu_quality_rules.py --tenant-id <DvsU's tenant UUID> --apply
+      ```
+      Confirm: "Upserted 74 quality_rules row(s)". Then `se db "SELECT rule_id, severity, applies_to FROM
+      quality_rules WHERE tenant_id = '<uuid>' ORDER BY rule_id"` → spot-check QL-1 (severity=hard_gate,
+      applies_to={"story":true}), QL-12 (severity=hard_gate, applies_to={"story":true} — QL-1..20 all
+      score "story"), QL-25 (severity=hard_gate, applies_to={"research":true}).
+- [ ] **Re-run is idempotent.** Run the exact same `--apply` command again; confirm row count stays 74
+      (no duplicates — `ON CONFLICT (tenant_id, rule_id) DO UPDATE`) and `updated_at` moved on every row.
+- [ ] **Post-seed smoke: the gates actually fire from table values, not just exist as rows.** Trigger one
+      DvsU script-hold generation for a single locked machine (the app UI, or `POST
+      /api/pipeline/machine-script/{video_id}?machine=<name>` per the existing DvsU preview route) and
+      confirm via `se logs backend` / the returned `preview.warnings`:
+      - QL-12's REAL banned-adjective list is now active (not just the old ad hoc phrase list) — if the
+        writer's draft ever used one of "incredible/amazing/stunning/insane/epic/jaw-dropping/mind-
+        blowing/breathtaking/unbelievable/spectacular", confirm it's flagged (it wasn't, pre-seed, for
+        several of these words — see SYSTEM_STATE.md §C46c's mismatch finding).
+      - The word-floor/twist-gate checks still behave identically to pre-seed (D1/D2/D3 were already
+        correct hardcoded values — the seed should change NOTHING observable for those three, only prove
+        the values now come from the table). Confirm by diffing `preview.warnings` against a pre-seed
+        preview run for the SAME machine/research payload, if practical — should match exactly.
+      - Confirm `PipelineExecutor._load_dvsu_rule_overrides`'s one new `SELECT ... FROM quality_rules`
+        query shows up in the backend's query logs for this run (proves it's actually being read, not
+        just sitting unused).
+- **Cost:** the seed script itself is free (deterministic parse + DB writes only, no Claude/Kie calls).
+  The post-seed smoke test's script-hold generation is a normal per-machine Claude call — same cost class
+  as any other script-hold run for this tenant, no new cost category introduced by this chunk.
+- **Safety net:** the seed script defaults to dry-run (write requires explicit `--apply`); `bulk_create_
+  rules` is idempotent (re-seeding after editing the doc edits rows in place, never duplicates); every
+  gate fails back to today's exact hardcoded behavior if a row is later deactivated or deleted (no
+  quality_rules row = no override, proven at unit level).
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

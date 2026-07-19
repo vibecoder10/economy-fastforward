@@ -1954,6 +1954,123 @@ def test_word_gates_hard_80_warn_band_95_ceiling_170():
     assert validate("B52", _words("B-52", 95)) == []
 
 
+# ---------------------------------------------------------------------------
+# Checklist C46c: DvsU deltas as table-driven gates. `rule_overrides=None`
+# (the default, and every call in this file above) must stay byte-identical
+# to pre-C46c behavior -- proven with `git stash` in the verification pass.
+# ---------------------------------------------------------------------------
+
+def test_word_gate_table_override_wins_over_hardcoded_constants():
+    """D1: a seeded QL-1 row's floor/warn/ceiling REPLACES the hardcoded
+    80/95/170 values when supplied via rule_overrides."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    overrides = {"word_floor": {"hard_min": 40, "warn_top": 60, "hard_max": 90, "severity": "hard_gate"}}
+
+    # 65 words: a hard-floor violation under the default 80-word floor, but
+    # clears the table-driven 40-word floor AND its 60-word warn-band top
+    # -> no warning at all.
+    sixty_five_words = _words("XB-15", 65)
+    assert any("under the 80-word hard floor" in w for w in validate("XB-15", sixty_five_words))
+    assert validate("XB-15", sixty_five_words, overrides) == []
+
+    # 35 words: under the table-driven 40-word floor -> blocking.
+    assert any(
+        "under the 40-word hard floor" in w
+        for w in pe._blocking_warnings(validate("XB-15", _words("XB-15", 35), overrides))
+    )
+
+
+def test_word_gate_table_override_absent_is_byte_identical_fallback():
+    """No rule_overrides (None, the default) and an empty dict both fall
+    back to today's hardcoded 80/95/170 constants, word-for-word."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    text = _words("XB-15", 79)
+    assert validate("XB-15", text) == validate("XB-15", text, None) == validate("XB-15", text, {})
+
+
+def test_word_gate_table_severity_demotes_floor_violation_to_advisory():
+    """A seeded QL-1 row with severity='warn' (not hard_gate) demotes the
+    floor/ceiling miss to advisory - it ships, never blocks."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    overrides = {"word_floor": {"hard_min": 80, "warn_top": 95, "hard_max": 170, "severity": "warn"}}
+    warnings = validate("XB-15", _words("XB-15", 50), overrides)
+    assert any("under the 80-word hard floor" in w for w in warnings)
+    assert pe._blocking_warnings(warnings) == []  # demoted, never blocks
+
+
+def test_hype_gate_table_override_adds_ql12_words_without_dropping_baseline():
+    """QL-12: a seeded row's banned-adjective list is UNIONED with the
+    existing ad hoc superlative-phrase list (additivity, never a regression)."""
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    overrides = {"banned_hype_words": {"words": ("incredible", "jaw-dropping"), "severity": "hard_gate"}}
+
+    baseline_text = _words("XB-15", 90) + " it was undoubtedly the best."
+    assert any("forbidden Anton/DVsU hype language" in w for w in validate("XB-15", baseline_text))
+    assert any("forbidden Anton/DVsU hype language" in w for w in validate("XB-15", baseline_text, overrides))
+
+    new_word_text = _words("XB-15", 90) + " this was a jaw-dropping achievement."
+    assert validate("XB-15", new_word_text) == []  # not caught before QL-12 is seeded
+    assert any(
+        "forbidden Anton/DVsU hype language" in w
+        for w in pe._blocking_warnings(validate("XB-15", new_word_text, overrides))
+    )
+
+
+def test_hype_gate_table_severity_demotes_to_advisory():
+    validate = pe.PipelineExecutor._validate_static_unit_paragraph
+    overrides = {"banned_hype_words": {"words": ("jaw-dropping",), "severity": "warn"}}
+    text = _words("XB-15", 90) + " this was a jaw-dropping achievement."
+    warnings = validate("XB-15", text, overrides)
+    assert any("forbidden Anton/DVsU hype language" in w for w in warnings)
+    assert pe._blocking_warnings(warnings) == []
+
+
+def test_twist_gate_table_severity_demotes_undeclared_twist_to_advisory():
+    """D2: a seeded QL-3 row with severity != hard_gate demotes the
+    "no twist declared" / "no substitute" violations to advisory."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    undeclared = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    undeclared.pop("twist", None)
+
+    _p, hard_warnings = pe._validate_machine_story_sentences("B-52", plan, undeclared)
+    assert any("entry declares no designed-vs-used twist" in w for w in pe._blocking_warnings(hard_warnings))
+
+    overrides = {"twist_gate": {"severity": "warn"}}
+    _p, warn_warnings = pe._validate_machine_story_sentences("B-52", plan, undeclared, overrides)
+    assert any(
+        w.startswith(pe._ADVISORY_PREFIX) and "entry declares no designed-vs-used twist" in w
+        for w in warn_warnings
+    )
+    assert pe._blocking_warnings(warn_warnings) == []
+
+
+def test_twist_menu_table_override_recognizes_a_custom_subtype():
+    """D3: a table-supplied twist_menu recognizes a type the hardcoded
+    16-item menu does not, without an advisory 'not on the menu' flag."""
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    bundle["twist"] = {"type": "brand_new_subtype", "substitute": None, "summary": "?"}
+
+    _p, default_warnings = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    assert any("not on the menu" in w for w in default_warnings)
+
+    overrides = {"twist_menu": {"types": ("brand_new_subtype",), "severity": "guidance"}}
+    _p, table_warnings = pe._validate_machine_story_sentences("B-52", plan, bundle, overrides)
+    assert not any("not on the menu" in w for w in table_warnings)
+
+
+def test_validate_machine_story_sentences_no_override_is_byte_identical():
+    payload = {"unit_research_cards": [{"unit": "B-52", "evidence_segments": _evidence_segments()}]}
+    plan = pe._machine_story_plan(payload, "B-52")
+    bundle = pe._parse_machine_story_sentences(_story_bundle("B-52", 19))
+    p1, w1 = pe._validate_machine_story_sentences("B-52", plan, bundle)
+    p2, w2 = pe._validate_machine_story_sentences("B-52", plan, bundle, None)
+    p3, w3 = pe._validate_machine_story_sentences("B-52", plan, bundle, {})
+    assert (p1, w1) == (p2, w2) == (p3, w3)
+
+
 def test_voiceover_digit_gate_keeps_designations_years_and_exact_figures():
     """QL-10/QL-11 (OR-4 approved): digits stay legal for designations,
     calendar years (1937), and exact 4+ digit figures (5,130); sub-1000
@@ -4504,6 +4621,9 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
         # payload carries card.readiness (single backend-owned readiness source).
         ("SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2", ("tenant-test", "video-test")),
         ("SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1", ("video-test", "tenant-test")),
+        # Checklist C46c: resolved once per script-hold run, byte-identical
+        # fallback ({}) when the tenant has no seeded quality_rules rows.
+        ("SELECT rule_id, law, evidence, severity, applies_to FROM quality_rules WHERE tenant_id = $1 AND active", ("tenant-test",)),
     ]
     assert "B-17 SHOULD NOT LEAK" not in fake_anthropic.prompts[0]
     assert "XB-15 source-grounded" not in fake_anthropic.prompts[0]

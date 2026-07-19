@@ -372,6 +372,54 @@
   real-grading checks deferred → `tasks/live-verification-queue.md` §C46b. **Next: C46c · DvsU deltas as
   reference implementation** — seed the 74 laws via this chunk's `bulk_create_rules`/`source="seed"`,
   replacing `_validate_machine_story_sentences`'s hardcoded constants with reads from this table.
+- **Also done:** C46c · DvsU deltas as the reference-tenant table-driven gates — DONE 2026-07-19, full
+  detail in SYSTEM_STATE.md §C46c. **Key finding before writing code:** D1/D2/D3 (word floor 80, twist-
+  or-substitute hard gate, expanded twist taxonomy) were ALREADY landed as hardcoded constants in an
+  earlier session, byte-identical to the law — the doc's §3 DELTAS table describing them as open gaps is
+  stale, not a live to-do. Only QL-12 (banned-hype list) was a genuine mismatch (an older ad hoc
+  superlative-phrase list, not the law's actual banned-adjective list) — UNIONED, not replaced (additivity
+  is sacred). New seed script `scripts/seed_dvsu_quality_rules.py` (NOT wired into any migration/cron/
+  auto-seed — DvsU is a real production tenant on the LIVE db): parses the doc via C46b's
+  `parse_markdown_table` (exactly 74 rows, QL-1..QL-74 — QD-1..6 use a 4-column table format the parser's
+  5-cell minimum doesn't match, and are already reflected in the landed code's own QD-tagged comments
+  regardless), assigns `applies_to` scope by SECTION (not the generic keyword-heuristic default): QL-1..20
+  → `story` (49 rows once 46-74 are folded in), QL-21..24 → `all`, QL-25..45 → `research`, QL-46..74 →
+  `story` as the closest existing fit (**flagged, not papered over**: C46b's scope vocabulary has no
+  dedicated voiceover/image/thumbnail key yet). `--dry-run` default (zero DB touch), `--apply` required to
+  write, idempotent via `bulk_create_rules`. New `quality_rules.resolve_dvsu_overrides` (pure): parses
+  QL-1/QL-3/QL-4/QL-12's `law` text with targeted regexes proven against the REAL doc into structured
+  override values (word_floor, twist_gate severity, twist_menu, banned_hype_words) — a rule_id absent or
+  its law text reworded away from the pattern means that key is simply missing, never raises. `pipeline_
+  executor.py`'s `_validate_static_unit_paragraph`/`_validate_machine_story_sentences`/`_anton_preview_
+  quality_audit` each gained an optional `rule_overrides=None` param (100% backward-compatible — the
+  9000-line existing test suite calls these with 2-3 positional args hundreds of times, needed zero
+  changes beyond one fetch-call-list assertion). Severity drives blocking vs advisory uniformly
+  (`!= "hard_gate"` demotes to advisory, never suppresses). New `PipelineExecutor._load_dvsu_rule_
+  overrides` fetches+scope-matches+resolves ONCE per `_run_static_script_hold` run (proven before the
+  per-machine loop via a wiring-lock test) and threads through every validator call (wiring-lock tests
+  grep the method's own source, mirroring `test_first_run_checklist_wired_lock.py`'s pattern).
+  **Generalization proof:** a hypothetical "Acme Explainers" tenant's own completely different word-count
+  law round-trips through the exact same resolver and gets its OWN numbers back — nothing reads "DvsU" or
+  any channel-specific string. **Open rulings left for Ryan, not decided:** OR-5 (crew-hate variant
+  scope), OR-6 (corpus hygiene tagging — not a code change), OR-9 (fixed thumbnail-text set) — OR-1
+  through OR-4/OR-7/OR-8 are already ruled AND already landed, not re-litigated. VERIFIED: 28 new tests
+  across 4 files (`test_quality_rules.py` +8, `test_machine_documentary_hold.py` +8 plus 1 updated fetch-
+  call assertion, `test_c46c_dvsu_deltas_wiring.py` +6 NEW, `test_c46c_seed_dvsu_quality_rules.py` +6 NEW)
+  — non-vacuous via `git stash -u`: reverted → **15F/1511P/1E** (identical to C46b's own baseline,
+  confirming the 15/1 are genuinely pre-existing), popped back → **15F/1539P/1E** = exactly +28, zero new
+  failures. The pre-existing `test_machine_documentary_hold.py` suite (239 tests before this chunk) stayed
+  100% green untouched — every call there omits the new `rule_overrides` arg, exercising the byte-
+  identical fallback by construction. `python -m py_compile` clean on all 7 touched/new files. Frontend
+  untouched — confirmed via `git status`. Checklist §C46c ticked. **Deploy-safety: recommend ff-merge
+  candidate, not yet ff-merged by this chunk** (left to the orchestrator) — zero behavior change for every
+  tenant today (the live `quality_rules` table still has 0 rows; the seed script is deliberately NOT run
+  this chunk); the only thing that changes ANYTHING once the seed script runs with `--apply` is the DvsU
+  tenant's own script-hold gates, no other tenant reachable by this path. **Live seed run deferred to
+  `tasks/live-verification-queue.md` §C46c** (exact command + expected row count + post-seed smoke plan —
+  this chunk deliberately does not touch the live DB). **Next: C46d · trust boundaries** — MCP/agent-
+  submitted scripts (C47 ingest) pass the SAME critic; `user_supplied` verbatim scripts keep their
+  explicit no-gate bypass; wire the critic verdict into the C42 digest/chat surfaces so failures list
+  rule-by-rule.
 - **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 

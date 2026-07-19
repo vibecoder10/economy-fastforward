@@ -8433,3 +8433,151 @@ Next: **C46c · DvsU deltas as reference implementation** — seed DvsU's 74 law
 already-ruled Section 4 items) as the first TABLE-DRIVEN gates via this chunk's `bulk_create_rules`/
 `source="seed"`, replacing the hardcoded `_validate_machine_story_sentences` constants with reads from
 this table. Proves the engine generalizes beyond one tenant's stopgap.
+
+---
+
+## C46c — DvsU deltas as the reference-tenant table-driven gates (added 2026-07-19)
+
+**Headline finding before writing any code:** D1 (word floor 80 not 95), D2 (twist-or-substitute hard
+gate), and D3 (expanded twist taxonomy) were already ALL landed in `pipeline_executor.py` as hardcoded
+constants in an earlier session, byte-identical to the law (`_ANTON_PARAGRAPH_HARD_MIN_WORDS = 80`,
+the OR-1-approved twist-or-substitute gate, the 16-item `_DVSU_TWIST_TYPES` menu) — the doc's §3 DELTAS
+table describing them as still-open gaps is STALE, not a live to-do. Only QL-12 (banned-hype list) was a
+genuine mismatch: the hardcoded check (`_validate_static_unit_paragraph`) bans a different, older ad hoc
+superlative-PHRASE list ("one of the greatest", "undoubtedly", "iconic"...) than QL-12's actual banned-
+ADJECTIVE list (incredible, amazing, stunning, insane, epic, jaw-dropping, mind-blowing, game-changing,
+breathtaking, unbelievable, spectacular). This chunk's real job, given that, is proving the engine can
+take these values FROM THE TABLE when seeded rather than re-deriving new numbers — the reference
+implementation is about the MECHANISM, not new law content.
+
+**Seed script (`storyengine/backend/scripts/seed_dvsu_quality_rules.py`, NOT wired into any migration/
+cron/auto-seed path — DvsU is a real production tenant on the LIVE db):** parses
+`storyengine/notes/dvsu-quality-law.md` via C46b's `quality_rules.parse_markdown_table`, which extracts
+exactly **74 rows (QL-1..QL-74)** — QD-1..QD-6 (Section 5) use a 4-column table format the parser's
+5-cell-minimum requirement doesn't match, so they're not extracted; this is fine, since every QD law
+(closer freedom, grounding scope, rounding hedges, exact-date sourcing, editorial-thesis warn-only, the
+QL-1-restating word target) is already reflected in the ALREADY-LANDED hardcoded code's own `QD-N`-tagged
+comments, confirmed by grep. Severities come straight from the doc's own Sev column (53 hard_gate / 14
+warn / 7 guidance). `applies_to` scope is assigned by SECTION, not the generic keyword-heuristic
+`suggest_applies_to()` (that's an ingestion-time DEFAULT for an arbitrary doc, never authoritative for a
+doc whose structure is already known): QL-1..20 (Writing craft + Mechanical, the paragraph-assembly
+gates) → `story` (49 rows once the 46-74 production sections are folded in below); QL-21..24 (Channel
+identity) → `all`; QL-25..45 (Research and selection) → `research`; QL-46..74 (Voiceover/Image/
+Thumbnail/Producer file) → `story` as the closest existing fit — **flagged, not papered over: C46b's
+`applies_to` vocabulary has no dedicated voiceover/image/thumbnail scope key today**, so these 29 rows
+share "story" with the paragraph-assembly laws even though they govern different downstream artifacts;
+a real gap for a future chunk to add discrete keys for, not a mistake made silently. Final split: story
+49 / research 21 / all 4 = 74. `--dry-run` is the DEFAULT (parses + reports counts, zero DB touch,
+confirmed by making tenant resolution explode if reached); `--apply` is required to actually write, via
+`bulk_create_rules(source="seed")` (idempotent — reruns edit rows in place, never duplicate). Tenant
+resolution accepts `--tenant-id <uuid>` or `--channel-name <substring>` (refuses to proceed on anything
+but exactly one match).
+
+**Table-wins mechanism (`quality_rules.resolve_dvsu_overrides`, pure — no DB):** takes a video's already
+ACTIVE + SCOPE-MATCHED `quality_rules` rows (the same list `active_rules_for_video` returns) and extracts
+structured VALUES by parsing specific rule_ids' `law` text with targeted regexes proven against the REAL
+doc text:
+```python
+_QL1_WORD_LAW_RE = re.compile(
+    r"under\s+(\d+)\s+spoken\s+words.*?warn\s+(\d+)\s*-\s*(\d+).*?over\s+(\d+)",
+    re.IGNORECASE | re.DOTALL,
+)
+```
+— QL-1 → `word_floor` (hard_min/warn_top/hard_max/severity), QL-3 → `twist_gate` (severity only), QL-4 →
+`twist_menu` (11 subtypes parsed from the law text UNIONED with the 5 canonical types, which live only in
+the doc's discarded Evidence column so stay a small hardcoded constant), QL-12 → `banned_hype_words`
+(the 11-word list parsed straight out of the parenthetical). A rule_id absent from the matched set, OR
+present but its `law` text reworded away from the pattern, means that key is simply missing from the
+returned dict — never raises, never half-applies a broken value. `pipeline_executor.py`'s
+`_validate_static_unit_paragraph`, `_validate_machine_story_sentences`, and `_anton_preview_quality_audit`
+each gained an optional `rule_overrides: Optional[dict] = None` parameter (100% backward compatible — the
+9000-line `test_machine_documentary_hold.py` suite calls these with 2-3 positional args hundreds of times
+and needed zero changes beyond one fetch-call-list assertion). Severity drives blocking vs advisory
+uniformly: `severity != "hard_gate"` demotes a check's warning to `_ADVISORY_PREFIX`-tagged (never
+blocks) rather than suppressing it outright — matches the doc's own "warn = flag, ships if deliberate"
+language. QL-12 specifically UNIONS the table-parsed list with the pre-existing ad hoc phrase list rather
+than replacing it (additivity is sacred — the two lists catch different things; seeding QL-12 must never
+lose coverage the channel already had).
+
+**Wiring (`PipelineExecutor._load_dvsu_rule_overrides`, new):** fetches the tenant's active `quality_rules`
+rows via the SAME `fetch_all` pattern C46b's `_grade_and_maybe_revise_script` already established
+(`"SELECT rule_id, law, evidence, severity, applies_to FROM quality_rules WHERE tenant_id = $1 AND
+active"`), scope-matches via `quality_rules.active_rules_for_video`, resolves via
+`resolve_dvsu_overrides`, and fails open (`{}`) on any error. Called ONCE per `_run_static_script_hold`
+run (not per machine — proven by a wiring-lock test asserting the fetch appears textually before the
+per-machine `for i, machine in selected_units:` loop) and threaded into all 5 validator call sites plus
+the `_anton_preview_quality_audit` call (wiring-lock tests grep the method's own source slice for every
+call site, mirroring `test_first_run_checklist_wired_lock.py`'s established source-inspection pattern).
+
+**Generalization proof (checklist requirement — at least one non-DvsU-specific law):** QL-1's word-floor
+shape (hard floor / warn band / hard ceiling) is generic craft law, not aircraft-specific.
+`test_resolve_dvsu_overrides_generalizes_to_a_second_non_dvsu_tenant` feeds a hypothetical "Acme
+Explainers" tenant's OWN completely different word-count law ("Reject under 40 spoken words; warn 40-60;
+reject over 300") through the exact same `resolve_dvsu_overrides` and gets ITS OWN numbers back — nothing
+in the resolver reads "DvsU," "aircraft," or any channel-specific string; the mechanism is pure
+scope-matching + regex extraction over whatever law text a tenant's own rows carry.
+
+**Open rulings NOT decided this chunk (§4 of the doc) — left for Ryan:**
+- **OR-5 — crew-hate variant scope** (bring the "Most Hated" pilot-testimony format in as a separate
+  named mode with its own overrides, or leave it out of scope?). Not landed in code either way.
+- **OR-6 — corpus hygiene** (tag MostHated-Warships as an anti-pattern, exclude from style-seed sets?).
+  Not a code change — a corpus-curation/prompt-seed decision outside this chunk's touch surface.
+- **OR-9 — fixed thumbnail-text set** (add "BY PILOTS"/"BY CREWS" to the 5 locked phrases, or route via
+  the open 2-4-word rule?). No thumbnail-text enum exists in code today to land this into regardless.
+- OR-1 through OR-4, OR-7, OR-8 are already ruled AND already landed (confirmed above) — not re-litigated.
+
+### Verification
+
+28 new tests across 4 files. `storyengine/backend/tests/test_quality_rules.py` (+8): `resolve_dvsu_
+overrides` against REAL law text copied verbatim from the doc for QL-1/QL-4/QL-12 — correct extraction,
+graceful skip on unparseable law text, per-rule-id independence (only QL-12 seeded → only that key
+returned), and the second-tenant generalization proof. `storyengine/backend/tests/
+test_machine_documentary_hold.py` (+8): table override wins over the hardcoded constant (word floor,
+hype words, twist menu), severity demotes hard→advisory for all three deltas, and 3 explicit
+`rule_overrides=None`-vs-omitted-vs-`{}` byte-identity assertions. `storyengine/backend/tests/functional/
+test_c46c_dvsu_deltas_wiring.py` (+6, NEW): `_load_dvsu_rule_overrides` fetch/scope-match/resolve,
+scope-exclusion (a story-scoped row must not match a non-static_docu video), fail-open on a DB error, and
+2 wiring-lock tests proving the call sites actually thread the resolved value through. `storyengine/
+backend/tests/functional/test_c46c_seed_dvsu_quality_rules.py` (+6, NEW): the seed script's section-
+boundary scope assignment against the REAL doc (74 rows, exact QL-1..QL-74 id sequence, 49/21/4 scope
+split, known severities), and a dry-run-never-touches-DB proof.
+
+Non-vacuous via `git stash -u` — reverted to pre-C46c code, ran the FULL suite: **15 failed, 1511 passed,
+1 error** (identical names/count to C46b's own baseline), confirming the 15/1 are genuinely pre-existing
+and unrelated to this chunk. Popped the stash back; re-ran: **15 failed, 1539 passed, 1 error** = exactly
+1511 + 28 new, zero new failures. The DvsU harness's own pre-existing suite
+(`test_machine_documentary_hold.py`, 239 tests before this chunk) stayed 100% green — every one of those
+calls omits `rule_overrides` (the new 4th positional arg), so they exercise the byte-identical fallback
+path by construction. `python -m py_compile` clean on all 7 touched/new backend `.py` files.
+
+### Modified/New Files (C46c)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/quality_rules.py` | new `resolve_dvsu_overrides` (pure) + its regex extractors |
+| `storyengine/backend/pipeline_executor.py` | `_validate_static_unit_paragraph`, `_validate_machine_story_sentences`, `_anton_preview_quality_audit` gain optional `rule_overrides`; new `_load_dvsu_rule_overrides`; `_run_static_script_hold` resolves overrides once and threads them through |
+| `storyengine/backend/scripts/seed_dvsu_quality_rules.py` | NEW — the (not auto-run) DvsU seed script |
+| `storyengine/backend/tests/test_quality_rules.py` | +8 tests |
+| `storyengine/backend/tests/test_machine_documentary_hold.py` | +8 tests, +1 fetch-call-list assertion updated for the new quality_rules read |
+| `storyengine/backend/tests/functional/test_c46c_dvsu_deltas_wiring.py` | NEW — 6 tests |
+| `storyengine/backend/tests/functional/test_c46c_seed_dvsu_quality_rules.py` | NEW — 6 tests |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate, not yet ff-merged by this chunk** (orchestrator's call per protocol).
+Zero behavior change for every tenant with no `quality_rules` rows (everyone, today — the live table
+still has 0 rows per C46b's own check, unchanged by this chunk since the seed script is explicitly NOT
+run here): every new `rule_overrides` parameter defaults to `None`/`{}` and every gate falls back to
+today's exact hardcoded constant, proven both by direct byte-identity assertions and by the full
+pre-existing 239-test DvsU suite staying green untouched. The one thing that changes ANYTHING once
+someone runs the seed script with `--apply` is the DvsU tenant's own script-hold gates — no other tenant
+is reachable by this code path (`applies_to` scoping + `tenant_id`-scoped fetch). Frontend untouched —
+confirmed via `git status` on `storyengine/frontend`.
+
+**Live seed run — deferred to `tasks/live-verification-queue.md` §C46c** (this chunk deliberately does
+NOT seed the live DB): exact command, expected row count, and a post-seed smoke plan (one DvsU script
+generation, confirm the QL-1/QL-12 gates actually fire from table values).
+
+Next: **C46d · trust boundaries** — MCP/agent-submitted scripts (C47 ingest) pass the SAME critic;
+`user_supplied` verbatim scripts keep their explicit no-gate bypass (`user_script.py`'s contract). Wires
+the critic verdict into the C42 digest/chat surfaces so failures list rule-by-rule.
