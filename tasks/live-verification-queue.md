@@ -1262,6 +1262,83 @@ sandbox:
   key — a state that was already a bug (a job silently not running) before
   this chunk, never a legitimate two-different-jobs collision.
 
+## C17 — `draft_pass` + `finalize` verbs (checklist §1.3) · live full-cycle check
+Checklist entry §1.3 `[B]`. `draft_pass` routes every scene's clip to the
+cheapest wired draft-tier model (today: Grok Imagine) in one pass without
+touching `assets.routed_model`/`model_override`; `finalize` regenerates ONLY
+`assets.status='approved'` scenes at their real routed/override tier.
+Pass-identity dedup via new `generation_passes` table (migration 095, applied
+live, confirmed via `information_schema.columns`); concurrency via the
+existing `generation_claims` "main" lane. Covered at the unit level (13 new
+tests in `test_c17_draft_pass_and_finalize.py`, confirmed non-vacuous via
+`git stash`) with fully faked DB/Kie/PipelineExecutor objects — none of the
+following was driven through a real backend + DB + paid Kie call in the
+sandbox:
+
+- [ ] **Draft pass produces real cheap clips for every scene.** On a test
+      video that already has pictures (any number of scenes, e.g. 6-8), say
+      "draft the whole video" in the co-pilot dock (or trigger the `draft_pass`
+      verb directly once C18 wires a button). Confirm the cost quote shown
+      matches `~(pics_with_no_clip_yet × grok_price)`, confirm on it, and once
+      it completes: `se db "SELECT scene, model_used, routed_model,
+      model_override FROM assets WHERE video_id='<id>' ORDER BY scene"` —
+      every row's `video_clip_url` is set, every `model_used` = the draft
+      model (`grok-imagine`), and CRITICALLY `routed_model`/`model_override`
+      are UNCHANGED from before the draft pass (compare against a pre-draft
+      snapshot) — this is the money invariant the whole design rests on.
+- [ ] **Approve 3 scenes, then finalize regenerates exactly those 3.**
+      Snapshot each scene's `video_clip_url` right after the draft pass
+      (`se db "SELECT scene, video_clip_url FROM assets WHERE
+      video_id='<id>'"`). Approve 3 scenes (`approve_scene` verb / tap
+      Approve on those scene cards once C18 ships the tick). Say "finalize"
+      (or trigger the `finalize` verb directly). Confirm the cost quote only
+      itemizes those 3 scenes at their routed/override price (not all
+      scenes' draft price). After it completes: re-run the same `se db`
+      query — ONLY the 3 approved scenes' `video_clip_url` values changed
+      (new clip) and their `model_used` now equals their real routed/override
+      model (not the draft model); every OTHER scene's `video_clip_url` is
+      BYTE-IDENTICAL to the draft-pass snapshot.
+- [ ] **A second identical finalize is refused, not re-billed.** Immediately
+      say "finalize" again with NOTHING newly approved since. Confirm the
+      copilot's reply is the "already finalized" line (no new confirm-card
+      quote, no dispatch) and `se db "SELECT COUNT(*) FROM generation_ledger
+      WHERE video_id='<id>' AND stage='clip'"` does NOT grow from this second
+      call. Then approve one MORE scene and say "finalize" a third time —
+      confirm THIS one goes through (a new `scene_set_hash`, so it's not
+      wrongly deduped) and only that new scene's clip regenerates.
+- [ ] **`generation_passes` rows match reality.** `se db "SELECT pass,
+      scene_set_hash, completed_at FROM generation_passes WHERE
+      video_id='<id>' ORDER BY completed_at"` — expect one `draft_pass` row
+      and TWO `finalize` rows (the second-approval pass from the check above)
+      with DIFFERENT `scene_set_hash` values, each with a `completed_at`
+      timestamp, and NO row for the refused duplicate finalize attempt (rows
+      are written only on success).
+- [ ] **Ledger shows both passes.** `se db "SELECT stage, model,
+      unit_cost, actual_cost, kie_task_id FROM generation_ledger WHERE
+      video_id='<id>' AND stage='clip' ORDER BY created_at"` — one row per
+      clip generated across BOTH the draft pass and the finalize pass(es),
+      each with its own `kie_task_id` (C16c's uniqueness backstop still
+      applies — no duplicate `(video_id, stage, kie_task_id)` rows even
+      though this is now two separate generation PASSES touching the same
+      video/stage).
+- [ ] **Concurrent double-tap of "finalize" is refused, not double-billed.**
+      Fire two "finalize" requests back-to-back (fast enough to race the
+      `generation_claims` "main" claim) — confirm the SECOND gets the
+      "already working on that" busy reply immediately (not a queued second
+      run), and only ONE finalize's worth of clips/ledger rows land.
+- **Cost:** draft_pass (~6-8 clips × $0.09-0.225 Grok tier ≈ $0.60-1.80) +
+  finalize on 3-4 scenes at a mix of tiers (≈ $1-5 depending on routed
+  models) — get an explicit cost-quote confirm from Ryan before running
+  either on a real video, per storyengine/CLAUDE.md's money rule. Use the
+  smallest test video available (fewest scenes) to minimize spend.
+- **Safety net:** `run_clip_generation`'s two new params
+  (`force_model_id`/`only_scenes`) are additive and default to unused for
+  every EXISTING caller (`animate`, the per-scene redo button) — this live
+  check only needs to exercise the two NEW call paths (draft_pass/finalize
+  themselves), not re-verify existing animate behavior. `generation_passes`
+  is a brand-new table with zero interaction with any other table's rows
+  besides its two `tenants`/`videos` foreign keys.
+
 ---
 
 ## Running these from a VPS session (the intended runner)

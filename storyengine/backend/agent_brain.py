@@ -218,9 +218,9 @@ def _decision_schema() -> str:
     # Identical to the legacy classifier's output so downstream code is unchanged.
     return (
         '{"kind":"read|action|prompt|show|remember|forget",'
-        '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
-        'upload|approve_cast|approve_environments|skip_environments|approve_scene|lock|unlock|drive_push|'
-        'drive_sync|advance|build|none",'
+        '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
+        'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
+        'lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
@@ -268,7 +268,14 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "Drive; advance=skip the CURRENT stage/gate and move on ('skip this step', 'skip research', 'move on') — "
         "and the script verb skips research automatically when they ask for the script early; "
         "build=run the whole pipeline to the next checkpoint ('build it', 'finish it', 'keep going', "
-        "'do it all'). PROMPT work (kind=prompt) when they discuss the generation PROMPT TEXT itself: set "
+        "'do it all'); draft_pass=animate EVERY scene on the CHEAP draft-tier model in one pass, before real "
+        "money is spent ('draft the whole video', 'rough cut', 'let me see it first', 'draft it cheap') — "
+        "different from 'animate everything'/build, which is REAL (routed/premium) quality; "
+        "finalize=regenerate ONLY the already-approved scenes (approve_scene) at their real routed/premium "
+        "quality ('finalize the approved scenes', 'finish the ones I approved') — no scene number needed, it "
+        "always means whichever scenes are currently approved; if none are approved yet it still classifies "
+        "as finalize (the runner explains there's nothing to finalize). PROMPT work (kind=prompt) when they "
+        "discuss the generation PROMPT TEXT itself: set "
         "surface, op (view|suggest|rewrite), scene/index (use the currently-viewing shot for 'this'), and "
         "direction. SHOW work (kind=show) when they want to SEE the actual pictures/storyboards for a scene "
         "('show me scene 2's boards', 'let me see scene 3's pictures') — NOT the prompt text; give the scene "

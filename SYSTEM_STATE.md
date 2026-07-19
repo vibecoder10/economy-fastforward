@@ -3389,3 +3389,146 @@ $0 with `force` omitted and DOES redraw with `force=true`; force a genuine
 concurrent double-enqueue and confirm the 409) deferred to
 `tasks/live-verification-queue.md` §C16d — needs a live DB + paid API
 session, not available in the sandbox.
+
+## C17 — `draft_pass` + `finalize` Verbs: the Trust-Ladder Centerpiece (added 2026-07-19)
+
+**Problem (checklist §1.3 "Draft cheap, finish expensive" + §S7 "C17 design
+requirements"):** the trust ladder Ryan wants — draft the whole video cheap,
+approve the scenes that matter, finalize only those at routed/premium
+quality — had two verbs missing from the registry, and the S7 sweep (C16)
+found the queue had zero idempotency for chat-driven paid dispatch until
+C16a-c shipped the prerequisites (DB-backed claims, coverage skip-if-done +
+scene allowlist, ledger uniqueness backstop). This chunk builds C17 on top
+of all three.
+
+**Design decision — what "draft the whole video" covers:** pictures are
+already cheap and stage-shared (the `images` verb, unchanged); "draft"
+describes CLIP generation specifically, the expensive step this whole
+trust ladder is about. `draft_pass` therefore needs `pictures` (same gate as
+`animate`) and only touches clips.
+
+**`run_clip_generation` gains two additive params (`pipeline_executor.py`):**
+- `force_model_id`: when set, EVERY row this call processes animates through
+  this model_id, completely bypassing `resolve_clip_model` (and therefore
+  `assets.routed_model`/`model_override`) for the call. `draft_pass` passes
+  the cheapest wired `tier="draft"` model here — the routing recommendation
+  those columns hold is NEVER read or written during a draft pass, so it
+  survives byte-identical for `finalize` to resolve against later.
+- `only_scenes: list[int]`: mirrors C16b's `generate_coverage_for_video`
+  allowlist exactly — `WHERE ... AND scene = ANY($3::int[])` scopes the SQL
+  fetch itself, so a scene NOT in the list is never even returned from the
+  DB, let alone touched. `finalize` passes the approved-scene list here
+  combined with `force=True` (an approved scene's existing DRAFT clip must
+  be OVERWRITTEN with the real tier, not skipped as "already has a clip").
+
+Both params default to `None`/unused — every existing caller (`animate`,
+the per-scene redo button) is byte-identical.
+
+**Lane choice:** both verbs claim `generation_claims` stage `"main"`.
+`generation_claims.stage_for_verb()` needed ZERO code changes — neither verb
+is in `SIDE_LANES` (voice/characters/environments/thumbnail), so it already
+falls through to `"main"`, which is exactly right: a whole-video clip pass
+must conflict with any other main-lane work in flight (script rewrite,
+images, render), the same as a manual "Animate everything" click would.
+
+**Pass identity — the S7 "job key = (video_id, stage, pass, scene_set_hash)"
+requirement:** new module `backend/generation_passes.py` + migration 095
+(new table `generation_passes`, UNIQUE `(tenant_id, video_id, pass,
+scene_set_hash)`) — a DIFFERENT problem than `generation_claims` solves.
+The claim guards CONCURRENT double-dispatch and is released the instant a
+run ends; it says nothing about a SEQUENTIAL repeat (the same "finalize"
+arriving again after the first run already completed and released its
+claim). `scene_set_hash()` hashes SORTED `(scene, target_model_id)` pairs —
+not just scene numbers — so approving MORE scenes, or changing a routing
+override, between two finalize calls mints a NEW hash (a legitimate new
+pass, never wrongly deduped), while a bare repeat of the IDENTICAL pass
+hashes identically and is refused by `already_done()` BEFORE any claim is
+even attempted. A row is written ONLY on successful completion
+(`mark_done`, fail-soft, never raises) — a failed run leaves no row, so it
+stays retryable with the identical scene set. Deliberately NOT reused:
+`background_tasks.job_id`'s C16d unique index — that channel already
+carries UI-poll semantics (`db_persist_task`'s running/pending/completed
+state machine) that repurposing it for pass-identity would have risked
+disturbing; a small purpose-built table keeps the two concerns separate.
+
+**Registry + runners (`actions.py`):** `draft_pass`/`finalize` are
+runner-style verbs (`ACTIONS[...]["runner"]`, like `seo`/`approve_scene`) —
+`_runner_draft_pass`/`_runner_finalize` each explicitly acquire the claim
+and check `generation_passes.already_done` themselves (mirroring the
+"build" verb's explicit pattern), since `_run_pending_action`'s generic
+runner-dispatch branch does NOT claim on a verb's behalf. `_approved_scenes`
+reads `assets.status='approved'` (C15b's `approve_scene` machinery) via
+`DISTINCT scene`. `_draft_tier_model_id()` resolves the cheapest WIRED
+`tier="draft"` model from `MODEL_REGISTRY` — data-driven, never hardcodes
+"grok-imagine" (today's only draft-tier entry, but the function reads the
+registry's `tier`/`wired`/`cost_per_clip` fields, not a literal string).
+
+**Money — `estimate_cost`/`cost_breakdown` extended for both verbs**, reusing
+the SAME `_routed_clip_rows`/`_resolved_model_id` one-resolver pattern C15
+established (no parallel math): `draft_pass` prices every not-yet-clipped
+row at the draft-tier price regardless of routed_model/override (matching
+what the run will actually do); `finalize` prices ONLY `_approved_scenes()`
+rows at their real resolved (override > routed > default) tier. Both
+itemizations sum to exactly `estimate_cost`'s own total (the same
+sums-to-total invariant C15's tests pin for `animate`/`build`) — this is
+what C18's "draft $X now, finalize N scenes $Y later vs $Z all-premium"
+savings line will read from; C18 combines both calls' numbers into copy,
+no new backend math needed.
+
+**Classifier vocabulary:** both `routes/chat.py`'s legacy one-shot
+classifier and `agent_brain.py`'s tool-loop brain gained `draft_pass`/
+`finalize` in the verb enum + VERB MEANINGS prose, explicitly worded to
+distinguish `draft_pass`/"draft the whole video"/"rough cut" (cheap) from
+`build`/"animate everything" (real routed/premium quality) — the two tiers
+must never be conflated by the classifier.
+
+**`[U]` deliberately NONE this chunk** (checklist: C18 owns GuidedNextStep
+labels, Approve ticks, and the savings-line copy) — confirmed
+`routes/chat.py::_confirm_card` renders sensible text for both new verbs
+completely unmodified (it reads `ACTIONS[verb]["label"]` generically).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/generation_passes.py` | `scene_set_hash()`, `already_done()`, `mark_done()` — the durable (video, pass, scene-set+target-models) dedup identity, distinct from `generation_claims`'s concurrency guard |
+| `storyengine/backend/migrations/095_generation_passes.sql` | New `generation_passes` table + UNIQUE `(tenant_id, video_id, pass, scene_set_hash)` index, applied LIVE via Supabase MCP against `wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns` |
+| `storyengine/backend/tests/functional/test_c17_draft_pass_and_finalize.py` | 13 tests: draft-tier resolution is data-driven; `force_model_id` overrides every row regardless of routing and never writes routed_model/model_override; `only_scenes` scopes the SQL fetch itself (unapproved scene never touched, row-level asserted); scene_set_hash same-set/larger-set/routing-change behavior; estimate_cost/cost_breakdown sums-to-total for both verbs (incl. zero-approved-scenes = zero cost, proven non-vacuous against the OLD fallback path); claim-denied busy reply with no dispatch (both verbs); already-done pass refused without reclaiming; nothing-approved refuses before any claim attempt; full success path (claim → dispatch → run_clip_generation kwargs → mark_done → release); confirm card renders for both verbs |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | `run_clip_generation` gains `only_scenes: list = None` (WHERE-scoped scene allowlist) and `force_model_id: str = None` (per-row resolution override, bypassing `resolve_clip_model` entirely when set) |
+| `storyengine/backend/actions.py` | New ACTIONS entries `draft_pass`/`finalize`; `_draft_tier_model_id()`, `_approved_scenes()`; `_routed_clip_rows`/`_routed_clip_costs` gain `only_scenes`; `cost_breakdown`/`estimate_cost` extended for both verbs; `_runner_draft_pass`/`_runner_finalize` + `RUNNERS` entries; new `_ALREADY_WORKING_REPLY` constant |
+| `storyengine/backend/routes/chat.py` | Legacy classifier's verb enum + VERB MEANINGS prose gain `draft_pass`/`finalize` |
+| `storyengine/backend/agent_brain.py` | Tool-loop brain's `_decision_schema()` verb enum + VERB MEANINGS prose gain `draft_pass`/`finalize` |
+| `storyengine/schema.sql` | `generation_passes` table added (the schema-drift test caught the initial omission — migration-only isn't sufficient, schema.sql is the fresh-install source of truth) |
+
+**Deploy-safety assessment:** ff-merge candidate. Both verbs are brand-new
+additive registry entries — no existing verb's behavior, gate, price, or
+copy changes. `run_clip_generation`'s two new params are opt-in and default
+to inert values for every existing caller (`animate`'s per-scene/per-card/
+whole-video calls, the per-scene redo button) — byte-identical. New table
+(`generation_passes`, migration 095, applied live) has zero foreign-key or
+trigger interaction with any existing table besides the two `REFERENCES`
+(tenants/videos, `ON DELETE CASCADE`, same pattern as `generation_claims`).
+Classifier prompt changes are purely additive vocabulary. No existing
+route, column, or price constant is touched.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c17_draft_pass_and_finalize.py -q` — 13 passed.
+Non-vacuous via `git stash push -- actions.py agent_brain.py
+pipeline_executor.py routes/chat.py ../schema.sql` (the new
+`generation_passes.py`/migration/test file are untracked and survive the
+stash): 12/13 fail against pre-C17 source (`KeyError`/`AttributeError` on
+the missing verbs/functions); the 13th (`scene_set_hash`'s pure hash-
+function test) legitimately still passes, since it exercises only the new
+standalone `generation_passes.py` module the stash doesn't touch — expected,
+not a gap. `python -m py_compile` clean on all 6 touched/added `.py` files.
+Full backend suite: `./venv/bin/python -m pytest tests/ -q` — 1001 passed
+(988 baseline + 13 new) / 16 pre-existing failures (identical file list to
+C15a-d/C16a-d) / 1 pre-existing error — zero new failures. Frontend
+untouched (no UI surface this chunk — `[U]` is C18's). Live full-cycle
+(draft the whole video → approve 3 scenes → finalize → confirm only those 3
+regenerate → ledger shows both passes) deferred to
+`tasks/live-verification-queue.md` §C17 with an exact recipe — needs a live
+DB + paid API session, not available in the sandbox.

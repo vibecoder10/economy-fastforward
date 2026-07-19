@@ -11782,6 +11782,8 @@ separate scenes."""
         scene: int = None,
         force: bool = False,
         progress_callback=None,
+        only_scenes: list = None,
+        force_model_id: str = None,
     ) -> dict:
         """Generate motion clips from final pictures — one card, one scene, or all.
 
@@ -11790,6 +11792,28 @@ separate scenes."""
         MODEL_REGISTRY (Grok + Veo wired). Clip result URLs expire ~24h, so
         every clip downloads immediately and persists to Drive {video}/clips/.
         Additive: only a full run that finishes every clip advances status.
+
+        C17 (checklist §1.3 "Draft cheap, finish expensive") adds two params,
+        both additive — every existing caller (the "Animate"/"animate" verb,
+        the per-scene redo button) passes neither and sees byte-identical
+        behavior:
+
+        ``only_scenes`` (mirrors coverage_to_app.generate_coverage_for_video's
+        C16b allowlist): a list of scene numbers to scope this run to —
+        `finalize`'s entry point ("regenerate ONLY approved scenes"). Combined
+        with ``force=True`` it forces exactly those scenes to redraw their
+        clips regardless of whether a clip already exists (finalize must
+        overwrite an approved scene's existing DRAFT clip), while every scene
+        NOT in the list is never even fetched from the DB — never touched.
+
+        ``force_model_id``: when set, EVERY row this call processes animates
+        through this model_id instead of its resolved routed/override model —
+        `draft_pass`'s entry point ("route ALL scenes' clips to the draft
+        tier for one cheap pass"). Deliberately bypasses resolve_clip_model()
+        for the run rather than writing this model into assets.routed_model/
+        assets.model_override — those columns are `finalize`'s later source
+        of truth for the REAL target tier, and must survive a draft pass
+        completely untouched (see actions._runner_draft_pass).
         """
         await self._ensure_initialized()
         bot_name = "Clip Bot"
@@ -11828,6 +11852,12 @@ separate scenes."""
             elif scene is not None:
                 where += " AND scene = $3"
                 params.append(scene)
+            elif only_scenes:
+                # C17/finalize: scope to EXACTLY this scene list — every other
+                # scene's rows are never fetched, so they can never be touched
+                # by the force-redo below either (checklist §1.3).
+                where += " AND scene = ANY($3::int[])"
+                params.append(list(only_scenes))
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
                 f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue, "
@@ -12063,8 +12093,18 @@ separate scenes."""
                     # routing or override (every video before C12, or a row whose
                     # shot-plan-time routing try/except tripped) resolves to EXACTLY
                     # model_id — the same value every row got before C13.
-                    row_model_id = resolve_clip_model(
-                        r.get("routed_model"), model_id, scene_override=r.get("model_override"))
+                    #
+                    # C17/draft_pass: force_model_id, when given, wins OUTRIGHT for
+                    # this call only — it deliberately bypasses resolve_clip_model()
+                    # (and therefore assets.model_override/routed_model) entirely, so
+                    # a draft pass never reads OR writes those columns. This is what
+                    # lets `finalize` later resolve the SAME row back to its real
+                    # routed/override tier as if the draft pass had never happened.
+                    if force_model_id and force_model_id in MODEL_REGISTRY and MODEL_REGISTRY[force_model_id].wired:
+                        row_model_id = force_model_id
+                    else:
+                        row_model_id = resolve_clip_model(
+                            r.get("routed_model"), model_id, scene_override=r.get("model_override"))
                     if row_model_id != model_id:
                         row_profile = MODEL_REGISTRY.get(row_model_id) or profile
                         row_durations = sorted(row_profile.durations) or durations

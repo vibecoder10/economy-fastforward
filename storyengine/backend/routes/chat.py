@@ -941,9 +941,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
            + ".\n" if ui_context.get("scene") else "")
         + f'\nThe creator said: "{msg}"\n\n'
-        "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, sound, "
-        "thumbnail, render, research, seo, upload, approve_cast, approve_environments, skip_environments, "
-        "approve_scene, lock, unlock, drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
+        "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
+        "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
+        "approve_environments, skip_environments, approve_scene, lock, unlock, drive_push, drive_sync, "
+        "advance — for RUNNING/redoing a SINGLE step. "
         "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
         "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
         "skips research automatically. "
@@ -965,7 +966,15 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
         "Use 'build' when they want the whole video built or moved forward — 'build it', 'make the video', "
         "'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate everything'. build runs "
-        "the pipeline automatically to the next checkpoint, NOT one step.\n"
+        "the pipeline automatically to the next checkpoint, NOT one step. "
+        "'draft_pass' = animate EVERY scene on the CHEAP draft-tier model in one pass, before spending real "
+        "money — 'draft the whole video', 'rough cut', 'let me see it first', 'draft it cheap'. Different "
+        "from 'animate everything'/build, which animates at REAL (routed/premium) quality — draft_pass is "
+        "explicitly the cheap-preview pass. 'finalize' = regenerate ONLY the scenes already approved "
+        "(approve_scene) at their real routed/premium quality — 'finalize the approved scenes', 'finish "
+        "scenes 3 and 7' (no scene number needed — it always means whichever scenes are currently approved). "
+        "If nothing is approved yet, finalize still classifies as the verb — the runner itself explains "
+        "there's nothing approved yet.\n"
         "PROMPT work (kind=prompt) when they talk about the generation PROMPT TEXT itself — 'rewrite/enhance "
         "the prompt', 'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks "
         "off, rewrite its prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail "
@@ -988,9 +997,9 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
         "Return ONE JSON object and nothing else:\n"
         '{"kind":"read|action|prompt|show|remember|forget",'
-        '"verb":"script|characters|storyboards|images|voice|animate|sound|thumbnail|render|research|seo|'
-        'upload|approve_cast|approve_environments|skip_environments|approve_scene|lock|unlock|drive_push|'
-        'drive_sync|advance|build|none",'
+        '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
+        'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
+        'lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'

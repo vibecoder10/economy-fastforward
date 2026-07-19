@@ -71,6 +71,14 @@ from shared.model_router import resolve_clip_model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+# Same line routes/chat.py's _ALREADY_WORKING_REPLY carries — duplicated here
+# (not imported) because actions.py must not import from routes.chat (chat.py
+# already imports actions.py at module level; the reverse would be circular).
+# Used by C17's draft_pass/finalize runners, which — like the "build" verb —
+# acquire their own generation_claims claim explicitly rather than through
+# _run_pending_action's generic runner-verb path (which does not).
+_ALREADY_WORKING_REPLY = "I'm already working on that — I'll let you know when it's done."
+
 # verb -> how to run it. `calls` = ordered (executor method, passes a scene= kwarg).
 # `paid` => hold behind a confirm card in the dock. `needs` = the prerequisite that
 # must already exist, or the action is refused politely. `edit` => the verb accepts
@@ -91,6 +99,16 @@ ACTIONS: dict[str, dict[str, Any]] = {
                     "doing": "recording the voiceover", "label": "Generate the voiceover"},
     "animate":     {"calls": [("run_clip_generation", True)], "paid": True, "needs": "pictures",
                     "doing": "animating", "label": "Animate"},
+    # C17 (checklist §1.3 "Draft cheap, finish expensive"): the trust-ladder
+    # centerpiece — draft the WHOLE video's clips at the cheapest wired tier
+    # in one cheap pass, review, then finalize only the scenes worth it.
+    # Both are runner-style (like seo/approve_scene) so each owns its own
+    # generation_claims acquire + generation_passes dedup explicitly — see
+    # _runner_draft_pass/_runner_finalize.
+    "draft_pass":  {"runner": "draft_pass", "paid": True, "needs": "pictures",
+                    "doing": "drafting the whole video on the cheap model", "label": "Draft the whole video"},
+    "finalize":    {"runner": "finalize", "paid": True, "needs": "pictures",
+                    "doing": "finalizing your approved scenes", "label": "Finalize approved scenes"},
     "sound":       {"calls": [("run_sound_prompts", False), ("run_sound_effects", False)], "paid": True,
                     "needs": "pictures", "doing": "designing the sound", "label": "Add sound"},
     "thumbnail":   {"calls": [("run_thumbnail", False)], "paid": True, "needs": None, "edit": True,
@@ -259,21 +277,29 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
     return None
 
 
-async def _routed_clip_rows(tenant_id, video_id, scene: Optional[int], video_model: str) -> list[dict[str, Any]]:
-    """Raw per-row routing data for a video's (or one scene's) not-yet-
-    clipped pictures — scene, routed_model, model_override, routing_reason.
-    The ONE query both ``_routed_clip_costs`` (the money the quote sums) and
-    ``cost_breakdown`` (C15's itemization of that same sum) build on, so
-    there is exactly one place deciding which rows count and one place
-    reading them — no parallel query, no parallel row set.
+async def _routed_clip_rows(tenant_id, video_id, scene: Optional[int], video_model: str,
+                            only_scenes: Optional[list] = None) -> list[dict[str, Any]]:
+    """Raw per-row routing data for a video's (or one scene's, or one scene
+    LIST's) not-yet-clipped pictures — scene, routed_model, model_override,
+    routing_reason. The ONE query ``_routed_clip_costs`` (the money the
+    quote sums), ``cost_breakdown`` (C15's itemization of that same sum),
+    and C17's draft_pass/finalize estimators all build on, so there is
+    exactly one place deciding which rows count and one place reading them —
+    no parallel query, no parallel row set.
 
     Same WHERE clause as the pre-C13 flat count query (image_url IS NOT
-    NULL, scoped to `scene` when given) — unchanged by C15."""
+    NULL, scoped to `scene` when given) — unchanged by C15. C17 adds
+    ``only_scenes`` (mirrors coverage_to_app.generate_coverage_for_video's
+    allowlist), used ONLY when `scene` is None — finalize's "just these
+    approved scenes" quote."""
     where = "video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL"
     params = [video_id, tenant_id]
     if scene is not None:
         where += " AND scene=$3"
         params.append(scene)
+    elif only_scenes:
+        where += " AND scene = ANY($3::int[])"
+        params.append(list(only_scenes))
     return await fetch_all(
         f"SELECT scene, routed_model, model_override, routing_reason FROM assets WHERE {where}", *params)
 
@@ -286,17 +312,19 @@ def _resolved_model_id(row: dict[str, Any], video_model: str) -> str:
     return resolve_clip_model(row.get("routed_model"), video_model, scene_override=row.get("model_override"))
 
 
-async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_model: str) -> list[float]:
-    """Per-row clip prices for a video's (or one scene's) not-yet-clipped
-    pictures, resolved through the SAME precedence clip generation actually
-    uses (checklist §1.2/C13 money invariant #2 — the quote a creator
-    confirms must match what generation will actually spend). Each row's
-    price is ``CLIP_PRICE_BY_MODEL[resolve_clip_model(routed_model,
-    video_model, scene_override=model_override)]`` — the cheapest wired tier
-    for whichever model that row will really run through (a C14 manual
-    override winning first, same as generation), not one flat video-level
-    price times a count."""
-    rows = await _routed_clip_rows(tenant_id, video_id, scene, video_model)
+async def _routed_clip_costs(tenant_id, video_id, scene: Optional[int], video_model: str,
+                             only_scenes: Optional[list] = None) -> list[float]:
+    """Per-row clip prices for a video's (or one scene's, or one scene
+    LIST's) not-yet-clipped pictures, resolved through the SAME precedence
+    clip generation actually uses (checklist §1.2/C13 money invariant #2 —
+    the quote a creator confirms must match what generation will actually
+    spend). Each row's price is ``CLIP_PRICE_BY_MODEL[resolve_clip_model(
+    routed_model, video_model, scene_override=model_override)]`` — the
+    cheapest wired tier for whichever model that row will really run
+    through (a C14 manual override winning first, same as generation), not
+    one flat video-level price times a count. ``only_scenes`` (C17) is
+    finalize's "just these approved scenes" scope."""
+    rows = await _routed_clip_rows(tenant_id, video_id, scene, video_model, only_scenes=only_scenes)
     return [
         CLIP_COST.get(_resolved_model_id(r, video_model), CLIP_COST.get(video_model, 0.10))
         for r in rows
@@ -313,6 +341,39 @@ def _premium_reference_price() -> Optional[float]:
         if profile.wired and profile.tier == "premium":
             return min(profile.cost_per_clip.values())
     return None
+
+
+def _draft_tier_model_id() -> Optional[str]:
+    """The cheapest WIRED draft-tier model in the registry — data-driven
+    (checklist §1.3), the same "cheapest wired X-tier" pattern
+    ``_premium_reference_price`` already uses, just returning the model_id
+    itself rather than only its price (``draft_pass`` needs to pass this
+    into ``run_clip_generation`` as ``force_model_id``). NEVER hardcodes
+    "grok-imagine" — if a channel's registry ever adds/removes a
+    draft-tier entry, this picks it up automatically. Returns None only if
+    NO wired model carries tier="draft" (nothing to draft with)."""
+    candidates = [
+        (mid, min(profile.cost_per_clip.values()))
+        for mid, profile in MODEL_REGISTRY.items()
+        if profile.wired and profile.tier == "draft" and profile.cost_per_clip
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda pair: pair[1])[0]
+
+
+async def _approved_scenes(tenant_id, video_id) -> list[int]:
+    """Distinct scene numbers with at least one APPROVED picture (checklist
+    §1.2/C15b: `_runner_approve_scene` sets `assets.status='approved'` for
+    every row in a scene in one UPDATE, so any approved row in a scene means
+    the whole scene is approved). This is `finalize`'s entry set — "regenerate
+    ONLY approved scenes' clips"."""
+    rows = await fetch_all(
+        "SELECT DISTINCT scene FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+        "AND status='approved' AND image_url IS NOT NULL AND scene IS NOT NULL ORDER BY scene",
+        video_id, tenant_id,
+    )
+    return [r["scene"] for r in rows]
 
 
 def _reconcile_rounding(raw: dict[str, float], total: float) -> dict[str, float]:
@@ -364,24 +425,53 @@ async def cost_breakdown(tenant_id, video_id, verb: str, scene: Optional[int],
     ``estimate_cost``'s animate/build branches use (no shot plan before
     pictures exist; an empty per-scene quote that falls back to a flat
     guess) — callers fall back to the plain cost_text unchanged.
+
+    C17 (checklist §1.3) adds ``draft_pass``/``finalize``, sharing the same
+    rows-in/lines-out shape so a single confirm-card renderer (and a single
+    "sums to the total" invariant) covers all four verbs:
+      - ``draft_pass``: every not-yet-clipped row, priced at the draft-tier
+        model REGARDLESS of its routed_model/model_override (the whole
+        point of a draft pass) — the itemization will therefore always
+        collapse to exactly one line (one model, every row), which is
+        itself useful confirm-card information ("14 x Grok Imagine").
+      - ``finalize``: ONLY approved-scene rows, each priced at its real
+        resolved (override > routed > video-default) tier — the itemization
+        looks exactly like an ``animate`` quote, just pre-filtered to the
+        approved scene set.
     """
-    if verb not in ("animate", "build"):
+    if verb not in ("animate", "build", "draft_pass", "finalize"):
         return None
     if verb == "build" and (summary["status"] in BUILD_TO_PICTURES or not summary["pics"]):
         return None
 
     model = summary["model"]
-    row_scene = scene if verb == "animate" else None
-    rows = await _routed_clip_rows(tenant_id, video_id, row_scene, model)
+    draft_model = _draft_tier_model_id() if verb == "draft_pass" else None
+    if verb == "draft_pass" and not draft_model:
+        return None  # no wired draft-tier model — nothing sane to itemize
+    if verb == "finalize":
+        approved = await _approved_scenes(tenant_id, video_id)
+        if not approved:
+            return None  # nothing approved yet — estimate_cost's cost=0 branch carries the reply
+        rows = await _routed_clip_rows(tenant_id, video_id, None, model, only_scenes=approved)
+    else:
+        row_scene = scene if verb == "animate" else None
+        rows = await _routed_clip_rows(tenant_id, video_id, row_scene, model)
     if not rows:
         return None  # empty-scene guess branch — nothing routed to itemize
+
+    def _resolve(r: dict[str, Any]) -> str:
+        # draft_pass forces every row to the draft tier, mirroring
+        # run_clip_generation's force_model_id bypass exactly — the quote
+        # must price what the run will actually do, not the row's stored
+        # (untouched) routed_model/model_override.
+        return draft_model if verb == "draft_pass" else _resolved_model_id(r, model)
 
     raw_subtotal: dict[str, float] = {}
     counts: dict[str, int] = {}
     hero_scenes: list[dict[str, Any]] = []
     raw_prices: list[float] = []
     for r in rows:
-        resolved = _resolved_model_id(r, model)
+        resolved = _resolve(r)
         price = CLIP_COST.get(resolved, CLIP_COST.get(model, 0.10))
         raw_prices.append(price)
         raw_subtotal[resolved] = raw_subtotal.get(resolved, 0.0) + price
@@ -429,6 +519,26 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
             cost = 4 * clip  # fall back to a small guess — unchanged from pre-C13
         else:
             cost = sum(costs)
+    elif verb == "draft_pass":
+        # Checklist §1.3: EVERY not-yet-clipped row, priced at the cheapest
+        # WIRED draft-tier model — never the row's routed_model/model_override
+        # (those recommendations survive a draft pass untouched; see
+        # _runner_draft_pass/run_clip_generation's force_model_id). Same
+        # rows-in-play as an "animate everything" quote (scene=None), just a
+        # uniform price instead of per-row routed prices.
+        rows = await _routed_clip_rows(tenant_id, video_id, None, model)
+        draft_model = _draft_tier_model_id()
+        draft_price = CLIP_COST.get(draft_model, clip) if draft_model else clip
+        cost = len(rows) * draft_price
+    elif verb == "finalize":
+        # Checklist §1.3: ONLY the currently-approved scenes, each at its
+        # REAL resolved (override > routed > default) tier — identical money
+        # math to an "animate" quote, pre-filtered to the approved set. Zero
+        # approved scenes -> "no extra cost" (nothing to finalize yet); the
+        # runner replies with a friendly nudge rather than dispatching.
+        approved = await _approved_scenes(tenant_id, video_id)
+        costs = await _routed_clip_costs(tenant_id, video_id, None, model, only_scenes=approved) if approved else []
+        cost = sum(costs)
     elif verb == "images":
         n = summary["pics"] or max(1, summary["scenes"]) * 6  # ~6 shots/scene when none exist yet
         if scene is not None:
@@ -1030,6 +1140,156 @@ async def _runner_approve_scene(tenant_id, video_id, background_tasks, pending) 
             "This is free and reversible any time (approve it again later to change your mind).")
 
 
+async def _runner_draft_pass(tenant_id, video_id, background_tasks, pending) -> str:
+    """C17 (checklist §1.3): 'draft the whole video' — route every scene's
+    CLIP to the cheapest wired draft-tier model (data-driven,
+    ``_draft_tier_model_id``, never a hardcoded "grok-imagine") for one cheap
+    full-video pass, so a creator can judge pacing/story before spending on
+    the routed/premium tiers. Pictures are untouched by this verb — they're
+    already cheap and stage-shared (see ``images``/``needs="pictures"``
+    above); "draft" describes CLIP generation, the expensive step this trust
+    ladder is actually about. Deliberately does NOT write
+    assets.routed_model/model_override — ``run_clip_generation``'s new
+    ``force_model_id`` overrides the per-row RESOLUTION for this call only,
+    so those columns survive untouched for ``finalize`` to read back later.
+
+    Skip-if-done (unforced): only rows without a clip yet are drafted, same
+    default `run_clip_generation` already applies — a video that already has
+    (e.g. finalized) clips is left alone rather than downgraded.
+
+    C16a lane: claims "main" — generation_claims.stage_for_verb("draft_pass")
+    falls through to "main" (it's not in SIDE_LANES) because this genuinely
+    is a whole-video clip-generation run, the same lane 'animate'/'images'/
+    'render' already use, and must conflict with any of them in flight.
+    Acquired explicitly here (not via _run_pending_action's generic runner
+    path, which does not claim) — same pattern as the "build" verb.
+
+    C17 pass-identity: before claiming, checks generation_passes for this
+    EXACT (video, "draft_pass", scene-set+draft-model) hash — a repeat of the
+    identical draft pass (nothing newly pictured since) is told "already
+    drafted", never re-billed. A different scene set (new pictures generated)
+    hashes differently and proceeds normally.
+    """
+    import generation_claims
+    import generation_passes
+    from routes.pipeline import _clear_task_status, _set_task_status
+
+    draft_model = _draft_tier_model_id()
+    if not draft_model:
+        return "I don't have a wired draft-tier model to draft with right now — try “animate” instead."
+
+    summary = await video_summary(tenant_id, video_id) or {}
+    model = summary.get("model") or "grok-imagine"
+    rows = await _routed_clip_rows(tenant_id, video_id, None, model)
+    scenes = sorted({r["scene"] for r in rows if r.get("scene") is not None})
+    if not scenes:
+        return "There's nothing to draft yet — make the pictures first."
+
+    scene_hash = generation_passes.scene_set_hash([(s, draft_model) for s in scenes])
+    if await generation_passes.already_done(tenant_id, video_id, "draft_pass", scene_hash):
+        return ("Already drafted this exact video on the cheap model — nothing new to draft. "
+                "Approve the scenes worth finishing and say “finalize” when ready.")
+
+    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by="chat:draft_pass"):
+        return _ALREADY_WORKING_REPLY
+
+    async def _run():
+        _set_task_status(video_id, "running",
+                         f"Drafting all {len(scenes)} scene(s) on the cheap model…", tenant_id=tenant_id)
+        try:
+            from pipeline_executor import PipelineExecutor
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_clip_generation(video_id, force_model_id=draft_model) or {}
+            if result.get("error"):
+                _set_task_status(video_id, "failed", result.get("error"), tenant_id=tenant_id)
+            else:
+                await generation_passes.mark_done(tenant_id, video_id, "draft_pass", scene_hash)
+                _set_task_status(
+                    video_id, "completed",
+                    "Draft pass done — review the scenes and approve the ones worth finishing, "
+                    "then say “finalize”.", tenant_id=tenant_id)
+        except Exception as e:  # noqa: BLE001
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await generation_claims.release(tenant_id, video_id, "main")
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return (f"On it — drafting all {len(scenes)} scene(s) on the cheap model "
+            "so you can judge the story before spending on the real thing.")
+
+
+async def _runner_finalize(tenant_id, video_id, background_tasks, pending) -> str:
+    """C17 (checklist §1.3): 'finalize' — regenerate ONLY the approved
+    scenes' clips at their ROUTED (or manually overridden) tier. "Approved" =
+    ``_runner_approve_scene``'s ``assets.status='approved'`` (C15b), read via
+    ``_approved_scenes``. Passes ``only_scenes=<approved>`` + ``force=True``
+    to ``run_clip_generation`` — the WHERE clause scopes the query to exactly
+    those scenes (every other scene's rows are never even fetched, so they
+    can never be touched), and ``force=True`` makes an already-drafted
+    approved scene's clip get OVERWRITTEN with the real tier rather than
+    skipped as "already has a clip". No ``force_model_id`` — the normal
+    ``resolve_clip_model`` precedence (override > routed > video default)
+    resolves each row, same as a manual "Animate" click would.
+
+    C16a lane + C17 pass-identity: identical shape to ``_runner_draft_pass``
+    — see that docstring for the "main" lane rationale and the
+    generation_passes duplicate-vs-legitimate-second-pass reasoning. Here,
+    approving 3 MORE scenes after an earlier finalize changes the approved
+    set -> a different scene_set_hash -> a legitimate new pass; re-tapping
+    "finalize" with the SAME approved set (nothing new since) hashes
+    identically -> told "already finalized", zero re-spend.
+    """
+    import generation_claims
+    import generation_passes
+    from routes.pipeline import _clear_task_status, _set_task_status
+
+    summary = await video_summary(tenant_id, video_id) or {}
+    model = summary.get("model") or "grok-imagine"
+    approved = await _approved_scenes(tenant_id, video_id)
+    if not approved:
+        return ('Nothing\'s approved yet — say "approve scene 3" (or a few) and I\'ll finalize just those.')
+
+    rows = await _routed_clip_rows(tenant_id, video_id, None, model, only_scenes=approved)
+    pairs = [(r["scene"], _resolved_model_id(r, model)) for r in rows if r.get("scene") is not None]
+    scene_hash = generation_passes.scene_set_hash(pairs)
+
+    if await generation_passes.already_done(tenant_id, video_id, "finalize", scene_hash):
+        n = len(approved)
+        return (f"Already finalized these {n} approved scene{'s' if n != 1 else ''} at their routed "
+                "quality — nothing's changed since. Approve more scenes and I'll pick up just those.")
+
+    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by="chat:finalize"):
+        return _ALREADY_WORKING_REPLY
+
+    async def _run():
+        _set_task_status(video_id, "running",
+                         f"Finalizing {len(approved)} approved scene(s)…", tenant_id=tenant_id)
+        try:
+            from pipeline_executor import PipelineExecutor
+            executor = PipelineExecutor(tenant_id)
+            result = await executor.run_clip_generation(video_id, only_scenes=approved, force=True) or {}
+            if result.get("error"):
+                _set_task_status(video_id, "failed", result.get("error"), tenant_id=tenant_id)
+            else:
+                await generation_passes.mark_done(tenant_id, video_id, "finalize", scene_hash)
+                n = result.get("clips_generated")
+                detail = f"{n} clip(s) across " if isinstance(n, int) else ""
+                _set_task_status(
+                    video_id, "completed",
+                    f"Finalized {detail}{len(approved)} scene(s) at full quality.", tenant_id=tenant_id)
+        except Exception as e:  # noqa: BLE001
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await generation_claims.release(tenant_id, video_id, "main")
+            await asyncio.sleep(30)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return f"On it — finalizing {len(approved)} approved scene(s) at their routed quality. I'll update you here."
+
+
 RUNNERS = {
     "advance": _runner_advance,
     "seo": _runner_seo,
@@ -1041,4 +1301,6 @@ RUNNERS = {
     "unlock": _runner_unlock,
     "drive_push": _runner_drive_push,
     "drive_sync": _runner_drive_sync,
+    "draft_pass": _runner_draft_pass,
+    "finalize": _runner_finalize,
 }
