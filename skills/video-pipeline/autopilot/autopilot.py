@@ -303,11 +303,12 @@ class Autopilot:
             # Get best score for notification
             all_scored = self.scorer.rank(candidates)
             best_score = all_scored[0].score if all_scored else None
-            print(f"   No candidates meet threshold. Best: {best_score:.0f if best_score else 'N/A'}")
+            best_score_str = f"{best_score:.0f}" if best_score is not None else "N/A"
+            print(f"   No candidates meet threshold. Best: {best_score_str}")
             self._notify(
                 f"📭 *AUTOPILOT: No candidates ready*\n\n"
                 f"No ideas meet the confidence threshold of *{self.config.thresholds.min_confidence_score}*.\n"
-                f"Best candidate scored *{best_score:.0f if best_score else 'N/A'}*."
+                f"Best candidate scored *{best_score_str}*."
             )
             return False
 

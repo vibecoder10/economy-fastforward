@@ -6157,4 +6157,65 @@ Safe to ff-merge on the routine hourly deploy — cron config itself is unchange
 or removed in `infra/setup_cron.sh`, so nothing needs re-running on the VPS beyond the normal git
 pull).
 
+## C32a — pre-existing invalid f-string fix (added 2026-07-19)
+
+Fixed the exact bug C32 flagged as out-of-scope: `autopilot.py:306`/`:310` used
+`f"{best_score:.0f if best_score else 'N/A'}"` — a conditional expression
+inside a format spec, which is not valid syntax (`ValueError: Invalid format
+specifier`). Replaced with a `best_score_str = f"{best_score:.0f}" if
+best_score is not None else "N/A"` computed once and interpolated plainly
+into both the `print` and the Slack `_notify` message (`is not None` rather
+than a truthiness check, so a legitimate score of exactly `0` would still
+render `"0"`, not `"N/A"` — the more correct read of the original intent).
+Two-line, single-purpose diff.
+
+**Honest result — the fix works, but does NOT turn the suite green.** The
+crash is gone (`test_full_cycle_selects_best_candidate` /
+`test_force_ignores_cadence` no longer raise `ValueError`), but both tests
+still fail, now on `assert result is True` — a **second, independent,
+pre-existing bug** the crash had been masking: `test_integration.py`'s mock
+Airtable fixtures hardcode absolute `Published Date` values
+(`2026-03-17T12:00:00Z` / `2026-03-16T12:00:00Z`, clearly meant to read as
+"~24h / ~48h old" when the test was written). `check_cycle` computes
+`hours_old` itself from that date against `datetime.now(timezone.utc)`
+(`autopilot.py:149-156`) — it ignores the fixture's own `'Hours Old': 24`
+field entirely. Against this session's system clock (2026-07-19) those dates
+are ~124 days old, past `ConfidenceScorer.MAX_HOURS` (168h/7d), so
+`timing_freshness` scores `0` for both candidates and the composite drops to
+~49-63 — under `min_confidence_score: 60` — so `scorer.get_best()` correctly
+returns `None` and `check_cycle` correctly returns `False`. Confirmed by
+direct computation (not guesswork): constructing `IdeaCandidate`s with the
+fixture's *intended* `hours_old` (24/48) scores 62.7-69.9 under the current
+(post-C32) weights — comfortably over threshold — while the *actual*
+124-day-old dates the fixture produces score ~49. This is a time-bomb test
+fixture (absolute dates rot as wall-clock time advances), not a production
+code defect, and not caused by or related to the f-string. Left unfixed per
+this chunk's explicit scope (surgical f-string-only diff) and per the "don't
+force-fix tests to pass" instruction — flagged as a new, distinct follow-up
+(fixture should compute `Published Date` relative to `datetime.now()` at
+test run time, e.g. via `freezegun` or a computed offset, not a hardcoded
+absolute timestamp).
+
+**Verify:** `python -m py_compile skills/video-pipeline/autopilot/autopilot.py`
+clean. `cd skills/video-pipeline && python -m pytest autopilot/tests/ -q` →
+**144 passed / 2 failed** (same count as the pre-existing baseline; the 2
+failures changed from crash to a different, documented assertion failure —
+net zero regression, zero new failures introduced, the named bug genuinely
+fixed). Backend suite untouched — `git diff --stat` confirms only
+`skills/video-pipeline/autopilot/autopilot.py` changed, zero `storyengine/`
+files touched.
+
+### Modified Files
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/autopilot/autopilot.py` | Fixed invalid f-string format-spec at ~L306/L310 (conditional expression inside `:.0f` spec is not valid syntax) — extracted a `best_score_str` computed with a real ternary before interpolation |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Single-file change inside `skills/video-pipeline/` (legacy cron pipeline),
+touches only a `print`/Slack-notification string on the "no candidates meet
+threshold" path — cosmetic/logging only, no scoring/decision logic changed.
+Ships on the routine hourly `git pull --ff-only`, no VPS coordination needed.
+Safe to ff-merge.
+
 **Next up: C33 · P3.4 quota guard + own-video VPH.**
