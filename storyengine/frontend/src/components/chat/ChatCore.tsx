@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign } from "lucide-react";
+import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign, Dna, RotateCcw, MinusCircle, XCircle, PencilLine } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
@@ -33,6 +33,8 @@ import {
   getChatConversationById,
   type ChatCard,
   type ChatCardImage,
+  type ChatDnaFieldRow,
+  type ChatDnaLearnerRow,
   type ChatTurnRequest,
   type ProductionPlan,
   type SuggestedModels,
@@ -114,7 +116,9 @@ const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string
 // the pre-existing 6-item "style" card — the two axes are independent and
 // both may appear together), not a new scattered check. C22 adds "style_draft"
 // (the conversational "make me a new style" preview/confirm card) the same way.
-type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "generic";
+// C42 adds "channel_dna_digest" (the "learn this channel" confirmable digest)
+// the same way — one more lookup-table entry, no new string-match branch.
+type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "generic";
 
 function cardKind(card: ChatCard): CardKind {
   if (card.id === "prompt_apply") return "prompt_apply";
@@ -123,11 +127,12 @@ function cardKind(card: ChatCard): CardKind {
   if (card.id === "connect_yt" || card.id === "connect_drive") return "connect";
   if (card.id === "look_engine") return "look_engine";
   if (card.id === "style_draft") return "style_draft";
+  if (card.id === "channel_dna_digest") return "channel_dna_digest";
   if ((card.images?.length ?? 0) > 0) return "images";
   return "generic";
 }
 
-const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "secure_key", "style_draft"]);
+const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "secure_key", "style_draft", "channel_dna_digest"]);
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -527,6 +532,13 @@ export function ChatCore({
         card={actionCard!}
         onSaved={(provider) => turn({ selections: { secure_key: "saved", key_provider: provider } }, "🔒 Key saved")}
         onSkip={() => turn({ selections: { secure_key: "skip" } }, "Skip for now")}
+      />
+    ),
+    channel_dna_digest: () => (
+      <DnaDigestCard
+        key={`dna-${messages.length}`}
+        card={actionCard!}
+        onAction={(selections, label) => turn({ selections }, label)}
       />
     ),
   };
@@ -1278,6 +1290,141 @@ function StyleDraftCard({
       <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
         Saved styles show up on the Profile page, and you can say &quot;use it&quot; on any future video.
       </p>
+    </GlassCard>
+  );
+}
+
+// --- channel-DNA digest card ("learn this channel", C42) ------------------
+// Per-learner status rows (learned/skipped/failed + a summary sentence),
+// per-field rows (label, value, provenance caption, a Revert button wherever
+// the backend says there's a prior value to revert to), a free-text
+// correction box, and a "keep everything" close-out — mirrors the "no
+// action needed by default" design: nothing here is a checkbox the creator
+// must tick, every field is already saved (C41's write-then-review), these
+// are just ways to undo or fix one. Absent fields/learners are simply not
+// rendered (fail-safe, never "undefined" in the copy).
+function DnaDigestCard({
+  card,
+  onAction,
+}: {
+  card: ChatCard;
+  onAction: (selections: Record<string, string>, label: string) => void;
+}) {
+  const [correction, setCorrection] = useState("");
+  const learners: ChatDnaLearnerRow[] = card.learners ?? [];
+  const fields: ChatDnaFieldRow[] = card.fields ?? [];
+
+  const statusIcon = (status: ChatDnaLearnerRow["status"]) => {
+    if (status === "learned") return <CheckCircle2 size={14} style={{ color: "var(--turquoise)" }} aria-hidden />;
+    if (status === "failed") return <XCircle size={14} style={{ color: "var(--gold)" }} aria-hidden />;
+    return <MinusCircle size={14} style={{ color: "var(--text-tertiary)" }} aria-hidden />;
+  };
+  // Never color-only: every row also carries the word (Learned/Skipped/Not
+  // available) alongside the icon.
+  const statusLabel = (status: ChatDnaLearnerRow["status"]) =>
+    status === "learned" ? "Learned" : status === "failed" ? "Not available" : "Skipped";
+
+  return (
+    <GlassCard className="flex flex-col gap-3" style={{ borderColor: "var(--turquoise-dim)" }}>
+      <div className="flex items-center gap-2">
+        <Dna size={16} style={{ color: "var(--turquoise)" }} />
+        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{card.label}</span>
+      </div>
+
+      {card.header && (
+        <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>{card.header}</p>
+      )}
+
+      {learners.length > 0 && (
+        <div
+          className="flex flex-col gap-2 rounded-lg px-3 py-2"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+        >
+          {learners.map((l) => (
+            <div key={l.name} className="flex items-start gap-2 text-xs">
+              <span className="mt-0.5 shrink-0">{statusIcon(l.status)}</span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-medium" style={{ color: "var(--text-primary)" }}>{l.label}</span>
+                  <span style={{ color: "var(--text-tertiary)" }}>· {statusLabel(l.status)}</span>
+                </div>
+                {l.summary && <p style={{ color: "var(--text-secondary)" }}>{l.summary}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {fields.length > 0 && (
+        <div className="flex flex-col gap-2">
+          {fields.map((f) => (
+            <div
+              key={f.field}
+              className="flex items-start justify-between gap-2 rounded-lg px-3 py-2"
+              style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium" style={{ color: "var(--text-primary)" }}>{f.label}</div>
+                <div className="text-xs" style={{ color: "var(--text-secondary)" }}>{f.value}</div>
+                {(f.learner || f.at) && (
+                  <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                    via {f.learner ?? "unknown"}{f.at ? ` · ${new Date(f.at).toLocaleDateString()}` : ""}
+                  </div>
+                )}
+              </div>
+              {f.revertable && (
+                <button
+                  onClick={() => onAction({ channel_dna_digest: "revert", field: f.field }, `Revert ${f.label}`)}
+                  className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all hover:brightness-110"
+                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+                >
+                  <RotateCcw size={11} aria-hidden /> Revert
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="dna-digest-correction" className="text-xs" style={{ color: "var(--text-secondary)" }}>
+          Something off? Tell me what to fix:
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="dna-digest-correction"
+            type="text"
+            name="dna-correction"
+            value={correction}
+            onChange={(e) => setCorrection(e.target.value)}
+            placeholder="e.g. actually the voice is more playful"
+            autoComplete="off"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-xs"
+            style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}
+          />
+          <button
+            onClick={() => {
+              const text = correction.trim();
+              if (!text) return;
+              onAction({ channel_dna_digest: "correct", correction_text: text }, "Save correction");
+              setCorrection("");
+            }}
+            disabled={!correction.trim()}
+            className="shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110 disabled:opacity-50"
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+          >
+            <PencilLine size={12} aria-hidden /> Save
+          </button>
+        </div>
+      </div>
+
+      <button
+        onClick={() => onAction({ channel_dna_digest: "keep" }, "Keep everything")}
+        className="px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]"
+        style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+      >
+        Keep everything
+      </button>
     </GlassCard>
   );
 }

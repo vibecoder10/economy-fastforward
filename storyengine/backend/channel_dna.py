@@ -66,15 +66,33 @@ one retry on malformed JSON). Worst case (all three optional inputs given):
 ~4-5 Claude calls, roughly $0.05-$0.30 per cost-awareness.md's "~$0.01-0.05/
 call" Sonnet/Haiku figures, plus Firecrawl scrape credits. channel_format and
 the import step make no LLM calls at all.
+
+C42 (P4.1c, the chat front door + digest card) adds three small pieces on
+top, no new learners: ``_persist_last_run`` stashes this run's ``learners``
+report onto ``channel_identity["_last_run"]`` (channel_dna_meta.stamp_last_run)
+so the digest survives past this call's return; ``revert_field`` undoes one
+field's most recent learner write via channel_dna_meta's C40 history;
+``is_learning`` is a read-only channel-claim check for "still working" UX.
+``routes/chat.py``'s "learn this channel" intent and ``routes/channel_dna.py``
+(the thin HTTP door for C45/onboarding + a future MCP tool) both call
+``learn_channel`` directly — one implementation, two doors.
 """
 from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import generation_claims
-from channel_dna_meta import ENVELOPE_KEYS, coerce_identity, stamp_identity_write
+from channel_dna_meta import (
+    ENVELOPE_KEYS,
+    coerce_identity,
+    latest_history_index_for_field,
+    restore_field as _restore_field,
+    stamp_identity_write,
+    stamp_last_run,
+)
 from database import execute, fetch_one
 
 logger = logging.getLogger(__name__)
@@ -343,6 +361,83 @@ async def _run_reference_video(tenant_id: str, reference_video_url: str) -> dict
     )
 
 
+async def _persist_last_run(tenant_id: str, learners: dict[str, dict], ok: bool) -> dict:
+    """Stash this run's per-learner report onto channel_identity's
+    `_last_run` envelope key (checklist C42) so the "show the channel
+    digest" chat turn and the thin GET .../status route can render the
+    confirmable digest without re-running anything. Best-effort: a
+    persistence hiccup here must never blow up an otherwise-successful
+    learn_channel call — falls back to the identity as already fetched,
+    same fail-soft posture this module uses for everything that isn't the
+    money-relevant claim itself."""
+    current = await _current_identity(tenant_id)
+    try:
+        run_digest = {"at": datetime.now(timezone.utc).isoformat(), "ok": ok, "learners": learners}
+        merged = stamp_last_run(current, run_digest)
+        await execute(
+            """INSERT INTO channel_profiles (tenant_id, channel_identity)
+               VALUES ($1, $2::jsonb)
+               ON CONFLICT (tenant_id) DO UPDATE SET channel_identity = $2::jsonb,
+                   updated_at = now()""",
+            tenant_id, json.dumps(merged),
+        )
+        return merged
+    except Exception as e:  # noqa: BLE001
+        logger.warning("channel_dna: persisting last-run digest failed for tenant=%s: %s", tenant_id, e)
+        return current
+
+
+async def revert_field(tenant_id: str, field: str) -> tuple[bool, str]:
+    """Undo the most recent learner write to one channel_identity field —
+    checklist C42's digest card "Revert" action. Reuses channel_dna_meta's
+    C40 provenance/history machinery (the exact history entry every learner
+    write already produces via stamp_identity_write) rather than a second
+    undo mechanism. Tenant-scoped by construction: the identity fetched is
+    THIS tenant's own channel_profiles row.
+
+    Returns (ok, friendly_message) — never raises; "nothing to revert" is a
+    normal, expected outcome (a field that's only ever been set once), not
+    an error worth logging.
+    """
+    identity = await _current_identity(tenant_id)
+    idx = latest_history_index_for_field(identity, field)
+    if idx is None:
+        return False, f"There's nothing to revert for \"{field.replace('_', ' ')}\" — it hasn't changed since it was first learned."
+    try:
+        restored = _restore_field(identity, field, idx)
+    except ValueError as e:
+        return False, f"Couldn't revert that field: {e}"
+    try:
+        await execute(
+            """INSERT INTO channel_profiles (tenant_id, channel_identity)
+               VALUES ($1, $2::jsonb)
+               ON CONFLICT (tenant_id) DO UPDATE SET channel_identity = $2::jsonb,
+                   updated_at = now()""",
+            tenant_id, json.dumps(restored),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("channel_dna: revert_field write failed for tenant=%s field=%s: %s", tenant_id, field, e)
+        return False, "I hit a snag saving that revert — mind trying again?"
+    return True, f"Reverted \"{field.replace('_', ' ')}\" back to its previous value."
+
+
+async def is_learning(tenant_id: str) -> bool:
+    """Read-only: is a learn_channel() run currently holding this tenant's
+    channel-level claim? Used by the digest chat turn and the thin status
+    route to say "still working" instead of showing a stale/partial digest.
+    Fails OPEN (returns False) on a DB error — this is a status read, not a
+    money gate; acquire_channel() is what actually fails closed."""
+    try:
+        row = await fetch_one(
+            "SELECT 1 AS x FROM generation_claims WHERE tenant_id = $1 AND video_id IS NULL "
+            "AND stage = $2 AND claimed_at > now() - interval '2 hours'",
+            tenant_id, CLAIM_STAGE,
+        )
+        return row is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -372,7 +467,13 @@ async def learn_channel(
     Returns the digest-ready contract C42 renders as a confirmable card:
     ``{"ok": bool, "busy": bool, "error": str|None,
        "learners": {name: {"status", "summary", "fields_written", "error"}},
-       "identity": <current channel_identity dict, with _sources/_history>}``.
+       "identity": <current channel_identity dict, with _sources/_history/
+       _last_run>}``. On a successful (non-busy) run, ``identity["_last_run"]``
+       is this SAME ``learners``/``ok`` pair persisted via
+       ``_persist_last_run`` — the digest survives past the call that
+       produced it, so a later chat turn ("show the channel digest") or the
+       thin ``GET /api/channel-dna/status`` route can render it without
+       re-running anything.
     """
 
     async def _progress(message: str) -> None:
@@ -424,8 +525,8 @@ async def learn_channel(
         else:
             learners["reference_video"] = _learner_result("skipped", "No reference video provided.")
 
-        identity = await _current_identity(tenant_id)
         ok = any(l["status"] == "learned" for l in learners.values())
+        identity = await _persist_last_run(tenant_id, learners, ok)
         return {"ok": ok, "busy": False, "error": None, "learners": learners, "identity": identity}
     finally:
         await generation_claims.release_channel(tenant_id, CLAIM_STAGE)

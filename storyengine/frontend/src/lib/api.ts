@@ -2722,6 +2722,25 @@ export interface ChatCardImage {
   scene: number;
   index: number | null;
 }
+// Channel-DNA digest card (id "channel_dna_digest", checklist C42 · P4.1c —
+// "learn this channel" chat front door): one row per learner that ran
+// (learned/skipped/failed + a summary sentence) and one row per learned
+// identity field, carrying its provenance (which learner, when) and whether
+// C40's history has a prior value to revert to.
+export interface ChatDnaLearnerRow {
+  name: string;
+  label: string;
+  status: "learned" | "skipped" | "failed";
+  summary: string;
+}
+export interface ChatDnaFieldRow {
+  field: string;
+  label: string;
+  value: string;
+  learner?: string | null;
+  at?: string | null;
+  revertable: boolean;
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -2744,6 +2763,12 @@ export interface ChatCard {
   // other card and on any pre-C15b payload, so older/newer builds render
   // exactly as before when it's missing.
   images?: ChatCardImage[];
+  // Channel-DNA digest card only (C42). Optional and additive, same rule as
+  // every card-specific field above: absent on every other card kind.
+  header?: string;
+  learners?: ChatDnaLearnerRow[];
+  fields?: ChatDnaFieldRow[];
+  any_failed?: boolean;
 }
 export interface ProductionPlan {
   story_concept?: string;

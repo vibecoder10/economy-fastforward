@@ -2257,22 +2257,40 @@ pass before/alongside a `--with-frontend` deploy.
 
 ---
 
-## C41 — unified Channel-DNA ingestion orchestrator (`channel_dna.py::learn_channel`) · live learn-a-real-channel run
+## C42 — "learn this channel" chat front door + confirmable digest card · live end-to-end run
+### (subsumes C41's entry below — `learn_channel` now has its first real door: chat + a thin HTTP route)
 
-Verified so far at unit level only (18 new tests, SYSTEM_STATE.md §C41) — `learn_channel` has **no
-route or chat/UI door wired to it yet** (that's C42/C45), so there is nothing to click through in the
-sandbox or on a dev server; the only way to exercise it live is to call it directly (a Python REPL/
-script on the VPS, or wait for C42's chat intent to land and use that instead — this is also C42's own
-natural live test, so consider doing both together rather than twice).
+Verified so far at unit level only (C41: 18 tests, SYSTEM_STATE.md §C41; C42: 37 more, SYSTEM_STATE.md
+§C42) — nobody has clicked through this live yet. C42 gives `learn_channel` its first real callers (a
+chat intent + `POST /api/channel-dna/learn`), so this is now clickable in the sandbox/dev server, not
+just a VPS Python-REPL exercise.
 
-- [ ] **Full sequence against a real tenant's own channel.** On the VPS: `await channel_dna.
-      learn_channel(tenant_id)` (no `channel_url` — learns from whatever's already in that tenant's
-      `channel_videos`). Confirm: (a) `learners["identity_builder"]["status"] == "learned"` with a
-      real `videos_analyzed` count > 0 (needs `FIRECRAWL_API_KEY` set and the tenant to already have
-      imported channel videos with transcripts fetchable — reuse an onboarding-connected test tenant);
-      (b) `se db "SELECT channel_identity FROM channel_profiles WHERE tenant_id='<id>'"` shows real
-      voice_tone/hook_style/real_quotes text, not placeholders; (c) `_sources`/`_history` envelope
-      present and readable.
+- [ ] **Chat: "learn this channel" end-to-end.** In the chat UI (home producer, no `video_id`), send
+      "learn this channel: `<a real public YouTube channel URL>`". Confirm: (a) the ack reply lands
+      immediately (within the chat-turn gateway window) and states the ~$0.10-0.30 cost; (b) a minute
+      or two later, sending "show the channel digest" renders the `channel_dna_digest` card with real
+      per-learner rows (not placeholders) and an honest header if anything failed; (c) field rows show
+      real provenance ("via identity_builder · `<date>`").
+- [ ] **Digest card actions round-trip for real.** On a rendered digest card: (a) tap **Revert** on a
+      field that has a prior value — confirm the chat reply says "Reverted..." and `se db "SELECT
+      channel_identity FROM channel_profiles WHERE tenant_id='<id>'"` shows the field's OLD value
+      restored, with `_sources->'<field>'->>'learner' = 'restore'`; (b) type a correction (e.g.
+      "actually the voice is more playful") and Save — confirm `se db "SELECT * FROM
+      director_preferences WHERE tenant_id='<id>' ORDER BY created_at DESC LIMIT 1"` shows the exact
+      verbatim text, `scope='channel'`; (c) tap **Keep everything** — confirm no DB write happens and
+      the card closes out cleanly.
+- [ ] **Thin route parity.** `curl -X POST .../api/channel-dna/learn` with a real channel_url (same
+      auth as the chat door) — confirm the SAME digest appears via `GET .../api/channel-dna/status`
+      moments later, and that it matches what "show the channel digest" renders in chat for the same
+      tenant (proving the "one implementation, two doors" claim isn't just a code-identity check).
+- [ ] **Full sequence against a real tenant's own channel** (from C41, still unverified). On the VPS:
+      `await channel_dna.learn_channel(tenant_id)` (no `channel_url` — learns from whatever's already
+      in that tenant's `channel_videos`). Confirm: (a) `learners["identity_builder"]["status"] ==
+      "learned"` with a real `videos_analyzed` count > 0 (needs `FIRECRAWL_API_KEY` set and the tenant
+      to already have imported channel videos with transcripts fetchable — reuse an
+      onboarding-connected test tenant); (b) `se db "SELECT channel_identity FROM channel_profiles
+      WHERE tenant_id='<id>'"` shows real voice_tone/hook_style/real_quotes text, not placeholders;
+      (c) `_sources`/`_history`/`_last_run` envelope present and readable.
 - [ ] **Not-my-channel path.** Call `learn_channel(tenant_id, channel_url="https://youtube.com/@
       SomeOtherChannel")` for a channel the tenant has never imported. Confirm `learners
       ["import_channel_videos"]["status"] == "learned"` with a real saved count, and that
@@ -2288,17 +2306,16 @@ natural live test, so consider doing both together rather than twice).
 - [ ] **Concurrency: two overlapping calls.** Fire `learn_channel(tenant_id)` twice back-to-back
       (e.g. two terminal tabs, or `asyncio.gather`) — confirm the SECOND returns `{"busy": true}`
       immediately rather than both running (check `se db "SELECT * FROM generation_claims WHERE
-      video_id IS NULL"` mid-run to see the "dna" claim row).
-- **Cost:** per SYSTEM_STATE.md §C41's estimate, roughly $0.05-$0.30 in Claude calls (tenant's own
+      video_id IS NULL"` mid-run to see the "dna" claim row), and that the chat/route doors surface
+      that as a friendly "already learning" message rather than a silent no-op.
+- **Cost:** per SYSTEM_STATE.md §C41/§C42's estimate, roughly $0.05-$0.30 in Claude calls (tenant's own
   BYOK key) per full run, plus Firecrawl scrape credits for the identity_builder step. Get a cost
   quote/go-ahead per storyengine/CLAUDE.md's money rule before running the full-sequence checks above
   on a real (not throwaway) tenant.
 - **Safety net:** every learner is individually fail-soft (a missing `FIRECRAWL_API_KEY` or a
   transcript-fetch bot-block degrades that ONE learner to `"failed"` with a reason, never crashes the
   whole call — see docs/env-vars.md's `YTDLP_COOKIES_FILE`/`YTDLP_PROXY` for the same bot-block this
-  reference_video step can hit). Since nothing calls `learn_channel` yet in production, there is no
-  regression risk from skipping this until C42 gives it a door — this item is a nice-to-have proof,
-  not a blocker.
+  reference_video step can hit).
 
 ---
 

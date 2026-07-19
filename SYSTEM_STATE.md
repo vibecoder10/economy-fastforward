@@ -7536,3 +7536,152 @@ channel — this chunk's `[V]` is unit-only per the checklist (no route, no UI y
 "learn this channel: <url>" chat intent (ack-now background-task pattern, `progress_cb` already
 supports this), render the digest as a per-field confirm-before-save card (closing identity_builder's
 save-without-review gap noted in the P4.1 scout), route corrections to C44's seam.
+
+## C42 — P4.1c "learn this channel" chat front door + confirmable digest card (added 2026-07-19)
+
+Third build chunk of Phase 4 Pillar 1. Gives C41's `learn_channel` its first real caller: a chat
+intent, a confirmable digest card, and a thin HTTP door C45 (onboarding) and a future MCP tool can
+reuse. No new learner logic — this is wiring + a small envelope extension for the run report.
+
+### Chat intent wiring
+
+`routes/chat.py`'s `_learn_channel_intent(msg)` is a SIBLING of `_identity_intent`, not a rewrite of
+it: `_identity_intent`'s "voice/style" wording still means "just show/rebuild the identity_builder
+view"; `_learn_channel_intent` (requires "channel" + a learn/study/analyze/manage/managing verb)
+means "run every learner and show the full digest." Dispatched in `chat_turn` at a new step **3.4**,
+BEFORE step 3.5's `_identity_intent` check, so "learn my channel's voice" gets the broader C41
+treatment instead of identity_builder alone. Matches the three spec examples verbatim: "learn this
+channel: `<url>`", "learn my channel", "here's a channel I'm managing `<url>`". `_extract_channel_url`
+pulls the URL/handle out of the message by reusing `routes.onboarding._extract_channel_id_from_url`
+as the validity check — the same parser `channel_dna._run_import` uses, so intent and orchestrator
+always agree on what counts as a channel reference.
+
+`_handle_learn_channel` mirrors `_handle_build_identity`'s exact ack-now + background-task shape
+(Firecrawl scrapes + several Claude calls can exceed a chat turn's gateway window): acks immediately
+— *"🧬 On it — analyzing the channel, this takes a couple of minutes; ~$0.10-0.30 of your API
+budget."* — states the cost per the checklist's explicit money-honesty requirement, and schedules
+`channel_dna.learn_channel(tenant_id, channel_url=...)` as a `background_tasks.add_task`.
+
+**Money-rule flag (per the checklist's own ask):** storyengine/CLAUDE.md's hard rule reads "anything
+that triggers paid generation... gets a cost quote and a yes first," and this DOES spend the tenant's
+own Claude/Firecrawl credits. No confirm gate was added here, matching two existing precedents: (1)
+`_handle_build_identity` (identity_builder alone) already ships unconfirmed, and (2) research/SEO
+verbs run unconfirmed by established convention (this checklist's own explicit instruction for this
+chunk). If "paid generation" in that hard rule was meant to cover ANY spend rather than just
+image/clip/voice generation, this ask should get a confirm card too — flagging for Ryan rather than
+guessing.
+
+### Digest card + provenance-aware actions
+
+`_dna_digest_intent` ("show the channel digest", "what did you learn") -> `_handle_show_channel_digest`
+reads `channel_profiles.channel_identity`, and — if there's anything learned — builds the digest card
+via `_build_dna_digest_card(identity, run)`: one row per learner (name/label/status/summary, from the
+persisted `_last_run` report) and one row per known identity field actually present (`voice_tone`,
+`cadence`, `hook_style`, `structure`, `research_approach`, `visual_format`, `thumbnail_style`,
+`reference_video_style` — absent fields are simply omitted, never manufactured), each carrying its
+`_sources` provenance (learner + timestamp) and a `revertable` flag from
+`channel_dna_meta.latest_history_index_for_field`. An honest header appears when any learner failed:
+*"Here's what I could learn about your channel — a step or two hit a snag... ask me to try again any
+time."* New card kind `"channel_dna_digest"` added to ChatCore's `cardKind()` lookup table (S9-3
+pattern) and `ACTION_CARD_KINDS` — zero new `card.id === "..."` string-match branches anywhere else.
+
+Card actions, dispatched deterministically at chat_turn step **3.6b** (source-locked before producer
+intake, same discipline `_handle_style_draft_confirm` established for C22, gated on
+`state["pending_dna_digest"]` so a card can't be manufactured from LLM prose alone):
+- **Keep** (default) — no write at all; the values are already saved per C41's write-then-review
+  design. The button just clears the pending marker and acknowledges.
+- **Revert** a field — `channel_dna.revert_field(tenant_id, field)` re-resolves the latest history
+  index SERVER-SIDE (never trusts a client-supplied index — the identity may have changed between
+  render and tap) and calls `channel_dna_meta.restore_field`, the exact C40 undo mechanism.
+- **Correct** (free text, e.g. "actually the voice is more playful") — saves a channel-scope
+  `director_preference` via the EXISTING `_save_preference` (the same write C15c's `remember` op
+  uses). This is the deterministic, form-posted version of that write, not the full LLM-classified
+  remember/forget routing — C44 formally wires that; today the checklist calls for exactly this much.
+
+### `_last_run` envelope extension (channel_dna_meta.py)
+
+New reserved envelope key `_last_run` (added to `ENVELOPE_KEYS`, alongside `_sources`/`_history`) —
+`{"at", "ok", "learners": {...}}`, the same shape `learn_channel` already returns, stashed via a NEW
+`stamp_last_run()` that deliberately bypasses `stamp_identity_write`'s per-field provenance loop (it's
+a run report, not a field a learner taught — no `_sources` stamp, no `_history` entry of its own).
+`channel_dna._persist_last_run` writes it at the end of every non-busy `learn_channel` call, fail-soft:
+an `execute()` hiccup falls back to the identity as already fetched rather than breaking an otherwise-
+successful run. New `latest_history_index_for_field()` is the shared "is there a prior value to
+revert to" query both the digest card and `revert_field` use — a field's very FIRST-ever write IS
+revertable (back to absent), by C40's own existing design (see
+`test_restore_field_to_previously_absent_sets_none`), so the digest shows Revert even on a channel's
+first-ever learn.
+
+### Thin HTTP route (`routes/channel_dna.py`, NEW) — one implementation, two doors
+
+`POST /api/channel-dna/learn` (ack-now, same shape as the chat door — checks `channel_dna.is_learning`
+first for a friendlier immediate "busy" message, then backgrounds the SAME `learn_channel` call) and
+`GET /api/channel-dna/status` (reads the SAME `_last_run` envelope key, zero second read path). Tests
+pin `routes.channel_dna.learn_channel is channel_dna.learn_channel` — literally the same callable, not
+a re-implementation. Registered in `main.py`. Not yet wired to an MCP tool this chunk:
+`routes/mcp.py`'s tool calls are synchronous request/response (see `_call_create_video`'s
+BackgroundTasks plumbing for the closest existing precedent), and a tool that blocks for 1-2 minutes
+of Firecrawl+Claude work is a different reliability shape than the existing read-only/create-video
+tools — deferred rather than rushed, flagged here per the checklist's own "if cheap" hedge. C25a's held
+media-proxy files were not touched (`routes/mcp.py` itself was read but not edited).
+
+### Verify
+
+37 new tests in `storyengine/backend/tests/functional/test_c42_learn_channel_chat.py`, eight groups:
+(1) `channel_dna_meta.stamp_last_run`/`latest_history_index_for_field`; (2) `channel_dna._persist_last_run`
+(success + fail-soft-fallback), `revert_field` (success/"nothing to revert"/tenant-scoping), `is_learning`
+(true/false/fail-open); (3) `_learn_channel_intent`/`_extract_channel_url` matching the three spec
+phrasings + negative cases; (4) `_handle_learn_channel` acks immediately, states the cost, and proves
+the ACTUAL orchestrator call only happens inside the backgrounded job (never awaited inline), including
+a job-never-raises-out-of-the-task case; (5) `_build_dna_digest_card` shape (provenance, honest failed-
+learner header, revertable flag) + `_handle_show_channel_digest` (no-identity-yet friendly reply vs.
+card-rendered-and-pending-armed); (6) `_handle_dna_digest_action` keep/revert/correct, including the
+"ask for what's missing" replies when a field/correction text is blank; (7) source-lock (`inspect.
+getsource` proves step 3.4/3.6b run before 3.5's `_identity_intent` and before the normal-intake `user_
+parts` assembly); (8) the thin route (same-callable identity check, ack/busy, status shape, empty-status
+fail-safe). Non-vacuous: `git stash -u` (channel_dna.py/channel_dna_meta.py/main.py/routes/chat.py
+modified + routes/channel_dna.py/the test file untracked) reproduces the exact pre-chunk baseline
+(**1333 passed / 15 failed / 1 error**, confirmed live), then the stash was popped back.
+
+**Full backend suite**: `./venv/bin/python -m pytest tests/ -q` -> **1370 passed** (1333 baseline + 37
+new C42 tests) **/ 15 pre-existing failures / 1 pre-existing error** — zero new failures. `py_compile`
+clean on all touched/new `.py` files. Frontend: `npx tsc --noEmit` clean; `npm run build` clean (with
+`NEXT_PUBLIC_API_URL` set — the build's existing prerender requirement, unrelated to this chunk).
+`grep 'card.id === "'` on ChatCore.tsx shows the new check living ONLY inside `cardKind()` — zero new
+scattered string-match branches.
+
+### Modified/New Files (C42)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/channel_dna_meta.py` | Additive: `LAST_RUN_KEY`/`ENVELOPE_KEYS` extended, `stamp_last_run()`, `latest_history_index_for_field()` |
+| `storyengine/backend/channel_dna.py` | Additive: `_persist_last_run()` (wired into `learn_channel`'s return), `revert_field()`, `is_learning()` |
+| `storyengine/backend/routes/chat.py` | Additive: `_learn_channel_intent`/`_extract_channel_url`/`_handle_learn_channel`, `_dna_digest_intent`/`_build_dna_digest_card`/`_handle_show_channel_digest`/`_handle_dna_digest_action`, dispatch wiring in `chat_turn` (steps 3.4/3.6b) |
+| `storyengine/backend/routes/channel_dna.py` | NEW — thin `POST /learn` + `GET /status` door, reuses `channel_dna.learn_channel` directly |
+| `storyengine/backend/main.py` | `channel_dna` router registered |
+| `storyengine/backend/tests/functional/test_c42_learn_channel_chat.py` | NEW — 37 tests |
+| `storyengine/frontend/src/lib/api.ts` | Additive: `ChatDnaLearnerRow`/`ChatDnaFieldRow` types, `ChatCard.header`/`.learners`/`.fields`/`.any_failed` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | Additive: `"channel_dna_digest"` `cardKind()`/`ACTION_CARD_KINDS` entry, `DnaDigestCard` component + `ACTION_CARD_RENDERERS` wiring |
+
+### Deploy-safety assessment
+
+No migration, no schema change (the `_last_run` envelope key lives inside the existing
+`channel_identity` JSONB, same no-new-table discipline C40 established). `routes/channel_dna.py` is a
+new router with no other route depending on it. `routes/chat.py`'s new dispatch steps (3.4/3.6b) sit
+strictly BEFORE the existing 3.5/3.6/producer-intake paths and only fire on their own new intent
+predicates (`_learn_channel_intent`/`_dna_digest_intent`/the `channel_dna_digest` selections key) — an
+ordinary "make a video about..." turn never touches this code (none of those predicates match). C25a's
+held media-proxy branch untouched. Frontend changes are purely additive (new optional `ChatCard`
+fields, a new card-kind branch) — an older frontend build simply never renders the new card, same
+"additive and safe" posture every prior card-kind addition (C15b/C21b/C22) documented. Safe to
+ff-merge.
+
+**Deferred to `tasks/live-verification-queue.md` §C42 (subsumes §C41's entry — merged; see that file):**
+the real end-to-end pass — a real channel learned via chat, the digest actually rendering in the
+browser, a live Revert/Correct round-trip — plus an MCP tool for `learn_channel`, and C41's own
+original live-verification ask (this chunk gives it its first real caller).
+
+**Next chunk: C43 · P4.1d consumption audit + convergence** — every build path must read the ONE saved
+DNA object; reconcile `identity.py`'s per-request injection vs `system_prompts.py`'s one-shot `tenant_
+prompt_defaults` writes (they can silently fight today); reconcile the TWO thumbnail-formula impls
+(`pipeline_executor` vs `identity_builder`).

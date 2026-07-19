@@ -47,7 +47,16 @@ from typing import Any, Optional
 
 SOURCES_KEY = "_sources"
 HISTORY_KEY = "_history"
-ENVELOPE_KEYS = (SOURCES_KEY, HISTORY_KEY)
+# C42 (P4.1c): the most recent channel_dna.learn_channel() orchestration
+# report — {"at", "ok", "learners": {name: {status, summary, fields_written,
+# error}}} — stashed here so a later chat turn ("show the channel digest")
+# or the thin GET /api/channel-dna/status route can render the confirmable
+# digest card without re-running any learner. Set via `stamp_last_run`
+# (below), NOT through `stamp_identity_write`'s per-field loop — it's
+# metadata about a RUN, not a channel-identity field, so it gets no
+# `_sources` stamp and produces no `_history` entry of its own.
+LAST_RUN_KEY = "_last_run"
+ENVELOPE_KEYS = (SOURCES_KEY, HISTORY_KEY, LAST_RUN_KEY)
 
 # How many _history snapshots to keep. Oldest dropped first.
 HISTORY_LIMIT = 20
@@ -139,6 +148,17 @@ def stamp_identity_write(
     return merged
 
 
+def stamp_last_run(identity: Optional[dict[str, Any]], run_digest: dict[str, Any]) -> dict[str, Any]:
+    """Set `_last_run` to `run_digest` (checklist C42). Returns a NEW dict —
+    same non-mutating contract as `stamp_identity_write` — with every other
+    key (including the `_sources`/`_history` envelope and every learned
+    field) preserved byte-for-byte. Deliberately bypasses the per-field
+    provenance loop: this is a run report, not a field a learner taught."""
+    merged = coerce_identity(identity)
+    merged[LAST_RUN_KEY] = run_digest
+    return merged
+
+
 def field_provenance(identity: Optional[dict[str, Any]], field: str) -> Optional[dict[str, Any]]:
     """{"learner", "at", "confidence"} for `field`, or None if it was never
     stamped (or `identity` carries no envelope at all)."""
@@ -170,3 +190,21 @@ def restore_field(identity: Optional[dict[str, Any]], field: str, history_index:
         raise ValueError(f"history entry {history_index} did not change field '{field}'")
     restored_value = prev[field]
     return stamp_identity_write(ci, {field: restored_value}, learner="restore", confidence=None)
+
+
+def latest_history_index_for_field(identity: Optional[dict[str, Any]], field: str) -> Optional[int]:
+    """The index of the most recent `_history` entry that changed `field`, or
+    None if it's never changed (nothing to revert). Checklist C42's digest
+    card uses this to decide whether to show a Revert button, and the revert
+    op itself re-resolves the index THIS way at execute time rather than
+    trusting a client-supplied index — the identity may have changed between
+    when the card was rendered and when the button is tapped."""
+    ci = coerce_identity(identity)
+    history = ci.get(HISTORY_KEY)
+    if not isinstance(history, list):
+        return None
+    for i in range(len(history) - 1, -1, -1):
+        entry = history[i]
+        if isinstance(entry, dict) and field in (entry.get("fields_changed") or []):
+            return i
+    return None

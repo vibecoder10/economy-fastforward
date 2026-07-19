@@ -3795,6 +3795,222 @@ async def _handle_show_identity(conversation_id, tenant_id, transcript, state, u
     return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, body)
 
 
+# --- C42 (P4.1c): "learn this channel" chat front door + confirmable digest -
+#
+# Broader than `_identity_intent`/`_handle_build_identity` above, which only
+# ever run identity_builder (one learner). This runs the FULL C41 orchestrator
+# (channel_dna.learn_channel: optional import -> identity_builder -> optional
+# script template -> confidence-gated format lock -> optional reference video)
+# and, once it lands, surfaces a confirmable digest card the creator can act
+# on: keep (default — the values are already saved, C41's write-then-review
+# design), revert a field (channel_dna.revert_field, C40's history undo), or
+# correct one in free text (becomes a standing director preference, same
+# `_save_preference` C15c's remember op writes through — C44 will teach the
+# full LLM-classified remember/forget routing onto this specific ask; today
+# it's the deterministic form-post version of the same write).
+
+_LEARN_CHANNEL_VERBS = ("learn", "study", "analyze", "analyse", "manage", "managing")
+
+
+def _learn_channel_intent(msg: str) -> bool:
+    """Detect the C42 'learn this channel' ask: 'learn this channel: <url>',
+    'learn my channel', 'here's a channel I'm managing <url>', and close
+    variants — always mentions "channel" plus a learn/study/manage verb.
+    Deliberately a SIBLING of `_identity_intent`, not a rewrite of it:
+    `_identity_intent`'s "voice/style" wording keeps meaning "just show/rebuild
+    the identity_builder view"; this one means "run every learner and show me
+    the full digest," so a message matching both (e.g. "learn my channel's
+    voice") should get the broader treatment — callers check this FIRST."""
+    m = (msg or "").lower()
+    if "channel" not in m:
+        return False
+    return any(v in m for v in _LEARN_CHANNEL_VERBS)
+
+
+def _extract_channel_url(msg: str) -> Optional[str]:
+    """Pull a YouTube channel URL/handle out of a learn-channel ask, reusing
+    onboarding's own identifier parser as the validity check so this and
+    channel_dna._run_import (which calls the same parser) always agree on
+    what counts as a channel reference. None means "no URL in this message"
+    -> learn_channel learns from whatever's already imported."""
+    from routes.onboarding import _extract_channel_id_from_url
+
+    for token in re.findall(r"\S+", msg or ""):
+        cleaned = token.strip("():,.\"'")
+        if _extract_channel_id_from_url(cleaned):
+            return cleaned
+    return None
+
+
+async def _handle_learn_channel(conversation_id, tenant_id, transcript, state, user_msg, background_tasks):
+    """Ack now, run channel_dna.learn_channel in the background — mirrors
+    `_handle_build_identity`'s exact ack-now pattern (Firecrawl scrapes plus
+    several Claude calls can exceed a chat turn's gateway window). Money
+    honesty (checklist's explicit requirement): this spends the tenant's own
+    Claude/Firecrawl credits, so the ack STATES the cost even though — per
+    the existing research/SEO-verb precedent this mirrors — it doesn't gate
+    behind a confirm card."""
+    channel_url = _extract_channel_url(user_msg)
+
+    async def _job():
+        try:
+            from channel_dna import learn_channel
+            await learn_channel(str(tenant_id), channel_url=channel_url)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: background learn_channel failed: %s", e)
+
+    background_tasks.add_task(_job)
+    text = (
+        "🧬 On it — analyzing the channel, this takes a couple of minutes; ~$0.10-0.30 of your "
+        "API budget. Say **“show the channel digest”** in a bit and I'll lay out everything I "
+        "learned, with a Revert on anything that doesn't look right."
+    )
+    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+
+
+_DNA_DIGEST_INTENT_PHRASES = (
+    "what did you learn", "what you learned", "show me what you learned",
+    "show the digest", "show channel digest",
+)
+
+
+def _dna_digest_intent(msg: str) -> bool:
+    m = (msg or "").lower()
+    if any(p in m for p in _DNA_DIGEST_INTENT_PHRASES):
+        return True
+    return "digest" in m and any(t in m for t in ("channel", "dna", "learn"))
+
+
+_DNA_DIGEST_FIELDS: list[tuple[str, str]] = [
+    ("voice_tone", "Voice"),
+    ("cadence", "Cadence"),
+    ("hook_style", "Hook"),
+    ("structure", "Structure"),
+    ("research_approach", "Research"),
+    ("visual_format", "Visual format"),
+    ("thumbnail_style", "Thumbnail style"),
+    ("reference_video_style", "Reference video style"),
+]
+
+_DNA_LEARNER_LABELS: dict[str, str] = {
+    "import_channel_videos": "Importing channel videos",
+    "identity_builder": "Voice, hooks & structure",
+    "script_template": "Example script format",
+    "channel_format": "Visual format lock",
+    "reference_video": "Reference video style",
+}
+
+
+def _build_dna_digest_card(identity: dict, run: Optional[dict]) -> dict[str, Any]:
+    """The digest card checklist C42 asks for: per-learner sections (from
+    the persisted `_last_run` report) plus the key identity fields with
+    their provenance (C40's `_sources`) and a Revert affordance wherever
+    C40's `_history` has something to revert TO. No string-match branches —
+    the frontend keys off `cardKind()`'s "channel_dna_digest" entry, same
+    lookup-table pattern S9-3 established for every other card kind."""
+    from channel_dna_meta import field_provenance, latest_history_index_for_field
+
+    learners_raw = (run or {}).get("learners") or {}
+    learners = [
+        {
+            "name": name,
+            "label": _DNA_LEARNER_LABELS.get(name, name.replace("_", " ").title()),
+            "status": (info or {}).get("status") or "skipped",
+            "summary": (info or {}).get("summary") or "",
+        }
+        for name, info in learners_raw.items()
+    ]
+    any_failed = any(l["status"] == "failed" for l in learners)
+    header = (
+        "Here's what I could learn about your channel — a step or two hit a snag, so this is a "
+        "partial picture (see below); ask me to try again any time."
+        if any_failed else
+        "Here's what I learned about your channel:"
+    )
+
+    fields = []
+    for key, label in _DNA_DIGEST_FIELDS:
+        val = identity.get(key)
+        if not val:
+            continue
+        prov = field_provenance(identity, key) or {}
+        revertable = latest_history_index_for_field(identity, key) is not None
+        fields.append({
+            "field": key,
+            "label": label,
+            "value": _fmt_field(val),
+            "learner": prov.get("learner"),
+            "at": prov.get("at"),
+            "revertable": revertable,
+        })
+
+    return {
+        "id": "channel_dna_digest", "label": "Channel DNA digest", "type": "single",
+        "options": [], "header": header, "learners": learners, "fields": fields,
+        "any_failed": any_failed,
+    }
+
+
+async def _handle_show_channel_digest(conversation_id, tenant_id, transcript, state, user_msg):
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1", str(tenant_id),
+    )
+    ident = _as_dict((row or {}).get("channel_identity"))
+    run = ident.get("_last_run") if isinstance(ident.get("_last_run"), dict) else None
+    if not ident or not (ident.get("voice_tone") or run):
+        text = (
+            "I haven't learned this channel yet — say **“learn this channel”** or "
+            "**“learn my channel”** and I'll analyze it (~$0.10-0.30 of your API budget)."
+        )
+        return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+
+    card = _build_dna_digest_card(ident, run)
+    state["pending_dna_digest"] = True
+    if user_msg:
+        transcript.append({"role": "user", "content": user_msg})
+    transcript.append(_assistant_turn({"assistant_text": card["header"], "phase": "asking", "cards": [card]}))
+    await _persist(conversation_id, tenant_id, transcript, state, "asking")
+    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=card["header"], phase="asking", cards=[card])
+
+
+async def _handle_dna_digest_action(selections, conversation_id, tenant_id, transcript, state) -> ChatTurnResponse:
+    """Turn 2 of the digest card (checklist C42): deterministic, NOT routed
+    through the producer LLM — same "backend guarantee, not a hope the model
+    behaves" discipline `_handle_style_draft_confirm` established. One-shot:
+    the pending marker is popped regardless of which action was tapped."""
+    state.pop("pending_dna_digest", None)
+    action = (selections.get("channel_dna_digest") or "").strip().lower()
+
+    async def _reply(text: str) -> ChatTurnResponse:
+        transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+
+    if action == "revert":
+        field = (selections.get("field") or "").strip()
+        if not field:
+            return await _reply("Which field would you like me to revert?")
+        from channel_dna import revert_field
+        try:
+            ok, msg = await revert_field(str(tenant_id), field)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: dna digest revert failed: %s", e)
+            return await _reply("I hit a snag reverting that — mind trying again?")
+        return await _reply(msg)
+
+    if action == "correct":
+        text = (selections.get("correction_text") or "").strip()
+        if not text:
+            return await _reply("What would you like me to fix?")
+        await _save_preference(tenant_id, text, scope=_PREF_SCOPE_CHANNEL)
+        return await _reply(
+            f"Got it — I'll remember (channel-wide): {text}. Say \"forget that\" any time to undo it."
+        )
+
+    # "keep" (the default — no action needed) or anything else -> acknowledge.
+    return await _reply("Sounds good — keeping everything as learned.")
+
+
 # --- secure onboarding key intake -------------------------------------------
 # The chat's secure box POSTs the pasted key here instead of sending it as a
 # chat message. We detect, save, and validate it exactly like the in-chat path,
@@ -3952,6 +4168,28 @@ async def chat_turn(
         return await _handle_style_draft_confirm(
             body.selections, conversation_id, tenant_id, transcript, state
         )
+
+    # 3.6b Channel-DNA digest card actions (checklist C42) — keep/revert/correct
+    #      taps on the digest card. Same source-lock discipline as 3.6 above:
+    #      deterministic, runs BEFORE producer intake, only fires when a digest
+    #      is actually pending (never manufactured from LLM prose alone).
+    if body.selections and "channel_dna_digest" in body.selections and state.get("pending_dna_digest"):
+        return await _handle_dna_digest_action(
+            body.selections, conversation_id, tenant_id, transcript, state
+        )
+
+    # 3.4 "Learn this channel" chat front door (checklist C42 · P4.1c) + "show
+    #     the channel digest" — both run before 3.5's identity-only commands
+    #     since "learn my channel's voice" should get the FULL C41 orchestrator,
+    #     not just identity_builder alone (see _learn_channel_intent's docstring).
+    if body.message and body.message.strip():
+        msg_stripped = body.message.strip()
+        if _learn_channel_intent(msg_stripped):
+            return await _handle_learn_channel(
+                conversation_id, tenant_id, transcript, state, msg_stripped, background_tasks)
+        if _dna_digest_intent(msg_stripped):
+            return await _handle_show_channel_digest(
+                conversation_id, tenant_id, transcript, state, msg_stripped)
 
     # 3.5 Channel-identity commands ("build his identity" / "what's his voice?").
     #     Runs before producer intake so it doesn't get treated as a video request.

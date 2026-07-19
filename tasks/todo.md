@@ -112,7 +112,41 @@
   "learn this channel: <url>" chat intent (ack-now background-task pattern — `progress_cb` already
   supports it), render the digest as a per-field confirm-before-save card (closes identity_builder's
   save-without-review gap), route corrections to C44's seam.
-- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C42 (C40, C41 done).
+- **Also done:** C42 · P4.1c "learn this channel" chat front door + confirmable digest card — DONE
+  2026-07-19, full detail in SYSTEM_STATE.md §C42. `learn_channel` gets its first real callers: a chat
+  intent (`_learn_channel_intent` — a SIBLING of `_identity_intent`, not a rewrite: matches "channel" +
+  a learn/study/analyze/manage/managing verb, dispatched BEFORE `_identity_intent` so "learn my
+  channel's voice" gets the FULL C41 orchestrator, not identity_builder alone) and a thin
+  `POST/GET /api/channel-dna/learn|status` route (new `routes/channel_dna.py`, proven to call the
+  EXACT SAME `learn_channel` callable chat uses — one implementation, two doors, for C45/onboarding + a
+  future MCP tool). `_handle_learn_channel` mirrors `_handle_build_identity`'s exact ack-now +
+  background-task shape, states the ~$0.10-0.30 cost per the checklist's money-honesty requirement
+  (flagged for Ryan: no confirm gate added, matching the existing identity-build + research/SEO-verb
+  precedent — if storyengine/CLAUDE.md's "paid generation gets a quote+yes" rule was meant to cover ANY
+  spend, this should gate too). New `channel_dna_digest` card kind (S9-3 lookup-table pattern, zero new
+  scattered `card.id === ` checks): per-learner status rows + per-field rows with `_sources` provenance
+  and a Revert button (server re-resolves the history index at click time, never trusts the client),
+  an honest header when a learner failed. Card actions (deterministic, source-locked before producer
+  intake, same discipline as C22's style_draft confirm): **keep** (default, no write — C41 already
+  saved on write, per the checklist's own design law for this chunk, which supersedes the checklist's
+  older "confirm-before-save" phrasing), **revert** (`channel_dna.revert_field`, C40's history undo),
+  **correct** (free text → a channel-scope `director_preference` via the existing `_save_preference` —
+  the deterministic form-posted precursor to C44's full remember/forget routing). New `_last_run`
+  envelope key (`channel_dna_meta.py`, alongside `_sources`/`_history`) persists each run's digest so a
+  later turn/route read doesn't need to re-run anything; `_persist_last_run` fails soft (an `execute()`
+  hiccup can't break an otherwise-successful `learn_channel` call). MCP tool deferred (not "cheap" this
+  chunk — `routes/mcp.py`'s tool calls are synchronous, a 1-2 minute-blocking tool is a different
+  reliability shape; C25a's held media-proxy files untouched). VERIFIED: 37 new tests non-vacuous via
+  `git stash -u`, full suite **1370P/15F/1E** = baseline(1333)+37 zero new failures, `py_compile` clean,
+  tsc + `npm run build` clean, zero new `card.id === "` matches (grep-confirmed). Live end-to-end
+  (chat digest render + revert/correct round-trip + thin-route parity) deferred →
+  `tasks/live-verification-queue.md` §C42 (subsumes §C41's now-merged entry). No migration, no schema
+  change, additive-both-directions frontend. Safe to ff-merge.
+  **Next up: C43 · P4.1d consumption audit + convergence** — every build path reads the ONE saved DNA
+  object; reconcile `identity.py`'s per-request injection vs `system_prompts.py`'s one-shot
+  `tenant_prompt_defaults` writes (can silently fight today); reconcile the TWO thumbnail-formula
+  impls (`pipeline_executor` vs `identity_builder`).
+- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C43 (C40/C41/C42 done).
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 
 ## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)
