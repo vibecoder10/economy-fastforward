@@ -40,6 +40,7 @@ import {
   type ChatConversationSummary,
 } from "@/lib/api";
 import { PasswordInput } from "@/components/forms";
+import { withMediaAuth } from "@/lib/utils";
 
 // localStorage keys for the OAuth round-trip during onboarding: the connect
 // button stashes the active conversation so ChatCore can resume it when Google
@@ -782,6 +783,9 @@ function MessageThread({ messages }: { messages: Msg[] }) {
 // across chat + the Scenes tab yet, so this is the simple fallback door the
 // checklist allows rather than reaching into ScenesWorkspaceTab's private
 // modal). A failed image swaps to its label instead of a broken-image icon.
+// C25a: the proxy URL from the backend carries no auth of its own — attach
+// the current session token here (withMediaAuth), same as every other place
+// this app turns a media-proxy path into an <img src>.
 function SceneBoardsGrid({ images }: { images: ChatCardImage[] }) {
   const [broken, setBroken] = useState<Record<string, boolean>>({});
   const shown = images.slice(0, 6);
@@ -791,7 +795,7 @@ function SceneBoardsGrid({ images }: { images: ChatCardImage[] }) {
       {shown.map((img) => (
         <a
           key={img.asset_id}
-          href={img.url}
+          href={withMediaAuth(img.url)}
           target="_blank"
           rel="noopener noreferrer"
           title={img.label}
@@ -807,7 +811,7 @@ function SceneBoardsGrid({ images }: { images: ChatCardImage[] }) {
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={img.url}
+              src={withMediaAuth(img.url)}
               alt={img.label}
               loading="lazy"
               className="w-full h-full object-cover"

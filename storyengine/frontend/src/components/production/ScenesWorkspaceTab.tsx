@@ -43,7 +43,7 @@ import { useClipTrustLadder } from "@/hooks/use-clip-trust-ladder";
 import { useToast } from "@/components/ui/toast";
 import { Modal } from "@/components/ui/modal";
 import type { VideoDetail, Asset } from "@/lib/api";
-import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
+import { toDisplayImageUrl, toDisplayVideoUrl, appendQueryParam } from "@/lib/utils";
 import { API_URL } from "@/lib/env";
 import { AnimaticPlayer } from "@/components/production/AnimaticPlayer";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
@@ -1670,7 +1670,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     // for that one slot and takes precedence.
                     const bust = gridBust[slotKey] || scene.gridVersion;
                     const displayUrl = beat.gridUrl
-                      ? `${toDisplayImageUrl(beat.gridUrl)}${bust ? `?cb=${bust}` : ""}`
+                      ? (bust ? appendQueryParam(toDisplayImageUrl(beat.gridUrl)!, "cb", String(bust)) : toDisplayImageUrl(beat.gridUrl))
                       : undefined;
                     return (
                       <div key={`grid-${slotKey}`} className={`relative group/board ${scene.storyboardBeats.length === 1 ? "w-full" : "flex-shrink-0"}`}>
@@ -1696,7 +1696,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                                 const k = `${scene.sceneNumber}-${b.beatNumber}`;
                                 const bv = gridBust[k] || scene.gridVersion;
                                 return {
-                                  url: `${toDisplayImageUrl(b.gridUrl!)}${bv ? `?cb=${bv}` : ""}`,
+                                  url: bv
+                                    ? appendQueryParam(toDisplayImageUrl(b.gridUrl!)!, "cb", String(bv))
+                                    : toDisplayImageUrl(b.gridUrl!)!,
                                   label: `Board S${scene.sceneNumber}.${b.beatNumber}`,
                                 };
                               });

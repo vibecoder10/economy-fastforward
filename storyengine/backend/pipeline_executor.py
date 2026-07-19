@@ -11969,8 +11969,23 @@ separate scenes."""
             base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
 
             def _proxy_url(url: str) -> str:
+                # C25a: the proxy now requires a tenant-scoped token — mint a
+                # short-lived one inline (backend-to-Kie fetch, no user session
+                # to forward; self.tenant_id is this job's known tenant).
+                from routes.media import mint_media_token
                 m = _re.search(r"[?&]id=([\w-]+)", url) or _re.search(r"/d/([\w-]+)", url)
-                return f"{base}/api/media/drive/{m.group(1)}" if m else url
+                return f"{base}/api/media/drive/{m.group(1)}?token={mint_media_token(self.tenant_id)}" if m else url
+
+            def _with_ext(url: str, ext: str) -> str:
+                """Some Kie model validators reject URLs without a recognizable
+                extension. The cosmetic suffix must land BEFORE the ?token=
+                query string, not after — appending it to the tail would
+                corrupt the token (e.g. "...?token=eyJ...XYZ.png" fails to
+                decode as a JWT)."""
+                if "?" in url:
+                    path, _, query = url.partition("?")
+                    return f"{path}{ext}?{query}"
+                return url + ext
 
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, match_assigned,
@@ -12266,8 +12281,8 @@ separate scenes."""
                                         "shown in the image.")
                                     clip_url = await asyncio.wait_for(
                                         client.generate_talking_video(
-                                            img + ".png" if "/api/media/drive/" in img else img,
-                                            _proxy_url(pad_url) + ".mp3",
+                                            _with_ext(img, ".png") if "/api/media/drive/" in img else img,
+                                            _with_ext(_proxy_url(pad_url), ".mp3"),
                                             prompt=talk_prompt,
                                             resolution=_vres,
                                             task_id_out=task_id_box),

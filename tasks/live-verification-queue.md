@@ -17,6 +17,38 @@
 
 ---
 
+## C25a — media proxy tenant auth · REQUIRED live browser check before the next `--with-frontend` deploy
+
+**Why this is REQUIRED, not optional (unlike most rows below):** the fix (tenant-scoped
+`_ALLOWLIST_SQL` + `serve_drive_file` now requiring a `?token=` on every Drive-backed
+`<img>`/`<video>` url) closes a real cross-tenant leak (SYSTEM_STATE.md §C25a), but it also means
+an OLD frontend (no `?token=` yet) against the NEW backend gets a 401 on every image the instant
+the backend deploys — a real app-wide "every image blanks out" risk until the frontend redeploys.
+This can't be proven safe from the sandbox (no browser, no prod backend route). Do NOT let this
+ship as a backend-only hourly `git pull` — it must go out as a coordinated
+`vps-deploy.sh <session> --with-frontend` (VPS Deploy Coordination Rule §1, lock file held for the
+duration), and this check must run RIGHT AFTER that deploy, before calling it done:
+
+- [ ] **Every image surface renders post-deploy.** Open (fresh page load, not a client nav so
+      nothing is cached from before the deploy): Scenes workspace (storyboard grids + clip
+      thumbnails), a chat conversation with a "show me scene N's boards" card (SceneBoardsGrid),
+      Characters tab (portraits), Environments tab (references), Thumbnail tab, Render tab (final
+      video preview `<video>` scrub/seek). Use `webapp-testing` (Playwright), not self-evaluation —
+      screenshot proof, check for broken-image icons and console 401s on `/api/media/drive/*`.
+- [ ] **A stale/cached OLD frontend tab, still open across the deploy, is acceptable collateral
+      (documented, not silently ignored).** Confirm it degrades to broken images (not a crash) and
+      that a hard reload recovers it — this is the known, accepted skew-window cost (SYSTEM_STATE
+      §C25a "Deploy-safety assessment"), not a new bug to chase.
+- [ ] **Backend-internal mint sites actually work live**, not just unit-tested: generate one
+      talking-clip video (InfiniteTalk path, `pipeline_executor.py::_proxy_url`) and lock one
+      character/environment cast sheet (vision rewrite path, `characters.py`/`environments.py`) —
+      confirm both complete without a 401 from the media proxy in `se logs backend`.
+- **Cost:** the talking-clip check above is a real generation — get a cost quote + explicit yes
+  first per the Money rule, same as any other paid check on this list. Everything else (browser
+  tap-through) is free.
+
+---
+
 ## C12 — per-scene model router + `routed_model`/`routing_reason` at shot-plan time · live build check
 Checklist §1.2 (P1.2a slice). New `shared/model_router.py` (data-driven
 lookup over C11's `MODEL_REGISTRY.best_for`/`tier`/`wired`) is called from
