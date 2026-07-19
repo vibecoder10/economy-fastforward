@@ -270,7 +270,7 @@
   baseline(1396)+19, zero new failures, identical 15 failure names/1 error. `py_compile` clean on
   all touched modules. Frontend untouched (no re-pointing needed, per the grep above) — `npx tsc
   --noEmit` clean regardless. No migration, no schema change, no new route (only 410s on 3 existing
-  ones). Deploy-safe, additive-only on the live path — ff-merge candidate. Live verification (fresh
+  ones). Deploy-safe, additive-only on the live path — ff-merged to main (orchestrator verdict — P4.1 C40-C45 COMPLETE; the worker's brief-error catch (content_intelligence is LIVE, intelligence_reports was the dead one) is exactly the skeptical verification the loop wants; git-incident handling per corrected instructions accepted). Live verification (fresh
   tenant → onboard → channel learned → digest → produce, closing the whole P4.1 arc's acceptance
   test) deferred to `tasks/live-verification-queue.md` §C45.
   **P4.1 COMPLETE (C40-C45, 2026-07-19).** Next: either C46 (quality-rules engine, awaiting Ryan's
