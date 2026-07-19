@@ -65,6 +65,18 @@ key resolves true (OR across keys, never AND):
                                      exists; a rule scoped this way simply
                                      never matches until a caller starts
                                      supplying the value).
+  "dvsu_mode": "<value>"         -- STRING-valued (checklist C46e, OR-5):
+                                     matches case-insensitively against a
+                                     ``dvsu_mode`` value the CALLER supplies
+                                     (``pipeline_executor.py``'s
+                                     ``_dvsu_mode_profile`` already resolves
+                                     this per-video from ``research_payload.
+                                     dvsu_mode`` — an explicit opt-in field,
+                                     never inferred from the title). Lets a
+                                     mode like "most_hated" carry its OWN
+                                     rule-table overrides (opener budget,
+                                     memorable-fact source) instead of the
+                                     spec-block default's.
 
 An unrecognized applies_to key is skipped and logged — never crashes, never
 matches. A rule with zero resolvable keys never matches (fails closed).
@@ -131,11 +143,15 @@ def _coerce_applies_to(raw: Any) -> dict:
     return {}
 
 
+_STRING_SCOPE_KEYS = {"channel_format": "channel_format_value", "dvsu_mode": "dvsu_mode_value"}
+
+
 def rule_matches(
     applies_to: Any,
     shape: dict,
     *,
     channel_format_value: Optional[str] = None,
+    dvsu_mode_value: Optional[str] = None,
     rule_id: str = "",
 ) -> bool:
     """Deterministic OR-across-keys scope match. Unknown keys are logged and
@@ -144,9 +160,11 @@ def rule_matches(
     applies_to = _coerce_applies_to(applies_to)
     if not applies_to:
         return False
+    string_values = {"channel_format": channel_format_value, "dvsu_mode": dvsu_mode_value}
     for key, value in applies_to.items():
-        if key == "channel_format":
-            if channel_format_value and str(value).strip().lower() == str(channel_format_value).strip().lower():
+        if key in _STRING_SCOPE_KEYS:
+            caller_value = string_values.get(key)
+            if caller_value and str(value).strip().lower() == str(caller_value).strip().lower():
                 return True
             continue
         if key in _BOOL_SCOPE_KEYS:
@@ -165,6 +183,7 @@ def active_rules_for_video(
     rules: list[dict],
     *,
     channel_format_value: Optional[str] = None,
+    dvsu_mode_value: Optional[str] = None,
 ) -> list[dict]:
     """Filter already-fetched active ``quality_rules`` rows down to the ones
     that apply to this video, by deterministic scope-matching alone — never
@@ -178,6 +197,7 @@ def active_rules_for_video(
         if rule_matches(
             r.get("applies_to"), shape,
             channel_format_value=channel_format_value,
+            dvsu_mode_value=dvsu_mode_value,
             rule_id=r.get("rule_id", ""),
         )
     ]
@@ -496,6 +516,15 @@ _QL1_WORD_LAW_RE = re.compile(
 _QL4_SUBTYPES_RE = re.compile(r"recurring subtypes:\s*([^.]+)\.", re.IGNORECASE)
 _QL12_BANNED_WORDS_RE = re.compile(r"thumbnail-hype adjectives\s*\(([^)]+)\)", re.IGNORECASE)
 
+# OR-5 (approved, checklist C46e): the "Most Hated" mode's own overrides,
+# seeded as QL-7-MH / QL-9-MH rows scoped {"dvsu_mode": "most_hated"} (see
+# scripts/seed_dvsu_quality_rules.py). Mirrors QL-7's opener-budget law and
+# QL-9's memorable-fact law, but for the crew-testimony register — a rule
+# row present but reworded away from these patterns is skipped for that key
+# alone, same fail-soft-per-key discipline as QL-1/QL-3/QL-4/QL-12 above.
+_QL7MH_OPENER_BUDGET_RE = re.compile(r"cap bare name-openers at about (\d+)\s*%", re.IGNORECASE)
+_QL9MH_MEMORABLE_SOURCE_RE = re.compile(r"memorable fact must come from ([a-z][a-z ]*[a-z])\b", re.IGNORECASE)
+
 # QL-4's five canonical types are named only in the doc's Evidence column
 # (discarded by parse_markdown_table, never part of `law`), so they stay a
 # small hardcoded constant here rather than something re-parsed per seed —
@@ -522,6 +551,10 @@ def resolve_dvsu_overrides(rules: list[dict]) -> dict:
       "twist_gate": {"severity": str}                        -- from QL-3
       "twist_menu": {"types": tuple[str, ...], "severity": str} -- from QL-4
       "banned_hype_words": {"words": tuple[str, ...], "severity": str} -- QL-12
+      "opener_budget": {"value": float, "severity": str}     -- QL-7-MH
+                        (checklist C46e, OR-5's Most Hated mode override)
+      "memorable_source": {"value": str, "severity": str}    -- QL-9-MH
+                        (checklist C46e, OR-5's Most Hated mode override)
 
     An empty return (``{}``) means every check falls back to today's
     hardcoded constants — the exact behavior for any non-seeded tenant and
@@ -567,6 +600,24 @@ def resolve_dvsu_overrides(rules: list[dict]) -> dict:
             overrides["banned_hype_words"] = {
                 "words": words,
                 "severity": ql12.get("severity") if ql12.get("severity") in SEVERITIES else "hard_gate",
+            }
+
+    ql7mh = by_id.get("QL-7-MH")
+    if ql7mh:
+        m = _QL7MH_OPENER_BUDGET_RE.search(str(ql7mh.get("law") or ""))
+        if m:
+            overrides["opener_budget"] = {
+                "value": int(m.group(1)) / 100.0,
+                "severity": ql7mh.get("severity") if ql7mh.get("severity") in SEVERITIES else "warn",
+            }
+
+    ql9mh = by_id.get("QL-9-MH")
+    if ql9mh:
+        m = _QL9MH_MEMORABLE_SOURCE_RE.search(str(ql9mh.get("law") or ""))
+        if m:
+            overrides["memorable_source"] = {
+                "value": re.sub(r"\s+", "_", m.group(1).strip().lower()),
+                "severity": ql9mh.get("severity") if ql9mh.get("severity") in SEVERITIES else "warn",
             }
 
     return overrides

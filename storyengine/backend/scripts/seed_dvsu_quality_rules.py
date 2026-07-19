@@ -17,7 +17,15 @@ WHAT IT DOES
        quality_rules.suggest_applies_to() proposes for an arbitrary
        uploaded doc) — see _dvsu_applies_to() below for the exact ranges
        and the reasoning per section.
-    3. Writes via quality_rules.bulk_create_rules(source="seed"), which is
+    3. Appends two extra rows NOT present in the doc's own table (checklist
+       C46e, OR-5 ruled): QL-7-MH and QL-9-MH, the "Most Hated" crew-
+       testimony mode's own opener-budget and memorable-fact-source
+       overrides, scoped {"dvsu_mode": "most_hated"} — see
+       _MOST_HATED_MODE_ROWS below. These are hand-authored here (not
+       parsed) because the law doc's QL-7/QL-9 rows only mention the crew
+       variant in their Evidence column (discarded by the table parser),
+       never in the testable Law text itself.
+    4. Writes via quality_rules.bulk_create_rules(source="seed"), which is
        IDEMPOTENT: re-running edits existing rows in place (ON CONFLICT
        (tenant_id, rule_id) DO UPDATE) rather than duplicating — safe to
        re-run after editing the doc.
@@ -109,7 +117,50 @@ def _scope_label(applies_to: dict) -> str:
         return "research"
     if applies_to.get("story"):
         return "story"
+    if applies_to.get("dvsu_mode"):
+        return f"dvsu_mode={applies_to['dvsu_mode']}"
     return "unscoped"
+
+
+# checklist C46e (OR-5 ruled): the "Most Hated" crew-testimony mode's own
+# rule-table overrides — opener budget (QL-7 variant) and memorable-fact
+# source = testimony (QL-9 variant). Hand-authored (not parsed from the
+# doc's table — see this module's docstring point 3) so
+# quality_rules.resolve_dvsu_overrides' _QL7MH_OPENER_BUDGET_RE /
+# _QL9MH_MEMORABLE_SOURCE_RE patterns have real law text to match against.
+# Scoped {"dvsu_mode": "most_hated"} — these rows NEVER match a video unless
+# pipeline_executor.py's _load_dvsu_rule_overrides resolves that video's
+# research_payload.dvsu_mode to "most_hated" (an explicit per-video opt-in
+# field, never inferred from the title).
+_MOST_HATED_MODE_ROWS: tuple[dict, ...] = (
+    {
+        "rule_id": "QL-7-MH",
+        "law": (
+            "Most Hated mode: cap bare name-openers at about 20% (near-zero); "
+            "open on testimony, symptom, or bridge instead."
+        ),
+        "evidence": (
+            "QL-7's crew variant flips to about 0 name-openers across the corpus "
+            "(dvsu-quality-law.md QL-7 Evidence column)."
+        ),
+        "severity": "warn",
+        "applies_to": {"dvsu_mode": "most_hated"},
+    },
+    {
+        "rule_id": "QL-9-MH",
+        "law": (
+            "Most Hated mode: the memorable fact must come from crew testimony "
+            "— a named or attributed complaint, nickname, or incident, not a "
+            "spec-sheet stat."
+        ),
+        "evidence": (
+            "OR-5 (approved): 'Most Hated' testimony format uses testimony as "
+            "the memorable fact, per dvsu-quality-law.md Section 4."
+        ),
+        "severity": "warn",
+        "applies_to": {"dvsu_mode": "most_hated"},
+    },
+)
 
 
 async def _resolve_tenant_id(tenant_id: str | None, channel_name: str | None) -> str:
@@ -161,10 +212,17 @@ async def run(args: argparse.Namespace) -> int:
         label = _scope_label(applies_to)
         by_scope[label] = by_scope.get(label, 0) + 1
 
-    print(f"Parsed {len(rows)} law(s) from {doc_path.name}:")
-    for label in ("story", "research", "all", "unscoped"):
-        if label in by_scope:
-            print(f"  {label:10s}: {by_scope[label]} rule(s)")
+    # checklist C46e (OR-5 ruled): the Most Hated mode's own two hand-
+    # authored rows, appended after the doc-parsed rows — same row shape,
+    # not present in the doc's own pipe table (see this module's docstring).
+    for row in _MOST_HATED_MODE_ROWS:
+        rows.append(row)
+        label = _scope_label(row["applies_to"])
+        by_scope[label] = by_scope.get(label, 0) + 1
+
+    print(f"Parsed {len(rows)} law(s) from {doc_path.name} (incl. {len(_MOST_HATED_MODE_ROWS)} hand-authored Most Hated mode row(s)):")
+    for label, count in sorted(by_scope.items()):
+        print(f"  {label:20s}: {count} rule(s)")
     severity_counts: dict[str, int] = {}
     for row in rows:
         severity_counts[row["severity"]] = severity_counts.get(row["severity"], 0) + 1

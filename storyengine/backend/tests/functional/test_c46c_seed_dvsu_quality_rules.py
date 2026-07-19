@@ -97,5 +97,48 @@ def test_dry_run_never_imports_a_db_call_path(monkeypatch, capsys):
     exit_code = asyncio.run(seed.run(args))
     assert exit_code == 0
     out = capsys.readouterr().out
-    assert "Parsed 74 law(s)" in out
+    # checklist C46e (OR-5 ruled): run() now appends the 2 hand-authored
+    # Most Hated mode rows (QL-7-MH, QL-9-MH) on top of the doc's 74.
+    assert "Parsed 76 law(s)" in out
     assert "dry-run" in out
+
+
+# ---------------------------------------------------------------------------
+# checklist C46e (OR-5 ruled) — the hand-authored "Most Hated" mode rows.
+# ---------------------------------------------------------------------------
+
+def test_most_hated_mode_rows_are_scoped_to_dvsu_mode():
+    ids = {r["rule_id"] for r in seed._MOST_HATED_MODE_ROWS}
+    assert ids == {"QL-7-MH", "QL-9-MH"}
+    for row in seed._MOST_HATED_MODE_ROWS:
+        assert row["applies_to"] == {"dvsu_mode": "most_hated"}
+
+
+def test_most_hated_mode_rows_resolve_via_quality_rules_overrides():
+    """The seeded law text must actually parse via quality_rules.
+    resolve_dvsu_overrides — proves the seed script and the resolver's
+    regexes agree on the exact wording, not just that both exist."""
+    by_id = {r["rule_id"]: r for r in seed._MOST_HATED_MODE_ROWS}
+    overrides = qr.resolve_dvsu_overrides(list(seed._MOST_HATED_MODE_ROWS))
+    assert overrides["opener_budget"] == {"value": 0.2, "severity": by_id["QL-7-MH"]["severity"]}
+    assert overrides["memorable_source"] == {"value": "crew_testimony", "severity": by_id["QL-9-MH"]["severity"]}
+
+
+def test_scope_label_reports_dvsu_mode_value():
+    assert seed._scope_label({"dvsu_mode": "most_hated"}) == "dvsu_mode=most_hated"
+
+
+def test_dry_run_reports_most_hated_scope_bucket(capsys):
+    """The dry-run summary must show the new dvsu_mode bucket, not silently
+    fold it into "unscoped" or drop it from the printed breakdown."""
+    import asyncio
+
+    args = seed.argparse.Namespace(
+        tenant_id="00000000-0000-0000-0000-000000000000",
+        channel_name=None,
+        doc_path=str(_DOC_PATH),
+        apply=False,
+    )
+    asyncio.run(seed.run(args))
+    out = capsys.readouterr().out
+    assert "dvsu_mode=most_hated: 2 rule(s)" in out

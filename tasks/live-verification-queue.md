@@ -2554,6 +2554,63 @@ that's this section's job.
 
 ---
 
+## C46e — Land Ryan's OR rulings + the per-channel pattern capability · live checks
+
+Everything this chunk touches was proven at unit level only (SYSTEM_STATE.md §C46e — 70 new tests, `git
+stash -u` non-vacuous). Three live gaps this section closes: the `channel_patterns` table exists live
+(migration 106 applied) but has never actually scored a real tenant's imported analytics; the Most Hated
+mode's QL-7-MH/QL-9-MH rows exist only as code (`_MOST_HATED_MODE_ROWS`), never seeded into the live
+`quality_rules` table for any real tenant; and the chat digest's Confirm/Retire buttons have never been
+tapped against a real `channel_patterns` row.
+
+- [ ] **Import-time pattern analysis, live.** Pick a tenant with imported `channel_videos` history (DvsU
+      or any onboarded creator with >=5 videos carrying `view_count`+`published_at`). Trigger "learn this
+      channel" (chat, or `POST /api/channel-dna/learn`) and confirm the digest's `learners.pattern_analysis`
+      entry: `status="learned"` with an N-proposed count, or `status="skipped"` with the "not enough
+      data"/"nothing stood out" message if the channel is too small/uniform. Then `se db "SELECT pattern,
+      polarity, source, status, evidence FROM channel_patterns WHERE tenant_id = '<uuid>' ORDER BY
+      created_at DESC"` — confirm real proposed rows exist, `source='import_analysis'`,
+      `status='proposed'`, and `evidence` carries a real `video_ids`/`metric`/`channel_median`/
+      `video_value`/`delta_pct`/`cohort_size` shape (not a placeholder).
+- [ ] **Digest card renders the patterns section.** "Show the channel digest" in chat for that same
+      tenant — confirm the card's `patterns` array is non-empty and the frontend (`ChatCore.tsx`'s
+      `DnaDigestCard`) actually renders the "Patterns from your analytics" section with Confirm/Retire
+      buttons (not just present in the JSON payload — a real browser look, per the Visual Output
+      Verification Rule).
+- [ ] **Confirm takes effect; nothing before it does.** Before tapping Confirm on an 'anti' proposal, run
+      `identity_builder.build_channel_identity` (or trigger "learn this channel" again) and confirm the
+      flagged video is STILL included in the ranked candidate pool (`_ranked_videos`) — proposed rows must
+      never exclude anything. Tap Confirm; `se db "SELECT status, confirmed_at, confirmed_by FROM
+      channel_patterns WHERE id = '<row-id>'"` → `status='confirmed'`, `confirmed_by='chat'`, timestamp
+      set. Re-run identity building for the same tenant and confirm the flagged video's `video_id` is now
+      ABSENT from the ranked pool the transcripts get pulled from (log the candidate list, or temporarily
+      lower `top_n` to make the exclusion's effect on which videos get analyzed unambiguous).
+- [ ] **Retire reverses it.** Tap Retire on the same now-confirmed row; confirm `status='retired'`; re-run
+      identity building once more and confirm the video is back in the eligible pool.
+- [ ] **Most Hated mode seed + gate, live.** `scripts/seed_dvsu_quality_rules.py --apply` now seeds 76
+      rows (the doc's 74 plus `_MOST_HATED_MODE_ROWS`'s QL-7-MH/QL-9-MH — confirmed at unit level by
+      `test_dry_run_reports_most_hated_scope_bucket`, never run live). Run the dry-run first, confirm
+      "Parsed 76 law(s)" and a `dvsu_mode=most_hated: 2 rule(s)` line, then `--apply` for a DvsU-style
+      tenant; `se db "SELECT rule_id, applies_to FROM quality_rules WHERE tenant_id='<uuid>' AND rule_id
+      IN ('QL-7-MH','QL-9-MH')"` → confirm both rows exist with `applies_to={"dvsu_mode":"most_hated"}`.
+      Set a real video's `research_payload.dvsu_mode = "most_hated"`, trigger a script-hold
+      preview for one locked machine, and confirm via `preview.warnings`/logs that the opener-budget check
+      is now firing at ~20% (not the spec-block default 60%) and that a video WITHOUT `dvsu_mode` set
+      stays on the 60% default — proving the override never leaks across videos.
+- [ ] **QL-66 advisory fires (or doesn't) as expected.** Generate a channel-formula thumbnail for a video
+      whose title matches one of the five locked series (e.g. "Every ... Ever Built") and confirm
+      `bot_activity` gets a `status='running'` row containing "QL-66" whenever the model's chosen text
+      isn't the exact locked phrase — and confirm generation still SUCCEEDS (advisory only, never blocks).
+- **Cost:** `_run_pattern_analysis` adds one `channel_videos` SELECT per `learn_channel` run — free (no
+  new Claude/Kie calls). Confirm/retire are free DB writes. The Most Hated mode seed is free (same
+  deterministic write path as C46c's seed script). The thumbnail QL-66 check runs inside the EXISTING
+  channel-formula thumbnail generation — no new cost category.
+- **Safety net:** every exclusion/override starts inert (empty table / no seeded row) — a live check that
+  finds nothing proposed or nothing seeded is not a failure, just an untested-yet path; re-run against a
+  tenant with more analytics history or hand-seed the Most Hated rows to force the path.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

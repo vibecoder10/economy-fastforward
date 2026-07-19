@@ -170,6 +170,18 @@ async def _ranked_videos(tenant_id: str, limit: int) -> list[dict]:
         await _enrich_views(tenant_id, [r["video_id"] for r in rows])
         rows = await fetch_all(q, tenant_id)
     rows.sort(key=lambda r: (r.get("view_count") or 0), reverse=True)
+    # Checklist C46e (OR-6 expanded): a CONFIRMED 'anti'-polarity
+    # channel_patterns row keeps its evidence-linked video(s) out of the
+    # style-seed corpus entirely — this is the exclusion half of the
+    # capability Ryan ruled for (never a hardcoded blacklist, per-channel,
+    # opt-in, nothing excluded until a human confirms it). Fails open (an
+    # empty exclusion set) on any lookup error, matching every pre-C46e
+    # tenant's behavior.
+    from channel_patterns import confirmed_anti_video_ids
+
+    excluded = await confirmed_anti_video_ids(tenant_id)
+    if excluded:
+        rows = [r for r in rows if str(r.get("video_id")) not in excluded]
     return rows[:limit]
 
 

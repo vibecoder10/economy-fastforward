@@ -465,10 +465,48 @@
   an MCP tool that calls it, and the new frontend card is unreachable today (zero videos in production
   have ever produced a `quality_critic.passed === false` shape — quality_rules still has 0 live rows per
   C46a/b/c). Live round-trip (a real MCP submit + a real browser look at the banner) deferred to
-  `tasks/live-verification-queue.md` §C46d. **C46 ARC (a-d) COMPLETE.** **Next: C47 · MCP setup surface +
-  ingest tools** — expose system prompts/script templates/quality rules/channel DNA/script-profile
-  selection through MCP, PLUS `submit_research`/`submit_script` — the latter now has
-  `accept_external_script` ready and waiting. May split C47a (setup)/C47b (ingest) on size.
+  `tasks/live-verification-queue.md` §C46d.
+- **Also done:** C46e · Land Ryan's OR rulings (decisions.md 2026-07-19 OR-5/OR-6/OR-9 + the same-day OR-6
+  expansion + import-caveat entries) — full detail in SYSTEM_STATE.md §C46e. Part 1 (OR-5 + D7): the
+  "Most Hated" mode-selection mechanism (`_dvsu_mode_profile`, opt-in `research_payload.dvsu_mode`, never
+  title-inferred) turned out to already be landed (Ryan wrote it 2026-07-16, ahead of the formal ruling);
+  what was missing — its opener-budget/memorable-source overrides being table-driven — is now landed:
+  new `dvsu_mode` string `applies_to` scope key, two new `resolve_dvsu_overrides` keys from hand-authored
+  seed rows (QL-7-MH/QL-9-MH), `_machine_story_plan` prefers the table value only when
+  `mode_profile["mode"]=="most_hated"`. D7 (QL-10 number rendering) was ALSO already landed
+  (`_raw_digit_mentions_for_voiceover`, dated 2026-07-16, "OR-4 approved") — unblocked now that OR-5 is
+  ruled. Part 2 (OR-6 EXPANDED): new `channel_patterns` table (migration 106, live via Supabase MCP against
+  `wrromlupsmyzrrcqlucn`) + `channel_patterns.py` (pure exclusion resolver — only
+  `status='confirmed' AND polarity='anti'` rows ever exclude anything — plus CRUD + `score_outlier_patterns`
+  import-time analysis against the channel's own VPH/CTR/retention median); wired into
+  `identity_builder.py::_ranked_videos` (the real style-seed picker OR-6's own MostHated-Warships example
+  was about) for exclusion, `channel_dna.py::learn_channel` as a 6th learner (`_run_pattern_analysis`) for
+  import-time proposals, and `routes/chat.py`'s DNA digest card (+ `ChatCore.tsx`) for Confirm/Retire —
+  nothing takes effect until confirmed. Per-launch incremental proposals are explicitly P4.2's flywheel,
+  not built here — seam is `create_pattern(..., source="launch_analysis")`. Part 3 (OR-9/QL-66): the
+  checklist's "verify already matches, expected no change" premise did NOT hold — zero code anywhere
+  (StoryEngine or the legacy pipeline) implemented the five-locked-phrase rule before this chunk; landed
+  `_dvsu_thumbnail_series_warning` (pure, unit-tested) wired ADVISORY-only (never blocking) into
+  `_run_channel_formula_thumbnail`. Law doc updated: §3 D1/D2/D3 corrected to "landed" (C46c's own finding),
+  D7 corrected to "landed" (this chunk's finding); §4 OR-5/OR-6/OR-9 rulings recorded with the 2026-07-19
+  date, mirroring OR-8's existing annotation style. VERIFIED: 6 new/extended test files (2 new pure-module
+  files, 2 new wiring files, 2 extended), non-vacuous via `git stash -u` (reverts untracked new files too —
+  needed since `channel_patterns.py`/its route/2 new test files are untracked): pre-C46e full suite
+  **1554P/15F/1E** (exact match to the stated baseline), post-C46e **1624P/15F/1E** = baseline+70, zero new
+  failures/errors. `python -m py_compile` clean on every touched file. `npx tsc --noEmit` clean; `npm run
+  build` compiles+typechecks clean (fails only at the same pre-existing `NEXT_PUBLIC_API_URL`
+  static-prerender gap C46d already noted, confirmed unrelated). **Deploy-safety: recommend ff-merge
+  candidate** — every new scope key/override/table starts empty/inert for every tenant today (no seeded
+  QL-7-MH/QL-9-MH row until the seed script's `--apply` runs; `channel_patterns` has zero rows until a
+  learner run produces an outlier; the QL-66 check never blocks). One pre-existing, unrelated finding
+  surfaced (not fixed — flagged per the Supabase MCP tool's own instruction): `static_reference_cache`/
+  `channel_video_retention` have RLS disabled, fully exposed to anon/authenticated — needs Ryan's call on
+  policies before enabling RLS (would otherwise block all access). Live import-analysis + confirm
+  round-trip deferred to `tasks/live-verification-queue.md` §C46e. **C46 ARC (a-e) COMPLETE.** **Next: C47 ·
+  MCP setup surface + ingest tools** — expose system prompts/script templates/quality rules/channel
+  DNA/script-profile selection/channel-patterns CRUD through MCP, PLUS `submit_research`/`submit_script` —
+  the latter now has `accept_external_script` ready and waiting. May split C47a (setup)/C47b (ingest) on
+  size.
 - **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 

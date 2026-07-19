@@ -126,6 +126,28 @@ def test_channel_format_scope_matches_case_insensitively_when_supplied():
     assert qr.active_rules_for_video({}, [rule]) == []  # no value supplied -> never matches
 
 
+# ---------------------------------------------------------------------------
+# dvsu_mode scope key (checklist C46e, OR-5 ruled) — string-valued, same
+# shape as channel_format.
+# ---------------------------------------------------------------------------
+
+def test_dvsu_mode_scope_matches_case_insensitively_when_supplied():
+    rule = _rule("QL-7-MH", {"dvsu_mode": "most_hated"})
+    matched = qr.active_rules_for_video({}, [rule], dvsu_mode_value="Most_Hated")
+    assert matched == [rule]
+    assert qr.active_rules_for_video({}, [rule], dvsu_mode_value="spec_block") == []
+    assert qr.active_rules_for_video({}, [rule]) == []  # no value supplied -> never matches
+
+
+def test_dvsu_mode_and_channel_format_scopes_are_independent():
+    mode_rule = _rule("QL-7-MH", {"dvsu_mode": "most_hated"})
+    format_rule = _rule("CF-1", {"channel_format": "documentary"})
+    matched = qr.active_rules_for_video(
+        {}, [mode_rule, format_rule], dvsu_mode_value="most_hated", channel_format_value="dialogue",
+    )
+    assert matched == [mode_rule]
+
+
 def test_rule_with_string_applies_to_json_is_coerced():
     # asyncpg hands jsonb columns back as raw JSON text by default.
     rule = {"rule_id": "QL-1", "law": "x", "evidence": None, "severity": "warn",
@@ -551,6 +573,50 @@ def test_resolve_dvsu_overrides_only_includes_present_rule_ids():
          "severity": "hard_gate", "applies_to": {"all": True}},
     ])
     assert set(overrides.keys()) == {"banned_hype_words"}
+
+
+# ---------------------------------------------------------------------------
+# QL-7-MH / QL-9-MH (checklist C46e, OR-5 ruled) — the Most Hated mode's
+# table-driven overrides. Real law text copied verbatim from
+# scripts/seed_dvsu_quality_rules.py's _MOST_HATED_MODE_ROWS.
+# ---------------------------------------------------------------------------
+
+_QL7MH_LAW = (
+    "Most Hated mode: cap bare name-openers at about 20% (near-zero); "
+    "open on testimony, symptom, or bridge instead."
+)
+_QL9MH_LAW = (
+    "Most Hated mode: the memorable fact must come from crew testimony "
+    "— a named or attributed complaint, nickname, or incident, not a "
+    "spec-sheet stat."
+)
+
+
+def test_resolve_dvsu_overrides_ql7mh_opener_budget_parses_real_law_text():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-7-MH", "law": _QL7MH_LAW, "evidence": None,
+         "severity": "warn", "applies_to": {"dvsu_mode": "most_hated"}},
+    ])
+    assert overrides["opener_budget"] == {"value": 0.2, "severity": "warn"}
+
+
+def test_resolve_dvsu_overrides_ql9mh_memorable_source_parses_real_law_text():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-9-MH", "law": _QL9MH_LAW, "evidence": None,
+         "severity": "warn", "applies_to": {"dvsu_mode": "most_hated"}},
+    ])
+    assert overrides["memorable_source"] == {"value": "crew_testimony", "severity": "warn"}
+
+
+def test_resolve_dvsu_overrides_skips_mh_keys_when_law_text_unparseable():
+    overrides = qr.resolve_dvsu_overrides([
+        {"rule_id": "QL-7-MH", "law": "Vary the openers a bit.",
+         "evidence": None, "severity": "warn", "applies_to": {"dvsu_mode": "most_hated"}},
+        {"rule_id": "QL-9-MH", "law": "Use a good fact.",
+         "evidence": None, "severity": "warn", "applies_to": {"dvsu_mode": "most_hated"}},
+    ])
+    assert "opener_budget" not in overrides
+    assert "memorable_source" not in overrides
 
 
 def test_resolve_dvsu_overrides_generalizes_to_a_second_non_dvsu_tenant():

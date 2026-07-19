@@ -1766,3 +1766,35 @@ CREATE INDEX IF NOT EXISTS quality_rules_tenant_active_idx
 ALTER TABLE quality_rules ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+-- =============================================================================
+-- CHANNEL_PATTERNS (migration 106 — checklist C46e, OR-6 EXPANDED). Per-
+-- channel, data-derived style/pattern tagging: a pattern proposal (polarity
+-- 'anti'|'good', evidence jsonb, source import_analysis|launch_analysis|
+-- manual) that takes effect ONLY once a human confirms it (status
+-- proposed -> confirmed -> optionally retired). Confirmed 'anti' rows are
+-- read by `channel_patterns.confirmed_anti_video_ids()` to exclude their
+-- evidence-linked videos from style-seed/few-shot selection
+-- (identity_builder.py's `_ranked_videos`). Full rationale in
+-- migrations/106_channel_patterns.sql's header (read it before touching
+-- this table) and implemented in backend/channel_patterns.py.
+CREATE TABLE IF NOT EXISTS channel_patterns (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  pattern TEXT NOT NULL,
+  polarity TEXT NOT NULL CHECK (polarity IN ('anti', 'good')),
+  evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  source TEXT NOT NULL CHECK (source IN ('import_analysis', 'launch_analysis', 'manual')),
+  status TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'confirmed', 'retired')),
+  confirmed_at TIMESTAMPTZ,
+  confirmed_by TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS channel_patterns_tenant_status_idx
+  ON channel_patterns (tenant_id, status);
+
+ALTER TABLE channel_patterns ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

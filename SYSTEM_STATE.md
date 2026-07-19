@@ -8731,3 +8731,117 @@ rules, channel DNA read/corrections/learn trigger, script/style profile selectio
 the content-ingest tools `submit_research(video_id, payload)` / `submit_script(video_id, scenes)` — the
 latter now has `accept_external_script` ready and waiting to be called. May split C47a (setup)/C47b
 (ingest) on size.
+
+## C46e — Land Ryan's OR rulings + the per-channel pattern capability (added 2026-07-19)
+
+Three parts, per decisions.md's 2026-07-19 OR-5/OR-6/OR-9 rulings and the same-day OR-6 expansion +
+import-caveat entries.
+
+**Part 1 — OR-5 ("Most Hated" named mode) + D7 verification.** The mode-selection mechanism itself
+(`pipeline_executor.py::_dvsu_mode_profile`, opt-in via an explicit `research_payload.dvsu_mode` field,
+never inferred from the title) turned out to ALREADY be landed — Ryan wrote it directly on 2026-07-16,
+ahead of the formal 2026-07-19 ruling that rubber-stamped it. What was genuinely missing: the mode's
+overrides (opener budget, memorable-fact source) were hardcoded in `_dvsu_mode_profile`, never sourced
+from the `quality_rules` table. Landed: a new `dvsu_mode` string-valued `applies_to` scope key
+(`quality_rules.py`, parallel to `channel_format`); two new `resolve_dvsu_overrides` keys
+(`opener_budget`/`memorable_source`) parsed from two hand-authored seed rows (QL-7-MH/QL-9-MH,
+`scripts/seed_dvsu_quality_rules.py::_MOST_HATED_MODE_ROWS`); `_machine_story_plan` now accepts an
+optional `dvsu_rule_overrides` param and prefers the table value over the hardcoded default ONLY when
+`mode_profile["mode"] == "most_hated"` (never leaks into spec-block); `_load_dvsu_rule_overrides` resolves
+the video's own `dvsu_mode` value (`_dvsu_mode_value_for_video`, video-level, never per-title-inference)
+and threads it into the scope match. D7 (QL-10 number rendering) turned out to ALSO already be landed
+(`_raw_digit_mentions_for_voiceover`/`_written_unit_abbreviations_for_voiceover`, "OR-4 approved" dated
+2026-07-16) — mode-agnostic, unblocked now that OR-5 is ruled. Law doc updated: §3 D1/D2/D3/D7 rows
+corrected from "open gap"/"pending" to "landed" (D1-D3 per C46c's own finding; D7 per this chunk); §4
+OR-5/OR-6/OR-9 rulings recorded with the 2026-07-19 date, mirroring OR-8's existing "RULED" annotation
+style.
+
+**Part 2 — OR-6 EXPANDED (`channel_patterns` store + exclusion + import-time proposals).** New table
+`channel_patterns` (migration 106, applied LIVE via Supabase MCP against `wrromlupsmyzrrcqlucn`, confirmed
+via `information_schema.columns`, mirrored into `schema.sql`): `tenant_id`, `pattern` text, `polarity`
+('anti'|'good'), `evidence` jsonb, `source` ('import_analysis'|'launch_analysis'|'manual'), `status`
+('proposed'|'confirmed'|'retired'), `confirmed_at`/`confirmed_by`, timestamps. New module
+`channel_patterns.py`, three layers (mirrors `quality_rules.py`'s split): (a) pure
+`confirmed_anti_video_ids_from_rows` — only `status='confirmed' AND polarity='anti'` rows ever exclude
+anything, proven directly rather than trusted to SQL alone; (b) CRUD (`list_patterns`, `create_pattern`,
+`bulk_create_patterns`, `update_pattern`, `confirm_pattern`, `retire_pattern`); (c) import-time analysis
+(`score_outlier_patterns` — pure, per-metric [vph/ctr/retention] outlier detection against the channel's
+OWN median, min-cohort-gated; `propose_patterns_from_analytics`/`run_import_pattern_analysis` — the
+DB-touching wrapper that persists `status='proposed'` rows from a tenant's imported `channel_videos`
+analytics history). Wired: (1) EXCLUSION — `identity_builder.py::_ranked_videos` (the real style-seed
+picker OR-6's own MostHated-Warships example was about) now calls `confirmed_anti_video_ids` and filters
+matched `video_id`s out of the ranked candidate pool before slicing to `top_n`; `originality.py`'s
+guardrails were traced and deliberately NOT wired — they operate on StoryEngine's own `videos` table
+(a different id-space than imported `channel_videos`) for plot-diversity, not style modeling, so an
+exclusion hook there today would be permanently-unreachable dead code until P4.2's per-launch trigger
+gives it real evidence to match against. (2) IMPORT-TIME PROPOSALS — `channel_dna.py::learn_channel` gains
+a sixth learner, `_run_pattern_analysis`, always runs (no optional-input gate, like `channel_format`),
+surfaced in the `_last_run` digest alongside the other five. (3) CONFIRM/RETIRE — a thin route
+(`routes/channel_patterns.py`, registered in `main.py`) plus a chat surface: the DNA digest card
+(`routes/chat.py::_build_dna_digest_card`) gains a `patterns` section (proposed rows only, additive/
+optional field) rendered by `ChatCore.tsx`'s `DnaDigestCard` with Confirm/Retire buttons wired through
+`_handle_dna_digest_action`'s new `confirm_pattern`/`retire_pattern` actions — nothing takes effect until
+Confirm is tapped. Per-launch incremental proposals (P4.2's flywheel) are explicitly NOT built here — the
+seam is `create_pattern(..., source="launch_analysis")`, already fully supported by the store.
+
+**Part 3 — OR-9 verification (QL-66).** The checklist's "verify QL-66's landed code already matches,
+expected no change" premise did NOT hold: no code anywhere in this repo (StoryEngine's
+`_run_channel_formula_thumbnail`/`_transform_channel_thumbnail_spec`, or the legacy skills/video-pipeline
+thumbnail bot) implemented the five-locked-phrase + open-rule law at all — StoryEngine's thumbnail
+generation is a fully generic, LLM-driven blueprint transform with no series-aware phrase lock. Landed
+(genuinely new, minimal): `_DVSU_LOCKED_THUMBNAIL_SERIES` (the five locked phrases, regex-matched against
+the title) + `_dvsu_thumbnail_series_warning` (pure function, unit-tested) wired as an ADVISORY-only check
+(`bot_activity` log, status="running" since the table's CHECK constraint has no "warning" value) inside
+`_run_channel_formula_thumbnail` — deliberately not a hard gate, since this chunk didn't budget to
+load-test a hard block on a live generation path. "BY PILOTS"/"BY CREWS" deliberately absent from the
+locked set (per Ryan's ruling — not yet proven out as their own series).
+
+**Non-vacuous verification:** `git stash -u` reverted to pre-C46e code, ran the FULL suite: **15 failed,
+1554 passed, 1 error** (identical names/count to the stated baseline). With C46e restored: **15 failed,
+1624 passed, 1 error** — +70 new tests, zero new failures, zero new errors. `python -m py_compile` clean
+on every touched file. Frontend `npx tsc --noEmit` clean; `npm run build` compiles + typechecks
+successfully but fails at the unrelated static-prerender step (`NEXT_PUBLIC_API_URL` missing in this
+sandbox — a pre-existing environment requirement, not a C46e regression).
+
+### Modified/New Files (C46e)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/migrations/106_channel_patterns.sql` | NEW — `channel_patterns` table, applied live |
+| `storyengine/backend/channel_patterns.py` | NEW — store + exclusion resolver + import-time analysis |
+| `storyengine/backend/routes/channel_patterns.py` | NEW — thin CRUD/confirm/retire route |
+| `storyengine/backend/quality_rules.py` | `dvsu_mode` scope key; `opener_budget`/`memorable_source` in `resolve_dvsu_overrides` |
+| `storyengine/backend/scripts/seed_dvsu_quality_rules.py` | `_MOST_HATED_MODE_ROWS` (QL-7-MH/QL-9-MH) appended to the seed set |
+| `storyengine/backend/pipeline_executor.py` | `_dvsu_mode_value_for_video`; `_machine_story_plan` gains `dvsu_rule_overrides` param; `_load_dvsu_rule_overrides` threads `dvsu_mode_value`; `_DVSU_LOCKED_THUMBNAIL_SERIES` + `_dvsu_thumbnail_series_warning` (QL-66) wired advisory-only into `_run_channel_formula_thumbnail` |
+| `storyengine/backend/identity_builder.py` | `_ranked_videos` excludes confirmed-anti video_ids |
+| `storyengine/backend/channel_dna.py` | `_run_pattern_analysis` — sixth `learn_channel` learner |
+| `storyengine/backend/routes/chat.py` | digest card gains `patterns`; `_handle_dna_digest_action` gains `confirm_pattern`/`retire_pattern` |
+| `storyengine/backend/main.py` | registers `channel_patterns.router` |
+| `storyengine/frontend/src/lib/api.ts` | `ChatDnaPatternRow` type; `patterns` field on `ChatCard` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | digest card renders proposed patterns + Confirm/Retire |
+| `storyengine/schema.sql` | `channel_patterns` table mirrored |
+| `storyengine/notes/dvsu-quality-law.md` | §3 D1/D2/D3/D7 corrected; §4 OR-5/OR-6/OR-9 rulings recorded |
+| 6 new/extended test files | `tests/test_channel_patterns.py` (NEW), `tests/functional/test_c46e_or5_wiring.py` (NEW), `tests/functional/test_c46e_pattern_exclusion_wiring.py` (NEW), `tests/test_quality_rules.py`, `tests/test_machine_documentary_hold.py`, `tests/functional/test_c46c_seed_dvsu_quality_rules.py`, `tests/functional/test_c41_channel_dna.py`, `tests/functional/test_c42_learn_channel_chat.py` extended |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate.** Every new override/scope key is additive and fails to today's exact
+behavior when absent (no tenant has a seeded QL-7-MH/QL-9-MH row until the seed script runs with
+`--apply`, which stays a deliberate by-name operation — same posture as C46c). `_machine_story_plan`'s new
+third parameter defaults to `None`, byte-identical to its pre-C46e call shape for every existing caller
+that doesn't pass it. `channel_patterns` starts empty for every tenant (migration just landed) — the
+`learn_channel` sixth learner will report "skipped" until a tenant's `channel_videos` analytics actually
+produce an outlier past the threshold, and the exclusion set is empty until a human confirms a proposal,
+so `identity_builder._ranked_videos` behaves identically to before for every tenant today. The QL-66
+thumbnail check is advisory-only (never blocks). One real risk surface: `_run_pattern_analysis` runs on
+EVERY `learn_channel` call (like `channel_format`), adding one more DB query (`channel_videos` fetch) per
+run — cheap, no new paid API calls, fails soft.
+
+**Pre-existing, unrelated finding surfaced during this chunk (not fixed, not in scope):** the Supabase
+advisory flagged `public.static_reference_cache` and `public.channel_video_retention` as RLS-disabled,
+fully exposed to the anon/authenticated PostgREST path. Neither table was touched by C46e — flagging per
+the MCP tool's own instruction, not remediating (enabling RLS without policies would block all access;
+that decision needs Ryan).
+
+Next: **C47 · MCP setup surface** (unchanged from C46d's own note above) — `channel_patterns` CRUD/confirm/
+retire is now also ready for that surface to expose, alongside quality rules/system prompts/channel DNA.

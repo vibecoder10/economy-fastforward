@@ -37,6 +37,14 @@ Learners run, in order:
      the SAME stamp_identity_write helper, tagged ``learner="reference_video"``
      — closing the audit finding that Model A Video's DNA never persisted
      past the one video it was modeling.
+  6. channel_patterns.run_import_pattern_analysis (checklist C46e, OR-6
+     EXPANDED) — the import-time half of decisions.md's "two convergent
+     triggers" pattern-learning ruling: scores this tenant's imported
+     ``channel_videos`` analytics for outlier over/under-performers and
+     PROPOSES them as ``channel_patterns`` rows (status='proposed'; nothing
+     takes effect until a human confirms one). The per-launch half (each
+     new platform-published video's analytics feeding ongoing proposals) is
+     explicitly P4.2's flywheel job, not built here.
 
 Concurrency: the whole run is wrapped in a channel-level (video-less) claim —
 ``generation_claims.acquire_channel(tenant_id, "dna")`` (added this chunk,
@@ -361,6 +369,37 @@ async def _run_reference_video(tenant_id: str, reference_video_url: str) -> dict
     )
 
 
+# ---------------------------------------------------------------------------
+# Step 6 — pattern proposals from the channel's own imported analytics
+# (checklist C46e, OR-6 EXPANDED — the import-time half of decisions.md's
+# "two convergent triggers" ruling; the per-launch half is P4.2's flywheel).
+# ---------------------------------------------------------------------------
+
+async def _run_pattern_analysis(tenant_id: str) -> dict:
+    from channel_patterns import run_import_pattern_analysis
+
+    try:
+        result = await run_import_pattern_analysis(tenant_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("channel_dna: pattern analysis crashed for tenant=%s: %s", tenant_id, e)
+        return _learner_result(
+            "failed", "Couldn't analyze your channel's analytics for patterns this pass.", error=str(e)
+        )
+    proposed = result.get("proposed") or 0
+    if not proposed:
+        return _learner_result(
+            "skipped",
+            "No outlier patterns surfaced from your channel's analytics yet "
+            "(not enough videos with view/CTR/retention data, or nothing stood out).",
+        )
+    return _learner_result(
+        "learned",
+        f"Proposed {proposed} pattern(s) from your channel's own analytics — nothing takes "
+        "effect until you confirm one (say \"show my patterns\" or use the confirm card).",
+        fields_written=["channel_patterns"],
+    )
+
+
 async def _persist_last_run(tenant_id: str, learners: dict[str, dict], ok: bool) -> dict:
     """Stash this run's per-learner report onto channel_identity's
     `_last_run` envelope key (checklist C42) so the "show the channel
@@ -524,6 +563,9 @@ async def learn_channel(
             learners["reference_video"] = await _run_reference_video(tenant_id, reference_video_url)
         else:
             learners["reference_video"] = _learner_result("skipped", "No reference video provided.")
+
+        await _progress("Looking for patterns in your channel's analytics…")
+        learners["pattern_analysis"] = await _run_pattern_analysis(tenant_id)
 
         ok = any(l["status"] == "learned" for l in learners.values())
         identity = await _persist_last_run(tenant_id, learners, ok)

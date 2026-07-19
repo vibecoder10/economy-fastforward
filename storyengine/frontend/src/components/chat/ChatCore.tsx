@@ -35,6 +35,7 @@ import {
   type ChatCardImage,
   type ChatDnaFieldRow,
   type ChatDnaLearnerRow,
+  type ChatDnaPatternRow,
   type ChatTurnRequest,
   type ProductionPlan,
   type SuggestedModels,
@@ -1313,6 +1314,7 @@ function DnaDigestCard({
   const [correction, setCorrection] = useState("");
   const learners: ChatDnaLearnerRow[] = card.learners ?? [];
   const fields: ChatDnaFieldRow[] = card.fields ?? [];
+  const patterns: ChatDnaPatternRow[] = card.patterns ?? [];
 
   const statusIcon = (status: ChatDnaLearnerRow["status"]) => {
     if (status === "learned") return <CheckCircle2 size={14} style={{ color: "var(--turquoise)" }} aria-hidden />;
@@ -1387,6 +1389,46 @@ function DnaDigestCard({
                   <RotateCcw size={11} aria-hidden /> Revert
                 </button>
               )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {patterns.length > 0 && (
+        <div
+          className="flex flex-col gap-2 rounded-lg px-3 py-2"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+            <Activity size={12} aria-hidden /> Patterns from your analytics
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+            Nothing here takes effect until you confirm it.
+          </p>
+          {patterns.map((p) => (
+            <div key={p.id} className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs" style={{ color: "var(--text-secondary)" }}>{p.pattern}</p>
+                {p.evidence_summary && (
+                  <p className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>{p.evidence_summary}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  onClick={() => onAction({ channel_dna_digest: "confirm_pattern", pattern_id: p.id }, "Confirm pattern")}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all hover:brightness-110"
+                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--turquoise)" }}
+                >
+                  <CheckCircle2 size={11} aria-hidden /> Confirm
+                </button>
+                <button
+                  onClick={() => onAction({ channel_dna_digest: "retire_pattern", pattern_id: p.id }, "Retire pattern")}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all hover:brightness-110"
+                  style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)", color: "var(--text-tertiary)" }}
+                >
+                  <XCircle size={11} aria-hidden /> Retire
+                </button>
+              </div>
             </div>
           ))}
         </div>

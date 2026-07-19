@@ -2746,6 +2746,16 @@ export interface ChatDnaFieldRow {
   // Optional/additive: absent on any older backend payload.
   overridden_by?: string | null;
 }
+// C46e (OR-6 expanded): a still-`proposed` channel_patterns row, surfaced in
+// the digest so the creator can Confirm (takes effect) or Retire (dismiss) —
+// nothing here has taken effect yet.
+export interface ChatDnaPatternRow {
+  id: string;
+  pattern: string;
+  polarity: "anti" | "good";
+  source: string;
+  evidence_summary: string;
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -2779,6 +2789,9 @@ export interface ChatCard {
   // the footer covering corrections a cheap match can't reliably tag to one
   // field. Optional/additive, same rule as every card-specific field above.
   standing_directions?: string[];
+  // C46e: proposed (not-yet-confirmed) channel_patterns rows. Optional/
+  // additive, same rule as every card-specific field above.
+  patterns?: ChatDnaPatternRow[];
 }
 export interface ProductionPlan {
   story_concept?: string;

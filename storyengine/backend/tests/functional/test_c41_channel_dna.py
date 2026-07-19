@@ -83,6 +83,9 @@ def _patch_learners(monkeypatch, **overrides):
         "script": channel_dna._learner_result("learned", "script learned"),
         "format": channel_dna._learner_result("learned", "format learned"),
         "reference": channel_dna._learner_result("learned", "reference learned"),
+        # checklist C46e (OR-6 expanded) — step 6, the import-time pattern-
+        # analysis learner. Always runs (no optional-input gate), like format.
+        "pattern_analysis": channel_dna._learner_result("learned", "patterns learned"),
     }
 
     def _make(name):
@@ -100,6 +103,7 @@ def _patch_learners(monkeypatch, **overrides):
     monkeypatch.setattr(channel_dna, "_run_script_template", _make("script"))
     monkeypatch.setattr(channel_dna, "_run_channel_format", _make("format"))
     monkeypatch.setattr(channel_dna, "_run_reference_video", _make("reference"))
+    monkeypatch.setattr(channel_dna, "_run_pattern_analysis", _make("pattern_analysis"))
     return calls
 
 
@@ -119,15 +123,16 @@ async def test_full_sequence_happy_path_calls_every_learner_in_order(monkeypatch
         reference_video_url="https://youtu.be/abc12345678",
     )
 
-    assert calls == ["import", "identity", "script", "format", "reference"], (
+    assert calls == ["import", "identity", "script", "format", "reference", "pattern_analysis"], (
         "learners must run in the documented order: import -> identity_builder -> "
-        "script_template -> channel_format -> reference_video"
+        "script_template -> channel_format -> reference_video -> pattern_analysis"
     )
     assert result["ok"] is True
     assert result["busy"] is False
     assert result["error"] is None
     assert set(result["learners"].keys()) == {
         "import_channel_videos", "identity_builder", "script_template", "channel_format", "reference_video",
+        "pattern_analysis",
     }
     for learner in result["learners"].values():
         assert learner["status"] == "learned"
@@ -142,10 +147,10 @@ async def test_optional_inputs_omitted_are_marked_skipped_not_called(monkeypatch
 
     result = await channel_dna.learn_channel("tenant-1")  # no url, no script, no reference
 
-    # channel_format always runs (it's gated by identity_builder's OWN
-    # confidence signal, not by which optional inputs the caller passed) —
+    # channel_format and pattern_analysis always run (gated by their own
+    # internal signals, not by which optional inputs the caller passed) —
     # only import/script/reference are gated by the optional-input flags.
-    assert calls == ["identity", "format"]
+    assert calls == ["identity", "format", "pattern_analysis"]
     assert result["learners"]["import_channel_videos"]["status"] == "skipped"
     assert result["learners"]["script_template"]["status"] == "skipped"
     assert result["learners"]["reference_video"]["status"] == "skipped"
@@ -164,7 +169,7 @@ async def test_per_learner_failure_does_not_abort_the_others(monkeypatch):
         "tenant-1", channel_url="https://youtube.com/@someone", example_script_text="x" * 200,
     )
 
-    assert calls == ["import", "identity", "script", "format"]  # reference skipped (no url), but everything ran
+    assert calls == ["import", "identity", "script", "format", "pattern_analysis"]  # reference skipped (no url), but everything ran
     assert result["learners"]["script_template"]["status"] == "failed"
     assert result["learners"]["script_template"]["error"] == "simulated failure"
     # the OTHER learners still report "learned" — one failure doesn't cascade
@@ -236,6 +241,50 @@ async def test_double_run_is_refused_as_busy_and_runs_no_learners(monkeypatch):
     assert result["identity"] == {"voice_tone": "already there"}
     release_mock.assert_not_awaited(), "a denied claim must never be released — it was never acquired"
     print("✅ test_double_run_is_refused_as_busy_and_runs_no_learners")
+
+
+# =============================================================================
+# Part 1b — _run_pattern_analysis (checklist C46e, OR-6 EXPANDED step 6)
+# =============================================================================
+
+async def test_run_pattern_analysis_learned_summary_reports_proposed_count(monkeypatch):
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.run_import_pattern_analysis = AsyncMock(return_value={"proposed": 3, "rows": []})
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    result = await channel_dna._run_pattern_analysis("tenant-1")
+
+    assert result["status"] == "learned"
+    assert "3 pattern" in result["summary"]
+    assert result["fields_written"] == ["channel_patterns"]
+    print("✅ test_run_pattern_analysis_learned_summary_reports_proposed_count")
+
+
+async def test_run_pattern_analysis_zero_proposed_is_skipped_not_failed(monkeypatch):
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.run_import_pattern_analysis = AsyncMock(return_value={"proposed": 0, "rows": []})
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    result = await channel_dna._run_pattern_analysis("tenant-1")
+
+    assert result["status"] == "skipped"
+    print("✅ test_run_pattern_analysis_zero_proposed_is_skipped_not_failed")
+
+
+async def test_run_pattern_analysis_fails_soft_on_crash(monkeypatch):
+    fake_mod = types.ModuleType("channel_patterns")
+
+    async def boom(tenant_id):
+        raise RuntimeError("channel_videos query failed")
+
+    fake_mod.run_import_pattern_analysis = boom
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    result = await channel_dna._run_pattern_analysis("tenant-1")
+
+    assert result["status"] == "failed"
+    assert result["error"] == "channel_videos query failed"
+    print("✅ test_run_pattern_analysis_fails_soft_on_crash")
 
 
 # =============================================================================

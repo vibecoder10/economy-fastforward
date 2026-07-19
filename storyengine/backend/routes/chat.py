@@ -3550,7 +3550,8 @@ async def _finish_onboarding_dna_note(tenant_id) -> tuple[str, Optional[dict]]:
         )
 
     preferences = await _list_preferences(tenant_id, video_id=None)
-    card = _build_dna_digest_card(ident, run, preferences)
+    proposed_patterns = await _proposed_channel_patterns(tenant_id)
+    card = _build_dna_digest_card(ident, run, preferences, proposed_patterns)
     return "\n\n🧬 I also learned your channel's voice, hooks, and structure — see below.", card
 
 
@@ -4095,6 +4096,7 @@ _DNA_LEARNER_LABELS: dict[str, str] = {
     "script_template": "Example script format",
     "channel_format": "Visual format lock",
     "reference_video": "Reference video style",
+    "pattern_analysis": "Analytics patterns",
 }
 
 # C44 (P4.1e corrections loop): cheap keyword match between a learned identity
@@ -4135,15 +4137,48 @@ def _match_preference_override(field_key: str, pref_texts: list[str]) -> Optiona
     return None
 
 
+async def _proposed_channel_patterns(tenant_id) -> list[dict]:
+    """Shared fetch for both digest-card call sites (C42's onboarding-finish
+    note and the "show the channel digest" intent) — one implementation,
+    fail-soft (an empty list on any DB hiccup never blocks the digest itself
+    from rendering)."""
+    import channel_patterns
+    try:
+        return await channel_patterns.list_patterns(str(tenant_id), status="proposed")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: fetching proposed channel_patterns failed: %s", e)
+        return []
+
+
+def _pattern_evidence_summary(evidence: dict) -> str:
+    """One short line rendering a channel_patterns row's evidence — the
+    "why" a proposed pattern exists, so a creator can confirm/retire from
+    an informed read instead of a bare claim sentence. Additive/best-effort:
+    an evidence shape from a future source (launch_analysis, manual) that
+    doesn't carry these exact keys just renders "" rather than raising."""
+    metric = evidence.get("metric")
+    delta = evidence.get("delta_pct")
+    cohort = evidence.get("cohort_size")
+    if metric is None or delta is None:
+        return ""
+    return f"{metric}: {delta:+.1f}% vs. channel median (n={cohort})" if cohort else f"{metric}: {delta:+.1f}% vs. channel median"
+
+
 def _build_dna_digest_card(
     identity: dict, run: Optional[dict], preferences: Optional[list[dict]] = None,
+    patterns: Optional[list[dict]] = None,
 ) -> dict[str, Any]:
     """The digest card checklist C42 asks for: per-learner sections (from
     the persisted `_last_run` report) plus the key identity fields with
     their provenance (C40's `_sources`) and a Revert affordance wherever
     C40's `_history` has something to revert TO. No string-match branches —
     the frontend keys off `cardKind()`'s "channel_dna_digest" entry, same
-    lookup-table pattern S9-3 established for every other card kind."""
+    lookup-table pattern S9-3 established for every other card kind.
+
+    C46e adds `patterns`: this tenant's still-`proposed` channel_patterns
+    rows (from the import-time analytics learner, or a future launch-time
+    one) rendered with Confirm/Retire actions — nothing in that list has
+    taken effect yet; confirming is the ONLY thing that does (OR-6 expanded)."""
     from channel_dna_meta import field_provenance, latest_history_index_for_field
 
     learners_raw = (run or {}).get("learners") or {}
@@ -4193,6 +4228,17 @@ def _build_dna_digest_card(
             "overridden_by": overridden_by,
         })
 
+    pattern_rows = [
+        {
+            "id": str(p.get("id") or ""),
+            "pattern": p.get("pattern") or "",
+            "polarity": p.get("polarity") or "anti",
+            "source": p.get("source") or "",
+            "evidence_summary": _pattern_evidence_summary(p.get("evidence") or {}),
+        }
+        for p in (patterns or []) if p.get("id")
+    ]
+
     return {
         "id": "channel_dna_digest", "label": "Channel DNA digest", "type": "single",
         "options": [], "header": header, "learners": learners, "fields": fields,
@@ -4201,6 +4247,9 @@ def _build_dna_digest_card(
         # whether it keyword-matched a field above — the footer section a
         # cheap match can't fully cover (see _FIELD_OVERRIDE_KEYWORDS docstring).
         "standing_directions": pref_texts,
+        # C46e: proposed (not-yet-confirmed) channel_patterns rows. Optional/
+        # additive — an older frontend build simply never reads this key.
+        "patterns": pattern_rows,
     }
 
 
@@ -4222,7 +4271,8 @@ async def _handle_show_channel_digest(conversation_id, tenant_id, transcript, st
     # channel scope only) — one query, two consumers, never a second
     # parallel implementation. Fail-soft already inside _list_preferences.
     preferences = await _list_preferences(tenant_id, video_id=None)
-    card = _build_dna_digest_card(ident, run, preferences)
+    proposed_patterns = await _proposed_channel_patterns(tenant_id)
+    card = _build_dna_digest_card(ident, run, preferences, proposed_patterns)
     state["pending_dna_digest"] = True
     if user_msg:
         transcript.append({"role": "user", "content": user_msg})
@@ -4264,6 +4314,32 @@ async def _handle_dna_digest_action(selections, conversation_id, tenant_id, tran
         return await _reply(
             f"Got it — I'll remember (channel-wide): {text}. Say \"forget that\" any time to undo it."
         )
+
+    if action in ("confirm_pattern", "retire_pattern"):
+        # C46e (OR-6 expanded): the ONLY thing that makes a proposed pattern
+        # take effect (confirm) or reverses one (retire) — same deterministic,
+        # not-LLM-routed discipline every other digest action here uses.
+        pattern_id = (selections.get("pattern_id") or "").strip()
+        if not pattern_id:
+            return await _reply("Which pattern do you mean?")
+        import channel_patterns
+        try:
+            if action == "confirm_pattern":
+                row = await channel_patterns.confirm_pattern(str(tenant_id), pattern_id, confirmed_by="chat")
+            else:
+                row = await channel_patterns.retire_pattern(str(tenant_id), pattern_id, confirmed_by="chat")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: dna digest %s failed: %s", action, e)
+            return await _reply("I hit a snag with that — mind trying again?")
+        if not row:
+            return await _reply("Couldn't find that pattern — it may have already been handled.")
+        if action == "confirm_pattern":
+            note = (
+                " It'll now be kept out of future style-seed/few-shot picks."
+                if row.get("polarity") == "anti" else ""
+            )
+            return await _reply(f"Confirmed: {row.get('pattern')}{note}")
+        return await _reply(f"Retired: {row.get('pattern')}")
 
     # "keep" (the default — no action needed) or anything else -> acknowledge.
     return await _reply("Sounds good — keeping everything as learned.")

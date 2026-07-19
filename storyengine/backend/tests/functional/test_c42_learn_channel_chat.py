@@ -445,6 +445,27 @@ def test_build_dna_digest_card_honest_header_when_a_learner_failed():
     assert "snag" in card["header"].lower() or "partial" in card["header"].lower()
 
 
+def test_build_dna_digest_card_includes_proposed_patterns_section():
+    """checklist C46e: proposed (not-yet-confirmed) channel_patterns rows
+    surface in the digest, additive and optional."""
+    identity = stamp_identity_write({}, {"voice_tone": "wry"}, learner="identity_builder")
+    patterns = [
+        {"id": "row-1", "pattern": "Weak openers underperform by 30%", "polarity": "anti",
+         "source": "import_analysis", "evidence": {"metric": "vph", "delta_pct": -30.0, "cohort_size": 6}},
+    ]
+    card = chat._build_dna_digest_card(identity, {"learners": {}}, patterns=patterns)
+    assert card["patterns"] == [{
+        "id": "row-1", "pattern": "Weak openers underperform by 30%", "polarity": "anti",
+        "source": "import_analysis", "evidence_summary": "vph: -30.0% vs. channel median (n=6)",
+    }]
+
+
+def test_build_dna_digest_card_omits_patterns_key_content_when_none_given():
+    identity = stamp_identity_write({}, {"voice_tone": "wry"}, learner="identity_builder")
+    card = chat._build_dna_digest_card(identity, {"learners": {}})
+    assert card["patterns"] == []
+
+
 def test_build_dna_digest_card_marks_revertable_only_when_history_has_a_prior_value():
     identity = stamp_identity_write({}, {"voice_tone": "confident"}, learner="identity_builder")
     identity = stamp_identity_write(identity, {"voice_tone": "overconfident"}, learner="identity_builder")
@@ -566,6 +587,122 @@ def test_dna_digest_action_correct_without_text_asks_what_to_fix(monkeypatch):
         {"channel_dna_digest": "correct", "correction_text": ""}, "conv-1", TENANT, [], {"pending_dna_digest": True},
     ))
     assert "what would you like" in resp.assistant_text.lower()
+
+
+# =============================================================================
+# 6b. routes/chat.py — _handle_dna_digest_action: confirm_pattern / retire_pattern
+# (checklist C46e, OR-6 EXPANDED)
+# =============================================================================
+
+def test_dna_digest_action_confirm_pattern_calls_channel_patterns_confirm(monkeypatch):
+    calls = []
+
+    async def fake_confirm_pattern(tenant_id, pattern_id, *, confirmed_by=None):
+        calls.append((tenant_id, pattern_id, confirmed_by))
+        return {"id": pattern_id, "pattern": "Weak openers underperform", "polarity": "anti"}
+
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.confirm_pattern = fake_confirm_pattern
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    async def fake_persist(*a, **k):
+        pass
+    monkeypatch.setattr(chat, "_persist", fake_persist)
+
+    resp = asyncio.run(chat._handle_dna_digest_action(
+        {"channel_dna_digest": "confirm_pattern", "pattern_id": "row-1"}, "conv-1", TENANT, [], {"pending_dna_digest": True},
+    ))
+    assert calls == [(TENANT, "row-1", "chat")]
+    assert "confirmed" in resp.assistant_text.lower()
+    assert "style-seed" in resp.assistant_text.lower()  # anti polarity note
+
+
+def test_dna_digest_action_confirm_pattern_good_polarity_has_no_exclusion_note(monkeypatch):
+    async def fake_confirm_pattern(tenant_id, pattern_id, *, confirmed_by=None):
+        return {"id": pattern_id, "pattern": "Testimony openers overperform", "polarity": "good"}
+
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.confirm_pattern = fake_confirm_pattern
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    async def fake_persist(*a, **k):
+        pass
+    monkeypatch.setattr(chat, "_persist", fake_persist)
+
+    resp = asyncio.run(chat._handle_dna_digest_action(
+        {"channel_dna_digest": "confirm_pattern", "pattern_id": "row-2"}, "conv-1", TENANT, [], {"pending_dna_digest": True},
+    ))
+    assert "confirmed" in resp.assistant_text.lower()
+    assert "style-seed" not in resp.assistant_text.lower()
+
+
+def test_dna_digest_action_retire_pattern_calls_channel_patterns_retire(monkeypatch):
+    calls = []
+
+    async def fake_retire_pattern(tenant_id, pattern_id, *, confirmed_by=None):
+        calls.append((tenant_id, pattern_id, confirmed_by))
+        return {"id": pattern_id, "pattern": "Weak openers underperform", "polarity": "anti"}
+
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.retire_pattern = fake_retire_pattern
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    async def fake_persist(*a, **k):
+        pass
+    monkeypatch.setattr(chat, "_persist", fake_persist)
+
+    resp = asyncio.run(chat._handle_dna_digest_action(
+        {"channel_dna_digest": "retire_pattern", "pattern_id": "row-1"}, "conv-1", TENANT, [], {"pending_dna_digest": True},
+    ))
+    assert calls == [(TENANT, "row-1", "chat")]
+    assert "retired" in resp.assistant_text.lower()
+
+
+def test_dna_digest_action_confirm_pattern_without_id_asks_which_one(monkeypatch):
+    async def fake_persist(*a, **k):
+        pass
+    monkeypatch.setattr(chat, "_persist", fake_persist)
+
+    resp = asyncio.run(chat._handle_dna_digest_action(
+        {"channel_dna_digest": "confirm_pattern"}, "conv-1", TENANT, [], {"pending_dna_digest": True},
+    ))
+    assert "which pattern" in resp.assistant_text.lower()
+
+
+def test_dna_digest_action_confirm_pattern_not_found_is_friendly(monkeypatch):
+    async def fake_confirm_pattern(tenant_id, pattern_id, *, confirmed_by=None):
+        return None
+
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.confirm_pattern = fake_confirm_pattern
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    async def fake_persist(*a, **k):
+        pass
+    monkeypatch.setattr(chat, "_persist", fake_persist)
+
+    resp = asyncio.run(chat._handle_dna_digest_action(
+        {"channel_dna_digest": "confirm_pattern", "pattern_id": "missing"}, "conv-1", TENANT, [], {"pending_dna_digest": True},
+    ))
+    assert "couldn't find" in resp.assistant_text.lower()
+
+
+def test_dna_digest_action_confirm_pattern_error_is_friendly_not_a_crash(monkeypatch):
+    async def boom(tenant_id, pattern_id, *, confirmed_by=None):
+        raise RuntimeError("db blip")
+
+    fake_mod = types.ModuleType("channel_patterns")
+    fake_mod.confirm_pattern = boom
+    monkeypatch.setitem(sys.modules, "channel_patterns", fake_mod)
+
+    async def fake_persist(*a, **k):
+        pass
+    monkeypatch.setattr(chat, "_persist", fake_persist)
+
+    resp = asyncio.run(chat._handle_dna_digest_action(
+        {"channel_dna_digest": "confirm_pattern", "pattern_id": "row-1"}, "conv-1", TENANT, [], {"pending_dna_digest": True},
+    ))
+    assert "snag" in resp.assistant_text.lower()
 
 
 # =============================================================================

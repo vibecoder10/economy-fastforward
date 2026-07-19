@@ -250,6 +250,46 @@ _ANTON_HYPE_PHRASES = (
     "arguably the most", "undoubtedly", "iconic", "legendary", "game-changing",
 )
 
+# QL-66 (OR-9 RULED 2026-07-19 - checklist C46e): established DvsU series use
+# IMMUTABLE thumbnail text, never reworded/synonym-swapped. Five locked
+# phrases; a title matching none of them falls under the open 2-4-word rule.
+# "BY PILOTS"/"BY CREWS" also top-perform per the law doc's own note, but
+# Ryan's ruling keeps them OUT of this locked set until they prove out as
+# their own series - so they are deliberately absent here, not an oversight.
+# Audit note: before this chunk, NO code anywhere in this repo (StoryEngine
+# or the legacy skills/video-pipeline) implemented this law at all - the
+# checklist's "verify already matches, expected no change" premise did not
+# hold; this is genuinely new, minimal, advisory-only (never blocking a live
+# thumbnail generation this chunk didn't budget to load-test as a hard gate).
+_DVSU_LOCKED_THUMBNAIL_SERIES: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"\bevery\b.*\bever built\b", re.IGNORECASE), "EVER BUILT"),
+    (re.compile(r"\bnever[- ]built\b", re.IGNORECASE), "NEVER BUILT"),
+    (re.compile(r"\bmost hated\b", re.IGNORECASE), "MOST HATED"),
+    (re.compile(r"\bmost underrated\b", re.IGNORECASE), "UNDERRATED"),
+    (re.compile(r"\bsunk in combat\b", re.IGNORECASE), "SUNK IN COMBAT"),
+)
+
+
+def _dvsu_thumbnail_series_warning(title: str, thumbnail_text: str) -> Optional[str]:
+    """QL-66: for a title matching one of the five established DvsU series,
+    the thumbnail text must be the EXACT locked phrase - never reworded or
+    synonym-swapped. A title matching no known series is unconstrained (the
+    open 2-4-word rule). Returns a warning string when a known series' text
+    doesn't match exactly (case-insensitive), else None. Pure, no DB/network -
+    callers decide what to do with a non-None result (this chunk: log it as
+    an advisory, never block)."""
+    title_text = str(title or "")
+    candidate = str(thumbnail_text or "").strip()
+    for pattern, locked_phrase in _DVSU_LOCKED_THUMBNAIL_SERIES:
+        if pattern.search(title_text):
+            if candidate.upper() != locked_phrase:
+                return (
+                    f"QL-66: title matches the {locked_phrase!r} series - thumbnail text must be "
+                    f"the exact locked phrase {locked_phrase!r}, not {candidate!r}."
+                )
+            return None
+    return None
+
 # B1 closer ruling (2026-07-16): nationality/geographic proper adjectives and
 # place nouns are EDITORIAL COLOR in a closer ("over German skies") - advisory,
 # never blocking. Curated for the military-history domain; extend as needed.
@@ -2044,6 +2084,30 @@ def _dvsu_mode_profile(payload: dict, card: Optional[dict] = None) -> dict:
     }
 
 
+def _dvsu_mode_value_for_video(video: dict) -> Optional[str]:
+    """Checklist C46e: the VIDEO-level ``dvsu_mode`` opt-in flag (never
+    inferred from the title — see ``_dvsu_mode_profile``'s own docstring),
+    read straight off ``research_payload`` so ``_load_dvsu_rule_overrides``
+    can scope-match a ``{"dvsu_mode": "..."}`` quality_rules row against
+    THIS video, once per script-hold run (not per machine — a per-machine
+    card override, when present, is still honored later by
+    ``_dvsu_mode_profile`` itself at paragraph-build time)."""
+    import json as _json_mv
+
+    if not isinstance(video, dict):
+        return None
+    payload = video.get("research_payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = _json_mv.loads(payload)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(payload, dict):
+        return None
+    raw_mode = str(payload.get("dvsu_mode") or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return raw_mode or None
+
+
 def _bare_tag_is_valid(card: dict) -> bool:
     """B2 (2026-07-16): the deliberately_bare tag is honored ONLY with a
     non-trivial gap_hunt_summary (what was searched, why no use-story exists).
@@ -2065,11 +2129,27 @@ def _card_is_deliberately_bare(card: dict, narrative_weight: Optional[dict] = No
     return label == "transitional"
 
 
-def _machine_story_plan(payload: dict, machine: str) -> dict:
-    """Compile source-addressable evidence into Anton-style paragraph slots."""
+def _machine_story_plan(payload: dict, machine: str, dvsu_rule_overrides: Optional[dict] = None) -> dict:
+    """Compile source-addressable evidence into Anton-style paragraph slots.
+
+    ``dvsu_rule_overrides`` (checklist C46e, OR-5 ruled) is the tenant's
+    resolved ``quality_rules.resolve_dvsu_overrides()`` result
+    (``PipelineExecutor._load_dvsu_rule_overrides``) — when the video's mode
+    is "most_hated" AND a seeded QL-7-MH/QL-9-MH row resolved an
+    opener_budget/memorable_source override, that TABLE value wins over the
+    hardcoded ``_dvsu_mode_profile`` default; absent overrides (every tenant
+    before the seed script runs, or a non-Most-Hated video) leave
+    mode_profile byte-identical to before this chunk."""
     card = _research_card_for_machine(payload, machine) or {}
     evidence, evidence_errors = _normalize_machine_evidence(card, machine)
     mode_profile = _dvsu_mode_profile(payload, card)
+    if mode_profile.get("mode") == "most_hated" and dvsu_rule_overrides:
+        opener_override = dvsu_rule_overrides.get("opener_budget") or {}
+        if opener_override.get("value") is not None:
+            mode_profile["opener_name_budget"] = opener_override["value"]
+        memorable_override = dvsu_rule_overrides.get("memorable_source") or {}
+        if memorable_override.get("value"):
+            mode_profile["memorable_source"] = memorable_override["value"]
     narrative_weight = _anton_narrative_weight_profile(card, evidence, register=mode_profile["register"])
     # LAW (2026-07-16): the timeframe/visual_identity SUPPORT slots carry the
     # union of (segments with the matching support kind) AND (segments the
@@ -10114,7 +10194,14 @@ class PipelineExecutor:
 
         Fails OPEN: any error (no table yet, bad JSON, etc.) returns ``{}``,
         which is exactly today's pre-C46c hardcoded behavior for every
-        non-seeded tenant and for DvsU itself before the seed script runs."""
+        non-seeded tenant and for DvsU itself before the seed script runs.
+
+        Checklist C46e (OR-5 ruled): also resolves this video's ``dvsu_mode``
+        opt-in value (``_dvsu_mode_value_for_video``) and passes it through
+        as the scope-match's ``dvsu_mode_value`` — a seeded QL-7-MH/QL-9-MH
+        row (``applies_to={"dvsu_mode": "most_hated"}``) only ever matches
+        when this video's own research_payload explicitly opted into that
+        mode, never inferred from the title."""
         try:
             import quality_rules
 
@@ -10123,7 +10210,9 @@ class PipelineExecutor:
                 "FROM quality_rules WHERE tenant_id = $1 AND active",
                 self.tenant_id,
             )
-            matched = quality_rules.active_rules_for_video(video, rule_rows or [])
+            matched = quality_rules.active_rules_for_video(
+                video, rule_rows or [], dvsu_mode_value=_dvsu_mode_value_for_video(video),
+            )
             return quality_rules.resolve_dvsu_overrides(matched)
         except Exception:
             return {}
@@ -10400,7 +10489,7 @@ class PipelineExecutor:
                 "guidance": "balanced paragraph",
             }
             if complete_inventory_mode:
-                precomputed_story_plan = dict(_machine_story_plan(rp, machine))
+                precomputed_story_plan = dict(_machine_story_plan(rp, machine, dvsu_rule_overrides))
                 narrative_weight = dict(
                     ((precomputed_story_plan.get("contract") or {}).get("narrative_weight") or narrative_weight)
                 )
@@ -10455,7 +10544,7 @@ class PipelineExecutor:
             story_plan = None
             bundle = None
             if complete_inventory_mode:
-                story_plan = dict(precomputed_story_plan or _machine_story_plan(rp, machine))
+                story_plan = dict(precomputed_story_plan or _machine_story_plan(rp, machine, dvsu_rule_overrides))
                 story_plan["contract"] = dict(story_plan.get("contract") or {})
                 story_plan["contract"]["opening_assignment"] = opening_brief
                 story_plan["contract"]["narrative_weight"] = dict(narrative_weight)
@@ -14840,6 +14929,15 @@ separate scenes."""
             bg = ((spec.get("color_palette") or {}).get("background") or "").strip()
             if bg:
                 gen_prompt += f"\n\nBACKGROUND (exact, non-negotiable): {bg}."
+            # QL-66 (OR-9 ruled, checklist C46e): advisory only - log, never
+            # block a live thumbnail generation on a locked-phrase deviation.
+            # bot_activity.status is a hard-CHECK'd enum (started/running/
+            # completed/failed, no "warning") - "running" is the legal
+            # non-terminal status other advisory logs in this file already use.
+            primary_text = str(((spec.get("text") or {}).get("primary_text") or {}).get("content") or "")
+            ql66_warning = _dvsu_thumbnail_series_warning(video.get("video_title") or "", primary_text)
+            if ql66_warning:
+                await self._log_activity(bot_name, video_id, "running", ql66_warning)
         if not gen_prompt:
             return None
         # What the creator sees/edits in the UI prompt box: the full spec.

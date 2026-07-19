@@ -1294,6 +1294,66 @@ def test_story_plan_preserves_raw_excerpt_identity_for_script_preview():
     assert segment["source_variant_selection"] == source_variant_selection
 
 
+# ---------------------------------------------------------------------------
+# _machine_story_plan mode_profile + table overrides (checklist C46e, OR-5
+# ruled) — the Most Hated mode's opener-budget/memorable-source overrides,
+# threaded from quality_rules.resolve_dvsu_overrides through to the plan.
+# ---------------------------------------------------------------------------
+
+def _mode_payload(dvsu_mode=None):
+    payload = {"unit_research_cards": [{"unit": "Boeing XB-15", "evidence_segments": []}]}
+    if dvsu_mode:
+        payload["dvsu_mode"] = dvsu_mode
+    return payload
+
+
+def test_machine_story_plan_default_spec_block_mode_profile():
+    plan = pe._machine_story_plan(_mode_payload(), "Boeing XB-15")
+    mode_profile = plan["contract"]["mode_profile"]
+    assert mode_profile["mode"] == "spec_block"
+    assert mode_profile["opener_name_budget"] == 0.6
+    assert mode_profile["memorable_source"] == "sticky_fact"
+
+
+def test_machine_story_plan_most_hated_mode_hardcoded_defaults_without_overrides():
+    plan = pe._machine_story_plan(_mode_payload("most_hated"), "Boeing XB-15")
+    mode_profile = plan["contract"]["mode_profile"]
+    assert mode_profile["mode"] == "most_hated"
+    assert mode_profile["opener_name_budget"] == 0.2
+    assert mode_profile["memorable_source"] == "crew_testimony"
+
+
+def test_machine_story_plan_most_hated_mode_prefers_table_override():
+    overrides = {
+        "opener_budget": {"value": 0.05, "severity": "warn"},
+        "memorable_source": {"value": "crew_testimony", "severity": "warn"},
+    }
+    plan = pe._machine_story_plan(_mode_payload("most_hated"), "Boeing XB-15", overrides)
+    mode_profile = plan["contract"]["mode_profile"]
+    assert mode_profile["opener_name_budget"] == 0.05
+
+
+def test_machine_story_plan_table_override_never_leaks_into_spec_block_mode():
+    """A quality_rules row scoped {"dvsu_mode": "most_hated"} must never
+    affect a video that never opted into that mode — proves the override is
+    gated on mode_profile["mode"] == "most_hated", not applied unconditionally."""
+    overrides = {"opener_budget": {"value": 0.05, "severity": "warn"}}
+    plan = pe._machine_story_plan(_mode_payload(None), "Boeing XB-15", overrides)
+    mode_profile = plan["contract"]["mode_profile"]
+    assert mode_profile["mode"] == "spec_block"
+    assert mode_profile["opener_name_budget"] == 0.6
+
+
+def test_machine_story_plan_ignores_overrides_missing_a_value():
+    """An overrides dict present but with no usable 'value' key (e.g. only
+    QL-9-MH seeded, not QL-7-MH) must leave the hardcoded default in place
+    for the missing key alone."""
+    plan = pe._machine_story_plan(_mode_payload("most_hated"), "Boeing XB-15", {"memorable_source": {}})
+    mode_profile = plan["contract"]["mode_profile"]
+    assert mode_profile["opener_name_budget"] == 0.2
+    assert mode_profile["memorable_source"] == "crew_testimony"
+
+
 def test_verified_card_validation_rejects_mismatched_raw_excerpt_id():
     segments = _evidence_segments()
     for segment in segments:
