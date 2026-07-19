@@ -220,3 +220,16 @@
 **Decision:** Every generation writes an actual-cost row (`generation_ledger`: video, stage, model, units, actual cost, kie_task_id) and rolls up `videos.total_cost`. Price constants live in ONE place (model registry / `/api/models`); `actions.py` estimates and all frontend displays derive from it. UI shows "Est → Actual". Frontend copies of price tables are deleted, not synced.
 **Context:** Cost counter is wrong today: prices duplicated across `actions.py`, `lib/next-action.ts`, and `MODEL_REGISTRY` (drift), and spend is inferred from artifact counts because no ledger exists.
 **Why this won:** BYOK's whole pitch is true cost; a platform that can't state actual spend can't make that pitch. Ledger rows are also the substrate for budget caps and per-preset ROI analytics (P3).
+
+## 2026-07-19 — Power Doctrine + prototype Slack channel are RETIRED (Ryan, direct)
+Ryan: "I don't use Power Doctrine anything anymore or the Slack channel — it was the prototype
+that got us started." Consequences for the codebase:
+- Legacy Power-Doctrine-branded paths are not protecting any live workflow → prefer DELETE over
+  preserve-for-cron when they're the only consumer (applied from C34a onward: legacy upload bot).
+- The Slack notification channel (C0A9U1X8NSW) is unused → SlackClient becomes no-op/removed for
+  SaaS runs (C34b); no per-tenant Slack integration needed.
+- Power Doctrine script profiles stay available as OPT-IN voices (C24) — the retirement covers the
+  branding/identity as a default and the prototype infra, not the writing style as a choice.
+- OPEN (C37, needs Ryan): does retirement extend to the ENTIRE legacy Airtable/cron pipeline
+  (autopilot cycle, competitor scraper, approval watcher, healthcheck)? Not assumed — those crons
+  still run on the VPS until Ryan says otherwise.
