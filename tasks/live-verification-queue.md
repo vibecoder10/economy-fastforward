@@ -13,7 +13,7 @@
 1. **💰 Confirm the Veo 3.1 price (the one real money unknown).** Public pages conflict: Veo 3.1 Fast = **$0.40 or $0.30**, Veo 3.1 Quality = **$2.00 or $1.25** per 8s clip — and Veo Quality is by far the priciest model, so getting it right matters most. Generate ONE Veo clip on a test video, then read the Kie dashboard's credit-consumption log for that task (credits × $0.005 = the true price). Update `CLIP_PRICE_BY_MODEL`/`MODEL_REGISTRY.cost_per_clip` for veo-3.1-fast/quality in `skills/video-pipeline/shared/channel_profile.py`. Same one-clip-and-read for **Grok Imagine**, **Kling 3.0 Pro**, **Runway Gen-4 Turbo** if you wire them (details in §C09 below).
 2. **🎙️ Confirm the ElevenLabs voice rate.** The ledger meters voice by REAL character count (accurate) but at an UNCONFIRMED **$0.30/1,000 chars** — ElevenLabs bills by a monthly character allowance tied to your plan, doesn't return a per-call cost, and it's your own (BYOK) key, so the true effective rate is per-account. Generate one voiceover, note the character count the ledger recorded (`se db "SELECT units, actual_cost FROM generation_ledger WHERE stage='voice' ORDER BY created_at DESC LIMIT 1"`), then check your ElevenLabs dashboard/usage for that account's real $/1,000-chars (or overage rate) and update `VOICE_PRICE_PER_1K_CHARS` in `skills/video-pipeline/shared/channel_profile.py` if it differs.
 3. **🧾 One cheap picture-gen tests the WHOLE cost chain at once.** Generating a single scene's pictures (~$0.05–0.30) lights up C07-style ledger writes AND C08 image pricing AND C10's Est→Actual chip/drawer in one shot — do it on a test video and walk §C07/§C08/§C10 together instead of separately.
-4. **🤖 MCP go-live (§C29 below).** Once C25a's held branch is folded into a coordinated deploy anyway (item 1/2/3 above are also good excuses to do that deploy), flip `MCP_ENABLED=true` and run the full external-client loop — see **§C29** for the exact ordered recipe. This is the ONE runbook for C26/C27/C28/C29's combined live checks; don't chase them as four separate to-dos.
+4. **🤖 MCP go-live (§C29 below).** Once C25a's held branch is folded into a coordinated deploy anyway (item 1/2/3 above are also good excuses to do that deploy), flip `MCP_ENABLED=true` and run the full external-client loop — see **§C29** for the exact ordered recipe. This is the ONE runbook for C26/C27/C28/C29/C47's combined live checks; don't chase them as five separate to-dos.
 5. Everything else below is read-only or a light tap-through — knock them out while the account is already being spent.
 
 ---
@@ -59,8 +59,10 @@ see that file's docstring for exactly what's real vs. stubbed). This section is 
 live recipe, since a real coordinated deploy + a real external MCP client can't run in the sandbox
 (no route to the VPS, no MCP client installed there).
 
-**Cost cap for this whole runbook: ~$1–2, cheapest models, NO finalize on a premium clip model
-unless Ryan explicitly chooses one.** See step 5's breakdown for the honest per-line estimate.
+**Cost cap for this whole runbook: ~$1–2.30, cheapest models, NO finalize on a premium clip model
+unless Ryan explicitly chooses one.** See step 5's breakdown for the honest per-line estimate; step
+5b (C47 setup + ingest) adds ~$0.10-0.30 on top (learn_channel_start's BYOK spend — everything else
+in that step is free).
 
 ### Step 1 — Coordinated deploy, including C25a's held branch
 
@@ -184,6 +186,49 @@ step order, for real:
   — this is real, intentional, capped spend on a disposable test video; delete the test video
   afterward if you don't want it cluttering the dashboard.
 
+### Step 5b — Setup + ingest session (C47), same connected client, same token
+
+**Why this rides the same runbook:** C47's setup/ingest tools are dark behind the SAME
+`MCP_ENABLED` flag and the SAME `se_agent_...` token minted in Step 3 — nothing new to deploy,
+flip, or mint. This step is free (setup tools) except one $0.10-0.30 BYOK line (learn_channel_start)
+and reuses the SAME disposable test video from Step 5, or a fresh one — either is fine.
+
+1. **Configure the channel** (setup tools, free):
+   - `get_channel_dna` → expect the tenant's current identity (voice/hooks/structure if any DNA has
+     been learned before, or a near-empty dict on a brand-new tenant — both are valid, not a bug).
+   - `learn_channel_start` with no arguments (learns from whatever's already imported) → expect
+     `{"started": true, "busy": false, "message": "...roughly $0.10-0.30..."}`. **Cost gate:** this is
+     the one real-money line in this step — BYOK Anthropic/Firecrawl spend, ~$0.10-0.30, same as the
+     Settings UI's own "learn this channel" button.
+   - Poll `learn_channel_status` every 15-30s until `learning: false`. **Expected:** `learners` shows
+     each learner's status (learned/skipped/failed) and `identity` carries the freshly-learned fields
+     — the SAME digest the chat "learn this channel" turn renders.
+   - `upsert_quality_rule` with `{"rule_id": "QL-TEST", "law": "Never claim a machine is the fastest without a cited source.", "severity": "warn"}` → expect the saved row back, `source` field = `"mcp_agent"` (check via `se db "SELECT rule_id, source FROM quality_rules WHERE tenant_id = '<tenant>' AND rule_id = 'QL-TEST'"`).
+   - `list_quality_rules` → expect QL-TEST present. `deactivate_quality_rule` with that row's `id` →
+     expect `{"status": "deactivated"}`; re-list to confirm `active: false` (harmless to leave
+     deactivated, or delete via `se db --write "DELETE FROM quality_rules WHERE rule_id = 'QL-TEST'"`).
+   - `set_render_style` with `{"video_id": "<test video>", "render_style": "animated"}` → expect
+     `{"status": "updated", ...}`; confirm in the web UI's Script/Voice tab that the channel-look
+     control now shows "Animated". `set_style_preset` similarly (any id from `list_style_presets`),
+     confirmed the same way. Both are the exact PATCH `/api/videos/{id}` path the UI itself uses —
+     the web UI updating live from an MCP-only write proves there's no shadow data path.
+2. **Submit research** (ingest, free to run the tool itself — thinking already happened on your own
+   Claude subscription, not billed by StoryEngine):
+   - On a NEW test video (not one already past the research stage — this overwrites), call
+     `submit_research` with a small hand-written payload, e.g. `{"video_id": "<id>", "payload": {"headline": "Test headline", "thesis": "Test thesis.", "executive_hook": "A test hook."}}` (a non-roster title — no `unit_roster` needed). **Expected:** `{"accepted": true, "status": "ready_for_scripting", ...}`; open the video in the web UI's Research tab and confirm the headline/thesis/hook you sent are what's shown — the SAME `research_payload` column the platform's own `research` verb writes.
+   - Optional adversarial check: submit a payload with `"unit_roster": "not a list"` → expect an
+     `isError: true` result naming `unit_roster` — proves the shape gate runs before any DB write
+     (no half-saved row).
+3. **Submit a script** (ingest — the "MCP economics" centerpiece):
+   - On that same video (now `ready_for_scripting`), call `submit_script` with 2-3 short scenes, e.g.
+     `{"video_id": "<id>", "scenes": [{"text": "Scene one narration..."}, {"text": "Scene two narration..."}]}`.
+   - **Expected on a clean pass:** `{"accepted": true, "verdict": "pass", "scenes": 2, "status": "ready_for_voice", ...}`; open the Script/Voice tab and confirm the submitted text is there, `script_source` reads as an agent submission (not "user_supplied" — check `se db "SELECT script_source FROM videos WHERE id = '<id>'"` shows `agent_submitted`, never `user_supplied`), and the Quality Review card (if any rule warned) shows the same rule-by-rule shape a platform-generated script's review card shows.
+   - **Expected on a deliberately bad submission** (e.g. one scene of just `"x"`, or text that trips
+     an active hard-gate quality rule): `{"accepted": false, "verdict": "revise"/"regenerate", "violations": [...]}`; confirm NOTHING changed in the web UI (script/status untouched) — the reject-with-rule-list contract holding for real, not just in the sandbox's fake Claude client.
+- **Total expected spend for this step: ~$0.10-0.30** (learn_channel_start only — everything else is
+  free). **Rollback:** delete the test video/rule row if you don't want them cluttering the dashboard;
+  no migration or flag to revert (same dark/on-flag posture as the rest of §C29).
+
 ### Step 6 — Revoke the token, confirm 401
 
 1. Profile → Agent Access → Revoke the token minted in step 3 (confirm modal).
@@ -205,11 +250,15 @@ step order, for real:
   ledger-verified).
 - **§C28's deferred check** ("mint → copy → connect a real MCP client → chip appears on a live
   agent-driven run") — answered by **Step 5.3/5.5** above (the "via agent" chip, screenshotted live).
+- **§C47's deferred check** ("does a real Claude session actually configure a channel and land a
+  submitted script through the real quality gate, not just the sandbox's mocked critic") — answered
+  by **Step 5b** above (learn_channel_start/status, a quality rule round-trip, render_style/
+  style_preset live in the web UI, submit_research + submit_script's accept AND reject paths).
 
-### §C26 / §C27 / §C28 — see §C29 above
+### §C26 / §C27 / §C28 / §C47 — see §C29 above
 
 Each of these chunks' own deferred live-verification note (in `SYSTEM_STATE.md` and the checklist)
-points here — this is the one runbook, not three separate fragments. Nothing below these headers;
+points here — this is the one runbook, not four separate fragments. Nothing below these headers;
 this is a redirect, not a duplicate.
 
 ---

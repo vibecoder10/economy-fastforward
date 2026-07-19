@@ -725,7 +725,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style", "script_profile", "max_spend"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style", "script_profile", "max_spend", "style_preset_id"}
     # skip_voice records the guided flow's "skip the voiceover" choice — the
     # Scenes gate reads it (advancing status alone left the gate locked).
     if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
@@ -749,6 +749,13 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # not silently store a bogus profile id.
     if "script_profile" in body:
         body["script_profile"] = _resolve_script_profile(body.get("script_profile"))
+    # style_preset_id (checklist C47 — this generic update path previously only
+    # accepted a style_preset_id at CREATE time; there was no way to set/clear
+    # it afterward at all. Reuses create_video's own `_resolve_style_preset_id`
+    # validator verbatim rather than a second catalog check, same posture as
+    # render_style/script_profile just above.
+    if "style_preset_id" in body:
+        body["style_preset_id"] = await _resolve_style_preset_id(body.get("style_preset_id"))
     # max_spend (migration 103, checklist §3.3/C36): the optional per-video
     # budget ceiling the money gate consults. null CLEARS it (no cap — the
     # default), same "null is a valid write" pattern as render_style above.

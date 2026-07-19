@@ -42,6 +42,32 @@ the money-gated verb registry):
     script, characters, storyboards, images, voice, animate, draft_pass,
     finalize, sound, thumbnail, render, research, seo, upload, build.
 
+TOOL SURFACE v3 (C47 — decisions.md 2026-07-19's "MCP is the setup brain" +
+"MCP economics" entries; see the SETUP TOOLS / INGEST TOOLS sections below
+for the full per-tool docstrings):
+
+  SETUP (free config reads/writes onto EXISTING functions/routes only, no
+  new logic; every write attributed via `caller`, structurally where a real
+  attribution column already exists — quality_rules.source='mcp_agent',
+  channel_patterns.confirmed_by — else logged):
+    get_channel_dna, learn_channel_start (the one tool here with a real,
+    stated, non-StoryEngine-billed cost — BYOK ~$0.10-0.30), learn_channel_
+    status, list_quality_rules, upsert_quality_rule, deactivate_quality_rule,
+    list_channel_patterns, confirm_channel_pattern, retire_channel_pattern,
+    get_script_template, set_script_template, list_script_profiles,
+    get_system_prompts, set_system_prompt, set_render_style, set_style_preset.
+    (script_profile/budget_cap are NOT duplicated here — they already exist
+    as free verb tools, generated from actions.ACTIONS above.)
+
+  INGEST (checklist's "MCP economics" play — the connected agent thinks on
+  its OWN Claude subscription, submits the result; only the media pipeline
+  that follows still spends BYOK keys):
+    submit_research (shape-validated against run_research's own payload
+    shape + the SAME deterministic roster gate, no confirm_token — see
+    research_ingest.py), submit_script (thin wrapper over
+    user_script.accept_external_script, source="agent_submitted" — see
+    that function's docstring for the accept/reject design, C46d).
+
 Every verb tool (free or paid) dispatches through actions.ACTIONS/
 routes.chat._run_pending_action — the EXACT SAME dispatcher chat.py's
 confirmed-action path calls. This module adds ONLY: (1) MCP framing
@@ -111,11 +137,15 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+import logging
+
 import actions
 import agent_tokens
 import confirm_tokens
 from auth_agent import get_agent_tenant_id
-from database import fetch_all
+from database import fetch_all, fetch_one
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
@@ -487,7 +517,590 @@ def _verb_tools() -> list[dict[str, Any]]:
     return tools
 
 
-TOOLS: list[dict[str, Any]] = _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools()
+# =============================================================================
+# SETUP TOOLS (checklist C47 — decisions.md 2026-07-19 "MCP is the setup
+# brain" entry): free config reads/writes onto the SAME functions/routes the
+# StoryEngine UI/chat doors already call — no new logic, no parallel store.
+# `script_profile`/`budget_cap` (per-video voice + spend cap) are NOT
+# duplicated here — they already dispatch as MCP verb tools via
+# `_verb_tools()` above (free ACTIONS verbs, same name), since they're
+# "existing verbs/columns" the checklist explicitly says not to re-wrap.
+# render_style/style_preset_id had no such existing verb — set_render_style/
+# set_style_preset below wrap the generic `PATCH /api/videos/{id}` path
+# instead (style_preset_id was ADDED to that route's allowlist this chunk,
+# reusing its own pre-existing `_resolve_style_preset_id` validator verbatim
+# — the same validator create_video already used, just never wired to the
+# update path).
+#
+# None of these carry a confirm_token (free) — but every write is logged
+# with its `caller` (the C27 attribution seam), and confirm_channel_pattern/
+# retire_channel_pattern additionally stamp the REAL `confirmed_by` column
+# those functions already accept (no new column needed there). learn_channel_
+# start is the one exception that costs real (BYOK) money — its own
+# description says so, honestly, same as the HTTP door's own ack message.
+# =============================================================================
+
+def _log_setup_write(tool: str, tenant_id, caller: str, detail: str = "") -> None:
+    """Attribution for setup-tool writes that land on a table/column with no
+    provenance field of its own (tenant_prompt_defaults, script_templates,
+    videos.render_style/style_preset_id) — logged rather than invented as a
+    new schema column past this chunk's scope. Where a REAL attribution
+    column already exists (quality_rules.source, channel_patterns.
+    confirmed_by) the handler passes `caller` into that column directly
+    instead of only logging it."""
+    logger.info("[mcp setup] %s tenant=%s caller=%s %s", tool, str(tenant_id)[:8], caller, detail)
+
+
+def _clear_alias(text: Optional[str]) -> Optional[str]:
+    """"auto"/"clear"/"none"/"" all mean "reset to unset" — same vocabulary
+    the script_profile/camera_preset/budget_cap chat verbs already use for
+    "give me the default back", so an agent that learned that convention
+    from one tool doesn't have to guess a different one for these."""
+    t = (text or "").strip().lower()
+    return None if t in {"", "auto", "clear", "none", "default"} else text
+
+
+_GET_CHANNEL_DNA_TOOL: dict[str, Any] = {
+    "name": "get_channel_dna",
+    "description": (
+        "This channel's learned identity (voice, cadence, hooks, structure, "
+        "research approach, thumbnail formula, visual format, reference-video "
+        "style notes) plus WHO/WHEN taught each field (_sources) and a change "
+        "history (_history) — the same provenance envelope the DNA digest "
+        "card reads. No media URLs. Read-only, no cost."
+    ),
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_LEARN_CHANNEL_START_TOOL: dict[str, Any] = {
+    "name": "learn_channel_start",
+    "description": (
+        "Kick off channel-DNA learning: runs every learner (voice/hooks/"
+        "structure from your top videos, house script format, visual format "
+        "lock, an optional reference video's style, pattern proposals from "
+        "your own analytics) in the background — takes 1-2 minutes. Costs "
+        "roughly $0.10-0.30 of YOUR OWN configured API budget (BYOK — "
+        "Anthropic/Firecrawl calls, not billed by StoryEngine), so it never "
+        "needs a confirm_token. Poll learn_channel_status for the result."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "channel_url": {"type": "string", "description": "A YouTube channel URL to import first, if this isn't already the tenant's own imported channel."},
+            "example_script_text": {"type": "string", "description": "An example script to distill the house format from."},
+            "reference_video_url": {"type": "string", "description": "One YouTube video URL whose style should be folded in as reference_video_style."},
+        },
+    },
+}
+
+_LEARN_CHANNEL_STATUS_TOOL: dict[str, Any] = {
+    "name": "learn_channel_status",
+    "description": "Whether a learn_channel_start run is still working, and the last run's per-learner digest. Read-only, no cost.",
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_LIST_QUALITY_RULES_TOOL: dict[str, Any] = {
+    "name": "list_quality_rules",
+    "description": (
+        "This channel's script quality-law rows (id, testable law text, "
+        "severity, evidence, applies_to scope). Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {"active_only": {"type": "boolean", "description": "Only return active rules (default false — returns all)."}},
+    },
+}
+
+_UPSERT_QUALITY_RULE_TOOL: dict[str, Any] = {
+    "name": "upsert_quality_rule",
+    "description": (
+        "Create or edit-in-place a quality rule (same (tenant, rule_id) key "
+        "-> update semantics as re-uploading a revised rules doc). Free, no "
+        "cost — takes effect on the NEXT script write/submission this rule's "
+        "applies_to scope matches."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "rule_id": {"type": "string", "description": "A short id, e.g. \"QL-12\"."},
+            "law": {"type": "string", "description": "The testable rule text."},
+            "severity": {"type": "string", "description": "hard_gate | warn | guidance (default guidance)."},
+            "evidence": {"type": "string", "description": "Why this rule exists, optional."},
+            "applies_to": {
+                "type": "object",
+                "description": "Scope, e.g. {\"all\": true} or {\"research\": true} or {\"story\": true} or {\"animated\": true} or {\"realistic\": true} or {\"channel_format\": \"...\"} or {\"dvsu_mode\": \"...\"}. Omit for {\"all\": true}.",
+            },
+        },
+        "required": ["rule_id", "law"],
+    },
+}
+
+_DEACTIVATE_QUALITY_RULE_TOOL: dict[str, Any] = {
+    "name": "deactivate_quality_rule",
+    "description": "Deactivate a quality rule by its internal id (from list_quality_rules). Free, no cost, reversible via upsert_quality_rule.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {"id": {"type": "string", "description": "The rule's internal id (list_quality_rules' \"id\" field, not rule_id)."}},
+        "required": ["id"],
+    },
+}
+
+_LIST_CHANNEL_PATTERNS_TOOL: dict[str, Any] = {
+    "name": "list_channel_patterns",
+    "description": (
+        "This channel's proposed/confirmed/retired style patterns (anti- or "
+        "good-polarity, with evidence) — machine-proposed from this "
+        "channel's OWN analytics, never hardcoded, never cross-channel. "
+        "Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "polarity": {"type": "string", "description": "Filter: \"anti\" or \"good\"."},
+            "status": {"type": "string", "description": "Filter: \"proposed\", \"confirmed\", or \"retired\"."},
+        },
+    },
+}
+
+_CONFIRM_CHANNEL_PATTERN_TOOL: dict[str, Any] = {
+    "name": "confirm_channel_pattern",
+    "description": (
+        "Confirm a proposed pattern — the ONLY transition that makes an "
+        "anti-pattern actually exclude a video/style from future style-seed/"
+        "few-shot sets. Free, no cost. Calling this on behalf of your owner "
+        "IS the human confirm gate (OR-6) — it's attributed to you like "
+        "every other MCP write."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {"id": {"type": "string", "description": "The pattern's internal id (from list_channel_patterns)."}},
+        "required": ["id"],
+    },
+}
+
+_RETIRE_CHANNEL_PATTERN_TOOL: dict[str, Any] = {
+    "name": "retire_channel_pattern",
+    "description": "Retire a confirmed (or reject a still-proposed) pattern — reverses its exclusion effect. Free, no cost.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {"id": {"type": "string", "description": "The pattern's internal id (from list_channel_patterns)."}},
+        "required": ["id"],
+    },
+}
+
+_GET_SCRIPT_TEMPLATE_TOOL: dict[str, Any] = {
+    "name": "get_script_template",
+    "description": "The channel's house script-format template(s) (format instructions distilled from an example, never the example's topic content). Read-only, no cost.",
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_SET_SCRIPT_TEMPLATE_TOOL: dict[str, Any] = {
+    "name": "set_script_template",
+    "description": (
+        "Distill an example script's FORMAT (hook shape, structure, "
+        "pacing, sign-off — never its topic) into the channel's house "
+        "template. One Claude call, cheap. WARNING: only one house template "
+        "is kept at a time — this REPLACES any existing one, it does not "
+        "add a second."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "The full example script (40+ words)."},
+            "name": {"type": "string", "description": "A label for this template, optional."},
+        },
+        "required": ["text"],
+    },
+}
+
+_LIST_SCRIPT_PROFILES_TOOL: dict[str, Any] = {
+    "name": "list_script_profiles",
+    "description": (
+        "The editorial-voice engine catalog (id, display name, description, "
+        "best_for) for picking a script voice. To SET a video's voice, use "
+        "the script_profile tool (free-text alias, e.g. \"investigative "
+        "reveal\", or \"neutral\"/\"auto\" to clear). Read-only, no cost."
+    ),
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_GET_SYSTEM_PROMPTS_TOOL: dict[str, Any] = {
+    "name": "get_system_prompts",
+    "description": "This tenant's 6 system prompts (script, thumbnail, video_motion, sound_curation, sound_generation, research) — custom override or pipeline default, with which is which flagged. Read-only, no cost.",
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_SET_SYSTEM_PROMPT_TOOL: dict[str, Any] = {
+    "name": "set_system_prompt",
+    "description": "Save a custom override for one system prompt key. Free, no cost — takes effect on the next run of that stage.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "key": {"type": "string", "description": "One of: script, thumbnail, video_motion, sound_curation, sound_generation, research."},
+            "prompt_text": {"type": "string", "description": "The full prompt text."},
+        },
+        "required": ["key", "prompt_text"],
+    },
+}
+
+_SET_RENDER_STYLE_TOOL: dict[str, Any] = {
+    "name": "set_render_style",
+    "description": (
+        "Set a video's channel-look routing guardrail (animated / "
+        "realistic) — steers which clip-model tier the build routes to. "
+        "Free, no cost. Pass \"auto\" to clear it back to undeclared."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "render_style": {"type": "string", "description": "\"animated\", \"realistic\", or \"auto\" to clear."},
+        },
+        "required": ["video_id", "render_style"],
+    },
+}
+
+_SET_STYLE_PRESET_TOOL: dict[str, Any] = {
+    "name": "set_style_preset",
+    "description": (
+        "Set a video's visual-profile engine (see list_style_presets for "
+        "ids) after creation. Free, no cost. Pass \"auto\" to clear it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "style_preset_id": {"type": "string", "description": "An id from list_style_presets, or \"auto\" to clear."},
+        },
+        "required": ["video_id", "style_preset_id"],
+    },
+}
+
+_SETUP_TOOLS: list[dict[str, Any]] = [
+    _GET_CHANNEL_DNA_TOOL, _LEARN_CHANNEL_START_TOOL, _LEARN_CHANNEL_STATUS_TOOL,
+    _LIST_QUALITY_RULES_TOOL, _UPSERT_QUALITY_RULE_TOOL, _DEACTIVATE_QUALITY_RULE_TOOL,
+    _LIST_CHANNEL_PATTERNS_TOOL, _CONFIRM_CHANNEL_PATTERN_TOOL, _RETIRE_CHANNEL_PATTERN_TOOL,
+    _GET_SCRIPT_TEMPLATE_TOOL, _SET_SCRIPT_TEMPLATE_TOOL, _LIST_SCRIPT_PROFILES_TOOL,
+    _GET_SYSTEM_PROMPTS_TOOL, _SET_SYSTEM_PROMPT_TOOL,
+    _SET_RENDER_STYLE_TOOL, _SET_STYLE_PRESET_TOOL,
+]
+
+
+async def _call_get_channel_dna(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from channel_dna import _current_identity
+    identity = await _current_identity(tenant_id)
+    return _text_result(identity)
+
+
+async def _call_learn_channel_start(tenant_id, arguments: dict[str, Any], caller: str,
+                                     background_tasks: Optional[BackgroundTasks]) -> dict[str, Any]:
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    from routes.channel_dna import LearnChannelRequest, start_learn_channel
+    _log_setup_write("learn_channel_start", tenant_id, caller)
+    body = LearnChannelRequest(
+        channel_url=arguments.get("channel_url"),
+        example_script_text=arguments.get("example_script_text"),
+        reference_video_url=arguments.get("reference_video_url"),
+    )
+    result = await start_learn_channel(body, background_tasks, tenant_id=tenant_id)
+    return _text_result(result.model_dump())
+
+
+async def _call_learn_channel_status(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from routes.channel_dna import get_learn_channel_status
+    result = await get_learn_channel_status(tenant_id=tenant_id)
+    return _text_result(result.model_dump())
+
+
+async def _call_list_quality_rules(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import quality_rules
+    rows = await quality_rules.list_all_rules(tenant_id, active_only=bool(arguments.get("active_only")))
+    return _text_result({"rules": rows})
+
+
+async def _call_upsert_quality_rule(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import quality_rules
+    rule_id = (arguments.get("rule_id") or "").strip()
+    law = (arguments.get("law") or "").strip()
+    if not rule_id or not law:
+        return _error_result("upsert_quality_rule requires rule_id and law")
+    severity = arguments.get("severity") or "guidance"
+    if severity not in quality_rules.SEVERITIES:
+        return _error_result(f"severity must be one of {sorted(quality_rules.SEVERITIES)}")
+    _log_setup_write("upsert_quality_rule", tenant_id, caller, detail=rule_id)
+    row = await quality_rules.create_rule(
+        tenant_id, rule_id=rule_id, law=law, severity=severity,
+        evidence=arguments.get("evidence"), applies_to=arguments.get("applies_to"),
+        source="mcp_agent",
+    )
+    return _text_result({"rule": row})
+
+
+async def _call_deactivate_quality_rule(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import quality_rules
+    rule_id = arguments.get("id")
+    if not rule_id:
+        return _error_result("deactivate_quality_rule requires an id argument")
+    _log_setup_write("deactivate_quality_rule", tenant_id, caller, detail=str(rule_id))
+    ok = await quality_rules.deactivate_rule(tenant_id, str(rule_id))
+    if not ok:
+        return _error_result(f"No quality rule {rule_id} found for this tenant")
+    return _text_result({"status": "deactivated", "id": rule_id})
+
+
+async def _call_list_channel_patterns(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import channel_patterns
+    rows = await channel_patterns.list_patterns(
+        tenant_id, polarity=arguments.get("polarity"), status=arguments.get("status"),
+    )
+    return _text_result({"patterns": rows})
+
+
+async def _call_confirm_channel_pattern(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import channel_patterns
+    pattern_id = arguments.get("id")
+    if not pattern_id:
+        return _error_result("confirm_channel_pattern requires an id argument")
+    row = await channel_patterns.confirm_pattern(tenant_id, str(pattern_id), confirmed_by=caller)
+    if row is None:
+        return _error_result(f"No pattern {pattern_id} found for this tenant")
+    return _text_result({"pattern": row})
+
+
+async def _call_retire_channel_pattern(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import channel_patterns
+    pattern_id = arguments.get("id")
+    if not pattern_id:
+        return _error_result("retire_channel_pattern requires an id argument")
+    row = await channel_patterns.retire_pattern(tenant_id, str(pattern_id), confirmed_by=caller)
+    if row is None:
+        return _error_result(f"No pattern {pattern_id} found for this tenant")
+    return _text_result({"pattern": row})
+
+
+async def _call_get_script_template(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from routes.script_templates import list_templates as _list_templates_route
+    result = await _list_templates_route(tenant_id=tenant_id)
+    return _text_result(result)
+
+
+async def _call_set_script_template(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    text = (arguments.get("text") or "").strip()
+    if not text:
+        return _error_result("set_script_template requires text")
+    from routes.script_templates import analyze_and_save_template
+    existing = await fetch_one("SELECT id FROM script_templates WHERE tenant_id = $1 LIMIT 1", tenant_id)
+    _log_setup_write("set_script_template", tenant_id, caller)
+    try:
+        tpl = await analyze_and_save_template(tenant_id, text, str(arguments.get("name") or ""))
+    except ValueError as e:
+        return _error_result(str(e))
+    return _text_result({
+        "status": "replaced" if existing else "saved",
+        "template": tpl,
+    })
+
+
+async def _call_list_script_profiles(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from routes.script_profiles import list_script_profiles as _list_script_profiles_route
+    result = await _list_script_profiles_route(tenant_id=tenant_id)
+    return _text_result(result.model_dump())
+
+
+async def _call_get_system_prompts(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from routes.system_prompts import list_prompts as _list_prompts_route
+    result = await _list_prompts_route(tenant_id=tenant_id)
+    return _text_result({"prompts": result})
+
+
+async def _call_set_system_prompt(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    key = (arguments.get("key") or "").strip()
+    prompt_text = arguments.get("prompt_text")
+    if not key or not prompt_text:
+        return _error_result("set_system_prompt requires key and prompt_text")
+    from routes.system_prompts import PromptUpdate, upsert_prompt as _upsert_prompt_route
+    _log_setup_write("set_system_prompt", tenant_id, caller, detail=key)
+    try:
+        result = await _upsert_prompt_route(key, PromptUpdate(prompt_text=prompt_text), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't save that prompt")
+    return _text_result(result)
+
+
+async def _call_set_render_style(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("set_render_style requires a video_id argument")
+    value = _clear_alias(arguments.get("render_style"))
+    from routes.videos import update_video as _update_video_route
+    _log_setup_write("set_render_style", tenant_id, caller, detail=f"video={video_id}")
+    try:
+        result = await _update_video_route(str(video_id), {"render_style": value}, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't set render_style")
+    return _text_result(result)
+
+
+async def _call_set_style_preset(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("set_style_preset requires a video_id argument")
+    value = _clear_alias(arguments.get("style_preset_id"))
+    from routes.videos import update_video as _update_video_route
+    _log_setup_write("set_style_preset", tenant_id, caller, detail=f"video={video_id}")
+    try:
+        result = await _update_video_route(str(video_id), {"style_preset_id": value}, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't set style_preset_id")
+    return _text_result(result)
+
+
+_SETUP_READ_HANDLERS = {
+    "get_channel_dna": _call_get_channel_dna,
+    "learn_channel_status": _call_learn_channel_status,
+    "list_quality_rules": _call_list_quality_rules,
+    "list_channel_patterns": _call_list_channel_patterns,
+    "get_script_template": _call_get_script_template,
+    "list_script_profiles": _call_list_script_profiles,
+    "get_system_prompts": _call_get_system_prompts,
+}
+
+_SETUP_WRITE_HANDLERS = {
+    "upsert_quality_rule": _call_upsert_quality_rule,
+    "deactivate_quality_rule": _call_deactivate_quality_rule,
+    "confirm_channel_pattern": _call_confirm_channel_pattern,
+    "retire_channel_pattern": _call_retire_channel_pattern,
+    "set_script_template": _call_set_script_template,
+    "set_system_prompt": _call_set_system_prompt,
+    "set_render_style": _call_set_render_style,
+    "set_style_preset": _call_set_style_preset,
+}
+
+
+# =============================================================================
+# INGEST TOOLS (checklist C47 — decisions.md 2026-07-19 "MCP economics"
+# entry): the connected agent does research/scripting on the user's OWN
+# Claude subscription and hands StoryEngine the RESULT through the SAME
+# validated store+advance paths run_research/run_script use — thinking is
+# free (the agent's subscription), only the media pipeline that follows
+# spends BYOK API keys. Neither tool carries a confirm_token: submitting
+# your own already-done thinking doesn't itself spend StoryEngine-billed
+# money (same "free — writes only" posture as the setup tools above), and
+# `videos.script`/`research_payload` were never anything a confirm_token
+# gated in the first place (the `research`/`script` PAID verbs gate the
+# COST of having the platform's OWN Claude call do the work, which these
+# tools skip entirely).
+# =============================================================================
+
+_SUBMIT_RESEARCH_TOOL: dict[str, Any] = {
+    "name": "submit_research",
+    "description": (
+        "Submit research YOU did (on your own Claude subscription) for this "
+        "video, instead of paying for StoryEngine's own `research` verb to "
+        "do it. Validated against the same shape run_research itself "
+        "produces and the SAME deterministic roster-completeness gate a "
+        "real research run applies for machine-roster/documentary titles — "
+        "a rejection returns the concrete warnings so you can fix your "
+        "research and resubmit. On acceptance, saved and the video advances "
+        "exactly like a platform-run research pass. Free — no cost to run "
+        "this tool itself."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "payload": {
+                "type": "object",
+                "description": (
+                    "The research payload. Common fields: headline, thesis, "
+                    "executive_hook. For a machine-roster/documentary title, "
+                    "also: unit_roster (list), unit_research_cards (list), "
+                    "machine_discovery_buckets (object), recommended_final_roster "
+                    "(list), gap_hunt_matrix (list), edge_case_matrix (list), "
+                    "roster_audit (object), roster_contract (string), "
+                    "counter_arguments (string)."
+                ),
+            },
+        },
+        "required": ["video_id", "payload"],
+    },
+}
+
+_SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
+    "name": "submit_script",
+    "description": (
+        "Submit a script YOU wrote (on your own Claude subscription) for "
+        "this video, instead of paying for StoryEngine's own `script` verb "
+        "to write it. Runs through the SAME quality-rules critic a "
+        "platform-generated script faces (verdict-only, no server-side "
+        "edit loop — this is not the creator's own verbatim text, so it "
+        "doesn't get that bypass, but it's also not ours to silently "
+        "rewrite). A hard-gate/universal-gate failure REJECTS with the "
+        "rule-by-rule violations so you can fix your script and resubmit; "
+        "a pass (warnings aside) saves and advances the video exactly like "
+        "a platform-written script. Free — no cost to run this tool itself."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scenes": {
+                "type": "array",
+                "description": "Ordered scenes: [{\"text\": \"...\"}, ...]. Scene numbers are assigned 1..N from this order.",
+                "items": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            },
+        },
+        "required": ["video_id", "scenes"],
+    },
+}
+
+_INGEST_TOOLS: list[dict[str, Any]] = [_SUBMIT_RESEARCH_TOOL, _SUBMIT_SCRIPT_TOOL]
+
+
+async def _call_submit_research(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("submit_research requires a video_id argument")
+    payload = arguments.get("payload")
+    import research_ingest
+    try:
+        result = await research_ingest.accept_submitted_research(
+            tenant_id, str(video_id), payload, source=caller,
+        )
+    except ValueError as e:
+        return _error_result(str(e))
+    return _text_result(result)
+
+
+async def _call_submit_script(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("submit_script requires a video_id argument")
+    scenes = arguments.get("scenes")
+    import user_script
+    try:
+        result = await user_script.accept_external_script(
+            tenant_id, str(video_id), scenes, source="agent_submitted",
+        )
+    except ValueError as e:
+        return _error_result(str(e))
+    return _text_result(result)
+
+
+_INGEST_HANDLERS = {
+    "submit_research": _call_submit_research,
+    "submit_script": _call_submit_script,
+}
+
+
+TOOLS: list[dict[str, Any]] = (
+    _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS + _INGEST_TOOLS
+)
 
 # Names only — used by tests to pin the surface never silently grows a
 # remember/forget (memory-writing, S5-2) tool, and that every paid verb in
@@ -597,6 +1210,14 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _call_create_video(tenant_id, arguments, background_tasks)
         if name in actions.ACTIONS:
             return await _call_verb(tenant_id, name, arguments, background_tasks, caller)
+        if name == "learn_channel_start":
+            return await _call_learn_channel_start(tenant_id, arguments, caller, background_tasks)
+        if name in _SETUP_READ_HANDLERS:
+            return await _SETUP_READ_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _SETUP_WRITE_HANDLERS:
+            return await _SETUP_WRITE_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _INGEST_HANDLERS:
+            return await _INGEST_HANDLERS[name](tenant_id, arguments, caller)
         return _error_result(f"Unknown tool: {name}")
     raise ValueError(f"Unknown method: {method}")
 

@@ -8845,3 +8845,160 @@ that decision needs Ryan).
 
 Next: **C47 · MCP setup surface** (unchanged from C46d's own note above) — `channel_patterns` CRUD/confirm/
 retire is now also ready for that surface to expose, alongside quality rules/system prompts/channel DNA.
+
+## C47 — MCP setup surface + content-ingest surface (added 2026-07-19)
+
+decisions.md 2026-07-19's TWO entries land as ONE chunk (not split — the checklist's own "may split
+C47a/C47b on size" note was pre-authorized but wasn't needed): the "MCP is the setup brain" insight
+(expose the SETUP layer through MCP tools) and the "MCP economics" play (the connected agent thinks
+on its OWN Claude subscription; StoryEngine accepts the RESULT through the same validated store+
+advance paths). Every new tool wraps an EXISTING function/route verbatim — no new business logic,
+no parallel store, no forked dispatch — same discipline C26/C27 established for the verb registry.
+
+**Setup tools (16, all free — no `confirm_token`, every write attributed):**
+`get_channel_dna` (wraps `channel_dna._current_identity`), `learn_channel_start`/`learn_channel_
+status` (wrap `routes.channel_dna.start_learn_channel`/`get_learn_channel_status` — the SAME
+BackgroundTasks ack-now shape the HTTP door uses, busy-claim state passes through unreinterpreted),
+`list_quality_rules`/`upsert_quality_rule`/`deactivate_quality_rule` (wrap `quality_rules.py`'s CRUD
+— `upsert_quality_rule` stamps a NEW `source="mcp_agent"` value, added to `quality_rules.SOURCES`,
+distinguishing an agent-written rule from one typed through chat/parsed from a doc), `list_channel_
+patterns`/`confirm_channel_pattern`/`retire_channel_pattern` (wrap `channel_patterns.py`'s CRUD/
+confirm/retire — the REAL `confirmed_by` column, not just a log line, carries the calling agent's
+name: OR-6's human-confirm gate, an agent acting for its owner, attributed), `get_script_template`/
+`set_script_template` (wrap `routes.script_templates.list_templates`/`analyze_and_save_template` —
+the tool checks for an existing template first and reports "replaced" vs "saved" honestly, same
+distinction `channel_dna.py`'s own learner step already surfaces), `list_script_profiles` (wraps
+`routes.script_profiles.list_script_profiles`), `get_system_prompts`/`set_system_prompt` (wrap
+`routes.system_prompts.list_prompts`/`upsert_prompt` — see the honest scoping note below on C43
+provenance), `set_render_style`/`set_style_preset` (wrap the generic `PATCH /api/videos/{id}` path).
+
+**`script_profile`/`budget_cap` are deliberately NOT duplicated as `set_script_profile`/
+`set_budget_cap`:** these already exist as free MCP verb tools, auto-generated from `actions.ACTIONS`
+since C27 (`_verb_tools()`) — the checklist's own "existing verbs/columns" phrasing. Adding a second,
+differently-shaped tool for the same write path would be redundant surface, not a new capability.
+
+**A real gap found and fixed while tracing `set_style_preset`:** `videos.style_preset_id` had NO
+write path after video creation at all — `create_video` accepted it, but the generic `PATCH
+/api/videos/{id}` route's `allowed_fields` allowlist never included it (unlike `render_style`/
+`script_profile`/`max_spend`, which all got that same-chunk treatment in C13b/C24/C36). Fixed
+minimally: `style_preset_id` added to `allowed_fields`, reusing `_resolve_style_preset_id` — the
+SAME catalog validator `create_video` already calls — verbatim (2-line change, `routes/videos.py`).
+`set_style_preset` (and, for free, the web UI/any future caller) can now actually clear or change a
+video's visual-profile engine post-creation.
+
+**Ingest tools (2, free to run — the thinking already happened on the caller's own subscription):**
+- `submit_research(video_id, payload)` — new `research_ingest.py` module (mirrors `user_script.py`'s
+  per-domain layering from C46d). Traced the REAL shape `run_research` stores
+  (`pipeline_executor.py::run_research`'s own save tail, `research_payload` JSONB — no dedicated
+  Pydantic schema exists; it's whatever the research agent + roster-hold steps produce) and every
+  downstream reader that assumes list/dict types without re-checking (`_roster_validation`,
+  `enrich_research_payload_readiness`, `_machine_bucket_summary`). `_validate_research_shape` catches
+  a malformed submission (wrong-typed `unit_roster`/`unit_research_cards`/`machine_discovery_
+  buckets`/etc.) with a concrete field name BEFORE any DB write, instead of a later opaque crash deep
+  in a pipeline stage. Reuses `pipeline_executor._roster_validation` VERBATIM (not reimplemented) as
+  the accept/reject gate for machine-roster/documentary titles — same deterministic warnings/gaps a
+  real research run would produce. Explicit scope boundary, stated in the module docstring: this does
+  NOT run `_run_unit_research_hold` (the expensive live per-machine source-fetch/verification pass) —
+  that's a distinct, separately-billable action, not a shape or gate check; an externally-submitted
+  payload is trusted on the roster gate's strength, the same way `set_user_script` trusts a creator's
+  verbatim text. On a pass: saves via the EXACT SAME `UPDATE videos SET research_payload=...,
+  thesis=..., executive_hook=..., status='ready_for_scripting', research_skipped=FALSE` `run_research`
+  itself issues. **Honest gap flagged, not silently invented around:** unlike `videos.script_source`,
+  `research_payload` has no sibling provenance column — `source` (the submitting agent's identity) is
+  logged, not persisted, since adding a new schema column was past this chunk's "no new logic" scope.
+- `submit_script(video_id, scenes)` — thin wrapper over C46d's `user_script.accept_external_script`
+  (`source="agent_submitted"`), already built and waiting for exactly this call site. No new logic
+  here at all; the accept/reject/warn matrix is entirely C46d's.
+
+**Honest scoping note — C43 provenance and `set_system_prompt`:** the checklist flagged "the C43
+provenance stamping applies" for system prompts. Traced: C43's stamping (`routes/system_prompts.py::
+generate_prompts` → `channel_dna_meta.stamp_identity_write(learner="system_prompts")`) is scoped
+SPECIFICALLY to the `style_description`/`channel_identity` write inside the "generate all 6 from a
+style description" flow — `tenant_prompt_defaults` (what `set_system_prompt`/`upsert_prompt` actually
+writes) has no provenance column of its own to stamp at all (just `prompt_key`/`prompt_text`/
+`updated_at`). `set_system_prompt` therefore logs its caller (same as the other no-column setup
+writes) rather than inventing a stamp target that doesn't exist — flagged here rather than silently
+assumed to already be covered.
+
+**Attribution, concretely:** `confirm_channel_pattern`/`retire_channel_pattern` pass `caller` into
+the REAL `confirmed_by` column (structural, DB-visible); `upsert_quality_rule` passes
+`source="mcp_agent"` into the REAL `source` column (structural, DB-visible); every other setup write
+(`learn_channel_start`, `set_script_template`, `set_system_prompt`, `set_render_style`,
+`set_style_preset`, `deactivate_quality_rule`) logs the caller via a new `_log_setup_write` helper —
+no column exists on those tables to stamp it into, an honest gap rather than a schema change past
+this chunk's scope.
+
+**No media URLs (C25a hold), verified:** `channel_identity` (what `get_channel_dna` returns) is
+structurally free of generated-media-asset URLs by `channel_dna_meta.py`'s own design (voice/hooks/
+structure/thumbnail-formula TEXT fields only) — the one text field that legitimately carries a URL,
+`reference_video_style.source_url`, is a creator-supplied YouTube reference link (an INPUT the user
+gave, not a generated OUTPUT asset the C25a hold targets), same distinction the module docstring
+already draws. Pinned by a grep-style test over every new tool's description/schema for
+`preview_url`/`thumbnail_url`/`image_url`/`video_clip_url`, plus a byte-identity round-trip test on
+`get_channel_dna`.
+
+### Verification
+
+42 new tests, `tests/functional/test_c47_mcp_setup_and_ingest.py`: tool-surface pins (every new name
+present, `script_profile`/`budget_cap` NOT duplicated, S5-2 memory-tool exclusion still holds against
+the larger v3 surface, no setup/ingest tool carries `confirm_token`, `learn_channel_start`'s
+description states its real BYOK cost); "same callable" proof for every setup tool (patches the REAL
+underlying module/route function each MCP handler wraps — `routes.channel_dna.start_learn_channel`,
+`quality_rules.create_rule`/`list_all_rules`/`deactivate_rule`, `channel_patterns.confirm_pattern`/
+`retire_pattern`/`list_patterns`, `routes.script_templates.analyze_and_save_template`/`list_
+templates`, `routes.script_profiles.list_script_profiles`, `routes.system_prompts.list_prompts`/
+`upsert_prompt`, `routes.videos.update_video` — and asserts the exact tenant-scoped call args, not
+just "a call happened"); attribution proofs (`source="mcp_agent"` reaches `create_rule`,
+`confirmed_by=caller` reaches `confirm_pattern`/`retire_pattern`); `submit_script`'s accept/reject
+matrix through the real (patched-at-the-module-level) `user_script.accept_external_script`;
+`submit_research`'s shape-validation unit tests (bad list/dict-typed fields raise with the concrete
+field name), the roster-gate reuse (patches `pipeline_executor._roster_validation` itself, proving no
+reimplementation), and the save+advance path on a pass (asserts the exact `UPDATE videos SET...` args
+`run_research` itself would write); a pinned regression test on `routes/videos.py::update_video`'s
+source asserting `style_preset_id` stays in `allowed_fields` with its validator wired.
+
+Non-vacuous via plain `git stash` (tracked source files only, plus the new untracked `research_
+ingest.py` moved aside so the import fails too — the new test file itself stays in place): the test
+module fails to even COLLECT (`ModuleNotFoundError: No module named 'research_ingest'`), confirming
+every one of the 42 tests depends on real, non-trivial new code, not a vacuously-passing assertion.
+Restored, full suite: **1666 passed, 15 failed, 1 error** = baseline (1624/15/1) + exactly 42, zero
+new failures, identical failure names to the prior chunk's own baseline. `python -m py_compile` clean
+on all 4 touched/new backend `.py` files (`routes/mcp.py`, `routes/videos.py`, `quality_rules.py`,
+`research_ingest.py`).
+
+Frontend: **untouched** — zero files changed under `storyengine/frontend/`. This chunk is entirely
+backend (MCP tool registry + one small pipeline-adjacent module), dark behind `MCP_ENABLED` same as
+C26/C27; there is no UI surface for setup/ingest tools by design (checklist: "NO UI. Everything still
+dark behind MCP_ENABLED").
+
+Live round-trip (a real MCP client calling the setup + ingest tools against a real tenant, including
+a real `learn_channel_start` BYOK spend and a real `submit_script`/`submit_research` accept+reject
+pair) deferred to `tasks/live-verification-queue.md` §C29 Step 5b (folded into the existing MCP
+go-live runbook, not a new fragment — same reasoning C26/C27/C28 already established: one deploy, one
+flag flip, one client connection, walk every deferred check together).
+
+### Modified/New Files (C47)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/mcp.py` | +16 setup tools, +2 ingest tools, `_dispatch` routing, module docstring TOOL SURFACE v3 section |
+| `storyengine/backend/routes/videos.py` | `style_preset_id` added to `update_video`'s `allowed_fields`, validated via the existing `_resolve_style_preset_id` |
+| `storyengine/backend/quality_rules.py` | `SOURCES` gains `"mcp_agent"` |
+| `storyengine/backend/research_ingest.py` | NEW — `accept_submitted_research` (shape validation + roster-gate reuse + save/advance) |
+| `storyengine/backend/tests/functional/test_c47_mcp_setup_and_ingest.py` | NEW — 42 tests |
+| `tasks/live-verification-queue.md` | §C29 gains Step 5b (setup + ingest live session), fold-ins list gains C47 |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate.** Still dark: every new tool is registered on the SAME `routes/
+mcp.py` router that only exists when `MCP_ENABLED=true` (unchanged default/unset behavior — 404,
+structurally absent). `style_preset_id`'s new allowlist entry is the one change reachable outside the
+MCP flag (the ordinary web UI's `PATCH /api/videos/{id}` also gains this field) — strictly additive
+(a field that could never be set before now can; nothing that used to work changes), and re-validated
+through the SAME catalog check `create_video` already trusted, so a bad id still 400s exactly like it
+always has at creation time. `quality_rules.SOURCES` gaining `"mcp_agent"` is additive (existing
+values unaffected). Every ingest tool is dead code until `MCP_ENABLED=true` AND a caller mints an
+agent token — same posture C26/C27 shipped with.
+
+Next: **P4.2 tenant-autopilot SCOUT (Explore, per the Phase-4 outline)** — the orchestrator
+dispatches it.

@@ -95,7 +95,11 @@ from status_map import stage_enabled_in_plan
 logger = logging.getLogger(__name__)
 
 SEVERITIES = {"hard_gate", "warn", "guidance"}
-SOURCES = {"doc_upload", "chat", "seed"}
+# "mcp_agent" (checklist C47): the setup-surface `upsert_quality_rule` MCP
+# tool stamps this so a rule an agent wrote is distinguishable from one typed
+# through chat or parsed from an uploaded doc — same attribution spirit as
+# script_source='agent_submitted' (user_script.accept_external_script, C46d).
+SOURCES = {"doc_upload", "chat", "seed", "mcp_agent"}
 
 _BOOL_SCOPE_KEYS = {"all", "research", "story", "animated", "realistic"}
 

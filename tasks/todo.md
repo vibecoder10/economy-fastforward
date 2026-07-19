@@ -507,6 +507,34 @@
   DNA/script-profile selection/channel-patterns CRUD through MCP, PLUS `submit_research`/`submit_script` —
   the latter now has `accept_external_script` ready and waiting. May split C47a (setup)/C47b (ingest) on
   size.
+- **Also done:** C47 · MCP setup surface + content-ingest surface (decisions.md 2026-07-19's "MCP is the
+  setup brain" + "MCP economics" entries) — shipped as ONE chunk, no split needed. Full detail in
+  SYSTEM_STATE.md §C47. 16 setup tools (`get_channel_dna`, `learn_channel_start`/`_status`, quality-rules
+  CRUD, channel-patterns confirm/retire, script template get/set, script profiles list, system prompts
+  get/set, `set_render_style`/`set_style_preset`), all wrapping EXISTING functions/routes verbatim — no
+  new logic, no parallel store. `script_profile`/`budget_cap` deliberately NOT duplicated (already free
+  MCP verb tools since C27). 2 ingest tools: `submit_research` (new `research_ingest.py` — shape
+  validation against the real `run_research` payload shape + reuse of `pipeline_executor._roster_
+  validation` verbatim as the accept/reject gate, explicitly does NOT run the expensive live source-fetch
+  hold step) and `submit_script` (thin wrapper over C46d's `accept_external_script`). Real gap found+
+  fixed while tracing `set_style_preset`: `videos.style_preset_id` had NO write path after video creation
+  at all — added to `update_video`'s `allowed_fields`, reusing the existing `_resolve_style_preset_id`
+  validator. Attribution: `confirmed_by`/`source="mcp_agent"` land in real DB columns where one exists
+  (channel_patterns/quality_rules); logged (not persisted) where no provenance column exists yet
+  (tenant_prompt_defaults, script_templates) — flagged honestly, not invented around. 42 new tests
+  (`tests/functional/test_c47_mcp_setup_and_ingest.py`), non-vacuous via `git stash` (test module fails to
+  even collect without the implementation — `ModuleNotFoundError`), full suite **1666P/15F/1E** = baseline
+  (1624/15/1) + exactly 42, zero new failures. `python -m py_compile` clean. Frontend: **untouched** (zero
+  files changed — this chunk is entirely backend, no UI surface by design, still dark behind
+  `MCP_ENABLED`). Live round-trip deferred to `tasks/live-verification-queue.md` §C29 Step 5b (folded into
+  the existing MCP go-live runbook alongside C26/C27/C28, not a new fragment). **Deploy-safety: recommend
+  ff-merge candidate** — every new tool is dead code until `MCP_ENABLED=true` AND an agent token exists
+  (same posture as C26/C27); `style_preset_id`'s allowlist addition is the one change reachable outside
+  the MCP flag (also benefits the ordinary web UI), strictly additive and re-validated through the same
+  catalog check `create_video` already trusted.
+
+  **Next up: P4.2 tenant-autopilot SCOUT (Explore, per the Phase-4 outline)** — the orchestrator
+  dispatches it.
 - **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 
