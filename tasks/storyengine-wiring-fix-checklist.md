@@ -266,6 +266,7 @@ the following build chunk.
 - [ ] C30 · P3.1a preset/model choices queryable next to CTR/retention snapshots + aggregation query
 - [ ] C31 · P3.1b analytics "by style" panel + producer cites channel-data in LOOK recommendations
 - [ ] C32 · P3.2 legacy stubs: scorer placeholders + learning_extractor + competitor_title_patterns — wire or delete (may split on findings)
+- [ ] C32a · Pre-existing bug found by C32: `skills/video-pipeline/autopilot/autopilot.py:306` invalid f-string format-spec — causes the 2 long-standing `test_integration.py` failures in the autopilot suite (144P/2F baseline). Fix the f-string, confirm the 2 tests go green (autopilot suite → 146P/0F), zero other changes.
 - [ ] C33 · P3.4 quota guard + own-video VPH
 - [ ] C34 · SWEEP S10 (multi-tenant branding) + P3.4 SEO branding parameterization
 - [ ] C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing
