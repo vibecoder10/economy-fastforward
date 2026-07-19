@@ -289,6 +289,10 @@ the following build chunk.
 sweep fires before C17 only if draft-pass verify shows render turnaround is the bottleneck.
 
 
+**Post-C37 decided chunks (Ryan's answers, 2026-07-19 — see decisions.md):**
+- [ ] C38 · Create-surface convergence (chat-primary): producer chat plan = THE create door, New Video form = power-user door; Model A Video / onboarding create step / FirstVideoFlow become thin wrappers routing into those two (no parallel create logic). Two doors stay two doors — this kills the other three as independent implementations, not as UX entry points.
+- [ ] C39 · MICRO: delete the orphaned /storyboards standalone page + its stale entries in agents/blueprints/frontend.md and docs/reports/WIRING_STATUS.md. ⚠ SACRED per Ryan: the storyboard CREATION stage and the in-page Storyboard tab are untouched — this deletes only the unreachable route. Fresh grep-proofs per C19b discipline.
+
 **Phase 4 — One brain: Channel DNA + Tenant Autopilot (outline — chunk AFTER the queue closes; decisions.md 2026-07-19 entries are the spec)**
 - P4.1 · Channel DNA ingestion ("learn this channel"): one conversational front door that takes a channel URL + example scripts/assets, runs ALL existing learners (voice-learn transcripts, channel-formula thumbnails, static_docu research style, script templates, reference modeling, creator brief), shows a confirmable digest of what was learned, saves it as the channel's DNA, and every subsequent build consumes it. Corrections flow through director memory (C15c).
 - P4.2 · Tenant autopilot port: the legacy cron autopilot brain becomes a per-tenant SaaS loop (scheduled per tenant, Supabase-native, dispatching actions.py verbs through ALL existing gates), with a GRADUATED dial (propose-only → auto-draft → fully autonomous + budget ceiling), kill switch, and full three-door control (UI/chat/MCP). The legacy cron system stays running as Ryan's reference implementation until the port proves out.

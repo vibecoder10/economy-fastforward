@@ -254,3 +254,24 @@ conversational front door that runs all learners, shows a confirmable digest of 
 saves it as the channel's DNA consumed by every subsequent build. Pillar 1 ships BEFORE Pillar 2
 (tenant autopilot): ingestion + autopilot together = "point it at any channel, it learns it, then runs
 it" — the ultimate-YouTuber-tool pitch.
+
+## 2026-07-19 — C37 decisions (Ryan, via screenshot of the choice list)
+1. **Create-surface convergence: CHAT-PRIMARY.** The producer chat plan is THE way to create a
+   video; the New Video form stays as the power-user door; the other entry points (Model A Video,
+   onboarding create step, FirstVideoFlow) become thin wrappers routing into those two. → build
+   chunk C38.
+2. **BYOK is a COMMERCIAL PILLAR, verbatim intent:** "I'm not paying for people's generations —
+   I just want a subscription and then they pay for what they use." The platform NEVER subsidizes
+   generation costs; tenants bring their own keys (already the live model). Orchestrator's
+   interpretation of the per-USER flag question: for solo creators tenant-key == user-key, so
+   `PER_USER_KEYS_ENABLED` stays deferred until multi-seat teams exist — the pillar is satisfied
+   at the tenant level today. (Flagged for Ryan to correct if he meant per-seat keys NOW.)
+3. **Multi-shot "Lost Wind Chime" sequences: PARKED.** Ryan: "Lost Wind Chime wasn't even supposed
+   to make it here — it was an attempt on my Hermes agent." Not a committed product feature;
+   stays in the roadmap ideas list only (A1), no build priority.
+4. **/storyboards orphan page: DELETE — but the storyboard CREATION PROCESS is sacred.** Ryan:
+   "We don't need a separate page for storyboards but I want to make sure we keep storyboard
+   creation process as it's a key step." Delete only the unreachable standalone page + stale doc
+   entries; the storyboard pipeline stage and the in-page Storyboard tab are untouched. → micro
+   chunk C39.
+5. Deploy timing: not yet answered — remains open.
