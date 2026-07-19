@@ -1,0 +1,29 @@
+-- Per-shot camera-move OVERRIDE (checklist §2.2, C23 — the clickable/
+-- conversational chip half of camera_selector.py's auto "earn the move"
+-- system): a creator (or the copilot, same write path) can now pick a
+-- specific camera move for one shot instead of the auto-selected one.
+--
+-- camera_preset_id: a catalog id from image_prompts.engine.camera_moves
+--                    (e.g. "crash_zoom_in", "static_locked"), written by
+--                    PATCH /api/assets/{id}/camera-preset. NULL = no manual
+--                    pick (the default for every row) — clip generation
+--                    (pipeline_executor.py's run_clip_generation._one)
+--                    keeps composing the motion prompt exactly as it did
+--                    before this migration (the auto/"earned" camera_move
+--                    stamped at shot-plan time, via assets.camera_movement).
+--                    A non-NULL value's motion_prompt wins outright over
+--                    that auto composition — see run_clip_generation._one's
+--                    preset_move override, right after the video_prompt
+--                    fallback.
+--
+-- Mirrors assets.model_override (migration 090) exactly: same "NULL falls
+-- through to the existing auto path, one column, one write endpoint, read
+-- at clip-generation time not baked in earlier" shape.
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — applied LIVE via the Supabase
+-- MCP tools rather than the app's own migration runner (same rationale as
+-- migrations 088/089/090): it won't be recorded in `_migrations` and may be
+-- re-attempted on a future backend restart; IF NOT EXISTS makes that a
+-- no-op instead of an error.
+
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS camera_preset_id TEXT;

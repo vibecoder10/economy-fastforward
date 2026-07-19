@@ -220,7 +220,7 @@ def _decision_schema() -> str:
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
-        'lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'camera_preset|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
@@ -264,7 +264,11 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "title/description/tags; upload=publish the RENDERED video; approve_cast / approve_environments / "
         "skip_environments=whole-video approvals; approve_scene=approve/lock ONE scene's pictures ('approve "
         "scene 2', 'these look good, lock it in' while viewing a scene — give the scene, free, no confirm "
-        "needed); lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
+        "needed); camera_preset=set (or clear) the CAMERA MOVE for a scene's shots ('use a crash zoom on "
+        "scene 12', 'give the opening a slow push-in', 'put scene 4's camera back to auto') — give the "
+        "scene (use the currently-viewing one for 'this scene'), and put the move description (e.g. 'crash "
+        "zoom', 'push in', 'auto') in change VERBATIM; free, no confirm needed, reversible by saying 'auto'; "
+        "lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
         "Drive; advance=skip the CURRENT stage/gate and move on ('skip this step', 'skip research', 'move on') — "
         "and the script verb skips research automatically when they ask for the script early; "
         "build=run the whole pipeline to the next checkpoint ('build it', 'finish it', 'keep going', "

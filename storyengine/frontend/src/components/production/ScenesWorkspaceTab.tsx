@@ -19,6 +19,7 @@ import {
   Check, Loader2, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
   MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, MapPin, Volume2, LayoutGrid, Download, Ratio,
+  Camera,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -33,8 +34,9 @@ import {
   getDefaultVideoMotionPrompt, getAudioToken, advanceVideo, unlockStory,
   deleteClip, recropAsset, getEnvironments, getVideoCharacters, updateVideoPrompt, updateImagePrompt, improvePrompt,
   getModels, getVideoActions, updateAssetModelOverride, approveScene,
+  getCameraPresets, updateAssetCameraPreset,
 } from "@/lib/api";
-import type { VideoModelInfo } from "@/lib/api";
+import type { VideoModelInfo, CameraPresetInfo } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useClipTrustLadder } from "@/hooks/use-clip-trust-ladder";
@@ -70,6 +72,34 @@ const IMAGE_MODEL_BADGE: Record<string, string> = {
 /** Loose containment match for the 💬 badge — mirrors backend match_lines. */
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Humanize a camera_moves.py catalog id ("crash_zoom_in" -> "Crash Zoom
+ * In") — the chip's fallback label when a move isn't in the curated preset
+ * list fetched from GET /api/camera-presets (e.g. the auto pick landed on
+ * a full-catalog move outside the curated dozen). */
+function humanizeCameraId(id: string): string {
+  return id.split("_").map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(" ");
+}
+
+/** The camera-move chip's display text + whether it's a manual (vs auto)
+ * pick (checklist §2.2/C23). Reads `camera_preset_id` (the creator's
+ * manual override) first; falls back to `camera_movement` (the AUTO/
+ * "earned" pick camera_selector.py stamps at shot-plan time — raw shape
+ * "move_id|PURPOSE" or "static"); "Auto" when neither exists. Fail-safe by
+ * construction — every branch returns a label, so a shot with no camera
+ * data at all still renders an "Auto" chip, never a broken one. */
+function describeCameraMove(asset: Asset, presets: CameraPresetInfo[]): { label: string; isManual: boolean } {
+  if (asset.camera_preset_id) {
+    const preset = presets.find((p) => p.id === asset.camera_preset_id);
+    return { label: preset?.name ?? humanizeCameraId(asset.camera_preset_id), isManual: true };
+  }
+  const raw = (asset.camera_movement || "").trim();
+  if (!raw) return { label: "Auto", isManual: false };
+  if (raw === "static") return { label: "Static", isManual: false };
+  const moveId = raw.split("|")[0];
+  const preset = presets.find((p) => p.id === moveId);
+  return { label: preset?.name ?? humanizeCameraId(moveId), isManual: false };
 }
 
 /** Fetches a short-lived audio token, then renders VoicePlayer with scoped URL */
@@ -271,6 +301,18 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     queryFn: getModels,
     staleTime: 5 * 60_000,
   });
+  // Camera-move presets (checklist §2.2, C23) — the curated catalog subset
+  // for the per-shot chip's preset sheet. Global/rarely-changing, same
+  // long staleTime as the model registry above. A failed/empty fetch just
+  // means the sheet has nothing to list yet — the chip itself still reads
+  // straight off the asset (camera_movement/camera_preset_id), never blocked
+  // on this query (fail-safe: no camera data -> "Auto" chip, never broken).
+  const { data: cameraPresetsData } = useQuery({
+    queryKey: ["camera-presets"],
+    queryFn: getCameraPresets,
+    staleTime: 5 * 60_000,
+  });
+  const cameraPresets = cameraPresetsData?.presets ?? [];
   const priceByModel = useMemo(() => {
     const m: Record<string, number> = {};
     for (const mm of modelsData?.models ?? []) {
@@ -512,6 +554,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // C14 per-scene clip-model override sheet — the asset id whose sheet is open.
   const [overrideAssetId, setOverrideAssetId] = useState<string | null>(null);
   const [savingOverride, setSavingOverride] = useState(false);
+  // C23 per-shot camera-move preset sheet — the asset id whose sheet is open.
+  const [cameraAssetId, setCameraAssetId] = useState<string | null>(null);
+  const [savingCameraPreset, setSavingCameraPreset] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [locking, setLocking] = useState(false);
   // Replace-in-place uploads keep the same URL — bump a cache key per slot
@@ -634,6 +679,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // C14 override sheet's target asset — looked up live off allAssets so the
   // sheet's "currently routed to" line stays correct across invalidations.
   const overrideAsset = overrideAssetId ? allAssets.find((a) => a.id === overrideAssetId) ?? null : null;
+  // C23 camera-move sheet's target asset — same live-lookup pattern as overrideAsset.
+  const cameraAsset = cameraAssetId ? allAssets.find((a) => a.id === cameraAssetId) ?? null : null;
   const totalSegments = allAssets.length;
   const extractedCount = allAssets.filter((a) => a.image_url).length;
   const clipCards = useMemo(() => allAssets.filter((a) => a.image_url), [allAssets]);
@@ -995,6 +1042,25 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       toast.error((err as Error).message || "Couldn't save that override.");
     } finally {
       setSavingOverride(false);
+    }
+  }, [video.id, queryClient, toast]);
+
+  // C23 (checklist §2.2): set (or clear, with null = "Auto") one shot's
+  // manual camera-move override. Same write path the copilot's "use a
+  // crash zoom on scene 12" calls (actions.py's camera_preset runner) —
+  // wins over the auto/"earned" camera_movement at clip-generation time
+  // (pipeline_executor._apply_camera_preset_override). Invalidate
+  // video-assets so the chip refreshes immediately.
+  const handleSetCameraPreset = useCallback(async (assetId: string, next: string | null) => {
+    setSavingCameraPreset(true);
+    try {
+      await updateAssetCameraPreset(assetId, next);
+      queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      setCameraAssetId(null);
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't save that camera move.");
+    } finally {
+      setSavingCameraPreset(false);
     }
   }, [video.id, queryClient, toast]);
 
@@ -1832,6 +1898,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     onRecrop={() => recropOne(asset)}
                     onRedraw={() => redrawOne(asset)}
                     onOpenModelOverride={() => setOverrideAssetId(asset.id)}
+                    cameraPresets={cameraPresets}
+                    onOpenCameraPreset={() => setCameraAssetId(asset.id)}
                   />
                 ))}
               </div>
@@ -1856,6 +1924,16 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           onPick={(id) => handleSetModelOverride(overrideAsset.id, id)}
           onUseRecommendation={() => handleSetModelOverride(overrideAsset.id, null)}
           onClose={() => setOverrideAssetId(null)}
+        />
+      )}
+      {cameraAsset && (
+        <CameraPresetSheet
+          asset={cameraAsset}
+          presets={cameraPresets}
+          saving={savingCameraPreset}
+          onPick={(id) => handleSetCameraPreset(cameraAsset.id, id)}
+          onUseAuto={() => handleSetCameraPreset(cameraAsset.id, null)}
+          onClose={() => setCameraAssetId(null)}
         />
       )}
     </div>
@@ -1909,6 +1987,96 @@ function ModelOverrideSheet({ asset, models, videoDefaultModel, saving, onPick, 
           className="mt-3 w-full text-center px-3 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-50"
           style={{ background: "var(--bg-elevated)", color: "var(--turquoise)", border: "1px solid var(--border-subtle)" }}>
           {saving ? "Saving…" : "Use recommendation"}
+        </button>
+      )}
+    </Modal>
+  );
+}
+
+/** C23's one-tap camera-move sheet (checklist §2.2, UX map §4): tapping a
+ * shot's camera chip opens this — pick from the curated catalog (name +
+ * "best for" one-liner, straight off GET /api/camera-presets — no
+ * hardcoded list here) to force that ONE shot's motion, or "Auto" to clear
+ * back to camera_selector.py's earn-the-move system. Reuses the C14
+ * ModelOverrideSheet pattern (same Modal, same active/manual highlight,
+ * same "clear" button shape) — grouped by purpose per the UX map ("Reveal
+ * / Scale / Establish / Isolation / Payoff"), `static_locked`'s empty
+ * best_for gets its own "Other" group at the end. */
+const _CAMERA_PURPOSE_ORDER = ["REVEAL", "SCALE", "ESTABLISH", "ISOLATION", "PAYOFF"];
+function CameraPresetSheet({ asset, presets, saving, onPick, onUseAuto, onClose }: {
+  asset: Asset;
+  presets: CameraPresetInfo[];
+  saving: boolean;
+  onPick: (presetId: string) => void;
+  onUseAuto: () => void;
+  onClose: () => void;
+}) {
+  const label = `S-${String(asset.scene ?? 0).padStart(2, "0")}.${asset.image_index ?? 0}`;
+  const current = describeCameraMove(asset, presets);
+  const groups = useMemo(() => {
+    const byPurpose = new Map<string, CameraPresetInfo[]>();
+    const other: CameraPresetInfo[] = [];
+    for (const p of presets) {
+      const purpose = _CAMERA_PURPOSE_ORDER.find((pp) => p.best_for.includes(pp));
+      if (purpose) {
+        if (!byPurpose.has(purpose)) byPurpose.set(purpose, []);
+        byPurpose.get(purpose)!.push(p);
+      } else {
+        other.push(p);
+      }
+    }
+    const ordered: { title: string; items: CameraPresetInfo[] }[] = _CAMERA_PURPOSE_ORDER
+      .filter((p) => byPurpose.has(p))
+      .map((p) => ({ title: p.charAt(0) + p.slice(1).toLowerCase(), items: byPurpose.get(p)! }));
+    if (other.length) ordered.push({ title: "Other", items: other });
+    return ordered;
+  }, [presets]);
+  return (
+    <Modal open onClose={onClose} title={`Camera move — ${label}`} size="sm">
+      <p className="text-xs mb-3" style={{ color: "var(--text-tertiary)" }}>
+        {current.isManual ? "Manually picked" : `Auto (earn-the-move): ${current.label}`}
+      </p>
+      {presets.length === 0 && (
+        <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+          Couldn&apos;t load the preset list — try again in a moment.
+        </p>
+      )}
+      <div className="flex flex-col gap-3 max-h-96 overflow-y-auto pr-1">
+        {groups.map((g) => (
+          <div key={g.title}>
+            <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--text-tertiary)" }}>
+              {g.title}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {g.items.map((p) => {
+                const isActive = asset.camera_preset_id === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    disabled={saving}
+                    onClick={() => onPick(p.id)}
+                    title={p.preview || undefined}
+                    className="text-left px-3 py-2 rounded-lg text-xs font-medium transition-all hover:brightness-110 disabled:opacity-50"
+                    style={{
+                      background: isActive ? "rgba(139, 92, 246, 0.16)" : "rgba(255,255,255,0.04)",
+                      border: isActive ? "1px solid rgba(139, 92, 246, 0.4)" : "1px solid rgba(255,255,255,0.08)",
+                      color: "var(--text-primary)",
+                    }}>
+                    <span className="block">{p.name}{isActive ? " · manual" : ""}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      {asset.camera_preset_id && (
+        <button
+          onClick={onUseAuto}
+          disabled={saving}
+          className="mt-3 w-full text-center px-3 py-2 rounded-lg text-xs font-semibold transition-all hover:brightness-110 disabled:opacity-50"
+          style={{ background: "var(--bg-elevated)", color: "var(--turquoise)", border: "1px solid var(--border-subtle)" }}>
+          {saving ? "Saving…" : "Use Auto (earn the move)"}
         </button>
       )}
     </Modal>
@@ -1982,7 +2150,7 @@ function BoardLightbox({ items, index, onNavigate, onClose }: {
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.09). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride }: {
+function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -2004,6 +2172,11 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
   onRecrop: () => void;
   onRedraw: () => void;
   onOpenModelOverride: () => void;
+  /** C23 (checklist §2.2): curated catalog, for the chip's display-name
+   * lookup and the sheet it opens — [] is a valid, fail-safe state (chip
+   * still shows Auto/humanized-id, sheet just has nothing to list yet). */
+  cameraPresets: CameraPresetInfo[];
+  onOpenCameraPreset: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasClip = Boolean(asset.video_clip_url);
@@ -2017,6 +2190,10 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
     ? (asset.model_used || videoDefaultModel)
     : (asset.model_override || asset.routed_model || videoDefaultModel);
   const modelOverridden = Boolean(asset.model_override);
+  // C23 camera-move chip (checklist §2.2) — gated on canAnimate too, same
+  // reasoning as the model badge above: an images-only plan has no clip
+  // to animate, so no camera move to show either.
+  const cameraMove = describeCameraMove(asset, cameraPresets);
   const modelReason = asset.model_override
     ? "Manual override"
     : asset.routing_reason || "Channel default";
@@ -2232,6 +2409,28 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
               <Film size={9} />
               {modelDisplayName(effectiveModelId) || effectiveModelId}
               {modelOverridden && (
+                <span className="w-1 h-1 rounded-full shrink-0" style={{ background: "var(--purple)" }} />
+              )}
+            </button>
+          )}
+          {/* C23 per-shot camera-move chip (checklist §2.2, UX map §4) — tap
+              opens the preset sheet. Shows the auto-selected value from
+              camera_movement when present, else "Auto"; a manual pick gets
+              the same purple "manual" dot the model badge uses. Gated on
+              canAnimate: no clip stage, no camera move to show. */}
+          {canAnimate && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenCameraPreset(); }}
+              title={`Camera move: ${cameraMove.label}${cameraMove.isManual ? " (manual)" : ""}. Tap to change.`}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all hover:brightness-125"
+              style={{
+                background: cameraMove.isManual ? "rgba(139, 92, 246, 0.16)" : "rgba(255,255,255,0.05)",
+                color: cameraMove.isManual ? "var(--purple)" : "var(--text-tertiary)",
+                border: cameraMove.isManual ? "1px solid rgba(139, 92, 246, 0.35)" : "1px solid rgba(255,255,255,0.08)",
+              }}>
+              <Camera size={9} />
+              {cameraMove.label}
+              {cameraMove.isManual && (
                 <span className="w-1 h-1 rounded-full shrink-0" style={{ background: "var(--purple)" }} />
               )}
             </button>

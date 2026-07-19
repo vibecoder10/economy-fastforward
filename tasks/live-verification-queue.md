@@ -1676,6 +1676,85 @@ these on the next dev-server pass with a real key.
 
 ---
 
+## C23 — camera-preset chips: `/api/camera-presets` + scene chip + sheet (checklist §2.2) · live pick-and-animate check
+
+New `GET /api/camera-presets` (curated 12-move subset), `PATCH
+/api/assets/{id}/camera-preset` (`assets.camera_preset_id`, migration 097),
+a Scenes-tab per-shot camera chip + preset sheet, and the copilot's
+`camera_preset` verb ("use a crash zoom on scene 12") — full detail in
+SYSTEM_STATE.md §C23. Verified so far by 20 new sandbox tests (non-vacuous
+via `git stash`), `tsc --noEmit` + `npm run build` (both clean), and a full
+backend-suite byte-identical failure-list diff against the stashed
+baseline. `_apply_camera_preset_override` (the actual composition
+function) is proven byte-identical on NULL and to literally equal the
+preset's `motion_prompt` when set — but ONLY as a pure-function unit test;
+no live DB, no paid Kie/Anthropic key in the build sandbox, so the real
+"pick a preset in the UI → the next real clip actually carries it" loop
+was never driven end-to-end. Do this on the next dev-server pass with a
+real key + DB.
+
+- [ ] **The chip shows Auto by default, and the sheet lists the curated
+      12.** Open a video with existing pictures (post-coverage) in the
+      Scenes tab — every shot card should show a small camera-icon chip
+      (`Auto` or a humanized auto-pick name like "Dolly In", not blank/
+      broken) next to the model badge. Tap it — the sheet should open
+      grouped by purpose (Reveal/Scale/Establish/Isolation/Payoff, plus an
+      "Other" group holding Static) with 12 real move names + no console
+      error.
+- [ ] **Picking "Crash Zoom In" writes the column and updates the chip.**
+      Tap a preset in the sheet — confirm (a) the chip immediately shows
+      "Crash Zoom In · manual" (the purple dot) without a page reload, (b)
+      `se db "SELECT camera_preset_id FROM assets WHERE id='<asset-id>'"`
+      returns `crash_zoom_in`.
+- [ ] **Re-animating that shot carries the preset's motion_prompt.** Tap
+      "Redo this clip" (or the card itself) on the shot from the check
+      above — confirm the cost quote/confirm behaves normally, then after
+      the clip lands, check `se logs backend 200` around the generation (or
+      `assets.video_prompt` immediately before the call, if logged) for the
+      literal text "Crash zoom: the lens snaps rapidly in toward the main
+      target with sudden aggressive speed" (the catalog's own
+      `motion_prompt` for `crash_zoom_in`) — NOT a paraphrase.
+- [ ] **"Use Auto" clears the override and the chip reverts.** From the
+      sheet, tap "Use Auto (earn the move)" — confirm `camera_preset_id`
+      goes back to `NULL` in the DB and the chip shows the auto/"earned"
+      value again (or "Auto" if `camera_movement` is also unset).
+- [ ] **The conversational door writes the SAME column.** In the docked
+      copilot (viewing that video), say "use a crash zoom on scene N" for
+      some scene N with existing shots — confirm the reply names the scene
+      + move + shot count, `se db "SELECT camera_preset_id FROM assets
+      WHERE video_id='<video-id>' AND scene=N"` shows `crash_zoom_in` on
+      EVERY shot in that scene (not just one), and the Scenes tab's chips
+      for that scene now show the manual pick without a manual refresh
+      (reload the tab if the query hasn't invalidated — this is the one
+      piece not wired to auto-invalidate across the chat/tab boundary,
+      confirm whether that's actually true live).
+- [ ] **A garbled camera phrase writes nothing.** Say "make the camera do
+      something weird and cool on scene N" (no recognizable move name) —
+      confirm the reply asks for a clearer instruction (crash zoom, push
+      in, etc.) and `camera_preset_id` is untouched on every row in that
+      scene.
+- [ ] **Known gap — dialogue shots don't honor the override yet.** Pick a
+      camera preset on a SPEAKING shot (one with a matched dialogue line /
+      InfiniteTalk or Grok-speaking path) and re-animate it — per
+      SYSTEM_STATE.md §C23 this is a disclosed gap, expected to have NO
+      effect on that shot's actual motion. Confirm this is really true live
+      (the clip's motion doesn't change) rather than silently working by
+      accident — if it DOES work, the gap note in SYSTEM_STATE.md §C23 is
+      stale and should be corrected.
+- **Cost:** the pick/clear/copilot checks are free (metadata only). The
+  "re-animate carries the motion_prompt" check is ONE paid clip
+  (~$0.09-$1.25 depending on the video's model) — get a quote and Ryan's
+  go-ahead first per storyengine/CLAUDE.md's money rule, same as every
+  other live-verification clip check in this file.
+- **Safety net:** if the chip ever shows a raw catalog id instead of a
+  name (e.g. "crash_zoom_in" instead of "Crash Zoom In"), the
+  `["camera-presets"]` query probably failed to load — `describeCameraMove`
+  falls back to `humanizeCameraId()` in that case (title-cased words, still
+  readable, not a crash), so this is a degraded-but-safe state, not a bug
+  to panic over; check `GET /api/camera-presets` directly first.
+
+---
+
 ## C19a — task-watcher consolidation + GuidedNextStep price source
 (§S9-1/S9-2/S9-8, gate before C21) · live click-through check
 

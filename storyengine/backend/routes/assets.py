@@ -17,6 +17,7 @@ if str(_PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PIPELINE_ROOT))
 
 from shared.channel_profile import MODEL_REGISTRY  # noqa: E402
+from image_prompts.engine.camera_moves import get_move  # noqa: E402
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -41,6 +42,15 @@ class ModelOverrideUpdate(BaseModel):
     # recommendation (checklist §1.2/C14). Both the sheet's picks and its
     # "Use recommendation" clear button go through this one field.
     model_override: Optional[str] = None
+
+
+class CameraPresetUpdate(BaseModel):
+    # A camera_moves.py catalog id (e.g. "crash_zoom_in"), or None/"" to
+    # clear the override back to Auto — camera_selector.py's earn-the-move
+    # decides again (checklist §2.2/C23). Same door for both: the Scenes
+    # chip's preset sheet AND the copilot's "use a crash zoom on scene 12"
+    # write through this one field.
+    camera_preset_id: Optional[str] = None
 
 
 @router.patch("/{asset_id}/approve")
@@ -151,6 +161,44 @@ async def update_model_override(
         value, asset_id, tenant_id,
     )
     return {"status": "saved", "model_override": value}
+
+
+@router.patch("/{asset_id}/camera-preset")
+async def update_camera_preset(
+    asset_id: str, body: CameraPresetUpdate, tenant_id: str = Depends(get_tenant_id)
+):
+    """Set or clear this shot's manual camera-move override (checklist §2.2/
+    C23 — the Scenes workspace chip's tap-to-change preset sheet, and the
+    copilot's "use a crash zoom on scene 12" — same write path, two doors).
+
+    `run_clip_generation._one` (pipeline_executor.py) reads this column at
+    CLIP-GENERATION time (not baked in earlier, same shape as model_override/
+    migration 090): a non-NULL value's motion_prompt wins outright over the
+    auto/"earned" motion composed from assets.camera_movement. An empty
+    string or omitted value CLEARS the override (falls back to Auto —
+    camera_selector.py decides again on the next animate).
+
+    Any value must name a real camera_moves.py catalog id (the same catalog
+    GET /api/camera-presets serves a curated subset of) — never a value
+    that would silently no-op at generation time."""
+    asset = await fetch_one(
+        "SELECT id FROM assets WHERE id = $1 AND tenant_id = $2", asset_id, tenant_id,
+    )
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    value = (body.camera_preset_id or "").strip() or None
+    if value is not None and not get_move(value):
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{value}' isn't a known camera move — pick one from the preset list.",
+        )
+
+    await execute(
+        "UPDATE assets SET camera_preset_id = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+        value, asset_id, tenant_id,
+    )
+    return {"status": "saved", "camera_preset_id": value}
 
 
 @router.post("/batch-approve")

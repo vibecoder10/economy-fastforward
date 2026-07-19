@@ -4680,3 +4680,163 @@ the pre-existing `isSliderCard` helper) — zero new scattered string-match site
 round-trip (draft → confirm → row appears in Profile → "use it" on a new video) deferred to
 `tasks/live-verification-queue.md` §C22 — needs a live DB + a real Anthropic/Kie key to actually
 drive the producer LLM.
+
+## C23 — Camera-Preset Chips: `/api/camera-presets` + scene chip + sheet (added 2026-07-19)
+
+**Checklist §2.2 / P2.2 (UX map §4):** the 40+-move camera catalog (`image_prompts.engine.
+camera_moves.py`) was auto-only — `camera_selector.py`'s "earn the move" system picks a move at
+shot-plan time and stamps it onto `assets.camera_movement`, but a creator could never see or
+override it. This chunk exposes a curated subset over a new endpoint, a per-shot chip + preset
+sheet in the Scenes tab, and a conversational door through the copilot — the same "two doors, one
+write path" law every prior UX-map chunk follows.
+
+### C23-prep — S9-7 hook extraction (audit finding, required before touching this file again)
+
+The audit (`docs/reports/2026-07-17-storyengine-agent-audit-findings.md` §S9-7) flagged
+`ScenesWorkspaceTab.tsx` at 2399/2403 lines with an explicit constraint: extract the clip
+trust-ladder/auto-resume state machine (~L530-1099) to a hook BEFORE C23 lands its chip there.
+New `frontend/src/hooks/use-clip-trust-ladder.ts` (172 lines) now owns: `generatingClipIds`/
+`failedClipIds`/`confirmKey` state, the `clipResumeRef`/`prevRunningRef` refs, `startClipTask`/
+`animateOne`/`animateScene`/`animateAll`/`maybeResumeClips`, the running→idle auto-resume
+trigger effect, and `confirmable()`. Deliberately NOT moved: `chainRef`/`generatingScene` (the
+storyboard plan→draw auto-chain, a separate concern) and the `onComplete`/`onFailed`/Stop-event
+handlers in the component, since those three callbacks serve BOTH the chain and the clip machine
+— they now reach into the hook's exposed setters (`setGeneratingClipIds` etc.) and
+`cancelResume()` the same way they always reached into local `setState` calls (forward-reference-
+by-closure, the same pattern the pre-existing code already used for `markStarted`). `animateAll`'s
+signature changed from a zero-arg closure to `(pendingIds: string[])` since it no longer closes
+over `clipCards` itself — the one call site (`confirmable("all", remainingCost, () =>
+animateAll(clipCards.filter(...)))`) was updated to match. Behavior-preserving: `tsc --noEmit`
+clean, `npm run build` compiles+typechecks clean (32/32 routes). **Line count: 2403 → 2321
+(-82)**; the removed logic reappears in the new 172-line hook. Commit `ffab537` (`C23-prep: ...`).
+
+### Backend
+
+- **`GET /api/camera-presets`** (new `routes/camera_presets.py`, registered in `main.py`) — reads
+  `image_prompts.engine.camera_moves.CAMERA_MOVES` server-side via `get_move()`, same "the Python
+  catalog is the source of truth, no hardcoded frontend copy" posture as `/api/models` and
+  `/api/style-presets`. Auth: `Depends(get_tenant_id)` only, mirroring `/api/models` exactly (a
+  global catalog, not tenant-scoped data). Curated to 12 ids (`CURATED_PRESET_IDS`, hand-picked by
+  reading the catalog's own category/`best_for`/pace comments for a spread across every purpose):
+  `dolly_in, dolly_out, crash_zoom_in, slow_zoom_in, pan_right, tilt_up_reveal, crane_up_reveal,
+  drone_orbit, orbit_right, whip_pan, handheld_follow, static_locked`. Each entry: `id`, `name`,
+  `motion_prompt` (the exact contract text fed to clip generation), `best_for` (purpose tags, for
+  the sheet's grouping), `category`, and `preview` (the catalog's own `image_setup` text — no real
+  preview images exist for camera moves, so this is the closest honest thing to one; `null` for
+  `static_locked`, which has no composition contract). `static_locked` is included deliberately —
+  it's the "force no movement" pick, distinct from clearing back to Auto (`NULL` — earn-the-move
+  decides again).
+- **`assets.camera_preset_id`** (migration 097, applied LIVE via the Supabase MCP `execute_sql`
+  tool against `wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`, `schema.sql`
+  updated) — a nullable TEXT column mirroring `model_override` (migration 090) exactly: `NULL` =
+  no manual pick, falls through to the auto/"earned" `camera_movement`. Written by **`PATCH
+  /api/assets/{asset_id}/camera-preset`** (new endpoint in `routes/assets.py`, same tenant-scoping
+  + `get_move()` validation pattern as `update_model_override`) — blank/omitted clears the
+  override, an unknown id 400s.
+- **The composition seam — `pipeline_executor._apply_camera_preset_override(prompt, camera_
+  preset_id)`** (new module-level pure function, no DB/I/O, directly unit-testable). Called from
+  `run_clip_generation._one`'s silent/non-dialogue-shot branch, right after the existing
+  `video_prompt`-or-default fallback and BEFORE `motion_guard`'s people-rule prefix:
+  ```python
+  prompt = (r.get("video_prompt") or "").strip() or ("Slow push-in on the main subject. ...")
+  prompt = _apply_camera_preset_override(prompt, r.get("camera_preset_id"))
+  prompt = motion_guard(r.get("image_prompt"), r.get("sentence_text"), cast_names) + prompt
+  ```
+  `_apply_camera_preset_override` calls `get_move(camera_preset_id)`; a hit REPLACES `prompt`
+  outright with `move.motion_prompt` (guaranteeing the [V] contract — the composed prompt not just
+  *contains* but *equals* the preset's contract text before the people-rule prefix is added); a
+  miss (NULL/blank/unknown id — every row before C23) returns `prompt` unchanged, byte-identical.
+  The dialogue/speaking branch (character-voiced shots) was deliberately left untouched this
+  chunk — the camera chip targets narration/b-roll shots, the common case, and speaking-shot
+  motion composition is a materially different (audio-timed, lip-sync-adjacent) code path; not
+  wired to read `camera_preset_id` yet, flagged as a known gap below.
+- **Conversational door — `actions.py`'s new `camera_preset` verb** ("use a crash zoom on scene
+  12", "put scene 4's camera back to auto"). `ACTIONS["camera_preset"]` is `paid: False` (no
+  confirm card, same as `approve_scene`) with `needs: "pictures"`. New `_runner_camera_preset`
+  resolves free text to a catalog id — tries `get_move()` directly first (in case the classifier
+  already learned a real id from `GET /api/camera-presets`), then a small alias map
+  (`_CAMERA_PRESET_ALIASES`: "crash zoom"→`crash_zoom_in`, "push in"→`dolly_in`, "pull back"→
+  `dolly_out`, "pan"→`pan_right`, "tilt up"→`tilt_up_reveal`, "crane up"→`crane_up_reveal`,
+  "drone"/"orbit"→`drone_orbit`/`orbit_right`, "whip pan"→`whip_pan`, "handheld"→`handheld_follow`,
+  "static"/"no movement"→`static_locked`), or recognizes "auto"/"clear"/"default" as an explicit
+  clear — then writes `UPDATE assets SET camera_preset_id=$1 WHERE video_id=$2 AND tenant_id=$3
+  AND scene=$4`, the SAME column the clickable chip writes (scene-scoped, not per-shot, since the
+  classifier's `pending` dict carries a scene number not a shot index — mirrors how "animate scene
+  N" already treats a whole scene as the unit). Registered in `RUNNERS`; the verb was added to
+  BOTH classifiers that need to recognize it — `agent_brain.py`'s agentic tool-loop schema (the
+  docked in-video copilot) and `routes/chat.py`'s legacy one-shot classifier fallback — same two
+  places `approve_scene` lives, per the C15b precedent the task named explicitly. An unrecognized
+  move phrase writes nothing and asks the creator to try a different word (never guesses/writes
+  garbage into the column).
+
+### Frontend
+
+- **`Asset` type** (`lib/api.ts`) gains `camera_movement`/`camera_preset_id` (both already read by
+  `GET /api/videos/{id}/assets`, updated to select them). New `CameraPresetInfo`/
+  `CameraPresetsResponse` types, `getCameraPresets()`, `updateAssetCameraPreset(assetId, id |
+  null)`.
+- **`ScenesWorkspaceTab.tsx`**: new `["camera-presets"]` query (`staleTime` 5 min, same as
+  `["models"]`); new `describeCameraMove(asset, presets)` module-level helper — reads
+  `camera_preset_id` (manual) first, falls back to parsing `camera_movement` ("move_id|PURPOSE" or
+  "static"), else `"Auto"` — fail-safe by construction, every branch returns a label so a shot
+  with zero camera data still renders an `"Auto"` chip, never a broken one. New camera-move chip
+  in `SegmentCard`'s badge row (next to the existing C14 model badge, same gating on
+  `canAnimate`, same purple "manual" dot convention) — tap opens the new `CameraPresetSheet`
+  (reuses the exact `ModelOverrideSheet` pattern: `Modal`, active-highlight, a "clear" button),
+  which groups the curated presets by `best_for` purpose (Reveal/Scale/Establish/Isolation/
+  Payoff, `static_locked`'s empty `best_for` falling into an "Other" group) per UX map §4. Picking
+  a preset calls `handleSetCameraPreset` → `updateAssetCameraPreset` → invalidates
+  `["video-assets", video.id]`, same invalidation the model-override sheet already uses, so the
+  chip updates immediately without a page reload.
+
+### New/Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/frontend/src/hooks/use-clip-trust-ladder.ts` | NEW — S9-7 extraction (prep commit) |
+| `storyengine/backend/migrations/097_asset_camera_preset.sql` | NEW — `assets.camera_preset_id` |
+| `storyengine/backend/routes/camera_presets.py` | NEW — `GET /api/camera-presets` |
+| `storyengine/backend/tests/functional/test_c23_camera_presets.py` | NEW — 20 tests across all 4 layers |
+| `storyengine/backend/routes/assets.py` | New `PATCH /api/assets/{id}/camera-preset` |
+| `storyengine/backend/routes/videos.py` | `GET /assets` SELECT gains `camera_movement, camera_preset_id` |
+| `storyengine/backend/pipeline_executor.py` | New `_apply_camera_preset_override`; wired into `run_clip_generation._one`'s silent-shot branch |
+| `storyengine/backend/actions.py` | New `camera_preset` verb/runner + alias resolver |
+| `storyengine/backend/agent_brain.py` | Docked copilot's decision schema + VERB MEANINGS gain `camera_preset` |
+| `storyengine/backend/routes/chat.py` | Legacy classifier's schema + verb prose gain `camera_preset` |
+| `storyengine/backend/main.py` | `camera_presets.router` registered |
+| `storyengine/schema.sql` | `assets.camera_preset_id` documented |
+| `storyengine/frontend/src/lib/api.ts` | `Asset.camera_movement`/`.camera_preset_id`; `CameraPresetInfo`; `getCameraPresets`/`updateAssetCameraPreset` |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | Camera-move chip + `CameraPresetSheet`; `describeCameraMove`/`humanizeCameraId` helpers |
+
+**Known gap, flagged not silently skipped:** the dialogue/speaking-shot clip-composition branch
+(character-voiced clips, InfiniteTalk/Grok-speaking paths) does not read `camera_preset_id` yet —
+only the silent/narration branch does. A manual camera pick on a speaking shot is currently a
+no-op at generation time (the chip still writes the column and the sheet still shows "manual",
+but the next animate won't honor it for that shot). Scoped out of this chunk deliberately (camera
+moves on lip-synced dialogue shots is a materially different, audio-timing-constrained problem);
+next chunk to touch clip composition should close this or the chip needs a shot-type-aware
+disabled state.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c23_camera_presets.py -q` — 20 passed. Non-vacuous: `git stash` (tracked
+files only, test file + `routes/camera_presets.py` + migration left in place) — import fails
+(`ImportError: cannot import name '_apply_camera_preset_override'`); `git stash pop` restored
+clean. `python -m py_compile` clean on every touched/added `.py` file. Full backend suite: **1094
+passed (1074 baseline + 20 new) / 16 pre-existing failures / 1 pre-existing error** — the
+failing/erroring test name list is BYTE-IDENTICAL to a full stashed-baseline rerun (diffed, zero
+output), not just a count match. Frontend: `npx tsc --noEmit` clean; `npm run build`
+compiles+typechecks clean (32/32 routes, same pre-existing `NEXT_PUBLIC_API_URL` prerender gap
+every prior frontend chunk hits). Live "pick crash zoom → real clip's motion prompt carries it,
+end to end through a real animate" deferred to `tasks/live-verification-queue.md` §C23 (no paid
+Kie/Anthropic key in this sandbox, and no live DB to drive the actual UI click-through).
+
+**Deploy-safety assessment:** ff-merge candidate, with the known dialogue-branch gap disclosed
+above (not a regression — dialogue clips simply don't read the new column yet, exactly like every
+other row before this chunk). Skew both directions: an OLD frontend against a NEW backend never
+calls the new endpoints, so nothing changes; a NEW frontend against an OLD backend gets a 404 on
+`/api/camera-presets` — the query fails soft (`cameraPresets` defaults to `[]`), the chip still
+renders (`describeCameraMove` falls back to `camera_movement`/"Auto" without needing the presets
+list at all) and the sheet just shows "couldn't load the preset list" instead of crashing. Every
+new DB read/write is additive (`camera_preset_id` NULL for every existing row); the one touched
+hot path (`run_clip_generation._one`) is proven byte-identical when the column is NULL, which is
+every row that existed before this migration ran. The prep commit (hook extraction) was verified
+independently as behavior-preserving before any C23 code touched the file.

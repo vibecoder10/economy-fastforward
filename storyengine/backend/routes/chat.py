@@ -973,8 +973,8 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
         "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
-        "approve_environments, skip_environments, approve_scene, lock, unlock, drive_push, drive_sync, "
-        "advance — for RUNNING/redoing a SINGLE step. "
+        "approve_environments, skip_environments, approve_scene, camera_preset, lock, unlock, drive_push, "
+        "drive_sync, advance — for RUNNING/redoing a SINGLE step. "
         "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
         "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
         "skips research automatically. "
@@ -991,6 +991,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "it in', 'these are good, approve them' while viewing a scene) — give the scene number (use the "
         "'currently viewing' scene if they say 'this scene'/'these' and name none). Different from approve_cast/"
         "approve_environments, which gate the whole video's cast/locations, not one scene. "
+        "'camera_preset' = set or clear the CAMERA MOVE for a scene's shots ('use a crash zoom on scene 12', "
+        "'give the opening a slow push-in', 'put scene 4's camera back to auto') — give the scene number "
+        "(use 'currently viewing' for 'this scene') and put the move description ('crash zoom', 'push in', "
+        "'auto', etc.) VERBATIM in change. Free and reversible, no confirm needed. "
         "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
         "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
         "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
@@ -1029,7 +1033,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
-        'lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'camera_preset|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'

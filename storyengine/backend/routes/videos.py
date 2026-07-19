@@ -847,6 +847,7 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
                   video_prompt, sound_prompt, sound_effect_url, sound_volume,
                   duration_seconds, extraction_flags, image_model,
                   routed_model, routing_reason, model_used, model_override,
+                  camera_movement, camera_preset_id,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
              AND (generation_method IS NULL OR generation_method <> 'variant_candidate')

@@ -68,6 +68,7 @@ from shared.channel_profile import (  # noqa: E402
     picture_price_for,
 )
 from shared.model_router import resolve_clip_model  # noqa: E402
+from image_prompts.engine.camera_moves import get_move  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,14 @@ ACTIONS: dict[str, dict[str, Any]] = {
     # non-paid branch in routes/chat.py runs it straight from the classifier's pick.
     "approve_scene": {"runner": "approve_scene", "paid": False, "needs": "pictures",
                     "doing": "approving this scene", "label": "Approve this scene"},
+    # C23 (checklist §2.2, UX map §4): "use a crash zoom on scene 12" — the
+    # conversational door onto the SAME assets.camera_preset_id column the
+    # Scenes tab's clickable chip/sheet writes (routes/assets.py's PATCH
+    # /api/assets/{id}/camera-preset). Free (metadata only, no generation)
+    # and reversible (say "auto" to clear it), so — like approve_scene — it
+    # runs straight from the classifier's pick, no confirm card.
+    "camera_preset": {"runner": "camera_preset", "paid": False, "needs": "pictures",
+                    "doing": "setting the camera move", "label": "Set the camera move"},
     # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
     # if we're before them, else all the way to a finished video. NOT one step.
     "build":       {"calls": None, "paid": True, "needs": None,
@@ -1183,6 +1192,91 @@ async def _runner_approve_scene(tenant_id, video_id, background_tasks, pending) 
             "This is free and reversible any time (approve it again later to change your mind).")
 
 
+# C23 (checklist §2.2): plain-English -> camera_moves.py catalog id, for the
+# copilot's "use a crash zoom on scene 12". get_move() is tried FIRST (see
+# _resolve_camera_preset_text) so a classifier that already learned real
+# ids from GET /api/camera-presets still resolves correctly — this alias
+# map is the fallback for ordinary phrasing, not the only path.
+_CAMERA_PRESET_ALIASES: dict[str, str] = {
+    "crash zoom": "crash_zoom_in", "crash-zoom": "crash_zoom_in", "snap zoom": "crash_zoom_in",
+    "push in": "dolly_in", "dolly in": "dolly_in", "push-in": "dolly_in",
+    "pull back": "dolly_out", "pull out": "dolly_out", "dolly out": "dolly_out", "zoom out": "dolly_out",
+    "slow zoom": "slow_zoom_in", "zoom in": "slow_zoom_in",
+    "pan right": "pan_right", "pan left": "pan_left", "pan": "pan_right",
+    "tilt up": "tilt_up_reveal", "tilt": "tilt_up_reveal",
+    "crane up": "crane_up_reveal", "crane": "crane_up_reveal",
+    "drone": "drone_orbit", "aerial orbit": "drone_orbit", "orbit": "orbit_right",
+    "whip pan": "whip_pan", "whip": "whip_pan",
+    "handheld": "handheld_follow", "follow": "handheld_follow",
+    "static": "static_locked", "locked off": "static_locked", "no movement": "static_locked",
+    "lock the camera": "static_locked",
+}
+_CAMERA_PRESET_CLEAR_WORDS = frozenset({"auto", "automatic", "clear", "earn the move", "default"})
+
+
+def _resolve_camera_preset_text(text: str) -> tuple[Optional[str], bool]:
+    """Returns (move_id_or_None, is_clear). is_clear=True means "go back to
+    Auto" (camera_selector.py's earn-the-move decides again) — distinct from
+    "unrecognized" (move_id=None, is_clear=False)."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None, False
+    if t in _CAMERA_PRESET_CLEAR_WORDS:
+        return None, True
+    direct = get_move(t.replace(" ", "_"))
+    if direct:
+        return direct.id, False
+    for phrase, move_id in _CAMERA_PRESET_ALIASES.items():
+        if phrase in t:
+            return move_id, False
+    return None, False
+
+
+async def _runner_camera_preset(tenant_id, video_id, background_tasks, pending) -> str:
+    """C23 (checklist §2.2, UX map §4): "use a crash zoom on scene 12" / "put
+    scene 4 back to auto" — writes assets.camera_preset_id for every shot in
+    the given scene, the SAME column and the SAME get_move() validation the
+    Scenes tab's clickable chip uses (PATCH /api/assets/{id}/camera-preset,
+    routes/assets.py) — two doors, one write path. Scene-wide (the
+    classifier's pending dict carries a scene number, not a per-shot index
+    yet) mirrors how "animate scene N" already treats a whole scene as the
+    unit.
+
+    Free and reversible (say "auto" to clear it back to camera_selector.py's
+    earn-the-move system) — no confirm card, same as approve_scene."""
+    scene = pending.get("scene")
+    if scene is None:
+        return 'Which scene? e.g. "use a crash zoom on scene 12".'
+    scene = int(scene)
+    text = (pending.get("change") or "").strip()
+    move_id, is_clear = _resolve_camera_preset_text(text)
+    if not is_clear and not move_id:
+        return (f'I didn\'t recognize "{text}" as a camera move — try something like crash zoom, '
+                "push in, pull back, pan, tilt up, crane up, orbit, drone, whip pan, handheld, "
+                "or static (no movement).")
+    value = None if is_clear else move_id
+    result = await execute(
+        "UPDATE assets SET camera_preset_id = $1, updated_at = now() "
+        "WHERE video_id = $2 AND tenant_id = $3 AND scene = $4",
+        value, video_id, tenant_id, scene,
+    )
+    count = 0
+    if result:
+        try:
+            count = int(str(result).strip().split()[-1])
+        except (ValueError, IndexError):
+            count = 0
+    if count == 0:
+        return f"Scene {scene} doesn't have any shots yet — nothing to set the camera move on."
+    if value is None:
+        return (f"Scene {scene} is back to Auto — {count} shot{'s' if count != 1 else ''} will use the "
+                "earn-the-move system again next time you animate.")
+    move = get_move(value)
+    name = move.name if move else value
+    return (f"Scene {scene}: {count} shot{'s' if count != 1 else ''} set to {name} — "
+            f're-animate to see it (tap the card, or say "animate scene {scene}").')
+
+
 async def _runner_draft_pass(tenant_id, video_id, background_tasks, pending) -> str:
     """C17 (checklist §1.3): 'draft the whole video' — route every scene's
     CLIP to the cheapest wired draft-tier model (data-driven,
@@ -1340,6 +1434,7 @@ RUNNERS = {
     "approve_environments": _runner_approve_environments,
     "skip_environments": _runner_skip_environments,
     "approve_scene": _runner_approve_scene,
+    "camera_preset": _runner_camera_preset,
     "lock": _runner_lock,
     "unlock": _runner_unlock,
     "drive_push": _runner_drive_push,

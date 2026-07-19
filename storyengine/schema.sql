@@ -373,6 +373,12 @@ CREATE TABLE assets (
   -- NULL = no manual override, so resolve_clip_model() falls through to
   -- routed_model then the video's own video_model, unchanged from C13.
   model_override TEXT,
+  -- Explicit per-shot camera-move override (migration 097, checklist §2.2/
+  -- C23): a catalog id from image_prompts.engine.camera_moves, written by
+  -- PATCH /api/assets/{id}/camera-preset. NULL = no manual pick, so clip
+  -- generation keeps composing the motion prompt from the auto/"earned"
+  -- camera_movement exactly as before this migration.
+  camera_preset_id TEXT,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

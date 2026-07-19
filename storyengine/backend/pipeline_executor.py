@@ -144,6 +144,24 @@ def _payload_blob(payload: Any) -> str:
         return str(payload or "")
 
 
+def _apply_camera_preset_override(prompt: str, camera_preset_id: Optional[str]) -> str:
+    """C23 (checklist §2.2): a manual camera-preset pick (assets.camera_
+    preset_id, set via the Scenes tab chip or the copilot's "use a crash
+    zoom on scene 12") wins OUTRIGHT over the auto/"earned" motion prompt
+    for a silent (non-dialogue) shot — see run_clip_generation._one's
+    non-speaking branch, the one call site.
+
+    get_move() returning None (blank/unknown id — every row before C23,
+    and every row nobody has touched since) is a no-op: `prompt` comes back
+    unchanged, so this is byte-identical to pre-C23 behavior whenever
+    camera_preset_id is NULL. This is a pure function on purpose (no DB, no
+    I/O) so the composition contract is directly unit-testable without
+    mocking the whole clip-generation closure."""
+    from image_prompts.engine.camera_moves import get_move
+    move = get_move(camera_preset_id)
+    return move.motion_prompt if move else prompt
+
+
 def _spoken_word_count(text: str) -> int:
     """Deterministic voiceover word count.
 
@@ -11891,7 +11909,7 @@ separate scenes."""
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
                 f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue, "
-                f"routed_model, model_override "
+                f"routed_model, model_override, camera_preset_id "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
@@ -12295,6 +12313,12 @@ separate scenes."""
                             "Slow push-in on the main subject. Keep the characters, art "
                             "style, and composition exactly as shown, and animate only "
                             "what is already in the frame.")
+                        # C23 camera-preset chip (checklist §2.2): a manual pick
+                        # wins outright over the auto/"earned" motion above — the
+                        # whole point of the chip is letting the creator override
+                        # earn-the-move. See _apply_camera_preset_override's
+                        # docstring for the byte-identical-when-NULL contract.
+                        prompt = _apply_camera_preset_override(prompt, r.get("camera_preset_id"))
                         # People rule (Ryan: S1.4's bird close-up grew an
                         # invented toddler — twice): cutaway cards get an
                         # absolute NO PEOPLE, every other narration card gets

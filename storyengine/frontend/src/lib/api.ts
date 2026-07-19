@@ -1754,6 +1754,14 @@ export interface Asset {
   routing_reason?: string | null;
   model_used?: string | null;
   model_override?: string | null;
+  /** Camera-move data (checklist §2.2/C23). `camera_movement` is the AUTO/
+   * "earned" pick camera_selector.py stamped at shot-plan time — raw shape
+   * "move_id|PURPOSE" or "static" (see coverage_to_app.py's _camera_tag).
+   * `camera_preset_id` is the creator's own manual pick from the Scenes
+   * chip/sheet or the copilot, which wins over the auto pick at clip-
+   * generation time. Both null for assets that predate C23. */
+  camera_movement?: string | null;
+  camera_preset_id?: string | null;
   created_at: string | null;
 }
 
@@ -2844,6 +2852,35 @@ export const getModels = () => fetchApi<ModelsResponse>("/api/models");
 
 export const getSuggestedModels = () =>
   fetchApi<SuggestedModels>("/api/chat/suggested-models");
+
+// --- Camera-move presets (checklist §2.2, C23) — a curated subset of the
+// 40+-move catalog (image_prompts.engine.camera_moves.py), read-only, same
+// "global catalog behind auth" posture as getModels() above. ---
+export interface CameraPresetInfo {
+  id: string;
+  name: string;
+  motion_prompt: string;
+  best_for: string[];
+  category: string;
+  /** The catalog's own `image_setup` text — the closest honest thing to a
+   * preview (no preview images exist for camera moves). Null for
+   * static_locked (no composition contract). */
+  preview: string | null;
+}
+export interface CameraPresetsResponse {
+  presets: CameraPresetInfo[];
+}
+export const getCameraPresets = () => fetchApi<CameraPresetsResponse>("/api/camera-presets");
+
+/** Set (or clear, with null = "Auto") one shot's manual camera-move
+ * override. Wins over the auto/"earned" camera_movement at clip-generation
+ * time — invalidate video-assets so the chip refreshes immediately. */
+export const updateAssetCameraPreset = (assetId: string, camera_preset_id: string | null) =>
+  fetchApi<{ status: string; camera_preset_id: string | null }>(
+    `/api/assets/${assetId}/camera-preset`, {
+      method: "PATCH",
+      body: JSON.stringify({ camera_preset_id }),
+    });
 
 // --- Style presets (checklist §2.1, C20 backend / C21a frontend gallery) ---
 // The 5 rich Python visual-profile ENGINES (shared.profiles.visual/*.py),
