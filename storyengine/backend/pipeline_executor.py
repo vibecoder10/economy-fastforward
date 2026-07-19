@@ -7299,10 +7299,17 @@ class PipelineExecutor:
             video: Video row dict from Supabase (contains per-video override columns).
         """
         # Mapping: tenant prompt_key -> (video column, pipeline attribute)
-        # NOTE: `title` is intentionally left out for now — Phase 3 wires it.
+        # `title` has no per-video override column (like `research`) — it
+        # resolves per-video None > tenant override > the neutral `title`
+        # engine template (checklist C34d — closes the "Phase 3 wires it"
+        # gap: title generation used to borrow the `thumbnail` override
+        # wholesale via thumbnail/run.py's ThumbnailTitleEngine construction;
+        # it now gets its own `title_system_prompt` seam, read by
+        # thumbnail/run.py separately from thumbnail_system_prompt).
         PROMPT_MAP = {
             "script":           ("script_system_prompt",       "script_system_prompt"),
             "thumbnail":        ("thumbnail_system_prompt",    "thumbnail_system_prompt"),
+            "title":            (None,                         "title_system_prompt"),
             "video_motion":     ("video_motion_system_prompt", "video_motion_system_prompt"),
             "sound_curation":   ("sound_system_prompt",        "sound_curation_system_prompt"),
             "sound_generation": ("sound_system_prompt",        "sound_generation_system_prompt"),

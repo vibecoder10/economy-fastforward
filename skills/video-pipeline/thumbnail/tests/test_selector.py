@@ -166,3 +166,71 @@ def test_preferred_template_override_bypasses_selection(monkeypatch):
     assert set(TEMPLATES.keys()) == {
         "template_a", "template_b", "template_c", "template_d", "template_e",
     }
+
+
+# ---------------------------------------------------------------------------
+# C34d: word-boundary keyword matching — "king" must not match "talking"
+# ---------------------------------------------------------------------------
+
+def test_king_substring_inside_talking_does_not_trigger_person_template():
+    """The bug: PERSON_KEYWORDS' plain `in` substring check matched "king"
+    inside "talking"/"breaking", pushing completely unrelated content onto
+    Template B. Neither word appears elsewhere in this text, so pre-fix this
+    selected template_b; post-fix it must fall through to the neutral
+    default."""
+    md = _metadata(
+        title="Just Talking About Breaking News in the Kitchen",
+        summary="A casual chat about what's cooking today.",
+        niche="",
+    )
+    assert select_template(md) == "template_e"
+
+
+def test_king_whole_word_still_triggers_person_template():
+    """The fix must not throw out the real keyword — a genuine standalone
+    "king" mention still earns Template B."""
+    md = _metadata(title="The King Who Lost His Empire", niche="")
+    assert select_template(md) == "template_b"
+
+
+def test_multiword_phrase_still_matches_after_word_boundary_fix():
+    """Multi-word PERSON_KEYWORDS phrases (e.g. "prime minister") must keep
+    matching in full — the word-boundary fix only anchors the START of the
+    match, it must not break phrase matching."""
+    md = _metadata(
+        title="Meet the New Prime Minister",
+        summary="A profile of the country's newest leader.",
+        niche="",
+    )
+    assert select_template(md) == "template_b"
+
+
+def test_word_stem_keyword_still_matches_its_longer_form():
+    """Several keywords are intentional stems ("financ", "geopolit",
+    "strangl", "weaponiz") meant to match their fuller forms. The
+    word-boundary fix anchors only the START of the keyword, so these must
+    keep matching as a prefix of a longer word."""
+    md = _metadata(
+        title="How Financial Markets Strangled a Generation",
+        summary="A look at global financing and its consequences.",
+        niche="",
+    )
+    assert select_template(md) == "template_d"  # "strangl" -> "Strangled"
+
+
+def test_plural_of_single_word_keyword_still_matches():
+    """A plain word keyword ("agent") must still match its plural
+    ("agents") — the fix only anchors the start of the word, not the end."""
+    md = _metadata(title="The Secret Agents Who Ran the Operation", niche="")
+    assert select_template(md) == "template_b"
+
+
+def test_geo_niche_word_stem_still_matches_via_channel_niche_env(monkeypatch):
+    """GEO_NICHE_KEYWORDS' stems ("financ", "geopolit") must keep matching a
+    longer niche string, not just an exact list entry."""
+    md = _metadata(
+        title="Something Strange is Happening With the Numbers",
+        summary="A fresh look at a pattern nobody has noticed yet.",
+        niche="financial news and analysis",
+    )
+    assert select_template(md) == "template_a"

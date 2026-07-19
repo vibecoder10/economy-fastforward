@@ -6930,3 +6930,122 @@ already returns). Safe to ff-merge; no VPS coordination needed beyond the routin
 `git pull --ff-only` (the migration is already live on Supabase, independent of the code deploy).
 
 **Next up: C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing.**
+
+## C34d — two micro follow-ups flagged (not fixed) by C34c (added 2026-07-19)
+
+Checklist C34d: both items were explicitly called out as "not fixed this chunk" in C34c's own
+report and deferred here.
+
+### 1 — the neutral `title` engine template was wired but unplugged
+
+`engine_templates.py`'s `ENGINE_TEMPLATES["title"]` already existed (Phase 3 promoted it from a thin
+scaffold to the real neutral title craft), but `pipeline_executor.py::_load_prompt_overrides`'s
+`PROMPT_MAP` omitted `"title"` entirely (its own comment: `"title` is intentionally left out for now —
+Phase 3 wires it"`), so `self._pipeline` never got a `title_system_prompt` attribute. The only override
+path that reached `TitleGenerator` was `thumbnail/run.py` handing `ThumbnailTitleEngine` a single
+`system_prompt_override` (read from `pipeline.thumbnail_system_prompt`), which `ThumbnailTitleEngine`
+then fanned out to BOTH `ThumbnailPromptBuilder` (correct) AND `TitleGenerator` (wrong — title silently
+inherited the thumbnail visual-director craft template, or whatever tenant/per-video thumbnail override
+was set, instead of its own niche-neutral title craft or a future title-specific tenant override).
+
+**Fix, three-file seam:**
+- `pipeline_executor.py`'s `PROMPT_MAP` gained `"title": (None, "title_system_prompt")` — no per-video
+  column exists for title (same shape as `research`), so precedence is tenant override (a
+  `tenant_prompt_defaults` row with `prompt_key='title'`, settable directly today; no onboarding UI
+  writes one yet — that's a separate, larger "Generate My Style" 6→7 key expansion, out of scope here)
+  > the neutral `title` engine template > None.
+- `ThumbnailTitleEngine.__init__` (`thumbnail/engine.py`) gained an independent
+  `title_system_prompt_override` parameter, passed to `TitleGenerator` instead of the thumbnail
+  `system_prompt_override`. `ThumbnailPromptBuilder` keeps receiving `system_prompt_override` exactly as
+  before — the two are now fully decoupled.
+- `thumbnail/run.py`'s `ThumbnailTitleEngine(...)` call site now passes
+  `title_system_prompt_override=getattr(pipeline, "title_system_prompt", None)` alongside the existing
+  `system_prompt_override=getattr(pipeline, "thumbnail_system_prompt", None)`.
+
+Net effect: every StoryEngine tenant's title generation now resolves the niche-neutral `title` engine
+template (identity-filled with the channel's own name/niche/audience/voice) by default, instead of
+silently borrowing whatever thumbnail craft/override happened to be set. `TITLE_GENERATION_SYSTEM_PROMPT`
+(the `TitleGenerator`'s own built-in default, used only when `title_system_prompt_override` is `None`
+AND `_load_prompt_overrides` was never called — e.g. a standalone/legacy caller) is unaffected and stays
+the C34c-fixed neutral fallback of last resort.
+
+### 2 — `thumbnail/selector.py` keyword lists matched substrings, not words
+
+`PERSON_KEYWORDS`/`SPLIT_KEYWORDS`/`SYMBOLIC_KEYWORDS`/`GEO_KEYWORDS`/`GEO_NICHE_KEYWORDS` were all
+checked with a plain `kw in searchable` substring test — `"king" in "talking"` is `True`, so any video
+whose text merely contained "talking", "breaking", "viking", etc. would silently earn Template B
+(person-focused) with zero actual person content.
+
+**Fix:** each keyword now compiles into a regex anchored with `\b` at the START of the keyword only
+(`_compile_keyword_pattern`/`_any_keyword_match` in `selector.py`), not at both ends. Anchoring only the
+start blocks the "king"-inside-"talking" class of bug (there is no word boundary between two letters
+mid-word) while deliberately preserving every intentional word-stem entry in these lists — `"financ"` →
+finance/financial/financing, `"geopolit"` → geopolitical, `"strangl"` → strangling/strangled,
+`"weaponiz"` → weaponized, `"assassin"` → assassinate — and plain nouns still match their plurals
+(`"agent"` → "agents"). Multi-word phrases (`"prime minister"`, `"who is"`, `"debt trap"`) are
+unaffected — the literal phrase, including its internal space, still has to appear, just anchored to a
+word start instead of any substring position. `GEO_NICHE_KEYWORDS`' niche-string check got the identical
+treatment for consistency (same bug class, same fix).
+
+### Verify
+
+**Non-vacuous via `git stash`** (two separate stashes, since the two fixes are independent and touch
+disjoint files):
+- Stashed `thumbnail/selector.py` only, kept the new tests: 1 of the 6 new `test_selector.py` assertions
+  (`test_king_substring_inside_talking_does_not_trigger_person_template`) correctly FAILS against
+  pre-fix code (`template_b` instead of the expected `template_e`); the other 5 new tests plus all 19
+  pre-existing tests pass unchanged (none of them exercised the bug). Popped clean, re-ran 25/25 green.
+- Stashed `pipeline_executor.py` + `thumbnail/run.py` + `thumbnail/engine.py`, kept the new backend test
+  file: all 3 new tests in `test_c34d_title_prompt_wiring.py` correctly FAIL against pre-fix code (no
+  `title_system_prompt` attribute at all; the static grep for `title_system_prompt_override=` in
+  `run.py` finds nothing). Popped clean, re-ran 3/3 green.
+
+**9 new tests** — `skills/video-pipeline/thumbnail/tests/test_selector.py` (+6): "king"-in-"talking"/
+"breaking" no longer trips Template B; a genuine standalone "king" mention still does; the multi-word
+phrase `"prime minister"` still matches in full; the word-stem keywords `"financ"`/`"strangl"` still
+match their longer forms (`"Financial"`/`"Strangled"`); the plural of a plain-word keyword
+(`"agent"`→"agents") still matches; `GEO_NICHE_KEYWORDS`' `"financ"` stem still matches a longer niche
+string via the `CHANNEL_NICHE` seam. `skills/video-pipeline/thumbnail/tests/test_engine.py` (NEW file,
+3): `ThumbnailTitleEngine`'s `title_system_prompt_override` and `system_prompt_override` reach two
+different sub-objects and are never equal when both are set; a thumbnail-only override does NOT leak
+into the title generator (regression pin for the exact pre-fix bug); both default to `None`.
+`storyengine/backend/tests/functional/test_c34d_title_prompt_wiring.py` (NEW file, 3):
+`_load_prompt_overrides` sets `title_system_prompt` to the neutral title template (not the thumbnail
+one, not `None`); a `tenant_prompt_defaults` row with `prompt_key='title'` beats the neutral template;
+`thumbnail/run.py` statically reads `title_system_prompt` as its own `getattr` call, separate from
+`thumbnail_system_prompt`.
+
+`python -m py_compile` clean on every touched/new file. Full backend suite: **1269 passed / 15 failed /
+1 error** (baseline 1266/15/1 + this chunk's 3 new backend tests, identical pre-existing failure/error
+names — zero new failures). `skills/video-pipeline` thumbnail tests: **28 passed** (19 baseline + 6 + 3
+new, standalone run — no suite-wide baseline exists there, see C34b/C34c's note on the pre-existing
+environment-only collection failures elsewhere in that tree).
+
+**Frontend:** untouched — `git status --short` shows no `storyengine/frontend/` paths; neither fix
+touches an API response shape or a frontend-consumed field, so no `npx tsc --noEmit` was needed
+(explicitly checked, not silently skipped).
+
+### Modified/New Files (C34d)
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | `_load_prompt_overrides`'s `PROMPT_MAP` gains `"title": (None, "title_system_prompt")`; stale "Phase 3 wires it" comment replaced |
+| `skills/video-pipeline/thumbnail/engine.py` | `ThumbnailTitleEngine.__init__` gains `title_system_prompt_override`, passed to `TitleGenerator` independently of `system_prompt_override` (still passed to `ThumbnailPromptBuilder`) |
+| `skills/video-pipeline/thumbnail/run.py` | `ThumbnailTitleEngine(...)` call site passes `title_system_prompt_override=getattr(pipeline, "title_system_prompt", None)` |
+| `skills/video-pipeline/thumbnail/selector.py` | `_compile_keyword_pattern`/`_any_keyword_match` (start-anchored `\b` regex) replace all five keyword lists' plain `in` substring checks |
+| `skills/video-pipeline/thumbnail/tests/test_selector.py` | +6 word-boundary regression tests |
+| `skills/video-pipeline/thumbnail/tests/test_engine.py` | NEW — 3 tests for the title/thumbnail override decoupling |
+| `storyengine/backend/tests/functional/test_c34d_title_prompt_wiring.py` | NEW — 3 tests for the `PROMPT_MAP`/`title_system_prompt` wire |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Both fixes are pure behavior corrections with no schema change and no new paid call site (title
+generation still makes exactly the same one Claude call per video; selector.py is a pure in-process
+keyword match, not a network call). The title fix can only ever REDUCE how often title generation
+borrows an unrelated (thumbnail) prompt — the new template only wins when the resolved thumbnail-borrow
+would previously have applied, and per-video/tenant title overrides (once the onboarding UI adds a 7th
+key) will always win over it, matching every other prompt key's precedence. The selector fix can only
+ever REDUCE false-positive Template B/C/D/A matches (word-boundary anchoring is a strict subset of plain
+substring matching) — proven no real keyword occurrence regresses via the 3 word-stem/plural/phrase
+tests above. Safe to ff-merge; no VPS coordination needed, no migration to run.
+
+**Next up: C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing.**

@@ -32,6 +32,7 @@ Templates:
 """
 
 import os
+import re
 
 from orchestrator.pipeline_constants import IdeaFields
 
@@ -107,6 +108,42 @@ GEO_NICHE_KEYWORDS = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Word-boundary keyword matching (checklist C34d).
+#
+# Plain substring `in` checks (the original implementation) let a short
+# keyword match INSIDE an unrelated longer word — e.g. "king" (PERSON_KEYWORDS)
+# matched "talking" and "breaking", `.lower()`'d text on ANY video, wrongly
+# nudging unrelated content toward Template B. The fix anchors each keyword to
+# the START of a word with `\b`. It deliberately does NOT also anchor the END:
+# several entries are intentional word-stems meant to match their longer forms
+# — "financ" -> finance/financial/financing, "geopolit" -> geopolitical,
+# "strangl" -> strangling/strangled, "weaponiz" -> weaponized, "assassin" ->
+# assassinate — and plain nouns must keep matching their plurals ("agent" ->
+# "agents"). Anchoring only the start blocks the "king"-in-"talking" class of
+# bug (no word boundary exists mid-word, between two letters) while leaving
+# every genuine prefix/stem/plural match exactly as before. Multi-word
+# phrases (e.g. "prime minister", "who is") are unaffected — the literal
+# phrase (including its internal space) still has to appear, now simply
+# anchored to a word start instead of any substring position.
+def _compile_keyword_pattern(keywords: list[str]) -> "re.Pattern":
+    return re.compile(
+        "|".join(r"\b" + re.escape(kw) for kw in keywords),
+        re.IGNORECASE,
+    )
+
+
+def _any_keyword_match(text: str, pattern: "re.Pattern") -> bool:
+    return pattern.search(text) is not None
+
+
+PERSON_PATTERN = _compile_keyword_pattern(PERSON_KEYWORDS)
+SPLIT_PATTERN = _compile_keyword_pattern(SPLIT_KEYWORDS)
+SYMBOLIC_PATTERN = _compile_keyword_pattern(SYMBOLIC_KEYWORDS)
+GEO_PATTERN = _compile_keyword_pattern(GEO_KEYWORDS)
+GEO_NICHE_PATTERN = _compile_keyword_pattern(GEO_NICHE_KEYWORDS)
+
+
 def select_template(video_metadata: dict) -> str:
     """Select thumbnail template based on video content type.
 
@@ -134,20 +171,20 @@ def select_template(video_metadata: dict) -> str:
     searchable = f"{topic} {title} {summary} {framework} {' '.join(tags)}"
 
     # Template B: Character + Bold Text — person-focused stories
-    if any(kw in searchable for kw in PERSON_KEYWORDS):
+    if _any_keyword_match(searchable, PERSON_PATTERN):
         return "template_b"
 
     # Template C: Split Winner/Loser — comparison/versus stories
-    if any(kw in searchable for kw in SPLIT_KEYWORDS):
+    if _any_keyword_match(searchable, SPLIT_PATTERN):
         return "template_c"
 
     # Template D: Symbolic Action — mechanism/trap/metaphor stories
-    if any(kw in searchable for kw in SYMBOLIC_KEYWORDS):
+    if _any_keyword_match(searchable, SYMBOLIC_PATTERN):
         return "template_d"
 
     # Template A: Map + Barrier — the video's OWN content is explicitly
     # geopolitical/macro-economic (Ryan's legacy channel's proven template).
-    if any(kw in searchable for kw in GEO_KEYWORDS):
+    if _any_keyword_match(searchable, GEO_PATTERN):
         return "template_a"
 
     # Template A, niche-informed fallback (C34c, S10-4): nothing in THIS
@@ -155,7 +192,7 @@ def select_template(video_metadata: dict) -> str:
     # geopolitics/business niche — still Template A's home turf. Any other
     # niche (or no niche info at all) falls through to the neutral default.
     niche = (video_metadata.get("niche") or os.environ.get("CHANNEL_NICHE") or "").lower()
-    if any(kw in niche for kw in GEO_NICHE_KEYWORDS):
+    if _any_keyword_match(niche, GEO_NICHE_PATTERN):
         return "template_a"
 
     # Template E: Subject Focus — the niche-neutral default. Nothing above

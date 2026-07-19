@@ -126,6 +126,10 @@ async def run(pipeline) -> dict:
         pipeline.anthropic, pipeline.image_client,
         gemini_client=pipeline.gemini, google_client=pipeline.google,
         system_prompt_override=getattr(pipeline, "thumbnail_system_prompt", None),
+        # C34d: title generation now gets its OWN resolved prompt (per-video >
+        # tenant > the neutral `title` engine template) instead of silently
+        # borrowing the thumbnail override above.
+        title_system_prompt_override=getattr(pipeline, "title_system_prompt", None),
     )
 
     try:

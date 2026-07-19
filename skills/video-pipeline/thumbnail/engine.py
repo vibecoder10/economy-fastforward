@@ -67,6 +67,7 @@ class ThumbnailTitleEngine:
         gemini_client=None,
         google_client=None,
         system_prompt_override: Optional[str] = None,
+        title_system_prompt_override: Optional[str] = None,
     ):
         """Initialize with existing pipeline clients.
 
@@ -77,12 +78,22 @@ class ThumbnailTitleEngine:
             google_client: Optional GoogleClient for uploading Gemini-generated images.
             system_prompt_override: Optional tenant-level system prompt that replaces
                 the hardcoded thumbnail system prompts at every Claude call site
-                within the engine. Comes from `pipeline.thumbnail_system_prompt`
-                when set via the Generate My Style onboarding flow.
+                within the engine (the thumbnail prompt builder, and the
+                auto-generated-thumbnail-text fallback). Comes from
+                `pipeline.thumbnail_system_prompt` when set via the Generate My
+                Style onboarding flow.
+            title_system_prompt_override: Optional tenant-level system prompt for
+                title generation specifically. Comes from
+                `pipeline.title_system_prompt` (checklist C34d — previously title
+                generation had no seam of its own and silently borrowed
+                `system_prompt_override`, i.e. the thumbnail craft). Independent
+                from `system_prompt_override` — the thumbnail template stays the
+                thumbnail template even when a title override is set, and vice
+                versa.
         """
         self.anthropic = anthropic_client
         self.title_gen = TitleGenerator(
-            anthropic_client, system_prompt_override=system_prompt_override
+            anthropic_client, system_prompt_override=title_system_prompt_override
         )
         self.prompt_builder = ThumbnailPromptBuilder(
             anthropic_client, system_prompt_override=system_prompt_override
@@ -91,6 +102,7 @@ class ThumbnailTitleEngine:
         self.gemini = gemini_client
         self.google = google_client
         self.system_prompt_override = system_prompt_override
+        self.title_system_prompt_override = title_system_prompt_override
 
     @staticmethod
     def _parse_thumbnail_text(thumbnail_text: str) -> dict:
