@@ -1807,3 +1807,44 @@ CREATE INDEX IF NOT EXISTS channel_patterns_tenant_status_idx
 ALTER TABLE channel_patterns ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+-- =============================================================================
+-- AUTOPILOT_PROPOSALS (migration 108 — checklist C51, P4.2-b candidate
+-- auto-launch loop, propose_only dial-level).
+-- =============================================================================
+-- A propose_only-dial dry run never creates a video, never dispatches the
+-- pipeline, never spends money — it only records here that "candidate X
+-- scored above the tenant's min_confidence_score threshold and was the best
+-- available pick this cadence window." A human (C52's UI/chat surface)
+-- turns a proposal into a real launch by calling the SAME
+-- routes.autopilot.launch_candidate path a manual click already uses; this
+-- table never gates or replaces that call — it only stops the auto-launch
+-- loop (backend/autopilot_launch.py) from re-proposing the same
+-- competitor_videos row while a proposal is still undecided
+-- (status='proposed'). Full rationale in
+-- migrations/108_autopilot_proposals.sql's header (read it before touching
+-- this table) and implemented in backend/autopilot_proposals.py.
+CREATE TABLE IF NOT EXISTS autopilot_proposals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  candidate_id UUID NOT NULL REFERENCES competitor_videos(id) ON DELETE CASCADE,
+  video_title TEXT NOT NULL,
+  confidence_score NUMERIC NOT NULL DEFAULT 0,
+  confidence_breakdown JSONB,
+  status TEXT NOT NULL DEFAULT 'proposed'
+    CHECK (status IN ('proposed', 'accepted', 'dismissed', 'expired')),
+  decided_at TIMESTAMPTZ,
+  decided_by TEXT,
+  video_id UUID REFERENCES videos(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS autopilot_proposals_tenant_status_idx
+  ON autopilot_proposals (tenant_id, status);
+
+CREATE INDEX IF NOT EXISTS autopilot_proposals_tenant_candidate_idx
+  ON autopilot_proposals (tenant_id, candidate_id, status);
+
+ALTER TABLE autopilot_proposals ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

@@ -381,7 +381,15 @@ async def _auto_produce_queue():
     video is due (production_interval_days cadence, shared with autopilot
     launches) and nothing is in flight, the front of the queue is claimed and
     launched (routes/queue.py:auto_produce_next — FOR UPDATE SKIP LOCKED, so a
-    manual Build can't race this loop)."""
+    manual Build can't race this loop).
+
+    Checklist C51 (P4.2-b): when the queue has nothing to launch this tick
+    (empty, not due, or something already in flight), falls back to scoring
+    competitor_videos via autopilot_launch.auto_launch_best_candidate — same
+    per-tenant cadence lane, so a tenant never gets a queue launch AND a
+    candidate launch/proposal in the same window. That function does its own
+    dial_level/kill-switch gating (autopilot_dial.get_autopilot_dial); it is
+    NOT gated by production_interval_days here a second time."""
     await asyncio.sleep(240)  # Offset from other startup tasks
     while True:
         try:
@@ -396,6 +404,15 @@ async def _auto_produce_queue():
                         logger.info(
                             "[AutoQueue] Tenant %s launched queued video %s (%s)",
                             tenant_id[:8], result.get("video_id"), result.get("video_title"),
+                        )
+                        continue
+                    from autopilot_launch import auto_launch_best_candidate
+                    candidate_result = await auto_launch_best_candidate(tenant_id)
+                    if candidate_result:
+                        logger.info(
+                            "[AutoLaunch] Tenant %s %s candidate %s (%s)",
+                            tenant_id[:8], candidate_result.get("status"),
+                            candidate_result.get("candidate_id"), candidate_result.get("video_title"),
                         )
                 except Exception as e:
                     logger.error("[AutoQueue] Tenant %s error: %s", tenant_id[:8], e)
