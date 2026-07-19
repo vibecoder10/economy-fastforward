@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Clock,
   AlertCircle,
+  Inbox,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -39,9 +40,13 @@ import {
   getYouTubeSyncStatus,
   getAutopilotTasks,
   getAutopilotScorecards,
+  getAutopilotProposals,
+  acceptAutopilotProposal,
+  dismissAutopilotProposal,
   type AutopilotSummary,
   type AutopilotTasks,
   type VideoScorecard,
+  type AutopilotProposal,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 
@@ -112,6 +117,44 @@ export default function AutopilotPage() {
     },
     onError: () => {
       setLaunchingId(null);
+    },
+  });
+
+  const [decidingProposalId, setDecidingProposalId] = useState<string | null>(null);
+
+  const {
+    data: proposals,
+    isLoading: proposalsLoading,
+    error: proposalsError,
+  } = useQuery({
+    queryKey: ["autopilot-proposals"],
+    queryFn: () => getAutopilotProposals("proposed"),
+  });
+
+  const acceptProposalMutation = useMutation({
+    mutationFn: acceptAutopilotProposal,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["autopilot-proposals"] });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+      setDecidingProposalId(null);
+      if (result.video_id) {
+        router.push(`/pipeline/${result.video_id}`);
+      }
+    },
+    onError: () => {
+      setDecidingProposalId(null);
+    },
+  });
+
+  const dismissProposalMutation = useMutation({
+    mutationFn: dismissAutopilotProposal,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["autopilot-proposals"] });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+      setDecidingProposalId(null);
+    },
+    onError: () => {
+      setDecidingProposalId(null);
     },
   });
 
@@ -270,6 +313,13 @@ export default function AutopilotPage() {
             Autopilot
           </h1>
           {isEnabled && <StatusPill label="Active" color="turquoise" pulse size="md" />}
+          {!!state.pending_proposals_count && state.pending_proposals_count > 0 && (
+            <StatusPill
+              label={`${state.pending_proposals_count} proposal${state.pending_proposals_count === 1 ? "" : "s"} pending`}
+              color="gold"
+              size="md"
+            />
+          )}
         </div>
         <button
           onClick={handleToggle}
@@ -534,6 +584,75 @@ export default function AutopilotPage() {
             </button>
           )}
         </div>
+      </motion.div>
+
+      {/* Autopilot Proposals (checklist C52, P4.2-c) — propose_only dry-run
+          picks awaiting a human decision (autopilot_proposals table, C51's
+          loop writes them). Accept calls the SAME launch path the
+          "Launch" button below does; Dismiss just clears it. */}
+      <motion.div variants={item}>
+        <GlassCard>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Inbox size={16} style={{ color: "var(--gold)" }} />
+              <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Proposals
+              </h2>
+            </div>
+            {proposals && proposals.length > 0 && (
+              <span className="text-[11px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                {proposals.length} awaiting decision
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] mb-5" style={{ color: "var(--text-secondary)" }}>
+            Candidates autopilot scored and picked on its own, waiting on you to accept or dismiss
+          </p>
+
+          {proposalsLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Spinner size="md" />
+            </div>
+          )}
+
+          {!proposalsLoading && proposalsError && (
+            <ErrorCard
+              message={(proposalsError as Error)?.message || "Failed to load proposals"}
+              onRetry={() => queryClient.invalidateQueries({ queryKey: ["autopilot-proposals"] })}
+            />
+          )}
+
+          {!proposalsLoading && !proposalsError && (!proposals || proposals.length === 0) && (
+            <div
+              className="rounded-xl px-4 py-6 text-center"
+              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
+            >
+              <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+                No pending proposals. When autopilot is in propose-only mode, its picks show up here.
+              </p>
+            </div>
+          )}
+
+          {!proposalsLoading && !proposalsError && proposals && proposals.length > 0 && (
+            <div className="space-y-2">
+              {proposals.map((proposal) => (
+                <ProposalRow
+                  key={proposal.id}
+                  proposal={proposal}
+                  isDeciding={decidingProposalId === proposal.id}
+                  onAccept={() => {
+                    setDecidingProposalId(proposal.id);
+                    acceptProposalMutation.mutate(proposal.id);
+                  }}
+                  onDismiss={() => {
+                    setDecidingProposalId(proposal.id);
+                    dismissProposalMutation.mutate(proposal.id);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </GlassCard>
       </motion.div>
 
       {/* Top Recommendations */}
@@ -1092,6 +1211,84 @@ export default function AutopilotPage() {
         </motion.div>
       )}
     </motion.div>
+  );
+}
+
+function ProposalRow({
+  proposal,
+  isDeciding,
+  onAccept,
+  onDismiss,
+}: {
+  proposal: AutopilotProposal;
+  isDeciding: boolean;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  const b = proposal.confidence_breakdown;
+  const breakdownLine = b
+    ? `VPH ${Math.round(b.vph_score)} · Freshness ${Math.round(b.freshness_score)} · Intel ${Math.round(b.intelligence_score)}`
+    : null;
+
+  return (
+    <div
+      className="flex items-center gap-4 p-3 rounded-xl"
+      style={{
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.04)",
+      }}
+    >
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+          {proposal.video_title}
+        </p>
+        <p className="text-[11px] truncate" style={{ color: "var(--text-secondary)" }}>
+          {breakdownLine || "no confidence breakdown"}
+          {proposal.created_at && (
+            <>
+              {" "}
+              &middot; proposed {timeAgo(proposal.created_at)}
+            </>
+          )}
+        </p>
+      </div>
+      <div className="text-right shrink-0">
+        <p className="text-sm font-bold" style={{ color: "var(--gold)" }}>
+          {proposal.confidence_score.toFixed(0)}
+        </p>
+        <p className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+          conf
+        </p>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          onClick={onAccept}
+          disabled={isDeciding}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+          style={{
+            background: "rgba(0, 212, 170, 0.15)",
+            color: "var(--turquoise)",
+            border: "1px solid rgba(0, 212, 170, 0.25)",
+          }}
+        >
+          {isDeciding ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+          Accept
+        </button>
+        <button
+          onClick={onDismiss}
+          disabled={isDeciding}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+          style={{
+            background: "rgba(255, 77, 106, 0.1)",
+            color: "var(--red)",
+            border: "1px solid rgba(255, 77, 106, 0.2)",
+          }}
+        >
+          <X size={12} />
+          Dismiss
+        </button>
+      </div>
+    </div>
   );
 }
 

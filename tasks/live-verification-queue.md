@@ -18,6 +18,46 @@
 
 ---
 
+## C52 — autopilot proposals surface (P4.2-c) · needs a real tenant with a live DB + running app
+
+Everything is proven at the unit/code-trace level in the sandbox (27 new tests,
+`tests/test_c52_autopilot_proposals_surface.py`, non-vacuous via `git stash`; full suite 1714P/15F/1E,
+zero new failures vs. the 1687P/15F/1E baseline) — but the sandbox has **no `DATABASE_URL`** (backend
+can't even start) and **no route to the VPS**, so no Playwright run happened here. What's deferred:
+
+1. **A propose_only proposal actually appears.** On a tenant with `dial_level='propose_only'` (the
+   default — every tenant today) and at least one qualifying `competitor_videos` candidate, either wait
+   for the next autopilot cadence tick or force one (`python -m autopilot.autopilot --force`-equivalent
+   / directly call `autopilot_launch.auto_launch_best_candidate(tenant_id)`), then:
+   - `se db "SELECT id, video_title, confidence_score, status FROM autopilot_proposals WHERE tenant_id='<uuid>' ORDER BY created_at DESC LIMIT 3"` → confirm a new `status='proposed'` row.
+   - `se db "SELECT bot_name, status, message FROM bot_activity WHERE tenant_id='<uuid>' AND bot_name='autopilot_proposal' ORDER BY created_at DESC LIMIT 1"` → confirm the notify row landed (the "notify" mechanism this chunk reused — no new infra).
+2. **UI round-trip.** Open `/autopilot` in the app (real login or `se devtoken`): confirm the new
+   "Proposals" card shows the row from step 1 (title, confidence score + the VPH/Freshness/Intel
+   breakdown line, "proposed Xh/d ago"), and the header's gold "N proposals pending" pill matches the
+   `pending_proposals_count` the summary now returns.
+3. **Accept, live.** Tap Accept on that row: confirm (a) the row disappears from the pending list, (b)
+   a new `videos` row exists with `source LIKE 'autopilot%'` and the SAME `candidate_id`'s title, (c) the
+   pipeline actually starts (research kicks off — check `bot_activity`/the pipeline task poller), (d)
+   `autopilot_proposals.status='accepted'`, `decided_by='<your email>'`, `video_id` set to the new video,
+   and (e) you land on `/pipeline/<video_id>`.
+4. **Kill switch refuses accept.** With `autopilot_config.kill_switch_tripped_at` set on the tenant (hand
+   -set it or trip it for real per C54/C56's mechanism once that lands), confirm accept on a proposal
+   returns the "kill switch is tripped" message and the proposal is STILL `status='proposed'` afterward
+   (`se db` check) — i.e. it wasn't silently consumed.
+5. **Dismiss, live.** Tap Dismiss on a different proposal: confirm it disappears from the pending list
+   and `se db` shows `status='dismissed'`, `decided_by` set, `video_id` still NULL.
+6. **MCP parity (only if `MCP_ENABLED=true`, folds into the C29 runbook).** Call `list_autopilot_proposals`
+   / `accept_autopilot_proposal` / `dismiss_autopilot_proposal` from a real connected client; confirm
+   `accept_autopilot_proposal` needs no confirm_token (runs immediately) and the accepted row's
+   `decided_by='mcp_agent'`.
+- **Cost:** proposal creation/accept/dismiss/list are all free DB reads/writes at THIS layer — accepting
+  a proposal starts the SAME research-then-advance pipeline `launch_candidate` already runs unguarded
+  today (a manual Launch click has zero cost gate at this layer either), so the actual spend, if any,
+  happens later at each PAID stage's own confirm gate exactly as it would from any other door. No new
+  cost category.
+
+---
+
 ## C36 — budget ceiling + cold-start card + checkpoint-audio · needs a real tenant, a real chat turn, real UI
 
 Everything in C36 (checklist §3.3) is proven at the unit/code-trace level in the sandbox (27 new

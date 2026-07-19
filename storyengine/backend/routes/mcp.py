@@ -68,6 +68,14 @@ for the full per-tool docstrings):
     user_script.accept_external_script, source="agent_submitted" — see
     that function's docstring for the accept/reject design, C46d).
 
+TOOL SURFACE v4 (C52 — checklist P4.2-c, the read/decide surface for C51's
+propose_only autopilot dry-run loop): list_autopilot_proposals (read),
+accept_autopilot_proposal / dismiss_autopilot_proposal (free writes,
+attributed decided_by='mcp_agent', calling the SAME routes.autopilot.
+accept_proposal/dismiss_proposal functions the HTTP door uses — see the
+"AUTOPILOT PROPOSAL TOOLS" section below for the accept-is-free
+classification's full reasoning).
+
 Every verb tool (free or paid) dispatches through actions.ACTIONS/
 routes.chat._run_pending_action — the EXACT SAME dispatcher chat.py's
 confirmed-action path calls. This module adds ONLY: (1) MCP framing
@@ -979,6 +987,142 @@ _SETUP_WRITE_HANDLERS = {
 
 
 # =============================================================================
+# AUTOPILOT PROPOSAL TOOLS (checklist C52, P4.2-c — the read/decide surface
+# for C51's propose_only dry-run loop, autopilot_proposals.py). Every write
+# here calls the SAME routes.autopilot.accept_proposal/dismiss_proposal
+# functions the HTTP door (POST /api/autopilot/proposals/{id}/accept|dismiss)
+# calls — no parallel accept/dismiss logic.
+#
+# Classification per this module's money-gate house rules (see docstring
+# above): accept_autopilot_proposal is NOT wrapped with a confirm_token.
+# Per the checklist's own instruction this needed a real judgment call, not
+# just following the create_video precedent blindly — accept_proposal does
+# MORE than create_video (which only inserts a row): it calls
+# launch_candidate, which ALSO kicks off a background loop that runs
+# research and then auto-advances through pipeline stages
+# (routes/autopilot.py's `_run_full_pipeline`) until a stage fails, needs
+# approval, or goes idle. The reason this still classifies as free rather
+# than PAID-confirm-gated: (1) it is not an actions.ACTIONS verb at all —
+# the confirm_token gate in `_call_verb` only wraps that specific registry;
+# (2) launch_candidate is an EXISTING endpoint a human's "Launch" button
+# already calls with zero gate, and C51 already calls it unguarded for
+# auto_draft/full_auto dial tenants — accept_autopilot_proposal adds no new
+# unguarded path, it only lets a human (or an agent acting for one) trigger
+# that SAME existing path for one specific proposal; (3) every individual
+# PAID stage the background loop reaches (images, clips, thumbnail, ...)
+# still enforces its own confirm-token/needs_approval gate when reached
+# through any OTHER door — this tool doesn't touch or bypass those, it only
+# starts the SAME research-then-advance loop launch_candidate already runs
+# unconditionally today. Attribution is the fixed literal 'mcp_agent' (the
+# checklist's explicit choice here, unlike the dynamic `caller` name used
+# elsewhere in this file) — kept simple since accept/dismiss are tenant-
+# scoped single-proposal actions, not a durable content-authorship column.
+# =============================================================================
+
+_LIST_AUTOPILOT_PROPOSALS_TOOL: dict[str, Any] = {
+    "name": "list_autopilot_proposals",
+    "description": (
+        "List autopilot's propose_only picks awaiting a decision: candidate title, "
+        "confidence score + breakdown, when it was proposed, and its status. "
+        "Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "description": "Filter by status (default 'proposed'). Pass 'all' for every status.",
+            },
+        },
+    },
+}
+
+_ACCEPT_AUTOPILOT_PROPOSAL_TOOL: dict[str, Any] = {
+    "name": "accept_autopilot_proposal",
+    "description": (
+        "Accept a propose_only candidate — free, no confirm_token (see module docstring "
+        "for why). Calls the SAME launch_candidate path a human clicking Launch already "
+        "uses unguarded: creates a video and starts the pipeline in the background. Every "
+        "PAID stage the pipeline reaches still enforces its own confirm/needs_approval "
+        "gate — this does not bypass those. Refuses if the autopilot kill switch is "
+        "tripped. A proposal already accepted/dismissed cannot be re-accepted."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "proposal_id": {"type": "string", "description": "autopilot_proposals row id."},
+        },
+        "required": ["proposal_id"],
+    },
+}
+
+_DISMISS_AUTOPILOT_PROPOSAL_TOOL: dict[str, Any] = {
+    "name": "dismiss_autopilot_proposal",
+    "description": (
+        "Dismiss a propose_only candidate without launching it — free, no video created, "
+        "no confirm_token."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "proposal_id": {"type": "string", "description": "autopilot_proposals row id."},
+        },
+        "required": ["proposal_id"],
+    },
+}
+
+_AUTOPILOT_PROPOSAL_TOOLS: list[dict[str, Any]] = [
+    _LIST_AUTOPILOT_PROPOSALS_TOOL, _ACCEPT_AUTOPILOT_PROPOSAL_TOOL, _DISMISS_AUTOPILOT_PROPOSAL_TOOL,
+]
+
+
+async def _call_list_autopilot_proposals(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    import autopilot_proposals
+    status = arguments.get("status") or "proposed"
+    filter_status = None if str(status).lower() == "all" else status
+    rows = await autopilot_proposals.list_proposals(tenant_id, status=filter_status, limit=50)
+    return _text_result({"proposals": rows})
+
+
+async def _call_accept_autopilot_proposal(tenant_id, arguments: dict[str, Any], caller: str,
+                                           background_tasks: Optional[BackgroundTasks]) -> dict[str, Any]:
+    proposal_id = arguments.get("proposal_id")
+    if not proposal_id:
+        return _error_result("accept_autopilot_proposal requires a proposal_id argument")
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    from routes.autopilot import accept_proposal
+    try:
+        result = await accept_proposal(
+            tenant_id, str(proposal_id), background_tasks, decided_by="mcp_agent",
+        )
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't accept the proposal")
+    return _text_result(result.model_dump())
+
+
+async def _call_dismiss_autopilot_proposal(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    proposal_id = arguments.get("proposal_id")
+    if not proposal_id:
+        return _error_result("dismiss_autopilot_proposal requires a proposal_id argument")
+    from routes.autopilot import dismiss_proposal
+    try:
+        result = await dismiss_proposal(tenant_id, str(proposal_id), decided_by="mcp_agent")
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't dismiss the proposal")
+    return _text_result(result.model_dump())
+
+
+_AUTOPILOT_PROPOSAL_READ_HANDLERS = {
+    "list_autopilot_proposals": _call_list_autopilot_proposals,
+}
+
+_AUTOPILOT_PROPOSAL_WRITE_HANDLERS = {
+    "dismiss_autopilot_proposal": _call_dismiss_autopilot_proposal,
+}
+
+
+# =============================================================================
 # INGEST TOOLS (checklist C47 — decisions.md 2026-07-19 "MCP economics"
 # entry): the connected agent does research/scripting on the user's OWN
 # Claude subscription and hands StoryEngine the RESULT through the SAME
@@ -1099,7 +1243,8 @@ _INGEST_HANDLERS = {
 
 
 TOOLS: list[dict[str, Any]] = (
-    _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS + _INGEST_TOOLS
+    _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
+    + _AUTOPILOT_PROPOSAL_TOOLS + _INGEST_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -1216,6 +1361,12 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _SETUP_READ_HANDLERS[name](tenant_id, arguments, caller)
         if name in _SETUP_WRITE_HANDLERS:
             return await _SETUP_WRITE_HANDLERS[name](tenant_id, arguments, caller)
+        if name == "accept_autopilot_proposal":
+            return await _call_accept_autopilot_proposal(tenant_id, arguments, caller, background_tasks)
+        if name in _AUTOPILOT_PROPOSAL_READ_HANDLERS:
+            return await _AUTOPILOT_PROPOSAL_READ_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _AUTOPILOT_PROPOSAL_WRITE_HANDLERS:
+            return await _AUTOPILOT_PROPOSAL_WRITE_HANDLERS[name](tenant_id, arguments, caller)
         if name in _INGEST_HANDLERS:
             return await _INGEST_HANDLERS[name](tenant_id, arguments, caller)
         return _error_result(f"Unknown tool: {name}")

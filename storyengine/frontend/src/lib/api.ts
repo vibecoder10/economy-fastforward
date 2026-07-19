@@ -2010,6 +2010,11 @@ export interface AutopilotState {
   channel_avg_ctr: number;
   next_production_date: string | null;
   days_until_next: number;
+  // C52 (P4.2-c) — additive. Count of undecided ('proposed') autopilot
+  // proposals. Older backends that predate this field simply omit it, and
+  // this being optional means older frontends against a newer backend (or
+  // vice versa) never break either direction.
+  pending_proposals_count?: number;
 }
 
 export interface AutopilotConfig {
@@ -2088,6 +2093,36 @@ export interface AutopilotSummary {
   candidates: CompetitorCandidate[];
   learnings: Learning[];
 }
+
+// Autopilot Proposals (checklist C52, P4.2-c) — the read/decide surface for
+// C51's propose_only dry-run loop.
+export interface AutopilotProposal {
+  id: string;
+  candidate_id: string;
+  video_title: string;
+  confidence_score: number;
+  confidence_breakdown?: ConfidenceBreakdown | null;
+  status: "proposed" | "accepted" | "dismissed" | "expired";
+  decided_at: string | null;
+  decided_by: string | null;
+  video_id: string | null;
+  created_at: string | null;
+}
+
+export const getAutopilotProposals = (status: string = "proposed") =>
+  fetchApi<AutopilotProposal[]>(`/api/autopilot/proposals?status=${encodeURIComponent(status)}`);
+
+export const acceptAutopilotProposal = (proposalId: string) =>
+  fetchApi<{ status: string; proposal_id: string; video_id: string | null; message: string }>(
+    `/api/autopilot/proposals/${proposalId}/accept`,
+    { method: "POST" }
+  );
+
+export const dismissAutopilotProposal = (proposalId: string) =>
+  fetchApi<{ status: string; proposal_id: string; video_id: string | null; message: string }>(
+    `/api/autopilot/proposals/${proposalId}/dismiss`,
+    { method: "POST" }
+  );
 
 // Agent Quality Pipeline
 export interface AgentStats {

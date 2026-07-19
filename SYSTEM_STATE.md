@@ -9002,3 +9002,78 @@ agent token — same posture C26/C27 shipped with.
 
 Next: **P4.2 tenant-autopilot SCOUT (Explore, per the Phase-4 outline)** — the orchestrator
 dispatches it.
+
+---
+
+## C48–C51 — P4.2 tenant-autopilot SCOUT + dial + candidate auto-launch (see tasks/todo.md / tasks/storyengine-wiring-fix-checklist.md for detail)
+
+Note: these four chunks landed without a SYSTEM_STATE.md entry — `tasks/todo.md`'s "Also done" log and
+`tasks/storyengine-wiring-fix-checklist.md`'s checkbox entries are the durable record for this stretch
+(commit 97c7d7a is C51). Flagging the gap here rather than silently continuing it; C52 below resumes
+logging to this file since it creates a new file (the structural-change rule's trigger).
+
+## C52 — autopilot proposals surface + minimal in-app notify (P4.2-c, added 2026-07-19)
+
+The read/decide surface for C51's `autopilot_proposals` table (propose_only dry-run picks): reuses the
+existing candidates/launch machinery end to end, adds no new notification infra.
+
+**Backend:** `autopilot_proposals.py` gains `list_proposals`/`count_pending`/`get_proposal`/
+`mark_decided` (the last is the only writer of the 'proposed' -> 'accepted'/'dismissed' transition, an
+atomic `WHERE status='proposed'` UPDATE) and a best-effort `bot_activity` notify row per new proposal
+(reuses the EXISTING activity-feed table — no new table). `routes/autopilot.py` gains `GET /proposals`,
+`POST /proposals/{id}/accept` (calls the EXISTING `launch_candidate` FIRST, only marks 'accepted' after
+it succeeds — a failed launch never reaches `mark_decided`, so the proposal survives untouched; refuses
+if the C50 kill switch is tripped), `POST /proposals/{id}/dismiss`, and an additive
+`AutopilotState.pending_proposals_count` field on the existing summary response. `routes/mcp.py` gains
+`list_autopilot_proposals` (read) / `accept_autopilot_proposal` / `dismiss_autopilot_proposal` (free,
+`decided_by='mcp_agent'`) — all three call the SAME `routes.autopilot.accept_proposal`/`dismiss_proposal`
+functions the HTTP door uses. `accept_autopilot_proposal` classifies as free (no `confirm_token`) — it's
+not an `actions.ACTIONS` verb, and it re-triggers the SAME unguarded `launch_candidate` path a human's
+Launch click (and C51's auto_draft dial level) already call with zero gate; every PAID stage the
+resulting pipeline reaches still enforces its own confirm/needs_approval gate independently.
+
+**Frontend:** `/autopilot` page gains a "Proposals" card (title, confidence + VPH/Freshness/Intel
+breakdown line, "proposed Xh ago", Accept/Dismiss buttons wired via React Query) and a gold "N proposals
+pending" header pill. Mirrors the existing `GlassCard`/`StatusPill` idiom (no `web-design-system` skill
+exists in this environment — noted, not invented).
+
+### Verification
+
+27 new tests (`storyengine/backend/tests/test_c52_autopilot_proposals_surface.py`), non-vacuous via
+`git stash` (all 27 fail against pre-C52 code, all 27 pass after). Full suite: **1714P/15F/1E** — the
+same 15 pre-existing failures/1 error as the 1687P/15F/1E baseline, zero new (1687+27=1714). Frontend
+`npx tsc --noEmit` clean; `npm run build` succeeds (confirmed by temporarily setting
+`NEXT_PUBLIC_API_URL` — this sandbox has no `.env.production`, a pre-existing gap unrelated to this
+chunk, reproduced identically with C52's frontend changes stashed out). No live DB/backend in this
+sandbox — Playwright live-run deferred, recipe added at `tasks/live-verification-queue.md` §C52.
+
+### Modified/New Files (C52)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/autopilot_proposals.py` | +`list_proposals`/`count_pending`/`get_proposal`/`mark_decided`, notify-on-create |
+| `storyengine/backend/routes/autopilot.py` | +`GET /proposals`, +`POST /proposals/{id}/accept\|dismiss`, +`accept_proposal`/`dismiss_proposal` shared functions, `AutopilotState.pending_proposals_count` |
+| `storyengine/backend/routes/mcp.py` | +3 autopilot-proposal tools, `_dispatch` routing, module docstring TOOL SURFACE v4 section |
+| `storyengine/backend/tests/test_c52_autopilot_proposals_surface.py` | NEW — 27 tests |
+| `storyengine/frontend/src/lib/api.ts` | +`AutopilotProposal` type, +3 fetch functions, `AutopilotState.pending_proposals_count` |
+| `storyengine/frontend/src/app/autopilot/page.tsx` | +Proposals card, +pending-count header pill, `ProposalRow` component |
+| `tasks/live-verification-queue.md` | +§C52 live-check recipe |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate.** Backend is additive/skew-safe: new routes, new Pydantic fields with
+defaults, no changed response shapes on existing fields — an old frontend against a new backend simply
+ignores `pending_proposals_count` and never calls the new routes. New frontend against an old (pre-C52)
+backend: the Proposals card's `useQuery` 404s on `/api/autopilot/proposals` and renders the existing
+`ErrorCard` (with retry) rather than crashing the page — acceptable degraded UX for the narrow
+backend-merges-first/frontend-ships-later window, not a break. `accept_autopilot_proposal`'s free
+(no-confirm-token) classification is deliberate and reasoned in `routes/mcp.py`'s new "AUTOPILOT
+PROPOSAL TOOLS" section — flagged here in case a future reviewer wants to re-litigate it.
+
+Known gap (not fixed here, matches the existing `launch_candidate`/upload precedent already documented
+in `docs/failure-modes.md`'s per-stage resumability table): two concurrent `accept` calls on the SAME
+proposal could both pass the initial `status='proposed'` check before either's `launch_candidate` call
+completes its `competitor_videos.our_video_id` write, racing to create two videos from one candidate.
+`mark_decided`'s atomic guard prevents the proposal BOOKKEEPING from double-writing, but doesn't prevent
+the underlying double-launch — that race lives in `launch_candidate` itself, pre-existing, out of this
+chunk's scope.

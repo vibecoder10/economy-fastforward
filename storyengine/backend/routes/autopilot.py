@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
-from auth import get_tenant_id
+from auth import get_tenant_id, verify_token, AuthUser
 from autopilot_dial import get_autopilot_dial
 from database import fetch_all, fetch_one, execute
+import autopilot_proposals
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
 
@@ -45,6 +46,14 @@ class AutopilotState(BaseModel):
     channel_avg_ctr: float = 0.0
     next_production_date: Optional[str] = None
     days_until_next: int = 0
+    # C52 (P4.2-c) — additive, read-only. Count of undecided ('proposed')
+    # autopilot_proposals rows (C51's propose_only dry-run loop). Old
+    # frontends simply ignore this field; it's the "notify" badge for the
+    # new Proposals surface when there's no obvious existing nav badge idiom
+    # to hook a push notification into (see autopilot_proposals.py's
+    # _notify_proposal_created for the OTHER half of C52's notify story —
+    # a bot_activity row per new proposal).
+    pending_proposals_count: int = 0
 
 
 class AutopilotConfig(BaseModel):
@@ -360,6 +369,15 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
     config.kill_switch_tripped_at = dial.kill_switch_tripped_at.isoformat() if dial.kill_switch_tripped_at else None
     config.kill_switch_reason = dial.kill_switch_reason
 
+    # C52: pending propose_only proposals awaiting a human decision. Fails
+    # soft to 0 (same posture as the candidates/learnings blocks below) —
+    # a table hiccup here must not take down the whole summary endpoint.
+    try:
+        pending_proposals_count = await autopilot_proposals.count_pending(tenant_id)
+    except Exception as e:
+        print(f"Error counting autopilot proposals: {e}")
+        pending_proposals_count = 0
+
     state = AutopilotState(
         enabled=enabled,
         last_cycle=last_cycle.isoformat() if last_cycle else None,
@@ -367,6 +385,7 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
         channel_avg_ctr=round(float(avg_ctr["avg"]), 1) if avg_ctr and avg_ctr["avg"] else 0.0,
         days_until_next=config.production_interval_days,
         next_production_date=(datetime.now() + timedelta(days=config.production_interval_days)).strftime("%Y-%m-%d"),
+        pending_proposals_count=pending_proposals_count,
     )
 
     # Get competitor candidates from Supabase
@@ -989,6 +1008,171 @@ async def launch_candidate(
         "video_title": video_title,
         "message": "Video created and pipeline started",
     }
+
+
+# --- Autopilot proposals (checklist C52, P4.2-c) ---------------------------
+# The read/decide surface for C51's propose_only dry-run loop
+# (autopilot_launch.auto_launch_best_candidate writes 'proposed' rows via
+# autopilot_proposals.create_proposal). Nothing here scores or launches on
+# its own — accept_proposal below calls the SAME launch_candidate() defined
+# above, exactly what a manual click already does.
+
+class AutopilotProposal(BaseModel):
+    id: str
+    candidate_id: str
+    video_title: str
+    confidence_score: float = 0
+    confidence_breakdown: Optional[dict] = None
+    status: str = "proposed"
+    decided_at: Optional[str] = None
+    decided_by: Optional[str] = None
+    video_id: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class ProposalDecisionResult(BaseModel):
+    status: str
+    proposal_id: str
+    video_id: Optional[str] = None
+    message: str
+
+
+def _to_proposal_model(row: dict) -> AutopilotProposal:
+    return AutopilotProposal(
+        id=str(row["id"]),
+        candidate_id=str(row["candidate_id"]),
+        video_title=row.get("video_title") or "Untitled",
+        confidence_score=float(row.get("confidence_score") or 0),
+        confidence_breakdown=row.get("confidence_breakdown"),
+        status=row.get("status", "proposed"),
+        decided_at=row["decided_at"].isoformat() if row.get("decided_at") else None,
+        decided_by=row.get("decided_by"),
+        video_id=str(row["video_id"]) if row.get("video_id") else None,
+        created_at=row["created_at"].isoformat() if row.get("created_at") else None,
+    )
+
+
+@router.get("/proposals", response_model=List[AutopilotProposal])
+async def list_autopilot_proposals(
+    status: Optional[str] = Query("proposed", description="Filter by status. Pass 'all' for every status."),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """List this tenant's autopilot proposals, newest first (cap 50)."""
+    filter_status = None if not status or status.lower() == "all" else status
+    rows = await autopilot_proposals.list_proposals(tenant_id, status=filter_status, limit=50)
+    return [_to_proposal_model(r) for r in rows]
+
+
+async def accept_proposal(
+    tenant_id: str,
+    proposal_id: str,
+    background_tasks: BackgroundTasks,
+    *,
+    decided_by: str,
+) -> ProposalDecisionResult:
+    """Shared accept logic — called by BOTH the HTTP route below and
+    routes/mcp.py's accept_autopilot_proposal tool, so there is exactly one
+    place that decides what "accept" means.
+
+    Ordering is the whole safety story: launch_candidate() is called FIRST,
+    and autopilot_proposals.mark_decided() (the only write that consumes the
+    proposal) only happens AFTER it returns successfully. If launch_candidate
+    raises (candidate not found, already launched, or any other failure),
+    that exception propagates straight out and mark_decided is never
+    reached — the proposal row is untouched, still 'proposed', so it can be
+    retried or dismissed. No compensating "revert" step is needed because
+    nothing is written until success is already in hand.
+    """
+    proposal = await autopilot_proposals.get_proposal(tenant_id, proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    if proposal["status"] != "proposed":
+        raise HTTPException(status_code=400, detail=f"Proposal already {proposal['status']}")
+
+    # Invariant (same as autopilot_launch.py's auto_launch_best_candidate):
+    # a tripped kill switch means a human must look before ANY further
+    # automation. This IS a human (or an MCP agent acting for one) explicitly
+    # accepting a single proposal, so it's allowed regardless of dial_level —
+    # but the kill switch is a stronger signal than dial_level and still
+    # applies.
+    dial = await get_autopilot_dial(tenant_id)
+    if dial.kill_switch_tripped_at is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Autopilot kill switch is tripped"
+                + (f" ({dial.kill_switch_reason})" if dial.kill_switch_reason else "")
+                + " — a human must re-enable it before accepting a proposal."
+            ),
+        )
+
+    result = await launch_candidate(proposal["candidate_id"], background_tasks, tenant_id=tenant_id)
+    video_id = result.get("video_id")
+
+    updated = await autopilot_proposals.mark_decided(
+        tenant_id, proposal_id, status="accepted", decided_by=decided_by, video_id=video_id,
+    )
+    if not updated:
+        # Extremely rare race: another request decided this same proposal
+        # between our status check and now. The launch already happened for
+        # real (a video was created) — that can't be undone — so we only log
+        # loudly that the proposal bookkeeping is now out of sync with reality.
+        print(
+            f"[Autopilot Proposals] WARNING: proposal {proposal_id} launched "
+            f"(video {video_id}) but could not be marked accepted — already "
+            f"decided concurrently"
+        )
+
+    return ProposalDecisionResult(
+        status="accepted", proposal_id=proposal_id, video_id=video_id,
+        message=result.get("message", "Launched"),
+    )
+
+
+async def dismiss_proposal(tenant_id: str, proposal_id: str, *, decided_by: str) -> ProposalDecisionResult:
+    """Shared dismiss logic — called by BOTH the HTTP route below and
+    routes/mcp.py's dismiss_autopilot_proposal tool."""
+    proposal = await autopilot_proposals.get_proposal(tenant_id, proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    if proposal["status"] != "proposed":
+        raise HTTPException(status_code=400, detail=f"Proposal already {proposal['status']}")
+
+    updated = await autopilot_proposals.mark_decided(
+        tenant_id, proposal_id, status="dismissed", decided_by=decided_by, video_id=None,
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="Proposal was already decided")
+
+    return ProposalDecisionResult(status="dismissed", proposal_id=proposal_id, video_id=None, message="Dismissed")
+
+
+@router.post("/proposals/{proposal_id}/accept", response_model=ProposalDecisionResult)
+async def accept_autopilot_proposal_route(
+    proposal_id: str,
+    background_tasks: BackgroundTasks,
+    user: AuthUser = Depends(verify_token),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Accept a propose_only candidate: attributes the decision to the
+    logged-in user and calls the EXISTING launch_candidate path — same as a
+    human clicking Launch. Free (no money-gate card): creating the video and
+    starting the background pipeline doesn't itself spend anything past what
+    launch_candidate already didn't gate on; the pipeline's own PAID stages
+    still enforce their own confirm/needs_approval gates once it gets there."""
+    decided_by = user.email or user.id or "user"
+    return await accept_proposal(tenant_id, proposal_id, background_tasks, decided_by=decided_by)
+
+
+@router.post("/proposals/{proposal_id}/dismiss", response_model=ProposalDecisionResult)
+async def dismiss_autopilot_proposal_route(
+    proposal_id: str,
+    user: AuthUser = Depends(verify_token),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Dismiss a propose_only candidate without launching it."""
+    decided_by = user.email or user.id or "user"
+    return await dismiss_proposal(tenant_id, proposal_id, decided_by=decided_by)
 
 
 @router.get("/tasks")
