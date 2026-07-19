@@ -118,6 +118,7 @@ IDEA_FIELD_MAP = {
     "Accent Color": "accent_color",
     "Image Model Override": "image_model_override",
     "Visual Style": "visual_style",
+    "Style Preset Id": "style_preset_id",
     # Visual consistency
     "Story Bible": "story_bible",
     "Character Reference": "character_reference_url",

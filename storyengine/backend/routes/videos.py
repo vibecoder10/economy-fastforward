@@ -304,6 +304,32 @@ def _normalize_style_preset(value: str) -> Optional[str]:
     return None
 
 
+async def _resolve_style_preset_id(style_preset_id: Optional[str]) -> Optional[str]:
+    """Validate an explicit style_preset_id (checklist §2.1, C20 — the 5 rich
+    Python visual-profile engines) against the style_presets catalog.
+
+    Returns the id unchanged when it names a real ACTIVE row; None when the
+    field was blank/omitted (the common case — most videos don't pick one).
+    Raises 400 for an unknown/inactive id rather than silently dropping it,
+    matching this same function's `reference_url` precedent just above
+    create_video: a picker UI should never send a bogus id, so surfacing the
+    error immediately catches a real bug instead of quietly ignoring the
+    creator's explicit choice."""
+    style_preset_id = (style_preset_id or "").strip() or None
+    if not style_preset_id:
+        return None
+    row = await fetch_one(
+        "SELECT id FROM style_presets WHERE id = $1 AND active = true",
+        style_preset_id,
+    )
+    if not row:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown style preset: {style_preset_id!r}",
+        )
+    return style_preset_id
+
+
 @router.get("/style-default")
 async def get_style_default(tenant_id: str = Depends(get_tenant_id)):
     """The channel's current visual style as a preset id, so the New Video
@@ -436,15 +462,17 @@ async def create_video(
             if _preset:
                 render_style = render_style_for_preset(_preset)
                 break
+    style_preset_id = await _resolve_style_preset_id(body.style_preset_id)
+
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode, render_style)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode, render_style, style_preset_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, _strip_md(body.framework_angle),
         body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
-        render_mode, render_style,
+        render_mode, render_style, style_preset_id,
     )
 
     await increment_usage(tenant_id, "videos_created")
@@ -523,7 +551,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
-                  accent_color, visual_style, image_style_override, image_model_override, video_model,
+                  accent_color, visual_style, image_style_override, style_preset_id, image_model_override, video_model,
                   dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
                   video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
@@ -583,6 +611,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         pipeline_stages=_parse_stage_plan(r.get("pipeline_stages")),
         research_skipped=r.get("research_skipped") or False,
         image_style_override=r.get("image_style_override"),
+        style_preset_id=r.get("style_preset_id"),
         image_model_override=r.get("image_model_override"),
         video_model=r.get("video_model"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,

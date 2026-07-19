@@ -1412,6 +1412,67 @@ triggering the verbs, once both chunks are deployed together.
 
 ---
 
+## C20 — `style_presets` catalog + `GET /api/style-presets` + executor mapping
+(checklist §2.1 [D]+[B]) · live pick-a-preset-and-generate check
+
+Checklist §2.1's own `[V]` line: "Pick `holographic_hud` in UI → generated
+prompts carry its style system." This chunk shipped the DATA + BACKEND
+layers only (no `[U]` — C21 builds the gallery picker), so this full
+end-to-end check needs C21 deployed too. Covered at the unit level in the
+sandbox (10 tests in `test_c20_style_presets.py`, non-vacuous via `git
+stash`; `information_schema` + live row-count/content confirmed via
+Supabase MCP) — none of the following was driven through a real pipeline
+run, since there's no UI yet to pick a preset from and no paid budget in
+the sandbox.
+
+- [ ] **`GET /api/style-presets` returns the live catalog.** `se db "SELECT
+      id, display_name, cost_tier, sort, active FROM style_presets ORDER BY
+      sort"` should list exactly the 5 rows (neutral_v1, holographic_hud,
+      cinematic_dossier, clay_mannequin, cinematic_illustration); curl the
+      route (with a valid tenant token) and confirm it matches the DB
+      exactly, in the same order.
+- [ ] **`create_video` with a valid `style_preset_id` stores it.** `curl -X
+      POST .../api/videos` with `{"title": "test", "style_preset_id":
+      "holographic_hud"}` → `se db "SELECT style_preset_id FROM videos
+      WHERE id='<new-id>'"` should read back `holographic_hud`.
+- [ ] **An invalid `style_preset_id` 400s, not silently drops.** Same POST
+      with `"style_preset_id": "not_a_real_preset"` → expect HTTP 400, no
+      video row inserted with a bogus id (confirm no orphan row was created
+      at all — the whole request should fail before the INSERT, not create
+      a video with `style_preset_id=NULL`).
+- [ ] **The executor actually sets `VISUAL_PROFILE` from the stored id.**
+      On a video created with `style_preset_id="holographic_hud"`, trigger
+      any stage that calls `_load_idea` (e.g. re-run image prompts) and
+      check the backend log/process env at that moment — `VISUAL_PROFILE`
+      should read `holographic_hud`, not `neutral_v1`. The cheapest way to
+      observe this without a paid image call: temporarily log
+      `os.environ.get("VISUAL_PROFILE")` right after `_load_idea` runs (or
+      add a one-off `print` and grep `se logs backend`), rather than
+      running the full costed image stage.
+- [ ] **The full checklist ask — generated prompts actually carry the
+      profile's style system.** Once C21's picker exists: create a video,
+      pick `holographic_hud` in the UI, run image prompts for one scene,
+      and inspect the resulting prompt text — it should read as a
+      holographic/HUD/data-visualization scene (per that profile's own
+      `preview_prompts` in `shared/profiles/visual/holographic_hud.py`),
+      not the neutral/photorealistic default. This is the check that
+      closes checklist §2.1's `[V]` line for good — do it together with
+      C21's own live verification, not before.
+- **Cost:** the image-prompt check is free (text generation only, no image
+  render needed to confirm the STYLE the prompt carries); only run the
+  full "generate real images and eyeball them" version if you also want to
+  visually confirm the look, which is paid (~$0.025-0.05/image per
+  storyengine/CLAUDE.md's cost table) — get an explicit yes from Ryan
+  first if so.
+- **Safety net:** `_resolve_visual_profile_id`'s fail-soft chain means a
+  video with NO `style_preset_id` (every video created before this chunk,
+  or via any path that doesn't set it) behaves byte-identically to before
+  — if something looks wrong, first confirm the test video's
+  `style_preset_id` column is actually non-NULL before suspecting the
+  executor mapping itself.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

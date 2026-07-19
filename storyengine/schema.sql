@@ -101,6 +101,11 @@ CREATE TABLE videos (
   visual_style TEXT,
   image_model_override TEXT,
   image_style_override TEXT,
+  -- FK to style_presets(id) added further down (migration 096/C20) — that
+  -- table is defined later in this file; schema.sql is run top-to-bottom
+  -- on a fresh DB (see header), so the constraint is attached via ALTER
+  -- TABLE right after style_presets exists, not inline here.
+  style_preset_id TEXT,
   story_bible TEXT,
   script_validation TEXT,
   title_candidates TEXT,
@@ -1567,3 +1572,53 @@ CREATE UNIQUE INDEX IF NOT EXISTS generation_passes_unique
 ALTER TABLE generation_passes ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+
+-- =============================================================================
+-- STYLE_PRESETS (migration 096 — checklist §2.1 [D]+[B], chunk C20)
+-- =============================================================================
+-- Catalog for the VISUAL_PROFILE axis — the structural image-engine choice
+-- (shared.profiles.visual/*.py: scene-type variety, camera/composition
+-- cycling, anti-clustering). `id` is the profile MODULE NAME (shared.
+-- profiles.visual._PROFILE_MODULES key), so a valid row id is always a
+-- value load_profile() already knows how to resolve.
+--
+-- NOT the same axis as visual_styles (migration 010, above) or the
+-- frontend's hardcoded VISUAL_PRESETS (pixar_3d/flat_2d/realistic/anime/
+-- watercolor/comic) — those feed VISUAL_STYLE_DESCRIPTION, a free-text
+-- aesthetic overlay (image_style_override), a DIFFERENT env seam. See
+-- docs/reports/2026-07-17-storyengine-agent-audit-findings.md §S9-5 and
+-- SYSTEM_STATE.md §C20 for the reconciliation note (left for C21).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS style_presets (
+  id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+  best_for JSONB NOT NULL DEFAULT '[]'::jsonb,
+  cost_tier TEXT,
+  preview_url TEXT,
+  source TEXT NOT NULL DEFAULT 'python_profile',
+  sort INT NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE style_presets ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof). This
+-- is a global catalog, not tenant data — no tenant-scoped policy to write.
+
+-- Seed: the 5 real profiles in shared.profiles.visual._PROFILE_MODULES
+-- (excludes the "mannequin_storytelling" legacy alias — same module as
+-- cinematic_illustration, not a distinct 6th profile). Copied verbatim from
+-- each module's TemplateMetadata. See migrations/096_style_presets.sql for
+-- the full INSERT ... ON CONFLICT DO UPDATE (idempotent reseed of the
+-- code-derived columns only — `active`/`preview_url` stay admin-owned).
+
+-- videos.style_preset_id's FK is attached here (not inline on the `videos`
+-- CREATE TABLE far above) because this table is defined later in the file,
+-- which is run top-to-bottom on a fresh DB (see file header).
+ALTER TABLE videos ADD CONSTRAINT videos_style_preset_id_fkey
+  FOREIGN KEY (style_preset_id) REFERENCES style_presets(id) ON DELETE SET NULL;

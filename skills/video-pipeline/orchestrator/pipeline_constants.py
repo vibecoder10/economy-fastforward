@@ -51,6 +51,12 @@ class IdeaFields:
     ACCENT_COLOR = "Accent Color"
     IMAGE_MODEL_OVERRIDE = "Image Model Override"  # Multiple Select!
     VISUAL_STYLE = "Visual Style"  # Single Select
+    # StyleEngine catalog pick (checklist §2.1, C20) — a style_presets.id
+    # (e.g. "holographic_hud"), distinct from VISUAL_STYLE above (which is
+    # mostly free-text shallow-preset labels today). Wins over VISUAL_STYLE
+    # for the VISUAL_PROFILE executor seam when set. See
+    # storyengine/backend/pipeline_executor.py's _resolve_visual_profile_id.
+    STYLE_PRESET_ID = "Style Preset Id"
 
     # Visual consistency
     STORY_BIBLE = "Story Bible"

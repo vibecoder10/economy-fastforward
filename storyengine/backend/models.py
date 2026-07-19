@@ -81,6 +81,7 @@ class VideoDetail(VideoSummary):
     thumbnail_style_override: Optional[str] = None
     visual_style: Optional[str] = None
     image_style_override: Optional[str] = None
+    style_preset_id: Optional[str] = None
     image_model_override: Optional[str] = None
     video_model: Optional[str] = None
     video_length_minutes: Optional[float] = None
@@ -208,6 +209,13 @@ class CreateVideoRequest(BaseModel):
     # words). Front-loaded into every image prompt; wins over channel/neutral.
     # Omitted for the clone ("use this video's style") and "none" choices.
     image_style_override: Optional[str] = None
+    # Optional catalog pick from the 5 rich Python visual-profile engines
+    # (checklist §2.1, C20) — a style_presets.id, e.g. "holographic_hud".
+    # Validated against the table at create time; wins over the legacy
+    # `visual_style` text field for the VISUAL_PROFILE executor seam. A
+    # DIFFERENT axis from visual_style/image_style_override above (see
+    # style_presets's schema.sql comment for the reconciliation note).
+    style_preset_id: Optional[str] = None
     # When true, also save+activate this look as the channel's library identity
     # so future (non-cloned) videos inherit it.
     lock_in_identity: bool = False

@@ -3798,3 +3798,198 @@ Frontend untouched — confirmed via `git diff --stat` (no `storyengine/
 frontend` paths in the diff). Live re-invoke-costs-zero-quota proof deferred
 to `tasks/live-verification-queue.md` §C16e — needs a real connected YouTube
 channel + an already-uploaded test video, not available in the sandbox.
+
+## C20 — `style_presets` Catalog + `GET /api/style-presets` + Executor Mapping (added 2026-07-19)
+
+**Problem (checklist §2.1, "5 rich Python visual profiles invisible to
+users; UI shows only 6 shallow hardcoded presets"):** `skills/video-pipeline/
+shared/profiles/visual/*.py` defines 5 real image-generation ENGINES
+(neutral_v1, holographic_hud, cinematic_dossier, clay_mannequin,
+cinematic_illustration — each with its own scene-type variety, camera/
+composition cycling, anti-clustering rules, and a `TemplateMetadata`
+dataclass explicitly labeled "what customers see during onboarding") — but
+no route or table ever surfaced them. The only user-visible style pickers
+today are the 6 shallow hardcoded `VISUAL_PRESETS` (pixar_3d/flat_2d/
+realistic/anime/watercolor/comic, `frontend/src/lib/visual-presets.ts`).
+
+**Fix — DB catalog + read route + executor precedence, [D]+[B] slice (C21
+builds the gallery UI):**
+
+1. **New `style_presets` table (migration 096, applied LIVE via Supabase
+   MCP against `wrromlupsmyzrrcqlucn`, confirmed via `information_schema` +
+   a live row-count query — 5 rows):** `id` (TEXT PK — the profile MODULE
+   NAME, e.g. `"holographic_hud"`, exactly matching
+   `shared.profiles.visual._PROFILE_MODULES`'s keys, so a valid row id is
+   always something `load_profile()` already knows how to resolve),
+   `display_name`, `description`, `tags` (jsonb), `best_for` (jsonb),
+   `cost_tier`, `preview_url` (nullable — no generated preview image exists
+   yet for any profile), `source` (`'python_profile'`), `sort`, `active`,
+   timestamps. RLS enabled, no policies (playbook §7 pattern — backend
+   connects as `postgres`, BYPASSRLS; this is a GLOBAL catalog, not tenant
+   data, so there's no tenant policy to write anyway).
+   - **Seed data extracted verbatim from each profile module's
+     `TemplateMetadata`** (read every one of the 5 `.py` files directly —
+     not invented copy): `neutral_v1` ("Neutral Documentary (default)",
+     cost_tier low), `holographic_hud` ("Holographic Intelligence Display",
+     low), `cinematic_dossier` ("Cinematic Intelligence Briefing", mid),
+     `clay_mannequin` ("Clay Mannequin Dioramas", mid),
+     `cinematic_illustration` ("Cinematic Animated Illustration", low).
+     Excludes the `"mannequin_storytelling"` legacy alias (same module as
+     cinematic_illustration, not a distinct 6th profile). `sort` follows
+     `_PROFILE_MODULES`'s own declaration order — no subjective ranking
+     introduced.
+   - **Idempotency choice — justified:** `INSERT ... ON CONFLICT (id) DO
+     UPDATE` refreshing ONLY the code-derived columns (display_name/
+     description/tags/best_for/cost_tier/sort/source/updated_at).
+     Deliberately does NOT touch `active`/`preview_url` — those are the two
+     fields a future admin control (C21+) may mutate, and a reseed must
+     never silently reactivate a disabled preset or wipe a manually-set
+     preview image.
+   - `videos.style_preset_id` (TEXT, nullable) added in the SAME migration,
+     `REFERENCES style_presets(id) ON DELETE SET NULL`. In `schema.sql` the
+     FK is attached via a separate `ALTER TABLE ADD CONSTRAINT` placed AFTER
+     the `style_presets` CREATE TABLE (schema.sql runs top-to-bottom on a
+     fresh DB per its own header — the `videos` table is created far
+     earlier in the file, so an inline forward-reference there would break
+     a fresh bootstrap).
+
+2. **`GET /api/style-presets`** (new `routes/style_presets.py`, registered
+   in `main.py`): returns `{"presets": [...]}` ordered `sort, id`, active
+   rows only, JSONB `tags`/`best_for` defensively parsed (mirrors
+   `routes/visual_styles.py`'s `_parse_jsonb`). **Auth posture mirrors `GET
+   /api/models`** (`routes/model_registry.py`): `Depends(get_tenant_id)`
+   required even though the data is a global (non-tenant-scoped) catalog —
+   consistent with every other route in this app, no reason to leave a
+   style-catalog read unauthenticated.
+
+3. **`create_video` accepts optional `style_preset_id`** (`models.py`'s
+   `CreateVideoRequest`): new `routes/videos.py::_resolve_style_preset_id`
+   validates it against `style_presets` (must exist AND be active); a
+   real id passes through unchanged, blank/`None` is a silent no-op (the
+   common case), an unknown/inactive id raises `400` — matching this same
+   function's existing `reference_url` precedent a few lines above (fail
+   fast on a bad explicit choice, don't silently drop it, since a picker UI
+   should never send a bogus id). Stored on `videos.style_preset_id` in the
+   same INSERT; also added to `get_video`'s SELECT + `VideoDetail` response
+   (read-layer completeness — C21's UI doesn't consume it yet, but nothing
+   about exposing an already-stored column is "dead code").
+
+4. **Executor mapping — the VISUAL_PROFILE env seam**
+   (`pipeline_executor.py`'s `_load_idea`, checklist's "existing seam at
+   L6358", re-located this session at what is now ~L6385 after C19's
+   sweep): new module-level pure helper `_resolve_visual_profile_id(idea)`
+   replaces the old one-line `idea.get(IdeaFields.VISUAL_STYLE) or
+   "neutral_v1"`.
+   - **Before:** `visual_style = idea.get(IdeaFields.VISUAL_STYLE) or
+     "neutral_v1"`
+   - **After:** `visual_style = _resolve_visual_profile_id(idea)`, where the
+     helper is `(idea.get(IdeaFields.STYLE_PRESET_ID) or "").strip() or
+     (idea.get(IdeaFields.VISUAL_STYLE) or "").strip() or "neutral_v1"`.
+   - **Fail-soft, exactly as required:** a video with no `style_preset_id`
+     (every video created before this chunk, and any video where a creator
+     never picks one) reproduces the ORIGINAL resolution byte-for-byte —
+     the new field only wins when a validated, real id is present.
+   - New `IdeaFields.STYLE_PRESET_ID = "Style Preset Id"`
+     (`orchestrator/pipeline_constants.py`) + `"Style Preset Id":
+     "style_preset_id"` added to `supabase_adapter.py`'s `IDEA_FIELD_MAP`
+     (auto-reverses into `IDEA_COLUMN_MAP`) — without this mapping,
+     `_row_to_idea` silently drops the raw `style_preset_id` column and the
+     new field would never reach `_load_idea`'s `idea` dict at all.
+
+**A real, pre-existing bug this surfaced (not fixed here, noted for C21):**
+`videos.visual_style` is populated TODAY by the 6-shallow-preset system
+(values like `"Pixar 3D"`, traced via `GET /style-default`'s
+`_normalize_style_preset` call and `ChatCore.tsx`'s `PRESET_LABELS` map),
+not by a Python profile module id — so the "existing" VISUAL_PROFILE seam
+has likely been silently falling back to `"neutral_v1"` for every real
+tenant since it was written (`load_profile()` logs `"Unknown profile:
+Pixar 3D"` and returns `None`, never raising). C20's `style_preset_id` is
+the FIRST value ever written to that seam guaranteed to resolve correctly,
+by construction (validated against the same id space `load_profile()`
+reads).
+
+**S9-5 relationship note (docs/reports/2026-07-17-storyengine-agent-audit-
+findings.md's "two parallel style systems" finding) — three axes exist, not
+two:**
+1. **`style_presets` (this chunk) → `VISUAL_PROFILE` env** — the
+   STRUCTURAL image-engine choice (which Python module's scene-type/camera/
+   composition logic runs). The 5 rich profiles live here.
+2. **`visual_styles` table (migration 010, existing "VisualStyle CRUD" on
+   `profile/page.tsx`, query key `["visualStyles"]`) → exported via
+   `upsert_active_visual_style`/`_export_visual_style` into
+   `videos.image_style_override` → `VISUAL_STYLE_DESCRIPTION` env** —
+   free-text aesthetic OVERLAY (a project-scoped library of named "looks",
+   each with its own reference characters), stacked ON TOP of whichever
+   engine axis 1 selects.
+3. **Frontend's hardcoded `VISUAL_PRESETS` (6 shallow items,
+   `visual-presets.ts` + `producer_prompt.VISUAL_PRESETS`)** — ALSO feeds
+   the SAME axis as #2 (`VISUAL_STYLE_DESCRIPTION`), just via a different,
+   non-DB-backed source of free-text look sentences. This is the thing the
+   checklist's "UI shows only 6 shallow hardcoded presets" complaint is
+   actually about.
+   Axis 1 (structural engine) and axis 2/3 (aesthetic overlay) are
+   COMPLEMENTARY, not duplicates — a video can meaningfully pick BOTH a
+   `style_preset_id` (e.g. `holographic_hud`'s zero-human-figures HUD
+   engine) AND an `image_style_override` (a specific color/lighting
+   description layered into that engine's prompts). **C21's job:** build
+   the gallery UI for axis 1 (this chunk's catalog) and DECIDE whether/how
+   to reconcile axis 2 vs axis 3 (both already serve the same purpose;
+   `visual_styles` is the more capable, DB-backed, user-extensible one) —
+   NOT to merge axis 1 into either of them, they answer different
+   questions.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/096_style_presets.sql` | `style_presets` table + 5-row seed (idempotent `ON CONFLICT DO UPDATE`, code-derived columns only) + `videos.style_preset_id` column, applied live |
+| `storyengine/backend/routes/style_presets.py` | `GET /api/style-presets` |
+| `storyengine/backend/tests/functional/test_c20_style_presets.py` | 10 tests: route shape/order/JSONB-string-tolerance/auth-required, `_resolve_style_preset_id` (blank/valid/invalid), `_resolve_visual_profile_id` (precedence/fail-soft/blank-is-missing) |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/schema.sql` | `style_presets` table (appended after `generation_passes`, migration-096-era) + `videos.style_preset_id` column (no inline FK — see ordering note above) + the FK constraint attached after `style_presets` exists |
+| `storyengine/backend/main.py` | Imports + registers `style_presets.router` |
+| `storyengine/backend/models.py` | `CreateVideoRequest.style_preset_id` + `VideoDetail.style_preset_id` |
+| `storyengine/backend/routes/videos.py` | New `_resolve_style_preset_id` helper; `create_video`'s INSERT + `get_video`'s SELECT/response gain `style_preset_id` |
+| `storyengine/backend/pipeline_executor.py` | New module-level `_resolve_visual_profile_id(idea)`; `_load_idea` calls it instead of the inline `idea.get(IdeaFields.VISUAL_STYLE) or "neutral_v1"` |
+| `storyengine/backend/supabase_adapter.py` | `IDEA_FIELD_MAP` gains `"Style Preset Id": "style_preset_id"` |
+| `skills/video-pipeline/orchestrator/pipeline_constants.py` | `IdeaFields.STYLE_PRESET_ID = "Style Preset Id"` |
+
+**Deploy-safety assessment:** ff-merge candidate. Purely additive: a new
+table + a new nullable FK column (default NULL, existing rows unaffected);
+a new route (no existing route touched); `CreateVideoRequest`/`VideoDetail`
+gain optional fields with `None` defaults (every existing caller that omits
+`style_preset_id` behaves identically); `_resolve_visual_profile_id`'s
+fail-soft chain reproduces the EXACT prior expression when
+`style_preset_id` is absent (proven by
+`test_fails_soft_to_legacy_visual_style_when_preset_missing` +
+`test_fails_soft_to_default_when_both_missing`). No existing migration,
+route, or model field renamed or removed. Frontend untouched — confirmed
+via `git diff --stat` (no `storyengine/frontend` paths in the diff); C21
+builds the gallery UI against this endpoint.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c20_style_presets.py -q` — 10 passed. Non-vacuous:
+`git stash` (tracked files only — the new untracked `style_presets.py`/
+migration/test file stay in place) then rerunning — collection ERRORS
+(`ImportError: cannot import name '_resolve_visual_profile_id' from
+'pipeline_executor'`) against pre-C20 source; `git stash pop` restored
+clean, re-verified green. `python -m py_compile` clean on all 6 touched/
+added `.py` files. Full backend suite: `./venv/bin/python -m pytest tests/
+-q` — **1029 passed (1019 baseline + 10 new) / 16 pre-existing failures
+(identical file list to every prior chunk) / 1 pre-existing error — zero
+new failures.** `test_schema_sql_migrations_drift.py` (which independently
+checks every migration's table appears in `schema.sql`) passes, confirming
+the `style_presets` table was actually added to `schema.sql`, not just the
+migration file. Live checks: `information_schema.columns` on both
+`style_presets` (12 columns, correct types) and `videos.style_preset_id`
+(TEXT) confirmed via Supabase MCP against `wrromlupsmyzrrcqlucn`; live
+row-count/content query confirms exactly 5 seeded rows in the expected sort
+order with the expected display_name/cost_tier/source values;
+`pg_class.relrowsecurity` confirms RLS is enabled. Frontend untouched (no
+`[U]` this chunk — C21 owns the gallery). Live "pick a preset → generated
+prompts carry its style system" end-to-end check (checklist §2.1's own
+`[V]` line) deferred to `tasks/live-verification-queue.md` §C20 — needs a
+live DB + a real pipeline run, and completes together with C21 once the
+picker UI exists to drive it from.

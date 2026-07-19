@@ -6125,6 +6125,32 @@ def resolve_prompt(
     return None
 
 
+def _resolve_visual_profile_id(idea: dict) -> str:
+    """Resolve the value written to the VISUAL_PROFILE env seam (checklist
+    §2.1, C20 — the 5 rich Python visual-profile engines: neutral_v1,
+    holographic_hud, cinematic_dossier, clay_mannequin, cinematic_illustration).
+
+    Precedence: an explicit `style_preset_id` (routes/videos.py's
+    create_video validates it against the style_presets table before it's
+    ever stored, so its value ALWAYS matches a real
+    shared.profiles.visual._PROFILE_MODULES key) wins over the legacy
+    free-text `visual_style` column, which wins over the style-agnostic
+    default. Fail-soft: a missing/blank style_preset_id (every video created
+    before C20, and every video where a creator never picks one) falls
+    straight through to the ORIGINAL behavior, byte-for-byte unchanged.
+
+    idea's dict shape is Airtable-style field names (supabase_adapter.py's
+    _row_to_idea) — pipeline_constants.IdeaFields is the source of truth
+    for those keys, not the raw Supabase column names.
+    """
+    from orchestrator.pipeline_constants import IdeaFields
+    return (
+        (idea.get(IdeaFields.STYLE_PRESET_ID) or "").strip()
+        or (idea.get(IdeaFields.VISUAL_STYLE) or "").strip()
+        or "neutral_v1"
+    )
+
+
 class PipelineExecutor:
     """Executes pipeline stages with StoryEngine integration.
 
@@ -6356,7 +6382,11 @@ class PipelineExecutor:
             except Exception:
                 pass
             # Style-agnostic default; an explicit tenant choice still wins.
-            visual_style = idea.get(IdeaFields.VISUAL_STYLE) or "neutral_v1"
+            # C20: a validated style_preset_id (the 5 rich Python profile
+            # engines) takes precedence over the legacy free-text field —
+            # see _resolve_visual_profile_id's docstring for the fail-soft
+            # precedence chain.
+            visual_style = _resolve_visual_profile_id(idea)
             self._pipeline.visual_style = visual_style
             # The skill pipeline resolves the visual profile via this env var
             # (load_profile() reads VISUAL_PROFILE). The backend's _load_idea
