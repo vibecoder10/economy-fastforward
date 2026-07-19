@@ -5766,3 +5766,159 @@ HTTP session and gives Ryan the one recipe to run when ready.
 begins)** — the learning-loop phase: surfacing which style preset / clip model a video used
 alongside its CTR/retention numbers, plus the aggregation query that groups performance "by choice"
 (a prerequisite for C31's "by style" analytics panel).
+
+---
+
+## C30 — P3.1a preset/model performance aggregation: `videos`-direct, no migration (added 2026-07-19)
+
+**Checklist §3.1 `[D]`+`[B]` slice** (the loop's Phase 3 opener — "which visual styles / models /
+presets actually earn views on this channel", the prerequisite for C31's "by style" UI panel +
+producer citations). `[U]` is explicitly out of scope for this chunk (C31 does it) — frontend
+untouched, confirmed via `git status` showing zero files under `storyengine/frontend/`.
+
+**The linkage question, answered first (investigated via a Sonnet sub-agent read of
+`routes/youtube_sync.py`, `routes/analytics.py`, `channel_briefs.py`, `agent_brain.py` before
+writing any code):** published-video performance (CTR/views/retention) does **not** need a join to
+`channel_videos` to reach StoryEngine's own `videos` rows. `videos` already carries its own
+performance columns (`views`, `ctr`, `avg_retention`, `impressions`, `views_24h/48h/7d/30d`,
+`ctr_48h`, `retention_48h`, `last_analytics_sync`) — written by
+`youtube_sync.py::_writeback_matched_videos` (`~L371-423`), the SAME sync job that fills
+`channel_videos`, one step later, gated on `_match_internal_videos` (`~L324-368`) finding a match.
+Critically, `pipeline_executor.py::run_upload` sets `videos.youtube_video_id` **immediately on
+upload** with no `channel_videos` insert anywhere in that path — a `channel_videos` row only
+appears later, on the next `/api/youtube/sync` channel-uploads-playlist walk (capped at
+`MAX_CHANNEL_VIDEOS=200`, requires channel-wide OAuth). So `videos.youtube_video_id IS NOT NULL`
+with zero matching `channel_videos` row is a normal, expected state — requiring that join would
+silently drop freshly-published videos. `routes/analytics.py::get_framework_performance` and
+`channel_briefs.py::_own_performance_brief` already establish this exact "read `videos` directly,
+never `channel_videos`" precedent for per-video-attribute aggregation; C30 follows it. **No
+migration needed** — every column the aggregation touches (`style_preset_id` C20, `render_style`
+C13b, `script_profile` C24, `assets.model_used`/`generation_ledger.model` C13/C07) already exists.
+
+### What shipped
+
+**New module `storyengine/backend/analytics_by_style.py`** — the ONE aggregation, two callers
+(so the UI/endpoint and the copilot can never disagree, same "one implementation, N callers"
+shape as `channel_briefs.py`'s existing three briefs):
+- `get_style_performance(tenant_id) -> dict` with keys `by_style_preset`, `by_render_style`,
+  `by_script_profile`, `by_clip_model`. Each list item: `{dimension, choice, video_count,
+  synced_count, avg_ctr, avg_retention, total_views, total_spend}`.
+- The three column dimensions (`_aggregate_column`) group straight off `videos` with the spend
+  joined from a `generation_ledger` CTE:
+  ```sql
+  WITH spend AS (
+    SELECT video_id, SUM(actual_cost) AS spend FROM generation_ledger
+    WHERE tenant_id = $1 GROUP BY video_id
+  )
+  SELECT v.{column} AS choice, COUNT(*)::int AS video_count,
+         COUNT(*) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::int AS synced_count,
+         ROUND(AVG(v.ctr) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_ctr,
+         ROUND(AVG(v.avg_retention) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_retention,
+         COALESCE(SUM(v.views), 0)::bigint AS total_views,
+         COALESCE(SUM(s.spend), 0)::numeric AS total_spend
+  FROM videos v LEFT JOIN spend s ON s.video_id = v.id
+  WHERE v.tenant_id = $1 AND v.deleted_at IS NULL
+    AND v.{column} IS NOT NULL AND v.{column} != ''
+  GROUP BY v.{column} ORDER BY avg_ctr DESC NULLS LAST
+  ```
+  (`{column}` is always one of the 3 fixed literals in `_COLUMN_DIMENSIONS`, never caller input —
+  no injection surface.)
+- The 4th dimension, clip model, can't group directly off a `videos` column (a video's clips can
+  route across multiple models, C13's mixed-routing money invariant) — `_aggregate_clip_model`
+  instead picks each video's **dominant** model (the one that ran the most of its clips, via
+  `ROW_NUMBER() OVER (PARTITION BY video_id ORDER BY COUNT(*) DESC, model ASC)` over
+  `generation_ledger WHERE stage='clip'`) so a video's performance is attributed exactly once,
+  never split or double-counted across model buckets.
+- **Honest NULL handling**: `video_count` counts every video with that choice set; `synced_count`
+  is the subset with `last_analytics_sync IS NOT NULL` (the same flag `_own_performance_brief`
+  already treats as "has real data"). Averages use SQL `FILTER` over the synced subset only, so an
+  unpublished/not-yet-synced video is counted but never drags an average toward zero pretending to
+  be a real data point — its `avg_ctr`/`avg_retention` come back as JSON `null`, not `0`/`0.0`.
+- **Fail-soft per dimension**: each of the 4 queries is wrapped in its own try/except returning
+  `[]` on error — one broken GROUP BY can't sink the other three or 500 the endpoint.
+
+**`routes/analytics.py`** — new `GET /api/analytics/by-style` (same router, no `main.py` change
+needed — `analytics.router` was already registered). Thin wrapper: `return await
+get_style_performance(tenant_id)`, `response_model=StylePerformanceResponse`.
+
+**`models.py`** — new `StyleChoiceAggregate` + `StylePerformanceResponse` Pydantic models (per
+codebase convention — most `routes/analytics.py` endpoints predate `response_model` typing, this
+new one uses it, matching `routes/autopilot.py`'s `List[CompetitorCandidate]` etc. precedent).
+
+**The read-tool, one implementation reused (checklist's explicit ask)** — `channel_briefs.py`
+gets a 4th brief, `_style_performance_brief(tenant_id)`, calling `analytics_by_style
+.get_style_performance` directly (not a re-derived query) and formatting the top 3 choices per
+dimension **that clear `MIN_SAMPLE=2` synced videos** (so it never invents a trend out of one
+lucky video) into producer-citable text ("By style preset - pixar_3d: 6.5% CTR, 55% retention (2
+videos, $42.10 spent)"). Wired into BOTH existing surfaces that already call the other 3 briefs
+(the C15d "one director voice + data reach" symmetry) — `agent_brain.py::_tool_channel_data` (the
+in-video copilot's `channel_data` tool, doc string updated) and `routes/chat.py::_loop_brief` (the
+home producer's always-on context). C31 builds the actual UI panel and the producer's live
+citation logic on top of this same data; this chunk only makes the numbers reachable.
+
+### Verify
+
+**Non-vacuous via `git stash`** (tracked-file changes stashed + `analytics_by_style.py` moved
+aside, `test_c30_style_performance.py` left in place): `ModuleNotFoundError: No module named
+'analytics_by_style'` on collection — proves the tests exercise real new code, not tautologies.
+Stash popped, file restored, re-ran clean.
+
+10 new tests in `storyengine/backend/tests/functional/test_c30_style_performance.py`:
+- `get_style_performance` groups correctly across all 4 dimensions from stub rows spanning 2
+  style-preset groups (one synced, one "no data yet") + render_style/script_profile/clip_model
+  groups; asserts tenant_id is the first bound param on every one of the 4 queries.
+- NULL/no-data-yet honesty: a group with `synced_count=0` comes back `avg_ctr=None,
+  avg_retention=None` (never coerced to 0), while `total_spend` still counts real ledger spend
+  for that unsynced video.
+- Dominant-clip-model dimension returns the expected model set from stubbed
+  `generation_ledger`-shaped rows.
+- One dimension's query raising (`by_render_style`) leaves it `[]` while the other 3 dimensions
+  still come back populated — fail-soft proven per-dimension, not just at the top level.
+- `GET /api/analytics/by-style` (TestClient) returns the identical shape/numbers as the direct
+  function call, and an all-empty-DB scenario returns `{}`-shaped empty lists (never crashes).
+- `_style_performance_brief` cites the exact same numbers the endpoint returned (`"pixar_3d: 6.5%
+  CTR, 55% retention (2 videos, $42.10 spent)"` verbatim in both), skips the sub-`MIN_SAMPLE`
+  "dossier" group, returns `""` fail-soft on a DB error, and `agent_brain._run_tool("channel_data",
+  ...)` reaches the new brief section end-to-end.
+
+`python -m py_compile` clean on all 7 touched/new files. **Full backend suite: 1215 passed / 15
+failed / 1 error** — baseline (C29 handoff) was **1205 passed / 15 failed / 1 error**; 1215 − 1205
+= exactly the 10 new tests; the failing-test-name list is byte-identical to the baseline's 15 (same
+`test_activity_feed_no_raw_errors.py` ×2, `test_auto_scrape_ungated.py`, `test_clip_dialogue.py`,
+`test_dialogue_alignment.py`, `test_discovery_error_surfacing.py`,
+`test_discovery_generation_no_leak.py` ×2, `test_model_video.py` ×2,
+`test_refresh_ideas_error_surfaced_lock.py`, `test_suggest_titles_wire.py`,
+`test_youtube_my_videos.py`, `test_youtube_oauth_diagnostics.py` ×2) plus the same 1 pre-existing
+error (`test_validator_error_parsing.py::test_api_key`) — zero new failures.
+
+**Live verification deferred** to `tasks/live-verification-queue.md` §C30 (no migration to
+information_schema-confirm, so the only live check is "real channel data aggregates sensibly" —
+needs a tenant with actual synced YouTube analytics across 2+ style presets, which the sandbox
+doesn't have).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/analytics_by_style.py` | the one aggregation — `get_style_performance()` |
+| `storyengine/backend/tests/functional/test_c30_style_performance.py` | 10 tests, all 3 layers |
+
+### Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/analytics.py` | new `GET /api/analytics/by-style` |
+| `storyengine/backend/models.py` | `StyleChoiceAggregate` + `StylePerformanceResponse` |
+| `storyengine/backend/channel_briefs.py` | new `_style_performance_brief` |
+| `storyengine/backend/agent_brain.py` | `_tool_channel_data` + `TOOL_DOC` now include it |
+| `storyengine/backend/routes/chat.py` | `_loop_brief` now includes it |
+
+**Deploy-safety assessment — ff-merge candidate:** purely additive. New route, no `main.py`
+change (router already registered); new Pydantic models (additive fields, nothing renamed/removed);
+`channel_briefs`/`agent_brain`/`chat.py` changes only ADD a 4th brief call alongside the existing 3
+— an old brief's behavior is byte-unchanged (the new brief's own failure is caught inside itself
+and contributes `""`, same fail-soft shape as the other 3). No schema/migration risk (zero DDL this
+chunk). No paid-generation surface touched. Safe to ff-merge on the routine hourly deploy.
+
+**Next up: C31 · P3.1b analytics "by style" panel + producer cites channel-data in LOOK
+recommendations** — build the frontend panel reading `GET /api/analytics/by-style`, and wire the
+producer's LOOK-recommendation copy to cite `_style_performance_brief`'s numbers explicitly (this
+chunk only made the tool reachable, didn't change what the producer says yet).

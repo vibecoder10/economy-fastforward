@@ -123,17 +123,25 @@ async def _tool_channel_data(tenant_id) -> str:
     """The SAME data-backed briefs the home producer uses for "what should I
     make next" / "how's my channel doing" (C15d: one director voice + data
     reach) — the strongest UNMODELED competitor winners (scored), this
-    creator's own published-video analytics, and proven patterns the channel
-    has learned. One shared implementation (channel_briefs.py) so the home
-    chat and this in-video copilot can never disagree. Tenant-scoped, and
-    each section is already fail-soft (a DB error there returns '' — see
-    channel_briefs.py) so this never breaks the turn; if every section is
-    empty (no data synced yet), say so plainly rather than returning ''."""
-    from channel_briefs import _learnings_brief, _next_to_make_brief, _own_performance_brief
+    creator's own published-video analytics, proven patterns the channel has
+    learned, and (C30) performance grouped by which style preset/render look/
+    script voice/clip model actually made each video. One shared
+    implementation per brief (channel_briefs.py) so the home chat and this
+    in-video copilot can never disagree. Tenant-scoped, and each section is
+    already fail-soft (a DB error there returns '' — see channel_briefs.py)
+    so this never breaks the turn; if every section is empty (no data synced
+    yet), say so plainly rather than returning ''."""
+    from channel_briefs import (
+        _learnings_brief,
+        _next_to_make_brief,
+        _own_performance_brief,
+        _style_performance_brief,
+    )
     parts = [
         await _next_to_make_brief(tenant_id),
         await _own_performance_brief(tenant_id),
         await _learnings_brief(tenant_id),
+        await _style_performance_brief(tenant_id),
     ]
     text = "".join(p for p in parts if p).strip()
     return text or "No channel performance or competitor data available yet."
@@ -189,7 +197,8 @@ TOOL_DOC = (
     '- {"tool":"cost"} — REAL ledgered spend so far, broken down by stage (use this for "how much has this cost?", not the "actions" cost estimates)\n'
     '- {"tool":"channel_data"} — this CHANNEL\'s data (not just this video): scored unmodeled competitor '
     'winners ("what should I make next?"), this creator\'s own published-video analytics ("how are my videos '
-    'doing?"), and proven patterns the channel has learned ("what works for us?")\n'
+    'doing?"), proven patterns the channel has learned ("what works for us?"), and performance grouped by '
+    'style preset/render look/script voice/clip model ("which look/model earns the most views?")\n'
 )
 
 

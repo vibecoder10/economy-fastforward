@@ -337,3 +337,26 @@ class ProfileRead(BaseModel):
 class ProfileUpdate(BaseModel):
     display_name: Optional[str] = None
     email: Optional[str] = None
+
+
+# --- Style/model performance (checklist §3.1 / C30) ---
+# One aggregation, two callers: routes/analytics.py's GET /api/analytics/by-style
+# and channel_briefs.py's copilot brief (analytics_by_style.get_style_performance)
+# — see that module's header for the videos-vs-channel_videos linkage reasoning.
+
+class StyleChoiceAggregate(BaseModel):
+    dimension: str  # 'by_style_preset' | 'by_render_style' | 'by_script_profile' | 'by_clip_model'
+    choice: str
+    video_count: int = 0
+    synced_count: int = 0  # subset of video_count with real synced YouTube analytics
+    avg_ctr: Optional[float] = None
+    avg_retention: Optional[float] = None
+    total_views: int = 0
+    total_spend: float = 0.0
+
+
+class StylePerformanceResponse(BaseModel):
+    by_style_preset: List[StyleChoiceAggregate] = []
+    by_render_style: List[StyleChoiceAggregate] = []
+    by_script_profile: List[StyleChoiceAggregate] = []
+    by_clip_model: List[StyleChoiceAggregate] = []

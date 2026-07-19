@@ -2829,7 +2829,12 @@ async def _competitor_winners_brief(tenant_id) -> str:
 # the SAME implementation the home producer's _loop_brief below uses — one
 # data source, two chat surfaces, instead of the copilot having no reach
 # into competitor/performance/learnings data at all.
-from channel_briefs import _next_to_make_brief, _own_performance_brief, _learnings_brief  # noqa: E402
+from channel_briefs import (  # noqa: E402
+    _next_to_make_brief,
+    _own_performance_brief,
+    _learnings_brief,
+    _style_performance_brief,
+)
 
 
 async def _own_catalog_brief(tenant_id) -> str:
@@ -2865,6 +2870,7 @@ async def _loop_brief(tenant_id) -> str:
         await _own_performance_brief(tenant_id),
         await _own_catalog_brief(tenant_id),
         await _learnings_brief(tenant_id),
+        await _style_performance_brief(tenant_id),
     ]
     return "".join(p for p in parts if p)
 

@@ -104,10 +104,10 @@ The Higgsfield-killer door: co-create from Claude/any MCP client; verbs come fro
 ## P3 — Learning loops & stub cleanup
 
 ### 3.1 Preset-performance loop (the moat — Higgsfield can't copy this)
-- [ ] `[D]` Videos already store style/model choices after P1/P2 — ensure `style_preset_id`, per-scene `model_used` are queryable alongside CTR/retention snapshots.
-- [ ] `[B]` Extend analytics/learnings: aggregate CTR/retention by style preset + clip model; feed `_next_to_make_brief` and producer context ("pixar_3d pulling 5.1% CTR on your channel").
-- [ ] `[U]` Analytics page: "by style" panel; producer cites it when recommending a LOOK.
-- [ ] `[V]` Seed two styles with snapshot data; brief includes the comparison.
+- [x] `[D]` Videos already store style/model choices after P1/P2 — ensure `style_preset_id`, per-scene `model_used` are queryable alongside CTR/retention snapshots. — DONE C30 (2026-07-19): no new column needed, `videos` already carries `style_preset_id`/`render_style`/`script_profile` + its own synced performance columns; `analytics_by_style.py` is the queryable aggregation. See SYSTEM_STATE.md §C30.
+- [x] `[B]` Extend analytics/learnings: aggregate CTR/retention by style preset + clip model; feed `_next_to_make_brief` and producer context ("pixar_3d pulling 5.1% CTR on your channel"). — DONE C30: `GET /api/analytics/by-style` + `channel_briefs._style_performance_brief` (wired into `agent_brain._tool_channel_data` and `routes/chat._loop_brief`). See SYSTEM_STATE.md §C30.
+- [ ] `[U]` Analytics page: "by style" panel; producer cites it when recommending a LOOK. — C31.
+- [ ] `[V]` Seed two styles with snapshot data; brief includes the comparison. — deferred to live-verification-queue §C30 (needs a tenant with real multi-preset synced analytics); unit-level equivalent (stub rows spanning 2 styles) proven in `test_c30_style_performance.py`.
 
 ### 3.2 Legacy stubs — fix or delete, don't leave dark (Anti-Bandaid rule)
 These are in `skills/video-pipeline/` (legacy Airtable side). StoryEngine SaaS reimplements most of them — decide per item: port or delete. No third option.

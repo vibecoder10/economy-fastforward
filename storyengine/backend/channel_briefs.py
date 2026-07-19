@@ -128,3 +128,45 @@ async def _learnings_brief(tenant_id) -> str:
         lines.append(f"[{cat}] {pat}{ctr_s} (n={n})")
     return ("\nWHAT THIS CHANNEL HAS LEARNED (proven patterns from its own results - lean on these and "
             "cite them when advising):\n- " + "\n- ".join(lines))
+
+
+async def _style_performance_brief(tenant_id) -> str:
+    """Real performance grouped by the creative CHOICE that produced it — visual
+    style preset, render look, script voice, dominant clip model (checklist
+    §3.1/C30: the preset-performance loop). Lets the chat answer "which look/
+    model actually earns views on this channel?" and cite it when recommending
+    one, e.g. "your holographic videos average 2x the views" (C31 builds the
+    full citation UX; this just makes the numbers reachable). Reuses the SAME
+    aggregation the /api/analytics/by-style endpoint returns
+    (analytics_by_style.get_style_performance) — one source, so the chat and
+    the UI panel can never disagree. Only cites groups with >= MIN_SAMPLE
+    videos carrying real synced analytics, so it never invents a "trend" out
+    of one lucky video. Fail-soft -> ''."""
+    from analytics_by_style import MIN_SAMPLE, get_style_performance
+    try:
+        agg = await get_style_performance(tenant_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("channel_briefs: style performance brief failed: %s", e)
+        return ""
+    labels = (
+        ("style preset", "by_style_preset"),
+        ("render look", "by_render_style"),
+        ("script voice", "by_script_profile"),
+        ("clip model", "by_clip_model"),
+    )
+    lines = []
+    for label, key in labels:
+        rows = [r for r in (agg.get(key) or []) if r["synced_count"] >= MIN_SAMPLE]
+        if not rows:
+            continue
+        top = sorted(rows, key=lambda r: (r["avg_ctr"] is None, -(r["avg_ctr"] or 0)))[:3]
+        parts = []
+        for r in top:
+            ctr = f'{r["avg_ctr"]:.1f}% CTR' if r["avg_ctr"] is not None else "CTR n/a"
+            ret = f', {r["avg_retention"]:.0f}% retention' if r["avg_retention"] is not None else ""
+            parts.append(f'{r["choice"]}: {ctr}{ret} ({r["synced_count"]} videos, ${r["total_spend"]:.2f} spent)')
+        lines.append(f"By {label} - " + "; ".join(parts))
+    if not lines:
+        return ""
+    return ("\nPERFORMANCE BY CREATIVE CHOICE (real synced analytics grouped by what actually made the "
+            "video - cite these when recommending a look/model):\n- " + "\n- ".join(lines))

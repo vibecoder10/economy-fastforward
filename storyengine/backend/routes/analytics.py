@@ -9,6 +9,8 @@ live on the tenant's YouTube channel.
 from fastapi import APIRouter, Depends, Query
 from database import fetch_all, fetch_one
 from auth import get_tenant_id
+from analytics_by_style import get_style_performance
+from models import StylePerformanceResponse
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -180,6 +182,22 @@ async def get_framework_performance(tenant_id: str = Depends(get_tenant_id)):
         }
         for r in rows
     ]
+
+
+@router.get("/by-style", response_model=StylePerformanceResponse)
+async def get_by_style_performance(tenant_id: str = Depends(get_tenant_id)):
+    """Performance grouped by the creative CHOICE that produced it — visual style
+    preset, render look, script voice, and each video's dominant clip model
+    (checklist §3.1/C30: the preset-performance loop — "which visual styles /
+    models / presets actually earn views on this channel"). Reads `videos`
+    directly (never `channel_videos` — see analytics_by_style.py's header for
+    why); tenant-scoped, fail-soft per dimension, spend joined from
+    generation_ledger. C31 builds the "by style" UI panel + producer citations
+    on top of this same aggregation — the copilot's channel_data tool
+    (channel_briefs._style_performance_brief) reads the SAME function, so the
+    chat and this endpoint can never disagree.
+    """
+    return await get_style_performance(tenant_id)
 
 
 @router.get("/competitor-benchmark")

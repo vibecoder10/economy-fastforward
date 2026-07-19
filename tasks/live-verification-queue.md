@@ -186,6 +186,35 @@ this is a redirect, not a duplicate.
 
 ---
 
+## C30 — preset/model performance aggregation · needs a tenant with real multi-preset synced analytics
+
+**Why deferred:** `analytics_by_style.get_style_performance()` and `GET /api/analytics/by-style` are
+proven correct in-sandbox with stubbed rows (grouping, NULL/no-data-yet handling, fail-soft,
+one-source brief/endpoint agreement — see `test_c30_style_performance.py`), but "does it aggregate
+SENSIBLY against a real channel's data" needs an actual tenant with (a) 2+ videos published under
+different `style_preset_id`/`render_style`/`script_profile` values, and (b) synced YouTube analytics
+(`last_analytics_sync IS NOT NULL`) on at least some of them. No migration was needed for this
+chunk, so there's no `information_schema` proof to run here — this is the ONLY outstanding check.
+
+1. Confirm the tenant has run `/api/youtube/sync` recently (`se db "SELECT count(*) FROM videos
+   WHERE tenant_id='<id>' AND last_analytics_sync IS NOT NULL"` should be > 0). If it's 0, run a
+   sync first (read-only, no cost).
+2. `curl -H "Authorization: Bearer <token>" https://<host>/api/analytics/by-style | jq` — check that
+   `by_style_preset`/`by_render_style`/`by_script_profile` groups match what `se db "SELECT
+   style_preset_id, render_style, script_profile, ctr, avg_retention, views FROM videos WHERE
+   tenant_id='<id>' AND deleted_at IS NULL"` shows by eye (same choices, plausible averages, spend
+   roughly matching `se db "SELECT video_id, SUM(actual_cost) FROM generation_ledger WHERE
+   tenant_id='<id>' GROUP BY video_id"`).
+3. Ask the in-video copilot "which look/model earns the most views on my channel?" (or the home
+   producer) and confirm the answer cites the SAME numbers the curl above returned — proves
+   `channel_briefs._style_performance_brief` and the endpoint didn't silently drift apart in prod
+   the way they can't in the test suite (same function, but worth the one live sanity check).
+4. If the tenant has fewer than `MIN_SAMPLE=2` synced videos per group, expect (correctly) an empty
+   `by_*` list / no citation from the copilot — that's the honest "not enough data yet" behavior,
+   not a bug; don't force a false positive by lowering `MIN_SAMPLE` just to see numbers.
+
+---
+
 ## C25a — media proxy tenant auth · REQUIRED live browser check before the next `--with-frontend` deploy
 
 **Why this is REQUIRED, not optional (unlike most rows below):** the fix (tenant-scoped
