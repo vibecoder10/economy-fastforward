@@ -2475,3 +2475,10 @@ A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — eve
 - Newest chunk at the top of its section; keep the C0x/C1x ordering.
 - When every box for a chunk is ticked, note the date + who ran it and leave it (don't delete — it's the audit trail that the deferred `[V]` was actually closed).
 - Referenced from the loop handoff in `tasks/todo.md` and the doc inventory in `tasks/storyengine-knowledge-map.md` §4.
+
+## §C46a-watch · First real builds after deploy: needs_review rate
+The generic critic now HOLDS a script at needs_review (violations attached to
+script_validation.quality_critic) instead of silently advancing when it still fails after 2 targeted
+edits + 1 reroll. Expected: rare. WATCH the first ~5 real script generations post-deploy — if
+needs_review fires on obviously-fine scripts, the judge prompt is too strict for that tenant's niche;
+tune before C46c widens the gate surface. Fail-open means infra errors can never cause this.
