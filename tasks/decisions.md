@@ -454,3 +454,25 @@ Design ruling:
 - Honest caveat recorded: BYOK means the API calls aren't the moat — the accumulated per-channel
   intelligence (DNA, rules, patterns, analytics flywheel) in our DB is. Retention story: cancel and
   the channel's brain goes dormant.
+
+## 2026-07-19 — CORRECTION to the MCP-monetization entry above: Stripe ALREADY EXISTS (Ryan caught it)
+Ryan: "Really are you sure? I hooked the Stripe account up a while ago." Verified by repo search —
+the orchestrator's "no billing system exists" claim was WRONG. What actually exists:
+`routes/billing.py` (527 lines: checkout, webhooks w/ signature lock, portal, usage), `accounts`
+columns stripe_customer_id/stripe_subscription_id/stripe_plan/stripe_status (migration 022), plans
+starter/pro/agency via STRIPE_PRICE_* env vars, trial handling (migrations 026/041), and
+`check_plan_limits(tenant_id, action)` — a 402-raising gate regression-locked by functional tests
+on the video-create + render routes. Frontend /billing + /pricing pages exist.
+REVISED build order (supersedes "(a) entitlement seam / (b) Stripe later"):
+- C57 is now a WIRING chunk, not a build chunk: hook the MCP surface into the EXISTING system —
+  (1) agent-token mint requires an account in good standing (reuse the same status/trial logic
+  billing.py already encodes — read it, don't re-derive); (2) `auth_agent.py` per-request verify
+  consults the same standing check (lapsed → 402-style renew message, existing tokens die
+  same-day); (3) IF MCP is tier-gated, it's a new action kind in `check_plan_limits` ("mcp") —
+  the one existing gate, not a parallel one.
+- AUDIT REQUIRED in C57: do MCP-originated create/render paths (create_video tool → actions.py →
+  executor) pass through `check_plan_limits` like the 3 locked UI routes do, or do they bypass it?
+  The lock tests only cover the UI routes — an MCP bypass would let a free-plan tenant exceed caps
+  via Claude. Whatever's found, the fix is calling the SAME gate.
+- Ryan's remaining decisions shrink to: which tier gets MCP (recommend pro+agency), and whether
+  plan-limit numbers change. Checkout/portal/webhooks need nothing new.
