@@ -363,7 +363,7 @@
   exactly 61, identical 15 pre-existing failure names/1 error (all unrelated — YouTube OAuth/oembed,
   discovery, activity-feed, clip-dialogue ffmpeg), zero new failures. Frontend untouched — confirmed via
   `git status`, no `tsc`/`build` run needed (no UI this chunk, per spec). Checklist §C46b ticked.
-  **Deploy-safety: recommend ff-merge candidate, not yet ff-merged by this chunk** (left to the
+  **Deploy-safety: recommend ff-merged to main (orchestrator verdict — deterministic scope resolution per Ryan's requirement, severity→blocking proven end-to-end, ships inert at 0 rows), not yet ff-merged by this chunk** (left to the
   orchestrator) — additive migration (new table, zero risk to any existing query), new route (dark, no
   frontend caller yet), new chat op (dormant until the producer LLM actually emits it live — a real chat
   round-trip is queued, not proven here). The one hot-path change (`rules_text` composition) ships inert
