@@ -597,6 +597,15 @@ CREATE TABLE autopilot_config (
   last_cycle TIMESTAMPTZ,
   niche_category TEXT,
   sub_niche TEXT,
+  -- Autopilot dial (migration 107, checklist C50) — see that migration's
+  -- header comment for the full semantics (dial_level's autonomy levels,
+  -- and why kill_switch_* is distinct from `enabled`).
+  dial_level TEXT NOT NULL DEFAULT 'propose_only'
+    CHECK (dial_level IN ('propose_only', 'auto_draft', 'full_auto')),
+  weekly_budget_cap NUMERIC,
+  weekly_spend_reset_at TIMESTAMPTZ,
+  kill_switch_tripped_at TIMESTAMPTZ,
+  kill_switch_reason TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

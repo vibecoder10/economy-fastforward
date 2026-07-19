@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from auth import get_tenant_id
+from autopilot_dial import get_autopilot_dial
 from database import fetch_all, fetch_one, execute
 
 router = APIRouter(prefix="/api/autopilot", tags=["autopilot"])
@@ -61,6 +62,15 @@ class AutopilotConfig(BaseModel):
         "ctr_success_threshold": 4.0,
         "ctr_failure_threshold": 2.5,
     }
+    # Autopilot dial (migration 107, checklist C50) — additive, read-only
+    # fields. dial_level defaults to 'propose_only' (today's only real
+    # behavior); the rest are None until C51-C56 start writing them. No
+    # frontend reads these yet — old frontends simply ignore them.
+    dial_level: str = "propose_only"
+    weekly_budget_cap: Optional[float] = None
+    weekly_spend_reset_at: Optional[str] = None
+    kill_switch_tripped_at: Optional[str] = None
+    kill_switch_reason: Optional[str] = None
 
 
 class CompetitorCandidate(BaseModel):
@@ -339,6 +349,16 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
         config = AutopilotConfig()
         enabled = True
         last_cycle = None
+
+    # Autopilot dial (migration 107, checklist C50) — additive read via the
+    # dedicated accessor (single source of truth for C51-C56, rather than
+    # re-deriving these fields from config_row here).
+    dial = await get_autopilot_dial(tenant_id)
+    config.dial_level = dial.dial_level
+    config.weekly_budget_cap = dial.weekly_budget_cap
+    config.weekly_spend_reset_at = dial.weekly_spend_reset_at.isoformat() if dial.weekly_spend_reset_at else None
+    config.kill_switch_tripped_at = dial.kill_switch_tripped_at.isoformat() if dial.kill_switch_tripped_at else None
+    config.kill_switch_reason = dial.kill_switch_reason
 
     state = AutopilotState(
         enabled=enabled,
