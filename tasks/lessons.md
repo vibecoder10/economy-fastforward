@@ -533,3 +533,10 @@ BEFORE the yield point, so every "concurrent" caller observes the state as it ex
 moment they'd have issued the real query, not the state after a sibling call already mutated it.
 Always run the non-vacuous `git stash` proof on the EXACT race test, not just the simpler
 sequential-call tests in the same file — a suite can be 3/4 real and 1/4 theater.
+
+## 2026-07-19 — Orchestrator: no git branch operations while a worker is mid-edit
+The orchestrator ran a docs commit + checkout main + ff-merge while a Sonnet worker was actively
+editing the shared tree; git carried the worker's uncommitted modifications across the branch switch
+(harmless this time, could have clobbered). RULE: the orchestrator only runs checkout/merge/reset in
+the window between a worker's completion report and the next dispatch. Docs-only commits on the
+working branch are fine; branch switching is not.

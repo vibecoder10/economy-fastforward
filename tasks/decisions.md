@@ -233,3 +233,24 @@ that got us started." Consequences for the codebase:
 - OPEN (C37, needs Ryan): does retirement extend to the ENTIRE legacy Airtable/cron pipeline
   (autopilot cycle, competitor scraper, approval watcher, healthcheck)? Not assumed — those crons
   still run on the VPS until Ryan says otherwise.
+
+## 2026-07-19 — The endgame is per-tenant AUTOPILOT: "one brain, one director, three doors" (Ryan, direct)
+The legacy cron autopilot is NOT retired — it's the single-channel REFERENCE IMPLEMENTATION of the
+product's endgame. Ryan's vision, verbatim spirit: a creator builds their channel manually, fine-tunes
+with the director until comfortable, then flips ON autopilot — from then on the ENTIRE channel is
+data-driven: idea selection, hook/title/thumbnail/script generation, publishing, and a YouTube-metrics
+feedback flywheel picking the next video. Controllable/observable through ALL THREE DOORS (UI, chat,
+MCP) off the one verb registry. Design law for the port: the autopilot switch is a GRADUATED dial
+(propose-only → auto-draft/manual-publish → fully autonomous with a budget ceiling), mirroring the
+per-video trust ladder; unattended spend demands the strongest guardrails in the codebase (claims,
+skip-if-done, ledger backstop, quota guard, per-tenant budget).
+
+## 2026-07-19 — Phase 4 Pillar 1 is CHANNEL DNA INGESTION ("learn this channel") (Ryan, direct)
+Real-world driver: Ryan channel-manages an existing channel (machine-research + Ken-Burns style) and
+found no clean way to say "here's a channel — learn it and produce in its exact style." The ingredients
+exist scattered (voice-learn transcripts, channel-formula thumbnails, static_docu machine-research
+workflow, script templates, reference-video modeling, creator brief) but there is no single
+conversational front door that runs all learners, shows a confirmable digest of what was learned, and
+saves it as the channel's DNA consumed by every subsequent build. Pillar 1 ships BEFORE Pillar 2
+(tenant autopilot): ingestion + autopilot together = "point it at any channel, it learns it, then runs
+it" — the ultimate-YouTuber-tool pitch.
