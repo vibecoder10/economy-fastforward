@@ -4987,3 +4987,142 @@ behave exactly as before; a NEW frontend against an OLD backend gets a 404 on
 `ScriptVoiceCard` degrades the same way. No known gaps analogous to C23's dialogue-branch caveat —
 script profiles only affect `brief_translator`'s prompt assembly (a text-generation seam, not a
 per-shot composition path), so there's no partial-coverage branch to disclose.
+
+## C25a — S5-1 BLOCKER fix: media proxy tenant auth (added 2026-07-19)
+
+**Checklist §S5-1 (audit `tasks/docs/reports/2026-07-17-storyengine-agent-audit-findings.md`):**
+`routes/media.py::serve_drive_file` had NO auth dependency, and its `_is_allowed()` file-id
+allowlist checked `assets`/`scripts`/`videos`/`video_characters`/`chat_assets`/`projects` ACROSS
+THE WHOLE DATABASE with no tenant clause — a leaked/guessed 33-44 char Drive id served ANY
+tenant's file to ANYONE. This closes it.
+
+### Mechanism chosen (traced first, per the checklist's own warning not to break every image)
+
+Traced how media URLs actually authenticate today before picking a fix: `<img>`/`<video>` tags
+can't send an `Authorization` header, and the app's frontend (3001) and backend (8001) are
+different origins in prod, so cookies don't help either. But `auth.verify_token` **already**
+accepts a JWT via `?token=` for SSE ("EventSource cannot set Authorization headers"), and
+`routes/videos.py::create_audio_token`/`_audio_token_tenant` already do EXACTLY this for audio
+playback: a short-lived, tenant-carrying JWT in `?token=` on an `<audio>` URL. This is not a new
+pattern for this codebase — it's the existing, accepted answer to "browser media tag can't send
+headers." C25a extends it to `/api/media/drive/{file_id}` rather than inventing a fourth
+mechanism, and reuses the SAME session-JWT-in-query-param path SSE already trusts.
+
+Two token shapes both work (both carry a `tenant_id` claim, decoded identically):
+1. **The user's own full session JWT** (30 days, already in `localStorage["token"]` for every
+   `fetchApi()` call) — the frontend attaches it unchanged. No new mint-and-cache dance, no new
+   endpoint; same credential, same privilege, reused for one more purpose.
+2. **A short-lived (`purpose: "media"`, 60 min) token from the new `mint_media_token(tenant_id)`**
+   — for backend code that fetches its OWN proxy over plain HTTP with a KNOWN `tenant_id` but no
+   live user session to forward (cast-sheet vision, environment vision rewrite, talking-clip
+   generation — these are backend-to-Kie/backend-to-self fetches, not `<img>` renders).
+
+Never bakes a token into a PERSISTED url (e.g. a chat message's stored image url) — chat.py's
+`_media_proxy_url` still returns the same bare, unauthenticated-shaped proxy path it always did;
+the frontend attaches live auth at RENDER time (`withMediaAuth`), so a chat history reload months
+later still works with whatever session is live then, instead of a baked-in token going stale.
+
+### Backend
+
+- **`routes/media.py`**: `_ALLOWLIST_SQL` — every one of the 7 `EXISTS` subqueries gained
+  `tenant_id = $2`, e.g. (before) `SELECT 1 FROM assets WHERE image_url LIKE $1 OR ...` → (after)
+  `SELECT 1 FROM assets WHERE tenant_id = $2 AND (image_url LIKE $1 OR ...)`. `_is_allowed(file_id,
+  tenant_id)` now takes tenant_id and the in-memory cache key is `(file_id, str(tenant_id))` (was
+  bare `file_id`) so no tenant can inherit another tenant's cached "allowed". New
+  `_media_token_tenant(token) -> uuid.UUID`: 401 on missing/invalid/expired token, else the
+  `tenant_id` claim (mirrors `_audio_token_tenant`'s shape). New `mint_media_token(tenant_id,
+  minutes=60)`: signs a `{"purpose": "media", "tenant_id", "exp", "iss": "storyengine"}` JWT with
+  `SESSION_SECRET`. `serve_drive_file(file_id, request, token=None)` now resolves
+  `tenant_id = _media_token_tenant(token)` BEFORE calling `_is_allowed(file_id, tenant_id)` — no
+  DB query happens pre-auth (proven by a test that makes `_is_allowed` raise if called).
+- **Backend-internal chokepoints wired to mint their own token** (all already had `tenant_id` in
+  scope, none had a live user session to forward): `routes/characters.py::_fetch_image_bytes`
+  (now takes `tenant_id`, cast-sheet portrait fetch), `_build_cast_sheet`'s per-character vision
+  pass, `lock_project_cast`'s per-image vision pass; `routes/environments.py`'s per-environment
+  vision-rewrite pass; `pipeline_executor.py`'s `_proxy_url` closure (talking-clip generation,
+  `self.tenant_id`). `routes/chat.py::_media_proxy_url` deliberately left untouched (see mechanism
+  note above — it's a persisted-URL producer, not a live fetch).
+- **Extension-suffix bug caught mid-fix**: `pipeline_executor.py` appended a cosmetic `.png`/`.mp3`
+  suffix to the END of these URLs for Kie model validators that reject extension-less URLs. With a
+  `?token=` now in the URL, appending at the tail corrupts the token
+  (`...?token=eyJ...XYZ.mp3` fails to decode). Added `_with_ext(url, ext)` which inserts the
+  suffix into the path BEFORE the query string, and updated both call sites
+  (`generate_talking_video`'s image + audio args) to use it instead of raw string concatenation.
+- **Rate-limit exemption** (`rate_limit.py`'s `_SKIP_PREFIXES` including `/api/media/`): kept.
+  The exemption existed for performance (74 images/page), not security — now that the route hard
+  401s on a missing/invalid token before touching the DB or Drive, an unauthenticated scraper gets
+  nothing regardless of request volume. Revisit only if abuse is observed from AUTHENTICATED
+  accounts hammering the route (a different problem — per-plan `PLAN_LIMITS` still applies
+  everywhere else those accounts touch).
+
+### Frontend
+
+- **`lib/utils.ts`**: new `withMediaAuth(url)` — appends `?token=<localStorage token>` (SSR-safe,
+  no-ops server-side). New `appendQueryParam(url, key, value)` — a second query param added
+  correctly (`&`, not a second `?`) regardless of what's already on the url. `toDisplayImageUrl`/
+  `toDisplayVideoUrl` now route their result through `withMediaAuth`, AND handle the
+  already-proxied-URL case (anything matching `/api/media/drive/` passes through with auth
+  attached, rather than only converting raw `drive.google.com` links) — this is what makes chat's
+  pre-built proxy urls authenticate too, without chat.py needing to change.
+- **`components/chat/ChatCore.tsx`** (`SceneBoardsGrid`): `img.url` (built by `_media_proxy_url`)
+  now wrapped in `withMediaAuth()` for both the `<a href>` (open-in-new-tab) and `<img src>`.
+- **`components/production/ScenesWorkspaceTab.tsx`**: two call sites hand-rolled a `?cb=<bust>`
+  cache-buster directly after `toDisplayImageUrl(...)` — now that that result already carries
+  `?token=`, the old `${url}?cb=${bust}` string-template would have produced a second, invalid `?`
+  and silently dropped the cache-buster. Both switched to `appendQueryParam(url, "cb", bust)`.
+- Every OTHER consumer of `toDisplayImageUrl`/`toDisplayVideoUrl` (`CharactersTab.tsx`,
+  `EnvironmentsTab.tsx`, `RenderTab.tsx`, `ThumbnailTab.tsx`, `app/profile/page.tsx`) needed NO
+  per-file change — the auth attachment lives in the one shared function they already call.
+
+### New/Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/media.py` | Tenant-scoped `_ALLOWLIST_SQL`/`_is_allowed`; new `_media_token_tenant`, `mint_media_token`; `serve_drive_file` requires a resolved tenant before any allowlist query |
+| `storyengine/backend/routes/characters.py` | `_fetch_image_bytes(url, tenant_id)`; 2 more vision-fetch call sites mint a media token |
+| `storyengine/backend/routes/environments.py` | Vision-rewrite call site mints a media token |
+| `storyengine/backend/pipeline_executor.py` | `_proxy_url` mints a media token; new `_with_ext()` fixes the extension-after-token-corruption bug |
+| `storyengine/frontend/src/lib/utils.ts` | New `withMediaAuth`, `appendQueryParam`; `toDisplayImageUrl`/`toDisplayVideoUrl` attach auth + pass through already-proxied urls |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | `SceneBoardsGrid` wraps `img.url` in `withMediaAuth` |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | 2 cache-bust call sites switched to `appendQueryParam` |
+| `storyengine/backend/tests/functional/test_c25a_media_tenant_auth.py` | NEW — 18 tests: allowlist tenant-scoping, cross-tenant denial, token validation, 401/404/502 route behavior |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c25a_media_tenant_auth.py -q` — 18 passed. Non-vacuous: `git stash` on the
+4 touched backend files re-ran the same test file against the PRE-fix code — 11/18 failed (the
+other 7 are tenant-agnostic shape assertions), proving the tests actually exercise the new
+behavior, not just the new API surface. `python -m py_compile` clean on all 4 touched `.py` files.
+Full backend suite: **1131 passed (1113 baseline + 18 new) / 16 pre-existing failures / 1
+pre-existing error** — zero new failures, same failing-test-name set as the pre-change baseline.
+Frontend: `npx tsc --noEmit` clean; `npm run build` compiles+typechecks clean (32/32 routes, same
+pre-existing `NEXT_PUBLIC_API_URL` prerender gap every prior chunk hits, confirmed cosmetic by
+re-running with a dummy value set).
+
+Checklist §S5-1 ticked: the BLOCKER (tenant-blind allowlist + no auth dependency) is genuinely
+closed. C26 (MCP endpoint) is now unblocked per the checklist's own gate.
+
+**Deploy-safety assessment — the skew window is real, addressed explicitly:**
+Backend auto-deploys hourly; frontend only redeploys on an explicit `--with-frontend`. Two
+mismatched-version scenarios:
+1. **NEW backend + OLD frontend** (the routine hourly case, and the dangerous one): old frontend's
+   `toDisplayImageUrl`/`toDisplayVideoUrl` don't attach `?token=` yet → every `<img>`/`<video>` on
+   an already-open tab, and any page the OLD frontend serves until its own redeploy, requests the
+   proxy with NO token → new backend 401s → **every image blanks out app-wide** until the frontend
+   redeploys. This is exactly the failure mode the chunk brief called out as the one to take
+   seriously, and it is real.
+2. **NEW frontend + OLD backend**: old backend's `serve_drive_file` has no `token` parameter at
+   all — FastAPI ignores unknown query params, so the extra `?token=` is silently dropped and the
+   OLD (unauthenticated) route behavior runs unchanged. Harmless — this direction is a non-issue.
+3. **mid-session while the backend restarts**: a tab that's been open across the hourly backend
+   restart is running old JS with no token — same failure as (1).
+
+**No grace path was added in this pass** (an accept-but-log-unsigned fallback, or a dual-accept
+window, would mean the tenant-blind bug stays live — a genuine 401 the instant the query param is
+absent IS the fix; softening it defeats the point). Given that, **this cannot ff-merge on its own
+timeline** — it needs to land as a **coordinated deploy**: `--with-frontend` in the SAME deploy
+that ships this backend change, not the routine backend-only hourly pull. Recommendation: **hold
+on this branch until the next `--with-frontend` deploy window**, then ship backend+frontend
+together (VPS Deploy Coordination Rule §1: `vps-deploy.sh <session> --with-frontend`, lock file
+held for the duration). Flagged in `tasks/live-verification-queue.md` §C25a as REQUIRED before
+that deploy: confirm every image surface (Scenes workspace, chat boards, characters/environments,
+thumbnails, render preview) actually renders post-deploy with a live browser pass — Playwright per
+`webapp-testing`, not self-evaluation.
