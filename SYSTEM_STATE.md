@@ -8581,3 +8581,153 @@ generation, confirm the QL-1/QL-12 gates actually fire from table values).
 Next: **C46d · trust boundaries** — MCP/agent-submitted scripts (C47 ingest) pass the SAME critic;
 `user_supplied` verbatim scripts keep their explicit no-gate bypass (`user_script.py`'s contract). Wires
 the critic verdict into the C42 digest/chat surfaces so failures list rule-by-rule.
+
+## C46d — Trust boundaries: the ingest gate + verdict surfacing (added 2026-07-19)
+
+**The gate (`user_script.py::accept_external_script`, new):** the seam C47's MCP `submit_script` tool
+will call. Traced first: `user_script.py`'s existing `set_user_script` is the ONLY external-script door
+today — it installs the creator's OWN text VERBATIM (`script_source='user_supplied'`), no grading, no
+gate, "the creator's word is final." An agent/MCP submission is a DIFFERENT trust class entirely
+(decisions.md 2026-07-19 MCP-economics entry: "agent-authored scripts pass through the SAME quality-rules
+critic as platform-generated ones — the rules engine is the trust boundary that makes externally-written
+content safe to accept"), so `accept_external_script` is a SEPARATE function, not a flag on
+`set_user_script` — refusing `source='user_supplied'` outright (`ValueError`) keeps the two contracts from
+ever blurring.
+
+**Design call — REJECT, not rewrite:** `run_script`'s own critic (`script_quality.run_critique_and_edit`)
+owns a bounded same-draft EDIT loop for content WE generated — editing our own draft is fair game.
+Editing an AGENT'S submitted draft is not: the words aren't ours to silently change, and a server-side
+rewrite of someone else's submission would be a worse trust story than an honest rejection. So this
+function calls `script_quality.critique_script` directly (one grading call, verdict-only, proven by the
+FakeClient call-count assertions in every test) and branches on the verdict alone:
+  - `'pass'` (including WARN/GUIDANCE-severity rule failures that never flip the verdict —
+    `script_quality._apply_rule_severity`'s existing C46b enforcement, unmodified): **ACCEPT.** Saved
+    through the exact scene/`videos.script` save path `set_user_script` already uses (same INSERT shape,
+    same best-effort dialogue tagging), `script_source` = the caller's `source` (default
+    `'agent_submitted'`) — never `'user_supplied'`, so `run_script`'s own
+    `script_source == 'user_supplied'` bypass guard can never accidentally fire for it. Any WARN-severity
+    rule failures ride along as non-blocking `warnings`, distinct from `violations`.
+  - `'revise'`/`'regenerate'` (a universal retention gate OR a hard-gate channel rule failed): **REJECT.**
+    Nothing is saved (proven: `writes == []` in the reject tests), nothing advances, the full rule-by-rule
+    `violations` list (failing_gates + failed rule ids) is returned so the SUBMITTING AGENT can fix its own
+    draft and resubmit.
+
+Same tenant-scoped rules sourcing `_grade_and_maybe_revise_script` already established
+(`quality_rules.list_all_rules` → `active_rules_for_video` scope-match → `compose_rules_text`
+severity map), same niche resolution via `identity.build_identity_context`, same fail-open contract on a
+missing/broken tenant Claude client (`kie_unified.get_text_client_for_tenant` failing → `client=None` →
+`critique_script`'s own pre-existing fail-open path returns a default `pass`) — a transient config problem
+must never indefinitely block a submission no human is standing by to retry.
+
+**Verdict surfacing bug found while tracing the "natural host" (checklist item 3a) — fixed as part of
+this chunk, not deferred:** `routes/videos.py::_parse_script_validation` (the `GET /api/videos/{id}`
+serializer every video-detail page fetch uses) only passed a `script_validation` JSON blob through
+unchanged when it contained a `"checks"` key; anything else — including a script_validation blob carrying
+ONLY `{"quality_critic": {...}}`, which is EXACTLY what `_grade_and_maybe_revise_script` writes for a
+plain (non-static-docu) script and what `accept_external_script` writes on accept — fell through to the
+legacy plain-text parser, found zero `[PASS]`/`[FAIL]` lines, and silently returned `None`. The C46d
+banner would have had nothing to render for the single most common case. Fix: the passthrough condition
+now also accepts `"quality_critic" in parsed`. Pinned by 3 new tests (`quality_critic`-only passthrough,
+legacy plain-text still converts, `checks`-shape still passes through unchanged).
+
+**`quality_critic` record extended** (both `_grade_and_maybe_revise_script`'s write in
+`pipeline_executor.py` and `accept_external_script`'s own write use the SAME shape) with `rule_verdicts`
+(the critic's per-rule pass/fail list) and `severity_by_rule` (this tenant's own severity map) — new keys
+only, every existing reader/test keeps working unmodified. This is what lets the frontend render
+"rule-by-rule with severity," not just a flattened violations-strings list.
+
+**Task-status/chat message gap found + fixed (checklist item 3b):** traced whether "the task-status
+message already carries needs_review" — it did NOT. `run_script`'s two `needs_review` return dicts
+(`plain` and `modeled` paths) carried `"violations"` but no `"error"`/`"message"` key, and
+`routes/pipeline.py`'s `_set_task_status` NORMALIZES any non-running/non-failed status string to
+`"completed"` — so a needs_review script silently polled/chatted back as a bare "completed" with **zero**
+indication anything was flagged (`actions.py::make_action_step`'s `_run` already reads
+`result.get("error") or result.get("message")` as its display text; `routes/pipeline.py`'s direct
+`/script` route read only `result.get("error")`, dropping the message path entirely). Minimal fix: both
+`needs_review` return dicts now also carry a `"message"` field (the same joined-violations string already
+used for `_log_activity`), and the direct route's `_set_task_status` call gained the same
+`error-or-message` fallback `make_action_step` already had — one line, matching an existing convention
+instead of inventing a new one.
+
+**Frontend (`ScriptVoiceTab.tsx`, the natural host — the existing "Script Validation" card already reads
+`script_validation` and sits right where a creator reviews scenes before voice):** new "Quality Review
+Needed" card, rendered only when `script_validation.quality_critic` is present and `!passed` — lists every
+failing universal gate + failed rule (rule-by-rule, `FAIL`/`WARN` badge from `severity_by_rule`, note text
+when the critic supplied one), fail-safe (any parse error renders nothing, never throws). Two actions:
+  - **"Use it anyway"** — calls the EXISTING `advanceVideo`/`PATCH /api/videos/{id}/advance` verb (no new
+    backend code; the same helper `handleApprove` already uses two lines above). Gated behind a light
+    `confirmDialog`, same pattern as `handleApprove`. Free and effectively reversible: the hold only ever
+    parks `videos.status`, never deletes or rewrites anything, so moving on costs nothing and re-running
+    "script" would simply re-grade it again.
+  - **"Regenerate"** — wired to the ALREADY-EXISTING `handleRegenerateScript` callback (`runPipelineStage`
+    → `run_script`'s own re-grading path) — zero new regenerate logic, this card just gives the existing
+    action a home when a hold is active.
+No new icons/imports needed (`AlertCircle`, `Wand2`, `Loader2`, `ActionButton` were already imported).
+`ActionButton`'s `icon={loading ? Loader2 : Wand2}` pattern (no spin animation on the icon itself) matches
+`ThumbnailTab.tsx`'s own established convention exactly — not a new inconsistency introduced here.
+
+### Verification
+
+15 new tests, `tests/test_c46d_trust_boundaries.py`: the accept/reject/warn matrix (pass→saved+source+
+status advance+one grading call; universal-gate revise→reject, nothing saved; hard-gate channel RULE
+failure→reject with the rule id named, proving severity enforcement fires for external content too;
+WARN-severity rule failure alone→accept with `warnings` populated, `violations` empty; no-client→fails
+open→accepts), the `user_supplied` refusal (raises before any DB touch), tenant scoping (mismatched tenant
+= "not found", zero DB writes beyond the lookup), 5 parametrized bad-scene-shape cases (empty list, wrong
+type, missing/blank text, mixed dict/non-dict — all raise before any `execute` call, a `forbidden_execute`
+fixture asserts this), and 3 `_parse_script_validation` tests (the quality_critic-only fix, plus 2
+regression checks proving the pre-existing `checks`-shape and legacy-plain-text paths are untouched). Also
+edited 2 pinned C46a tests (`test_c46a_quality_critic_wiring.py`) to expect the new `"message"` key on
+`needs_review` — the dict shape genuinely changed, so the assertions were extended, not weakened.
+
+Non-vacuous via plain `git stash` (source files only — the new untracked test file stays in place, so it
+runs against PRE-C46d code): **13 of 15 new tests fail** (the 2 that still pass are the deliberately-
+unaffected legacy-format/checks-shape regression checks) — `AttributeError: module 'user_script' has no
+attribute 'accept_external_script'` and the quality_critic-only blob dropping to `None`, confirming the
+tests exercise real, non-trivial new behavior. Popped back, full suite: **1554 passed, 15 failed, 1
+error** = baseline (1539/15/1) + exactly 15, zero new failures, identical failure names to every prior
+chunk's baseline. `python -m py_compile` clean on all 4 touched/new backend `.py` files.
+
+Frontend: `npx tsc --noEmit` clean. `npm run build` — compiles and typechecks clean
+("Compiled successfully", "Finished TypeScript"); the one build-time error encountered
+(`NEXT_PUBLIC_API_URL is required in production builds`) is a pre-existing environment-config requirement
+unrelated to this chunk (confirmed: setting the env var for the build made every route, including
+`/pipeline/[videoId]`, prerender/compile with zero errors).
+
+Live round-trip (a real MCP `submit_script` call once C47 registers the tool, plus a real browser look at
+the "Quality Review Needed" card against a genuinely needs_review video) deferred to
+`tasks/live-verification-queue.md` §C46d — this chunk ships the gate + surfacing, C47 wires the actual MCP
+tool registration next.
+
+### Modified/New Files (C46d)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/user_script.py` | new `accept_external_script` (+ `_normalize_external_scenes` shape validator) — the C47 ingest seam |
+| `storyengine/backend/routes/videos.py` | `_parse_script_validation` passthrough condition widened to `"checks" in parsed or "quality_critic" in parsed` |
+| `storyengine/backend/pipeline_executor.py` | `_grade_and_maybe_revise_script`'s `quality_critic` record gains `rule_verdicts`/`severity_by_rule`; both `needs_review` return dicts in `run_script` gain a `"message"` field |
+| `storyengine/backend/routes/pipeline.py` | direct `/script` route's `_set_task_status` call gains the `error-or-message` fallback |
+| `storyengine/backend/tests/test_c46a_quality_critic_wiring.py` | 2 pinned assertions extended for the new `"message"` key |
+| `storyengine/backend/tests/test_c46d_trust_boundaries.py` | NEW — 15 tests |
+| `storyengine/frontend/src/components/production/ScriptVoiceTab.tsx` | new "Quality Review Needed" banner card + `handleUseAnyway`/`usingAnyway` |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate.** Zero behavior change for any EXISTING flow: `_grade_and_maybe_revise_
+script`'s new dict keys are additive-only (every existing reader keys off already-present fields); the
+`needs_review` return dicts' new `"message"` key is additive (only 2 pinned tests needed their exact-
+dict-equality assertions extended, and both were updated in this same chunk, not left broken);
+`_parse_script_validation`'s widened condition is STRICTLY more permissive (nothing that used to pass
+through now gets dropped, and nothing that used to convert via the plain-text branch is affected — proven
+by the 2 regression tests). `accept_external_script` itself is inert until C47 registers an MCP tool that
+calls it — dead code with tests today, live once C47 ships. Frontend banner only renders when
+`script_validation.quality_critic.passed === false`, a state that exists on zero videos in production
+today (no tenant has ever hit a needs_review script hold that reached this exact shape in the live DB, per
+C46a/b/c's own "0 rows" quality_rules state) — so the new card is present in the bundle but unreachable
+until a real needs_review script occurs.
+
+Next: **C47 · MCP setup surface** — expose the SETUP layer (system prompts, script templates, quality
+rules, channel DNA read/corrections/learn trigger, script/style profile selection) through MCP tools, PLUS
+the content-ingest tools `submit_research(video_id, payload)` / `submit_script(video_id, scenes)` — the
+latter now has `accept_external_script` ready and waiting to be called. May split C47a (setup)/C47b
+(ingest) on size.

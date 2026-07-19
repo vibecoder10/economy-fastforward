@@ -11232,6 +11232,18 @@ class PipelineExecutor:
                     "violations": grade.violations,
                     "edit_rounds": outcome["edit_rounds"],
                     "regenerated": outcome["regenerated"],
+                    # C46d: the per-rule pass/fail + this tenant's own
+                    # severity map, so the Script Validation banner
+                    # (ScriptVoiceTab) can render "rule-by-rule with
+                    # severity" instead of only the flattened violations
+                    # strings above. New keys only — every existing reader
+                    # of this dict (tests, _record_applied_retention) keys
+                    # off the fields already present, untouched.
+                    "rule_verdicts": [
+                        rv.model_dump() if hasattr(rv, "model_dump") else dict(rv)
+                        for rv in grade.rule_verdicts
+                    ],
+                    "severity_by_rule": severity_by_rule,
                 }
                 await execute(
                     "UPDATE videos SET script_validation = $1 WHERE id = $2 AND tenant_id = $3",
@@ -11859,12 +11871,19 @@ separate scenes."""
                     # per-machine save already uses; the RETURN dict's
                     # "status" (a plain field, no DB constraint) is the one
                     # that actually says "needs_review".
-                    await self._log_activity(
-                        bot_name, video_id, "failed",
-                        "Quality critic still flags issues after the edit-loop bound: "
-                        + "; ".join(violations)[:900],
-                    )
-                    return {"status": "needs_review", "video_id": video_id, "violations": violations}
+                    review_msg = ("Quality critic still flags issues after the edit-loop bound: "
+                                  + "; ".join(violations))[:900]
+                    await self._log_activity(bot_name, video_id, "failed", review_msg)
+                    # C46d: "message" (not just "violations") so the
+                    # task-status/chat surface actually shows something —
+                    # make_action_step's _run (actions.py) and routes/
+                    # pipeline.py's direct /script route both already read
+                    # result.get("message") as their fallback display text;
+                    # before this, a needs_review result carried no
+                    # "error"/"message" key at all, so the poller/chat
+                    # showed a bare "completed" with nothing about why.
+                    return {"status": "needs_review", "video_id": video_id,
+                            "violations": violations, "message": review_msg}
                 return result
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
@@ -11951,12 +11970,13 @@ separate scenes."""
             grade_result = await self._grade_and_maybe_revise_script(video_id)
             if grade_result and grade_result.get("needs_review"):
                 violations = grade_result.get("violations") or []
-                await self._log_activity(
-                    bot_name, video_id, "failed",
-                    "Quality critic still flags issues after the edit-loop bound: "
-                    + "; ".join(violations)[:900],
-                )
-                return {"status": "needs_review", "video_id": video_id, "violations": violations}
+                review_msg = ("Quality critic still flags issues after the edit-loop bound: "
+                              + "; ".join(violations))[:900]
+                await self._log_activity(bot_name, video_id, "failed", review_msg)
+                # C46d: see the modeled-path branch above for why "message" is
+                # attached here too (task-status/chat surfacing).
+                return {"status": "needs_review", "video_id": video_id,
+                        "violations": violations, "message": review_msg}
 
             # Static documentaries are exact-figures formats: fact-check the
             # script against the research payload and re-roll once if claims

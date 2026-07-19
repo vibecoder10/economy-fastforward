@@ -122,6 +122,16 @@ def _parse_script_validation(val: Any) -> Optional[str]:
     The frontend expects JSON: {"passed": bool, "checks": [{name, passed, detail}]}
     This function converts the plain text to JSON string so the frontend can parse it.
     If the value is already valid JSON, it passes through unchanged.
+
+    C46d fix: a script_validation blob that carries ONLY the generic
+    quality-critic record (``{"quality_critic": {...}}`` —
+    pipeline_executor._grade_and_maybe_revise_script and
+    user_script.accept_external_script both write this key, and neither
+    guarantees a sibling "checks" array exists yet) used to fall through to
+    the plain-text branch below, find zero `[PASS]`/`[FAIL]` lines, and
+    silently return None — dropping the ONE thing the C46d "quality review"
+    banner (ScriptVoiceTab) needs to render. "checks" OR "quality_critic"
+    now both count as "already valid JSON", so this passes through as-is.
     """
     if val is None:
         return None
@@ -134,7 +144,7 @@ def _parse_script_validation(val: Any) -> Optional[str]:
     # If it's already valid JSON with the expected structure, return as-is
     try:
         parsed = json.loads(val)
-        if isinstance(parsed, dict) and "checks" in parsed:
+        if isinstance(parsed, dict) and ("checks" in parsed or "quality_critic" in parsed):
             return val
     except (json.JSONDecodeError, ValueError):
         pass

@@ -675,7 +675,12 @@ async def run_script(
         try:
             executor = PipelineExecutor(tenant_id)
             result = await executor.run_script(video_id)
-            _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
+            # C46d: a needs_review result carries no "error", only "message"
+            # (the rule-by-rule violations) — match make_action_step's
+            # (actions.py) existing error-or-message fallback so this direct
+            # route surfaces the same text instead of a bare empty status.
+            _set_task_status(video_id, result.get("status", "unknown"),
+                             result.get("error") or result.get("message"), tenant_id=tenant_id)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:

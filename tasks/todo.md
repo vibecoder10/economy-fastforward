@@ -420,6 +420,55 @@
   submitted scripts (C47 ingest) pass the SAME critic; `user_supplied` verbatim scripts keep their
   explicit no-gate bypass; wire the critic verdict into the C42 digest/chat surfaces so failures list
   rule-by-rule.
+- **Also done:** C46d · trust boundaries — the C46 arc closer — DONE 2026-07-19, full detail in
+  SYSTEM_STATE.md §C46d. New `user_script.accept_external_script(tenant_id, video_id, scenes, source=)` —
+  the seam C47's MCP `submit_script` tool will call. Design call: unlike `run_script`'s own bounded EDIT
+  loop (fair game — it's editing OUR OWN draft), an agent-submitted script gets NO server-side rewrite —
+  the words aren't ours to change — so this runs `script_quality.critique_script` verdict-only (proven:
+  one grading call per test, never a second) and branches: `pass` (incl. WARN-severity rule failures that
+  never flip the verdict) → ACCEPT, saved through the exact scene/`videos.script` path `set_user_script`
+  uses, `script_source` = the caller's value (default `agent_submitted`, never `user_supplied` —
+  `source='user_supplied'` is refused outright, that contract stays `set_user_script`'s alone), status
+  advances; `revise`/`regenerate` (universal gate OR hard-gate channel rule) → REJECT, nothing saved,
+  nothing advances, full rule-by-rule violations returned so the agent can fix and resubmit. **Two real
+  gaps found while tracing the "natural host" for surfacing (not just wired around):** (1)
+  `routes/videos.py::_parse_script_validation` (the GET /api/videos/{id} serializer) was silently dropping
+  a `script_validation` blob to `None` whenever it held ONLY `{"quality_critic": {...}}` (no sibling
+  `"checks"` key) — exactly what `_grade_and_maybe_revise_script` writes for a plain script hold and what
+  `accept_external_script` writes on accept — so the banner would have had nothing to render for the most
+  common case; fixed by widening the passthrough condition. (2) `run_script`'s `needs_review` return dicts
+  carried `violations` but no `"error"`/`"message"`, and `_set_task_status` normalizes any non-running/
+  non-failed status to "completed" — so the task-status/chat surface showed a bare "completed" with zero
+  indication anything was flagged; fixed by attaching a `"message"` field (both `needs_review` dicts) and
+  extending the direct `/script` route's `_set_task_status` call to the same error-or-message fallback
+  `actions.py::make_action_step` already had. New "Quality Review Needed" card in `ScriptVoiceTab.tsx`
+  (natural host — sits right next to the existing "Script Validation" card): rule-by-rule + severity
+  (FAIL/WARN badges from the now-extended `quality_critic.rule_verdicts`/`severity_by_rule`), "Use it
+  anyway" (the EXISTING `advanceVideo`/`PATCH /advance` verb, zero new backend code, gated by a light
+  confirm — free and effectively reversible, the hold only ever parks `videos.status`) and "Regenerate"
+  (the EXISTING `handleRegenerateScript` callback) — no new verbs invented, both buttons hand off to code
+  that already existed and was already tested. VERIFIED: 15 new tests (`test_c46d_trust_boundaries.py`) —
+  accept/reject/warn matrix incl. severity-driven hard-gate rejection with the rule id named, `user_
+  supplied` refusal before any DB touch, tenant scoping (wrong tenant = not-found, zero writes), 5
+  parametrized bad-scene-shape cases (all raise before any `execute`), 3 `_parse_script_validation` cases
+  (the fix + 2 regression checks proving `checks`-shape and legacy-plain-text paths are untouched) — plus
+  2 pinned C46a tests extended (not weakened) for the new `"message"` key. Non-vacuous via plain `git
+  stash` (source only, new test file stays): **13/15 new tests fail** against pre-C46d code (the 2 that
+  still pass are the deliberately-unaffected regression checks) — `AttributeError: no attribute
+  'accept_external_script'` and the quality_critic blob dropping to `None`. Popped back: full suite
+  **1554P/15F/1E** = baseline (1539/15/1) + exactly 15, zero new failures. `python -m py_compile` clean.
+  Frontend: `npx tsc --noEmit` clean; `npm run build` compiles/typechecks clean (the one build-time error,
+  a missing `NEXT_PUBLIC_API_URL`, is a pre-existing env-config requirement, confirmed unrelated by setting
+  the var and getting a fully clean build). **Deploy-safety: recommend ff-merge candidate** — every new
+  dict key is additive-only, `_parse_script_validation`'s widened condition is strictly more permissive
+  (proven by regression tests), `accept_external_script` is inert dead-code-with-tests until C47 registers
+  an MCP tool that calls it, and the new frontend card is unreachable today (zero videos in production
+  have ever produced a `quality_critic.passed === false` shape — quality_rules still has 0 live rows per
+  C46a/b/c). Live round-trip (a real MCP submit + a real browser look at the banner) deferred to
+  `tasks/live-verification-queue.md` §C46d. **C46 ARC (a-d) COMPLETE.** **Next: C47 · MCP setup surface +
+  ingest tools** — expose system prompts/script templates/quality rules/channel DNA/script-profile
+  selection through MCP, PLUS `submit_research`/`submit_script` — the latter now has
+  `accept_external_script` ready and waiting. May split C47a (setup)/C47b (ingest) on size.
 - **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 

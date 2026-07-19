@@ -303,7 +303,10 @@ def test_plain_path_short_circuits_to_needs_review(monkeypatch):
 
     result = asyncio.run(executor.run_script("video-test"))
 
-    assert result == {"status": "needs_review", "video_id": "video-test", "violations": ["hook speed"]}
+    assert result == {
+        "status": "needs_review", "video_id": "video-test", "violations": ["hook speed"],
+        "message": "Quality critic still flags issues after the edit-loop bound: hook speed",
+    }
     assert calls["update_status"] == 0, "a needs_review verdict must not advance the stage"
 
 
@@ -388,7 +391,10 @@ def test_modeled_path_passes_hold_status_and_short_circuits_on_needs_review(monk
 
     result = asyncio.run(executor.run_script("video-test"))
 
-    assert result == {"status": "needs_review", "video_id": "video-test", "violations": ["payoff"]}
+    assert result == {
+        "status": "needs_review", "video_id": "video-test", "violations": ["payoff"],
+        "message": "Quality critic still flags issues after the edit-loop bound: payoff",
+    }
     assert captured["hold_status"] == "ready_for_scripting", (
         "the modeled path already advanced status before grading — hold_status must be passed"
     )

@@ -1316,6 +1316,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [regeneratingScript, setRegeneratingScript] = useState(false);
+  const [usingAnyway, setUsingAnyway] = useState(false);
   const [deletingScene, setDeletingScene] = useState<number | null>(null);
   const [rewritingScene, setRewritingScene] = useState<number | null>(null);
   const [savingScene, setSavingScene] = useState<number | null>(null);
@@ -1660,6 +1661,27 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       setApproving(false);
     }
   }, [video.id, invalidateAll, confirmDialog]);
+
+  // C46d: the quality-critic hold ("Quality Review Needed" card below) only
+  // ever HOLDS the video's status — nothing is deleted, no words are
+  // changed — so moving on is free and effectively reversible (the script
+  // itself is untouched; re-running "script" would re-grade it again). A
+  // light confirm still gates it since it's a deliberate override of a
+  // flagged quality gate, mirroring handleApprove's own confirm above.
+  const handleUseAnyway = useCallback(async () => {
+    if (!(await confirmDialog({
+      message: "The quality critic flagged issues with this script. Use it anyway and move on to voice?",
+    }))) return;
+    setUsingAnyway(true);
+    try {
+      await advanceVideo(video.id);
+      invalidateAll();
+    } catch (err) {
+      toast.error(`Couldn't advance: ${(err as Error).message}`);
+    } finally {
+      setUsingAnyway(false);
+    }
+  }, [video.id, invalidateAll, confirmDialog, toast]);
 
   const handleReject = useCallback(() => {
     setShowRevisionModal(true);
@@ -3671,6 +3693,106 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
               </div>
             )}
           </GlassCard>
+
+          {/* Quality Review Needed (C46d) — the generic quality-critic hold
+              (pipeline_executor._grade_and_maybe_revise_script /
+              user_script.accept_external_script both write this same
+              "quality_critic" record onto script_validation). Fail-safe:
+              any parse problem or missing data renders nothing rather than
+              throwing. */}
+          {(() => {
+            if (!video.script_validation) return null;
+            let qc: {
+              passed?: boolean; verdict?: string; score?: number;
+              failing_gates?: string[]; warnings?: string[];
+              rule_verdicts?: { rule: string; passed: boolean; note?: string }[];
+              severity_by_rule?: Record<string, string>;
+            } | null = null;
+            try {
+              const parsed = typeof video.script_validation === "string"
+                ? JSON.parse(video.script_validation) : video.script_validation;
+              qc = parsed?.quality_critic ?? null;
+            } catch { return null; }
+            if (!qc || qc.passed) return null;
+            const critique = qc; // `const` so the closures below keep the narrowed (non-null) type
+
+            const severityFor = (rule: string) => (critique.severity_by_rule || {})[rule] || "gate";
+            const rows: { label: string; severity: string; note?: string }[] = [
+              ...(critique.failing_gates || []).map((g) => ({ label: g, severity: "gate" })),
+              ...((critique.rule_verdicts || []).filter((rv) => !rv.passed).map((rv) => ({
+                label: rv.rule, severity: severityFor(rv.rule), note: rv.note,
+              }))),
+            ];
+            const isWarn = (severity: string) => severity === "warn" || severity === "guidance";
+
+            return (
+              <GlassCard className="p-5" style={{ border: "1px solid rgba(255,80,80,0.35)" }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertCircle size={14} style={{ color: "var(--red)" }} />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-secondary)" }}>
+                    Quality Review Needed
+                  </h3>
+                  {typeof critique.score === "number" && (
+                    <span className="ml-auto text-[10px] font-mono" style={{ color: "var(--red)" }}>
+                      score {critique.score}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] mb-3" role="status" aria-live="polite" style={{ color: "var(--text-secondary)" }}>
+                  The quality critic flagged this script after its edit-loop bound — review before it moves to voice.
+                </p>
+                <div className="space-y-1.5 mb-4">
+                  {rows.length ? rows.map((r, i) => (
+                    <div key={`${r.label}-${i}`} className="flex items-start gap-2">
+                      <span
+                        className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded shrink-0 mt-0.5"
+                        style={{
+                          background: isWarn(r.severity) ? "rgba(255,193,7,0.15)" : "rgba(255,80,80,0.15)",
+                          color: isWarn(r.severity) ? "var(--gold)" : "var(--red)",
+                        }}
+                      >
+                        {isWarn(r.severity) ? "WARN" : "FAIL"}
+                      </span>
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-medium block" style={{ color: "var(--text-primary)" }}>
+                          {r.label}
+                        </span>
+                        {r.note && (
+                          <span className="text-[10px] block" style={{ color: "var(--text-tertiary)" }}>
+                            {r.note}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )) : (
+                    <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                      The critic flagged this draft but didn&apos;t return a discrete rule list — check the script
+                      manually before moving on.
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <ActionButton
+                    variant="outline"
+                    onClick={handleUseAnyway}
+                    disabled={usingAnyway}
+                    className="flex-1"
+                  >
+                    {usingAnyway ? "Advancing…" : "Use it anyway"}
+                  </ActionButton>
+                  <ActionButton
+                    variant="warning"
+                    icon={(regeneratingScript || scriptTaskRunning) ? Loader2 : Wand2}
+                    onClick={handleRegenerateScript}
+                    disabled={regeneratingScript || scriptTaskRunning}
+                    className="flex-1"
+                  >
+                    {scriptTaskRunning ? (scriptTaskMessage || "Regenerating…") : regeneratingScript ? "Starting…" : "Regenerate"}
+                  </ActionButton>
+                </div>
+              </GlassCard>
+            );
+          })()}
 
           {/* Script Validation */}
           {(() => {
