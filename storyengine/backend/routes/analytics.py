@@ -11,6 +11,7 @@ from database import fetch_all, fetch_one
 from auth import get_tenant_id
 from analytics_by_style import get_style_performance
 from models import StylePerformanceResponse
+from own_vph import compute_own_vph
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -142,6 +143,9 @@ async def get_channel_videos(
             "ctr": _f(r["ctr_percent"]),
             "avg_view_duration_seconds": _f(r["avg_view_duration_seconds"]),
             "avg_view_percentage": _f(r["avg_retention"]),
+            # C33: views-per-hour, derived at read time (own_vph.compute_own_vph),
+            # the same math the competitor side already uses — see checklist §3.4.
+            "vph": compute_own_vph(r["view_count"], r["published_at"]),
             "watch_url": f"https://youtu.be/{r['video_id']}",
             "last_synced_at": str(r["last_synced_at"]) if r["last_synced_at"] else None,
         }

@@ -19,6 +19,7 @@ from typing import Optional
 
 from database import fetch_one, fetch_all, execute
 from kie_unified import get_text_client_for_tenant
+from youtube_quota import check_quota_available, quota_exceeded_message, record_units, upload_cost
 
 # YouTube videoCategory ids. Education is our default — it fits ESL/explainer content
 # far better than the old hardcoded "25" (News & Politics).
@@ -220,6 +221,20 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
     if not (cp and cp["youtube_refresh_token"]):
         return {"error": "No YouTube channel connected. Connect one in Settings → first."}
 
+    # Quota guard (checklist §3.4, C33): an upload is ~1,600-1,650 units out
+    # of the shared 10,000/day Data API budget (one Google Cloud project
+    # behind every tenant's OAuth token — see youtube_quota.py's module
+    # docstring for why this check is GLOBAL, not per-tenant). Checked
+    # BEFORE downloading the render/thumbnail so a blocked upload fails
+    # fast instead of burning bandwidth on files it can't send. Fail-soft
+    # by construction: check_quota_available() only ever returns ok=False
+    # from a real counted total, never from a tracker error (that case
+    # reads as "0 used" and passes through).
+    est_cost = upload_cost(has_thumbnail=bool(v["thumbnail_url"]))
+    quota_ok, quota_status = await check_quota_available(est_cost)
+    if not quota_ok:
+        return {"error": quota_exceeded_message(quota_status), "quota_exceeded": True}
+
     title = (v["video_title"] or "Untitled")[:100]
     description = v["seo_description"] or title
     tags = [t.strip() for t in (v["seo_tags"] or "").split(",") if t.strip()]
@@ -239,6 +254,11 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
         result = await asyncio.to_thread(
             _do_youtube_upload, cp["youtube_refresh_token"], vpath, thumb,
             title, description, tags, _DEFAULT_CATEGORY, privacy, made_for_kids)
+        # Record ACTUAL spend (thumb may have failed to download and been
+        # dropped above, so re-derive the real cost from what shipped rather
+        # than the pre-flight estimate) after the upload succeeds — never
+        # before, so a failed upload never falsely counts against the budget.
+        await record_units(upload_cost(has_thumbnail=bool(thumb)), "videos.insert")
         await execute(
             "UPDATE videos SET youtube_video_id=$1, youtube_url=$2, upload_status='uploaded', "
             "upload_date=now(), status='uploaded_draft', updated_at=now() "

@@ -6267,3 +6267,182 @@ anything that runs in prod — purely fixes a test fixture so CI reflects
 reality. Safe to ff-merge; no VPS coordination needed.
 
 **Next up: C33 · P3.4 quota guard + own-video VPH.**
+
+## C33 — P3.4 quota guard + own-video VPH (added 2026-07-19)
+
+Checklist §3.4's two audit findings: (1) "YouTube quota (10k units/day ~ 6 uploads) documented but
+not enforced in code" — the upload path had zero guard, a bad day just eats a raw 403; (2) "VPH
+computed for competitors only, never for own videos — scorecards compare apples to oranges."
+
+### Quota guard
+
+**Scope decision, investigated first:** the 10,000-units/day quota is billed to a Google Cloud
+PROJECT, not a channel. Grepped every `GOOGLE_OAUTH_CLIENT_ID`/`SECRET` read across the backend
+(`youtube_publish.py`, `routes/youtube_sync.py`, `routes/google_auth.py`, `routes/youtube_channel.py`,
+`routes/model_video.py`, `routes/videos.py`) — every one reads the SAME two env vars, no per-tenant
+client id/secret anywhere. So every tenant's OAuth token is minted from one shared OAuth app, meaning
+every tenant's Data API calls draw down the SAME pool. **Counter is GLOBAL (no `tenant_id`)** — a
+per-tenant counter would under-count the real cross-tenant risk (tenant A could exhaust the pool
+while tenant B's counter still reads "plenty left").
+
+**Storage:** new dedicated table (migration 101, applied live via MCP to project
+`wrromlupsmyzrrcqlucn` — confirmed via `information_schema.columns` + `pg_class.relrowsecurity`),
+not a reuse of `generation_ledger` (migration 087) — that table is shaped for a different question
+("what did THIS VIDEO cost in dollars", `video_id` NOT NULL, USD `actual_cost`); forcing a
+video-less, non-dollar, cross-tenant API-unit counter through it would need nullable-video hacks for
+a worse fit than a 3-column table. RLS enabled with no policies, matching the proven-safe pattern
+from `secrets`/`static_reference_cache`/`channel_video_retention` (migration 083 — backend connects
+as `postgres`, bypasses RLS via `rolbypassrls=true`).
+```sql
+CREATE TABLE IF NOT EXISTS youtube_quota_usage (
+  day DATE PRIMARY KEY, units_used INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+**New module `storyengine/backend/youtube_quota.py`** — unit costs from Google's published YouTube
+Data API v3 quota-cost table (`videos.insert`=1600, `thumbnails.set`=50, `videos.update`=50,
+`search.list`=100, `videos.list`/`channels.list`/`playlistItems.list`=1 each; cross-checked against
+`youtube_data_api.py`'s pre-existing header comment, which already documented the list-call costs).
+YouTube Analytics API (separate quota system) is deliberately NOT counted. `DEFAULT_CEILING = 9000`
+(env `YOUTUBE_DAILY_QUOTA_CEILING`), leaving ~1,000 units headroom under the real 10,000/day limit —
+more conservative than the checklist's illustrative "10k, 6 uploads" framing, by design. Reset key:
+`_pt_today()` via `zoneinfo.ZoneInfo("America/Los_Angeles")` (stdlib, no new dependency) — matches
+YouTube's real midnight-PT reset, not UTC midnight. `get_quota_status()` / `record_units()` /
+`check_quota_available()` are all fail-soft: any DB error is logged and treated as "0 used today" —
+a broken tracker must never itself block a real upload.
+
+**Wired:**
+- `youtube_publish.py::upload_video_to_youtube` — the ONLY `videos().insert` call site in the
+  codebase (confirmed via grep; `pipeline_executor.py::run_upload` is the only caller). Checked
+  BEFORE downloading the render/thumbnail (fail fast, no wasted bandwidth on a blocked upload);
+  refusal returns `{"error": <quota_exceeded_message>, "quota_exceeded": True}`, which
+  `pipeline_executor.py`'s existing `if up.get("error"): raise Exception(up["error"])` already turns
+  into a clean failed-stage message — no raw 403 ever reaches the user. Actual spend recorded AFTER
+  a successful upload (re-derived from whether the thumbnail actually shipped, not the pre-flight
+  estimate), never before, so a failed upload never falsely counts against the budget.
+- `routes/youtube_sync.py::_run_sync` — records the Data API list-call cost (channels.list +
+  playlistItems.list pages + videos.list batches, ~1-10 units/tenant/day) for an honest running
+  total. NOT gated — cheap enough (single digits to low tens of units) that adding a refusal path
+  here would risk breaking analytics sync for negligible quota protection; the upload guard above is
+  where refusal actually matters (1,600+ units vs. ~1-10).
+- `main.py` — both `/api/health` and `/api/health/detailed` now carry a `youtube_quota:
+  {date_pt, units_used, ceiling, remaining}` field (C16d/C25b pattern: each check wrapped in its own
+  try/except so a broken quota read can't sink the rest of the health response).
+
+### Own-video VPH
+
+**New module `storyengine/backend/own_vph.py`**: `compute_own_vph(views, published_at) -> float |
+None`. Reuses `routes.niche._calculate_vph` (the SAME math the competitor side already uses to rank
+`competitor_videos` — confirmed this function already exists and is already imported the same way
+by `routes/intelligence.py`) rather than reimplementing it — lazy-imported to avoid load-order
+coupling, same discipline `channel_briefs.py` already documents for its own circular-import
+avoidance. Returns `None` (not `0.0`) for the two dishonest cases: unpublished (`published_at` is
+None), and published under `MIN_HOURS_FOR_VPH = 1.0` hours ago (a near-zero denominator doesn't just
+divide-by-zero, it extrapolates a handful of views into a wildly misleading rate — e.g. 500 views 90
+seconds after publish would otherwise read as "20,000/hr"). Derived at READ TIME, no stored column —
+every caller already has `views`/`view_count` + a publish timestamp in hand from its own query.
+
+**Wired at the three "own performance" surfaces the spec named:**
+- `channel_briefs.py::_own_performance_brief` — added `upload_date` to the SELECT, `~{vph:.0f}/hr`
+  appended per video line when available. This is the copilot's "how did my videos do?" answer —
+  now velocity-aware, finally comparable to `_next_to_make_brief`'s competitor VPH.
+- `routes/analytics.py::get_channel_videos` (`GET /api/analytics/videos`) — added `"vph":
+  compute_own_vph(r["view_count"], r["published_at"])`. Noted honestly: this endpoint has no
+  frontend caller today (checked `grep -rn getChannelVideos frontend/src` — zero hits, pre-existing
+  dead wiring this chunk didn't create); added for consistency and to be ready when a caller exists.
+- `analytics_by_style.py`'s aggregation (C30) — added `avg_vph`, computed IN SQL (not a per-row
+  Python pass, since the query already groups server-side): `views / hours-since-upload_date`,
+  excluding rows published under an hour ago via the same `MIN_HOURS_FOR_VPH` floor, filtered to the
+  same synced subset as `avg_ctr`/`avg_retention`. Added to `models.py`'s `StyleChoiceAggregate`
+  (Pydantic `response_model` would otherwise silently strip an unlisted field — locked by a
+  dedicated test) and surfaced as a new "Avg VPH" column in `analytics/page.tsx`'s by-style table
+  (mirrors the existing CTR/Retention column pattern exactly — `npx tsc --noEmit` clean).
+
+**Legacy check (avoid duplicating):** searched `performance_tracker`/`ctr_monitor` in
+`skills/video-pipeline` for an existing own-VPH computation — none found; that side never computed
+own velocity either, only competitor VPH via the same `calculate_vph` this StoryEngine-side fix
+mirrors. Nothing to reuse from there; `routes.niche._calculate_vph` (StoryEngine's own competitor-VPH
+calculator, already live) was the correct, closer reuse target and is what `own_vph.py` wraps.
+
+### Verify
+
+**Non-vacuous via file-hide + `git stash`:** moved `youtube_quota.py`/`own_vph.py` out of the tree
+(keeping the 3 new test files) → all three fail to collect (`ModuleNotFoundError`); separately,
+`git stash -u` (stashes tracked changes + all untracked new files together) then popped clean.
+Restored, re-ran green.
+
+`python -m py_compile` clean on every touched/new backend file.
+
+21 new tests across 3 files:
+- `tests/functional/test_c33_youtube_quota.py` (12 tests) — units accumulate across calls;
+  default ceiling is 9000 (not the checklist's illustrative 10k); the checklist's own "6 uploads
+  fit, 7th refused" scenario reproduced exactly with an explicit 10,000-unit ceiling env override
+  (6×1600=9600≤10000 passes, 7th would be 11,200>10,000, refused, message names the exact
+  used/ceiling numbers + "midnight Pacific"); `upload_cost()` thumbnail math; fail-soft on read AND
+  write DB errors (read failure never blocks a normal-cost check, write failure never raises after a
+  real upload); midnight-PT reset (two different Pacific-day keys are independent counters, proven
+  by monkeypatching `_pt_today()`); a direct cross-check that `_pt_today()` really uses
+  America/Los_Angeles (`2026-07-19T06:00:00Z` == `2026-07-18` Pacific, not `2026-07-19`); both health
+  endpoints carry the field.
+- `tests/functional/test_c33_own_vph.py` (6 tests) — unpublished → None; zero/near-zero-hours guard
+  → None (both "published this instant" and a future/clock-skew timestamp); known fixture (1,200
+  views / 24h → 50.0 VPH, matching the checklist's own worked example) from both a `datetime` and an
+  ISO string; 0 views with a real publish date → `0.0` (an honest answer, unlike the unpublished/
+  zero-hours cases); direct cross-check against `routes.niche._calculate_vph` proving this is a thin
+  wrapper, not a parallel reimplementation that could drift.
+- `tests/functional/test_c33_vph_wiring.py` (3 tests) — `avg_vph` survives `_aggregate_column`/
+  `_aggregate_clip_model`'s dict-building AND survives FastAPI's `response_model` filtering (the
+  exact failure mode of adding a field to SQL/dict but forgetting the Pydantic model).
+
+**Full backend suite:** `./venv/bin/python -m pytest tests/ -q` → **1241 passed / 15 failed / 1
+error** (baseline 1220/15/1 + this chunk's 21 new tests, zero new failures — the same 15
+pre-existing failures, none touching any file this chunk modified). Discovered and fixed one
+drift-checker regression along the way: `test_schema_sql_migrations_drift.py` failed until
+`youtube_quota_usage` was also added to `schema.sql` (migration alone isn't enough — that test
+enforces schema.sql stays the fresh-install source of truth).
+
+**Autopilot suite (untouched — confirmed via `git status`, zero files under `skills/video-pipeline/`
+changed this chunk):** `cd skills/video-pipeline && python3 -m pytest autopilot/tests/ -q` → **146
+passed / 0 failed**, unchanged from the C32b baseline.
+
+**Live proof:** migration 101 applied via Supabase MCP `apply_migration` to project
+`wrromlupsmyzrrcqlucn`; confirmed via `execute_sql` — `information_schema.columns` shows the 3
+expected columns/types, `pg_class.relrowsecurity` = `true`. No live quota/VPH sanity run (would
+need a real upload or real synced channel data) — deferred to `tasks/live-verification-queue.md`
+§C33 per this chunk's spec.
+
+### Modified/New Files (C33)
+| Path | Change |
+|------|--------|
+| `storyengine/backend/youtube_quota.py` | NEW — global daily quota tracker (unit costs, PT-day key, fail-soft check/record) |
+| `storyengine/backend/own_vph.py` | NEW — `compute_own_vph()`, thin wrapper over `routes.niche._calculate_vph` |
+| `storyengine/backend/migrations/101_youtube_quota_usage.sql` | NEW — `youtube_quota_usage` table + RLS-no-policies |
+| `storyengine/schema.sql` | Added `youtube_quota_usage` section (drift-checker requirement) |
+| `storyengine/backend/youtube_publish.py` | Quota check before upload (fail-fast before download), unit recording after success |
+| `storyengine/backend/routes/youtube_sync.py` | Records sync-side Data API list-call units (not gated) |
+| `storyengine/backend/main.py` | `/api/health` + `/api/health/detailed` carry `youtube_quota` field |
+| `storyengine/backend/channel_briefs.py` | `_own_performance_brief` adds `upload_date` to SELECT + VPH line |
+| `storyengine/backend/routes/analytics.py` | `get_channel_videos` adds `vph` field |
+| `storyengine/backend/analytics_by_style.py` | Both aggregation queries add `avg_vph` (SQL-derived) |
+| `storyengine/backend/models.py` | `StyleChoiceAggregate.avg_vph` |
+| `storyengine/frontend/src/lib/api.ts` | `StyleChoiceAggregate.avg_vph`, `ChannelVideo.vph` |
+| `storyengine/frontend/src/app/analytics/page.tsx` | New "Avg VPH" column in the by-style table |
+| `storyengine/backend/tests/functional/test_c33_youtube_quota.py` | NEW — 12 tests |
+| `storyengine/backend/tests/functional/test_c33_own_vph.py` | NEW — 6 tests |
+| `storyengine/backend/tests/functional/test_c33_vph_wiring.py` | NEW — 3 tests |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Additive across the board: new table (RLS-locked, no policy access from anon/authenticated), new
+modules, new fields on existing responses (nothing removed/renamed), one new frontend table column.
+No behavior change for a tenant with zero YouTube activity today (quota check reads "0 used" and
+passes through; VPH is `None` until a video has real synced data). The one path with real
+production consequence — the upload quota gate — only ever *adds* a refusal it didn't have before;
+it cannot make an upload that used to succeed now fail for any reason other than the tenant's
+project genuinely being near its real Google-enforced ceiling. Safe to ff-merge.
+
+**Next up: C34 · SWEEP S10 (multi-tenant branding) + P3.4 SEO branding parameterization.** Per the
+loop's sweep-then-fix playbook, recommend the orchestrator dispatches the S10 sweep first (Explore
+half) and folds its findings into the same chunk as the SEO-branding fix (`upload/seo_generator.py`'s
+hardcoded `@Power_Doctrine`/`#PowerDoctrine`, checklist §3.4's last unfixed bullet) rather than
+sequencing them as two separate chunks.

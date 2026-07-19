@@ -186,6 +186,45 @@ this is a redirect, not a duplicate.
 
 ---
 
+## C33 — YouTube quota guard + own-video VPH · needs a real upload day + a real synced channel
+
+**Why deferred:** the quota tracker (`youtube_quota.py`) and VPH derivation (`own_vph.py`) are
+proven correct in-sandbox with an in-memory fake DB (unit accumulation, ceiling refusal at an
+explicit 10k ceiling matching the checklist's "6 uploads then 7th blocked" scenario, fail-soft on
+tracker errors, midnight-PT reset via monkeypatched `_pt_today()`, VPH fixtures with known
+views/hours — see `test_c33_youtube_quota.py` / `test_c33_own_vph.py` / `test_c33_vph_wiring.py`).
+What's NOT provable without a real deployment: does the counter actually survive a real day of
+uploads without drifting, and does VPH look sane against a real synced channel. No paid generation
+is required for either check below (quota: read the counter after normal use; VPH: read already-
+synced numbers) — cost is $0.
+
+1. **Quota counter sanity.** After a normal day of real use (whatever uploads happen naturally —
+   don't force extra ones just to test this), `se db "SELECT * FROM youtube_quota_usage ORDER BY
+   day DESC LIMIT 5"` and cross-check `units_used` against how many uploads actually happened that
+   day (`se db "SELECT count(*) FROM videos WHERE upload_date::date = '<day>'"` × ~1600-1650).
+   `GET /api/health` (no auth needed) should show `youtube_quota.units_used` matching the same
+   number, and `youtube_quota.remaining` should equal `9000 - units_used` (or whatever
+   `YOUTUBE_DAILY_QUOTA_CEILING` is set to in the VPS `.env`).
+2. **Quota refusal, if/when a heavy upload day occurs naturally** (don't force it — 6+ real uploads
+   in one day is unusual for a single-channel tenant): confirm the next upload attempt after the
+   ceiling is hit returns the friendly "quota resets at midnight Pacific" message (check
+   `background_tasks`/activity log for the upload stage's error text), not a raw YouTube 403.
+3. **Own-video VPH sanity.** Pick a tenant with `/api/youtube/sync` run recently and at least one
+   video with `last_analytics_sync IS NOT NULL`. Ask the copilot "how did my videos do?" (or the
+   home producer) and confirm the "YOUR OWN PUBLISHED VIDEOS" answer includes a `~N/hr` VPH figure
+   for videos published more than an hour ago, and correctly omits it (or the whole line reads
+   sensibly without one) for anything unpublished or too fresh. Cross-check the number by hand:
+   `se db "SELECT video_title, views, upload_date FROM videos WHERE tenant_id='<id>' AND
+   last_analytics_sync IS NOT NULL"` → `views / ((now() - upload_date) in hours)` should match what
+   the copilot said, within rounding.
+4. **`avg_vph` on the by-style analytics panel.** Open `/analytics` as a tenant with 2+ synced
+   videos sharing a style/render/script/clip-model choice, confirm the new "Avg VPH" column shows a
+   `~N/hr` value for groups with real synced data and "no data yet" (dimmed) for groups without —
+   same dependency as C30/C31's live checks above, so do this alongside those if the same tenant
+   qualifies for both.
+
+---
+
 ## C30 — preset/model performance aggregation · needs a tenant with real multi-preset synced analytics
 
 **Why deferred:** `analytics_by_style.get_style_performance()` and `GET /api/analytics/by-style` are

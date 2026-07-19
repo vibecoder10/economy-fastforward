@@ -1350,6 +1350,7 @@ export interface ChannelVideo {
   ctr: number | null;
   avg_view_duration_seconds: number | null;
   avg_view_percentage: number | null;
+  vph: number | null; // C33: views-per-hour, derived at read time
   watch_url: string;
   last_synced_at: string | null;
 }
@@ -1384,6 +1385,7 @@ export interface StyleChoiceAggregate {
   synced_count: number;
   avg_ctr: number | null;
   avg_retention: number | null;
+  avg_vph: number | null; // C33: views-per-hour, derived at read time
   total_views: number;
   total_spend: number;
 }

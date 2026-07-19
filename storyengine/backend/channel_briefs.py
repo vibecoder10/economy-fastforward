@@ -71,11 +71,19 @@ async def _next_to_make_brief(tenant_id) -> str:
 
 async def _own_performance_brief(tenant_id) -> str:
     """The creator's OWN recently-published videos with REAL synced YouTube analytics
-    (views, CTR, retention). Lets the chat answer 'how did my videos do?' and diagnose
-    weak spots. Top 5 most-recently-synced. Fail-soft -> ''."""
+    (views, CTR, retention, VPH). Lets the chat answer 'how did my videos do?' and
+    diagnose weak spots. Top 5 most-recently-synced. Fail-soft -> ''.
+
+    VPH (checklist §3.4, C33): computed here at read time via
+    own_vph.compute_own_vph(views, upload_date) — the same math the
+    competitor side already uses (routes.niche._calculate_vph) — so this
+    brief and the "what to make next" competitor brief above are finally
+    comparing like-for-like velocity, not raw views vs. a competitor's VPH.
+    """
+    from own_vph import compute_own_vph
     try:
         rows = await fetch_all(
-            "SELECT video_title, views, ctr, impressions, avg_retention "
+            "SELECT video_title, views, ctr, impressions, avg_retention, upload_date "
             "FROM videos WHERE tenant_id = $1 AND last_analytics_sync IS NOT NULL "
             "ORDER BY last_analytics_sync DESC LIMIT 5",
             tenant_id,
@@ -89,6 +97,9 @@ async def _own_performance_brief(tenant_id) -> str:
     for r in rows:
         t = (r.get("video_title") or "Untitled").strip()
         parts = [f"{int(r.get('views') or 0):,} views"]
+        vph = compute_own_vph(r.get("views"), r.get("upload_date"))
+        if vph is not None:
+            parts.append(f"~{vph:.0f}/hr")
         ctr = r.get("ctr")
         parts.append(f"{float(ctr):.1f}% CTR" if ctr is not None else "CTR n/a")
         ret = r.get("avg_retention")

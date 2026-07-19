@@ -182,6 +182,7 @@ async def _run_sync(tenant_id: str):
 
             # 2. Enumerate the uploads playlist and fetch details
             details: list[dict] = []
+            video_ids: list[str] = []
             if summary.get("uploads_playlist"):
                 video_ids = await _fetch_with_retry(
                     fetch_playlist_video_ids, client, access_token,
@@ -192,6 +193,25 @@ async def _run_sync(tenant_id: str):
                 )
 
             _sync_tasks[tenant_id]["videos_total"] = len(details)
+
+            # Quota bookkeeping (checklist §3.4, C33): record the Data API
+            # units this sync actually spent — 1/channels.list call (step 1
+            # above) + 1/playlistItems.list page (50 ids each) +
+            # 1/videos.list batch (50 ids each), per Google's published
+            # per-call cost (youtube_quota.UNIT_COSTS). This sync path never
+            # calls videos.insert/search.list, so it's cheap (single digits
+            # to low tens of units/tenant/day) and is recorded for an
+            # honest running total, not gated — the upload guard in
+            # youtube_publish.py is where refusal actually matters (a
+            # 1,600-unit call vs. this ~1-10 unit one).
+            import math
+            from youtube_quota import record_units
+            list_units = 1  # channels.list (step 1, fetch_channel_summary)
+            if video_ids:
+                list_units += math.ceil(len(video_ids) / 50)
+            if details:
+                list_units += math.ceil(len(details) / 50)
+            await record_units(list_units, "channels.list+playlistItems.list+videos.list (sync)")
 
             # 3. Mirror into channel_videos (video_id = the YouTube video id;
             # table shared with onboarding intelligence, which owns transcripts)

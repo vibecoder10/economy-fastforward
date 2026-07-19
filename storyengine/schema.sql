@@ -1699,3 +1699,26 @@ CREATE INDEX IF NOT EXISTS mcp_confirm_tokens_tenant_video_idx
 ALTER TABLE mcp_confirm_tokens ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+
+-- =============================================================================
+-- YOUTUBE_QUOTA_USAGE (migration 101 — checklist P3.4, chunk C33)
+-- =============================================================================
+-- The YouTube Data API quota guard's counter. GLOBAL scope, no tenant_id:
+-- the 10,000-units/day quota is billed to a Google Cloud PROJECT, and every
+-- tenant's OAuth token in this app is minted from the SAME OAuth client (one
+-- shared GOOGLE_OAUTH_CLIENT_ID/SECRET env-var pair), so every tenant's Data
+-- API calls draw down the SAME pool. One row per Pacific-Time calendar day
+-- (YouTube resets at midnight PT, not UTC). See
+-- migrations/101_youtube_quota_usage.sql and backend/youtube_quota.py for
+-- the full design rationale.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS youtube_quota_usage (
+  day DATE PRIMARY KEY,
+  units_used INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE youtube_quota_usage ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

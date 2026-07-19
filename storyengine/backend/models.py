@@ -351,6 +351,7 @@ class StyleChoiceAggregate(BaseModel):
     synced_count: int = 0  # subset of video_count with real synced YouTube analytics
     avg_ctr: Optional[float] = None
     avg_retention: Optional[float] = None
+    avg_vph: Optional[float] = None  # C33: views-per-hour, derived at read time
     total_views: int = 0
     total_spend: float = 0.0
 

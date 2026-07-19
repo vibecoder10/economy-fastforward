@@ -27,6 +27,19 @@ Fail-soft per dimension: a broken/erroring query for one dimension (bad data,
 transient DB hiccup) returns [] for THAT dimension only — the other three
 still come back, and the endpoint never 500s just because one GROUP BY choked.
 
+`avg_vph` (checklist §3.4, C33): the group's average views-per-hour, derived
+IN SQL at read time from `views / hours-since-upload_date` per video,
+excluding rows published under an hour ago (same MIN_HOURS_FOR_VPH floor as
+own_vph.compute_own_vph() — a near-zero denominator would otherwise
+extrapolate a handful of views into a wildly misleading rate) — the same
+"own video velocity" own_vph.compute_own_vph() computes in Python for a
+single video, inlined here because this query already groups in SQL and a
+per-row Python pass would mean fetching every underlying video row instead
+of one aggregated row per choice. Filtered to the same synced subset as
+avg_ctr/avg_retention, for the same reason: an unsynced video's `views`
+column may still be its stale pipeline-side count, not a real YouTube view
+total, so averaging it in would be dishonest.
+
 Honest NULL handling: `video_count` is every video with that choice set,
 `synced_count` is the subset with real synced YouTube analytics
 (`last_analytics_sync IS NOT NULL`) — the same flag `_own_performance_brief`
@@ -63,6 +76,7 @@ def _row(dimension: str, r: dict) -> dict:
     ctr = r.get("avg_ctr")
     ret = r.get("avg_retention")
     spend = r.get("total_spend")
+    vph = r.get("avg_vph")
     return {
         "dimension": dimension,
         "choice": r["choice"],
@@ -70,6 +84,7 @@ def _row(dimension: str, r: dict) -> dict:
         "synced_count": int(r.get("synced_count") or 0),
         "avg_ctr": float(ctr) if ctr is not None else None,
         "avg_retention": float(ret) if ret is not None else None,
+        "avg_vph": float(vph) if vph is not None else None,
         "total_views": int(r.get("total_views") or 0),
         "total_spend": float(spend) if spend is not None else 0.0,
     }
@@ -88,6 +103,12 @@ async def _aggregate_column(tenant_id: str, dimension: str, column: str) -> list
                   COUNT(*) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::int AS synced_count,
                   ROUND(AVG(v.ctr) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_ctr,
                   ROUND(AVG(v.avg_retention) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_retention,
+                  ROUND(AVG(
+                    CASE WHEN v.upload_date IS NOT NULL
+                         AND EXTRACT(EPOCH FROM (now() - v.upload_date)) / 3600.0 >= 1
+                         THEN v.views / (EXTRACT(EPOCH FROM (now() - v.upload_date)) / 3600.0)
+                    END
+                  ) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_vph,
                   COALESCE(SUM(v.views), 0)::bigint AS total_views,
                   COALESCE(SUM(s.spend), 0)::numeric AS total_spend
                 FROM videos v
@@ -134,6 +155,12 @@ async def _aggregate_clip_model(tenant_id: str) -> list[dict]:
                   COUNT(*) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::int AS synced_count,
                   ROUND(AVG(v.ctr) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_ctr,
                   ROUND(AVG(v.avg_retention) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_retention,
+                  ROUND(AVG(
+                    CASE WHEN v.upload_date IS NOT NULL
+                         AND EXTRACT(EPOCH FROM (now() - v.upload_date)) / 3600.0 >= 1
+                         THEN v.views / (EXTRACT(EPOCH FROM (now() - v.upload_date)) / 3600.0)
+                    END
+                  ) FILTER (WHERE v.last_analytics_sync IS NOT NULL)::numeric, 2) AS avg_vph,
                   COALESCE(SUM(v.views), 0)::bigint AS total_views,
                   COALESCE(SUM(s.spend), 0)::numeric AS total_spend
                 FROM videos v

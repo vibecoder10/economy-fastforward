@@ -134,6 +134,12 @@ function money(v: number | null | undefined): string {
   return v === null || v === undefined || Number.isNaN(v) ? "--" : `$${v.toFixed(2)}`;
 }
 
+// C33: own-video views-per-hour, matching the "~N/hr" shorthand already used
+// for competitor VPH elsewhere in the product (routes/chat.py).
+function vphLabel(v: number | null | undefined): string {
+  return v === null || v === undefined || Number.isNaN(v) ? "--" : `~${v.toFixed(0)}/hr`;
+}
+
 // Cost-per-1k-views: derived ONLY from the two totals the endpoint already
 // serves (total_spend, total_views) — no new math source, per spec. Guards
 // the zero-views case so this never divides by zero into Infinity/NaN.
@@ -984,7 +990,7 @@ export default function AnalyticsPage() {
             <table className="w-full text-left">
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  {["Choice", "Videos", "Avg CTR", "Avg Retention", "Total Views", "Total Spend", "Cost / 1k Views"].map((h) => (
+                  {["Choice", "Videos", "Avg CTR", "Avg Retention", "Avg VPH", "Total Views", "Total Spend", "Cost / 1k Views"].map((h) => (
                     <th
                       key={h}
                       className="pb-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap px-3"
@@ -1032,6 +1038,17 @@ export default function AnalyticsPage() {
                         ) : (
                           <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
                             {pct0(r.avg_retention)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {noDataYet ? (
+                          <span className="text-[11px] italic" style={{ color: "var(--text-tertiary)" }}>
+                            no data yet
+                          </span>
+                        ) : (
+                          <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                            {vphLabel(r.avg_vph)}
                           </span>
                         )}
                       </td>

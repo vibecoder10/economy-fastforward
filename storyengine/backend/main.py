@@ -665,6 +665,15 @@ async def health():
     # here as data only; no UI banner yet (tracked as a frontend follow-up).
     checks["queue"] = "arq" if getattr(app.state, "arq", None) else "degraded-inprocess"
 
+    # YouTube Data API quota (checklist §3.4, C33): remaining units in the
+    # shared 10,000/day pool (see youtube_quota.py for why this is GLOBAL,
+    # not per-tenant). Fail-soft — get_quota_status() never raises.
+    try:
+        from youtube_quota import get_quota_status
+        checks["youtube_quota"] = await get_quota_status()
+    except Exception:
+        checks["youtube_quota"] = {"error": "quota status unavailable"}
+
     # Overall status
     if checks.get("database") is True:
         status = "healthy"
@@ -720,6 +729,13 @@ async def health_detailed(request: Request):
 
     # Queue mode (C16d, S7-7) — see /api/health for the full rationale.
     checks["queue"] = "arq" if getattr(app.state, "arq", None) else "degraded-inprocess"
+
+    # YouTube quota (C33) — see /api/health for the full rationale.
+    try:
+        from youtube_quota import get_quota_status
+        checks["youtube_quota"] = await get_quota_status()
+    except Exception:
+        checks["youtube_quota"] = {"error": "quota status unavailable"}
 
     # Error rate (from logging_config tracker)
     from logging_config import _error_counts, _error_window_start
