@@ -253,3 +253,30 @@ de-branded), script/visual profiles (neutral defaults, C24-pinned), frontend cop
   shadowed today by _load_prompt_overrides but an unguarded regression trap. Fix: neutral default at source. → C34c
 - **S10-6 MED — computed YouTube category silently dropped** (`youtube_publish.py` computes category_id in SEO,
   then always uploads _DEFAULT_CATEGORY "27"). Fix: persist + pass through. → C34c
+
+---
+
+# P4.1 · Channel DNA learner inventory (Phase 4 scout, 2026-07-19)
+
+**Headline: the learn-this-channel brain largely EXISTS but is fragmented.** `identity_builder.build_
+channel_identity` is the real cross-cutting learner (Firecrawl transcripts → voice/hook/structure/
+thumbnail/visual_format/research_approach, transcript-VERIFIED quotes → channel_profiles.channel_identity
+JSONB, consumed by identity.py→engine_templates on EVERY generation) — but it's reachable ONLY via chat
+keyword sniffing (`_identity_intent`), learns only from the tenant's own imported channel_videos, never
+runs script_templates/creator-brief/model-video, and saves with no review step. 10-learner inventory
+(voice-learn OAuth path, channel-formula thumbnails ×2 drifting impls, static_docu, script_templates
+single-slot, Model A Video one-shot never persisting DNA, creator_brief chat-memory-only,
+channel_profile_documents Drive-export dead end, channel_format lock, director memory + channel intel,
+onboarding's 4th dead-end intelligence path) — full table in the P4 scout transcript; key structural
+facts: two learners use DIFFERENT transcript-fetch strategies (yt-dlp bot-blocked vs Firecrawl);
+onboarding calls NONE of the learners; `system_prompts.generate` is a parallel prose→prompts path that
+can silently fight identity_builder's writes; external (non-owned) channels need onboarding's
+`_import_channel_videos` pattern first. Storage verdict: REUSE `channel_profiles.channel_identity` as
+the canonical DNA object + a provenance/history JSONB envelope (no new table).
+
+**P4.1 chunk plan (queued as C40-C45):** C40 digest data model (provenance `_sources` per field +
+`_history` JSONB, extend migration 070 pattern) → C41 unified ingestion orchestrator (`channel_dna.py::
+learn_channel` sequencing existing learners + external-channel import) → C42 chat front door + confirm-
+before-save digest card (extend `_handle_build_identity`/`_format_identity`) → C43 consumption audit +
+system_prompts/identity convergence → C44 corrections-loop wiring into director_preferences → C45
+onboarding hookup + retire the dead-end `_build_intelligence_report` (graceful, it has live routes).
