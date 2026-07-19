@@ -383,3 +383,16 @@ already does manually in Claude sessions today.
   "BY CREWS" (and any future phrase) promote to the locked set only after proving out as a series;
   everything else under the open 2-4-word rule. (Verify QL-66's current code already matches — it
   should; if so, no code change.)
+
+## 2026-07-19 — OR-6 EXPANDED into a design principle: anti-patterns are DATA-DERIVED, per-channel, never hardcoded (Ryan, direct)
+Ryan: patterns are "developed on a channel only after the channel is actually running and has data...
+this pattern might work well for another channel so that shouldn't be a blanket pattern... the system
+must remain as flexible as possible — proper tagging happens per channel based on the data we see in
+the YouTube analytics, not a hardcoded system." Design law for C46e item 2 (and the future P4.2 loop):
+- Anti-pattern (and positive-pattern) tags are PROPOSED FROM THE CHANNEL'S OWN ANALYTICS (the C30
+  by-style aggregates / C33 VPH / CTR-retention data), each proposal carrying its evidence
+  ("openers of this shape underperform your channel median by X% across N videos").
+- Human CONFIRMS before any tag takes effect; tags are per-channel rows, reversible (soft-off),
+  and NEVER copied across channels or baked into code/prompts as universal truths.
+- The exclusion mechanism (keep a tagged pattern out of style-seed/few-shot sets) is generic
+  capability; WHICH patterns get tagged is always that channel's data + that creator's confirmation.
