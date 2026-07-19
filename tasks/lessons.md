@@ -543,3 +543,12 @@ working branch are fine ONLY with explicit paths (`git add <file> <file>`) — N
 while a worker runs (2026-07-19 second incident: `git add -A` swept a worker's in-progress 633-line
 onboarding.py rewrite into a docs commit; tree stayed intact but history split the chunk's diff and
 broke the worker's stash-proof mechanics). Branch switching remains forbidden during a worker run.
+
+## 2026-07-19 — Never assert a subsystem's absence from session memory (Ryan correction)
+Claimed "there's no Stripe/billing in the codebase" while designing MCP monetization — Ryan
+corrected: he hooked Stripe up months ago (routes/billing.py, 527 lines, plan gates, webhooks,
+regression-locked tests). The session's build loop never touched billing, so it never entered
+context — absence from MY context is not absence from the REPO. Rule: before any "X doesn't
+exist / has to be built" claim that shapes a design or a chunk brief, run the 10-second
+`Grep -i <x>` across the repo first. Existence claims are cheap to verify and expensive to get
+wrong (I nearly queued a chunk to build a parallel subscription system beside a live one).
