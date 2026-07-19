@@ -370,3 +370,16 @@ thinking on the subscription." Synergy with C46: agent-authored scripts pass thr
 quality-rules critic as platform-generated ones — the rules engine is the trust boundary that makes
 externally-written content safe to accept. This is also just the structured version of what Ryan
 already does manually in Claude sessions today.
+
+## 2026-07-19 — DvsU open rulings RULED by Ryan (OR-5/6/9)
+- **OR-5: RULED — follow the recommendation.** "Most Hated" (pilot-testimony format) becomes a
+  SEPARATE NAMED DvsU mode with its own rule overrides (opener budget, memorable-fact source),
+  never folded into the spec-block default. Unblocks D7 (number normalization pending OR-5).
+- **OR-6: RULED — recommendation REJECTED, capability accepted.** Do NOT blackball
+  MostHated-Warships (or any style): "it might work for another channel or niche." Build the
+  CAPABILITY to tag a video/style as an anti-pattern excluded from style-seed/few-shot sets —
+  PER-CHANNEL, opt-in, nothing tagged by default. A style is only weak in a context.
+- **OR-9: RULED — follow the recommendation.** Five thumbnail phrases stay locked; "BY PILOTS"/
+  "BY CREWS" (and any future phrase) promote to the locked set only after proving out as a series;
+  everything else under the open 2-4-word rule. (Verify QL-66's current code already matches — it
+  should; if so, no code change.)
