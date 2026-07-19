@@ -1,6 +1,7 @@
 "use client";
 import { Spinner } from "@/components/ui/spinner";
-import { VISUAL_PRESETS, type VisualPreset } from "@/lib/visual-presets";
+import { useStyleDescriptions, styleDescriptionIcon } from "@/hooks/use-style-descriptions";
+import type { StyleDescription } from "@/lib/api";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
@@ -172,9 +173,10 @@ const STAGE_REQUIRES: Record<string, string[]> = Object.fromEntries(
 );
 const ALL_STAGES_ON: Record<string, boolean> = Object.fromEntries(STAGE_KEYS.map((k) => [k, true]));
 
-// Visual style presets now live in @/lib/visual-presets (shared with the
-// chat-first producer's LOOK card, so both pickers use the same styles + images).
-// VISUAL_PRESETS + the VisualPreset type are imported at the top.
+// Visual style descriptions now come from GET /api/style-descriptions via the
+// useStyleDescriptions() hook (shared with the chat-first producer's LOOK
+// card, so both pickers use the same styles + images — checklist §C21b,
+// replacing the old hardcoded @/lib/visual-presets.ts).
 
 // Apply the prerequisite rules after a single switch is flipped.
 function applyStageToggle(prev: Record<string, boolean>, key: string): Record<string, boolean> {
@@ -216,8 +218,9 @@ function stageSummary(stages: Record<string, boolean>): string {
 // S9-4: the style-description preset grid's preview image never had an
 // onError fallback (a dead icon file swaps to a broken-image glyph instead
 // of the label — contrast SceneBoardsGrid's C15b onError -> label pattern).
-// Fixed here for the existing 6-item picker (visual-presets.ts).
-function PresetPreviewImage({ preset }: { preset: VisualPreset }) {
+// Fixed here for the existing 6-item picker (now server-sourced, checklist
+// §C21b). Icon path is a filename convention, not server data.
+function PresetPreviewImage({ preset }: { preset: StyleDescription }) {
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
@@ -231,7 +234,7 @@ function PresetPreviewImage({ preset }: { preset: VisualPreset }) {
   }
   return (
     <img
-      src={preset.icon}
+      src={styleDescriptionIcon(preset.id)}
       alt={preset.label}
       onError={() => setBroken(true)}
       className="w-16 h-16 rounded-lg object-cover"
@@ -324,6 +327,9 @@ export default function VideosPage() {
   // SEPARATE axis from styleMode/stylePresetId above (the free-text look
   // description) — independent, not mutually exclusive; see StylePresetGallery.
   const [styleEngineId, setStyleEngineId] = useState<string>("");
+  // The six style-description ids (pixar_3d/flat_2d/...) — server-sourced
+  // (checklist §C21b), shared with the chat LOOK card via the same hook.
+  const { descriptions: styleDescriptions } = useStyleDescriptions();
   const [lockInIdentity, setLockInIdentity] = useState<boolean>(false);
   // Which pipeline steps to run for the new video (all on = full video).
   // The stage panel is the single source of truth for research/voice/etc.
@@ -584,7 +590,7 @@ export default function VideosPage() {
     // Resolve the chosen LOOK from the unified Visual style step. A preset/custom
     // choice travels as image_style_override (the generator front-loads it);
     // 'reference'/'' leaves it off so the clone or the channel default decides.
-    const preset = VISUAL_PRESETS.find((p) => p.id === stylePresetId);
+    const preset = styleDescriptions.find((p) => p.id === stylePresetId);
     const imageStyle =
       styleMode === "preset" ? preset?.look :
       styleMode === "custom" ? (styleCustom.trim() || undefined) :
@@ -1405,7 +1411,7 @@ export default function VideosPage() {
             {/* 2. Pick a style — preset grid */}
             <p className="text-[11px] font-medium mt-3 mb-2" style={{ color: "var(--text-secondary)" }}>Pick a style</p>
             <div className="grid grid-cols-3 gap-2">
-              {VISUAL_PRESETS.map((p) => {
+              {styleDescriptions.map((p) => {
                 const active = styleMode === "preset" && stylePresetId === p.id;
                 const isChannelStyle = p.id === channelPresetId;
                 // The channel's own style gets a gold rim when selected — it's

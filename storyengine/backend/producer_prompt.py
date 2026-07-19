@@ -29,18 +29,17 @@ MODEL = "claude-sonnet-4-6"
 # prior pipeline_executor run may have left in the process env.
 ANTHROPIC_DIRECT_BASE_URL = "https://api.anthropic.com"
 
-# Canonical visual-style presets — MUST mirror frontend/src/lib/visual-presets.ts
-# (the New Video flow uses the same ids + preview images at /style-icons/<id>.png,
-# so the chat LOOK card shows identical thumbnails). The producer offers these
-# exact `value`s; chat.py maps the chosen id -> `look` for image_style_override.
-VISUAL_PRESETS: dict[str, dict[str, str]] = {
-    "pixar_3d":   {"label": "Pixar 3D",   "look": "Soft 3D Pixar-style CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field"},
-    "flat_2d":    {"label": "2D flat",    "look": "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading"},
-    "realistic":  {"label": "Realistic",  "look": "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field"},
-    "anime":      {"label": "Anime",      "look": "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading"},
-    "watercolor": {"label": "Watercolor", "look": "Warm hand-painted watercolor storybook art, soft edges, textured paper, gentle palette"},
-    "comic":      {"label": "Comic",      "look": "Bold graphic-novel illustration, inked outlines, halftone shading, dynamic high-contrast color"},
-}
+# The six style-DESCRIPTION ids the LOOK card offers (pixar_3d/flat_2d/...)
+# used to live here as VISUAL_PRESETS, duplicated a second time in frontend/
+# src/lib/visual-presets.ts. Checklist §C21b deleted both: the canonical
+# dict now lives in channel_format.STYLE_DESCRIPTIONS (shared by the chat
+# backend, the reference-video vision classifier, and GET /api/style-
+# descriptions for both frontend doors) — see that module for the full
+# reconciliation note. This module's CARD GUIDANCE below still hardcodes the
+# same six ids/labels as literal prompt TEXT (not a Python dict) because
+# that's what actually constrains what Claude offers; it is the one
+# remaining place this vocabulary is spelled out for a human to keep in
+# sync with channel_format.STYLE_DESCRIPTIONS by hand.
 
 # --- Shared director voice (C15d: one director voice, not two) --------------
 #
@@ -178,6 +177,7 @@ OUTPUT FORMAT — every turn, reply with ONE JSON object and NOTHING else. No pr
       "custom_stages": ["script", "images"],
       "visual_style_label": "<friendly look name, e.g. 'Pixar 3D'>",
       "image_style_override": "<one sentence describing the look for the artist>",
+      "style_preset_id": "<a LOOK ENGINE preset id from the list below, or null — almost always null>",
       "aspect_ratio": "16:9" | "9:16",
       "reference_url": "<YouTube URL to model, or null>",
       "lock_in_identity": false
@@ -190,6 +190,7 @@ Include "cards" ONLY when you're offering choices. Include "plan" ONLY when phas
 CARD GUIDANCE:
 - LOOK: when the visual style isn't already decided, offer a card with "id":"style", "type":"single", and ALL SIX of these options, using these EXACT `value`s (the UI shows a preview image per value, so it must match): {"value":"pixar_3d","label":"Disney / Pixar 3D"}, {"value":"flat_2d","label":"2D flat"}, {"value":"realistic","label":"Realistic"}, {"value":"anime","label":"Anime"}, {"value":"watercolor","label":"Storybook (watercolor)"}, {"value":"comic","label":"Comic"}. Don't invent other style values — these are the looks the studio can render.
 - LENGTH (act like a director here — length is the single biggest lever on whether the video works; it decides how many scenes and how many words get written): ALWAYS offer the length card ("id":"length", "type":"slider"; the UI shows 5 seconds to 30 minutes in 5-second steps) UNLESS the creator has already set a length themselves, and put your recommended whole-minute length on that card as "recommended_minutes": <N> so the slider opens on your suggestion. Also set the spec's video_length_minutes to that same RECOMMENDED length whenever you emit a plan. In assistant_text, say the length you'd pick and WHY in one plain sentence — e.g. "I'd go ~5 min: room for a real beginning, middle, and end without dragging." If they're modeling a specific video and you know its runtime, anchor to it: "the video you're modeling runs ~8 min — matching it gives the best shot at the same results." And push back like a smart director when a length is a poor fit for the story: too SHORT for real beats ("under a minute is tight for a real arc — it'll feel rushed; want me to bump it to ~2 min?") or too LONG for a simple idea ("10 min is a lot for one small story — the scenes will drag and viewers drop off; ~3-4 min lands harder"). Always a friendly nudge, never a wall — whatever they choose, you build it. Never silently default to 1 minute: recommend a length that fits THIS story.
+- LOOK ENGINE (an ADVANCED, SEPARATE axis from LOOK above — WHICH structural rendering engine builds the scenes, not the aesthetic overlay LOOK picks; the two are independent, picking one never implies or replaces the other): most turns, don't mention this at all — LOOK above is the choice creators actually make. Only offer a card "id":"look_engine", "type":"single" when the creator explicitly asks about a different visual/rendering engine, or explicitly wants to compare production styles beyond the six LOOK looks. Build its options ONLY from the LOOK ENGINE PRESETS list you were given below (real ids, use those EXACT `value`s and their display names as `label` — never invent one, and never offer this card at all if that list wasn't given to you). Set spec.style_preset_id to the picked id; leave it null when not offered or not picked.
 - WORKFLOW ("how far should I take it"): offer cards using the values above.
 - REFERENCE_URL: if the creator pasted a YouTube URL or explicitly says to model a specific video/channel link, carry that exact URL into spec.reference_url. Do not bury it only in writer guidance. The app uses this field to run the modeled-video analysis path.
 - MODELING A REFERENCE (they clicked "make one like this" or gave a video to model): do NOT ask them to pick an abstract setting or scenario — that hides the most important thing, the title, and leaves it to interpretation. Instead, in assistant_text, IMMEDIATELY PROPOSE one specific new TITLE — your spin on the reference's proven title formula, adapted to this creator — and STATE IT IN BOLD (e.g. **"Leo's First Day at a New School — But Nobody Will Sit With Him 😢 Easy English for Beginners (A1–A2)"**). Then in one plain sentence say WHY it'll work (which proven element of the reference it keeps — the hook structure, the emotional turn, the curiosity gap). The creator must always see the exact title you're proposing. Invite them to tweak it conversationally ("love it as-is, or want a different angle or title? just tell me and I'll rework it"), and when they reply, revise the title and restate it. Put your latest proposed title in spec.title and as the first of recommended_titles. The ONLY cards you still show while modeling are LOOK and LENGTH — never a setting/scenario card.

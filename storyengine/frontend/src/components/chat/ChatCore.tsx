@@ -16,7 +16,9 @@ import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertT
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
-import { visualPresetById, type VisualPreset } from "@/lib/visual-presets";
+import { useStyleDescriptions, styleDescriptionIcon, styleDescriptionById } from "@/hooks/use-style-descriptions";
+import type { StyleDescription } from "@/lib/api";
+import { StylePresetGallery } from "@/components/style/StylePresetGallery";
 import {
   sendChatTurn,
   uploadChatAsset,
@@ -106,15 +108,18 @@ const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string
 // new card kind meant a 5th ad hoc comparison. ONE lookup replaces all four:
 // cardKind() is the single place that classifies a card, and the render
 // sites below key off its result instead of comparing card.id inline. C21b
-// adds the LOOK/gallery card as one more entry here, not a new scattered
-// check.
-type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "generic";
+// adds the "look_engine" gallery card as one more entry here (the 5-preset
+// engine axis, StylePresetGallery, rendered inside SelectorCards alongside
+// the pre-existing 6-item "style" card — the two axes are independent and
+// both may appear together), not a new scattered check.
+type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "look_engine" | "generic";
 
 function cardKind(card: ChatCard): CardKind {
   if (card.id === "prompt_apply") return "prompt_apply";
   if (card.id === "confirm_action") return "confirm_action";
   if (card.id === "secure_key") return "secure_key";
   if (card.id === "connect_yt" || card.id === "connect_drive") return "connect";
+  if (card.id === "look_engine") return "look_engine";
   if ((card.images?.length ?? 0) > 0) return "images";
   return "generic";
 }
@@ -206,6 +211,9 @@ export function ChatCore({
   const endRef = useRef<HTMLDivElement>(null);
   const dockScrollRef = useRef<HTMLDivElement>(null);
   const autoTriedRef = useRef(false);
+  // The six style-description ids (checklist §C21b) — one shared query, also
+  // used by the New Video "Style description" grid (pipeline/page.tsx).
+  const { descriptions: styleDescriptions } = useStyleDescriptions();
 
   const cidKey = docked && videoId ? dockCidKey(videoId) : CHAT_CID_KEY;
 
@@ -510,10 +518,10 @@ export function ChatCore({
     <>
       {actionCard && !sending && ACTION_CARD_RENDERERS[cardKind(actionCard)]?.()}
       {activeCards && !actionCard && !activePlan && !sending && (
-        <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} />
+        <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} styleDescriptions={styleDescriptions} />
       )}
       {activePlan && !sending && (
-        <ProductionPlanCard plan={activePlan} onApprove={() => turn({ approve: true }, "Make it ✨")} />
+        <ProductionPlanCard plan={activePlan} onApprove={() => turn({ approve: true }, "Make it ✨")} styleDescriptions={styleDescriptions} />
       )}
       {!docked && createdVideoId && (
         <CreatedCard videoId={createdVideoId} />
@@ -1347,8 +1355,8 @@ function PromptProposalCard({
 // S9-4: the LOOK option's preview image never had an onError fallback (a dead
 // icon file swaps to a broken-image glyph instead of the label — contrast
 // SceneBoardsGrid's C15b onError -> label pattern above). Fixed here for the
-// existing preset picker (visual-presets.ts).
-function PresetOptionImage({ preset }: { preset: VisualPreset }) {
+// existing preset picker (now server-sourced, checklist §C21b).
+function PresetOptionImage({ preset }: { preset: StyleDescription }) {
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
@@ -1362,7 +1370,7 @@ function PresetOptionImage({ preset }: { preset: VisualPreset }) {
   }
   return (
     <img
-      src={preset.icon}
+      src={styleDescriptionIcon(preset.id)}
       alt={preset.label}
       onError={() => setBroken(true)}
       className="w-20 h-20 rounded-lg object-cover"
@@ -1378,6 +1386,7 @@ function SelectorCards({
   onSetValue,
   onSubmit,
   canSubmit,
+  styleDescriptions,
 }: {
   cards: ChatCard[];
   picks: Record<string, string | string[]>;
@@ -1385,6 +1394,7 @@ function SelectorCards({
   onSetValue: (cardId: string, value: string) => void;
   onSubmit: () => void;
   canSubmit: boolean;
+  styleDescriptions: StyleDescription[];
 }) {
   const isSelected = (card: ChatCard, value: string) => {
     const v = picks[card.id];
@@ -1407,7 +1417,16 @@ function SelectorCards({
           {cardKind(card) === "connect" && (
             <ConnectButton kind={card.id} />
           )}
-          {isSliderCard(card) ? (
+          {cardKind(card) === "look_engine" ? (
+            // The 5-preset structural "Look Engine" gallery — the SAME
+            // component + query as the New Video flow's gallery (checklist
+            // §C21b), rendered as one more selector card alongside "style"
+            // (both axes can appear together; neither clobbers the other).
+            <StylePresetGallery
+              selectedId={(picks[card.id] as string) || ""}
+              onSelect={(id) => onToggle(card, id)}
+            />
+          ) : isSliderCard(card) ? (
             <div className="px-1">
               <input
                 type="range"
@@ -1432,7 +1451,7 @@ function SelectorCards({
             {(card.options ?? []).map((opt) => {
               const sel = isSelected(card, opt.value);
               // Style options render the same preview image as the New Video flow.
-              const preset = visualPresetById(opt.value);
+              const preset = styleDescriptionById(styleDescriptions, opt.value);
               if (preset) {
                 const isRec = card.recommended_value === opt.value;
                 return (
@@ -1495,17 +1514,25 @@ function SelectorCards({
 
 // --- production plan ------------------------------------------------------
 
-function ProductionPlanCard({ plan, onApprove }: { plan: ProductionPlan; onApprove: () => void }) {
+function ProductionPlanCard({
+  plan,
+  onApprove,
+  styleDescriptions,
+}: {
+  plan: ProductionPlan;
+  onApprove: () => void;
+  styleDescriptions: StyleDescription[];
+}) {
   // Surface the visual style so the creator confirms what will actually generate.
   // An explicit pick WINS over the reference (modeling no longer clobbers it), so
   // show the picked look first; only fall back to "matched from reference".
   const spec = (plan.spec ?? {}) as { reference_url?: string; visual_style_label?: string; visual_style?: string; detected_style_label?: string };
-  const PRESET_LABELS: Record<string, string> = {
-    pixar_3d: "Pixar 3D", flat_2d: "2D Flat", realistic: "Realistic",
-    anime: "Anime", watercolor: "Watercolor", comic: "Comic",
-  };
+  // Server-sourced label lookup (checklist §C21b) — was a hardcoded
+  // PRESET_LABELS dict here, a THIRD copy of the same six ids/labels.
   const picked = spec.visual_style_label
-    || (spec.visual_style ? (PRESET_LABELS[spec.visual_style] || spec.visual_style) : "");
+    || (spec.visual_style
+          ? (styleDescriptionById(styleDescriptions, spec.visual_style)?.label || spec.visual_style)
+          : "");
   const styleText = picked
     || (spec.reference_url
           ? (spec.detected_style_label

@@ -454,12 +454,14 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
     if aspect not in ("16:9", "9:16"):
         aspect = "16:9"
 
-    # Resolve the chosen style preset (id -> the canonical LOOK sentence the
-    # generator front-loads). Falls back to a free-text look if the creator
-    # described their own style instead of picking a preset.
-    from producer_prompt import VISUAL_PRESETS
+    # Resolve the chosen style DESCRIPTION (id -> the canonical LOOK sentence
+    # the generator front-loads) — the free-text aesthetic-overlay axis.
+    # Falls back to a free-text look if the creator described their own style
+    # instead of picking a preset. channel_format.STYLE_DESCRIPTIONS is the
+    # single source (checklist §C21b — was producer_prompt.VISUAL_PRESETS).
+    from channel_format import STYLE_DESCRIPTIONS
     preset_id = (spec.get("visual_style") or "").strip()
-    preset = VISUAL_PRESETS.get(preset_id)
+    preset = STYLE_DESCRIPTIONS.get(preset_id)
     if preset:
         visual_style = preset_id
         visual_style_label = preset["label"]
@@ -469,6 +471,13 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
         visual_style_label = spec.get("visual_style_label")
         image_style_override = spec.get("image_style_override")
 
+    # The LOOK ENGINE pick (a style_presets.id, e.g. "holographic_hud") — a
+    # SEPARATE, additive axis from the style description above (checklist
+    # §C21b). Validated downstream by routes.videos._resolve_style_preset_id
+    # (create_video), same as the New Video gallery's style_preset_id — no
+    # duplicate validation here.
+    style_preset_id = (spec.get("style_preset_id") or "").strip() or None
+
     return CreateVideoRequest(
         title=(spec.get("title") or "Untitled video").strip(),
         framework_angle=spec.get("framework_angle"),
@@ -477,6 +486,7 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
         visual_style=visual_style,
         image_style_override=image_style_override,
         visual_style_label=visual_style_label,
+        style_preset_id=style_preset_id,
         lock_in_identity=bool(spec.get("lock_in_identity", False)),
         aspect_ratio=aspect,
         pipeline_stages=stages,
@@ -493,6 +503,10 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
     selections = state.get("selections") or {}
     if selections.get("style"):
         spec = {**spec, "visual_style": selections["style"]}
+    # LOOK ENGINE pick (checklist §C21b) — a SEPARATE additive axis from
+    # "style" above; same authoritative-over-the-LLM's-spec treatment.
+    if selections.get("look_engine"):
+        spec = {**spec, "style_preset_id": selections["look_engine"]}
     # Length slider sends SECONDS (5s..1800s). The pipeline length is int minutes,
     # so round (min 1) and keep the exact target in writer_guidance so short
     # videos aren't silently treated as a full minute.
@@ -1892,6 +1906,42 @@ async def _profile_state_brief(tenant_id) -> str:
             + "\n".join(lines) + "\n")
 
 
+_STYLE_PRESETS_BRIEF_FALLBACK = ['- "neutral_v1": Neutral — a clean, versatile default look.']
+
+
+async def _style_presets_brief(tenant_id) -> str:
+    """The 5 structural "Look Engine" presets (style_presets table, checklist
+    §C20/§C21b) — read live so the optional LOOK ENGINE card the producer may
+    offer always carries REAL, currently-active ids (a hardcoded list would
+    drift from the table and 400 downstream at routes.videos.
+    _resolve_style_preset_id, same as reference_url's "use these EXACT
+    values" precedent). Fail-soft: any DB error or an empty catalog falls
+    back to a frozen minimal default — NOT a maintained parallel catalog,
+    just enough for the card to keep degrading gracefully instead of
+    crashing the turn. Always returns a non-empty block (unlike most _brief
+    helpers here) since the LOOK ENGINE card is meaningless without it."""
+    try:
+        rows = await fetch_all(
+            "SELECT id, display_name, description FROM style_presets "
+            "WHERE active = true ORDER BY sort, id"
+        )
+        if not rows:
+            raise ValueError("style_presets table returned no active rows")
+        lines = [
+            f'- "{r["id"]}": {r["display_name"]}'
+            + (f" — {r['description']}" if r.get("description") else "")
+            for r in rows
+        ]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: style_presets brief failed, using fallback: %s", e)
+        lines = list(_STYLE_PRESETS_BRIEF_FALLBACK)
+    return (
+        "\n--- LOOK ENGINE PRESETS (structural visual engines — an ADVANCED, "
+        "optional card; use these EXACT ids as option values if you offer it) ---\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
 async def _delete_competitor(tenant_id, channel_id) -> None:
     """Remove a competitor channel and cascade-delete its scraped videos, matching
     the niche.remove_channel route's cascade so analytics don't orphan."""
@@ -2832,9 +2882,14 @@ async def _score_and_rank_ideas(api_key, ideas, rows, niche) -> list[dict[str, A
 
 
 async def _detect_reference_style_preset(tenant_id, reference_url, state):
-    """Cheap, cached vision classification of the reference video's in-video style
-    into one of the LOOK preset ids, so the chat can RECOMMEND it (the creator can
-    still pick another). Cached in state per reference. Fail-soft -> None."""
+    """Cheap, cached vision classification of the reference video's in-video
+    ANIMATION MEDIUM (pixar_3d/flat_2d/realistic/anime/watercolor/comic — the
+    style-DESCRIPTION axis, channel_format.STYLE_DESCRIPTIONS) into one of
+    those ids, so the chat can RECOMMEND it on the "style" card (the creator
+    can still pick another). This is a DIFFERENT question than "which
+    style_presets ENGINE renders the scenes" — no mapping exists between the
+    two axes (checklist §C21b). Cached in state per reference. Fail-soft ->
+    None."""
     if state.get("_ref_style_for") == reference_url:
         return state.get("_ref_style_preset") or None
     preset = None
@@ -2853,8 +2908,8 @@ async def _detect_reference_style_preset(tenant_id, reference_url, state):
             )
             out = await vision_call(prompt, frames, anthropic_key=api_key, tier="fast", max_tokens=12)
             cand = (out or "").strip().lower()
-            from producer_prompt import VISUAL_PRESETS
-            for pid in VISUAL_PRESETS:
+            from channel_format import STYLE_DESCRIPTIONS
+            for pid in STYLE_DESCRIPTIONS:
                 if pid in cand:
                     preset = pid
                     break
@@ -2883,8 +2938,8 @@ async def _annotate_style_recommendation(data, tenant_id, state):
         preset = None
     if not preset:
         return
-    from producer_prompt import VISUAL_PRESETS
-    label = VISUAL_PRESETS.get(preset, {}).get("label") or preset
+    from channel_format import STYLE_DESCRIPTIONS
+    label = STYLE_DESCRIPTIONS.get(preset, {}).get("label") or preset
     cards = data.get("cards")
     if isinstance(cards, list):
         for c in cards:
@@ -2996,6 +3051,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + await _reference_brief(state, state.get("pending_reference_url"))
         + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
+        + await _style_presets_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
     )
     data = call_producer(transcript, build_system_prompt(brief), client=client)
@@ -3634,6 +3690,7 @@ async def chat_turn(
         + await _profile_state_brief(tenant_id)
         + await _format_brief(tenant_id)
         + await _script_template_brief(tenant_id)
+        + await _style_presets_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
         + await _preferences_brief(tenant_id)
     )

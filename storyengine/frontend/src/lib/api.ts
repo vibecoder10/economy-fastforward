@@ -2870,3 +2870,24 @@ export interface StylePresetsResponse {
 }
 export const getStylePresets = () =>
   fetchApi<StylePresetsResponse>("/api/style-presets");
+
+// --- Style descriptions (checklist §2.1, C21b) ---
+// The six style-DESCRIPTION ids (pixar_3d/flat_2d/realistic/anime/watercolor/
+// comic) — a free-text aesthetic-overlay axis, DIFFERENT from StylePreset's
+// 5-row structural engine catalog above. Backed by GET /api/style-descriptions,
+// a thin view over the backend's channel_format.STYLE_DESCRIPTIONS (a static
+// Python dict, not a DB table) — the ONE source shared by the reference-video
+// vision classifier, the chat LOOK card, and the New Video "Style description"
+// grid, replacing the two hardcoded copies this used to have (producer_prompt.
+// VISUAL_PRESETS backend-side, lib/visual-presets.ts frontend-side — both
+// deleted this chunk).
+export interface StyleDescription {
+  id: string;
+  label: string;
+  look: string;
+}
+export interface StyleDescriptionsResponse {
+  descriptions: StyleDescription[];
+}
+export const getStyleDescriptions = () =>
+  fetchApi<StyleDescriptionsResponse>("/api/style-descriptions");

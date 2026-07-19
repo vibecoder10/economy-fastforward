@@ -299,8 +299,8 @@ async def _channel_style_dna(tenant_id) -> str:
             preset = _normalize_style_preset(row["visual_style"])
     if not preset:
         return ""
-    from producer_prompt import VISUAL_PRESETS
-    return (VISUAL_PRESETS.get(preset) or {}).get("look", "")
+    from channel_format import STYLE_DESCRIPTIONS
+    return (STYLE_DESCRIPTIONS.get(preset) or {}).get("look", "")
 
 
 class CastGenerateRequest(BaseModel):

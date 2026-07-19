@@ -60,6 +60,36 @@ async def set_channel_format(tenant_id, fields: dict[str, Any]) -> dict:
     return fmt
 
 
+# The six "style description" ids — a free-text AESTHETIC OVERLAY axis
+# (image_style_override / visual_style_label), completely separate from the
+# 5-row `style_presets` DB table's STRUCTURAL ENGINE axis (holographic_hud,
+# clay_mannequin, ...; see routes/style_presets.py + docs/reports/2026-07-17-
+# storyengine-agent-audit-findings.md §S9-5 for the full axis split).
+#
+# Checklist §C21b: formerly duplicated in TWO places — producer_prompt.
+# VISUAL_PRESETS (backend) and frontend/src/lib/visual-presets.ts (frontend);
+# both deleted. This dict is now the ONE source for:
+#   - routes/chat.py's reference-video vision classifier
+#     (_detect_reference_style_preset / _annotate_style_recommendation) —
+#     answers "what animation MEDIUM does this reference look like", a
+#     different question than "which style_presets ENGINE renders the scenes"
+#     with no valid mapping onto that other axis;
+#   - routes/chat.py's _spec_to_create_request (id -> image_style_override /
+#     visual_style_label mapping for the chat LOOK card's pick);
+#   - routes/projects.py's _channel_style_dna (cast-generation look sentence);
+#   - GET /api/style-descriptions (routes/style_descriptions.py), read by
+#     both frontend doors (New Video's "Style description" grid + the chat
+#     LOOK card) instead of either one hardcoding its own copy.
+STYLE_DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "pixar_3d":   {"label": "Pixar 3D",   "look": "Soft 3D Pixar-style CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field"},
+    "flat_2d":    {"label": "2D flat",    "look": "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading"},
+    "realistic":  {"label": "Realistic",  "look": "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field"},
+    "anime":      {"label": "Anime",      "look": "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading"},
+    "watercolor": {"label": "Watercolor", "look": "Warm hand-painted watercolor storybook art, soft edges, textured paper, gentle palette"},
+    "comic":      {"label": "Comic",      "look": "Bold graphic-novel illustration, inked outlines, halftone shading, dynamic high-contrast color"},
+}
+
+
 def style_preset_for_format(fmt: dict) -> Optional[str]:
     """Map the format's free-text style onto a renderable visual preset id
     (the same six the chat's style card offers). None when unmappable."""

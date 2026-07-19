@@ -4257,3 +4257,227 @@ frontend unit-test harness exists in this repo; a live click-through
 valid `style_preset_id`, a build actually runs the `holographic_hud`
 engine) is deferred to `tasks/live-verification-queue.md` §C20/§C21 (extended
 below), completing together with C21b once the chat door is wired too.
+
+---
+
+## C21b — Delete the Duplicated Preset Lists + Producer/Chat Backend
+Sourcing + Chat Gallery Card (added 2026-07-19)
+
+**P2.1b part 2 (checklist §2.1 [U]/[V], closing out the split C21a left
+open).** §C21a's split rationale (above) found a real entanglement before
+any deletion could be safe: `producer_prompt.VISUAL_PRESETS` served TWO
+unrelated vocabularies at once — (a) the chat "style" LOOK card's six
+style-DESCRIPTION options (pixar_3d/flat_2d/realistic/anime/watercolor/comic
+— a free-text aesthetic overlay, feeding `image_style_override`/
+`visual_style_label` and, via `channel_format.render_style_for_preset`,
+C13b's `render_style` guardrail) and (b) the reference-video vision
+classifier's (`_detect_reference_style_preset`/`_annotate_style_
+recommendation`) ANIMATION-MEDIUM vocabulary — the SAME six ids answering a
+completely different question, with NO valid mapping onto the 5
+`style_presets` ENGINE rows (holographic_hud/cinematic_dossier/
+clay_mannequin/cinematic_illustration/neutral_v1).
+
+**Resolution — one canonical dict, two use sites, one new axis:**
+
+1. **`channel_format.STYLE_DESCRIPTIONS`** (new module-level dict, `channel_
+   format.py`) is now the SINGLE source for the six style-description ids —
+   replacing `producer_prompt.VISUAL_PRESETS` (deleted entirely, name and
+   all) and `frontend/src/lib/visual-presets.ts` (deleted entirely). Chosen
+   home: `channel_format.py` already owned this vocabulary's domain
+   (`style_preset_for_format`, `render_style_for_preset`, `_ANIMATED_
+   PRESETS` all already lived there) and has zero import-cycle risk (a leaf
+   module, imports only `database`) — cleaner than either producer_prompt.py
+   (now correctly narrowed to prompt TEXT, not data) or a brand-new module.
+   Four call sites now import from here: `routes/chat.py`'s
+   `_detect_reference_style_preset` (renamed from reading `VISUAL_PRESETS`
+   — same ids, honestly reframed in its docstring as "ANIMATION MEDIUM
+   classification", not a second copy), `_annotate_style_recommendation`
+   (label lookup), `_spec_to_create_request` (the chat "style" card's
+   id → `image_style_override`/`visual_style_label` mapping, UNCHANGED
+   behavior — pinned by test), and `routes/projects.py`'s
+   `_channel_style_dna` (cast-generation look sentence).
+2. **New `GET /api/style-descriptions`** (`routes/style_descriptions.py`,
+   registered in `main.py`) — a thin read-only view over `channel_format.
+   STYLE_DESCRIPTIONS`, same posture as `GET /api/models` over a Python
+   constant (no DB table needed — this axis was never DB-backed and still
+   isn't; nothing to seed/migrate). This is the ONE source both frontend
+   doors now read instead of each hardcoding a copy.
+3. **A genuinely NEW, ADDITIVE axis reaches chat for the first time:**
+   `CreateVideoRequest.style_preset_id` (the 5-row ENGINE catalog, C20) was
+   only reachable from the New Video door before this chunk (C21a). Chat's
+   `_spec_to_create_request` now ALSO reads `spec.get("style_preset_id")`
+   and passes it straight through — validated downstream by the existing
+   `_resolve_style_preset_id` (no duplicate validation). This is deliberately
+   ADDITIVE to, not a replacement of, the axis-B mapping above — both a
+   `visual_style` (description) pick and a `style_preset_id` (engine) pick
+   can travel on the same `CreateVideoRequest` simultaneously, neither
+   clobbering the other (pinned by `test_spec_to_create_request_both_axes_
+   together`).
+
+**Correcting §C21a's own recommendation:** that section's handoff text said
+`_spec_to_create_request` should "drop the VISUAL_PRESETS dict lookup
+entirely" and set `style_preset_id` "directly from the card pick" — read
+literally, that would have REPURPOSED the existing "style" card (which emits
+one of the 6 axis-B ids) to instead emit one of the 5 axis-A ids, silently
+breaking `image_style_override`/`visual_style_label`/the C13b guardrail for
+every existing chat flow. This chunk's own brief (checklist entry + UX map
+§3) is explicit that the LOOK card must carry BOTH axes at once — so the
+axis-B mapping in `_spec_to_create_request` was KEPT unchanged (just
+re-sourced from `channel_format.STYLE_DESCRIPTIONS`), and `style_preset_id`
+passthrough was added as a THIRD, independent field read from a NEW,
+separate `"look_engine"` card/spec key — never sharing the `visual_style`
+field the "style" card already owns. Flagging this per CLAUDE.md's
+instruction to say so, not silently follow a written recommendation found to
+be wrong on inspection.
+
+**The new "look_engine" card (chat's door onto the C20/C21a engine
+gallery):**
+- `producer_prompt.PRODUCER_SYSTEM_PROMPT` gained a new CARD GUIDANCE bullet
+  ("LOOK ENGINE") teaching the producer this is an ADVANCED, OPTIONAL,
+  separate axis from "style" — offered rarely (only when the creator
+  explicitly asks about a different rendering engine), never blocking the
+  ordinary "plan" flow. Its options must come from a live "LOOK ENGINE
+  PRESETS" data block, never invented ids — mirrors the `reference_url`
+  "use these EXACT values" precedent already in the prompt.
+  `plan.spec.style_preset_id` was added to the JSON schema (optional, null
+  by default).
+- New fail-soft `routes/chat._style_presets_brief(tenant_id)`: reads the
+  LIVE `style_presets` table (same data `GET /api/style-presets` serves) and
+  formats it as that "LOOK ENGINE PRESETS" block; any DB error or an empty
+  table falls back to a frozen one-line default (`neutral_v1`) — never a
+  crashed turn, and unlike most `_brief` helpers here it ALWAYS returns a
+  non-empty block (an empty block would make the card meaningless even when
+  the model wanted to offer it). Wired into BOTH producer entry points —
+  `_seed_producer` and `chat_turn`'s main intake turn — alongside the
+  existing brief chain (source-locked by test).
+- `_handle_approve`'s selections-merge block (where the creator's actual
+  card picks override the LLM's own spec) gained one line:
+  `if selections.get("look_engine"): spec = {**spec, "style_preset_id":
+  selections["look_engine"]}` — mirrors the pre-existing `selections["style"]
+  -> spec["visual_style"]` line exactly, same authoritative-over-the-LLM
+  treatment.
+- `ChatCore.tsx`: `cardKind()` gained one new branch (`card.id ===
+  "look_engine"` → `"look_engine"`) — C21a built this lookup specifically so
+  a new card kind is a one-line addition, confirmed here. `SelectorCards`
+  renders it by reusing `StylePresetGallery` (the SAME component + the SAME
+  `["style-presets"]` React Query key as the New Video gallery, C21a) inline
+  alongside whatever other cards are showing (e.g. "style" + "look_engine"
+  + "length" can all appear together) — NOT a new top-level flow, matching
+  the brief's "extend the existing LOOK card rather than inventing a new
+  flow" fallback instruction, applied as "extend the existing card-rendering
+  machinery" since a literal single-card merge would have conflated the two
+  axes' distinct option shapes.
+- `ProductionPlanCard`'s "Look" summary line had its own THIRD hardcoded
+  copy of the six ids/labels (`PRESET_LABELS`, found while tracing, not
+  mentioned in the original checklist entry) — replaced with a
+  `styleDescriptionById(styleDescriptions, ...)` lookup against the same
+  server-sourced list, closing a duplicate the audit hadn't caught.
+
+**Frontend deletion + re-pointing (`visual-presets.ts` had exactly 2 readers
+per §C21a's own accounting — both re-pointed, no others found):**
+- New `frontend/src/hooks/use-style-descriptions.ts` — `useStyleDescriptions()`
+  mirrors `use-style-presets.ts`'s `useStylePresets()` exactly (same
+  `staleTime`, same "long-lived code-derived catalog" reasoning), backed by
+  new `getStyleDescriptions()`/`StyleDescription` type in `lib/api.ts`. Icon
+  path (`/style-icons/<id>.png`) is kept as a pure frontend filename
+  convention (`styleDescriptionIcon(id)`), not server data — unchanged from
+  before, just derived instead of stored on the deleted type.
+  **Skew-fallback** (network failure only, NOT a maintained duplicate):
+  `STYLE_DESCRIPTIONS_FALLBACK`, a frozen 6-entry array, explicitly commented
+  as the "offline safety net" — mirrors `ScenesWorkspaceTab.tsx`'s
+  `FALLBACK_WIRED_MODELS` precedent exactly. Returned only when
+  `query.isError` (an old backend 404ing the new endpoint, or a genuine
+  network failure) — a merely-loading or genuinely-empty state renders `[]`
+  the same way `useStylePresets`'s consumers already do.
+- `app/pipeline/page.tsx`'s pre-existing 6-item "Style description" grid
+  (renamed from "Visual style" in C21a) now maps over `styleDescriptions`
+  from the hook instead of the deleted `VISUAL_PRESETS` const; `PresetPreviewImage`
+  takes a `StyleDescription` instead of the deleted `VisualPreset` type.
+- `ChatCore.tsx`'s "style" card options + `ProductionPlanCard`'s label lookup
+  both re-pointed the same way (`styleDescriptionById` against the shared
+  hook's data, called once in `ChatCore` and threaded down as a prop to both
+  `SelectorCards` and `ProductionPlanCard`).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/routes/style_descriptions.py` | `GET /api/style-descriptions` — thin view over `channel_format.STYLE_DESCRIPTIONS` |
+| `storyengine/backend/tests/functional/test_c21b_style_axis_split.py` | 22 tests: dict/endpoint shape, live-read proof for the vision classifier + label lookup, `_spec_to_create_request` axis independence, `_style_presets_brief` fail-soft, `_handle_approve`/entry-point source-locks, grep-proofs |
+| `storyengine/frontend/src/hooks/use-style-descriptions.ts` | Shared `useStyleDescriptions()` + skew-fallback array + `styleDescriptionIcon`/`styleDescriptionById` helpers |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/channel_format.py` | New `STYLE_DESCRIPTIONS` dict — the one canonical source, replacing `producer_prompt.VISUAL_PRESETS` |
+| `storyengine/backend/producer_prompt.py` | `VISUAL_PRESETS` deleted; new "LOOK ENGINE" CARD GUIDANCE bullet + `spec.style_preset_id` in the JSON schema |
+| `storyengine/backend/routes/chat.py` | `_spec_to_create_request` sources axis-B from `channel_format.STYLE_DESCRIPTIONS` + adds `style_preset_id` passthrough; `_detect_reference_style_preset`/`_annotate_style_recommendation` re-sourced + honestly re-documented; `_handle_approve` merges `selections["look_engine"]`; new `_style_presets_brief` wired into both producer entry points |
+| `storyengine/backend/routes/projects.py` | `_channel_style_dna` re-sourced from `channel_format.STYLE_DESCRIPTIONS` |
+| `storyengine/backend/main.py` | Registers `style_descriptions.router` |
+| `storyengine/frontend/src/lib/api.ts` | New `StyleDescription`/`StyleDescriptionsResponse` types + `getStyleDescriptions()` |
+| `storyengine/frontend/src/app/pipeline/page.tsx` | "Style description" grid + `handleCreate`'s preset lookup re-sourced from `useStyleDescriptions()` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | `cardKind()`/`CardKind` gain `"look_engine"`; `SelectorCards` renders it via `StylePresetGallery`; "style" card options + `ProductionPlanCard`'s label lookup re-sourced; both threaded the shared hook's data down as a prop |
+
+### Deleted
+| Path | Why |
+|------|-----|
+| `storyengine/frontend/src/lib/visual-presets.ts` | Hardcoded duplicate of `channel_format.STYLE_DESCRIPTIONS`; both its 2 readers (`ChatCore.tsx`, `pipeline/page.tsx`) re-pointed to the server-sourced hook |
+| `storyengine/backend/producer_prompt.VISUAL_PRESETS` (dict, not the file) | Hardcoded duplicate of the same vocabulary; all 4 readers re-pointed to `channel_format.STYLE_DESCRIPTIONS` |
+
+**Deploy-safety assessment:** ff-merge candidate. No schema/migration this
+chunk (the style-description axis was never DB-backed and still isn't — a
+static Python dict served over a thin GET route, same posture as `/api/
+models`). **Skew both directions:**
+- **Old frontend + new backend:** the old frontend never calls `GET
+  /api/style-descriptions` (doesn't know it exists) and never sends
+  `style_preset_id` from chat (doesn't have the `"look_engine"` card) —
+  behaves byte-identically to pre-C21b. The renamed backend imports
+  (`channel_format.STYLE_DESCRIPTIONS` instead of `producer_prompt.
+  VISUAL_PRESETS`) are pure internal refactors with identical externally
+  observable behavior (pinned by the live-read monkeypatch tests) — an old
+  frontend sees no difference at all.
+- **New frontend + old backend:** `useStyleDescriptions()` 404s against an
+  old backend lacking the new route → falls back to
+  `STYLE_DESCRIPTIONS_FALLBACK` (all 6 ids/labels/looks, frozen) — both
+  frontend doors keep rendering the full picker, not a blank gap. The chat
+  "look_engine" card can never be emitted by an OLD backend (the card kind
+  and the `_style_presets_brief` prompt text don't exist there), so a new
+  frontend's `cardKind()`/`StylePresetGallery` addition for that card kind
+  simply never triggers — dead code path, not a broken one.
+- Every new/changed field is additive and optional (`style_preset_id` on
+  chat's spec, the new card kind, the new endpoint) — no existing conversation
+  or video-creation path changes behavior when it doesn't opt in.
+
+**Verify:** Backend — 22 new tests in `test_c21b_style_axis_split.py`
+(dict/endpoint shape; `_detect_reference_style_preset`/`_annotate_style_
+recommendation` PROVEN to read `channel_format.STYLE_DESCRIPTIONS` live via
+monkeypatching it to a distinctive non-standard id and confirming the
+classifier picks it up — a regression that re-hardcoded the six ids inline
+would silently fail this exact test; `_spec_to_create_request`'s axis-B
+mapping pinned unchanged + the new `style_preset_id` passthrough + both-axes-
+together + blank-string-is-None; `_handle_approve`'s selections-merge
+source-locked; `_style_presets_brief`'s real-rows/DB-error/empty-table paths;
+both producer entry points' source-locked to actually call the new brief
+function; `_channel_style_dna`'s source re-checked; two grep-proofs — zero
+real `VISUAL_PRESETS` code references anywhere in the backend tree (a regex
+scan distinguishing real usage from historical comments) and zero remaining
+imports of the deleted `@/lib/visual-presets` module anywhere in the
+frontend tree). Confirmed non-vacuous via `git stash` (tracked-file revert,
+untracked new files removed): the whole test module fails to even COLLECT
+against the pre-C21b source (`ImportError: cannot import name
+'STYLE_DESCRIPTIONS' from 'channel_format'`). `python -m py_compile` clean
+on all 5 touched/added `.py` files. Full backend suite: 1051 passed
+(1029 baseline + 22 new) / 16 pre-existing failures / 1 pre-existing error —
+zero new failures, and the exact 16 failing test names were diffed byte-for-
+byte against the same suite run on the stashed pre-C21b source (identical
+set, confirming none of the 16 are attributable to this chunk).
+Frontend — `npx tsc --noEmit` clean; `npm run build` compiles + typechecks
+clean (`Compiled successfully`, `Finished TypeScript`; fails only at the
+same pre-existing `NEXT_PUBLIC_API_URL` prerender gap every prior frontend
+chunk hits). Grep-proofs: zero `.id === "` comparisons in `ChatCore.tsx`
+outside `cardKind()`/`isSliderCard`; zero remaining code readers of
+`visualPresetById`/`VisualPreset`/`visual-presets` anywhere in `frontend/src`
+(only historical comments remain). No live chat round-trip this session (no
+paid Anthropic/Kie key in the sandbox) — extended checklist in
+`tasks/live-verification-queue.md` §C21b (both-axes-through-chat, the new
+card's rarity/optionality, the vision classifier's unaffected behavior, and
+the DB-error fail-soft path).

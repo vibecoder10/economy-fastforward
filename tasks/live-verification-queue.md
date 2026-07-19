@@ -1457,12 +1457,12 @@ the sandbox.
       resulting prompt text — it should read as a holographic/HUD/data-
       visualization scene (per that profile's own `preview_prompts` in
       `shared/profiles/visual/holographic_hud.py`), not the neutral/
-      photorealistic default. Still NOT closed via the CHAT door — C21b
-      wires the producer/chat backend to source + send `style_preset_id`,
-      so the same check needs re-running from a chat-built video once C21b
-      ships. This is the check that closes checklist §2.1's `[V]` line for
-      good, across BOTH doors — do it together with C21b's own live
-      verification.
+      photorealistic default. The CHAT door is now ALSO wired (C21b —
+      `_spec_to_create_request` passes `style_preset_id` straight from the
+      new "look_engine" card pick) — re-run this same check from a
+      chat-built video too; see §C21b below for that door's own checklist.
+      This is the check that closes checklist §2.1's `[V]` line for good,
+      across BOTH doors.
 - **Cost:** the image-prompt check is free (text generation only, no image
   render needed to confirm the STYLE the prompt carries); only run the
   full "generate real images and eyeball them" version if you also want to
@@ -1527,6 +1527,81 @@ were the only proof (both clean, see SYSTEM_STATE.md §C21a).
   if the gallery fails to load entirely, the New Video form must still
   submit successfully with the field simply absent (identical to every
   video created before C20/C21a existed).
+
+---
+
+## C21b — delete duplicated preset lists + producer/chat backend sourcing +
+chat gallery card (checklist §2.1 [U] part 2) · live click-through check
+
+Closes the CHAT-door half of C20's `[V]` line ("generated prompts carry the
+profile's style system") that C21a left open, plus deletes both hardcoded
+copies of the six-entry style-DESCRIPTION vocabulary (backend `producer_
+prompt.VISUAL_PRESETS`, frontend `lib/visual-presets.ts`) in favor of one
+live source (`channel_format.STYLE_DESCRIPTIONS`, served over the new `GET
+/api/style-descriptions`). Verified so far by 22 new sandbox tests (non-
+vacuous via `git stash` — the whole module fails to even import against the
+pre-C21b source), `tsc --noEmit` + `npm run build` (both clean), and
+grep-proofs (zero real `VISUAL_PRESETS` readers, zero `visual-presets.ts`
+imports). None of the following was driven through a live chat conversation
+this session (no paid Anthropic/Kie key in the sandbox) — do these on the
+next dev-server pass with a real key.
+
+- [ ] **Chat's "style" LOOK card still offers the same 6 looks, now
+      server-sourced.** Start a fresh home-chat conversation, describe a
+      video with no style mentioned — the "style" card's 6 options (Pixar
+      3D / 2D flat / Realistic / Anime / Watercolor / Comic) and their
+      preview images should render identically to before this chunk. Break
+      `GET /api/style-descriptions` (stop the backend briefly or 404 it) and
+      confirm the picker falls back to `STYLE_DESCRIPTIONS_FALLBACK`
+      (`use-style-descriptions.ts`) instead of rendering empty.
+- [ ] **The NEW "look_engine" card appears only when asked, and is genuinely
+      optional.** In a normal "make me a video about X" conversation, the
+      Look Engine card should almost never appear (per the system prompt's
+      "most turns, don't mention this at all" guidance) — confirm a handful
+      of ordinary conversations reach `phase: "plan"` without ever seeing
+      it. Then explicitly ask "what rendering engines / visual styles do you
+      support beyond the six looks?" — the producer should offer a
+      `"look_engine"` card whose options match the LIVE `style_presets` table
+      (`se db "SELECT id, display_name FROM style_presets WHERE active"`),
+      not a stale/hardcoded list.
+- [ ] **Picking a `look_engine` option round-trips `style_preset_id` through
+      chat.** Pick "Holographic Intelligence Display" on that card, finish
+      the plan, tap "Make it" → `se db "SELECT style_preset_id FROM videos
+      WHERE id='<new-id>'"` should read `holographic_hud`.
+- [ ] **Both axes travel independently through chat, same as the New Video
+      door.** In one conversation, pick BOTH a "style" look (e.g. Anime) AND
+      a "look_engine" pick (e.g. Clay Mannequin Dioramas) → confirm the
+      created video's row has BOTH `visual_style='anime'`/
+      `image_style_override` (description) AND `style_preset_id=
+      'clay_mannequin'` (engine) populated, neither clobbering the other.
+      This closes C20's original `[V]` ask for good, across both doors.
+- [ ] **The reference-video vision classifier still recommends a "style"
+      option, unaffected by the axis split.** Model a reference video
+      ("make one like this: <url>") and confirm the "style" card still
+      shows a "✨ Recommended" badge on the option matching the reference's
+      detected look (unchanged behavior — this is the
+      `_detect_reference_style_preset`/`_annotate_style_recommendation`
+      path, now reading `channel_format.STYLE_DESCRIPTIONS` instead of the
+      deleted `producer_prompt.VISUAL_PRESETS`, but the same 6-id
+      vocabulary). It must NEVER badge the new `look_engine` card (no
+      vision-classify-into-5-engines exists — confirm no "Recommended" badge
+      ever appears there).
+- [ ] **A DB error on the `style_presets` table never crashes a chat turn.**
+      Temporarily break the `style_presets` table/connection (or just watch
+      behavior if it's ever briefly unavailable) and confirm the producer
+      still responds normally — worst case the `look_engine` card is simply
+      never offered (or offers only the frozen `neutral_v1` fallback), never
+      a broken/empty assistant turn.
+- **Cost:** the card-rendering / picking checks are free (no paid stage runs
+  until "Make it" — same cost profile as any other chat plan). The vision
+  classifier check burns one cheap vision call (Kie Gemini 2.5 Flash tier,
+  ~$0.0005/call per docs/cost-awareness.md) — trivial, no explicit sign-off
+  needed.
+- **Safety net:** every new field (`style_preset_id` from chat,
+  `look_engine` card) is additive and optional — a conversation that never
+  touches this axis behaves byte-identically to pre-C21b chat (confirmed by
+  the sandbox's `_spec_to_create_request` unit tests: no `style_preset_id`
+  in spec -> `req.style_preset_id is None`, unchanged create-video path).
 
 ---
 
