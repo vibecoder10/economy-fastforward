@@ -356,3 +356,17 @@ steps. I have done it all through Claude sessions, not through the platform." Co
    surface should expose the SETUP layer (system prompts, script templates, quality rules, channel DNA
    read/corrections) so anyone can configure their StoryEngine channel from Claude/any agent without
    ever using the StoryEngine door — "use Claude to set up StoryEngine" is a first-class path. → C47.
+
+## 2026-07-19 — MCP economics: the connected Claude DOES the thinking stages (Ryan, direct)
+Ryan: "The benefit of using the MCP is that we can probably do the research, the scripting with a
+Claude subscription. Then it follows the pipeline for video and image gen, render, upload etc."
+Architectural implication for C47: beyond setup tools, the MCP surface needs CONTENT-INGEST tools —
+the connected agent (running on the user's flat-rate Claude subscription) performs research and
+scriptwriting ITSELF and submits the results, which StoryEngine accepts through the SAME validated
+store+advance paths run_research/run_script use (validation, machine-research-card shape, status
+advance) — then the paid media pipeline (images/clips/voice/render/upload, BYOK Kie/ElevenLabs)
+takes over. Cost story per video shifts from "all stages on API keys" to "media-only on API keys,
+thinking on the subscription." Synergy with C46: agent-authored scripts pass through the SAME
+quality-rules critic as platform-generated ones — the rules engine is the trust boundary that makes
+externally-written content safe to accept. This is also just the structured version of what Ryan
+already does manually in Claude sessions today.

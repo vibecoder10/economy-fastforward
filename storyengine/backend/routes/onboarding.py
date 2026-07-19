@@ -1,22 +1,40 @@
-"""Onboarding API — unified endpoints for the 5-step onboarding flow.
+"""Onboarding API — endpoints backing the chat-driven onboarding flow
+(``routes/chat.py``'s ``_handle_onboarding`` step machine is the live caller
+of most of these; the multi-step form below is preserved only behind
+``/onboarding?manual=1``, see that page's own comment).
 
 Steps:
   1. TOOLS    — API keys (delegates to vault)
   2. CHANNEL  — Channel info + optional YouTube connection
   3. STYLE    — Visual/editorial style generation (delegates to system_prompts)
   4. COMPETITORS — Add + scrape competitor channels
-  5. INTELLIGENCE — Generate cross-comparison report
 
 Endpoints:
   GET  /api/onboarding/status                   — Enhanced status with all steps
   POST /api/onboarding/channel                  — Save channel info
-  POST /api/onboarding/connect-youtube          — Validate YouTube URL, import videos
+  POST /api/onboarding/connect-youtube          — Validate YouTube URL, import videos,
+                                                    then (checklist C45) kick off the full
+                                                    channel_dna.learn_channel pass
   POST /api/onboarding/competitors/analyze      — Add 1-3 competitor URLs + scrape
   GET  /api/onboarding/competitors/status       — Poll competitor analysis progress
-  POST /api/onboarding/intelligence-report      — Generate intelligence report via Claude
-  GET  /api/onboarding/intelligence-report      — Get latest report
   POST /api/onboarding/tutorial-complete        — Mark tutorial as done
   POST /api/onboarding/complete                 — Mark onboarding done
+
+RETIRED (checklist C45 · P4.1f): the intelligence-report endpoints
+(``POST``/``GET /api/onboarding/intelligence-report``,
+``GET /api/onboarding/intelligence-report/status/{job_id}``) generated a
+read-once report that nothing downstream ever consumed — no frontend caller,
+no chat-flow step (confirmed by grep: the live onboarding step machine below
+never dispatches to them; superseded before this chunk by
+``_propose_modeling_angles``/``_generate_competitor_ideas`` at
+``_finish_onboarding``). They now return 410 Gone pointing at
+``channel_dna.learn_channel`` (Channel DNA) as the replacement — graceful
+deprecation per the checklist's explicit ask, not a silent removal. The
+``intelligence_reports`` DB table is left in place (data, no drop
+migration) — retired-in-place, matching this repo's existing "don't drop
+migrations" discipline. The generator itself (``_build_intelligence_report``
+and its private helpers) is deleted below since nothing calls it anymore —
+see this file's git history for the removed implementation.
 """
 
 import asyncio
@@ -39,7 +57,6 @@ logger = logging.getLogger("storyengine")
 
 # In-memory tracking for background competitor analysis
 _analyze_jobs: dict[str, dict] = {}
-_report_jobs: dict[str, dict] = {}
 
 
 # ── Models ───────────────────────────────────────────────────────
@@ -57,10 +74,6 @@ class YouTubeConnect(BaseModel):
 
 class CompetitorAnalyze(BaseModel):
     channel_urls: list[str]  # 1-3 YouTube channel URLs
-
-
-class IntelligenceReportRequest(BaseModel):
-    pass  # Uses tenant context, no body needed
 
 
 # ── Status ───────────────────────────────────────────────────────
@@ -349,9 +362,15 @@ async def connect_youtube(
         tenant_id, metadata["channel_id"], metadata["channel_name"],
     )
 
-    # Kick off async video import
+    # Kick off async video import, then (checklist C45 · P4.1f) the full
+    # Channel-DNA learn pass — sequenced in ONE background task
+    # (_import_then_learn) so identity_builder always sees this import's
+    # rows, and so learn_channel never re-scrapes the same channel a second
+    # time via its own optional import step (own-channel mode: no
+    # channel_url passed to learn_channel below).
+    do_learn = await _has_usable_generation_key(tenant_id)
     background_tasks.add_task(
-        _import_channel_videos, tenant_id, body.channel_url, metadata["channel_name"]
+        _import_then_learn, tenant_id, body.channel_url, metadata["channel_name"], do_learn
     )
 
     return {
@@ -361,7 +380,65 @@ async def connect_youtube(
         "subscriber_count": metadata["subscriber_count"],
         "video_count": metadata["video_count"],
         "import_status": "pending",
+        # C45: tells the caller (routes/chat.py's onboarding "channel" step)
+        # whether the Channel-DNA learn pass was actually scheduled, so its
+        # ack can either state the cost or show the "add a key" hint —
+        # never both, never neither.
+        "dna_learning": "started" if do_learn else "needs_key",
     }
+
+
+async def _has_usable_generation_key(tenant_id: str) -> bool:
+    """True if this tenant already has a usable text-generation key (Claude
+    or Kie.ai). Sibling check to ``routes.chat._has_generation_key`` (same
+    two vault slots) — duplicated in full rather than imported, to avoid a
+    chat.py <-> onboarding.py import cycle (chat.py already imports
+    ``connect_youtube``/``analyze_competitors``/etc. from this module at
+    call time). Used to decide whether it's worth firing the C45
+    Channel-DNA learn pass right after import: a keyless tenant would just
+    get a "failed: no credentials" learner result for free (identity_builder
+    raises before any paid call), so skip scheduling the task entirely and
+    surface the honest "add a key" hint instead — the C04 precedent of
+    never blocking onboarding on a missing key."""
+    from vault import get_secret
+    for slot in ("anthropic_api_key", "kie_ai_api_key"):
+        try:
+            if await get_secret(slot, tenant_id):
+                return True
+        except Exception:  # noqa: BLE001 — a missing key is the common case, not an error
+            pass
+    return False
+
+
+async def _import_then_learn(
+    tenant_id: str, channel_url: str, channel_name: str, learn: bool
+) -> None:
+    """Background task (checklist C45 · P4.1f): import the channel's videos
+    (unchanged behavior — same function, same signature), then kick off the
+    full Channel-DNA learn pass (``channel_dna.learn_channel``) in
+    "own-channel mode" (no ``channel_url``): learn_channel's own step-1
+    import is skipped since this import already seeded ``channel_videos``,
+    avoiding a second yt-dlp scrape of the same channel. Sequenced
+    (awaited), never run concurrently with the import.
+
+    ``learn`` is decided by the caller (``_has_usable_generation_key``)
+    BEFORE scheduling this task — a keyless tenant never gets a background
+    task scheduled for this at all.
+
+    Claim-guarded by ``learn_channel``'s own
+    ``generation_claims.acquire_channel`` — a second ``learn_channel`` call
+    for this tenant (e.g. a "learn this channel" chat ask fired moments
+    later) is safely refused as busy, not raced with this one."""
+    await _import_channel_videos(tenant_id, channel_url, channel_name)
+    if not learn:
+        return
+    from channel_dna import learn_channel
+    try:
+        await learn_channel(tenant_id)
+    except Exception as e:  # noqa: BLE001 — background task, never raise past here
+        logger.warning(
+            "[Onboarding] Channel-DNA learn pass failed for tenant %s: %s", tenant_id[:8], e
+        )
 
 
 async def _import_channel_videos(
@@ -737,530 +814,40 @@ async def _run_competitor_analysis(job_id: str, tenant_id: str, urls: list[str])
     logger.info("[Onboarding] Competitor analysis complete for tenant %s", tenant_id[:8])
 
 
-# ── Intelligence Report ──────────────────────────────────────────
+# ── Intelligence Report (RETIRED — checklist C45 · P4.1f) ────────
+#
+# _build_intelligence_report and its private helpers (_parse_report_json,
+# _fallback_intelligence_report, _run_intelligence_report_job) generated a
+# read-once report nothing downstream ever consumed — no frontend caller, no
+# chat onboarding step (grep-confirmed: see module docstring above). Deleted
+# outright rather than left as unreachable dead code (this repo's own
+# "remove dead code" rule) — the implementation is in git history on this
+# file if it's ever needed again. The three routes stay registered and
+# return 410 Gone with a pointer at the replacement (channel_dna.learn_channel
+# / "learn this channel" in chat) — graceful deprecation, not a silent
+# removal, per the checklist's explicit instruction. `intelligence_reports`
+# (the table these used to write) is left in place, untouched — retired,
+# not dropped.
 
-
-def _parse_report_json(raw_text: str) -> dict:
-    """Parse model JSON even when the provider wraps it in markdown."""
-    decoder = json.JSONDecoder()
-    text = (raw_text or "").strip()
-    candidates = [text]
-
-    fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-    if fence_match:
-        candidates.insert(0, fence_match.group(1).strip())
-
-    for candidate in candidates:
-        if not candidate:
-            continue
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass
-
-        start = candidate.find("{")
-        while start != -1:
-            try:
-                parsed, _ = decoder.raw_decode(candidate[start:])
-                if isinstance(parsed, dict):
-                    return parsed
-            except json.JSONDecodeError:
-                start = candidate.find("{", start + 1)
-                continue
-            start = candidate.find("{", start + 1)
-
-    raise ValueError("AI provider returned malformed JSON")
-
-
-def _fallback_intelligence_report(cp: dict, comp_videos: list[dict], channels: list[dict]) -> dict:
-    """Return usable recommendations when the AI provider sends malformed JSON."""
-    niche = cp.get("niche") or "this niche"
-    top_sources = [
-        v.get("title")
-        for v in comp_videos[:5]
-        if v.get("title")
-    ]
-    competitor_names = [c.get("channel_name") for c in channels[:3] if c.get("channel_name")]
-    source_titles = top_sources[:2]
-
-    return {
-        "title_ideas": [
-            {
-                "title": f"The Hidden Shift Changing {niche}",
-                "pattern": "Hidden Shift Reveal",
-                "reasoning": "Top competitor videos in this scrape lean on curiosity, stakes, and a specific change viewers feel they need to understand.",
-                "source_titles": source_titles,
-                "hook_direction": "Open with a sharp before/after contrast and state what most people are missing.",
-                "thumbnail_direction": "Use one dominant subject, a high-contrast background, and three words or fewer that create tension.",
-                "script_structure": "Start with the surprising claim, prove it with 3 evidence blocks, then close with what happens next.",
-                "visual_prompt_direction": "Prompt for clean documentary-style visuals, clear symbolic contrast, maps/data shots where useful, and cinematic closeups.",
-                "modeling_notes": "Borrow the title structure and pacing, but use original claims, evidence, and visual metaphors.",
-            },
-            {
-                "title": f"Why Everyone Is Wrong About {niche}",
-                "pattern": "Contrarian Correction",
-                "reasoning": "The strongest competitor titles create a gap between the viewer's current belief and the story's promised reveal.",
-                "source_titles": top_sources[2:4] or source_titles,
-                "hook_direction": "Name the common belief, then immediately show the contradiction.",
-                "thumbnail_direction": "Split the frame between the accepted story and the hidden reality.",
-                "script_structure": "Frame the myth, unpack why it spread, reveal the deeper mechanism, and end with consequences.",
-                "visual_prompt_direction": "Use side-by-side contrasts, annotation-style overlays, and deliberate visual reveals.",
-                "modeling_notes": "Use competitor-style curiosity while keeping the thesis grounded in your own research.",
-            },
-            {
-                "title": f"The One {niche} Signal No One Is Watching",
-                "pattern": "Single Critical Signal",
-                "reasoning": "High-performing videos often make a broad trend feel concrete by anchoring it to one overlooked signal.",
-                "source_titles": top_sources[4:5] or source_titles,
-                "hook_direction": "Show the signal first, then explain why it changes the whole story.",
-                "thumbnail_direction": "Feature the signal as the main object with one directional cue or warning mark.",
-                "script_structure": "Introduce the signal, connect it to the bigger trend, compare alternatives, and give the viewer a clear takeaway.",
-                "visual_prompt_direction": "Prioritize object-focused shots, charts, headlines, and slow push-ins on the key evidence.",
-                "modeling_notes": "Model the narrow-focus strategy, not the competitor's exact subject.",
-            },
-        ],
-        "thumbnail_insights": [
-            {
-                "pattern": "One clear focal point plus tension text",
-                "reasoning": "This gives non-technical viewers an immediate reason to click without decoding a crowded frame.",
-            },
-            {
-                "pattern": "Documentary contrast: visible proof versus hidden force",
-                "reasoning": "Competitor packaging tends to work best when the thumbnail implies a story underneath the obvious story.",
-            },
-        ],
-        "hook_ideas": [
-            {
-                "strategy": "Open with the overlooked signal",
-                "reasoning": "A concrete signal creates curiosity faster than a broad topic introduction.",
-            },
-            {
-                "strategy": "Challenge the default explanation",
-                "reasoning": "A contrarian setup creates an open loop the rest of the script can pay off.",
-            },
-        ],
-        "creation_guidance": {
-            "research_plan": "Gather the strongest 3-5 facts, charts, quotes, or events that prove the chosen angle and separate signal from speculation.",
-            "script_plan": "Use a curiosity hook, 3 evidence-driven chapters, and a final implication section.",
-            "visual_plan": "Mix cinematic B-roll, data overlays, headline pulls, maps or diagrams, and visual contrast between old belief and new reality.",
-            "thumbnail_plan": "One main object or person, high contrast, minimal text, and an obvious tension cue.",
-            "modeling_next_step": "match structure",
-        },
-        "channel_analysis": {
-            "best_pattern": "Specific-stakes explainers",
-            "weakest_area": "Needs more packaged contrast between the obvious story and the hidden mechanism.",
-            "quick_win": "Choose one overlooked signal and build the whole video around it.",
-            "opportunity": (
-                f"Use competitor patterns from {', '.join(competitor_names)} with a more research-heavy, creator-owned angle."
-                if competitor_names
-                else "Use competitor patterns with a more research-heavy, creator-owned angle."
-            ),
-        },
-    }
-
-
-async def _build_intelligence_report(tenant_id: str):
-    """Generate an intelligence report by cross-comparing competitor data.
-
-    Uses the configured text-generation provider to analyze competitor videos and generate:
-    - Title ideas (3-5) with pattern citations
-    - Thumbnail insights (2-3 patterns)
-    - Hook ideas (2-3 strategies)
-    - Channel analysis (if user's YouTube is connected)
-    """
-    from kie_unified import MissingGenerationKeyError, get_text_client_for_tenant
-
-    # Gather data
-    cp = await fetch_one(
-        """SELECT channel_name, niche, target_audience, style_description,
-                  youtube_channel_name
-           FROM channel_profiles WHERE tenant_id = $1""",
-        tenant_id,
-    )
-    if not cp:
-        raise HTTPException(status_code=400, detail="Channel profile not set up yet.")
-
-    # Top competitor videos across two useful cuts:
-    # - all-time/top-performing by views
-    # - recent/top-performing by VPH from roughly the past week
-    # Include distilled DNA when available so recommendations can explain hooks,
-    # thumbnails, structure, and how to recreate the pattern with our tools.
-    comp_videos = await fetch_all(
-        """WITH ranked AS (
-             SELECT
-               cv.id, cv.title, cv.url, cv.channel, cv.views, cv.vph, cv.hours_old,
-               cv.published_date, cv.thumbnail_url, cv.duration_seconds, cv.likes,
-               cv.description,
-               ci.summary AS distilled_summary,
-               ci.structured_metadata AS distilled_metadata,
-               ROW_NUMBER() OVER (ORDER BY cv.views DESC NULLS LAST) AS views_rank,
-               ROW_NUMBER() OVER (
-                 ORDER BY CASE WHEN cv.hours_old <= 168 THEN cv.vph ELSE NULL END DESC NULLS LAST,
-                          cv.views DESC NULLS LAST
-               ) AS recent_rank
-             FROM competitor_videos cv
-             LEFT JOIN content_intelligence ci
-               ON ci.source_id = cv.id
-              AND ci.tenant_id = cv.tenant_id
-              AND ci.source_type = 'competitor_transcript'
-             WHERE cv.tenant_id = $1 AND cv.title IS NOT NULL
-           )
-           SELECT *
-           FROM ranked
-           WHERE views_rank <= 25 OR recent_rank <= 15
-           ORDER BY
-             CASE WHEN recent_rank <= 30 THEN 0 ELSE 1 END,
-             COALESCE(vph, 0) DESC,
-             views DESC NULLS LAST
-           LIMIT 40""",
-        tenant_id,
-    )
-    if not comp_videos or len(comp_videos) < 3:
-        raise HTTPException(
-            status_code=400,
-            detail="Need at least 3 competitor videos to generate a report. Run competitor analysis first.",
-        )
-
-    # User's own videos (if available)
-    user_videos = await fetch_all(
-        """SELECT title, view_count, published_at, thumbnail_url, duration_seconds
-           FROM channel_videos
-           WHERE tenant_id = $1
-           ORDER BY view_count DESC NULLS LAST
-           LIMIT 50""",
-        tenant_id,
-    )
-
-    # Competitor channel info
-    channels = await fetch_all(
-        """SELECT channel_name, subscriber_count, video_count
-           FROM competitor_channels
-           WHERE tenant_id = $1 AND active = true""",
-        tenant_id,
-    )
-
-    def _safe_metadata(value):
-        if not value:
-            return {}
-        if isinstance(value, dict):
-            return value
-        try:
-            return json.loads(value)
-        except Exception:
-            return {}
-
-    def _compact_video_entry(v):
-        metadata = _safe_metadata(v.get("distilled_metadata"))
-        hook = metadata.get("hook_dna") or metadata.get("hook") or {}
-        title_dna = metadata.get("title_dna") or metadata.get("title") or {}
-        thumbnail = metadata.get("thumbnail_dna") or metadata.get("thumbnail") or {}
-        content = metadata.get("content_dna") or metadata.get("content") or {}
-        structure = metadata.get("structure_dna") or metadata.get("structure") or {}
-        retention = metadata.get("retention_dna") or metadata.get("retention") or {}
-
-        entry = {
-            "title": v.get("title", ""),
-            "channel": v.get("channel", ""),
-            "url": v.get("url", ""),
-            "views": v.get("views", 0),
-            "vph": float(v["vph"]) if v.get("vph") else 0,
-            "hours_old": float(v["hours_old"]) if v.get("hours_old") else None,
-            "published": str(v.get("published_date", "")),
-            "thumbnail_url": v.get("thumbnail_url"),
-            "duration_seconds": v.get("duration_seconds") or 0,
-        }
-        if v.get("distilled_summary"):
-            entry["summary"] = v.get("distilled_summary")
-        if v.get("description"):
-            entry["description_hint"] = (v.get("description") or "")[:350]
-        if title_dna:
-            entry["title_dna"] = {
-                "structure": title_dna.get("structure"),
-                "curiosity_gap": title_dna.get("curiosity_gap"),
-                "power_words": title_dna.get("power_words"),
-            }
-        if hook:
-            entry["hook_dna"] = {
-                "type": hook.get("type"),
-                "opening_line": hook.get("opening_line"),
-                "open_loop": hook.get("first_open_loop") or hook.get("open_loop"),
-            }
-        if thumbnail:
-            entry["thumbnail_dna"] = {
-                "overall_style": thumbnail.get("overall_style"),
-                "layout": (thumbnail.get("composition") or {}).get("layout"),
-                "face_present": thumbnail.get("face_present"),
-                "face_emotion": thumbnail.get("face_emotion"),
-                "text": thumbnail.get("text") or thumbnail.get("visible_text"),
-                "colors": thumbnail.get("colors") or thumbnail.get("dominant_colors"),
-            }
-        if content:
-            entry["content_dna"] = {
-                "tone": content.get("tone"),
-                "topic_tags": content.get("topic_tags"),
-                "entities": content.get("entities"),
-            }
-        if structure:
-            entry["structure_dna"] = structure
-        if retention:
-            entry["retention_dna"] = {
-                "first_hook_seconds": retention.get("first_hook_seconds"),
-                "open_loops": retention.get("open_loops"),
-                "payoff_quality": retention.get("payoff_quality"),
-            }
-        return entry
-
-    # Build Claude prompt
-    comp_data = json.dumps(
-        [_compact_video_entry(v) for v in comp_videos],
-        indent=None,
-    )
-
-    user_data = ""
-    if user_videos:
-        user_data = json.dumps(
-            [
-                {
-                    "title": v.get("title", ""),
-                    "views": v.get("view_count", 0),
-                    "published": str(v.get("published_at", "")),
-                }
-                for v in user_videos
-            ],
-            indent=None,
-        )
-
-    channel_info = ""
-    if channels:
-        channel_info = ", ".join(
-            f"{c.get('channel_name', '?')} ({c.get('subscriber_count', 0):,} subs, {c.get('video_count', 0)} videos)"
-            for c in channels
-        )
-
-    user_section = ""
-    if user_data:
-        user_section = f"""
-User's channel data (their own videos — analyze these for performance patterns):
-{user_data}
-
-For channel_analysis, identify:
-- Their best-performing title pattern
-- Their weakest area (gap in content or style)
-- One specific quick-win recommendation
-- An opportunity based on trending competitor topics they haven't covered
-"""
-
-    system_prompt = f"""You are a YouTube growth strategist analyzing competitive data for a channel in the {cp.get('niche', 'general')} niche.
-
-Channel: {cp.get('channel_name', 'New Channel')}
-Audience: {cp.get('target_audience', 'Not specified')}
-Style: {cp.get('style_description', 'Not specified')}
-Competitors analyzed: {channel_info}
-
-Competitor video data (top videos by views):
-{comp_data}
-{user_section}
-Analyze patterns and generate a JSON report. Return ONLY valid JSON (no markdown, no backticks):
-
-{{
-  "title_ideas": [
-    {{
-      "title": "Specific video title idea",
-      "pattern": "Pattern name (e.g., Hidden Actor Reveal, Specific Number + Stakes)",
-      "reasoning": "Why this should work based on the data",
-      "source_titles": ["Competitor title this was modeled from"],
-      "hook_direction": "How the first 15 seconds should open",
-      "thumbnail_direction": "Concrete thumbnail concept and visual composition",
-      "script_structure": "How the story should be structured",
-      "visual_prompt_direction": "What the image/video generation prompts should emphasize",
-      "modeling_notes": "How closely to borrow the pattern without copying"
-    }}
-  ],
-  "thumbnail_insights": [
-    {{
-      "pattern": "Description of the thumbnail pattern",
-      "reasoning": "Why it works in this niche"
-    }}
-  ],
-  "hook_ideas": [
-    {{
-      "strategy": "Opening hook strategy",
-      "reasoning": "Based on what top performers do"
-    }}
-  ],
-  "creation_guidance": {{
-    "research_plan": "What research evidence the script should gather",
-    "script_plan": "Narrative structure and pacing to use",
-    "visual_plan": "Visual language, scene types, and shot rhythm to prompt",
-    "thumbnail_plan": "Thumbnail composition, text, emotion, and contrast",
-    "modeling_next_step": "Recommended modeling mode: loose inspiration, match structure, visual rhythm, or close reference"
-  }},
-  "channel_analysis": {{"best_pattern": "...", "weakest_area": "...", "quick_win": "...", "opportunity": "..."}}
-}}
-
-Generate:
-- 3-5 title_ideas based on gaps and proven patterns. Be SPECIFIC — real title text, not templates.
-- Each title idea must include practical creation guidance for hook, thumbnail, script structure, visual prompt direction, and modeling notes.
-- 2-3 thumbnail_insights about composition patterns that drive clicks in this niche.
-- 2-3 hook_ideas for script openings based on top-performing competitor content.
-- creation_guidance must explain how StoryEngine should create this kind of video using research, script, image, video, and thumbnail tools.
-- channel_analysis ONLY if user channel data was provided above. Otherwise set to null."""
-
-    try:
-        text_client = await get_text_client_for_tenant(tenant_id)
-        raw_text = await text_client.generate(
-            system_prompt,
-            max_tokens=6500,
-            temperature=0.5,
-        )
-    except MissingGenerationKeyError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        logger.error("[Intelligence] AI request failed: %s", exc)
-        raise HTTPException(status_code=502, detail="Failed to reach AI generation API")
-
-    # Parse response
-    try:
-        report = _parse_report_json(raw_text)
-    except ValueError:
-        logger.error("[Intelligence] Failed to parse AI response: %s", raw_text[:500])
-        report = _fallback_intelligence_report(cp, comp_videos, channels or [])
-
-    # Save to database
-    await execute(
-        """INSERT INTO intelligence_reports
-           (tenant_id, report_type, title_ideas, thumbnail_insights,
-            hook_ideas, channel_analysis, creation_guidance,
-            competitors_analyzed, videos_analyzed)
-           VALUES ($1, 'onboarding', $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8)""",
-        tenant_id,
-        json.dumps(report.get("title_ideas", [])),
-        json.dumps(report.get("thumbnail_insights", [])),
-        json.dumps(report.get("hook_ideas", [])),
-        json.dumps(report.get("channel_analysis")),
-        json.dumps(report.get("creation_guidance")),
-        len(channels or []),
-        len(comp_videos or []),
-    )
-
-    # Mark intelligence_generated
-    await execute(
-        "UPDATE channel_profiles SET intelligence_generated = true, updated_at = now() WHERE tenant_id = $1",
-        tenant_id,
-    )
-
-    return {
-        "status": "generated",
-        "report": report,
-        "competitors_analyzed": len(channels or []),
-        "videos_analyzed": len(comp_videos or []),
-    }
-
-
-async def _run_intelligence_report_job(job_id: str, tenant_id: str):
-    job = _report_jobs.get(job_id)
-    if not job:
-        return
-
-    job["status"] = "running"
-    job["error"] = None
-    try:
-        result = await _build_intelligence_report(tenant_id)
-        job.update({
-            "status": "complete",
-            "report": result.get("report"),
-            "competitors_analyzed": result.get("competitors_analyzed", 0),
-            "videos_analyzed": result.get("videos_analyzed", 0),
-            "error": None,
-        })
-    except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else "Intelligence report generation failed."
-        job.update({"status": "failed", "error": detail})
-        logger.error("[Intelligence] Report job %s failed: %s", job_id, detail)
-    except Exception as exc:
-        job.update({"status": "failed", "error": "Intelligence report generation failed."})
-        logger.exception("[Intelligence] Report job %s failed: %s", job_id, exc)
+_INTELLIGENCE_REPORT_RETIRED_DETAIL = (
+    "Retired endpoint. Intelligence reports have been replaced by Channel DNA "
+    "learning — say \"learn this channel\" in chat, or POST /api/channel-dna/learn."
+)
 
 
 @router.post("/intelligence-report")
 async def generate_intelligence_report(tenant_id: str = Depends(get_tenant_id)):
-    """Start intelligence report generation and return immediately."""
-    for existing_id, existing in _report_jobs.items():
-        if existing.get("tenant_id") == tenant_id and existing.get("status") in {"starting", "running"}:
-            return {
-                "status": existing.get("status"),
-                "job_id": existing_id,
-                "report": None,
-                "competitors_analyzed": 0,
-                "videos_analyzed": 0,
-            }
-
-    job_id = str(uuid.uuid4())[:8]
-    _report_jobs[job_id] = {
-        "tenant_id": tenant_id,
-        "status": "starting",
-        "report": None,
-        "competitors_analyzed": 0,
-        "videos_analyzed": 0,
-        "error": None,
-    }
-    asyncio.create_task(_run_intelligence_report_job(job_id, tenant_id))
-    return {
-        "status": "started",
-        "job_id": job_id,
-        "report": None,
-        "competitors_analyzed": 0,
-        "videos_analyzed": 0,
-    }
+    raise HTTPException(status_code=410, detail=_INTELLIGENCE_REPORT_RETIRED_DETAIL)
 
 
 @router.get("/intelligence-report/status/{job_id}")
 async def get_intelligence_report_status(job_id: str, tenant_id: str = Depends(get_tenant_id)):
-    job = _report_jobs.get(job_id)
-    if not job or job.get("tenant_id") != tenant_id:
-        raise HTTPException(status_code=404, detail="Report job not found")
-
-    return {
-        "status": job.get("status"),
-        "job_id": job_id,
-        "report": job.get("report"),
-        "competitors_analyzed": job.get("competitors_analyzed", 0),
-        "videos_analyzed": job.get("videos_analyzed", 0),
-        "error": job.get("error"),
-    }
+    raise HTTPException(status_code=410, detail=_INTELLIGENCE_REPORT_RETIRED_DETAIL)
 
 
 @router.get("/intelligence-report")
 async def get_intelligence_report(tenant_id: str = Depends(get_tenant_id)):
-    """Get the latest intelligence report for this tenant."""
-    row = await fetch_one(
-        """SELECT id, report_type, title_ideas, thumbnail_insights,
-                  hook_ideas, channel_analysis, creation_guidance, competitors_analyzed,
-                  videos_analyzed, created_at
-           FROM intelligence_reports
-           WHERE tenant_id = $1
-           ORDER BY created_at DESC
-           LIMIT 1""",
-        tenant_id,
-    )
-    if not row:
-        return {"status": "not_generated", "report": None}
-
-    return {
-        "status": "ok",
-        "report": {
-            "title_ideas": row.get("title_ideas") or [],
-            "thumbnail_insights": row.get("thumbnail_insights") or [],
-            "hook_ideas": row.get("hook_ideas") or [],
-            "channel_analysis": row.get("channel_analysis"),
-            "creation_guidance": row.get("creation_guidance"),
-        },
-        "competitors_analyzed": row.get("competitors_analyzed", 0),
-        "videos_analyzed": row.get("videos_analyzed", 0),
-        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-    }
+    raise HTTPException(status_code=410, detail=_INTELLIGENCE_REPORT_RETIRED_DETAIL)
 
 
 # ── Completion ───────────────────────────────────────────────────
