@@ -430,3 +430,27 @@ me decide in a Claude chat and craft anything or style I want." Design law for C
   runbook recipe ("model a video") so Claude knows the pathway.
 - "Smart enough to know the pathways" = the runbook recipes + tool descriptions carry the pathway
   knowledge; no new server-side orchestrator LLM for this.
+
+## 2026-07-19 — MCP monetization: the agent token IS the paywall; flat subscription over per-token billing (Ryan + orchestrator design)
+Ryan: "I don't wanna give this away for free via the MCP... Higgsfield charges per token and MCP runs
+through their platform, but we flipped it on its head where it's a bring-your-own-keys model. So they
+need to access our platform, save their keys, and then they could use it."
+Design ruling:
+- BYOK inverts Higgsfield's economics: their per-token metering exists because generation runs on
+  THEIR keys. Ours runs on the customer's keys (media) + customer's Claude subscription
+  (intelligence), so marginal cost ≈ 0 → FLAT SUBSCRIPTION is the right model. The product being
+  sold is the machine (pipeline, Channel DNA, quality engine, autopilot, orchestration, storage),
+  not tokens.
+- Enforcement seams (all already exist, all server-side — every MCP tool call hits OUR backend):
+  (1) token MINT requires an account with active subscription; (2) token VERIFY (auth_agent
+  dependency, per-request DB lookup already) also checks tenant subscription status — lapsed
+  subscription kills existing tokens same-day with a renew-here error message; (3) optional tier
+  limits live in actions.py (the ONE verb registry all three doors — UI/chat/MCP — funnel through),
+  never per-door. Recommendation: MCP access is a Pro-tier feature (power-user upsell).
+- NO per-token/per-call billing machinery. We do not meter what we do not pay for.
+- Build order: (a) entitlement seam NOW, dark — `subscription_status` per tenant defaulting
+  'active' (zero behavior change) + checks at the three seams; (b) Stripe checkout/webhooks LATER,
+  after Ryan picks pricing/tiers/trial at the computer (his decisions, not built ahead).
+- Honest caveat recorded: BYOK means the API calls aren't the moat — the accumulated per-channel
+  intelligence (DNA, rules, patterns, analytics flywheel) in our DB is. Retention story: cancel and
+  the channel's brain goes dormant.
