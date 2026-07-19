@@ -330,6 +330,40 @@ async def _resolve_style_preset_id(style_preset_id: Optional[str]) -> Optional[s
     return style_preset_id
 
 
+def _resolve_script_profile(script_profile: Optional[str]) -> Optional[str]:
+    """Validate an explicit script_profile (checklist §2.3, C24 — the
+    editorial-voice engines in shared.profiles.script) against the real
+    profile registry.
+
+    Returns the id unchanged when it names a real registered profile; None
+    when the field was blank/omitted (the common case — most videos never
+    pick one, and the executor's _resolve_script_profile_id falls back to
+    "neutral_v1" for them). Raises 400 for an unknown id — same posture as
+    _resolve_style_preset_id just above: a picker UI (or the copilot) should
+    never send a bogus id, so surfacing the error immediately catches a real
+    bug instead of quietly ignoring the creator's explicit choice.
+
+    No DB round-trip needed (unlike style_preset_id): the catalog is a small
+    code-reviewed Python registry (list_profiles()), not admin-mutable table
+    data — same "no new DB table" rationale as camera_preset_id's
+    get_move() check in routes/assets.py."""
+    script_profile = (script_profile or "").strip() or None
+    if not script_profile:
+        return None
+    import sys
+    from pathlib import Path
+    pipeline_path = Path(__file__).resolve().parents[3] / "skills" / "video-pipeline"
+    if str(pipeline_path) not in sys.path:
+        sys.path.insert(0, str(pipeline_path))
+    from shared.profiles.script import list_profiles
+    if script_profile not in list_profiles():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown script profile: {script_profile!r}",
+        )
+    return script_profile
+
+
 @router.get("/style-default")
 async def get_style_default(tenant_id: str = Depends(get_tenant_id)):
     """The channel's current visual style as a preset id, so the New Video
@@ -463,16 +497,17 @@ async def create_video(
                 render_style = render_style_for_preset(_preset)
                 break
     style_preset_id = await _resolve_style_preset_id(body.style_preset_id)
+    script_profile = _resolve_script_profile(body.script_profile)
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode, render_style, style_preset_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, body.title.strip(), initial_status, source_val, _strip_md(body.framework_angle),
         body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
-        render_mode, render_style, style_preset_id,
+        render_mode, render_style, style_preset_id, script_profile,
     )
 
     await increment_usage(tenant_id, "videos_created")
@@ -551,7 +586,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
-                  accent_color, visual_style, image_style_override, style_preset_id, image_model_override, video_model,
+                  accent_color, visual_style, image_style_override, style_preset_id, script_profile, image_model_override, video_model,
                   dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
                   video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
@@ -612,6 +647,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         research_skipped=r.get("research_skipped") or False,
         image_style_override=r.get("image_style_override"),
         style_preset_id=r.get("style_preset_id"),
+        script_profile=r.get("script_profile"),
         image_model_override=r.get("image_model_override"),
         video_model=r.get("video_model"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,
@@ -677,7 +713,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style", "script_profile"}
     # skip_voice records the guided flow's "skip the voiceover" choice — the
     # Scenes gate reads it (advancing status alone left the gate locked).
     if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
@@ -694,6 +730,13 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # upgrade tiers"), so null is a valid write here, not a no-op.
     if "render_style" in body and body["render_style"] not in {"animated", "realistic", None}:
         raise HTTPException(status_code=400, detail="Invalid render_style")
+    # script_profile (C24, checklist §2.3): the ScriptVoiceTab's "Script
+    # voice" selector writes through this same generic update path (the
+    # spec's "existing video-update path"). Re-validate against the real
+    # registry here too — a request built by hand (or a stale client) must
+    # not silently store a bogus profile id.
+    if "script_profile" in body:
+        body["script_profile"] = _resolve_script_profile(body.get("script_profile"))
     updates = []
     params = []
     idx = 1

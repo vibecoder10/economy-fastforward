@@ -1676,6 +1676,68 @@ these on the next dev-server pass with a real key.
 
 ---
 
+## C24 — `videos.script_profile` + `GET /api/script-profiles` (checklist §2.3) · live generate-under-both-profiles check
+
+New `videos.script_profile` column (migration 098), `GET /api/script-profiles`, the New Video
+"Advanced" script-voice select + `ScriptVoiceTab`'s `ScriptVoiceCard`, and the copilot's
+`script_profile` verb ("write it in the investigative style") — full detail in SYSTEM_STATE.md
+§C24. Verified so far by 19 new sandbox tests (non-vacuous — each layer's resolver/runner/route
+was exercised directly, e.g. `_resolve_script_profile_id({})` really does return `"neutral_v1"`),
+`tsc --noEmit` + `npm run build` (both clean), and a full backend-suite byte-identical
+failure-list diff against the pre-change baseline. What was NOT driven: an actual Claude script-
+generation call under each profile, since that costs real Anthropic API spend and this sandbox has
+no paid key wired for a live run. This is checklist §2.3's own `[V]`: "Generate same topic under
+both profiles; scripts differ per profile laws" — do this on the next dev-server pass with a real
+key, and only tick §2.3 in the checklist once it passes.
+
+- [ ] **Neutral (no pick) really is unchanged.** Create a video with NO script-voice pick (leave
+      Advanced collapsed, or explicitly select "Neutral (default)"). Run the script stage
+      (`se db "SELECT script_profile FROM videos WHERE id='<video-id>'"` should show `NULL`).
+      Confirm the generated script reads the same as any pre-C24 video's script would — no
+      Power-Doctrine-flavored language ("follow the money", incentive-chain framing) should appear
+      unless the channel's own system-prompt override already adds it.
+- [ ] **Picking "Investigative Reveal" changes the script's voice/structure.** Create (or edit
+      an existing video pre-script) with `script_profile = power_doctrine_v2` — via the New Video
+      Advanced select, OR `se db --write "UPDATE videos SET script_profile='power_doctrine_v2'
+      WHERE id='<video-id>'"`, OR say "write it in the investigative style" to the copilot on a
+      video that hasn't been scripted yet. Run/re-run the script stage on the SAME topic/brief a
+      neutral run just used. Confirm: (a) `se logs backend 200` around script generation shows the
+      line `Script profile loaded: power_doctrine_v2` (`script/brief_translator/__init__.py`'s
+      `logger.info` at profile-load time), (b) the resulting script actually reads differently
+      from the neutral run — follow-the-money incentive-chain framing, the analyst voice
+      `power_doctrine_v2.py`'s `voice.identity`/`voice.tone` describe — not just a different
+      random seed's worth of paraphrasing.
+- [ ] **"Framework Explainer" (`power_doctrine_v1`) also changes the voice, differently from v2.**
+      Same recipe with `script_profile = power_doctrine_v1` (or say "use the framework explainer
+      voice") — confirm the script reads as documentary-teaching/explicit-framework, distinguishable
+      from BOTH the neutral run and the `power_doctrine_v2` run (not just "some other script").
+- [ ] **The New Video Advanced select's description text matches the API.** Open the New Video
+      modal → Advanced → confirm the select shows exactly 3 options ("Neutral (default)",
+      "Power Doctrine — Investigative Reveal", "Power Doctrine — Framework Explainer") and the
+      one-line description under it updates when you change the pick — cross-check against
+      `curl <api>/api/script-profiles` directly (should be verbatim, not paraphrased by the UI).
+- [ ] **`ScriptVoiceTab`'s `ScriptVoiceCard` writes the SAME column, live.** On an existing video's
+      Script tab, change the "Script voice" select — confirm (a) the description line below updates
+      immediately, (b) `se db "SELECT script_profile FROM videos WHERE id='<video-id>'"` reflects
+      the new pick, (c) it round-trips correctly (reload the tab — the select shows the saved pick,
+      not reverted to Neutral).
+- [ ] **The copilot's clear words never resolve to Power Doctrine.** Say "put the script voice back
+      to neutral" (or "auto"/"clear"/"default") on a video that currently has `power_doctrine_v2`
+      set — confirm `script_profile` goes back to `NULL`, never silently re-landing on a Power
+      Doctrine id (this is unit-tested in the sandbox but worth a live sanity check given the
+      "never resurrect Power Doctrine as a default" rule's history).
+- **Cost:** each "generate under a profile" check is a real Claude script-generation call (per
+  `docs/cost-awareness.md`, roughly $0.01-0.05 for a Sonnet script-writing call — cheap relative to
+  the image/clip checks elsewhere in this file, but still real spend). Get Ryan's go-ahead first
+  per storyengine/CLAUDE.md's money rule; three script generations (neutral, v2, v1) on the SAME
+  short topic keeps the total well under $1.
+- **Safety net:** if `GET /api/script-profiles` ever 404s (stale deploy skew), the New Video
+  select degrades to just "Neutral (default)" and `ScriptVoiceCard` shows an empty select with no
+  description — a degraded-but-safe state (never a crash), so check the endpoint directly first if
+  the select looks empty.
+
+---
+
 ## C23 — camera-preset chips: `/api/camera-presets` + scene chip + sheet (checklist §2.2) · live pick-and-animate check
 
 New `GET /api/camera-presets` (curated 12-move subset), `PATCH

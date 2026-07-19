@@ -119,6 +119,7 @@ IDEA_FIELD_MAP = {
     "Image Model Override": "image_model_override",
     "Visual Style": "visual_style",
     "Style Preset Id": "style_preset_id",
+    "Script Profile": "script_profile",
     # Visual consistency
     "Story Bible": "story_bible",
     "Character Reference": "character_reference_url",

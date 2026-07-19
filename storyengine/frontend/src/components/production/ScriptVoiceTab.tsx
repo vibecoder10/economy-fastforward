@@ -21,6 +21,7 @@ import {
 import { API_URL } from "@/lib/env";
 import type { ScriptScene as ApiScriptScene, Asset, Segment, MachineScriptPreview, MachineScriptPreviewReadiness } from "@/lib/api";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
+import { useScriptProfiles } from "@/hooks/use-script-profiles";
 import { useToast } from "@/components/ui/toast";
 import { useConfirm, type ConfirmFn } from "@/components/ui/confirm";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -1144,6 +1145,67 @@ function CustomVoiceCard() {
             {save.isPending ? "Saving..." : "Save voice"}
           </ActionButton>
         </div>
+      )}
+    </GlassCard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Script voice — the editorial-voice engine (checklist §2.3, C24). A
+// DIFFERENT axis from CustomVoiceCard above: that's the ElevenLabs AUDIO
+// voice; this is the WRITING voice (tone, act structure) shared.profiles.
+// script controls. Writes videos.script_profile via the same generic
+// update path the New Video "Advanced" select uses (PATCH /api/videos/{id}),
+// so both doors land on one column. Opt-in only — "Neutral (default)" is
+// never replaced with a Power Doctrine pick unless the creator chooses it.
+// ---------------------------------------------------------------------------
+
+function ScriptVoiceCard({ video }: { video: any }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { data: profilesData, isLoading } = useScriptProfiles();
+  const profiles = profilesData?.profiles ?? [];
+  const current = video.script_profile || "";
+
+  const save = useMutation({
+    mutationFn: (script_profile: string) =>
+      updateVideo(video.id, { script_profile: script_profile || null }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["video", video.id] }),
+    onError: (err) => toast.error(`Couldn't save script voice: ${(err as Error).message}`),
+  });
+
+  const selected = profiles.find((p) => (current ? p.id === current : p.is_default));
+
+  return (
+    <GlassCard className="p-5">
+      <label htmlFor="script-voice-select" className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+        <Pencil size={11} style={{ color: "var(--turquoise)" }} />
+        Script voice
+      </label>
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-1 text-xs" style={{ color: "var(--text-tertiary)" }}>
+          <Loader2 size={12} className="animate-spin" /> Loading voices…
+        </div>
+      ) : (
+        <>
+          <select
+            id="script-voice-select"
+            name="script_profile"
+            value={current}
+            disabled={save.isPending}
+            onChange={(e) => save.mutate(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none cursor-pointer disabled:opacity-50"
+            style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+          >
+            <option value="">Neutral (default)</option>
+            {profiles.filter((p) => !p.is_default).map((p) => (
+              <option key={p.id} value={p.id}>{p.display_name}</option>
+            ))}
+          </select>
+          <p className="text-[11px] leading-snug mt-2" style={{ color: "var(--text-tertiary)" }}>
+            {save.isPending ? "Saving…" : selected?.description}
+          </p>
+        </>
       )}
     </GlassCard>
   );
@@ -2662,6 +2724,9 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       </div>
 
 	      {scriptRosterGatePanel}
+
+      {/* Script voice — the editorial-voice engine (checklist §2.3, C24) */}
+      <ScriptVoiceCard video={video} />
 
       {/* Script System Prompt */}
       <SystemPromptEditor

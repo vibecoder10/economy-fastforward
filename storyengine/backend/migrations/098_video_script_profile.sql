@@ -1,0 +1,29 @@
+-- videos.script_profile (checklist §2.3 [D]+[B], chunk C24 — "script-voice
+-- profiles not user-selectable today"). Mirrors migration 097's
+-- assets.camera_preset_id shape, NOT migration 096's style_presets shape:
+-- the editorial-voice catalog (shared.profiles.script/*.py: neutral_v1,
+-- power_doctrine_v2, power_doctrine_v1) is a small, durable, code-reviewed
+-- registry — same "no new DB table" rationale camera_presets.py's own
+-- docstring gives for camera_moves.py — not genuinely dynamic tenant data
+-- the way style_presets (an admin-mutable catalog with preview images) is.
+-- So: a bare TEXT column, no FK, validated at the APPLICATION layer
+-- (routes/videos.py's _resolve_script_profile, mirroring
+-- routes/assets.py's get_move() check for camera_preset_id) against
+-- shared.profiles.script.list_profiles() — the same registry
+-- load_script_profile() itself resolves against.
+--
+-- NULL = no explicit per-video pick (every pre-C24 video, and any creator
+-- who never opens Advanced) — pipeline_executor.py's _resolve_script_profile_id
+-- falls back to "neutral_v1", the SAME value shared.profiles.script's
+-- load_script_profile() already defaults to when the SCRIPT_PROFILE env var
+-- is unset, so a NULL column reproduces the exact pre-C24 script voice,
+-- byte-for-byte. Power Doctrine (power_doctrine_v1/v2) is opt-in only —
+-- never written as a default anywhere in this migration or its callers
+-- (storyengine/CLAUDE.md: "Power Doctrine as a default identity" is
+-- deleted on purpose, don't resurrect).
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — applied LIVE via the Supabase MCP
+-- tools against project wrromlupsmyzrrcqlucn, confirmed via
+-- information_schema (same pattern as migrations 088-097).
+
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS script_profile TEXT;

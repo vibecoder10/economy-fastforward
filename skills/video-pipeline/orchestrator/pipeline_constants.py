@@ -57,6 +57,13 @@ class IdeaFields:
     # for the VISUAL_PROFILE executor seam when set. See
     # storyengine/backend/pipeline_executor.py's _resolve_visual_profile_id.
     STYLE_PRESET_ID = "Style Preset Id"
+    # Editorial-voice engine pick (checklist §2.3, C24) — a
+    # shared.profiles.script profile id (e.g. "power_doctrine_v2"), the SAME
+    # field name shared/profiles/script/README.md's "Profile Selection Order"
+    # already documents ("1. Airtable field: Script Profile"). Feeds the
+    # SCRIPT_PROFILE executor seam — see
+    # storyengine/backend/pipeline_executor.py's _resolve_script_profile_id.
+    SCRIPT_PROFILE = "Script Profile"
 
     # Visual consistency
     STORY_BIBLE = "Story Bible"

@@ -4840,3 +4840,150 @@ new DB read/write is additive (`camera_preset_id` NULL for every existing row); 
 hot path (`run_clip_generation._one`) is proven byte-identical when the column is NULL, which is
 every row that existed before this migration ran. The prep commit (hook extraction) was verified
 independently as behavior-preserving before any C23 code touched the file.
+
+## C24 — `videos.script_profile` + `GET /api/script-profiles` + `SCRIPT_PROFILE` seam (added 2026-07-19)
+
+**Checklist §2.3 / P2.3:** `shared.profiles.script/*.py` (`neutral_v1` default, `power_doctrine_v2`/
+`power_doctrine_v1` opt-in) already existed as a runtime engine, but nothing let a creator pick one
+per video — mirrors C20's `VISUAL_PROFILE` seam exactly, same "two doors, one write path" law.
+
+### Backend
+
+- **`videos.script_profile`** (migration 098, applied LIVE via the Supabase MCP `apply_migration`
+  tool against `wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`, `schema.sql`
+  updated) — a nullable TEXT column, **no FK** (unlike `style_preset_id`/migration 096): the
+  catalog is a small code-reviewed Python registry (`list_profiles()`, 3 rows), not admin-mutable
+  table data — same "no new DB table" rationale `camera_preset_id`/migration 097 already used for
+  `camera_moves.py`. `NULL` = no explicit pick (every pre-C24 video).
+- **`GET /api/script-profiles`** (new `routes/script_profiles.py`, registered in `main.py`) — reads
+  `shared.profiles.script.list_profiles()` + `load_script_profile(id)` server-side, same "the
+  Python catalog is the source of truth" posture as `/api/camera-presets`/`/api/style-presets`.
+  Returns `id`/`display_name`/`description`/`best_for`/`is_default`, copy pulled verbatim from each
+  profile's own `template_metadata` (nothing hand-written) — `neutral_v1` sorts first
+  (`is_default=true`), then `power_doctrine_v2`/`power_doctrine_v1` in registration order. Auth:
+  `Depends(get_tenant_id)` only, mirroring `/api/camera-presets` (a global catalog).
+- **`orchestrator.pipeline_constants.IdeaFields.SCRIPT_PROFILE = "Script Profile"`** — the exact
+  Airtable field name `shared/profiles/script/README.md`'s "Profile Selection Order" already
+  documented ("1. Airtable field: `Script Profile`"), so this closes a doc/code gap that predated
+  C24. Added to `supabase_adapter.IDEA_FIELD_MAP` (`"Script Profile": "script_profile"`) — since
+  `_row_to_idea`/`_get_video`/`get_idea` all `SELECT *`, the new column flows into the Airtable-
+  shaped idea dict automatically, no other adapter change needed (C16b lesson: fail-soft `.get()`,
+  confirmed via `test_missing_field_entirely_also_falls_back`).
+- **The executor seam — `pipeline_executor._resolve_script_profile_id(idea)`** (new module-level
+  function, mirrors `_resolve_visual_profile_id` byte-for-byte in shape): `(idea.get(IdeaFields.
+  SCRIPT_PROFILE) or "").strip() or "neutral_v1"`. Wired into `_load_idea` right next to the
+  `VISUAL_PROFILE` line:
+  ```python
+  os.environ["SCRIPT_PROFILE"] = _resolve_script_profile_id(idea)
+  ```
+  Set **unconditionally** (not only when a per-video pick exists) — same stash-proofing rationale
+  as `VISUAL_STYLE_DESCRIPTION`'s own comment ("a previous tenant's value can never leak in"). The
+  consumer: `script/brief_translator/__init__.py`'s `self.profile = load_script_profile()` (called
+  with NO args — env-var-or-default is the only precedence that function call exercises), which
+  itself resolves `os.getenv("SCRIPT_PROFILE", "").strip() or DEFAULT_PROFILE_ID` where
+  `DEFAULT_PROFILE_ID = "neutral_v1"` — confirmed by reading `shared/profiles/script/__init__.py`.
+  Byte-identical contract: `_resolve_script_profile_id({})` → `"neutral_v1"` →
+  `os.environ["SCRIPT_PROFILE"] = "neutral_v1"` → `load_script_profile()`'s own env lookup returns
+  the SAME neutral profile it would have without C24 touching anything (its unset-env fallback is
+  also `"neutral_v1"`). Power Doctrine is never the fallback anywhere in this seam — opt-in only,
+  per `storyengine/CLAUDE.md`'s "Power Doctrine as a default identity... deleted on purpose, don't
+  resurrect" rule.
+- **Write-time validation — `routes/videos.py`'s new `_resolve_script_profile(script_profile)`**
+  (sync, no DB round-trip needed — checks `shared.profiles.script.list_profiles()` in-process,
+  unlike `_resolve_style_preset_id`'s async DB query): blank/`None` → `None` (silent no-op, the
+  common case); a real registered id passes through unchanged; an unknown id raises 400. Called
+  from BOTH write paths:
+  - `create_video`'s INSERT gains `script_profile` (19th → 20th column/param).
+  - `update_video`'s generic PATCH `allowed_fields` gains `"script_profile"`, re-validated inline
+    before the dynamic `SET` loop — this is the "existing video-update path" the ScriptVoiceTab
+    door writes through, so both doors share ONE validation + ONE column.
+  `get_video`'s `SELECT`/`VideoDetail` response also gained `script_profile` (read path).
+- **Conversational door — `actions.py`'s new `script_profile` verb** ("write it in the
+  investigative style", "put the script voice back to neutral"). `ACTIONS["script_profile"]` is
+  `paid: False, needs: None` (settable before or after a script exists — no confirm card, same as
+  `camera_preset`/`approve_scene`). New `_resolve_script_profile_text(text)` tries a real registry
+  id directly first, then a small alias map (`_SCRIPT_PROFILE_ALIASES`: "investigative"/
+  "investigative reveal"/"power doctrine"/"follow the money"/"incentive chain"/"analyst" →
+  `power_doctrine_v2`; "framework explainer"/"framework"/"documentary"/"teaching" →
+  `power_doctrine_v1`), or recognizes an exact clear-word ("auto"/"automatic"/"clear"/"default"/
+  "neutral"/"neutral_v1"/"normal") as `None` — **never** as a route to Power Doctrine (pinned by
+  `test_power_doctrine_never_reachable_via_clear_words`). New `_runner_script_profile` writes
+  `UPDATE videos SET script_profile=$1 WHERE id=$2 AND tenant_id=$3`, the SAME column both other
+  doors write. Registered in `RUNNERS`; the verb was added to BOTH classifiers — `agent_brain.py`'s
+  agentic tool-loop schema + VERB MEANINGS prose, and `routes/chat.py`'s legacy one-shot
+  classifier's ACTIONS list + prose + JSON schema — same two places `camera_preset` lives (C23
+  precedent). An unrecognized voice phrase writes nothing and asks the creator to try a different
+  word.
+
+### Frontend
+
+- **`lib/api.ts`**: new `ScriptProfile`/`ScriptProfilesResponse` types + `getScriptProfiles()`;
+  `createVideo()`'s data type gains `script_profile?: string`.
+- **New `hooks/use-script-profiles.ts`** — one shared `["script-profiles"]` query (5 min
+  `staleTime`, mirrors `use-style-presets.ts`), used by both write doors below.
+- **New Video "Advanced options"** (`pipeline/page.tsx`): a native `<select id="new-script-
+  profile">` (label via `htmlFor`, explicit `background`/`color` for Windows dark-mode contrast per
+  the web-interface-guidelines pass) — "Neutral (default)" plus every non-default registered
+  profile, with the selected profile's own `description` shown below it (falls back to the default
+  profile's description when nothing is picked — never invented copy). New `newScriptProfile` state,
+  reset alongside the other "new*" fields on both `createMutation.onSuccess` and the modal's
+  `onClose`; wired into `handleCreate`'s `createMutation.mutate({ ..., script_profile:
+  newScriptProfile || undefined })`.
+- **`ScriptVoiceTab.tsx`**: new `ScriptVoiceCard` component (placed right after the tab's "Script
+  N/M · Voice N/M" top action bar, before the Script System Prompt editor) — a `GlassCard` with a
+  labeled native `<select>` (current value = `video.script_profile || ""`), disabled while saving,
+  writing through `updateVideo(video.id, { script_profile })` → invalidates `["video", video.id]`
+  (the same key every other in-tab field mutation already uses). Explicitly documented in-file as a
+  DIFFERENT axis from the pre-existing `CustomVoiceCard` just above it (that's the ElevenLabs AUDIO
+  voice; this is the shared.profiles.script WRITING voice) to head off the obvious naming
+  confusion.
+
+### New/Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/migrations/098_video_script_profile.sql` | NEW — `videos.script_profile` |
+| `storyengine/backend/routes/script_profiles.py` | NEW — `GET /api/script-profiles` |
+| `storyengine/backend/tests/functional/test_c24_script_profiles.py` | NEW — 19 tests across all 5 layers |
+| `storyengine/frontend/src/hooks/use-script-profiles.ts` | NEW — shared `["script-profiles"]` query |
+| `storyengine/backend/routes/videos.py` | New `_resolve_script_profile`; `script_profile` in create_video INSERT, get_video SELECT/response, update_video allowed_fields |
+| `storyengine/backend/models.py` | `CreateVideoRequest.script_profile`, `VideoDetail.script_profile` |
+| `storyengine/backend/pipeline_executor.py` | New `_resolve_script_profile_id(idea)`; wired into `_load_idea` next to `VISUAL_PROFILE` |
+| `storyengine/backend/supabase_adapter.py` | `IDEA_FIELD_MAP["Script Profile"] = "script_profile"` |
+| `skills/video-pipeline/orchestrator/pipeline_constants.py` | `IdeaFields.SCRIPT_PROFILE = "Script Profile"` |
+| `storyengine/backend/actions.py` | New `script_profile` verb/runner + alias resolver |
+| `storyengine/backend/agent_brain.py` | Docked copilot's decision schema + VERB MEANINGS gain `script_profile` |
+| `storyengine/backend/routes/chat.py` | Legacy classifier's schema + ACTIONS list + prose gain `script_profile` |
+| `storyengine/backend/main.py` | `script_profiles.router` registered |
+| `storyengine/schema.sql` | `videos.script_profile` documented |
+| `storyengine/frontend/src/lib/api.ts` | `ScriptProfile`/`ScriptProfilesResponse` types; `getScriptProfiles`; `createVideo`'s `script_profile` field |
+| `storyengine/frontend/src/app/pipeline/page.tsx` | New Video "Advanced" script-voice select + state |
+| `storyengine/frontend/src/components/production/ScriptVoiceTab.tsx` | New `ScriptVoiceCard` |
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c24_script_profiles.py -q` — 19 passed. `python -m py_compile` clean on every
+touched/added `.py` file. Full backend suite: **1113 passed (1094 baseline + 19 new) / 16
+pre-existing failures / 1 pre-existing error** — the failing/erroring test name list is
+BYTE-IDENTICAL to the pre-change baseline run (diffed, zero output). Frontend: `npx tsc --noEmit`
+clean; `npm run build` compiles+typechecks clean (32/32 routes, same pre-existing
+`NEXT_PUBLIC_API_URL` prerender gap every prior frontend chunk hits — confirmed cosmetic by
+re-running with a dummy value set, which completes 32/32). Also spot-checked
+`skills/video-pipeline/tests/test_pipeline_integration.py`: 2 pre-existing failures (image-prompt
+marker assertions, unrelated to script profiles — confirmed via `git stash` on the one touched
+pipeline-package file, `pipeline_constants.py`, same 2 failures reproduce with it stashed out).
+
+Checklist §2.3 left UNCHECKED on purpose: `[D]`/`[B]`/`[U]` are all built and unit-verified, but
+the full `[V]` ("generate the same topic under both profiles; scripts differ per profile laws") is
+a paid live check (Claude script-generation calls), deferred to
+`tasks/live-verification-queue.md` §C24 with an exact recipe. Per this chunk's own instructions,
+only tick the checklist once that live check actually passes.
+
+**Deploy-safety assessment:** ff-merge candidate. Additive-only: `script_profile` is NULL for
+every existing row (no backfill needed), the executor seam is proven byte-identical on NULL/blank,
+and both write doors reject unknown ids rather than silently storing garbage. Skew both directions:
+an OLD frontend against a NEW backend never sends `script_profile`, so `create_video`/`update_video`
+behave exactly as before; a NEW frontend against an OLD backend gets a 404 on
+`/api/script-profiles` — the New Video select's data is `undefined` → `scriptProfiles` defaults to
+`[]` → the select still renders with just "Neutral (default)" (fail-soft, not a crash), and
+`ScriptVoiceCard` degrades the same way. No known gaps analogous to C23's dialogue-branch caveat —
+script profiles only affect `brief_translator`'s prompt assembly (a text-generation seam, not a
+per-shot composition path), so there's no partial-coverage branch to disclose.

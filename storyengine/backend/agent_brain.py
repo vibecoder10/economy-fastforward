@@ -220,7 +220,7 @@ def _decision_schema() -> str:
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
-        'camera_preset|lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'camera_preset|script_profile|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
@@ -268,6 +268,11 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "scene 12', 'give the opening a slow push-in', 'put scene 4's camera back to auto') — give the "
         "scene (use the currently-viewing one for 'this scene'), and put the move description (e.g. 'crash "
         "zoom', 'push in', 'auto') in change VERBATIM; free, no confirm needed, reversible by saying 'auto'; "
+        "script_profile=set (or clear) the SCRIPT VOICE for future script writes ('write it in the "
+        "investigative style', 'use the framework explainer voice', 'put the script voice back to neutral') — "
+        "put the voice description ('investigative reveal', 'framework explainer', 'neutral', etc.) in change "
+        "VERBATIM; free, no confirm needed, reversible by saying 'neutral'; does NOT itself rewrite an "
+        "existing script (that's the 'script' verb); "
         "lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
         "Drive; advance=skip the CURRENT stage/gate and move on ('skip this step', 'skip research', 'move on') — "
         "and the script verb skips research automatically when they ask for the script early; "

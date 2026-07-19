@@ -74,6 +74,17 @@ CREATE TABLE videos (
   thesis TEXT,
   executive_hook TEXT,
   script TEXT,
+  -- Editorial-voice pick (migration 098, checklist §2.3/C24): a profile id
+  -- from shared.profiles.script (neutral_v1 default, or the opt-in
+  -- power_doctrine_v1/v2), written by the New Video "Advanced" select, the
+  -- Script tab, or the copilot's "write it in the investigative style".
+  -- NULL = no explicit pick, so pipeline_executor.py's
+  -- _resolve_script_profile_id falls back to "neutral_v1" — the SAME
+  -- default shared.profiles.script.load_script_profile() already uses when
+  -- SCRIPT_PROFILE is unset. No FK (unlike style_preset_id): the catalog is
+  -- a small code-reviewed registry, not admin-mutable data — same
+  -- rationale as assets.camera_preset_id (migration 097).
+  script_profile TEXT,
   seo_description TEXT,
   seo_tags TEXT,
   seo_hashtags TEXT,

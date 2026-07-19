@@ -973,8 +973,8 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
         "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
-        "approve_environments, skip_environments, approve_scene, camera_preset, lock, unlock, drive_push, "
-        "drive_sync, advance — for RUNNING/redoing a SINGLE step. "
+        "approve_environments, skip_environments, approve_scene, camera_preset, script_profile, lock, unlock, "
+        "drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
         "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
         "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
         "skips research automatically. "
@@ -995,6 +995,11 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "'give the opening a slow push-in', 'put scene 4's camera back to auto') — give the scene number "
         "(use 'currently viewing' for 'this scene') and put the move description ('crash zoom', 'push in', "
         "'auto', etc.) VERBATIM in change. Free and reversible, no confirm needed. "
+        "'script_profile' = set or clear the SCRIPT VOICE for future script writes ('write it in the "
+        "investigative style', 'use the framework explainer voice', 'put the script voice back to neutral') — "
+        "put the voice description ('investigative reveal', 'framework explainer', 'neutral', etc.) VERBATIM "
+        "in change. Free and reversible, no confirm needed. Does NOT itself rewrite an existing script — that's "
+        "the 'script' verb. "
         "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
         "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
         "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
@@ -1033,7 +1038,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
-        'camera_preset|lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'camera_preset|script_profile|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'

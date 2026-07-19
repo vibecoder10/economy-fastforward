@@ -393,6 +393,10 @@ export const createVideo = (data: {
   // structural image-generation ENGINE, that picks a free-text aesthetic
   // OVERLAY on top of it. Either, both, or neither may be set.
   style_preset_id?: string;
+  // Optional editorial-voice engine pick (checklist §2.3, C24) — a
+  // shared.profiles.script profile id, e.g. "power_doctrine_v2". Omit for
+  // the neutral default; opt-in only.
+  script_profile?: string;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",
@@ -2928,3 +2932,23 @@ export interface StyleDescriptionsResponse {
 }
 export const getStyleDescriptions = () =>
   fetchApi<StyleDescriptionsResponse>("/api/style-descriptions");
+
+// --- Script profiles (checklist §2.3, C24) ---
+// The editorial-voice engines in shared.profiles.script (neutral_v1 default,
+// power_doctrine_v2/v1 opt-in) — backed by GET /api/script-profiles. A
+// DIFFERENT axis from StylePreset above: this picks the SCRIPT's tone/act
+// structure/voice, not the image-generation engine. Copy (display_name/
+// description/best_for) is pulled server-side from each profile's own
+// template_metadata — never hand-written here.
+export interface ScriptProfile {
+  id: string;
+  display_name: string;
+  description: string;
+  best_for: string[];
+  is_default: boolean;
+}
+export interface ScriptProfilesResponse {
+  profiles: ScriptProfile[];
+}
+export const getScriptProfiles = () =>
+  fetchApi<ScriptProfilesResponse>("/api/script-profiles");

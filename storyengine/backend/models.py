@@ -82,6 +82,11 @@ class VideoDetail(VideoSummary):
     visual_style: Optional[str] = None
     image_style_override: Optional[str] = None
     style_preset_id: Optional[str] = None
+    # Editorial-voice engine pick (checklist §2.3, C24) — a
+    # shared.profiles.script profile id (e.g. "power_doctrine_v2"). NULL =
+    # no explicit pick; the executor's SCRIPT_PROFILE seam falls back to
+    # "neutral_v1" (see pipeline_executor.py's _resolve_script_profile_id).
+    script_profile: Optional[str] = None
     image_model_override: Optional[str] = None
     video_model: Optional[str] = None
     video_length_minutes: Optional[float] = None
@@ -252,6 +257,12 @@ class CreateVideoRequest(BaseModel):
     # kept, and the reference's style is copied onto it — but ONLY for the
     # switched-on stages (pipeline_stages). voice & sound are never copied.
     reference_url: Optional[str] = None
+    # Optional editorial-voice engine pick from shared.profiles.script
+    # (checklist §2.3, C24) — a profile id, e.g. "power_doctrine_v2".
+    # Validated against the real profile registry at create time (mirrors
+    # style_preset_id's validation just above). Opt-in only: omitted /
+    # None keeps the neutral default.
+    script_profile: Optional[str] = None
 
 
 # --- Scripts ---

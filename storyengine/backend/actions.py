@@ -69,6 +69,8 @@ from shared.channel_profile import (  # noqa: E402
 )
 from shared.model_router import resolve_clip_model  # noqa: E402
 from image_prompts.engine.camera_moves import get_move  # noqa: E402
+from shared.profiles.script import list_profiles as _list_script_profiles  # noqa: E402
+from shared.profiles.script import load_script_profile as _load_script_profile  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,16 @@ ACTIONS: dict[str, dict[str, Any]] = {
     # runs straight from the classifier's pick, no confirm card.
     "camera_preset": {"runner": "camera_preset", "paid": False, "needs": "pictures",
                     "doing": "setting the camera move", "label": "Set the camera move"},
+    # C24 (checklist §2.3, UX map §4): "write it in the investigative style" —
+    # the conversational door onto the SAME videos.script_profile column the
+    # ScriptVoiceTab's picker writes (PATCH /api/videos/{id}, body
+    # {"script_profile": ...}). Free (metadata only — it doesn't itself
+    # regenerate the script) and reversible (say "neutral"/"auto" to clear
+    # it), so — like camera_preset — it runs straight from the classifier's
+    # pick, no confirm card. No `needs` gate: a script voice can be set
+    # before OR after the script exists.
+    "script_profile": {"runner": "script_profile", "paid": False, "needs": None,
+                    "doing": "setting the script voice", "label": "Set the script voice"},
     # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
     # if we're before them, else all the way to a finished video. NOT one step.
     "build":       {"calls": None, "paid": True, "needs": None,
@@ -1427,6 +1439,74 @@ async def _runner_finalize(tenant_id, video_id, background_tasks, pending) -> st
     return f"On it — finalizing {len(approved)} approved scene(s) at their routed quality. I'll update you here."
 
 
+# C24 (checklist §2.3): plain-English -> shared.profiles.script profile id,
+# for the copilot's "write it in the investigative style". A real profile id
+# is tried FIRST (see _resolve_script_profile_text) so a classifier that
+# already learned real ids from GET /api/script-profiles still resolves
+# correctly — this alias map is the fallback for ordinary phrasing. Power
+# Doctrine stays opt-in only (never the CLEAR-words target — CLEAR always
+# lands on the neutral default, per storyengine/CLAUDE.md's "Power Doctrine
+# as a default identity... deleted on purpose, don't resurrect").
+_SCRIPT_PROFILE_ALIASES: dict[str, str] = {
+    "investigative": "power_doctrine_v2", "investigative reveal": "power_doctrine_v2",
+    "power doctrine": "power_doctrine_v2", "follow the money": "power_doctrine_v2",
+    "incentive chain": "power_doctrine_v2", "analyst": "power_doctrine_v2",
+    "framework explainer": "power_doctrine_v1", "framework": "power_doctrine_v1",
+    "documentary": "power_doctrine_v1", "teaching": "power_doctrine_v1",
+}
+_SCRIPT_PROFILE_CLEAR_WORDS = frozenset({
+    "auto", "automatic", "clear", "default", "neutral", "neutral_v1", "normal",
+})
+
+
+def _resolve_script_profile_text(text: str) -> tuple[Optional[str], bool]:
+    """Returns (profile_id_or_None, is_clear). is_clear=True means "back to
+    neutral" (the profile engine's own default) — distinct from
+    "unrecognized" (profile_id=None, is_clear=False)."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None, False
+    if t in _SCRIPT_PROFILE_CLEAR_WORDS:
+        return None, True
+    direct = t.replace(" ", "_")
+    if direct in _list_script_profiles():
+        return direct, False
+    for phrase, profile_id in _SCRIPT_PROFILE_ALIASES.items():
+        if phrase in t:
+            return profile_id, False
+    return None, False
+
+
+async def _runner_script_profile(tenant_id, video_id, background_tasks, pending) -> str:
+    """C24 (checklist §2.3, UX map §4): "write it in the investigative
+    style" / "put it back to neutral" — writes videos.script_profile, the
+    SAME column and the SAME registry validation the ScriptVoiceTab's
+    picker uses (PATCH /api/videos/{id}) — two doors, one write path.
+
+    Free and reversible (say "neutral"/"auto" to clear it back to the
+    engine's own default) — no confirm card, same as camera_preset. This
+    verb only sets the voice for the NEXT script write; it does not itself
+    regenerate an existing script (say "rewrite the script" for that)."""
+    text = (pending.get("change") or "").strip()
+    profile_id, is_clear = _resolve_script_profile_text(text)
+    if not is_clear and not profile_id:
+        return (f'I didn\'t recognize "{text}" as a script voice — try "investigative reveal" '
+                '(follow-the-money analyst voice), "framework explainer" (documentary teaching '
+                'voice), or "neutral"/"auto" for the default.')
+    value = None if is_clear else profile_id
+    await execute(
+        "UPDATE videos SET script_profile = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+        value, video_id, tenant_id,
+    )
+    if value is None:
+        return "Script voice reset to neutral — the next script write uses the default craft voice."
+    profile = _load_script_profile(value)
+    name = (profile.template_metadata.display_name if profile and profile.template_metadata
+            else value)
+    return (f"Script voice set to {name} — say \"rewrite the script\" to see it in the next draft "
+            "(this doesn't regenerate an existing script on its own).")
+
+
 RUNNERS = {
     "advance": _runner_advance,
     "seo": _runner_seo,
@@ -1435,6 +1515,7 @@ RUNNERS = {
     "skip_environments": _runner_skip_environments,
     "approve_scene": _runner_approve_scene,
     "camera_preset": _runner_camera_preset,
+    "script_profile": _runner_script_profile,
     "lock": _runner_lock,
     "unlock": _runner_unlock,
     "drive_push": _runner_drive_push,

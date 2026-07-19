@@ -6169,6 +6169,32 @@ def _resolve_visual_profile_id(idea: dict) -> str:
     )
 
 
+def _resolve_script_profile_id(idea: dict) -> str:
+    """Resolve the value written to the SCRIPT_PROFILE env seam (checklist
+    §2.3, C24 — the editorial-voice engines in shared.profiles.script:
+    neutral_v1, power_doctrine_v2, power_doctrine_v1).
+
+    Mirrors _resolve_visual_profile_id's shape exactly: an explicit
+    `script_profile` (routes/videos.py's create_video and update_video both
+    validate it against shared.profiles.script.list_profiles() before it's
+    ever stored, so its value ALWAYS names a real profile id) wins over the
+    "neutral_v1" default. Fail-soft: a missing/blank script_profile (every
+    video created before C24, and every video where a creator never opens
+    Advanced) resolves to "neutral_v1" — the SAME value
+    shared.profiles.script.load_script_profile() already falls back to when
+    SCRIPT_PROFILE is unset (its own DEFAULT_PROFILE_ID), so this reproduces
+    the pre-C24 script voice byte-for-byte. Power Doctrine is never the
+    fallback here — it stays strictly opt-in (storyengine/CLAUDE.md: "Power
+    Doctrine as a default identity" is deleted on purpose).
+
+    idea's dict shape is Airtable-style field names (supabase_adapter.py's
+    _row_to_idea) — pipeline_constants.IdeaFields is the source of truth
+    for those keys, not the raw Supabase column names.
+    """
+    from orchestrator.pipeline_constants import IdeaFields
+    return (idea.get(IdeaFields.SCRIPT_PROFILE) or "").strip() or "neutral_v1"
+
+
 class PipelineExecutor:
     """Executes pipeline stages with StoryEngine integration.
 
@@ -6420,6 +6446,16 @@ class PipelineExecutor:
             os.environ["VISUAL_STYLE_DESCRIPTION"] = (
                 idea.get(IdeaFields.IMAGE_STYLE_OVERRIDE) or ""
             ).strip()
+            # C24: same seam shape as VISUAL_PROFILE just above — the skill
+            # pipeline's brief_translator resolves the editorial voice via
+            # this env var (shared.profiles.script.load_script_profile()
+            # reads SCRIPT_PROFILE, called with no args at
+            # script/brief_translator/__init__.py's `self.profile =
+            # load_script_profile()`). Set unconditionally (not only when a
+            # per-video pick exists) so a previous tenant's/run's value can
+            # never leak into this one — the resolver's own "neutral_v1"
+            # fallback keeps this byte-identical to the pre-C24 default.
+            os.environ["SCRIPT_PROFILE"] = _resolve_script_profile_id(idea)
             self._pipeline.project_folder_id = idea.get(IdeaFields.DRIVE_FOLDER_ID, "")
             # Video config
             video_length = idea.get(IdeaFields.VIDEO_LENGTH_MIN)

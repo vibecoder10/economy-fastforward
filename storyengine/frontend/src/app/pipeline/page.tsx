@@ -1,6 +1,7 @@
 "use client";
 import { Spinner } from "@/components/ui/spinner";
 import { useStyleDescriptions, styleDescriptionIcon } from "@/hooks/use-style-descriptions";
+import { useScriptProfiles } from "@/hooks/use-script-profiles";
 import type { StyleDescription } from "@/lib/api";
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -10,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Film, Loader2, Plus, Clock, Eye, BarChart3,
   RefreshCw, Sparkles, X, ChevronRight, ExternalLink, TrendingUp, Brain, Trash2, GripVertical,
-  AlertTriangle, Key, Lock, CheckSquare,
+  AlertTriangle, Key, Lock, CheckSquare, Mic,
 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -330,6 +331,15 @@ export default function VideosPage() {
   // The six style-description ids (pixar_3d/flat_2d/...) — server-sourced
   // (checklist §C21b), shared with the chat LOOK card via the same hook.
   const { descriptions: styleDescriptions } = useStyleDescriptions();
+  // Optional editorial-voice engine pick (checklist §2.3, C24) — a
+  // shared.profiles.script profile id (e.g. "power_doctrine_v2"), sent as
+  // CreateVideoRequest.script_profile. Blank = the neutral default. Never
+  // preselected to a Power Doctrine id — opt-in only, per
+  // storyengine/CLAUDE.md's "Power Doctrine as a default identity...
+  // deleted on purpose, don't resurrect" rule.
+  const [newScriptProfile, setNewScriptProfile] = useState<string>("");
+  const { data: scriptProfilesData } = useScriptProfiles();
+  const scriptProfiles = scriptProfilesData?.profiles ?? [];
   const [lockInIdentity, setLockInIdentity] = useState<boolean>(false);
   // Which pipeline steps to run for the new video (all on = full video).
   // The stage panel is the single source of truth for research/voice/etc.
@@ -487,6 +497,7 @@ export default function VideosPage() {
       setStylePresetId("");
       setStyleCustom("");
       setStyleEngineId("");
+      setNewScriptProfile("");
       setLockInIdentity(false);
       setSeedSuggestions(null);
       setSeedError("");
@@ -613,6 +624,7 @@ export default function VideosPage() {
       visual_style_label: styleLabel,
       reference_url: newReferenceUrl.trim() || undefined,
       style_preset_id: styleEngineId || undefined,
+      script_profile: newScriptProfile || undefined,
     });
   };
 
@@ -1132,7 +1144,7 @@ export default function VideosPage() {
       </Modal>
 
       {/* === NEW VIDEO MODAL (existing — for returning users) === */}
-      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setStyleEngineId(""); setLockInIdentity(false); }} title="New Video" size="md">
+      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setStyleEngineId(""); setNewScriptProfile(""); setLockInIdentity(false); }} title="New Video" size="md">
         <div className="space-y-4">
           {/* Primary: Topic / Title (optional — a title can be generated below) */}
           <div>
@@ -1616,6 +1628,34 @@ export default function VideosPage() {
                   className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none"
                   style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
                 />
+              </div>
+
+              {/* Script voice — the editorial-voice engine (checklist §2.3,
+                  C24). A DIFFERENT axis from Look engine/Style description
+                  above: this picks HOW the script is written (tone, act
+                  structure), not how it looks. Opt-in only — never
+                  preselected to a Power Doctrine id. */}
+              <div>
+                <label htmlFor="new-script-profile" className="flex items-center gap-1.5 text-xs font-medium mb-1.5" style={{ color: "var(--text-secondary)" }}>
+                  <Mic size={12} style={{ color: "var(--text-tertiary)" }} />
+                  Script voice <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+                </label>
+                <select
+                  id="new-script-profile"
+                  name="script_profile"
+                  value={newScriptProfile}
+                  onChange={(e) => setNewScriptProfile(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg text-sm font-body outline-none cursor-pointer"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                >
+                  <option value="">Neutral (default)</option>
+                  {scriptProfiles.filter((p) => !p.is_default).map((p) => (
+                    <option key={p.id} value={p.id}>{p.display_name}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] mt-1.5 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                  {scriptProfiles.find((p) => (newScriptProfile ? p.id === newScriptProfile : p.is_default))?.description}
+                </p>
               </div>
 
             </div>
