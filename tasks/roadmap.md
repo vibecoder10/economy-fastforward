@@ -377,3 +377,71 @@ These are very different price points. Need to decide:
 ---
 
 *Updated daily. Each session adds to the log and adjusts the plan as we learn.*
+
+---
+
+# Ideas & Enhancements Map — 2026-07-19 (orchestrator synthesis, Ryan-invited)
+
+Ryan: "map out more ideas... I know it's not all it can be." Synthesized from the full build loop
+(C01-C34), the Higgsfield gap analysis, and Ryan's stated visions (director chat, Hermes-style agent,
+one-brain autopilot, Channel DNA, Poco a Poco / Lost Wind Chime). Grouped by leverage; Phase 4
+(DNA + autopilot, see checklist outline) stays the headline — these compose around it.
+
+## A · Creation magic (director gets hands)
+- **A1 Multi-shot sequences ("Lost Wind Chime" mode):** a "sequence" scene type — ONE generation
+  directing N timed shots with continuity (Seedance multi-shot), allowed even on animated channels as
+  the router's explicit exception. Best for intros/emotional montages. (Parked since 07-18, Ryan's
+  own prompt is the spec.)
+- **A2 Scene A/B takes:** draft tier makes 2 cheap variants of a hero scene affordable — show both in
+  chat, tap the winner, only it gets finalized. Extends the trust ladder sideways.
+- **A3 Shorts auto-cut:** derive 2-3 Shorts from every long-form (hook + payoff segments, captions,
+  9:16 recrop via the existing recrop path). Biggest free-distribution lever on YouTube; Higgsfield
+  has nothing here.
+- **A4 Sound direction in chat:** per-shot SFX/ambience notes (Ryan's Wind Chime prompt carries them
+  per beat) — the sound stage reads per-scene direction instead of global-only.
+- **A5 Voice lab:** per-channel narrator identity — stock picker → clone-your-voice onboarding (BYOK
+  ElevenLabs), per-CHARACTER voices for dialogue channels (Poco a Poco).
+
+## B · The flywheel (data closes the loop)
+- **B1 Thumbnail/title A/B via YouTube's native Test & Compare API** — CTR-judged, auto-adopt the
+  winner; feeds the channel-formula thumbnail engine. (The dropped `title_tests` table was this idea's
+  ghost — rebuild it on real API support.)
+- **B2 Retention-curve editing:** ingest per-second audience-retention curves, map drops onto SCENES
+  (we know each scene's timestamp from render config) → "scene 7 loses 12% — want to reshoot just it?"
+  Retention-driven surgical re-edit is the single most differentiated learning feature available.
+- **B3 Real momentum/retention scorer signals:** C32 zeroed the fake ones; C33's VPH snapshots +
+  retention ingestion (B2) are exactly the data pipelines to build them honestly — then the autopilot
+  scorer earns its weights back.
+- **B4 ROI per video:** join the ledger (real cost) with YouTube monetization/revenue API → profit
+  per video, cost per subscriber, by style/model (extends C30's aggregation one field).
+
+## C · Channel-manager / agency mode (Ryan's own persona)
+- **C1 Portfolio console:** one brain, MANY channels — cross-channel dashboard (per-channel autopilot
+  state, budget, VPH alerts), switchable director context ("switch to the machines channel").
+  Workspace plumbing (X-Active-Tenant) already exists.
+- **C2 Agency/white-label:** client channels under one operator, per-client billing off the ledger,
+  approve-only client seat. Turns "channel manager" from a workaround into the ICP.
+- **C3 DNA versioning:** channel style evolves — DNA snapshots with diffs ("v3 tightened hooks,
+  +18% CTR since"), rollback.
+
+## D · Platform/moat
+- **D1 MCP v2:** post-C25a media URLs in tool results, progress streaming, agent webhooks
+  ("video finished → notify my agent"), a public "works with Claude/any agent" story.
+- **D2 Preset/DNA sharing:** creators publish style presets or whole channel DNAs (marketplace or
+  just share-links) — network effects Higgsfield's closed credits model can't copy.
+- **D3 Team seats/roles:** owner / editor / approve-only; the approve-only role composes perfectly
+  with the trust ladder and agent attribution.
+
+## E · Hardening tail (cheap, soon)
+- **E1** Burn down `tasks/live-verification-queue.md` (the coordinated C25a deploy + MCP go-live
+  runbook at top).
+- **E2** S8 render sweep if draft-pass adoption makes render turnaround the bottleneck (deliberately
+  deferred rule from the original plan).
+- **E3** Tenant-facing activity feed (beyond the via-agent chip): every autopilot/agent action listed
+  with cost — the audit trail autopilot mode will make mandatory.
+- **E4** Upload-tab quota chip (C33's flagged follow-up) + budget-ceiling UI (P3.3 remnant).
+
+**Recommended order after the current queue closes (C34b/c, C35, C36, C37):** P4.1 DNA → A1 + A3
+(fast wins with outsized reach) → P4.2 autopilot (graduated dial) → B2 retention editing → B1 A/B →
+C1 portfolio. B4/D1 slot in behind the coordinated deploy. This sequencing keeps every step shippable
+and each one feeds the flywheel the next one needs.
