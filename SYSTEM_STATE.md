@@ -7685,3 +7685,153 @@ original live-verification ask (this chunk gives it its first real caller).
 DNA object; reconcile `identity.py`'s per-request injection vs `system_prompts.py`'s one-shot `tenant_
 prompt_defaults` writes (they can silently fight today); reconcile the TWO thumbnail-formula impls
 (`pipeline_executor` vs `identity_builder`).
+
+## C43 — P4.1d Channel-DNA consumption audit + convergence (added 2026-07-19)
+
+Fourth build chunk of Phase 4 Pillar 1. Traces every generation path to confirm it reads the ONE
+saved DNA object through a documented seam, then reconciles the two risks the P4.1 scout flagged:
+`system_prompts.py` silently fighting `identity_builder`'s writes, and two independent thumbnail-
+formula code paths drifting apart. Audit-first, smallest-correct-fix — no big refactor.
+
+### Consumption audit (every generation path traced to its DNA seam)
+
+All 5 entry points (chat `routes/chat.py`, the arq queue worker `worker.py`, `routes/autopilot.py`,
+direct API routes `routes/pipeline.py`/`routes/videos.py`, and `routes/queue.py`) instantiate the SAME
+`pipeline_executor.PipelineExecutor(tenant_id)` and call its `run_*` stage methods — there is
+genuinely ONE execution engine, not a parallel per-door implementation of any stage.
+
+| Path (`PipelineExecutor` method) | Reads DNA via | Gap? |
+|---|---|---|
+| `run_script`, `run_machine_script_preview/block` | `_load_prompt_overrides` → `build_identity_context` → `resolve_prompt` (per-video > tenant > identity-filled neutral template) | none |
+| `run_research` | same, PLUS a direct `channel_identity->'research_approach'` read appended as extra context (pipeline_executor.py:7727-7742) | none — documented equivalent pattern |
+| `run_thumbnail` (legacy from-scratch path) | same, PLUS a direct `channel_identity->'thumbnail_style'` read appended to `thumbnail_system_prompt` (pipeline_executor.py:7385-7405) | none |
+| `run_thumbnail` → `_run_channel_formula_thumbnail` (own-brand modeling, tried FIRST) | direct `channel_identity->>'thumbnail_blueprint'` + `channel_identity->'thumbnail_style'` (as "consensus", explicitly overriding the blueprint on conflict) reads (pipeline_executor.py:14403,14432) | none — see thumbnail convergence below |
+| `run_video_scripts` (motion prompts) | `_load_prompt_overrides` (`video_motion` key) | none |
+| `run_video_generation` (clip generation) | none directly — consumes the motion instructions `run_video_scripts` already wrote to DB | none — identity already baked in upstream |
+| `run_prompts`, `run_storyboard_prompts`, `run_storyboard_images`, `run_images` | `_export_visual_style` → `build_identity_context` → `VISUAL_STYLE_DESCRIPTION`/`CHANNEL_NICHE` env seam (skills pipeline can't import the backend) | none — documented sibling seam to `_load_prompt_overrides`, same source function |
+| `run_coverage_stage` → `static_docu.generate_static_images_for_video` (static-docu render mode) | direct `channel_identity->'visual_format'` read (`static_docu.static_mode_for_tenant`) | none — reads one known key, structurally envelope-safe, same pattern C40 already audited |
+| `run_sound_prompts`/`run_sound_effects` | `_load_prompt_overrides` (no engine template for these keys — `resolve_prompt` returns `None`, bot's own neutral default is used unless a tenant override exists) | none — by design (docs/image-prompt-engine.md style split, no DNA-derived sound craft yet) |
+| `run_render`, `run_upload`, `run_voice` | none | none — mechanical/TTS stages, no creative-voice injection point |
+| chat's `_export_visual_style`/character/environment generation | same `build_identity_context` seam via `routes/characters.py` helpers reused by `run_characters` | none |
+
+**Gap assessed, not fixed:** the scout flagged "creator_brief never reaches generation." Traced:
+`routes/chat.py`'s `creator_brief` JSONB (`_BRIEF_KEYS = ("intent", "goals", "niche_angle", "channel",
+"competitors")`) is conversation-continuity memory for the CHAT PRODUCER (so a fresh chat session
+doesn't re-ask what it already knows) — a different column, different purpose, from the
+voice/hook/structure DNA that `identity.py`/`identity_builder` feed into generation. Confirmed correct
+design, not a gap: forcing it into the generation seam would conflate "what the creator told the
+producer once" with "how the channel's own videos actually sound," which is exactly the DNA-from-
+real-videos principle `identity_builder.py`'s own docstring states ("Source of truth = the videos, not
+operator input").
+
+### Precedence law: already correct, now provenance-visible
+
+`pipeline_executor.resolve_prompt` (pinned by the pre-existing `tests/test_resolve_prompt.py`) already
+implements: per-video override > tenant override (`tenant_prompt_defaults`) > neutral engine template
+filled with the channel's identity. A tenant override still gets `engine_templates.safe_fill`'s
+identity substitution — this was already the checklist's recommended law, verified correct, no code
+change needed there.
+
+The REAL risk was silence, not precedence: `routes/system_prompts.py::generate_prompts` (the "generate
+my prompts from a style description" endpoint) wrote `channel_profiles.style_description` with a
+BLIND `UPDATE` — the exact same column `identity_builder.build_channel_identity` COALESCE-writes and
+stamps into `channel_identity._sources`. A creator running "generate prompts" after DNA-learning ran
+could silently erase the learned voice with zero record of who did it. Fix: `generate_prompts` now
+ALSO read-modify-writes `channel_identity` through `channel_dna_meta.stamp_identity_write(learner=
+"system_prompts")` before its existing column write — same precedence, same behavior, but a later
+`channel_dna` digest now shows the overwrite (`_sources.style_description.learner == "system_prompts"`)
+instead of it vanishing silently, and any OTHER identity_builder-owned field (e.g. `voice_tone`)
+survives untouched (proven by test — the merge-not-replace guarantee C40 built stamp_identity_write
+for).
+
+### Thumbnail-formula convergence: shared vision-call primitive, not a schema merge
+
+Confirmed what each of the two flagged code paths actually does before choosing (per the chunk's own
+hedge):
+- `identity_builder._thumbnail_style` — vision pass over UP TO 3 of the channel's top thumbnails →
+  an AGGREGATE consensus style JSON (`layout`/`subject`/`text_style`/`color_palette`/`mood`/
+  `recurring_elements`), written to `channel_identity.thumbnail_style`.
+- `routes/model_video.py::_describe_thumbnail_style` (called from `pipeline_executor.
+  _run_channel_formula_thumbnail`) — vision pass over the ONE best-performing thumbnail → a DETAILED
+  per-image blueprint (style/scene/objects/composition/text tiers/palette), cached via
+  `pipeline_executor._cache_channel_thumbnail_blueprint` into `channel_identity.thumbnail_blueprint`.
+
+These are not duplicate computations of the same thing — different schemas for different consumers.
+`_run_channel_formula_thumbnail` already treats them as complementary: it reads BOTH fields and
+explicitly has `thumbnail_style` ("consensus") WIN any conflict with `thumbnail_blueprint` when
+transforming a spec for a new video (pipeline_executor.py:14424-14440, `_transform_channel_thumbnail_
+spec`'s prompt literally says "wins any conflict with the blueprint"). Collapsing the two JSON schemas
+into one would be a bigger, riskier refactor than this chunk's own "smallest correct changes"
+constraint allows, and would risk breaking that existing tie-break logic.
+
+The GENUINE drift risk was reliability, not schema: `identity_builder._thumbnail_style` hit Kie's
+Claude gateway directly with a raw httpx POST — the EXACT endpoint `shared/clients/vision_client.py`
+exists to route around, because (per that module's own docstring) it "has twice drifted into silently
+dropping image blocks — HTTP 200, plausible text, but the model never saw the pixels."
+`_describe_thumbnail_style` already used the safe `vision_call` helper for this reason (its own
+docstring: "NOT the Claude gateway directly: the gateway silently drops image blocks when it
+drifts"). Fix: `identity_builder._thumbnail_style` now calls the SAME `vision_call` primitive
+(`kie_key=..., tier="fast", max_tokens=1400`, images capped at 3 as before) instead of its own
+bespoke httpx call — one safe vision-call implementation now backs both thumbnail-formula learners,
+closing the reliability drift, while their two distinct JSON artifacts (and the pipeline's existing
+consensus-wins-over-blueprint precedence) stay exactly as they were. `_KIE_CLAUDE_URL` (now dead)
+removed; `CLAUDE_MODELS` import (no longer used in this file) removed.
+
+**Byte-identity proof for the no-DNA fallback:** `pipeline_executor.py` — home of
+`_run_channel_formula_thumbnail`, `_cache_channel_thumbnail_blueprint`, and the entire own-brand-vs-
+legacy fallback chain — has ZERO lines changed by this chunk (`git diff --stat -- pipeline_executor.py`
+is empty). The convergence lives entirely inside `identity_builder.py`'s vision-call primitive, so a
+tenant with no channel DNA (no top thumbnail, no blueprint, no key) hits the exact same short-circuits
+in the exact same order as before.
+
+### Verify
+
+New `storyengine/backend/tests/functional/test_c43_dna_convergence.py`, 5 tests: (1)
+`generate_prompts` stamps `style_description` into `channel_identity._sources` with
+`learner="system_prompts"` while an unrelated prior `identity_builder` field (`voice_tone`) survives
+byte-for-byte, and a `_history` entry records the overwrite; (2) the existing 6-row
+`tenant_prompt_defaults` write is unaffected (regression guard); (3) `_thumbnail_style` calls
+`vision_call` exactly once with the expected `kie_key`/`tier="fast"`/`max_tokens=1400`/images-capped-
+at-3 args, and `_KIE_CLAUDE_URL` no longer exists on the module (proves this is a real replacement,
+not a second parallel path); (4) no key or no thumbnail URLs still returns `None` (byte-identical
+short-circuit); (5) every vision provider failing (`VisionUnavailable`) degrades to `None`, never
+raises. Non-vacuous: `git stash -u` (identity_builder.py/routes/system_prompts.py modified, the new
+test file untracked) reproduces the exact pre-chunk baseline (**1370 passed / 15 failed / 1 error**,
+confirmed live), then the stash was popped back. `pipeline_executor.py`'s own diff-stat is empty
+(quoted above) — the strongest possible proof of the fallback-ordering claim.
+
+**Full backend suite**: `./venv/bin/python -m pytest tests/ -q` → **1375 passed** (1370 baseline + 5
+new C43 tests) **/ 15 pre-existing failures / 1 pre-existing error** — zero new failures. `py_compile`
+clean on all touched/new `.py` files. `tests/test_resolve_prompt.py` (precedence law),
+`tests/test_channel_dna_meta.py` (envelope), and `tests/functional/test_system_prompts_generate.py`
+(source-audit) all still pass unmodified — 33/33.
+
+Frontend: untouched (this chunk is entirely a backend consumption/convergence fix — no new UI
+surface, no API shape change any frontend code depends on). No `npx tsc`/`npm run build` re-run
+needed; nothing in `storyengine/frontend/` has a diff.
+
+### Modified Files (C43)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/system_prompts.py` | `generate_prompts` now also stamps `channel_identity.style_description` via `channel_dna_meta.stamp_identity_write(learner="system_prompts")` before its existing column write |
+| `storyengine/backend/identity_builder.py` | `_thumbnail_style` now calls `shared.clients.vision_client.vision_call` instead of a raw httpx POST to Kie's Claude gateway; dead `_KIE_CLAUDE_URL` constant and unused `CLAUDE_MODELS` import removed |
+| `storyengine/backend/tests/functional/test_c43_dna_convergence.py` | NEW — 5 tests |
+
+### Deploy-safety assessment
+
+No migration, no schema change, no new route, no frontend surface. Both fixes preserve existing
+return shapes and existing precedence/fallback behavior for every caller — proven by
+`pipeline_executor.py` having a zero-line diff and by the "unrelated field survives" + "no-key/no-url
+short-circuit unchanged" tests above. Safe to ff-merge.
+
+**Deferred to `tasks/live-verification-queue.md` §C43:** a real "generate prompts" run against a
+tenant with DNA already learned, confirming the digest (`show the channel digest`) surfaces the
+`system_prompts` provenance tag on `style_description`; a real `_thumbnail_style` vision call against
+real thumbnails, confirming the Gemini-first `vision_call` chain returns usable JSON on live Kie
+credentials (no live vision call was made this chunk — all 5 tests mock `vision_call`/`httpx`).
+
+**Next chunk: C44 · corrections loop wiring** — formalize the LLM-classified remember/forget routing
+that C42's digest-card "correct" action deliberately deferred (today it's a deterministic form-post to
+`_save_preference`, not the full natural-language classification `_handle_copilot`'s remember/forget
+triggers already do elsewhere).

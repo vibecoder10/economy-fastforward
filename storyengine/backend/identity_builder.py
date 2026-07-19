@@ -26,7 +26,7 @@ import httpx
 
 from database import execute, fetch_all, fetch_one
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
-from actions import CLAUDE_MODELS, claude_model_for_direct_client
+from actions import claude_model_for_direct_client
 # Provenance envelope (checklist C40) — every channel_identity writer must
 # read-modify-write through this so unrelated fields (another writer's
 # visual_format, thumbnail_blueprint, ...) and the _sources/_history
@@ -35,7 +35,6 @@ from channel_dna_meta import coerce_identity, stamp_identity_write
 
 FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape"
 _YT_VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos"
-_KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
 
 IDENTITY_PROMPT = (
     "You are reverse-engineering a YouTube channel's identity from its OWN top videos so "
@@ -176,31 +175,41 @@ async def _ranked_videos(tenant_id: str, limit: int) -> list[dict]:
 
 async def _thumbnail_style(tenant_id: str, thumb_urls: list[str]) -> Optional[dict]:
     """Vision pass over the top thumbnails -> a repeatable thumbnail formula (JSON).
-    Uses the tenant's Kie Claude vision path (proven). Skips gracefully if no Kie key."""
+
+    Checklist C43 (thumbnail-formula convergence): this used to hit Kie's
+    Claude gateway directly with a raw httpx POST — the exact endpoint
+    `shared.clients.vision_client` was built to route AROUND, because that
+    gateway has twice silently dropped image blocks (HTTP 200, plausible
+    text, no pixels actually seen — see that module's own docstring).
+    `routes/model_video.py::_describe_thumbnail_style` (the OTHER thumbnail-
+    formula extractor — writes `channel_identity.thumbnail_blueprint`, read
+    by `pipeline_executor._run_channel_formula_thumbnail`) already goes
+    through `vision_call` for exactly that reason. Converging this learner
+    onto the SAME safe primitive closes the drift risk between the two
+    thumbnail-formula code paths without merging their two distinct JSON
+    schemas (this one aggregates a consensus style across up to 3 thumbnails
+    for prompt-injection; the other extracts one detailed blueprint for
+    image-generation transformation) — those still serve different
+    consumers and stay separate. Skips gracefully if no Kie key or no
+    thumbnails; any provider failure (including every provider in the
+    vision_call chain failing) returns None exactly as the old bare
+    try/except did, so a tenant with no working vision path sees identical
+    behavior to before."""
     from vault import get_secret
+    from shared.clients.vision_client import vision_call
+
     key = await get_secret("kie_ai_api_key", tenant_id)
     if not key or not thumb_urls:
         return None
-    content: list[dict] = [{"type": "text", "text": THUMB_PROMPT}]
-    for u in thumb_urls[:3]:
-        content.append({"type": "image", "source": {"type": "url", "url": u}})
     try:
-        async with httpx.AsyncClient(timeout=90.0) as c:
-            r = await c.post(
-                _KIE_CLAUDE_URL,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                # 1400 tokens: the formula JSON alone can exceed 700 and a
-                # truncated reply fails json.loads -> the style silently
-                # vanished from rebuilt identities (bit DVU 2026-07-01).
-                json={"model": CLAUDE_MODELS["kie"]["fast"], "max_tokens": 1400,
-                      "messages": [{"role": "user", "content": content}]},
-            )
-        body = r.json()
-        if "content" not in body:
-            return None
-        txt = "\n".join(b.get("text", "") for b in body["content"] if b.get("type") == "text")
-        return _parse_json(txt) or None
-    except Exception:  # noqa: BLE001
+        # 1400 tokens: the formula JSON alone can exceed 700 and a truncated
+        # reply fails json.loads -> the style silently vanished from rebuilt
+        # identities (bit DVU 2026-07-01) — preserved from the old call.
+        raw = await vision_call(
+            THUMB_PROMPT, thumb_urls[:3], kie_key=key, tier="fast", max_tokens=1400,
+        )
+        return _parse_json(raw) or None
+    except Exception:  # noqa: BLE001 — VisionUnavailable or any provider failure
         return None
 
 

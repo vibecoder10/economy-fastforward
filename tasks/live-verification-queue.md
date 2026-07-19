@@ -2319,6 +2319,41 @@ just a VPS Python-REPL exercise.
 
 ---
 
+## C43 — Channel-DNA consumption audit + convergence · live checks
+
+Both fixes were verified with mocked externals (Claude API, `vision_call`) — no live Claude call, no
+live vision call, this chunk. SYSTEM_STATE.md §C43.
+
+- [ ] **`generate_prompts` provenance shows up in the real digest.** On a tenant that already has
+      DNA learned (`channel_identity.style_description` set with `_sources.style_description.learner
+      == "identity_builder"`), call `POST /api/system-prompts/generate` with a fresh
+      `style_description` from the Settings > System Prompts page. Confirm: (a) `se db "SELECT
+      channel_identity->'_sources'->'style_description' FROM channel_profiles WHERE tenant_id='<id>'"`
+      now shows `"learner": "system_prompts"`; (b) "show the channel digest" in chat renders the
+      `style_description` field row with that new provenance, not the old `identity_builder` tag; (c)
+      any OTHER field (e.g. `voice_tone`) still shows `"learner": "identity_builder"` untouched.
+- [ ] **`_thumbnail_style` against a real Kie key.** On a tenant with `kie_ai_api_key` configured and
+      at least 3 imported `channel_videos` with `thumbnail_url` set, call
+      `identity_builder.build_channel_identity(tenant_id)` (or trigger via "learn my channel" in
+      chat). Confirm: (a) it completes without raising; (b) `channel_identity->'thumbnail_style'` is
+      populated with real JSON (not empty/null) — this is the first LIVE exercise of the new
+      `vision_call`-routed path (Gemini-first per that helper's provider chain, falling back to Kie
+      Claude); (c) tail backend logs for the run — no "gateway silently dropped image blocks"-shaped
+      failure (a refusal-marker log line from `vision_client._looks_like_refusal`, if it fires, means
+      the SAME drift the convergence was meant to catch — flag immediately, don't silently retry).
+- [ ] **Own-brand thumbnail generation still produces a real image.** On a channel with its own
+      thumbnails imported (own-brand modeling path, `_run_channel_formula_thumbnail`), generate a
+      thumbnail for a new video. Confirm it still completes and looks like a plausible match to the
+      channel's own thumbnail style — this exercises the UNCHANGED `pipeline_executor.py` path end to
+      end, confirming the byte-identity proof (zero-line diff) holds in practice, not just in the
+      diff.
+- **Cost:** the `generate_prompts` check is a normal Claude call (existing feature, no new cost). The
+  `_thumbnail_style` check costs whatever `build_channel_identity`'s vision pass already costs
+  (unchanged — same provider tier, same 3-thumbnail cap) — this is re-running an existing paid
+  learner, not a new spend category.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

@@ -146,7 +146,44 @@
   object; reconcile `identity.py`'s per-request injection vs `system_prompts.py`'s one-shot
   `tenant_prompt_defaults` writes (can silently fight today); reconcile the TWO thumbnail-formula
   impls (`pipeline_executor` vs `identity_builder`).
-- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C43 (C40/C41/C42 done).
+- **Also done:** C43 · P4.1d consumption audit + convergence — DONE 2026-07-19, full detail in
+  SYSTEM_STATE.md §C43. Audit: traced every generation path (chat/queue-worker/autopilot/direct-routes
+  all instantiate the SAME `PipelineExecutor`, one execution engine, not parallel implementations) —
+  every stage reads channel DNA through `_load_prompt_overrides`/`_export_visual_style` →
+  `build_identity_context` → `resolve_prompt`/env-seam, or a documented direct `channel_identity->'...'`
+  read (research_approach, thumbnail_style, thumbnail_blueprint, static_docu's visual_format) — zero
+  undocumented gaps found. `creator_brief` NOT reaching generation assessed as CORRECT DESIGN (chat-
+  continuity memory, not voice DNA — forcing it in would conflate "what the creator once said" with
+  "how the channel's own videos actually sound," identity_builder's own stated principle), not fixed.
+  Precedence law (per-video > tenant override > identity-filled neutral template) confirmed already
+  correct via the pre-existing `test_resolve_prompt.py` — no code change there. Real risk was SILENCE:
+  `routes/system_prompts.py::generate_prompts` blind-overwrote `channel_profiles.style_description` (the
+  same column `identity_builder` COALESCE-writes + stamps) with zero provenance — now it ALSO
+  read-modify-writes `channel_identity` via `channel_dna_meta.stamp_identity_write(learner=
+  "system_prompts")` so a later DNA digest shows the overwrite; unrelated identity_builder fields
+  survive untouched (proven by test). Thumbnail convergence: confirmed the two flagged impls
+  (`identity_builder._thumbnail_style` = consensus-across-3-thumbnails aggregate; `routes/model_video.
+  _describe_thumbnail_style` = one detailed blueprint, feeding `pipeline_executor.
+  _run_channel_formula_thumbnail`) are NOT duplicate computations — different schemas for different
+  consumers, and the pipeline already treats identity_builder's output as the authoritative tie-breaker
+  over the blueprint on conflict. Collapsing schemas was rejected as bigger-than-warranted; the real
+  drift was RELIABILITY — `_thumbnail_style` hit Kie's Claude gateway directly with a raw httpx call,
+  the exact endpoint `shared/clients/vision_client.py` exists to route around (twice-drifted silent
+  image-block-drop bug). Converged it onto the SAME safe `vision_call` primitive
+  `_describe_thumbnail_style` already used; `pipeline_executor.py` itself has a ZERO-line diff this
+  chunk (git diff --stat empty) — the strongest possible proof the no-DNA fallback ordering stayed
+  byte-identical. VERIFIED: 5 new tests non-vacuous via `git stash -u` (reproduces exact pre-chunk
+  baseline 1370P/15F/1E), full suite **1375P/15F/1E** = baseline+5 zero new failures, `py_compile`
+  clean, `test_resolve_prompt.py`/`test_channel_dna_meta.py`/`test_system_prompts_generate.py` (33
+  tests) all pass unmodified. Frontend untouched (no diff, no new UI surface). No migration, no schema
+  change, no new route — safe to ff-merge. Live verification (a real DNA digest showing the
+  `system_prompts` provenance tag; a real vision_call against live Kie thumbnails) deferred →
+  `tasks/live-verification-queue.md` §C43.
+  **Next up: C44 · corrections loop wiring** — formalize the LLM-classified remember/forget routing
+  C42's digest-card "correct" action deliberately deferred (today: a deterministic form-post to
+  `_save_preference`, not the full natural-language classification `_handle_copilot`'s remember/forget
+  triggers already do elsewhere).
+- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C44 (C40/C41/C42/C43 done).
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 
 ## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)

@@ -12,6 +12,16 @@ from error_utils import humanize_error
 from prompt_defaults import PROMPT_DEFAULTS, META_PROMPT_TEMPLATE
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
 from actions import CLAUDE_MODELS
+# Provenance envelope (checklist C40/C43): this endpoint's style_description
+# write used to be a blind `UPDATE ... SET style_description = $2` — the
+# SAME column identity_builder.build_channel_identity writes (COALESCE) and
+# stamps into channel_identity._sources. A manual "generate my prompts"
+# here could silently overwrite a DNA-learned voice with no record of who
+# did it or when. Stamping through the shared helper doesn't change the
+# precedence (a later identity_builder rebuild still COALESCEs and this
+# route still always wins its own column write) — it only makes the
+# overwrite VISIBLE in the next channel-DNA digest instead of silent.
+from channel_dna_meta import coerce_identity, stamp_identity_write
 
 logger = logging.getLogger(__name__)
 
@@ -182,10 +192,21 @@ async def generate_prompts(body: StyleGenerateRequest, tenant_id: str = Depends(
             tenant_id, key, generated[key],
         )
 
-    # Save style_description to channel_profiles
+    # Save style_description to channel_profiles, AND stamp the same value
+    # into channel_identity's provenance envelope (learner="system_prompts")
+    # so a later DNA digest shows this manual override instead of it being
+    # a silent, unattributed overwrite of whatever identity_builder learned.
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id = $1", tenant_id
+    )
+    current = coerce_identity((row or {}).get("channel_identity"))
+    merged = stamp_identity_write(
+        current, {"style_description": body.style_description}, learner="system_prompts"
+    )
     await execute(
-        "UPDATE channel_profiles SET style_description = $2 WHERE tenant_id = $1",
-        tenant_id, body.style_description,
+        "UPDATE channel_profiles SET style_description = $2, channel_identity = $3::jsonb "
+        "WHERE tenant_id = $1",
+        tenant_id, body.style_description, json.dumps(merged),
     )
 
     return {
