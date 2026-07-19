@@ -4080,3 +4080,180 @@ touched — no Python suite run, correctly (nothing to run). No frontend unit-te
 this repo; no Playwright click-through was run this session — deferred to
 `tasks/live-verification-queue.md` §C19a (one build running → banner + tab both show progress;
 completion refreshes assets exactly once, not 2-3x).
+
+## C21a — Card-Kind Lookup Refactor + New Video "Look Engine" Gallery (added 2026-07-19)
+
+**Split from C21 (checklist §2.1 [U]).** The full C21 brief was: gallery UI in
+both doors + chat LOOK card sourced from `GET /api/style-presets` + DELETE
+`visual-presets.ts`/`producer_prompt.VISUAL_PRESETS` + producer/chat backend
+sourcing. Tracing the deletion (Step 1 of the wiring-audit protocol, before
+touching code) surfaced a real entanglement that changes the risk profile:
+`routes/chat.py`'s `_detect_reference_style_preset` + `_annotate_style_
+recommendation` ALSO import `producer_prompt.VISUAL_PRESETS`, but for a
+DIFFERENT purpose than the LOOK card — a vision call classifies a modeled
+reference video's animation medium (3D CG vs 2D flat vs anime vs
+photoreal...) into one of those 6 ids, entirely unrelated to which of the 5
+`style_presets` ENGINE rows (holographic_hud, clay_mannequin, ...) is
+picked. Deleting the dict without first deciding how (or whether) to keep
+that vision-classification feature working is exactly the kind of
+"patch around a design flaw" CLAUDE.md's Anti-Bandaid rule says to stop and
+question — so this chunk ships C21a (the safe, self-contained, high-value
+half) and defers C21b (deletions + producer backend sourcing + the chat
+LOOK card + the vision-detector fix) to its own pass. This is the exact
+split the chunk brief itself pre-authorized ("Too big → split C21a/C21b").
+
+**C21a scope — frontend only, two independent pieces:**
+
+1. **S9-3 fix — one `cardKind()` lookup replaces 4 scattered `card.id`
+   string-match sites in `ChatCore.tsx`** (audit's L201, 460-479, 685-691,
+   1349 — all four confirmed still present pre-change by direct read, not
+   re-trusting the audit's line numbers). `cardKind(card): "prompt_apply" |
+   "confirm_action" | "secure_key" | "connect" | "images" | "generic"` is
+   the ONE place a card gets classified; every render site now branches on
+   its result instead of comparing `card.id`/a field inline:
+   - The `actionCard` finder (`lastCards?.find(...)`) now checks
+     `ACTION_CARD_KINDS.has(cardKind(c))` instead of a 3-literal `||` chain.
+   - The 3-branch `actionCard?.id === "X" && <Component>` JSX became ONE
+     `ACTION_CARD_RENDERERS: Partial<Record<CardKind, () => ReactNode>>`
+     lookup + `{actionCard && !sending && ACTION_CARD_RENDERERS[cardKind(actionCard)]?.()}`
+     — every prop/handler byte-identical to the branch it replaces (confirmed
+     by diff: only the dispatch shape changed, not a single callback body).
+   - `MessageThread`'s inline scene-boards filter now reads
+     `cardKind(c) === "images"` (same field-based guard as before, just
+     routed through the shared function instead of its own inline check).
+   - `SelectorCards`' connect-button check now reads `cardKind(card) === "connect"`.
+   - Before: 4 independent literal comparisons, no shared vocabulary. After:
+     1 function + 1 render-lookup table; a 5th card kind (C21b's LOOK
+     gallery) is one new `if` in `cardKind()` + one new entry in
+     `ACTION_CARD_RENDERERS`/an options-renderer, not a 5th scattered check.
+   - `isSliderCard` (a pre-existing single unified helper, not one of the
+     audit's 4 scattered sites) is untouched.
+
+2. **New Video "Look Engine" gallery** (`app/pipeline/page.tsx`) — the FIRST
+   UI to ever send `style_preset_id` (C20 wired the backend end-to-end but
+   no caller ever populated it). New section, clearly separate from and
+   ABOVE the existing "Style description" section (renamed from "Visual
+   style" for clarity — same fields/logic, untouched):
+   - **Two independent, complementary axes, both visible at once** (S9-5):
+     "Look engine" (new, optional, `style_preset_id` — WHICH engine's
+     scene/camera/composition craft runs) sits above "Style description"
+     (existing, optional, `image_style_override`/`visual_style_label` — a
+     free-text aesthetic layered on top). Helper copy under each explains
+     the distinction; picking one never clears the other, and both travel
+     independently in `createVideo`'s payload. This is the UI reconciliation
+     C21's brief asked for — NOT a backend merge (there is none; C20 already
+     established these are different `videos` columns feeding different env
+     seams).
+   - New `frontend/src/hooks/use-style-presets.ts` — `useStylePresets()`
+     wraps `useQuery({queryKey: ["style-presets"], queryFn: getStylePresets,
+     staleTime: 5min})`, mirroring `ScenesWorkspaceTab`'s `["models"]` query
+     exactly (same staleTime, same "long-lived code-derived catalog" reasoning).
+     ONE fetcher (`getStylePresets` in `lib/api.ts`); C21b's chat LOOK card
+     reuses the SAME hook so React Query dedupes the request under the SAME
+     key instead of each door fetching its own copy.
+   - New `frontend/src/components/style/StylePresetGallery.tsx` — the
+     reusable gallery card grid: loading (spinner), error (message + retry
+     button calling `refetch()`), empty (fail-soft text: "your channel's
+     default will be used" — matches `_resolve_visual_profile_id`'s own
+     fail-soft chain, so the copy is honest about what happens), and the
+     populated grid (display_name, up to 2 `best_for` tags, a `cost_tier`
+     badge). **S9-4 onError, built in from the start:** since NO seeded
+     `python_profile` row has a `preview_url` yet (confirmed via C20's live
+     row check), "no url" is treated as the NORMAL case — a labeled
+     placeholder icon, not a broken `<img>` pointed at nothing; a future
+     `preview_url` that 404s falls back the same way via `onError`.
+   - `lib/api.ts` gained `StylePreset`/`StylePresetsResponse` types (mirror
+     the backend `StylePresetResponse` field-for-field) + `getStylePresets()`
+     + `style_preset_id?: string` on `createVideo`'s payload type (the
+     frontend `createVideo` type had NEVER gained this field — C20 was
+     backend-only, confirmed via that chunk's own "frontend untouched"
+     note).
+   - `handleCreate` now sends `style_preset_id: styleEngineId || undefined`
+     alongside the existing `image_style_override`/`visual_style_label` —
+     additive, the existing style-description flow's payload fields are
+     unchanged. New `styleEngineId` state resets on both modal-close and
+     mutation-success (mirroring `stylePresetId`/`styleCustom`'s existing
+     reset sites).
+   - **S9-4 also fixed on the PRE-EXISTING "Style description" preset grid**
+     (the 6-item picker, still live until C21b deletes it): new
+     `PresetPreviewImage` (page.tsx) and `PresetOptionImage` (ChatCore.tsx)
+     wrap the old bare `<img>` with the same onError → label-swap pattern,
+     since that picker remains user-facing for one more chunk and the
+     constraint was scoped to "C21," not specifically "C21b."
+
+**C21b — what's left, and the recommended approach (for whoever picks it
+up):** delete `visual-presets.ts` + `producer_prompt.VISUAL_PRESETS`; make
+`_spec_to_create_request` in `routes/chat.py` set `CreateVideoRequest.
+style_preset_id` directly from the card pick (drop the `VISUAL_PRESETS`
+dict lookup entirely — `style_preset_id` is validated downstream by
+`_resolve_style_preset_id` already, no backend duplication needed); add a
+fail-soft `_style_presets_brief(tenant_id)` (try/except → a minimal
+hardcoded 1-2-line default, never a crashed turn) injected into BOTH brief
+compositions (`_seed_producer` ~L2990, `chat_turn`'s intake turn ~L3626) so
+Claude's LOOK card options come from the live table instead of a hardcoded
+6-value instruction (`PRODUCER_SYSTEM_PROMPT`'s CARD GUIDANCE "LOOK" bullet
+needs rewriting to reference that block, matching how `reference_url`'s
+"use these EXACT values" pattern already works elsewhere in the prompt); add
+the new gallery-card kind to `ChatCore.tsx`'s `cardKind()`/renderer tables
+(this chunk built the lookup specifically so this is a one-entry addition).
+**The vision-detector entanglement:** `_detect_reference_style_preset` +
+`_annotate_style_recommendation`'s style-card branch answer "what does the
+reference video's ANIMATION MEDIUM look like" (pixar_3d/flat_2d/realistic/
+anime/watercolor/comic) — a question with NO correct answer in the engine
+catalog's vocabulary (holographic_hud/cinematic_dossier/clay_mannequin/
+cinematic_illustration/neutral_v1 aren't animation-medium categories).
+Recommended fix: give the vision classifier its OWN small private constant
+(e.g. `_REFERENCE_VISION_STYLES` inside `chat.py`, not exported, not a
+second copy of a "duplicated list" since it now serves ONLY this one
+narrow purpose) so the reference-modeling feature keeps working unchanged,
+while the LOOK gallery card's options come from the DB and the
+`recommended_value`/`recommended_hint` annotation either stops firing on
+that card (mismatched vocabulary) or is dropped entirely until a genuine
+vision-classify-into-5-engines prompt is designed — NOT attempted here, out
+of scope for a mechanical deletion pass.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/frontend/src/hooks/use-style-presets.ts` | Shared `useStylePresets()` — one `["style-presets"]` query, reused by the New Video gallery and (C21b) the chat LOOK card |
+| `storyengine/frontend/src/components/style/StylePresetGallery.tsx` | The reusable Look Engine gallery card grid — loading/error/empty states, onError-safe preview images |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/frontend/src/lib/api.ts` | `StylePreset`/`StylePresetsResponse` types + `getStylePresets()`; `createVideo`'s payload type gains `style_preset_id?: string` |
+| `storyengine/frontend/src/app/pipeline/page.tsx` | New "Look engine" section (gallery, `styleEngineId` state) above the renamed "Style description" section; `handleCreate` sends `style_preset_id`; new `PresetPreviewImage` onError wrapper for the existing preset grid |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | New `cardKind()` + `ACTION_CARD_KINDS`/`ACTION_CARD_RENDERERS` lookup replacing 4 scattered `card.id` string-match sites; new `PresetOptionImage` onError wrapper for the existing LOOK option image |
+
+**Deploy-safety assessment:** ff-merge candidate. Purely additive/refactor,
+frontend-only: `createVideo`'s new field is optional (every existing caller
+that omits it behaves identically); the `cardKind()` refactor is
+behavior-preserving by construction (every prop/handler carried over
+unchanged, verified by diff); the onError wrappers only change what happens
+on an already-broken image load (strictly better, never a regression); the
+new gallery section is additive UI with its own loading/error/empty states
+that never blocks form submission. Backend untouched — confirmed via `git
+diff --stat` (no `storyengine/backend` paths). **Skew check:** old frontend
++ new backend — N/A, no backend changed this chunk. New frontend + current
+(C20) backend — `GET /api/style-presets` already exists and already returns
+5 real rows (confirmed live in C20), so the gallery renders real data
+immediately, not a placeholder; `style_preset_id` on `createVideo` already
+validates server-side (`_resolve_style_preset_id`, C20) so a bad value 400s
+exactly like `reference_url` does today, never a silent drop.
+
+**Verify:** `cd storyengine/frontend && npx tsc --noEmit` — clean. `npm run
+build` — compiles and typechecks clean (`Compiled successfully`, `Finished
+TypeScript`); fails at the prerender step on the same pre-existing
+`NEXT_PUBLIC_API_URL is required in production builds` error documented in
+every prior frontend chunk (C19a et al.), not a regression from this
+change. Grep-proof: zero remaining `card.id === "` / `c.id === "` comparisons
+in `ChatCore.tsx` outside `cardKind()`'s own definition and the pre-existing,
+unrelated `isSliderCard` helper (`grep -n '\.id === "' ChatCore.tsx` — 4
+lines, all inside `cardKind()`/`isSliderCard`). No backend files touched —
+no Python suite run (nothing to run; confirmed via `git status --short`:
+only `storyengine/frontend/**` + this file + the checklist changed). No
+frontend unit-test harness exists in this repo; a live click-through
+(gallery renders 5 real presets, picking one reaches `create_video` with a
+valid `style_preset_id`, a build actually runs the `holographic_hud`
+engine) is deferred to `tasks/live-verification-queue.md` §C20/§C21 (extended
+below), completing together with C21b once the chat door is wired too.

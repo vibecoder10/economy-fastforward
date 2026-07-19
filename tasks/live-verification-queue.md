@@ -1450,14 +1450,19 @@ the sandbox.
       add a one-off `print` and grep `se logs backend`), rather than
       running the full costed image stage.
 - [ ] **The full checklist ask — generated prompts actually carry the
-      profile's style system.** Once C21's picker exists: create a video,
-      pick `holographic_hud` in the UI, run image prompts for one scene,
-      and inspect the resulting prompt text — it should read as a
-      holographic/HUD/data-visualization scene (per that profile's own
-      `preview_prompts` in `shared/profiles/visual/holographic_hud.py`),
-      not the neutral/photorealistic default. This is the check that
-      closes checklist §2.1's `[V]` line for good — do it together with
-      C21's own live verification, not before.
+      profile's style system.** C21a shipped the New Video door's picker
+      (the "Look engine" gallery, `app/pipeline/page.tsx`) — this check can
+      now run through THAT door: create a video, pick `holographic_hud` in
+      the gallery, run image prompts for one scene, and inspect the
+      resulting prompt text — it should read as a holographic/HUD/data-
+      visualization scene (per that profile's own `preview_prompts` in
+      `shared/profiles/visual/holographic_hud.py`), not the neutral/
+      photorealistic default. Still NOT closed via the CHAT door — C21b
+      wires the producer/chat backend to source + send `style_preset_id`,
+      so the same check needs re-running from a chat-built video once C21b
+      ships. This is the check that closes checklist §2.1's `[V]` line for
+      good, across BOTH doors — do it together with C21b's own live
+      verification.
 - **Cost:** the image-prompt check is free (text generation only, no image
   render needed to confirm the STYLE the prompt carries); only run the
   full "generate real images and eyeball them" version if you also want to
@@ -1470,6 +1475,58 @@ the sandbox.
   — if something looks wrong, first confirm the test video's
   `style_preset_id` column is actually non-NULL before suspecting the
   executor mapping itself.
+
+---
+
+## C21a — card-kind lookup refactor + New Video "Look Engine" gallery
+(checklist §2.1 [U] part 1) · live click-through check
+
+Frontend-only chunk (no backend changes; `GET /api/style-presets` and
+`create_video`'s `style_preset_id` validation are C20, already live). No
+frontend test harness exists in this repo, so none of the following was
+driven through a browser this session — `tsc --noEmit` + `npm run build`
+were the only proof (both clean, see SYSTEM_STATE.md §C21a).
+
+- [ ] **New Video modal renders the Look Engine gallery.** Open "New Video"
+      → the "Look engine" section (above the renamed "Style description"
+      section) should show 5 cards: Neutral Documentary, Holographic
+      Intelligence Display, Cinematic Intelligence Briefing, Clay Mannequin
+      Dioramas, Cinematic Animated Illustration — each with a placeholder
+      icon (no `preview_url` seeded yet, so a broken-image icon here would
+      mean the S9-4 onError fix regressed), a display name, and up to 2
+      "Best for" tags.
+- [ ] **Picking a card round-trips `style_preset_id`.** Click "Holographic
+      Intelligence Display", fill in a title, submit → `se db "SELECT
+      style_preset_id FROM videos WHERE id='<new-id>'"` should read
+      `holographic_hud`. Click the SAME card again to deselect (toggle
+      behavior) → the gallery should show no card selected before submit.
+- [ ] **Both axes travel independently.** Pick a Look Engine card AND type a
+      custom "Style description" (or pick one of the 6-item preset grid) in
+      the SAME create → confirm the created video's row has BOTH
+      `style_preset_id` (engine) AND `image_style_override`/
+      `visual_style_label` (description) populated, neither one clobbering
+      the other.
+- [ ] **Fail-soft on a slow/broken `GET /api/style-presets`.** Throttle or
+      break the endpoint (or just watch the loading state on a cold cache)
+      → the gallery should show the spinner then either the grid, the error
+      message with a working Retry button, or (on a genuinely empty table)
+      the "your channel's default will be used" text — never a crash, never
+      a blank gap in the form, and the rest of the New Video form must stay
+      usable regardless (submit should still work with `style_preset_id`
+      simply omitted).
+- [ ] **Chat's existing LOOK card option images no longer show a broken-image
+      icon if a `/style-icons/<id>.png` file is ever missing** (S9-4 fix on
+      the pre-existing 6-item picker, both in `ChatCore.tsx` and the New
+      Video "Style description" grid) — temporarily rename/move one PNG in
+      `public/style-icons/` and confirm both pickers swap to the text label
+      instead of a broken-image glyph.
+- **Cost:** free — every check above is a read + a video-creation POST (no
+  paid stage runs; don't advance the created test video past `idea_logged`
+  unless intentionally testing the executor mapping per §C20 above).
+- **Safety net:** `style_preset_id` is optional everywhere in this chunk —
+  if the gallery fails to load entirely, the New Video form must still
+  submit successfully with the field simply absent (identical to every
+  video created before C20/C21a existed).
 
 ---
 

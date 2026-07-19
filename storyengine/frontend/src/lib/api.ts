@@ -387,6 +387,12 @@ export const createVideo = (data: {
   // Optional YouTube link to copy the style of (onto the creator's own topic,
   // scoped to the switched-on stages).
   reference_url?: string;
+  // Optional catalog pick from the 5 rich Python visual-profile engines
+  // (checklist §2.1, C20/C21) — a style_presets.id, e.g. "holographic_hud".
+  // A DIFFERENT axis from image_style_override above: this picks the
+  // structural image-generation ENGINE, that picks a free-text aesthetic
+  // OVERLAY on top of it. Either, both, or neither may be set.
+  style_preset_id?: string;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",
@@ -2838,3 +2844,29 @@ export const getModels = () => fetchApi<ModelsResponse>("/api/models");
 
 export const getSuggestedModels = () =>
   fetchApi<SuggestedModels>("/api/chat/suggested-models");
+
+// --- Style presets (checklist §2.1, C20 backend / C21a frontend gallery) ---
+// The 5 rich Python visual-profile ENGINES (shared.profiles.visual/*.py),
+// backed by GET /api/style-presets. A DIFFERENT axis from the free-text
+// image_style_override "look" above — see CreateVideoRequest's style_preset_id
+// comment and docs/reports/2026-07-17-storyengine-agent-audit-findings.md §S9-5
+// for the full reconciliation note. Single fetcher — shared via the
+// ["style-presets"] query key by both the New Video gallery and (C21b) the
+// chat LOOK card, so React Query dedupes the request instead of each door
+// fetching its own copy.
+export interface StylePreset {
+  id: string;
+  display_name: string;
+  description: string | null;
+  tags: string[];
+  best_for: string[];
+  cost_tier: string | null;
+  preview_url: string | null;
+  source: string;
+  sort: number;
+}
+export interface StylePresetsResponse {
+  presets: StylePreset[];
+}
+export const getStylePresets = () =>
+  fetchApi<StylePresetsResponse>("/api/style-presets");

@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { useToast } from "@/components/ui/toast";
+import { StylePresetGallery } from "@/components/style/StylePresetGallery";
 import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
@@ -212,6 +213,33 @@ function stageSummary(stages: Record<string, boolean>): string {
   return `We'll make: ${labels.join(", ")}.`;
 }
 
+// S9-4: the style-description preset grid's preview image never had an
+// onError fallback (a dead icon file swaps to a broken-image glyph instead
+// of the label — contrast SceneBoardsGrid's C15b onError -> label pattern).
+// Fixed here for the existing 6-item picker (visual-presets.ts).
+function PresetPreviewImage({ preset }: { preset: VisualPreset }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div
+        className="w-16 h-16 rounded-lg flex items-center justify-center text-center px-1"
+        style={{ background: "var(--surface)" }}
+      >
+        <span className="text-[9px] leading-tight" style={{ color: "var(--text-tertiary)" }}>{preset.label}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={preset.icon}
+      alt={preset.label}
+      onError={() => setBroken(true)}
+      className="w-16 h-16 rounded-lg object-cover"
+      style={{ background: "var(--surface)" }}
+    />
+  );
+}
+
 function SortableTab({
   id, label, count, icon: Icon, isActive, onClick,
 }: {
@@ -291,6 +319,11 @@ export default function VideosPage() {
   const [styleMode, setStyleMode] = useState<"reference" | "preset" | "custom" | "">("");
   const [stylePresetId, setStylePresetId] = useState<string>("");
   const [styleCustom, setStyleCustom] = useState<string>("");
+  // The Look Engine pick (checklist §2.1, C21a) — a style_presets.id (e.g.
+  // "holographic_hud"), sent as CreateVideoRequest.style_preset_id. A
+  // SEPARATE axis from styleMode/stylePresetId above (the free-text look
+  // description) — independent, not mutually exclusive; see StylePresetGallery.
+  const [styleEngineId, setStyleEngineId] = useState<string>("");
   const [lockInIdentity, setLockInIdentity] = useState<boolean>(false);
   // Which pipeline steps to run for the new video (all on = full video).
   // The stage panel is the single source of truth for research/voice/etc.
@@ -447,6 +480,7 @@ export default function VideosPage() {
       setStyleMode("");
       setStylePresetId("");
       setStyleCustom("");
+      setStyleEngineId("");
       setLockInIdentity(false);
       setSeedSuggestions(null);
       setSeedError("");
@@ -572,6 +606,7 @@ export default function VideosPage() {
       lock_in_identity: lockInIdentity || undefined,
       visual_style_label: styleLabel,
       reference_url: newReferenceUrl.trim() || undefined,
+      style_preset_id: styleEngineId || undefined,
     });
   };
 
@@ -1091,7 +1126,7 @@ export default function VideosPage() {
       </Modal>
 
       {/* === NEW VIDEO MODAL (existing — for returning users) === */}
-      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setLockInIdentity(false); }} title="New Video" size="md">
+      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setStyleEngineId(""); setLockInIdentity(false); }} title="New Video" size="md">
         <div className="space-y-4">
           {/* Primary: Topic / Title (optional — a title can be generated below) */}
           <div>
@@ -1300,11 +1335,28 @@ export default function VideosPage() {
             )}
           </div>
 
-          {/* Visual style — one unified single-choice step */}
+          {/* Look Engine — the structural image-generation engine (checklist §2.1,
+              C21a). A DIFFERENT, independent axis from "Style description" below:
+              this picks WHICH engine's scene/camera/composition craft runs; the
+              description below layers a free-text aesthetic on top of it. Either,
+              both, or neither may be set — picking one never clears the other. */}
           <div>
             <label className="flex items-center gap-1.5 text-xs font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+              <Sparkles size={12} style={{ color: "var(--text-tertiary)" }} />
+              Look engine <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+            </label>
+            <p className="text-[10px] mb-2 leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+              The image-generation engine and its story-craft rules. Leave blank to use your channel&apos;s default.
+            </p>
+            <StylePresetGallery selectedId={styleEngineId} onSelect={setStyleEngineId} />
+          </div>
+
+          {/* Style description — the free-text aesthetic overlay (image_style_override).
+              Independent from the Look engine above (see note there). */}
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium mb-2 mt-4" style={{ color: "var(--text-secondary)" }}>
               <Film size={12} style={{ color: "var(--text-tertiary)" }} />
-              Visual style <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
+              Style description <span style={{ color: "var(--text-tertiary)" }}>(optional)</span>
             </label>
 
             {/* 1. Copy a video's style (clone reference) */}
@@ -1380,12 +1432,7 @@ export default function VideosPage() {
                         Your style
                       </span>
                     )}
-                    <img
-                      src={p.icon}
-                      alt={p.label}
-                      className="w-16 h-16 rounded-lg object-cover"
-                      style={{ background: "var(--surface)" }}
-                    />
+                    <PresetPreviewImage preset={p} />
                     <span className="font-medium">{p.label}</span>
                   </button>
                 );

@@ -16,7 +16,7 @@ import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertT
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
-import { visualPresetById } from "@/lib/visual-presets";
+import { visualPresetById, type VisualPreset } from "@/lib/visual-presets";
 import {
   sendChatTurn,
   uploadChatAsset,
@@ -98,6 +98,28 @@ const LENGTH_STEP = 5;
 const LENGTH_DEFAULT = 60;
 
 const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string }).type === "slider";
+
+// --- card-kind dispatch (S9-3) ----------------------------------------------
+// Before this, card rendering dispatched by string-matching card.id at 4
+// scattered sites (the action-card finder, the 3-way action-card render
+// branch, the inline scene-boards filter, and the connect-button check) — a
+// new card kind meant a 5th ad hoc comparison. ONE lookup replaces all four:
+// cardKind() is the single place that classifies a card, and the render
+// sites below key off its result instead of comparing card.id inline. C21b
+// adds the LOOK/gallery card as one more entry here, not a new scattered
+// check.
+type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "generic";
+
+function cardKind(card: ChatCard): CardKind {
+  if (card.id === "prompt_apply") return "prompt_apply";
+  if (card.id === "confirm_action") return "confirm_action";
+  if (card.id === "secure_key") return "secure_key";
+  if (card.id === "connect_yt" || card.id === "connect_drive") return "connect";
+  if ((card.images?.length ?? 0) > 0) return "images";
+  return "generic";
+}
+
+const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "secure_key"]);
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -198,7 +220,7 @@ export function ChatCore({
   // These render even in the home "created" view — paid follow-ups always confirm
   // (the backend gates them everywhere now), so the card must never be hidden.
   const lastCards = last?.role === "assistant" ? last.cards : null;
-  const actionCard = lastCards?.find((c) => c.id === "confirm_action" || c.id === "prompt_apply" || c.id === "secure_key") ?? null;
+  const actionCard = lastCards?.find((c) => ACTION_CARD_KINDS.has(cardKind(c))) ?? null;
 
   useEffect(() => {
     // Pin the thread to its newest content. In the DOCK, scroll the panel's own
@@ -454,31 +476,39 @@ export function ChatCore({
       return Array.isArray(v) ? v.length > 0 : !!v;
     });
 
+  // One renderer per action-card kind (S9-3) — the 3-way string-match branch
+  // is now data, keyed by cardKind(actionCard). Each entry's props/handlers
+  // are byte-identical to the branch it replaces. C21b adds the LOOK/gallery
+  // card kind as one more entry, not a 4th scattered `actionCard?.id === …`.
+  const ACTION_CARD_RENDERERS: Partial<Record<CardKind, () => React.ReactNode>> = {
+    prompt_apply: () => (
+      <PromptProposalCard
+        key={`pp-${messages.length}`}
+        card={actionCard!}
+        onApply={(text) => turn({ selections: { prompt_apply: "yes", prompt_text: text } }, "Apply this prompt")}
+        onCancel={() => turn({ selections: { prompt_apply: "no" } }, "Cancel")}
+      />
+    ),
+    confirm_action: () => (
+      <ConfirmActionCard
+        card={actionCard!}
+        onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
+      />
+    ),
+    secure_key: () => (
+      <SecureKeyCard
+        key={`sk-${messages.length}`}
+        card={actionCard!}
+        onSaved={(provider) => turn({ selections: { secure_key: "saved", key_provider: provider } }, "🔒 Key saved")}
+        onSkip={() => turn({ selections: { secure_key: "skip" } }, "Skip for now")}
+      />
+    ),
+  };
+
   // The active zone (cards / plan / created confirmation), shared by both layouts.
   const activeZone = (
     <>
-      {actionCard?.id === "prompt_apply" && !sending && (
-        <PromptProposalCard
-          key={`pp-${messages.length}`}
-          card={actionCard}
-          onApply={(text) => turn({ selections: { prompt_apply: "yes", prompt_text: text } }, "Apply this prompt")}
-          onCancel={() => turn({ selections: { prompt_apply: "no" } }, "Cancel")}
-        />
-      )}
-      {actionCard?.id === "confirm_action" && !sending && (
-        <ConfirmActionCard
-          card={actionCard}
-          onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
-        />
-      )}
-      {actionCard?.id === "secure_key" && !sending && (
-        <SecureKeyCard
-          key={`sk-${messages.length}`}
-          card={actionCard}
-          onSaved={(provider) => turn({ selections: { secure_key: "saved", key_provider: provider } }, "🔒 Key saved")}
-          onSkip={() => turn({ selections: { secure_key: "skip" } }, "Skip for now")}
-        />
-      )}
+      {actionCard && !sending && ACTION_CARD_RENDERERS[cardKind(actionCard)]?.()}
       {activeCards && !actionCard && !activePlan && !sending && (
         <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} />
       )}
@@ -682,13 +712,14 @@ function MessageThread({ messages }: { messages: Msg[] }) {
   return (
     <AnimatePresence initial={false}>
       {messages.map((m, i) => {
-        // C15b: any card carrying `images` (id "scene_boards" today, but this
-        // guards on the field, not the id, so it fail-safes on both old
-        // frontends — which never read the key — and old backends — which
-        // never send it) renders inline, in EVERY past turn, so the boards
-        // stay visible as you scroll back through the conversation rather
-        // than only on the newest message like the ephemeral confirm cards.
-        const imageCards = m.role === "assistant" ? (m.cards ?? []).filter((c) => (c.images?.length ?? 0) > 0) : [];
+        // C15b: any card carrying `images` (id "scene_boards" today, but
+        // cardKind() guards on the field, not the id, so it fail-safes on
+        // both old frontends — which never read the key — and old backends —
+        // which never send it) renders inline, in EVERY past turn, so the
+        // boards stay visible as you scroll back through the conversation
+        // rather than only on the newest message like the ephemeral confirm
+        // cards. (S9-3: routed through the shared cardKind() lookup.)
+        const imageCards = m.role === "assistant" ? (m.cards ?? []).filter((c) => cardKind(c) === "images") : [];
         return (
         <motion.div
           key={i}
@@ -1313,6 +1344,33 @@ function PromptProposalCard({
 
 // --- selector cards -------------------------------------------------------
 
+// S9-4: the LOOK option's preview image never had an onError fallback (a dead
+// icon file swaps to a broken-image glyph instead of the label — contrast
+// SceneBoardsGrid's C15b onError -> label pattern above). Fixed here for the
+// existing preset picker (visual-presets.ts).
+function PresetOptionImage({ preset }: { preset: VisualPreset }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div
+        className="w-20 h-20 rounded-lg flex items-center justify-center text-center px-1"
+        style={{ background: "var(--bg-surface)" }}
+      >
+        <span className="text-[9px] leading-tight" style={{ color: "var(--text-secondary)" }}>{preset.label}</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={preset.icon}
+      alt={preset.label}
+      onError={() => setBroken(true)}
+      className="w-20 h-20 rounded-lg object-cover"
+      style={{ background: "var(--bg-surface)" }}
+    />
+  );
+}
+
 function SelectorCards({
   cards,
   picks,
@@ -1346,7 +1404,7 @@ function SelectorCards({
               </span>
             )}
           </div>
-          {(card.id === "connect_yt" || card.id === "connect_drive") && (
+          {cardKind(card) === "connect" && (
             <ConnectButton kind={card.id} />
           )}
           {isSliderCard(card) ? (
@@ -1396,12 +1454,7 @@ function SelectorCards({
                         ✨ Recommended
                       </span>
                     )}
-                    <img
-                      src={preset.icon}
-                      alt={preset.label}
-                      className="w-20 h-20 rounded-lg object-cover"
-                      style={{ background: "var(--bg-surface)" }}
-                    />
+                    <PresetOptionImage preset={preset} />
                     <span
                       className="text-xs font-medium"
                       style={{ color: sel || isRec ? "var(--turquoise)" : "var(--text-secondary)" }}
