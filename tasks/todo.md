@@ -106,7 +106,7 @@
   baseline(1319P)+14 (the 4 claim tests live inside that same file/count), zero new failures.
   `py_compile` clean. Frontend untouched (`git diff --stat` shows no `storyengine/frontend/` changes).
   Live "learn a real channel" run deferred → `tasks/live-verification-queue.md` §C41 (also flagged as
-  C42's own natural live test — do both together). ff-merge candidate (additive migration, zero live
+  C42's own natural live test — do both together). ff-merged to main (orchestrator verdict — audit table + zero-line pipeline_executor diff accepted as byte-identity proof; the two declined merges were correct restraint)
   callers of the new module yet, so this chunk cannot regress any existing user-facing flow).
   **Next up: C42 · P4.1c chat front door + confirmable digest card** — wire `learn_channel` behind a
   "learn this channel: <url>" chat intent (ack-now background-task pattern — `progress_cb` already
