@@ -37,6 +37,7 @@ import {
 import type { VideoModelInfo } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
+import { useClipTrustLadder } from "@/hooks/use-clip-trust-ladder";
 import { useToast } from "@/components/ui/toast";
 import { Modal } from "@/components/ui/modal";
 import type { VideoDetail, Asset } from "@/lib/api";
@@ -490,9 +491,8 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   }, [scriptScenes, assets]);
 
   // ── Local state ──
-  const [generatingClipIds, setGeneratingClipIds] = useState<Set<string>>(new Set());
-  const [failedClipIds, setFailedClipIds] = useState<Set<string>>(new Set());
-  const [confirmKey, setConfirmKey] = useState<string | null>(null); // "scene-3" | "all"
+  // generatingClipIds/failedClipIds/confirmKey now live in useClipTrustLadder
+  // (S9-7 extraction) — see the hook call below, after taskWatcher/refreshAll.
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [recropping, setRecropping] = useState<string | null>(null);
   const [generatingScene, setGeneratingScene] = useState<number | null>(null);
@@ -528,14 +528,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // plan+draw pair per scene. Per-scene calls bypass the global stage gate, so
   // this works at any storyboard sub-stage.
   const chainRef = useRef<{ queue: Array<{ stage: string; scene?: number }> } | null>(null);
-
-  // Clip auto-resume: "Animate the rest" keeps re-triggering the additive backend
-  // (each round only animates clips still missing a video_clip_url) until every clip
-  // is done — surviving server restarts and transient failures with no manual
-  // re-click and no double-charge. Guards below stop any runaway loop.
-  const clipResumeRef = useRef<{ active: boolean; rounds: number; lastPending: number; stale: number }>(
-    { active: false, rounds: 0, lastPending: Infinity, stale: 0 });
-  const prevRunningRef = useRef(false);
+  // Clip auto-resume ref + prevRunningRef now live inside useClipTrustLadder.
 
   const refreshAll = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["video", video.id] });
@@ -597,20 +590,40 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   });
   const { running, markStarted } = taskWatcher;
 
+  // S9-7: clip animate/confirm/auto-resume state machine, extracted to its
+  // own hook (hooks/use-clip-trust-ladder.ts) so this file stops growing
+  // before C23's camera-move chip lands here. onComplete/onFailed above and
+  // the Stop effect below still reach into it directly — those handlers
+  // serve the storyboard chain too, so they weren't moved wholesale.
+  const {
+    generatingClipIds, setGeneratingClipIds,
+    failedClipIds, setFailedClipIds,
+    confirmKey, setConfirmKey,
+    animateOne, animateScene, animateAll,
+    confirmable, cancelResume,
+  } = useClipTrustLadder({
+    videoId: video.id,
+    running,
+    taskMessage,
+    markStarted,
+    toast,
+    refreshAll,
+  });
+
   // Stop must stand down any queued chain stage: a cancelled task reads as
   // "completed" to pollers, which would otherwise fire the next paid stage.
   useEffect(() => {
     const onStop = (e: Event) => {
       if ((e as CustomEvent).detail?.videoId === video.id) {
         chainRef.current = null;
-        clipResumeRef.current.active = false;  // Stop halts the auto-resume loop too
+        cancelResume();  // Stop halts the clip auto-resume loop too
         setGeneratingScene(null);
         setGeneratingClipIds(new Set());
       }
     };
     window.addEventListener("se:stop-requested", onStop);
     return () => window.removeEventListener("se:stop-requested", onStop);
-  }, [video.id]);
+  }, [video.id, cancelResume, setGeneratingClipIds]);
 
   useEffect(() => {
     setImageModel(video.image_model_override || "gpt-image-2");
@@ -1011,96 +1024,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   }, [video.id, queryClient, toast]);
 
   // ── Clip actions (trust-ladder contract) ──
-  const startClipTask = useCallback(async (params: Record<string, string | number>, ids: string[]) => {
-    if (running) {
-      toast.info(`Hang on — still working: ${taskMessage || "finishing the current step"}. This card will be tappable the moment it's done.`);
-      return;
-    }
-    setFailedClipIds((prev) => {
-      const next = new Set(prev);
-      ids.forEach((id) => next.delete(id));
-      return next;
-    });
-    setGeneratingClipIds(new Set(ids));
-    try {
-      await runPipelineStage(video.id, "clip", params);
-      markStarted();
-    } catch (err) {
-      const message = (err as Error).message || "";
-      if (message.includes("409")) {
-        try {
-          await clearStaleTask(video.id);
-          await runPipelineStage(video.id, "clip", params);
-          markStarted();
-          return;
-        } catch (retryErr) {
-          toast.error((retryErr as Error).message);
-        }
-      } else {
-        toast.error(message || "Couldn't start the clip.");
-      }
-      setGeneratingClipIds(new Set());
-    }
-  }, [running, taskMessage, video.id, toast, markStarted]);
-
-  const animateOne = (asset: Asset, force = false) => {
-    clipResumeRef.current.active = false;  // a manual single-card tap isn't a batch
-    startClipTask(force ? { asset_id: asset.id, force: "true" } : { asset_id: asset.id }, [asset.id]);
-  };
-
-  const animateScene = (scene: number, pendingIds: string[]) => {
-    clipResumeRef.current.active = false;  // a single-scene run isn't the full batch
-    startClipTask({ scene }, pendingIds);
-  };
-
-  const animateAll = () => {
-    // Arm auto-resume: keep going until the backend says nothing's left to animate.
-    clipResumeRef.current = { active: true, rounds: 0, lastPending: Infinity, stale: 0 };
-    startClipTask({}, clipCards.filter((a) => !a.video_clip_url).map((a) => a.id));
-  };
-
-  // After each clip batch ends (done, failed, or "server restarted"), if clips are
-  // still missing, re-trigger — until none remain, no progress happens twice in a
-  // row, or a safety cap is hit. The backend is additive, so this never double-charges.
-  const maybeResumeClips = useCallback(async () => {
-    const st = clipResumeRef.current;
-    if (!st.active) return;
-    let pending: string[] = [];
-    try {
-      const fresh = await getVideoAssets(video.id);
-      pending = fresh.filter((a) => a.image_url && !a.video_clip_url).map((a) => a.id);
-    } catch {
-      st.active = false;  // can't check — stop rather than loop blind
-      return;
-    }
-    if (pending.length === 0) {
-      st.active = false;
-      toast.success("All clips animated 🎬");
-      refreshAll();
-      return;
-    }
-    st.rounds += 1;
-    if (pending.length < st.lastPending) st.stale = 0;
-    else st.stale += 1;
-    st.lastPending = pending.length;
-    if (st.rounds > 25 || st.stale >= 2) {
-      st.active = false;
-      toast.error(`${pending.length} clip(s) still need animating — tap "Animate the rest" to keep going.`);
-      refreshAll();
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 1500));
-    if (clipResumeRef.current.active) startClipTask({}, pending);
-  }, [video.id, toast, refreshAll, startClipTask]);
-
-  // Fire the resumer on each running → idle transition.
-  useEffect(() => {
-    const wasRunning = prevRunningRef.current;
-    prevRunningRef.current = running;
-    if (wasRunning && !running && clipResumeRef.current.active) {
-      void maybeResumeClips();
-    }
-  }, [running, maybeResumeClips]);
+  // startClipTask/animateOne/animateScene/animateAll/maybeResumeClips + the
+  // resume-trigger effect now live in useClipTrustLadder (S9-7 extraction,
+  // called above alongside taskWatcher/refreshAll).
 
   const removeClip = useCallback(async (asset: Asset) => {
     try {
@@ -1144,15 +1070,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [running, taskMessage, toast, runStageWith409Retry, picturePrice]);
 
-  /** Confirm-then-run for anything over $0.50; cheaper actions just go. */
-  const confirmable = (key: string, dollars: number, run: () => void) => {
-    if (dollars <= 0.5 || confirmKey === key) {
-      setConfirmKey(null);
-      run();
-    } else {
-      setConfirmKey(key);
-    }
-  };
+  // confirmable() now lives in useClipTrustLadder too.
 
   // ── Guards ──
   if (loadingScripts || loadingAssets) {
@@ -1387,7 +1305,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         {!running && !storyLocked && environmentsReady && bulk && (
           bulk.kind === "animate" ? (
             <button
-              onClick={() => confirmable("all", remainingCost, animateAll)}
+              onClick={() => confirmable("all", remainingCost, () => animateAll(clipCards.filter((a) => !a.video_clip_url).map((a) => a.id)))}
               disabled={running}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-40 transition-all hover:brightness-110"
               style={{ background: confirmKey === "all" ? "var(--gold)" : "var(--green)", color: "var(--bg-void)" }}>
