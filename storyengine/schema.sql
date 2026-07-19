@@ -1639,3 +1639,33 @@ ALTER TABLE style_presets ENABLE ROW LEVEL SECURITY;
 -- which is run top-to-bottom on a fresh DB (see file header).
 ALTER TABLE videos ADD CONSTRAINT videos_style_preset_id_fkey
   FOREIGN KEY (style_preset_id) REFERENCES style_presets(id) ON DELETE SET NULL;
+
+
+-- =============================================================================
+-- AGENT_TOKENS (migration 099 — checklist P2.4a, chunk C26)
+-- =============================================================================
+-- DB-row-backed, individually revocable per-tenant API tokens for external
+-- MCP clients (the StoryEngine MCP server, tasks/storyengine-copilot-ux-map.md
+-- §7). See migrations/099_agent_tokens.sql for the full design rationale
+-- (S5-3/S5-4 in docs/reports/2026-07-17-storyengine-agent-audit-findings.md)
+-- and backend/agent_tokens.py for mint/list/revoke/authenticate.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_tokens_token_hash_unique
+  ON agent_tokens (token_hash);
+
+CREATE INDEX IF NOT EXISTS agent_tokens_tenant_idx
+  ON agent_tokens (tenant_id) WHERE revoked_at IS NULL;
+
+ALTER TABLE agent_tokens ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

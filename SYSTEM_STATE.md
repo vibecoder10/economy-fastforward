@@ -5211,3 +5211,120 @@ routine hourly deploy — no coordination needed, unlike C25a.
 **Next up: C26 · MCP endpoint + agent_tokens + auth (checklist S5-3/S5-4 design laws).** MUST ship
 DARK behind `MCP_ENABLED=false` per the C25 sweep's own gate note — do not flip it on without a
 separate explicit go-ahead.
+
+## C26 — P2.4a StoryEngine MCP endpoint + agent_tokens migration + auth, SHIPPED DARK (added 2026-07-19)
+
+**Checklist §P2.4a** (`tasks/storyengine-copilot-ux-map.md` §7, "the Higgsfield-killer door";
+`docs/reports/2026-07-17-storyengine-agent-audit-findings.md` §S5-2/S5-3/S5-4 design laws). Scope
+deliberately held to endpoint + tokens + auth + one read-only proof tool — C27 does the full tool
+set + money gate, C28 the Settings UI, C29 the live external-client loop.
+
+**`agent_tokens` table (migration 099, applied LIVE via Supabase MCP against `wrromlupsmyzrrcqlucn`,
+confirmed via `information_schema.columns`):** `id, tenant_id, name, token_hash, created_at,
+last_used_at, revoked_at` — RLS on, no policies (same playbook §7 pattern as generation_claims/
+generation_passes/style_presets). `token_hash` is a plain sha256 hex digest (`agent_tokens.py::
+_hash_token`), NOT a slow KDF — deliberate: this hashes a 256-bit random secret with zero
+guessable structure, not a human password, so pbkdf2/bcrypt would only tax every MCP call for no
+security benefit (contrast google_auth.py's pbkdf2, which defends a genuinely low-entropy secret).
+Plaintext is generated once by `create_agent_token()`, returned to the caller, and never persisted
+anywhere — schema.sql updated with the same CREATE TABLE block.
+
+**Distinct auth dependency — S5-4 design law:** `backend/auth_agent.py::get_agent_tenant_id` parses
+`Authorization: Bearer se_agent_<secret>`, calls `agent_tokens.authenticate()` (hash lookup +
+`revoked_at IS NULL` — S5-3, re-checked on every single request, no caching), 401s on anything else.
+`auth.py` (verify_token/get_tenant_id, the session/Supabase JWT surface every other route uses) is
+completely untouched — grep-proof test asserts `se_agent_`/`agent_tokens`/`auth_agent` appear
+nowhere in `auth.py`'s source, and that `auth_agent.py` never imports `auth.py` at all. This is the
+concrete fix for the finding that worried the audit: without this separation, an agent token would
+satisfy the SAME `Depends(get_tenant_id)` every other route uses, including
+`/api/settings/keys/{name}/reveal` (decrypted BYOK material) — worse than the money-gated paid
+verbs, since key-reveal isn't gated at all.
+
+**MCP endpoint — protocol shape justified:** `routes/mcp.py`, single `POST /api/mcp` JSON-RPC 2.0
+route (`initialize` / `tools/list` / `tools/call`), no SSE stream, no `Mcp-Session-Id` transport
+negotiation. The UX map §7 spec names "streamable-HTTP MCP endpoint" only parenthetically as an
+alternative file/route name, not as a transport mandate — and this server has zero
+server-initiated pushes and no long-running tool in v1, so the fuller Streamable HTTP transport
+buys nothing yet. Whether a real external MCP client actually needs it instead of bare
+JSON-RPC-over-POST is the explicit open question deferred to C29's live loop test (see
+`tasks/live-verification-queue.md` §C26).
+
+**v1 tool surface — deliberately minimal (2 tools, both read-only, both tenant-scoped):**
+`list_videos` (id/title/status, `SELECT ... WHERE tenant_id = $1`) and `get_video` (reuses
+`actions.video_summary()` byte-for-byte — no new query path). Explicitly EXCLUDED per the audit's
+design laws: every paid/generation verb (S5's money gate doesn't exist on this door until C27),
+`remember`/`forget` (S5-2 — MCP v1 must EXCLUDE memory-writing tools outright, not merely
+confirm-gate them), and any media/asset URL in a tool result (C25a's Drive media-proxy tenant-auth
+fix is HELD on `claude/c25a-media-auth-hold`, not on this branch — `video_summary()` never returns
+one anyway, but a test pins the guarantee at the MCP boundary too).
+
+**Mint/list/revoke — the OTHER auth boundary:** `routes/agent_access.py`
+(`POST/GET /api/agent-tokens`, `DELETE /api/agent-tokens/{id}`) uses the NORMAL session auth
+(`Depends(get_tenant_id)`, same as every other authed route) — minting/revoking a token is a USER
+action, never something an agent-authed request can do. Registered unconditionally in main.py (not
+gated by `MCP_ENABLED` — it's exactly as safe as any other session-authed route with no caller yet).
+C28 wires the Settings "Agent access" UI to these three routes.
+
+**Dark-by-default (the deploy-safety mechanism):** `main.py` only does
+`app.include_router(mcp_routes.router)` inside `if os.getenv("MCP_ENABLED", "").lower() == "true":`
+— confirmed by actually reloading `main.py` under each env state (not reading the source): with
+`MCP_ENABLED` unset, `"false"`, or absent, `/api/mcp` is NOT in `app.routes` at all (a request
+404s exactly like any other undefined path); with `MCP_ENABLED=true` it registers. `/api/agent-tokens`
+is present in both cases (unconditional, per above).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/099_agent_tokens.sql` | `agent_tokens` table, applied live |
+| `storyengine/backend/agent_tokens.py` | mint/list/revoke/authenticate — the only module that touches token_hash |
+| `storyengine/backend/auth_agent.py` | `get_agent_tenant_id` — the distinct MCP-only auth dependency (S5-4) |
+| `storyengine/backend/routes/mcp.py` | `POST /api/mcp` JSON-RPC endpoint; `list_videos`/`get_video` tools |
+| `storyengine/backend/routes/agent_access.py` | session-authed mint/list/revoke routes for C28's UI |
+| `storyengine/backend/tests/functional/test_c26_mcp_agent_tokens.py` | 27 tests (see Verify) |
+
+### Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/main.py` | +`agent_access` import/registration (unconditional); MCP router registration gated by `MCP_ENABLED=true` |
+| `storyengine/schema.sql` | `agent_tokens` table appended (mirrors migration 099) |
+
+**Verify:** 27 new tests, all passing standalone AND under pytest — mint stores hash-not-plaintext
+(assert stored hash != plaintext, plaintext string absent from the DB row); authenticate
+round-trip; revoked-token rejected on the immediate next call (S5-3); revoke is idempotent +
+tenant-scoped (cross-tenant revoke attempt returns False); `authenticate()`'s last_used_at update
+is fail-soft (a raising `execute()` still returns the tenant_id); `list_agent_tokens()` never
+includes `token_hash`. `get_agent_tenant_id`: missing header / wrong scheme / wrong prefix /
+revoked token all 401; valid token returns the tenant UUID. Structural separation: `auth.py` grep
+clean of `se_agent_`/`agent_tokens`/`auth_agent`, exactly one `verify_token`/`get_tenant_id`
+definition each; `auth_agent.py` never imports `auth.py`. Cross-acceptance BOTH directions: a real
+agent token fed into `auth.verify_token` 401s (proving key-reveal and every ordinary route stay
+unreachable); a real session JWT fed into `get_agent_tenant_id` 401s (wrong prefix, rejected before
+the DB). `routes/mcp.py`: `tools/list` is exactly `{list_videos, get_video}` (asserts 8 named
+paid/write/memory verbs are absent); both tools proven tenant-scoped with two-tenant fake data;
+`get_video`'s result text scanned for `http://`/`https://`/`drive.google`/`_url"`/`media_url` — none
+present. `main.py`: real reload under `MCP_ENABLED` unset/false/true — route absent/absent/present;
+`/api/agent-tokens` present regardless. **Non-vacuous via `git stash -u`** on all 7 new/changed
+files together: with them stashed, `pytest tests/functional/test_c26_mcp_agent_tokens.py` errors
+with "file or directory not found" (the module doesn't exist) — popped, all 27 pass again.
+`python -m py_compile` clean on every touched/new `.py` file. **Full backend suite: 1149 passed /
+15 failed / 1 error** — baseline (per the prior handoff) was **1122 passed / 15 failed / 1 error**;
+1149 − 1122 = exactly the 27 new tests, same 15 pre-existing failure names, same 1 pre-existing
+error. Zero new failures. Frontend: untouched (`git status` confirms zero files under
+`storyengine/frontend/`) — no `tsc`/build run needed.
+
+Checklist §C26 ticked. Live MCP-client connection test deferred to `tasks/live-verification-queue.md`
+§C26 (after the coordinated deploy + `MCP_ENABLED` flip — needs C25a merged first).
+
+**Deploy-safety assessment — ff-merge candidate, dark-shipped:** every new route this chunk adds is
+either (a) gated behind `MCP_ENABLED` (unset in prod today, so `/api/mcp` genuinely does not exist
+post-merge — zero new external surface) or (b) `/api/agent-tokens`, a normal session-authed route
+with no UI caller yet (C28), which is no more reachable-by-mistake than any other authed endpoint
+with no frontend button pointing at it. `main.py`'s only unconditional change is one router
+registration line + a new import name; `schema.sql`/migration 099 is a pure additive `CREATE TABLE
+IF NOT EXISTS`. No overlap with C25a's held files. Safe to ff-merge to main on the routine hourly
+deploy — the MCP surface stays inert until a deliberate, separate `MCP_ENABLED=true` flip
+(explicitly NOT part of this chunk) coordinated with C25a's media-proxy fix landing first.
+
+**Next up: C27 · P2.4b full tool set + quote/confirm_token money gate on every paid tool** (S5-2
+constraint stands: memory-writing tools stay excluded or confirm-gated + attributed via C28's "via
+agent" chip — do not silently add `remember`/`forget` to the MCP surface without that).

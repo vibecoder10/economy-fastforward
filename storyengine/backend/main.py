@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces, queue, script_templates, model_registry, style_presets, style_descriptions, camera_presets, script_profiles
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces, queue, script_templates, model_registry, style_presets, style_descriptions, camera_presets, script_profiles, agent_access
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
 from job_queue import enqueue_stage
@@ -613,6 +613,22 @@ app.include_router(onboarding.router)
 app.include_router(workspaces.router)
 app.include_router(queue.router)
 app.include_router(script_templates.router)
+app.include_router(agent_access.router)
+
+# StoryEngine MCP server (checklist P2.4a, chunk C26 — tasks/storyengine-
+# copilot-ux-map.md §7, "the Higgsfield-killer door"). DARK BY DEFAULT: the
+# router only registers when MCP_ENABLED=true, so with the env var unset or
+# false these routes structurally do not exist (a request 404s, same as any
+# other undefined path — there is nothing "there but blocked" to probe).
+# Left off until a coordinated deploy flips the flag: C25a's Drive media-
+# proxy tenant-auth fix is held on `claude/c25a-media-auth-hold` and NOT on
+# this branch, and nothing external may reach an MCP tool result until that
+# lands (see docs/reports/2026-07-17-storyengine-agent-audit-findings.md §S5
+# and routes/mcp.py's module docstring — the v1 tool surface avoids media
+# URLs anyway, but the flag is the belt to that suspenders).
+if os.getenv("MCP_ENABLED", "").lower() == "true":
+    from routes import mcp as mcp_routes
+    app.include_router(mcp_routes.router)
 
 
 @app.get("/api/health")
