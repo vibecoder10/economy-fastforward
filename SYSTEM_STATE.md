@@ -7835,3 +7835,191 @@ credentials (no live vision call was made this chunk — all 5 tests mock `visio
 that C42's digest-card "correct" action deliberately deferred (today it's a deterministic form-post to
 `_save_preference`, not the full natural-language classification `_handle_copilot`'s remember/forget
 triggers already do elsewhere).
+
+---
+
+## C44 — P4.1e corrections loop wiring: `director_preferences` reach GENERATION, not just chat (added 2026-07-19)
+
+Fifth build chunk of Phase 4 Pillar 1 — the last conceptual piece of Channel DNA. C15c gave the chat
+producer/co-pilot a "STANDING PREFERENCES" system-prompt block, hydrated fresh every turn. C42's digest
+card wired the "correct" action to save those same channel-scope `director_preferences` rows. But until
+this chunk, nothing except CHAT ever read them back — a correction said once ("actually the voice is
+more playful") never touched script/research/thumbnail/title/video_motion generation. This chunk closes
+that gap: a channel-scoped correction now genuinely overrides the learned DNA value everywhere
+generation reads it, with no JSONB hand-editing (corrections live in `director_preferences` only; the
+digest's per-field flag is a read-time keyword match, not a write into `channel_identity`).
+
+### The seam chosen, and why
+
+C43's own consumption-audit table names `identity.build_identity_context` as the ONE function every
+generation stage shares: `pipeline_executor._load_prompt_overrides` calls it once per run and feeds the
+result through `resolve_prompt` for every text stage (script/research/thumbnail/title/video_motion/
+sound_curation/sound_generation); `_export_visual_style` calls it again for the image pipeline's
+`VISUAL_STYLE_DESCRIPTION`/`CHANNEL_NICHE` env-var seam. `engine_templates.safe_fill` is downstream of
+that (it only fills placeholders in whatever text `resolve_prompt` already picked) and doesn't see the
+image-pipeline path at all — so `build_identity_context` is the only function that actually satisfies
+"ALL stages share." `IdentityContext` gained one new field, `standing_preferences: str = ""`, populated
+by a new `identity._standing_preferences_block(tenant_id)`: a channel-scope-ONLY (`scope = 'channel'`),
+capped (20 rows / 3000 chars, matching C15c's own `_PREF_CAP`/`_PREF_BLOCK_MAX_CHARS` discipline),
+fail-soft (`except Exception -> ""`) read of `director_preferences`, run as its OWN try/except separate
+from the existing `projects`/`channel_profiles`/`visual_styles` lookup — a preferences-table hiccup
+can't suppress the rest of identity resolution, and vice versa.
+
+**Deliberately NOT an import of `routes.chat._list_preferences`**, even though that function already
+does the exact channel-scope query needed (`_list_preferences(tenant_id, video_id=None)`). `routes/chat.py`
+sits on top of a heavy import chain — a FastAPI `APIRouter`, `actions.py` (which does its own
+`sys.path.insert` for the entire `skills/video-pipeline` package), `vault`, `generation_claims`,
+`channel_briefs`, `producer_prompt` — that `identity.py` must not pull in: it's a low-level module
+imported by every lightweight identity/prompt unit test (`test_identity_context.py`,
+`test_resolve_prompt.py`, `test_engine_templates.py`), and by every generation stage in the pipeline.
+The query itself is intentionally SMALLER than `_list_preferences` (no video-scope union — see the
+boundary note below), so duplicating six lines of SQL here is the correct trade against inverting the
+module-dependency direction (a domain-core module importing a route file).
+
+### Precedence law, extended one rung
+
+`pipeline_executor.resolve_prompt` (pinned by the pre-existing `test_resolve_prompt.py`, C43's
+precedence-law test) already implemented: per-video override > tenant override (`tenant_prompt_defaults`)
+> neutral engine template filled with the channel's identity. This chunk adds the new rung: **explicit
+per-video prompt > tenant_prompt_defaults > standing preferences > identity-learned values > neutral
+template.** Concretely: after `resolve_prompt` picks whichever source won and runs it through
+`engine_templates.safe_fill`, it APPENDS `identity.standing_preferences` — never templates it in, so it
+rides along on top of a per-video override, a tenant override, OR the neutral template alike:
+
+```python
+if chosen:
+    filled = engine_templates.safe_fill(chosen, identity)
+    return filled + (getattr(identity, "standing_preferences", "") or "")
+return None
+```
+
+The block itself is pre-formatted with the framing:
+
+> `STANDING CREATOR DIRECTIONS (obey these over any conflicting learned style):`
+
+— mirroring C15c's chat framing (`STANDING PREFERENCES (obey unless the creator overrides this turn; ...)`)
+verbatim in spirit but deliberately a DIFFERENT string: C15c's is per-turn chat guidance ("the creator
+can still override THIS turn"), this one is a standing generation directive with no per-turn escape
+hatch (a build has no "this turn" to override anything with). Pinned by
+`test_c15c_preferences_brief_framing_unchanged`, which asserts `_preferences_brief`'s own text is
+untouched and does NOT contain the new string.
+
+A tenant/per-video override is a full human-authored prompt and still wins outright per the law above;
+appending preferences on top doesn't reverse that. What it DOES override is the neutral template's own
+identity-learned content (voice_style/niche/etc. baked in by `engine_templates.render`) — exactly the
+gap the checklist named ("a correction... must OVERRIDE the learned DNA value everywhere generation
+reads it"). Because `standing_preferences` defaults to `""` for every existing `IdentityContext`
+construction (every test, every tenant with zero preferences), this is a pure no-op — proven by
+`test_resolve_prompt_no_preferences_is_byte_identical_to_pre_c44` and by the untouched pre-C44
+`test_resolve_prompt.py` suite still passing unmodified.
+
+### The per-video boundary — confirmed, not changed
+
+Checklist asked to confirm the boundary against C15c's own scoping rather than assume it. C15c's
+`director_preferences.scope` is either the literal `'channel'` or a video_id's text form; C15c's own
+`_preferences_brief(tenant_id, video_id=None)` already only ever hydrates a video-scoped row into THAT
+video's own co-pilot chat, never the home producer's channel-wide chat. Generation inherits the same
+logic one level further: `build_identity_context(tenant_id, video)` is called once per run for ONE
+video, but its result — and specifically `_standing_preferences_block`, which takes only `tenant_id`,
+never `video_id` — has no way to know it's "this video's chat session" vs. a completely unrelated video
+being built next. A creator noting "the kitten in THIS video is orange, not gray" is a fact about one
+video, not an instruction about how the CHANNEL should sound going forward; letting it leak into every
+future build for every other video would be a correctness bug, not a feature. So: video-scoped
+preferences stay exactly where C15c put them (chat-only, that video's own co-pilot), and only
+`scope = 'channel'` rows ever reach generation. Pinned by
+`test_standing_preferences_block_queries_channel_scope_only` (asserts the literal query parameter) and
+`test_handle_show_channel_digest_passes_preferences_into_the_card` (asserts `_list_preferences` is
+called with `video_id=None` from the digest path too).
+
+### Digest extension: keyword match + an unconditional footer
+
+`routes/chat.py::_build_dna_digest_card` gained a `preferences` parameter (fetched by
+`_handle_show_channel_digest` via the SAME `_list_preferences(tenant_id, video_id=None)` chat hydration
+already calls — one query, two consumers, no second parallel read). Two additions, matching the
+checklist's own hedge ("keyword/field-tag match is fine; don't build NLP; if a cheap match isn't
+reliable, just list standing directions in a footer instead"):
+
+- **`overridden_by` per field** — `_match_preference_override(field_key, pref_texts)` checks each active
+  preference's text (newest-first) for a cheap keyword hit against a small per-field map
+  (`_FIELD_OVERRIDE_KEYWORDS`: `voice_tone` -> "voice"/"tone", `visual_format` -> "visual"/"b-roll"/
+  "broll"/"footage"/"animation", etc.) and returns the first (most recent) match, or `None`.
+- **`standing_directions` footer** — EVERY active channel-scope preference, unconditionally, regardless
+  of whether it keyword-matched any field. Chose this hybrid over a footer-only design specifically
+  because a clean keyword hit ("actually the voice is more playful" -> `voice_tone`) is strictly more
+  useful shown inline next to the field it corrects than buried in a flat list — but a real correction
+  often won't use the field's exact word ("never use stock-footage-style b-roll" DOES happen to match
+  `visual_format`'s keyword list here, but plenty of real phrasing won't), so the footer guarantees
+  nothing is ever silently hidden just because the keyword match missed.
+
+Frontend (`ChatCore.tsx`'s `DnaDigestCard`, `lib/api.ts`): `ChatDnaFieldRow.overridden_by` (optional,
+renders an inline "Overridden by your standing direction: ..." note, gold-colored, reusing the already-
+imported `PencilLine` icon) and `ChatCard.standing_directions` (optional, renders a "Your standing
+directions" footer section reusing the already-imported `History` icon) — both additive, zero new icon
+imports, an older frontend build simply never reads either key. storyengine's own CLAUDE.md mandates the
+`web-design-system` skill before any UI work; that skill is not installed in this environment (only the
+review-only `web-design-guidelines` skill exists here) — flagged rather than silently skipped; the
+change instead follows the existing `DnaDigestCard` component's established CSS-variable/icon language.
+
+### Verify
+
+21 new tests in `storyengine/backend/tests/functional/test_c44_corrections_loop.py`, five groups: (1)
+`identity._standing_preferences_block` — empty/no-rows, the obey-over framing + numbering, the
+channel-scope-only query parameter, fail-soft on a DB error, length cap, blank-text rows ignored; (2)
+`build_identity_context_from_rows`/`build_identity_context` wiring — the field carries through, defaults
+to `""`, populates from a real (faked) DB read, and a preferences-table error doesn't suppress the rest
+of identity resolution; (3) `pipeline_executor.resolve_prompt` — both blocks (identity-filled template +
+standing preferences) coexist with the framing intact, preferences ride along under a tenant override
+AND a per-video override, the pre-C44 byte-identical regression case (empty preferences), and a
+no-template/no-override key still returns `None` (preferences never manufacture a prompt out of
+nothing); (4) `routes/chat.py` — `_match_preference_override`'s keyword hit/miss, `_build_dna_digest_card`'s
+`overridden_by` + `standing_directions`, and `_handle_show_channel_digest` passing `_list_preferences`'s
+result through with `video_id=None`; (5) the C15c regression pin — `_preferences_brief`'s own framing
+text is unchanged and distinct from the new string. Non-vacuous: `git stash` of the three modified `.py`
+files (`identity.py`/`pipeline_executor.py`/`routes/chat.py`; the new test file stays) reproduces 20 of
+21 failures against the pre-C44 baseline — the 21st (`test_resolve_prompt_no_preferences_is_byte_identical_to_pre_c44`)
+correctly still PASSES against old code too, since it's the explicit no-op regression pin, not a new-
+behavior test — confirmed live, stash popped back.
+
+**Full backend suite**: `./venv/bin/python -m pytest tests/ -q` -> **1396 passed** (1375 baseline + 21
+new C44 tests) **/ 15 pre-existing failures / 1 pre-existing error** — same failing-test-name list as
+C40-C43's documented baseline, zero new failures. `py_compile` clean on all touched/new `.py` files.
+`tests/test_resolve_prompt.py` (12 pre-existing cases), `tests/test_identity_context.py`,
+`tests/test_engine_templates.py`, `tests/test_channel_dna_meta.py`, and both C41/C42/C43's own functional
+test files all pass unmodified (105/105 across that combined re-run).
+
+Frontend: `npx tsc --noEmit` clean; `npm run build` clean (same pre-existing `NEXT_PUBLIC_API_URL`
+prerender note, unrelated to this chunk). `grep 'card.id === "'` on `ChatCore.tsx` shows zero new
+matches — the only new JSX lives inside the pre-existing `channel_dna_digest` `cardKind()` branch.
+
+### Modified/New Files (C44)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/identity.py` | NEW `IdentityContext.standing_preferences` field (default `""`); NEW `_standing_preferences_block(tenant_id)`; `build_identity_context_from_rows`/`build_identity_context` thread the new field through (own fail-soft boundary, independent of the existing project/profile lookup) |
+| `storyengine/backend/pipeline_executor.py` | `resolve_prompt` appends `identity.standing_preferences` after whichever prompt source won, before returning |
+| `storyengine/backend/routes/chat.py` | NEW `_FIELD_OVERRIDE_KEYWORDS`/`_match_preference_override`; `_build_dna_digest_card` gained a `preferences` param + `overridden_by` per field + `standing_directions` footer; `_handle_show_channel_digest` fetches preferences via the existing `_list_preferences(tenant_id, video_id=None)` and threads them through |
+| `storyengine/backend/tests/functional/test_c44_corrections_loop.py` | NEW — 21 tests |
+| `storyengine/frontend/src/lib/api.ts` | Additive: `ChatDnaFieldRow.overridden_by`, `ChatCard.standing_directions` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | `DnaDigestCard` renders the new `overridden_by` inline note + `standing_directions` footer (reuses existing `PencilLine`/`History` icon imports, no new imports) |
+
+### Deploy-safety assessment
+
+No migration, no schema change (`director_preferences` already exists, C15c), no new route. Both new
+reads (`_standing_preferences_block`, the digest's `_list_preferences` call) are fail-soft and additive
+— a tenant with zero standing preferences gets byte-identical output to pre-C44 everywhere (proven by
+the explicit regression-pin test and by every pre-existing `test_resolve_prompt.py`/
+`test_identity_context.py` case passing unmodified). Frontend fields are optional/additive on both
+sides: an older frontend never reads `overridden_by`/`standing_directions` and renders exactly as
+before; an older backend never sends them and the new frontend code paths simply don't render (both
+guarded by truthy/length checks). Safe to ff-merge.
+
+**Deferred to `tasks/live-verification-queue.md` §C44:** a real end-to-end round-trip — say a channel-
+wide correction in chat ("actually the voice is more playful"), confirm the digest shows it in the
+footer (and, if it keyword-matches, inline on `voice_tone`), then run a REAL script/research/thumbnail
+generation for that tenant and confirm the standing-directions block is actually present in the system
+prompt sent to Claude. No paid key in this sandbox to run that live.
+
+**Next chunk: C45 · P4.1f onboarding hookup + intelligence-report retirement** — the P4.1 closer: wire
+onboarding to call C41's `learn_channel` orchestrator instead of its own dead-end path; retire
+`_build_intelligence_report` gracefully (it has live routes — needs a deprecation plan, not a silent
+delete).

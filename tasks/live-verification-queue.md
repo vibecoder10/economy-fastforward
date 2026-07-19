@@ -2354,6 +2354,36 @@ live vision call, this chunk. SYSTEM_STATE.md §C43.
 
 ---
 
+## C44 — corrections loop wiring: `director_preferences` now reach GENERATION · live checks
+
+No paid Claude call, no live LLM round-trip this chunk (sandbox has no key) — everything was proven
+with monkeypatched DB reads. SYSTEM_STATE.md §C44.
+
+- [ ] **A channel-wide correction actually changes the next real script/research/thumbnail prompt.**
+      On a tenant with DNA already learned, say something like "actually the voice is more playful"
+      in chat's DNA digest "Something off?" box (or via "always be more playful, never formal" as a
+      standing instruction — either lands in `director_preferences` scope='channel'). Then trigger a
+      real `run_script` (or research/thumbnail) for a video on that tenant. Confirm: (a) `se db "SELECT
+      text FROM director_preferences WHERE tenant_id='<id>' AND scope='channel' AND active"` shows the
+      correction; (b) tail backend logs / add a temporary print of the resolved system prompt (or check
+      whatever debug surface exists) and confirm it ends with "STANDING CREATOR DIRECTIONS (obey these
+      over any conflicting learned style):" followed by the correction text; (c) the actual generated
+      script/research/thumbnail concept qualitatively reflects the correction (playful, not formal).
+- [ ] **Digest shows the override.** After the correction above, "show the channel digest" in chat.
+      Confirm: (a) if the correction's wording happens to keyword-match a field (e.g. mentions "voice"),
+      that field's row shows "Overridden by your standing direction: ..."; (b) regardless of match, the
+      "Your standing directions" footer lists the correction; (c) "forget that" removes it from BOTH the
+      footer and the next build's system prompt (re-run (a)/(b) above after forgetting).
+- [ ] **Per-video preference does NOT leak into generation.** In a specific video's co-pilot chat, say
+      something clearly video-scoped ("the kitten in THIS video is orange, not gray") so it saves with
+      `scope=<that video_id>` (not 'channel'). Build a DIFFERENT video for the same tenant. Confirm the
+      orange/kitten note does NOT appear in that other video's resolved system prompt — only channel-
+      scope preferences should ever reach `identity._standing_preferences_block`.
+- **Cost:** whatever the script/research/thumbnail generation itself already costs (existing feature,
+  no new spend category) — this chunk added a read, not a new paid call.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

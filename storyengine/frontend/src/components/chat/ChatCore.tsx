@@ -1371,6 +1371,12 @@ function DnaDigestCard({
                     via {f.learner ?? "unknown"}{f.at ? ` · ${new Date(f.at).toLocaleDateString()}` : ""}
                   </div>
                 )}
+                {f.overridden_by && (
+                  <div className="text-[11px] mt-1 flex items-start gap-1" style={{ color: "var(--gold)" }}>
+                    <PencilLine size={11} className="mt-0.5 shrink-0" aria-hidden />
+                    <span>Overridden by your standing direction: &ldquo;{f.overridden_by}&rdquo;</span>
+                  </div>
+                )}
               </div>
               {f.revertable && (
                 <button
@@ -1383,6 +1389,27 @@ function DnaDigestCard({
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {(card.standing_directions?.length ?? 0) > 0 && (
+        <div
+          className="flex flex-col gap-1.5 rounded-lg px-3 py-2"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex items-center gap-1.5 text-xs font-medium" style={{ color: "var(--text-primary)" }}>
+            <History size={12} aria-hidden /> Your standing directions
+          </div>
+          <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+            These apply to every future build, on top of whatever's learned above.
+          </p>
+          <ul className="flex flex-col gap-1">
+            {(card.standing_directions ?? []).map((text, i) => (
+              <li key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                {text}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

@@ -6139,6 +6139,19 @@ def resolve_prompt(
     verbatim. Phase 1 invariant: a tenant with a custom override still gets
     that override — we only fill identity slots and never overwrite it.
 
+    C44 (P4.1e corrections loop): `identity.standing_preferences` — channel-
+    scoped director_preferences (C15c), pre-formatted by
+    `identity._standing_preferences_block` — is APPENDED after whichever
+    source won, never templated into it. This is the extra precedence rung:
+    explicit per-video prompt > tenant_prompt_defaults > standing preferences
+    > identity-learned values > neutral template. A per-video/tenant override
+    is a human-authored full prompt and still wins outright; but whatever text
+    was chosen, the standing directions ride along on top of it, framed to
+    override any CONFLICTING identity-LEARNED content (the neutral template's
+    injected voice/niche/etc.) — mirroring C15c's chat framing verbatim.
+    Empty when there are none / on a DB error, so this is a no-op for every
+    tenant with no standing preferences.
+
     Returns the resolved prompt string, or None when there's nothing to set
     (so the bot falls back to its built-in default).
     """
@@ -6151,7 +6164,8 @@ def resolve_prompt(
     neutral = engine_templates.render(prompt_key, identity)  # "" if no template
     chosen = _nonblank(per_video) or _nonblank(tenant) or _nonblank(neutral)
     if chosen:
-        return engine_templates.safe_fill(chosen, identity)
+        filled = engine_templates.safe_fill(chosen, identity)
+        return filled + (getattr(identity, "standing_preferences", "") or "")
     return None
 
 

@@ -23,7 +23,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from database import fetch_one
+from database import fetch_all, fetch_one
 
 _logger = logging.getLogger(__name__)
 
@@ -34,6 +34,69 @@ _DEFAULT_NICHE = "general educational content"
 _DEFAULT_AUDIENCE = "a general audience"
 _DEFAULT_VOICE = "clear, engaging, and natural"
 _DEFAULT_VISUAL = "a clean, consistent illustrated style"
+
+# C44 (P4.1e corrections loop): channel-scoped `director_preferences` (C15c)
+# read for injection into GENERATION prompts, not just chat. Deliberately a
+# SEPARATE, minimal query rather than importing routes.chat's `_list_preferences`
+# — chat.py sits on top of a heavy import chain (FastAPI router, actions.py,
+# vault, generation_claims, the whole skills/video-pipeline package via
+# actions.py's own sys.path insert) that this low-level identity module — the
+# ONE seam every generation stage shares (script/research/thumbnail/title/
+# video_motion via pipeline_executor.resolve_prompt, PLUS the image-pipeline's
+# VISUAL_STYLE_DESCRIPTION env seam via _export_visual_style) and which every
+# lightweight identity/prompt unit test imports directly — must not pull in.
+# Same query shape as chat.py's `_list_preferences` (tenant-scoped, active
+# only, newest-first, capped); scope is hardcoded to 'channel' ONLY — see
+# `_standing_preferences_block`'s docstring for why per-video preferences are
+# excluded here.
+_STANDING_PREFS_SCOPE = "channel"
+_STANDING_PREFS_CAP = 20
+_STANDING_PREFS_BLOCK_MAX_CHARS = 3000
+
+
+async def _standing_preferences_block(tenant_id: str) -> str:
+    """The "STANDING CREATOR DIRECTIONS" block injected into every GENERATION
+    prompt (checklist C44) — the corrections-loop closing the gap left by
+    C15c/C42: a correction said once in chat ("actually the voice is more
+    playful") was only ever read back into FUTURE CHAT turns
+    (`_preferences_brief`); it never reached script/research/thumbnail/title/
+    video_motion generation. This is that missing read.
+
+    Channel-scope ONLY (`scope = 'channel'`) — a per-video preference
+    (`scope = <video_id>`) is a note about ONE video's chat session, not a
+    standing change to how the CHANNEL builds anything; injecting it into
+    generation for a DIFFERENT video would be wrong, and `build_identity_context`
+    is shared across every video. Per-video preferences stay exactly where C15c
+    put them: hydrated only into that video's own co-pilot chat
+    (`_preferences_brief(tenant_id, video_id)`), never into a build.
+
+    Capped at `_STANDING_PREFS_CAP` rows / `_STANDING_PREFS_BLOCK_MAX_CHARS`
+    characters, same discipline as chat.py's `_preferences_brief` (a prompt
+    must never bloat unboundedly). Fail-soft: any DB error yields "" — a
+    preferences read must never break a generation run.
+    """
+    try:
+        rows = await fetch_all(
+            "SELECT text FROM director_preferences "
+            "WHERE tenant_id = $1 AND active = true AND scope = $2 "
+            "ORDER BY created_at DESC LIMIT $3",
+            tenant_id, _STANDING_PREFS_SCOPE, _STANDING_PREFS_CAP,
+        )
+    except Exception as e:  # noqa: BLE001 — never let a preferences hiccup break a build
+        _logger.warning("build_identity_context: standing preferences lookup failed: %s", e)
+        return ""
+    if not rows:
+        return ""
+    lines = [f"{i}. {r['text']}" for i, r in enumerate(rows, 1) if r.get("text")]
+    if not lines:
+        return ""
+    block = "\n".join(lines)
+    if len(block) > _STANDING_PREFS_BLOCK_MAX_CHARS:
+        block = block[:_STANDING_PREFS_BLOCK_MAX_CHARS].rsplit("\n", 1)[0]
+    return (
+        "\n\nSTANDING CREATOR DIRECTIONS (obey these over any conflicting "
+        "learned style):\n" + block
+    )
 
 
 @dataclass
@@ -47,6 +110,12 @@ class IdentityContext:
     voice_style: str
     visual_style: str
     frameworks: List[str] = field(default_factory=list)
+    # C44: channel-scoped standing creator directions (director_preferences),
+    # pre-formatted with the "obey over conflicting learned style" framing.
+    # "" when there are none / on a DB error. Appended (never templated in) by
+    # pipeline_executor.resolve_prompt so it applies whichever prompt source
+    # won (per-video override / tenant override / neutral template).
+    standing_preferences: str = ""
 
 
 def _clean(value) -> str:
@@ -144,6 +213,7 @@ def build_identity_context_from_rows(
     profile: Optional[dict],
     video: Optional[dict],
     channel_visual_style: Optional[str] = None,
+    standing_preferences: str = "",
 ) -> IdentityContext:
     """Pure builder (no DB). Combine a projects row, a channel_profiles row,
     a video row, and the channel's active visual-style look into one
@@ -206,6 +276,7 @@ def build_identity_context_from_rows(
         voice_style=voice_style,
         visual_style=visual_style,
         frameworks=frameworks,
+        standing_preferences=standing_preferences or "",
     )
 
 
@@ -247,7 +318,14 @@ async def build_identity_context(
         profile = None
         channel_visual_style = None
 
+    # C44: standing preferences are a SEPARATE table/read from the identity
+    # lookup above — its own fail-soft boundary (already inside the helper),
+    # so a channel_profiles/projects hiccup can't suppress preferences and a
+    # preferences hiccup can't suppress the rest of the identity.
+    standing_preferences = await _standing_preferences_block(tenant_id)
+
     return build_identity_context_from_rows(
         project=project, profile=profile, video=video,
         channel_visual_style=channel_visual_style,
+        standing_preferences=standing_preferences,
     )

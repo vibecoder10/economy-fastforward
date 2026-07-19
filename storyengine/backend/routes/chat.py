@@ -3900,8 +3900,47 @@ _DNA_LEARNER_LABELS: dict[str, str] = {
     "reference_video": "Reference video style",
 }
 
+# C44 (P4.1e corrections loop): cheap keyword match between a learned identity
+# field and the tenant's active channel-scope standing preferences, so the
+# digest can flag "this learned value has a standing correction on file"
+# instead of showing a field as if nothing had overridden it. Deliberately NOT
+# NLP (checklist's own explicit hedge: "keyword/field-tag match is fine; don't
+# build NLP") — a correction that doesn't happen to use one of these words
+# (e.g. "no stock-footage b-roll" for visual_format, which DOES match here via
+# "b-roll"/"footage", but plenty of real phrasing won't) will miss the
+# per-field flag. That's why `standing_directions` (the full active list,
+# unconditional) is ALSO always attached to the card below — nothing is ever
+# silently hidden just because the keyword match missed it.
+_FIELD_OVERRIDE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "voice_tone": ("voice", "tone"),
+    "cadence": ("cadence", "pace", "pacing", "rhythm"),
+    "hook_style": ("hook",),
+    "structure": ("structure",),
+    "research_approach": ("research",),
+    "visual_format": ("visual", "b-roll", "broll", "footage", "animation"),
+    "thumbnail_style": ("thumbnail",),
+    "reference_video_style": ("reference video", "reference"),
+}
 
-def _build_dna_digest_card(identity: dict, run: Optional[dict]) -> dict[str, Any]:
+
+def _match_preference_override(field_key: str, pref_texts: list[str]) -> Optional[str]:
+    """The most recent (pref_texts is already newest-first) active standing
+    preference whose text mentions this field's keyword(s), or None. See
+    `_FIELD_OVERRIDE_KEYWORDS`'s docstring for why this is intentionally a
+    cheap substring match, not semantic matching."""
+    keywords = _FIELD_OVERRIDE_KEYWORDS.get(field_key)
+    if not keywords:
+        return None
+    for text in pref_texts:
+        low = text.lower()
+        if any(kw in low for kw in keywords):
+            return text
+    return None
+
+
+def _build_dna_digest_card(
+    identity: dict, run: Optional[dict], preferences: Optional[list[dict]] = None,
+) -> dict[str, Any]:
     """The digest card checklist C42 asks for: per-learner sections (from
     the persisted `_last_run` report) plus the key identity fields with
     their provenance (C40's `_sources`) and a Revert affordance wherever
@@ -3928,6 +3967,14 @@ def _build_dna_digest_card(identity: dict, run: Optional[dict]) -> dict[str, Any
         "Here's what I learned about your channel:"
     )
 
+    # C44: channel-scope standing preferences (director_preferences, C15c) —
+    # the SAME rows now feeding every generation prompt via
+    # identity._standing_preferences_block — so the digest can show a
+    # creator's corrections aren't just sitting in a table somewhere but are
+    # actually in effect. Newest-first, same order the preferences chat
+    # surfaces already number them in.
+    pref_texts = [p["text"] for p in (preferences or []) if p.get("text")]
+
     fields = []
     for key, label in _DNA_DIGEST_FIELDS:
         val = identity.get(key)
@@ -3935,6 +3982,7 @@ def _build_dna_digest_card(identity: dict, run: Optional[dict]) -> dict[str, Any
             continue
         prov = field_provenance(identity, key) or {}
         revertable = latest_history_index_for_field(identity, key) is not None
+        overridden_by = _match_preference_override(key, pref_texts)
         fields.append({
             "field": key,
             "label": label,
@@ -3942,12 +3990,20 @@ def _build_dna_digest_card(identity: dict, run: Optional[dict]) -> dict[str, Any
             "learner": prov.get("learner"),
             "at": prov.get("at"),
             "revertable": revertable,
+            # C44: "" absent by default (additive key — an older frontend
+            # simply never reads it); set only when a standing preference's
+            # text keyword-matched this field, per the hedge above.
+            "overridden_by": overridden_by,
         })
 
     return {
         "id": "channel_dna_digest", "label": "Channel DNA digest", "type": "single",
         "options": [], "header": header, "learners": learners, "fields": fields,
         "any_failed": any_failed,
+        # C44: every active channel-scope standing preference, regardless of
+        # whether it keyword-matched a field above — the footer section a
+        # cheap match can't fully cover (see _FIELD_OVERRIDE_KEYWORDS docstring).
+        "standing_directions": pref_texts,
     }
 
 
@@ -3964,7 +4020,12 @@ async def _handle_show_channel_digest(conversation_id, tenant_id, transcript, st
         )
         return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
 
-    card = _build_dna_digest_card(ident, run)
+    # C44: channel-scope standing preferences, reusing the EXACT same
+    # `_list_preferences` read the chat hydration path uses (video_id=None ->
+    # channel scope only) — one query, two consumers, never a second
+    # parallel implementation. Fail-soft already inside _list_preferences.
+    preferences = await _list_preferences(tenant_id, video_id=None)
+    card = _build_dna_digest_card(ident, run, preferences)
     state["pending_dna_digest"] = True
     if user_msg:
         transcript.append({"role": "user", "content": user_msg})

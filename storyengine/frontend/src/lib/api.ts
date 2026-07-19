@@ -2740,6 +2740,11 @@ export interface ChatDnaFieldRow {
   learner?: string | null;
   at?: string | null;
   revertable: boolean;
+  // C44 (P4.1e corrections loop): the most recent standing preference
+  // (director_preferences, C15c) whose text keyword-matched this field, if
+  // any — this learned value is now overridden in every future build.
+  // Optional/additive: absent on any older backend payload.
+  overridden_by?: string | null;
 }
 export interface ChatCard {
   id: string;
@@ -2769,6 +2774,11 @@ export interface ChatCard {
   learners?: ChatDnaLearnerRow[];
   fields?: ChatDnaFieldRow[];
   any_failed?: boolean;
+  // C44: every active channel-scope standing preference (director_preferences),
+  // regardless of whether it keyword-matched a field's `overridden_by` above —
+  // the footer covering corrections a cheap match can't reliably tag to one
+  // field. Optional/additive, same rule as every card-specific field above.
+  standing_directions?: string[];
 }
 export interface ProductionPlan {
   story_concept?: string;

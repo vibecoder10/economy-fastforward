@@ -183,7 +183,55 @@
   C42's digest-card "correct" action deliberately deferred (today: a deterministic form-post to
   `_save_preference`, not the full natural-language classification `_handle_copilot`'s remember/forget
   triggers already do elsewhere).
-- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C44 (C40/C41/C42/C43 done).
+- **Also done:** C44 · P4.1e corrections loop wiring — DONE 2026-07-19, full detail in SYSTEM_STATE.md
+  §C44. The core wire: `identity.py` gained `IdentityContext.standing_preferences` (new field, default
+  "") + `_standing_preferences_block(tenant_id)`, a channel-scope-ONLY, capped (20 rows / 3000 chars),
+  fail-soft read of `director_preferences` (C15c) — injected into the ONE seam every generation stage
+  shares per C43's own audit table (`build_identity_context`, consumed by both
+  `_load_prompt_overrides` -> `resolve_prompt` for script/research/thumbnail/title/video_motion, and
+  `_export_visual_style` for the image pipeline's env seam). Deliberately a SEPARATE minimal query, not
+  an import of chat.py's `_list_preferences` — chat.py sits on a heavy import chain (FastAPI router,
+  actions.py, the whole skills/video-pipeline package via actions.py's own sys.path insert) this
+  low-level, widely-imported module must not pull in. Precedence law extended one rung:
+  `pipeline_executor.resolve_prompt` now APPENDS `identity.standing_preferences` after whichever prompt
+  source won (per-video override > tenant override > standing preferences > neutral template), framed
+  "STANDING CREATOR DIRECTIONS (obey these over any conflicting learned style):" — mirrors C15c's chat
+  framing, applies unconditionally so a tenant's custom override can't silently swallow it, and is a
+  pure no-op (byte-identical output) for every tenant with zero preferences (empty string default).
+  Per-video-scoped preferences deliberately STAY chat-only (not read into generation) — a note about
+  ONE video's chat session shouldn't rewrite how the CHANNEL builds every other video, and
+  `build_identity_context` is shared across every video for a tenant; C15c's own `_preferences_brief`
+  already scopes it this way (channel-wide + this-video-only, hydrated only into that video's chat).
+  Digest extension (`_build_dna_digest_card` in routes/chat.py): a cheap, explicitly-NOT-NLP keyword
+  match (`_FIELD_OVERRIDE_KEYWORDS`/`_match_preference_override`, per the checklist's own hedge) flags a
+  learned field's `overridden_by` when a standing preference's text mentions that field's keyword(s);
+  since a real correction often won't use the field's exact word, the card ALSO carries an
+  unconditional `standing_directions` footer (every active channel-scope preference, regardless of
+  match) so nothing is ever silently hidden by a keyword miss — chose the hybrid over a footer-only
+  design specifically so a clean keyword hit still gets the more useful inline "this exact field is
+  overridden" flag. Frontend: `ChatDnaFieldRow.overridden_by` + `ChatCard.standing_directions` (both
+  optional/additive), `DnaDigestCard` renders an inline "Overridden by your standing direction: ..."
+  note per field plus a "Your standing directions" footer section (new `History`/`PencilLine` icon
+  reuse, no new imports). The `web-design-system` skill CLAUDE.md mandates for UI work is not installed
+  in this environment (only the review-only `web-design-guidelines` skill exists) — followed the
+  existing `DnaDigestCard`'s established component/CSS-var language instead, flagged here rather than
+  silently skipped. 21 new tests in `test_c44_corrections_loop.py`, non-vacuous via `git stash` (20/21
+  fail against the pre-C44 baseline — the 21st is the explicit "empty preferences = byte-identical to
+  pre-C44" regression pin, which correctly still passes on the old code too). Full backend suite
+  **1396P/15F/1E** = baseline(1375)+21, zero new failures — same 15 failure names/1 error as C40-C43's
+  documented baseline. `py_compile` clean. Frontend: `npx tsc --noEmit` clean, `npm run build` clean
+  (same pre-existing `NEXT_PUBLIC_API_URL` prerender note), zero new `card.id === "` matches (grep-
+  confirmed — the only new JSX lives inside the existing `channel_dna_digest` branch). C15c regression
+  pinned: `_preferences_brief`'s own chat-turn framing text is asserted UNCHANGED and distinct from the
+  new generation-seam framing (different strings, by design — one is per-turn chat guidance, the other
+  is a standing generation directive). No migration, no schema change, no new route. Live verification
+  (a real chat correction changing the NEXT real script/research/thumbnail generation) deferred to
+  `tasks/live-verification-queue.md` §C44. Deploy-safe both directions, additive-only — ff-merge
+  candidate.
+  **Next up: C45 · P4.1f onboarding hookup + intelligence-report retirement** — the P4.1 closer: wire
+  onboarding to call C41's `learn_channel` orchestrator; retire the dead-end `_build_intelligence_report`
+  gracefully (live routes need a deprecation plan, not a silent delete).
+- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C45 (C40-C44 done).
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 
 ## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)
