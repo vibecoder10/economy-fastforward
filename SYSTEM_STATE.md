@@ -5630,3 +5630,139 @@ plus a separate sandbox-side dry-run of the JSON-RPC surface (`initialize`/`tool
 client) rather than a normal Sonnet-worker build chunk — there is no more code to write here; C25a
 (media-proxy tenant-auth fix) still needs to land via its coordinated deploy first, same
 dependency C26/C27 already flagged.
+
+---
+
+## C29 — P2.4d external-client loop verify: sandbox dry-run + consolidated live recipe (added 2026-07-19)
+
+**Checklist §P2.4d, as split by the chunk brief itself** (`tasks/storyengine-wiring-fix-checklist.md`
+line 263: "recommend folding into `tasks/live-verification-queue.md` ... plus a sandbox-side
+JSON-RPC dry-run, rather than a normal build chunk"). The original spec — a full external-client
+loop (create → route → draft → finalize → upload draft) driven by a REAL MCP client against a REAL
+coordinated deploy — needs infrastructure this sandbox does not have (no route to the VPS, no MCP
+client installed here, no Kie key). Split into the two halves that ARE possible:
+
+**(a) The sandbox half — `test_c29_mcp_full_session_dry_run.py` (new, 2 tests):** an 11-step
+simulated external-client session driven entirely through the REAL ASGI app
+(`main.app`, `TestClient`, `MCP_ENABLED=true` via the same reload-main technique C26's test file
+established) — real HTTP requests, real JSON-RPC envelope, real `RateLimitMiddleware`, real
+`auth_agent.get_agent_tenant_id` dependency, real `agent_tokens.authenticate`/`create_agent_token`/
+`revoke_agent_token`, and — the centerpiece — the REAL `confirm_tokens.create`/`redeem` money-gate
+logic (only its own DB `execute()` call is faked, same technique C27's own test file uses; the gate
+ITSELF runs for real, which is what makes the canary proof below meaningful). Session:
+
+  1. `initialize` — real dispatch.
+  2. `tools/list` — paid verb schemas carry `confirm_token`, free verbs don't, S5-2 memory-tool
+     exclusion still holds.
+  3. `create_video` (free) — dispatches through the real `routes.videos.create_video` (patched at
+     that module's own boundary, same as C26/C27's test files) — `thumbnail_url` confirmed stripped
+     from the MCP result (C25a hold).
+  4. `get_video` — reads back the created video's summary.
+  5. `script` (a paid verb) with NO `confirm_token` — returns a quote + `confirm_token`; the
+     executor (`routes.chat._run_pending_action`, stubbed) is proven NOT invoked.
+  6. Same verb WITH that `confirm_token` — dispatches; `run_pending_mock.assert_awaited_once_with`
+     pins the EXACT args (`tenant_id`, `video_id`, `{"verb": "script", "scene": None, "change":
+     None, "length_min": None}`, `background_tasks`, `caller="agent:C29 Dry-Run Session"`) — the
+     attribution seam proven end-to-end from the bearer token's display name through to the
+     executor call.
+  7. The SAME `confirm_token` again (reuse) — refused (`isError: true`, the exact "invalid,
+     expired, already used..." message), executor STILL called exactly once (not twice).
+  8. `get_ledger` — stubbed spend rows returned through the real `get_video_ledger` route function
+     boundary.
+  9. Revoke the agent token via the REAL `DELETE /api/agent-tokens/{id}` route (session-authed via
+     `app.dependency_overrides[auth.get_tenant_id]`, mirroring how a logged-in web session would
+     revoke it).
+  10. The next MCP call with the now-revoked token — real 401, immediately (S5-3, no cache on the
+      auth decision itself).
+  Plus, separately: `MCP_ENABLED` unset/false — a REAL `POST /api/mcp` request now 404s (test_c26's
+  version only inspected `app.routes` structurally; this one actually sends the request).
+
+**What's real vs. stubbed (stated plainly, per the file's own docstring):** real — the ASGI request/
+response cycle, JSON-RPC framing, `RateLimitMiddleware`, `auth_agent.get_agent_tenant_id`, every
+`agent_tokens.*` function, every `confirm_tokens.*` function (money gate). Stubbed — `routes.videos.
+create_video`/`get_video_ledger` (DB writes, tested elsewhere), `actions.video_summary`/
+`blocked_reason`/`estimate_cost`/`cost_breakdown`/`already_uploaded_reply` (tested in C27's money-gate
+matrix), `routes.chat._run_pending_action` (the "executor" — the chunk brief's own words: "executor
+stubbed, assert the real runner was invoked with the right args"), and the DB layer under
+`agent_tokens`/`confirm_tokens` (an in-memory fake table — no live Postgres in this sandbox, same
+`_FakeStore`/`_FakeConfirmStore` pattern as `test_c26_mcp_agent_tokens.py`/
+`test_c27_mcp_toolset_money_gate.py`).
+
+**Canary proof (in place of `git stash`, per the chunk brief's own instruction — this is a new test
+of EXISTING code, not new production code, so a stash-based non-vacuous proof doesn't apply the same
+way):** temporarily changed `routes/mcp.py`'s `if not ok:` (the confirm_token redeem-result check,
+line 563) to `if False:` — i.e., neutered the money gate so a failed/reused token would dispatch
+anyway. Re-ran `test_c29_mcp_full_session_dry_run.py`: **step 7 (token-reuse refusal) failed**
+(`assert False is True` — the reuse call's `isError` came back `False` instead of `True`, because
+the neutered check let the second, already-spent confirm_token dispatch a SECOND time). Reverted the
+one-line change (confirmed via `git diff --stat routes/mcp.py` showing zero diff), re-ran — both
+tests pass again. This is the sandbox-available equivalent of the checklist's usual
+`git stash`-based non-vacuous proof: it shows the test actually exercises the money gate's real
+logic, not a tautology that would pass even with the gate broken.
+
+**(b) The live half — `tasks/live-verification-queue.md` §C29 (new section, placed near the top,
+right after the "WHEN YOU'RE AT THE COMPUTER" priority list):** the ONE consolidated runbook folding
+together C26's ("does a real MCP client actually connect, does it need the fuller Streamable HTTP
+transport"), C27's ("live money-gate spot-check — real quote, real spend, real ledger row"), and
+C28's ("mint → copy → connect → chip appears on a live agent-driven run") already-deferred live
+checks — not four separate fragments. Six ordered steps: (1) coordinated deploy folding in C25a's
+held branch + `--with-frontend` (references §C25a's own existing required check, doesn't duplicate
+it), (2) flip `MCP_ENABLED=true` + `se.sh restart backend`, (3) mint a token in Settings → Agent
+Access, (4) connect a real MCP client — exact `.mcp.json`-shaped config JSON given (URL + bearer
+header) for Claude Code/Desktop/Hermes, explicitly framed as the live answer to the "does bare
+JSON-RPC-over-POST suffice, or does a real client need SSE/Streamable-HTTP" question `routes/mcp.py`'s
+own module docstring left open, (5) run the UX-map §7 example session for real on a disposable
+2-scene test video (`create_video` → `draft_pass` quote → confirm → `finalize` quote → confirm →
+`get_ledger` + the "via agent" chip + `claimed_by` all checked live), (6) revoke + confirm 401. Every
+step states its expected result AND its rollback note (unsetting `MCP_ENABLED` + restart is the
+universal rollback — instant dark, no migration to reverse). **Cost**: capped at **~$1–2**, itemized
+per step 5 using the REAL registry prices (`skills/video-pipeline/shared/channel_profile.py`) —
+draft-tier Grok Imagine clips ($0.09/6s-clip) + z-image or GPT-Image-2 pictures for a 2-scene test
+video (~$0.20–0.80 per pass), explicitly forbidding a premium finalize (Veo Quality/Seedance, which
+would run $6–50 per `docs/cost-awareness.md`'s own clip table) unless Ryan deliberately opts in.
+Old §C26/§C27/§C28 pointers: none previously existed as their own queue sections (none of those
+three chunks had shipped a standalone entry — checked, zero prior matches in the file) — added tiny
+one-line redirect stubs (`### §C26 / §C27 / §C28 — see §C29 above`) so anyone following
+`SYSTEM_STATE.md`'s existing "deferred to `tasks/live-verification-queue.md` §C26/§C27/§C28" pointers
+lands on real content instead of a dead anchor.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c29_mcp_full_session_dry_run.py` | 11-step simulated external-client MCP session (2 tests) — see (a) above |
+
+### Modified Files
+None (routes/mcp.py's one-line canary edit was made and reverted locally, never committed —
+confirmed via `git diff --stat routes/mcp.py` showing zero diff before this chunk's commit).
+
+**Verify:** 2 new tests, both passing. Non-vacuous per the canary proof above (not `git stash`, since
+this test exercises EXISTING C26/C27 code rather than adding new production code — the neutered-gate
+canary is the equivalent proof for this shape of chunk). `python -m py_compile` clean on the new test
+file and on `routes/mcp.py` (post-revert). **Full backend suite: 1205 passed / 15 failed / 1 error**
+— baseline (C28 handoff) was **1203 passed / 15 failed / 1 error**; 1205 − 1203 = exactly the 2 new
+tests, same 15 pre-existing failure names (`test_activity_feed_no_raw_errors.py` ×2,
+`test_auto_scrape_ungated.py`, `test_clip_dialogue.py`, `test_dialogue_alignment.py`,
+`test_discovery_error_surfacing.py`, `test_discovery_generation_no_leak.py` ×2, `test_model_video.py`
+×2, `test_refresh_ideas_error_surfaced_lock.py`, `test_suggest_titles_wire.py`,
+`test_youtube_my_videos.py`, `test_youtube_oauth_diagnostics.py` ×2), same 1 pre-existing error
+(`test_validator_error_parsing.py::test_api_key`) — zero new failures. Frontend: untouched (`git
+status` confirms zero files under `storyengine/frontend/`) — no `tsc`/build run needed.
+
+Checklist §C29 ticked (the sandbox dry-run half; the live runbook half is tracked as its own
+checklist-style steps inside `tasks/live-verification-queue.md` §C29, ticked independently by
+whoever runs it on the VPS).
+
+**Deploy-safety assessment — ff-merge candidate:** the ONLY production code touched this chunk is
+the temporary, reverted canary edit to `routes/mcp.py` (confirmed zero diff via `git diff --stat`
+before commit) — the real shipped diff is exactly one new test file (test-only, zero runtime
+surface) plus two docs edits (`tasks/live-verification-queue.md`, this section). Nothing here
+changes what's reachable in prod: `MCP_ENABLED` is still unset there, `/api/mcp` still structurally
+doesn't exist. Safe to ff-merge to main on the routine hourly deploy — this chunk doesn't move C29's
+own live half forward (that still needs the coordinated deploy + flag flip Ryan runs manually per
+the new runbook), it only proves the code that's ALREADY on main behaves correctly under a real
+HTTP session and gives Ryan the one recipe to run when ready.
+
+**Next up: C30 · P3.1a preset/model choices queryable next to CTR/retention snapshots (Phase 3
+begins)** — the learning-loop phase: surfacing which style preset / clip model a video used
+alongside its CTR/retention numbers, plus the aggregation query that groups performance "by choice"
+(a prerequisite for C31's "by style" analytics panel).

@@ -13,7 +13,176 @@
 1. **💰 Confirm the Veo 3.1 price (the one real money unknown).** Public pages conflict: Veo 3.1 Fast = **$0.40 or $0.30**, Veo 3.1 Quality = **$2.00 or $1.25** per 8s clip — and Veo Quality is by far the priciest model, so getting it right matters most. Generate ONE Veo clip on a test video, then read the Kie dashboard's credit-consumption log for that task (credits × $0.005 = the true price). Update `CLIP_PRICE_BY_MODEL`/`MODEL_REGISTRY.cost_per_clip` for veo-3.1-fast/quality in `skills/video-pipeline/shared/channel_profile.py`. Same one-clip-and-read for **Grok Imagine**, **Kling 3.0 Pro**, **Runway Gen-4 Turbo** if you wire them (details in §C09 below).
 2. **🎙️ Confirm the ElevenLabs voice rate.** The ledger meters voice by REAL character count (accurate) but at an UNCONFIRMED **$0.30/1,000 chars** — ElevenLabs bills by a monthly character allowance tied to your plan, doesn't return a per-call cost, and it's your own (BYOK) key, so the true effective rate is per-account. Generate one voiceover, note the character count the ledger recorded (`se db "SELECT units, actual_cost FROM generation_ledger WHERE stage='voice' ORDER BY created_at DESC LIMIT 1"`), then check your ElevenLabs dashboard/usage for that account's real $/1,000-chars (or overage rate) and update `VOICE_PRICE_PER_1K_CHARS` in `skills/video-pipeline/shared/channel_profile.py` if it differs.
 3. **🧾 One cheap picture-gen tests the WHOLE cost chain at once.** Generating a single scene's pictures (~$0.05–0.30) lights up C07-style ledger writes AND C08 image pricing AND C10's Est→Actual chip/drawer in one shot — do it on a test video and walk §C07/§C08/§C10 together instead of separately.
-4. Everything else below is read-only or a light tap-through — knock them out while the account is already being spent.
+4. **🤖 MCP go-live (§C29 below).** Once C25a's held branch is folded into a coordinated deploy anyway (item 1/2/3 above are also good excuses to do that deploy), flip `MCP_ENABLED=true` and run the full external-client loop — see **§C29** for the exact ordered recipe. This is the ONE runbook for C26/C27/C28/C29's combined live checks; don't chase them as four separate to-dos.
+5. Everything else below is read-only or a light tap-through — knock them out while the account is already being spent.
+
+---
+
+## C29 — StoryEngine MCP go-live runbook · the ONE recipe for C26/C27/C28/C29's live checks
+
+**Why this is one runbook, not four:** C26 shipped the MCP endpoint + agent tokens, C27 the full tool
+set + money gate, C28 the Settings UI + attribution chip — all SHIPPED DARK (`MCP_ENABLED` unset in
+prod today, `routes/mcp.py` structurally doesn't exist). Every one of those chunks deferred its live
+check to "after the coordinated deploy + flag flip" — they're the SAME deploy and the SAME flag, so
+they get walked together, once, here. C29's own sandbox half is
+`storyengine/backend/tests/functional/test_c29_mcp_full_session_dry_run.py` (11-step simulated
+session against the real ASGI app + real HTTP + real auth/money-gate code, executor/DB stubbed —
+see that file's docstring for exactly what's real vs. stubbed). This section is the OTHER half: the
+live recipe, since a real coordinated deploy + a real external MCP client can't run in the sandbox
+(no route to the VPS, no MCP client installed there).
+
+**Cost cap for this whole runbook: ~$1–2, cheapest models, NO finalize on a premium clip model
+unless Ryan explicitly chooses one.** See step 5's breakdown for the honest per-line estimate.
+
+### Step 1 — Coordinated deploy, including C25a's held branch
+
+MCP_ENABLED can't safely flip until C25a's media-proxy tenant-auth fix (`claude/c25a-media-auth-hold`,
+commit `0460cb2`) is ALSO on main — the MCP read tools return `video_summary`/scene data that, once a
+real client is poking around, makes it that much more likely someone asks for a thumbnail or a
+scene image next, and the media proxy needs its tenant-auth fix live before that happens over a
+door with no browser session backing it. Fold both into ONE `--with-frontend` deploy (VPS Deploy
+Coordination Rule §1, `~/deploy.lock` held for the duration):
+1. Merge `claude/c25a-media-auth-hold` to main (see **§C25a above** for its own required post-deploy
+   browser check — do that FIRST, before touching the MCP flag, so a media-proxy regression isn't
+   confused with an MCP one).
+2. `push main` from the local Mac, then `scripts/se.sh deploy <session> --with-frontend` (ask Ryan
+   first — live system).
+3. **Expected result:** `se health` shows the new commit; `/api/mcp` still 404s (flag not flipped
+   yet — confirm this BEFORE step 2 below, so you know the dark-by-default mechanism itself is
+   intact post-deploy, not just pre-deploy).
+- **Rollback:** nothing MCP-specific to roll back yet — this is a normal deploy. If C25a's own
+  browser check fails, that's `--with-frontend`'s existing rollback path (redeploy prior commit),
+  independent of MCP.
+
+### Step 2 — Flip `MCP_ENABLED=true`
+
+1. On the VPS, add `MCP_ENABLED=true` to `storyengine/.env` (the PARENT env file, per
+   storyengine/CLAUDE.md — NOT `backend/.env`).
+2. `scripts/se.sh restart backend` (never raw `pkill -f uvicorn` — see the VPS Deploy Coordination
+   Rule and storyengine/CLAUDE.md's hard rule).
+3. **Expected result:** `se logs backend` shows a clean restart; `curl -s -o /dev/null -w "%{http_code}"
+   https://<domain>/api/mcp` (no auth header) now returns `401` (route exists, auth required) instead
+   of `404`. `/api/agent-tokens` was already live since C26 (unconditional) — unaffected.
+- **Rollback (the whole point of shipping dark):** unset `MCP_ENABLED` (or set it back to `false`) +
+  `se.sh restart backend` — the router stops being registered at all, back to a structural 404,
+  same as before this step. No migration to reverse, no data to clean up (agent_tokens/
+  mcp_confirm_tokens tables stay, harmlessly unused).
+
+### Step 3 — Mint a token in Settings → Agent access
+
+1. Log into the app as Ryan (or `se.sh devtoken` for local dev against prod API), go to
+   **Profile → Agent Access** (C28's tab, between API Keys and Billing).
+2. "Create token" → name it something identifiable (e.g. "C29 live verify") → copy the plaintext
+   `se_agent_...` value shown in the modal — **it is shown exactly once** (C28's plaintext-once
+   discipline; closing the modal and reopening will NOT show it again — mint a new one if lost).
+- **Expected result:** the token appears in the list (name, "just now" last-used blank, no revoked
+  badge). **Rollback:** none needed — an unused token costs nothing; revoke it in step 6 either way.
+
+### Step 4 — Connect a real MCP client
+
+**This step is where C26's deferred "does a real client need more than bare JSON-RPC-over-POST"
+question (`routes/mcp.py`'s own module docstring, "Protocol shape (justified)") actually gets
+answered — it could not be answered in the sandbox at all.** v1 is a single `POST /api/mcp` JSON-RPC
+2.0 endpoint (`initialize`/`tools/list`/`tools/call`), no SSE stream, no `Mcp-Session-Id` transport
+negotiation. Point a real client at it and watch what happens:
+
+- **Claude Code CLI** (`claude mcp add`) or a project-level `.mcp.json` — the HTTP transport shape:
+  ```json
+  {
+    "mcpServers": {
+      "storyengine": {
+        "type": "http",
+        "url": "https://<your-storyengine-domain>/api/mcp",
+        "headers": {
+          "Authorization": "Bearer se_agent_<paste-the-token-from-step-3>"
+        }
+      }
+    }
+  }
+  ```
+- **Claude Desktop / claude.ai remote connectors** — same URL + bearer header, wherever that client's
+  UI takes a custom MCP server URL + auth header (exact UI varies by client version — this is the
+  one part of this recipe that may need adjusting live, since MCP client configuration surfaces
+  change).
+- **Hermes** (or any other MCP-capable agent) — same shape: URL + `Authorization: Bearer <token>`.
+- **Expected result — 3 possible outcomes, all worth recording:**
+  1. **Connects cleanly, `tools/list` populates.** Bare JSON-RPC-over-POST is sufficient for this
+     client — note which client, so the next person doesn't re-litigate this.
+  2. **Client refuses to connect / hangs waiting for an SSE handshake.** This is the "does it need
+     the fuller Streamable HTTP transport" answer landing as YES for that client — real follow-up
+     work (add the SSE half of Streamable HTTP to `routes/mcp.py`), not a bug in what shipped.
+  3. **Connects but a specific call shape differs from what a hand-rolled JSON-RPC client (like
+     C29's dry-run test) sent.** Note the diff — most likely candidate is content-type or a header
+     the real client insists on that curl/TestClient didn't need.
+- **Rollback:** disconnect the client / delete the `.mcp.json` entry — no server-side state changes
+  from merely connecting (only `tools/call` mutates anything, and every paid one is quote-gated).
+
+### Step 5 — Run the §7 example session live, ON A DISPOSABLE TEST VIDEO
+
+Mirrors `tasks/storyengine-copilot-ux-map.md` §7's example conversation and C29's sandbox dry-run's
+step order, for real:
+1. **`create_video`** ("a 2-scene test video, any topic") → free, no cost. **Expected:** a real
+   `videos` row, visible in the web UI too (proves the "no MCP-only shadow data" property — anything
+   an agent creates is the SAME row the web UI reads).
+2. **`draft_pass`** with NO `confirm_token` → expect a quote (cost + `confirm_token`). Read the
+   quoted cost before doing anything else.
+   - **Cost gate — confirm BEFORE calling confirm:** draft_pass prices at the draft-tier clip model
+     (`_draft_tier_model_id()`, currently Grok Imagine's cheapest 6s tier from
+     `skills/video-pipeline/shared/channel_profile.py`'s `MODEL_REGISTRY["grok-imagine"]
+     .cost_per_clip`) = **$0.09/clip**. For a 2-scene test video: ~2 clips ≈ **$0.18**, plus
+     whatever pictures those clips need (GPT Image 2 default, $0.05/image, or override to z-image
+     at $0.004/image for a cheaper run — z-image is the cheapest wired image model, see
+     `docs/cost-awareness.md`) — say 6–12 images ≈ **$0.03–0.60**. **Draft-pass subtotal: roughly
+     $0.20–0.80** for a 2-scene test video.
+3. Call `draft_pass` AGAIN with that `confirm_token` → dispatches for real. **Expected:** the web UI
+   (GuidedNextStep running banner) shows the task running WITH the **"via agent: `<token name>`"
+   chip** (C28's attribution seam) — this is the live proof C28's own deferred check needed; screenshot it.
+4. **`finalize`** with NO `confirm_token` → another quote. **STOP AND READ THE QUOTED COST before
+   confirming — do NOT finalize on a premium clip model (Veo 3.1 Quality, Seedance 2.0, ...) unless
+   Ryan explicitly picks one for this test.** Finalize on the SAME draft-tier/cheapest model keeps
+   this in the same ~$0.20–0.80 ballpark as draft_pass; a premium finalize could run **$6–50** per
+   `docs/cost-awareness.md`'s clip table — that is explicitly NOT what this cheap smoke test is for.
+5. Confirm `finalize` with the token. **Expected:** same "via agent" chip live in the UI while
+   running.
+6. **`get_ledger`** → **Expected:** real `generation_ledger` rows for both passes, `total_spent`
+   matching what the UI's Est→Actual chip shows (C10) — this is C27's own deferred "live money-gate
+   spot-check" (real quote → real spend → real ledger row, not a stubbed number).
+7. Open the video in the web UI: **Expected:** the video's activity/task history shows entries
+   attributed to the agent (not silently indistinguishable from a chat-driven run) — confirms
+   `generation_claims.claimed_by` actually carried `agent:<token name>:<verb>` through the real
+   pipeline executor, not just through the mocked `_run_pending_action` C29's sandbox test stubbed.
+- **Total expected spend for this step: ~$0.50–1.50**, comfortably inside the ~$1–2 cap, assuming
+  cheapest/draft-tier models both passes and a small (2-scene) test video. **Rollback:** none needed
+  — this is real, intentional, capped spend on a disposable test video; delete the test video
+  afterward if you don't want it cluttering the dashboard.
+
+### Step 6 — Revoke the token, confirm 401
+
+1. Profile → Agent Access → Revoke the token minted in step 3 (confirm modal).
+2. From the still-connected MCP client (or a bare curl with the old bearer value), make ONE more
+   call (`tools/list` is enough, free, no side effects). **Expected: 401**, immediately — no
+   propagation delay (S5-3: `agent_tokens.authenticate()` re-checks `revoked_at IS NULL` on every
+   single call, no cache on the auth path itself — only the UNRELATED rate-limit tenant-bucketing
+   cache has a 30s TTL, and that only affects which bucket a request counts against, never whether
+   it's accepted).
+- **Rollback:** none needed — revocation is the terminal, intended state. Mint a fresh token if you
+  want to keep testing.
+
+### Fold-ins — what this replaces
+
+- **§C26's deferred check** ("does a real external MCP client actually connect, and does it need the
+  fuller Streamable HTTP transport") — answered by **Step 4** above.
+- **§C27's deferred check** ("live MCP-client full-loop verify... every paid step quote-gated, ledger
+  rows written") — answered by **Step 5** above (draft_pass + finalize, both quote-gated, both
+  ledger-verified).
+- **§C28's deferred check** ("mint → copy → connect a real MCP client → chip appears on a live
+  agent-driven run") — answered by **Step 5.3/5.5** above (the "via agent" chip, screenshotted live).
+
+### §C26 / §C27 / §C28 — see §C29 above
+
+Each of these chunks' own deferred live-verification note (in `SYSTEM_STATE.md` and the checklist)
+points here — this is the one runbook, not three separate fragments. Nothing below these headers;
+this is a redirect, not a duplicate.
 
 ---
 
