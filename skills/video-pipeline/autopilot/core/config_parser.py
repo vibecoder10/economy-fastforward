@@ -7,13 +7,22 @@ from typing import Optional
 
 
 class WeightsConfig(BaseModel):
-    """Confidence scoring weights (must sum to 1.0)."""
-    competitor_vph: float = 0.30
-    topic_channel_fit: float = 0.25
-    timing_freshness: float = 0.20
-    channel_momentum: float = 0.10
-    retention_patterns: float = 0.08
-    title_formula: float = 0.07
+    """Confidence scoring weights (must sum to 1.0).
+
+    channel_momentum and retention_patterns default to 0.0: their scorers
+    (ConfidenceScorer._score_channel_momentum / _score_retention_patterns)
+    are unimplemented placeholders that always return a neutral 50.0, so a
+    non-zero weight here would let fake data influence real production
+    decisions. See autopilot_program.md's "Confidence Scoring Weights"
+    section comment and C32 (docs/reports/2026-07-17-storyengine-agent-audit-findings.md
+    §3.2) for the full rationale before re-enabling either weight.
+    """
+    competitor_vph: float = 0.37
+    topic_channel_fit: float = 0.30
+    timing_freshness: float = 0.24
+    channel_momentum: float = 0.00
+    retention_patterns: float = 0.00
+    title_formula: float = 0.09
 
     @field_validator('*', mode='before')
     @classmethod

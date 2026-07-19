@@ -29,12 +29,25 @@ production_interval_days: 2
 ## Confidence Scoring Weights
 
 weights:
-  competitor_vph: 0.30
-  topic_channel_fit: 0.25
-  timing_freshness: 0.20
-  channel_momentum: 0.10
-  retention_patterns: 0.08
-  title_formula: 0.07
+  competitor_vph: 0.37
+  topic_channel_fit: 0.30
+  timing_freshness: 0.24
+  channel_momentum: 0.00
+  retention_patterns: 0.00
+  title_formula: 0.09
+
+# channel_momentum and retention_patterns are pinned to 0.0 - their scorers
+# (ConfidenceScorer._score_channel_momentum / _score_retention_patterns) are
+# unimplemented placeholders that always return the neutral midpoint (50.0).
+# They previously carried 0.10 / 0.08 weight, which meant every candidate got
+# a flat, unearned +9.0 toward min_confidence_score regardless of any real
+# signal - fake data feeding a real production decision (which idea gets
+# built and shipped). The other four weights above absorb that 0.18 in their
+# original ratio (0.30:0.25:0.20:0.07 -> 0.37:0.30:0.24:0.09) so the total
+# still sums to 1.0. Flip these back to real weights only once
+# _score_channel_momentum / _score_retention_patterns compute something real
+# (see confidence_scorer.py docstrings for what data is missing). See C32 /
+# docs/reports/2026-07-17-storyengine-agent-audit-findings.md §3.2.
 
 ---
 

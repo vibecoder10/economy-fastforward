@@ -402,18 +402,3 @@ class LearningsEngine:
             "entries": len(self._cache.data),
         }
 
-    def get_competitor_title_patterns(self) -> str:
-        """Get formatted competitor title patterns for ideation prompts.
-
-        Unlike channel-specific learnings (from your videos), these are
-        patterns observed in high-performing competitor videos.
-
-        Returns formatted text for prompt injection.
-        """
-        # This would be populated by periodic title analysis runs
-        # For now, return cached results if available
-
-        # Future: Query a new "Competitor Patterns" table
-        # that gets populated by scheduled title_analyzer runs
-
-        return ""  # Placeholder for future implementation

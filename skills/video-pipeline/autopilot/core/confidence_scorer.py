@@ -1,5 +1,6 @@
 """Score idea candidates using weighted signals."""
 
+import logging
 import math
 import re
 from dataclasses import dataclass, field
@@ -8,6 +9,8 @@ from autopilot.core.config_parser import AutopilotConfig
 
 if TYPE_CHECKING:
     from autopilot.learning.pattern_library import PatternLibrary
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,6 +60,19 @@ class ConfidenceScorer:
         self.config = config
         self.weights = config.weights
         self._pattern_library = pattern_library
+
+        # channel_momentum / retention_patterns are unimplemented placeholder
+        # scorers (see _score_channel_momentum / _score_retention_patterns).
+        # Surface it once per cycle in the cron log rather than silently
+        # letting a stub weight influence real production decisions.
+        for stub_weight in ("channel_momentum", "retention_patterns"):
+            if getattr(self.weights, stub_weight, 0.0) != 0.0:
+                logger.warning(
+                    "ConfidenceScorer: %s has weight %.2f but its scorer is "
+                    "unimplemented (always returns 50.0) - see C32. "
+                    "Expected 0.0 in autopilot_program.md until it's wired.",
+                    stub_weight, getattr(self.weights, stub_weight),
+                )
 
     def _score_vph(self, vph: float) -> float:
         """Score based on competitor VPH (0-100).
@@ -130,19 +146,29 @@ class ConfidenceScorer:
     def _score_channel_momentum(self, competitor_title: Optional[str]) -> float:
         """Score based on competitor channel momentum (0-100).
 
-        TODO: Track competitor channel trends over time
-        For now, return neutral score.
+        NOT IMPLEMENTED: there is no data pipeline that tracks a competitor
+        channel's VPH trend over time (competitor_scraper stores point-in-time
+        snapshots, not a time series). Always returns the neutral midpoint.
+        `channel_momentum` is pinned to weight 0.0 in `autopilot_program.md`
+        (see C32, docs/reports/2026-07-17-storyengine-agent-audit-findings.md
+        §3.2) so this constant does not silently inflate every candidate's
+        score. The method is kept so a real implementation only has to change
+        this function + flip the weight back on - it is not dead code, it is
+        an intentionally-disconnected seam.
         """
-        # Placeholder
         return 50.0
 
     def _score_retention_patterns(self, topic: Optional[str]) -> float:
         """Score based on our retention on similar topics (0-100).
 
-        TODO: Cross-reference with script_forensics.md (V2)
-        For now, return neutral score.
+        NOT IMPLEMENTED: `topic_performance.md` (parsed by PatternLibrary)
+        only ever records CTR, never retention - because the upstream
+        writer (`learning_extractor.run_daily_extraction`) that would
+        populate it is itself unwired (see C32). Always returns the neutral
+        midpoint. `retention_patterns` is pinned to weight 0.0 in
+        `autopilot_program.md` for the same reason as `_score_channel_momentum`
+        above - fix the data source first, then this function, then the weight.
         """
-        # Placeholder
         return 50.0
 
     def _score_title_formula(self, title: str) -> tuple[float, Optional[str]]:

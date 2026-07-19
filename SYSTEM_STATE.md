@@ -6071,3 +6071,90 @@ placeholders, `learning_extractor.run_daily_extraction()`'s unwired Airtable CTR
 data or delete the call sites (Anti-Bandaid rule — no dark stubs left standing). May split into
 sub-chunks depending on how entangled each turns out to be with the legacy Airtable pipeline vs.
 StoryEngine's own reimplementation.
+
+---
+
+## C32 — P3.2 legacy stubs: scorer placeholders + learning_extractor + competitor_title_patterns (added 2026-07-19)
+
+**Checklist §3.2 closer.** All three named stubs live in `skills/video-pipeline/` (the legacy
+Airtable/VPS-cron pipeline for the real Economy FastForward channel — per `tasks/decisions.md`
+2026-03-26, this is a permanently separate system from StoryEngine SaaS's Supabase-backed
+`videos` table, not the same channel dogfooded through the SaaS). Traced each stub's reachability
+from something that actually runs (VPS cron, per `infra/setup_cron.sh`) before deciding wire vs.
+inert vs. delete — none of the three are called from StoryEngine's backend.
+
+### Verdict table
+
+| Item | Reachable from | Was | Action | Why |
+|------|-----------------|-----|--------|-----|
+| `ConfidenceScorer._score_channel_momentum` / `_score_retention_patterns` | `autopilot.autopilot --check-cycle` cron (6:30/7:30 AM, `infra/setup_cron.sh`) → `Autopilot.scorer` → `ConfidenceScorer.score()` — a REAL decision path (picks which idea becomes a produced, paid-for video) | Flat `50.0` constants carrying `0.10`/`0.08` config weight — a fixed, unearned +9.0 added to every candidate's score before comparing against `min_confidence_score` (60) | **Honest-inert**: weights pinned to `0.0` in both `autopilot_program.md` (source of truth) and `WeightsConfig` defaults; the other four weights renormalized in their original ratio (0.30:0.25:0.20:0.07 → 0.37:0.30:0.24:0.09, still sums to 1.0) so the score isn't just silently missing 18% of its scale. `ConfidenceScorer.__init__` now logs a `WARNING` once per scorer construction if either weight is ever non-zero again (regression guard, proven to fire — see below). Methods themselves are left in place (not deleted) — they're a real seam for a future fix, just disconnected from the score today. | No data pipeline exists for either signal: `competitor_scraper` stores point-in-time snapshots (no time series → no real "momentum"), and `topic_performance.md` only ever records CTR, never retention (the writer that would populate retention — `learning_extractor` — is itself the next stub below). Implementing either "for real" needs a new data pipeline, not a one-function fix — out of proportion for a stub-cleanup pass; the checklist's own escape hatch ("or remove the weights") is the right-sized move. |
+| `learning_extractor.run_daily_extraction()` | `autopilot-learn` cron (`infra/setup_cron.sh` line ~158, daily) | `# TODO: Integrate with Airtable to get actual CTR data` — printed a reassuring "Learning extraction is ready" and returned, having done nothing. Root cause is actually TWO gaps, not one: (1) `ExperimentState.status` is NEVER set to `"monitoring"` anywhere in the codebase (`state_manager.record_production_cycle` only ever writes `"producing"`) — the `status != "monitoring"` guard has therefore never once been false in production; (2) even past that guard, no code pulls CTR/retention from Airtable into `LearningExtractor.extract_all()`/`MemoryWriter`. This is why `LEARNINGS.md` has shown "Videos produced: 0" since the file was written. | **Honest-inert, left running.** Docstring now states both gaps explicitly and points at this section. Function now emits a `logging.warning` every run ("NOT WIRED... no learnings will be extracted") instead of the old "ready" print. Removed two now-fully-unused local instantiations (`LearningExtractor()`, `MemoryWriter()` — never called either before or after this change). **Not deprecated in favor of StoryEngine's `routes/learning_extraction.py`** despite that route being a complete, working equivalent (title/hook/framework extraction gated on real CTR/retention) — because it reads the Supabase `videos` table per-tenant, and the legacy Economy FastForward channel has no tenant row there. Deprecating this cron job would remove the channel's only learning loop, even though that loop is currently a no-op — worse than leaving an honest, cheap, zero-cost no-op running. | Wiring both gaps for real is a state-machine + data-pull feature spanning `autopilot.py`, `ctr_monitor.py`, and this file — more than a "fix the stub" change, and it duplicates work StoryEngine already did properly for its own tenants. Flagged as a follow-up (not this chunk's job to build a second growth loop from scratch), same pattern as the documented upload-reupload-guard gap in `docs/failure-modes.md`. |
+| `osiris/learnings_engine.LearningsEngine.get_competitor_title_patterns()` | **Nothing** — grepped the entire repo; zero call sites beyond its own definition | Hardcoded `return ""` with a "Future: Query a new Competitor Patterns table" comment — dead on arrival, no caller ever existed | **Deleted.** No callers to update. | Genuinely unreachable dead code per the C19b discipline — grep-proofed below. |
+| *(bonus, caught by this chunk's own `[V]` grep)* `PatternLibrary.get_best_structures_for_topic()` | **Nothing** — zero call sites | `# TODO: Cross-reference with topic_performance.md` — returned the same hardcoded 5-structure list regardless of input `topic_category` | **Deleted.** No callers to update. | Same shape as the item above — the checklist's own verification grep (`grep -rn "TODO" autopilot analytics`) would have caught this one too had it been left in, so it's cleaned up in the same pass rather than leaving one TODO standing while removing three others. |
+
+### Grep-proofs
+
+```
+$ grep -rn "TODO" skills/video-pipeline/autopilot skills/video-pipeline/analytics --include=*.py
+(no output)
+
+$ grep -rn "get_competitor_title_patterns" --include=*.py .
+(no output beyond nothing — deleted cleanly, zero callers existed before deletion either)
+
+$ grep -rn "get_best_structures_for_topic" --include=*.py .
+(no output — deleted cleanly, zero callers existed before deletion either)
+```
+
+### Non-vacuous proof (weight-zeroing actually changes behavior)
+
+Constructing `ConfidenceScorer` with the REAL `autopilot_program.md` config produces no warning
+and the two placeholder components contribute `0.0` to the weighted sum (confirmed: scoring the
+same candidate under the old `0.10`/`0.08` weights vs. the new `0.0`/`0.0` weights changes
+`ScoredIdea.score` — the placeholder was previously moving the number that's compared against
+`min_confidence_score`). Constructing `ConfidenceScorer` with a config that still carries the old
+non-zero placeholder weights (regression scenario) correctly fires the two `WARNING` log lines
+("has weight 0.10 but its scorer is unimplemented... Expected 0.0... until it's wired"),
+proving the guard is live, not a decoration.
+
+### Tests / Verify
+
+- `python -m py_compile` clean on all 5 touched files.
+- `cd skills/video-pipeline && python -m pytest autopilot/tests/ -q` → **144 passed, 2 failed**
+  — identical to the pre-existing baseline (both failures are `test_integration.py`'s
+  `test_full_cycle_selects_best_candidate` / `test_force_ignores_cadence`, caused by an unrelated
+  pre-existing f-string bug in `autopilot.py:306`
+  (`f"...{best_score:.0f if best_score else 'N/A'}"` is not valid format-spec syntax) — not one of
+  this chunk's three named items, left untouched, out of scope). **Zero new failures.**
+- `test_config_parser.py` needed no changes: its `SAMPLE_CONFIG` fixture is a self-contained
+  markdown string exercising the parser's correctness generically, not the real
+  `autopilot_program.md` file's specific numbers.
+- Backend full suite: **1220 passed / 15 failed / 1 error** — byte-identical to the documented
+  baseline (this chunk touches zero files under `storyengine/`).
+- Frontend: **untouched** (`git status` confirms zero changes under `storyengine/frontend/`) —
+  no build/tsc check needed.
+
+### Modified Files
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/autopilot/core/confidence_scorer.py` | Removed TODOs from `_score_channel_momentum`/`_score_retention_patterns` docstrings (now state clearly why each is a permanent placeholder pending real data); added one-time `WARNING` log in `__init__` if either weight is non-zero |
+| `skills/video-pipeline/autopilot/core/config_parser.py` | `WeightsConfig` defaults: `channel_momentum`/`retention_patterns` → `0.0`; other four renormalized to sum to 1.0 |
+| `skills/video-pipeline/autopilot/autopilot_program.md` | Same reweighting in the real production config, with an explanatory comment block |
+| `skills/video-pipeline/autopilot/learning/learning_extractor.py` | `run_daily_extraction()` docstring now documents both real gaps (missing state transition + missing CTR pull); replaced misleading "ready" print with an honest `logging.warning`; removed two dead local instantiations |
+| `skills/video-pipeline/analytics/osiris/learnings_engine.py` | Deleted `get_competitor_title_patterns()` (zero callers) |
+| `skills/video-pipeline/autopilot/learning/pattern_library.py` | Deleted `get_best_structures_for_topic()` (zero callers, same TODO-stub shape, caught by this chunk's own verify grep) |
+
+### Deploy-safety assessment — ff-merge candidate
+
+This chunk touches only `skills/video-pipeline/` (legacy Airtable/VPS-cron code), never
+`storyengine/`. It deploys via the SAME hourly `git pull --ff-only` cron mechanism described in
+`docs/infrastructure.md` — no separate StoryEngine deploy step applies. What changes for the next
+cron run: `autopilot-cycle` picks ideas using the renormalized (still-sums-to-1.0) weights instead
+of weights that included two silently-inert placeholder terms — this changes absolute scores
+slightly (both directions shift together) but does not introduce a new failure mode; `autopilot-learn`
+now logs a clear `WARNING` instead of a misleading "ready" message, with identical (zero) real
+effect either way. No schema change, no new cron job, no new paid path, no route/model changes.
+Safe to ff-merge on the routine hourly deploy — cron config itself is unchanged (no entries added
+or removed in `infra/setup_cron.sh`, so nothing needs re-running on the VPS beyond the normal git
+pull).
+
+**Next up: C33 · P3.4 quota guard + own-video VPH.**

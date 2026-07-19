@@ -524,25 +524,3 @@ class PatternLibrary:
                         })
 
         return unclassified
-
-    def get_best_structures_for_topic(
-        self,
-        topic_category: str
-    ) -> List[CuriosityStructure]:
-        """Get structures that perform best for a topic category.
-
-        Args:
-            topic_category: Topic like "geopolitics", "finance", etc.
-
-        Returns:
-            List of structures ranked by performance
-        """
-        # TODO: Cross-reference with topic_performance.md
-        # For now, return all main structures
-        return [
-            CuriosityStructure.HIDDEN_FLAW,
-            CuriosityStructure.ASYMMETRIC_DG,
-            CuriosityStructure.TIME_BOMB,
-            CuriosityStructure.PARADIGM_SHIFT,
-            CuriosityStructure.ILLUSION_CONTROL,
-        ]

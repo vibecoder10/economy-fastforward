@@ -470,20 +470,50 @@ class LearningExtractor:
 def run_daily_extraction():
     """Run daily learning extraction on 48h+ videos.
 
-    Queries Airtable for videos uploaded 48+ hours ago that have
-    CTR data but haven't been analyzed yet.
+    STATUS: NOT WIRED - this cron entry point (`autopilot-learn`, see
+    infra/setup_cron.sh) currently extracts zero learnings, every day,
+    unconditionally. That's why LEARNINGS.md has shown "Videos produced: 0"
+    since this was written. Two separate gaps, not one:
+
+      1. No code anywhere ever sets `ExperimentState.status` to
+         "monitoring" (grep the codebase - `core/state_manager.py`'s
+         `record_production_cycle` only ever writes "producing", and
+         nothing transitions it forward). The `exp.status != "monitoring"`
+         guard below is therefore permanently true - this function has
+         never once reached the code past it in production.
+      2. Even if (1) were fixed, CTR/retention would still need to be
+         pulled from Airtable (via performance_tracker) and passed into
+         `LearningExtractor.extract_all()` / `MemoryWriter` - that call
+         was never written either.
+
+    Wiring both is a real feature (a state machine + a data pull across
+    autopilot.py, ctr_monitor.py, and this file) - out of scope for a stub
+    cleanup pass. Flagged as a follow-up, not fixed here. See C32 /
+    docs/reports/2026-07-17-storyengine-agent-audit-findings.md §3.2 and
+    SYSTEM_STATE.md §C32.
+
+    StoryEngine's `storyengine/backend/routes/learning_extraction.py` is a
+    complete, working version of this same idea (title/hook/framework
+    pattern extraction gated on real CTR + retention) - but it reads from
+    the Supabase `videos` table per-tenant, and this legacy Airtable-only
+    channel (Economy FastForward) has no tenant row there. It is NOT a
+    drop-in replacement for this cron job today; deprecating this path
+    outright would remove the only learning loop this channel has, even
+    though that loop is currently a no-op. Left running (cheap, no cost)
+    with an honest log instead of the previous "ready" message that implied
+    it was working.
     """
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-    from autopilot.learning.memory_writer import MemoryWriter
     from autopilot.core.state_manager import StateManager
 
-    print("🧠 Learning Extractor: Running daily extraction...")
+    logger.warning(
+        "learning_extractor --daily: NOT WIRED (see run_daily_extraction "
+        "docstring) - no learnings will be extracted or written this run."
+    )
 
-    extractor = LearningExtractor()
-    writer = MemoryWriter()
     state_manager = StateManager()
 
     # Get current experiment from state
@@ -496,17 +526,22 @@ def run_daily_extraction():
     exp = state.current_experiment
 
     # Check if experiment has CTR data (would come from Airtable via performance_tracker)
-    # For now, we just show what would be extracted
     if exp.status != "monitoring":
-        print(f"   Current experiment '{exp.video_title}' is in status '{exp.status}', not 'monitoring'.")
+        print(
+            f"   Current experiment '{exp.video_title}' is in status "
+            f"'{exp.status}', not 'monitoring' - and nothing in this codebase "
+            "ever sets that status today (see docstring), so this will "
+            "never proceed further."
+        )
         return
 
+    # Unreachable in current production (see docstring) - kept so a future
+    # fix to the state machine has somewhere to land the CTR pull.
     print(f"   Analyzing: {exp.video_title}")
-    print("   (Note: Full extraction requires CTR data from performance_tracker)")
-
-    # TODO: Integrate with Airtable to get actual CTR data
-    # For now, log that we would extract learnings
-    print("   Learning extraction is ready. Will process when CTR data is available.")
+    logger.warning(
+        "   Reached the 'monitoring' branch, but CTR/retention pull from "
+        "Airtable is still unwired - no learnings extracted. See docstring."
+    )
 
 
 def main():
