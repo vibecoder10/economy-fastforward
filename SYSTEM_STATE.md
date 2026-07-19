@@ -9390,3 +9390,116 @@ demotion in `autopilot_launch.py`/`main.py` is unreachable on the default path �
 row an operator hand-edited directly in the DB, bypassing both writers entirely. The MCP tool's
 classification (FREE, no confirm_token) is now backed by a hard ceiling: the worst a rogue/injected call
 can do is resume spend up to a cap a human explicitly set, never uncapped.
+
+---
+
+## C56 — per-launch pattern flywheel: the SECOND channel_patterns trigger (P4.2-g, added 2026-07-19)
+
+Closes decisions.md's 2026-07-19 "Pattern learning has TWO convergent entry points" law. C46e built
+trigger (a) — the IMPORT-TIME bulk analyzer (`channel_patterns.run_import_pattern_analysis`, migration
+106, called from `channel_dna.py::learn_channel`). This chunk builds trigger (b) — PER-LAUNCH
+incremental proposals from each new platform-published video's own analytics — and, in doing so, fixed a
+latent gap in trigger (a): **it had no dedup at all**, so re-running `learn_channel` on an unchanged
+outlier set would have re-inserted duplicate `proposed` rows every time.
+
+**The seam** (exactly as C46e's own docstring anticipated): `routes/youtube_sync.py::_writeback_
+matched_videos` (the per-video analytics writeback that already runs on every `/api/youtube/sync` call —
+manual button + `main.py`'s daily auto-sync) now queues any video that clears a maturity bar and hasn't
+been analyzed yet, then makes ONE batched call to a new `channel_patterns.run_launch_pattern_analysis`.
+
+**Maturity bar** (`LAUNCH_ANALYSIS_MIN_IMPRESSIONS = 1000` in `youtube_sync.py`): reuses the EXACT bar
+`routes/learning_extraction.py::extract_learnings` already established as the SaaS-native learnings
+loop's "matured enough to analyze" gate — `ctr_percent IS NOT NULL AND impressions >= 1000` — rather than
+inventing a new time-based (48h/7d) threshold. That wall-clock convention exists elsewhere in the SAME
+file (`_calculate_snapshots`'s `views_24h/48h/7d/30d`/`ctr_48h`/`retention_48h` write-once columns) but
+nothing reads those as a GATE anywhere in the codebase — they're display-only snapshots — so following
+that pattern instead of the actually-load-bearing impressions/ctr gate would have been inventing a
+second, redundant maturity definition.
+
+**Write-once marker**: new column `videos.launch_pattern_analyzed_at` (migration 110, `ADD COLUMN IF NOT
+EXISTS`, applied live) — same convention as the existing snapshot columns. Written INTO THE SAME per-row
+`UPDATE videos` statement `_writeback_matched_videos` already issues (no extra query), unconditionally
+once the video qualifies — regardless of whether the subsequent analysis call actually proposes anything
+or even fails — so a channel that syncs daily only pays the launch-analysis cost once per video, ever,
+and a permanent per-video failure never retries forever.
+
+**Analysis brain — REUSED, not forked**: `run_launch_pattern_analysis(tenant_id, videos)` calls the SAME
+`propose_patterns_from_analytics` / `score_outlier_patterns` the import-time analyzer uses (identical
+`MIN_COHORT=5`, `OUTLIER_THRESHOLD_PCT=30%` thresholds, zero duplication), scored ONCE for the whole batch
+of newly-matured videos in one sync pass (not once per video — a channel's first sync after this ships
+could have many already-matured platform videos cross the marker simultaneously; recomputing the
+channel-wide outlier scan per video would be needless repeated work against the same data snapshot), then
+narrows results to candidates whose `evidence.video_ids` match one of THIS batch's videos — a candidate
+about some other, unrelated video that also happens to be an outlier this run is never proposed by this
+trigger (that's the periodic/import-time bulk sweep's job, not per-launch's).
+
+**Dedup — NEW shared gate, retrofit onto BOTH triggers**: `channel_patterns._dedupe_candidates_against_
+rows` (pure) keys a candidate on `(video_id, metric)` — mirrors the repo's existing dedup precedent in
+`routes/learning_extraction.py::extract_learnings` (keys on `(category, pattern_name)` before upserting
+into `learnings`, same shape, different table). Rule: an existing `proposed`/`confirmed` row sharing the
+key always wins (never re-propose an active claim); an existing `retired` row sharing the key only loses
+to a NEW candidate with a STRICTLY LARGER `evidence.cohort_size` (more channel history collected since a
+human walked it back = genuinely newer evidence, per decisions.md's "retirement was a human decision;
+re-proposing needs NEW evidence" — cohort size only grows, so it's a clean, honest proxy for "newer" with
+no new timestamp column needed); a candidate that can't be keyed (missing evidence shape) is always kept.
+The async wrapper (`_dedupe_candidates`) fetches the tenant's existing patterns across EVERY status and
+EVERY source (an import-analysis row blocks a launch-analysis re-propose of the same claim, and vice
+versa — one dedup brain, not two) and fails OPEN (returns candidates unfiltered) on a DB hiccup — worst
+case is a duplicate a human can retire, never a silently-dropped real proposal. `run_import_pattern_
+analysis` now calls this too (previously had none at all).
+
+**Notify**: `channel_patterns._notify_launch_pattern_proposed` drops one `bot_activity` row per persisted
+launch-analysis pattern (C52's `autopilot_proposals.py::_notify_proposal_created` is the copied
+precedent), with a REAL `video_id` (unlike the autopilot-proposal notify, which uses NULL since no video
+exists yet at proposal time) — best-effort, never raises. No frontend change needed: `routes/chat.py`'s
+DNA-digest card (`_proposed_channel_patterns` / `_build_dna_digest_card`) already renders any
+`status='proposed'` row regardless of `source`, confirmed by reading the query (`list_patterns(tenant_id,
+status="proposed")`, no `source` filter) — `launch_analysis` rows show up there for free.
+
+### Verification (C56)
+
+28 new tests (20 in `tests/test_channel_patterns.py`: 9 pure dedup-resolver cases, 3 async-wrapper cases,
+1 import-trigger-now-dedupes integration case, 5 `run_launch_pattern_analysis` cases incl. cross-video
+narrowing + fail-soft + dedup-convergence, 2 notify cases; 8 in new `tests/test_c56_launch_pattern_
+flywheel.py` covering the `_writeback_matched_videos` wiring: queued-and-marker-written, already-analyzed
+never-requeued, below-impressions-bar/no-ctr/missing-youtube-id never queued, multi-video batching, and
+flywheel-failure-never-breaks-the-sync). NON-VACUOUS via `git stash` on the two touched `.py` source
+files (test files kept): all 28 new tests fail against the pre-C56 code (`AttributeError: has no
+attribute 'run_launch_pattern_analysis'`, or the dedup tests failing outright since the function didn't
+exist), 29 pre-existing `test_channel_patterns.py` tests unaffected either way. Full backend suite:
+**1799P/15F/1E** = previous baseline (1771P/15F/1E) + 28 new tests, SAME 15 pre-existing failures (verified
+by name-diff, not just count) + same 1 error, zero new failures. `py_compile` clean on both touched files.
+No frontend changes (none expected per scope — confirmed the existing digest card already renders
+`launch_analysis`-sourced rows with no source filter).
+
+### Modified/New Files (C56)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/migrations/110_launch_pattern_analyzed_marker.sql` | NEW — `videos.launch_pattern_analyzed_at TIMESTAMPTZ`, applied live + confirmed via `information_schema` |
+| `storyengine/backend/channel_patterns.py` | NEW `_candidate_key`/`_dedupe_candidates_against_rows` (pure)/`_dedupe_candidates` (async); `run_import_pattern_analysis` now dedupes; NEW `run_launch_pattern_analysis` + `_notify_launch_pattern_proposed`; module-level `execute` import added |
+| `storyengine/backend/routes/youtube_sync.py` | NEW `LAUNCH_ANALYSIS_MIN_IMPRESSIONS` constant; `_writeback_matched_videos` queues matured/unanalyzed videos, writes the marker in the existing per-row UPDATE, and makes one batched post-loop call to the flywheel (fail-soft) |
+| `storyengine/backend/tests/test_channel_patterns.py` | +20 tests |
+| `storyengine/backend/tests/test_c56_launch_pattern_flywheel.py` | NEW — 8 tests |
+
+### Deploy-safety assessment
+
+**ff-merge candidate.** Purely additive: a new nullable column (default NULL, no backfill needed — every
+existing video simply queues for launch analysis exactly once on its next sync, same as a brand-new
+video would), a new function nothing else calls yet except the one new call site, and that call site is
+wrapped in its own try/except so a scoring bug can't break the analytics sync that already runs today.
+The per-row `UPDATE videos` statement's existing columns/values are completely unchanged when a video
+doesn't qualify for launch analysis (the new `update_fields` key is only added conditionally). No prior
+behavior is touched: `run_import_pattern_analysis`'s NEW dedup pass only ever REMOVES candidates it would
+previously have proposed (never adds), and only when a matching row already exists — a tenant with zero
+existing `channel_patterns` rows (everyone, until C46e's import learner or this chunk's flywheel first
+run for them) sees byte-identical behavior to before.
+
+### Known limitation (reported, not fixed — out of scope)
+
+On a tenant's FIRST sync after this ships, every already-matured, already-matched platform video crosses
+the maturity bar simultaneously and gets queued in one batch — bounded by that tenant's number of
+platform-launched videos (not the whole `channel_videos` table), and the whole batch still only costs ONE
+`propose_patterns_from_analytics` scan (see "Analysis brain" above), so this is a one-time, self-limiting
+cost rather than a recurring one — but it's still worth flagging as a first-sync cost bump for a
+long-running channel adopting this feature late.

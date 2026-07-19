@@ -354,3 +354,269 @@ def test_run_import_pattern_analysis_fails_soft_on_error(monkeypatch):
     result = asyncio.run(cp.run_import_pattern_analysis("tenant-xyz"))
     assert result["proposed"] == 0
     assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# checklist C56 (P4.2-g) — per-launch pattern flywheel, the second of
+# decisions.md's "two convergent entry points" for channel_patterns.
+# ---------------------------------------------------------------------------
+
+def _candidate(video_id, metric, cohort_size=6, polarity="anti"):
+    return {
+        "pattern": f"\"{video_id}\" underperforms on {metric}.",
+        "polarity": polarity,
+        "evidence": {"video_ids": [video_id], "metric": metric, "cohort_size": cohort_size},
+    }
+
+
+def _existing_row(video_id, metric, status, cohort_size=6):
+    return {
+        "id": f"row-{video_id}-{metric}-{status}",
+        "status": status,
+        "polarity": "anti",
+        "evidence": {"video_ids": [video_id], "metric": metric, "cohort_size": cohort_size},
+    }
+
+
+# --- _dedupe_candidates_against_rows (pure) ---------------------------------
+
+def test_dedupe_keeps_candidate_with_no_existing_match():
+    candidates = [_candidate("yt-1", "vph")]
+    assert cp._dedupe_candidates_against_rows(candidates, []) == candidates
+
+
+def test_dedupe_drops_candidate_matching_a_proposed_row():
+    candidates = [_candidate("yt-1", "vph")]
+    existing = [_existing_row("yt-1", "vph", "proposed")]
+    assert cp._dedupe_candidates_against_rows(candidates, existing) == []
+
+
+def test_dedupe_drops_candidate_matching_a_confirmed_row():
+    candidates = [_candidate("yt-1", "vph")]
+    existing = [_existing_row("yt-1", "vph", "confirmed")]
+    assert cp._dedupe_candidates_against_rows(candidates, existing) == []
+
+
+def test_dedupe_drops_candidate_matching_retired_row_with_equal_or_smaller_cohort():
+    candidates = [_candidate("yt-1", "vph", cohort_size=6)]
+    existing = [_existing_row("yt-1", "vph", "retired", cohort_size=6)]
+    assert cp._dedupe_candidates_against_rows(candidates, existing) == []
+
+    smaller = [_candidate("yt-1", "vph", cohort_size=5)]
+    existing_bigger = [_existing_row("yt-1", "vph", "retired", cohort_size=8)]
+    assert cp._dedupe_candidates_against_rows(smaller, existing_bigger) == []
+
+
+def test_dedupe_keeps_candidate_matching_retired_row_with_larger_cohort():
+    """Larger cohort_size == genuinely newer evidence (more channel history
+    collected since the human retired it) — decisions.md's "re-proposing
+    needs NEW evidence" bar."""
+    candidates = [_candidate("yt-1", "vph", cohort_size=12)]
+    existing = [_existing_row("yt-1", "vph", "retired", cohort_size=6)]
+    assert cp._dedupe_candidates_against_rows(candidates, existing) == candidates
+
+
+def test_dedupe_different_metric_same_video_is_not_deduped():
+    candidates = [_candidate("yt-1", "ctr")]
+    existing = [_existing_row("yt-1", "vph", "proposed")]  # different metric -> different key
+    assert cp._dedupe_candidates_against_rows(candidates, existing) == candidates
+
+
+def test_dedupe_different_video_same_metric_is_not_deduped():
+    candidates = [_candidate("yt-2", "vph")]
+    existing = [_existing_row("yt-1", "vph", "proposed")]
+    assert cp._dedupe_candidates_against_rows(candidates, existing) == candidates
+
+
+def test_dedupe_candidate_without_a_key_is_always_kept():
+    unkeyable = {"pattern": "no evidence shape", "polarity": "anti", "evidence": {}}
+    existing = [_existing_row("yt-1", "vph", "proposed")]
+    assert cp._dedupe_candidates_against_rows([unkeyable], existing) == [unkeyable]
+
+
+def test_dedupe_never_raises_on_garbage_existing_rows():
+    candidates = [_candidate("yt-1", "vph")]
+    assert cp._dedupe_candidates_against_rows(candidates, [None, "garbage", {}]) == candidates
+
+
+# --- _dedupe_candidates (async wrapper) -------------------------------------
+
+def test_dedupe_candidates_async_fetches_all_statuses_and_sources(monkeypatch):
+    captured = {}
+
+    async def fake_list_patterns(tenant_id, *, polarity=None, status=None):
+        captured["args"] = (tenant_id, polarity, status)
+        return [_existing_row("yt-1", "vph", "proposed")]
+
+    monkeypatch.setattr(cp, "list_patterns", fake_list_patterns)
+    result = asyncio.run(cp._dedupe_candidates("tenant-xyz", [_candidate("yt-1", "vph")]))
+    assert result == []
+    assert captured["args"] == ("tenant-xyz", None, None)  # every status, every source
+
+
+def test_dedupe_candidates_async_empty_input_never_queries(monkeypatch):
+    async def boom(*_a, **_k):
+        raise AssertionError("should not query for an empty candidate list")
+
+    monkeypatch.setattr(cp, "list_patterns", boom)
+    assert asyncio.run(cp._dedupe_candidates("tenant-xyz", [])) == []
+
+
+def test_dedupe_candidates_async_fails_open_on_lookup_error(monkeypatch):
+    async def boom(*_a, **_k):
+        raise RuntimeError("no channel_patterns table yet")
+
+    monkeypatch.setattr(cp, "list_patterns", boom)
+    candidates = [_candidate("yt-1", "vph")]
+    result = asyncio.run(cp._dedupe_candidates("tenant-xyz", candidates))
+    assert result == candidates  # fails OPEN: never silently drops a real proposal
+
+
+# --- run_import_pattern_analysis now dedupes (checklist C56 fix) -----------
+
+def test_run_import_pattern_analysis_dedupes_before_persisting(monkeypatch):
+    async def fake_propose(tenant_id):
+        return [_candidate("yt-1", "vph"), _candidate("yt-2", "vph")]
+
+    async def fake_dedupe(tenant_id, candidates):
+        return [c for c in candidates if c["evidence"]["video_ids"] != ["yt-1"]]
+
+    saved_rows = []
+
+    async def fake_bulk_create(tenant_id, rows, *, source):
+        saved_rows.extend(rows)
+        return [{"id": str(i), **r, "source": source, "status": "proposed"} for i, r in enumerate(rows)]
+
+    monkeypatch.setattr(cp, "propose_patterns_from_analytics", fake_propose)
+    monkeypatch.setattr(cp, "_dedupe_candidates", fake_dedupe)
+    monkeypatch.setattr(cp, "bulk_create_patterns", fake_bulk_create)
+    result = asyncio.run(cp.run_import_pattern_analysis("tenant-xyz"))
+    assert result["proposed"] == 1
+    assert saved_rows[0]["evidence"]["video_ids"] == ["yt-2"]
+
+
+# --- run_launch_pattern_analysis --------------------------------------------
+
+def test_run_launch_pattern_analysis_narrows_to_the_given_videos(monkeypatch):
+    async def fake_propose(tenant_id):
+        return [_candidate("yt-launched", "vph"), _candidate("yt-unrelated", "vph")]
+
+    async def fake_dedupe(tenant_id, candidates):
+        return candidates  # nothing existing
+
+    saved_rows = []
+
+    async def fake_bulk_create(tenant_id, rows, *, source):
+        saved_rows.extend(rows)
+        assert source == "launch_analysis"
+        return [{"id": str(i), **r, "source": source, "status": "proposed"} for i, r in enumerate(rows)]
+
+    notified = []
+
+    async def fake_notify(tenant_id, internal_video_id, pattern_row):
+        notified.append((tenant_id, internal_video_id, pattern_row))
+
+    monkeypatch.setattr(cp, "propose_patterns_from_analytics", fake_propose)
+    monkeypatch.setattr(cp, "_dedupe_candidates", fake_dedupe)
+    monkeypatch.setattr(cp, "bulk_create_patterns", fake_bulk_create)
+    monkeypatch.setattr(cp, "_notify_launch_pattern_proposed", fake_notify)
+
+    result = asyncio.run(cp.run_launch_pattern_analysis(
+        "tenant-xyz", [{"youtube_video_id": "yt-launched", "internal_video_id": "internal-1"}],
+    ))
+    assert result["proposed"] == 1
+    # the "unrelated" video's candidate (a different video that happens to
+    # also be an outlier this run) must NEVER be proposed by this trigger —
+    # that's the periodic/import-time bulk sweep's job, not per-launch's.
+    assert saved_rows == [_candidate("yt-launched", "vph")]
+    assert len(notified) == 1
+    notify_tenant, notify_internal_id, notify_row = notified[0]
+    assert notify_tenant == "tenant-xyz"
+    assert notify_internal_id == "internal-1"  # correctly mapped from youtube_video_id
+    assert notify_row["evidence"]["video_ids"] == ["yt-launched"]
+
+
+def test_run_launch_pattern_analysis_no_matching_video_proposes_nothing(monkeypatch):
+    async def fake_propose(tenant_id):
+        return [_candidate("yt-other", "vph")]
+
+    monkeypatch.setattr(cp, "propose_patterns_from_analytics", fake_propose)
+    result = asyncio.run(cp.run_launch_pattern_analysis(
+        "tenant-xyz", [{"youtube_video_id": "yt-launched", "internal_video_id": "internal-1"}],
+    ))
+    assert result == {"proposed": 0, "rows": []}
+
+
+def test_run_launch_pattern_analysis_empty_video_list_never_scores(monkeypatch):
+    async def boom(tenant_id):
+        raise AssertionError("should not score when no videos are given")
+
+    monkeypatch.setattr(cp, "propose_patterns_from_analytics", boom)
+    result = asyncio.run(cp.run_launch_pattern_analysis("tenant-xyz", []))
+    assert result == {"proposed": 0, "rows": []}
+
+
+def test_run_launch_pattern_analysis_fails_soft_on_scoring_error(monkeypatch):
+    async def boom(tenant_id):
+        raise RuntimeError("channel_videos query failed")
+
+    monkeypatch.setattr(cp, "propose_patterns_from_analytics", boom)
+    result = asyncio.run(cp.run_launch_pattern_analysis(
+        "tenant-xyz", [{"youtube_video_id": "yt-1", "internal_video_id": "internal-1"}],
+    ))
+    assert result["proposed"] == 0
+    assert "error" in result
+
+
+def test_run_launch_pattern_analysis_dedupes_like_import_trigger(monkeypatch):
+    """Same dedup gate as the import-time trigger — a pattern already
+    'proposed' for this video+metric (regardless of which trigger raised it
+    first) never gets a second row."""
+    async def fake_propose(tenant_id):
+        return [_candidate("yt-launched", "vph")]
+
+    async def fake_list_patterns(tenant_id, *, polarity=None, status=None):
+        return [_existing_row("yt-launched", "vph", "proposed")]
+
+    created = []
+
+    async def fake_bulk_create(tenant_id, rows, *, source):
+        created.extend(rows)
+        return []
+
+    monkeypatch.setattr(cp, "propose_patterns_from_analytics", fake_propose)
+    monkeypatch.setattr(cp, "list_patterns", fake_list_patterns)
+    monkeypatch.setattr(cp, "bulk_create_patterns", fake_bulk_create)
+    result = asyncio.run(cp.run_launch_pattern_analysis(
+        "tenant-xyz", [{"youtube_video_id": "yt-launched", "internal_video_id": "internal-1"}],
+    ))
+    assert result == {"proposed": 0, "rows": []}
+    assert created == []
+
+
+# --- _notify_launch_pattern_proposed ----------------------------------------
+
+def test_notify_launch_pattern_proposed_inserts_bot_activity_with_video_id(monkeypatch):
+    captured = {}
+
+    async def fake_execute(query, *args):
+        captured["query"] = query
+        captured["args"] = args
+
+    monkeypatch.setattr(cp, "execute", fake_execute)
+    asyncio.run(cp._notify_launch_pattern_proposed(
+        "tenant-xyz", "internal-1", {"pattern": "Weak openers underperform"},
+    ))
+    assert "INSERT INTO bot_activity" in captured["query"]
+    assert captured["args"][0] == "tenant-xyz"
+    assert captured["args"][2] == "internal-1"  # video_id, unlike autopilot proposals' NULL
+    assert "Weak openers underperform" in captured["args"][4]
+
+
+def test_notify_launch_pattern_proposed_failure_never_raises(monkeypatch):
+    async def boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(cp, "execute", boom)
+    asyncio.run(cp._notify_launch_pattern_proposed("tenant-xyz", "internal-1", {"pattern": "x"}))
+    # no assertion needed beyond "didn't raise"

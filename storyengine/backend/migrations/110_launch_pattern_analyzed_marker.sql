@@ -1,0 +1,26 @@
+-- C56 (checklist P4.2-g): the per-launch pattern flywheel — the SECOND of
+-- decisions.md's "two convergent entry points" for channel_patterns
+-- (tasks/decisions.md 2026-07-19 "Pattern learning has TWO convergent entry
+-- points"). C46e built trigger (a), the IMPORT-TIME bulk analyzer
+-- (channel_patterns.run_import_pattern_analysis, migration 106). This chunk
+-- builds trigger (b): once a platform-launched video's analytics mature
+-- (same bar routes/learning_extraction.py's extract_learnings() already
+-- established for "matured enough to analyze" — ctr populated AND
+-- impressions >= 1000), youtube_sync.py::_writeback_matched_videos calls
+-- channel_patterns.run_launch_pattern_analysis() for it.
+--
+-- `launch_pattern_analyzed_at` is a write-once marker (same convention as
+-- videos.ctr_48h/retention_48h/learnings_extracted_at) so a channel that
+-- keeps syncing daily only pays the launch-analysis cost ONCE per video,
+-- ever, instead of re-scoring the same matured video's outlier standing on
+-- every sync. NULL means "not yet analyzed"; stamped unconditionally once
+-- the maturity gate passes (regardless of whether that pass proposed any
+-- patterns), since channel_patterns.run_launch_pattern_analysis() itself
+-- never raises (fail-soft) and a permanent per-video failure must not
+-- retry forever.
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — applied LIVE via Supabase MCP
+-- against project wrromlupsmyzrrcqlucn, confirmed via
+-- information_schema.columns (same pattern as migrations 103/107/108/109).
+
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS launch_pattern_analyzed_at TIMESTAMPTZ;

@@ -2759,6 +2759,58 @@ tapped against a real `channel_patterns` row.
 
 ---
 
+## C56 — per-launch pattern flywheel (P4.2-g) · needs a real tenant, a real synced video, and a real sync
+
+Everything is proven at unit level in the sandbox (SYSTEM_STATE.md §C56 — 28 new tests, non-vacuous via
+`git stash`; full suite 1799P/15F/1E, zero new vs. the 1771P/15F/1E baseline) — the sandbox has no
+`DATABASE_URL` and no route to the VPS, so no real sync has ever run this path. What's deferred:
+
+- [ ] **A matured platform video actually triggers a launch-analysis proposal.** Pick a tenant with a
+      YouTube-connected channel and at least one platform-launched video (`videos.source LIKE
+      'autopilot%'` or any in-app upload) whose `channel_videos` counterpart already has
+      `ctr_percent IS NOT NULL AND impressions >= 1000` — real analytics, matured past the bar — and
+      `videos.launch_pattern_analyzed_at IS NULL` (first time through). Trigger a sync (`POST
+      /api/youtube/sync` or wait for `main.py`'s daily auto-sync) and confirm:
+      - `se db "SELECT launch_pattern_analyzed_at FROM videos WHERE id='<uuid>'"` → now stamped
+        (write-once marker, migration 110).
+      - `se db "SELECT pattern, polarity, source, status, evidence FROM channel_patterns WHERE
+        tenant_id='<uuid>' AND source='launch_analysis' ORDER BY created_at DESC"` → either real
+        `status='proposed'` rows (if that video cleared the 30%-from-median bar on vph/ctr/retention
+        with >=5 videos in the cohort) or none at all (correctly quiet if it didn't — not a failure,
+        see Safety net below).
+      - `se db "SELECT bot_name, status, message, video_id FROM bot_activity WHERE tenant_id='<uuid>'
+        AND bot_name='pattern_learning' ORDER BY created_at DESC LIMIT 3"` → one row per proposed
+        pattern, `video_id` set to the REAL internal video id (unlike the autopilot-proposal notify,
+        which uses NULL).
+- [ ] **Re-sync doesn't re-analyze.** Sync again immediately for the same tenant — confirm NO new
+      `channel_patterns` rows and no new `bot_activity` "pattern_learning" rows land (the write-once
+      marker already set means `_writeback_matched_videos` never re-queues that video).
+- [ ] **Dedup convergence, live.** If the SAME tenant also ran (or re-runs) "learn this channel"
+      (C46e's import-time analyzer) and its own `channel_videos` history includes the same video+metric
+      combination a launch-analysis proposal already flagged, confirm only ONE `channel_patterns` row
+      exists for that (video_id, metric) pair — not two — regardless of which trigger ran first.
+- [ ] **Digest card shows launch_analysis rows too.** "Show the channel digest" in chat for that tenant
+      — confirm the `patterns` section (`ChatCore.tsx`'s `DnaDigestCard`) renders the new
+      `source='launch_analysis'` row exactly like an `import_analysis` one (no source filter exists in
+      `chat.py::_proposed_channel_patterns`, so this should need zero extra work — confirm it actually
+      doesn't).
+- [ ] **Confirm/retire + retired-with-newer-evidence re-propose.** Confirm or retire the launch-analysis
+      row via the existing chat buttons or `POST /api/channel-patterns/{id}/confirm|retire` (same doors
+      C46e already wired). If retired, wait for the channel to accumulate more analytics history (larger
+      cohort) and confirm a LATER sync's launch analysis (or a later "learn this channel" run) is willing
+      to re-propose the same (video_id, metric) claim — and that it does NOT re-propose while the cohort
+      size hasn't grown.
+- **Cost:** free — `run_launch_pattern_analysis` is one extra `channel_videos` SELECT (reused, not new)
+  plus in-process scoring per sync; no new Claude/Kie calls. `bot_activity` writes are free DB rows.
+- **Safety net:** a live check that finds zero proposed launch-analysis patterns is not a failure by
+  itself — it means no video's outlier margin cleared the existing 30%-from-median / >=5-video-cohort
+  bar this run (the SAME bar C46e's import analyzer already uses, unchanged). Confirm the "quiet" case
+  by checking the video's own vph/ctr/retention against the channel's current median by hand, or by
+  temporarily lowering `channel_patterns.OUTLIER_THRESHOLD_PCT` in a scratch session (never in a live
+  commit) to force at least one candidate through for the walkthrough.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

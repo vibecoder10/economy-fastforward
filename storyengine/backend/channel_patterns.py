@@ -40,12 +40,19 @@ Three layers, same discipline as ``quality_rules.py``:
      exclusion resolver.
 
      The SECOND trigger (per-launch incremental proposals from each new
-     platform-published video's own analytics) is explicitly P4.2's
-     flywheel job — NOT built here. The seam: a future per-launch job needs
-     only to call ``create_pattern(..., source="launch_analysis")`` (or a
-     launch-scoped sibling of ``score_outlier_patterns`` reading ``videos``
-     instead of ``channel_videos``) and everything downstream (confirm,
-     retire, exclusion) already works unchanged.
+     platform-published video's own analytics) is ``run_launch_pattern_
+     analysis`` below (checklist C56, P4.2-g) — called by
+     ``youtube_sync.py::_writeback_matched_videos`` once a platform-launched
+     video's analytics mature (same bar ``routes/learning_extraction.py``'s
+     ``extract_learnings()`` already established: ``ctr`` populated AND
+     ``impressions >= 1000``). It reuses the SAME brain as the import-time
+     analyzer (``propose_patterns_from_analytics`` / ``score_outlier_
+     patterns``, unchanged) rather than a parallel implementation, narrowed
+     to candidates about the newly-matured video(s) and passed through the
+     shared dedup gate (``_dedupe_candidates``) added this chunk — see that
+     function's docstring for why import-time analysis ALSO gained a dedup
+     pass here (it had none before: a second ``learn_channel`` run would
+     have re-inserted duplicate 'proposed' rows for an unchanged outlier).
 
 Retirement policy note: a MANUALLY-tagged pattern (source='manual') can be
 retired directly (``retire_pattern`` is a plain status transition, no
@@ -65,7 +72,7 @@ import logging
 import statistics
 from typing import Any, Optional
 
-from database import fetch_all, fetch_one
+from database import execute, fetch_all, fetch_one
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +253,14 @@ async def run_import_pattern_analysis(tenant_id: str) -> dict:
     imported analytics, persist them as status='proposed' rows (source=
     'import_analysis'), and return a summary shape ``channel_dna.py``'s
     learner can fold into its digest report. Never raises — a scoring or DB
-    hiccup here must not abort the rest of ``learn_channel``'s learners."""
+    hiccup here must not abort the rest of ``learn_channel``'s learners.
+
+    Dedupes against existing patterns (checklist C56 fix — this had NO
+    dedup before: re-running ``learn_channel`` on a tenant whose outlier set
+    hadn't changed would re-insert a duplicate 'proposed' row every time).
+    See ``_dedupe_candidates`` — the SAME dedup gate the per-launch trigger
+    (``run_launch_pattern_analysis``) uses, so both triggers converge on one
+    dedup brain, not two."""
     try:
         candidates = await propose_patterns_from_analytics(tenant_id)
     except Exception as e:  # noqa: BLE001
@@ -254,8 +268,194 @@ async def run_import_pattern_analysis(tenant_id: str) -> dict:
         return {"proposed": 0, "rows": [], "error": str(e)}
     if not candidates:
         return {"proposed": 0, "rows": []}
+    candidates = await _dedupe_candidates(tenant_id, candidates)
+    if not candidates:
+        return {"proposed": 0, "rows": []}
     saved = await bulk_create_patterns(tenant_id, candidates, source="import_analysis")
     return {"proposed": len(saved), "rows": saved}
+
+
+# ---------------------------------------------------------------------------
+# Pure — dedup brain shared by BOTH pattern-proposal triggers (checklist C56,
+# the "two convergent entry points" law: ONE analysis brain, not two).
+# ---------------------------------------------------------------------------
+
+def _candidate_key(evidence: Any) -> Optional[tuple[str, str]]:
+    """The "same claim" key for an outlier candidate: (video_id, metric).
+    ``score_outlier_patterns`` produces single-video, single-metric claims
+    (its own docstring: "never deduplicated here, since they're distinct
+    claims" — i.e. distinct ACROSS metrics, but the SAME claim if re-scored
+    again on the same video+metric later). Mirrors the repo's existing
+    dedup precedent in ``routes/learning_extraction.py::extract_learnings``
+    (keys on ``(category, pattern_name)`` before upserting into
+    ``learnings``) — same shape, different table. Returns None when the
+    evidence doesn't carry enough to key on (never raises; a candidate that
+    can't be keyed is treated as un-dedupable, not silently dropped)."""
+    ev = evidence if isinstance(evidence, dict) else {}
+    vids = ev.get("video_ids") or []
+    metric = ev.get("metric")
+    if not vids or not metric:
+        return None
+    return (str(vids[0]), str(metric))
+
+
+def _dedupe_candidates_against_rows(candidates: list[dict], existing_rows: list[dict]) -> list[dict]:
+    """Pure: given freshly-scored candidates and this tenant's EXISTING
+    ``channel_patterns`` rows (any status, any source), return only the
+    candidates that are genuinely NEW claims.
+
+    - No existing row shares this candidate's (video_id, metric) key ->
+      keep (first time this claim has ever been raised).
+    - An existing 'proposed' or 'confirmed' row shares the key -> drop
+      (already live or already awaiting review; never re-propose the same
+      claim while it's active).
+    - Every existing row sharing the key is 'retired' -> keep ONLY if this
+      candidate's evidence covers a strictly LARGER cohort
+      (``evidence.cohort_size``) than the retired row's. Cohort size only
+      grows as the channel accumulates more analytics history, so a larger
+      cohort is objectively NEWER evidence — never the same snapshot being
+      silently reasserted after a human explicitly walked the pattern back
+      (decisions.md: "retirement was a human decision; re-proposing it
+      needs NEW evidence").
+    - A candidate that can't be keyed (missing video_ids/metric) -> always
+      kept; refusing to dedupe a claim we can't identify is safer than
+      guessing it's a repeat."""
+    by_key: dict[tuple, list[dict]] = {}
+    for row in existing_rows or []:
+        if not isinstance(row, dict):
+            continue
+        key = _candidate_key(row.get("evidence"))
+        if key:
+            by_key.setdefault(key, []).append(row)
+
+    fresh: list[dict] = []
+    for c in candidates or []:
+        if not isinstance(c, dict):
+            continue
+        key = _candidate_key(c.get("evidence"))
+        if key is None:
+            fresh.append(c)
+            continue
+        matches = by_key.get(key, [])
+        if not matches:
+            fresh.append(c)
+            continue
+        if any(m.get("status") in ("proposed", "confirmed") for m in matches):
+            continue
+        retired_cohorts = [
+            int((m.get("evidence") or {}).get("cohort_size") or 0) for m in matches
+        ]
+        new_cohort = int((c.get("evidence") or {}).get("cohort_size") or 0)
+        if new_cohort > max(retired_cohorts, default=0):
+            fresh.append(c)
+    return fresh
+
+
+async def _dedupe_candidates(tenant_id, candidates: list[dict]) -> list[dict]:
+    """Async wrapper: fetch this tenant's existing patterns (every status,
+    every source — a launch-analysis candidate must dedupe against an
+    import-analysis row for the same video+metric too, since it's the same
+    claim regardless of which trigger raised it first) and delegate to the
+    pure resolver above. Fails OPEN (returns candidates UNFILTERED) on a DB
+    hiccup — a broken dedup lookup must never silently drop a real
+    proposal; worst case with fail-open is a duplicate a human can retire,
+    never the reverse (proposals silently lost)."""
+    if not candidates:
+        return []
+    try:
+        existing = await list_patterns(tenant_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("channel_patterns: dedup lookup failed for tenant=%s: %s", tenant_id, e)
+        return candidates
+    return _dedupe_candidates_against_rows(candidates, existing)
+
+
+# ---------------------------------------------------------------------------
+# Per-launch trigger (checklist C56, P4.2-g) — decisions.md's "two
+# convergent entry points" trigger (b).
+# ---------------------------------------------------------------------------
+
+async def run_launch_pattern_analysis(tenant_id: str, videos: list[dict]) -> dict:
+    """Called by ``youtube_sync.py::_writeback_matched_videos`` once one or
+    more platform-launched videos' analytics have matured this sync pass
+    (``ctr`` populated AND ``impressions >= 1000`` — the SAME bar
+    ``routes/learning_extraction.py::extract_learnings`` already uses for
+    "matured enough to analyze").
+
+    ``videos``: ``[{"youtube_video_id": <channel_videos.video_id>,
+    "internal_video_id": <videos.id>}, ...]`` for every video that just
+    crossed the maturity bar this sync. Re-scores the channel's CURRENT
+    outlier standing ONCE for the whole batch (``propose_patterns_from_
+    analytics`` — the SAME brain the import-time bulk analyzer uses, not a
+    parallel implementation) rather than once per video — a channel's FIRST
+    sync after this feature ships can have many already-matured platform
+    videos cross the marker simultaneously, and re-running the full
+    channel-wide outlier scan once per video would be needless repeated
+    work for what's the same snapshot of ``channel_videos`` analytics within
+    one sync pass. Then narrows to candidates ABOUT one of these videos —
+    this trigger's job is reacting to THIS batch's own fresh analytics, not
+    recomputing every other video's standing (that's the periodic/import-
+    time bulk sweep's job) — dedupes via ``_dedupe_candidates`` (shared with
+    the import-time trigger), persists survivors with
+    ``source="launch_analysis"``, and drops one ``bot_activity`` row per
+    persisted pattern (C52's notify pattern) so it surfaces in the existing
+    activity feed. Never raises — a scoring/DB hiccup here must not break
+    the analytics sync that calls it."""
+    videos = [v for v in (videos or []) if isinstance(v, dict) and v.get("youtube_video_id")]
+    if not videos:
+        return {"proposed": 0, "rows": []}
+    try:
+        candidates = await propose_patterns_from_analytics(tenant_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("channel_patterns: launch analysis failed for tenant=%s: %s", tenant_id, e)
+        return {"proposed": 0, "rows": [], "error": str(e)}
+    if not candidates:
+        return {"proposed": 0, "rows": []}
+
+    wanted = {str(v["youtube_video_id"]) for v in videos}
+    internal_by_yt = {str(v["youtube_video_id"]): v.get("internal_video_id") for v in videos}
+    about_these = [
+        c for c in candidates
+        if wanted & {str(v) for v in ((c.get("evidence") or {}).get("video_ids") or [])}
+    ]
+    if not about_these:
+        return {"proposed": 0, "rows": []}
+
+    fresh = await _dedupe_candidates(tenant_id, about_these)
+    if not fresh:
+        return {"proposed": 0, "rows": []}
+
+    saved = await bulk_create_patterns(tenant_id, fresh, source="launch_analysis")
+    for row in saved:
+        for yt_vid in (row.get("evidence") or {}).get("video_ids") or []:
+            await _notify_launch_pattern_proposed(tenant_id, internal_by_yt.get(str(yt_vid)), row)
+    return {"proposed": len(saved), "rows": saved}
+
+
+async def _notify_launch_pattern_proposed(
+    tenant_id: str, internal_video_id: Optional[str], pattern_row: dict
+) -> None:
+    """Best-effort ``bot_activity`` row (C52's notify pattern —
+    ``autopilot_proposals.py::_notify_proposal_created`` is the precedent
+    copied here) so a per-launch pattern proposal shows up wherever the
+    existing activity feed (GET /api/activity, the dashboard's running-bots
+    widget) already surfaces background events — reusing that table is the
+    entire "notify" mechanism, no new infra. ``internal_video_id`` is the
+    real ``videos.id`` FK (unlike the autopilot-proposal notify, this
+    trigger always has a real video). Never raises — a notify failure must
+    never fail the pattern-proposal write it's reporting on."""
+    try:
+        await execute(
+            """INSERT INTO bot_activity (tenant_id, bot_name, video_id, status, message)
+               VALUES ($1, $2, $3, $4, $5)""",
+            tenant_id, "pattern_learning", internal_video_id, "completed",
+            f"New pattern proposed from launch analytics: {pattern_row.get('pattern', '')[:200]}",
+        )
+    except Exception:
+        logger.warning(
+            "channel_patterns: bot_activity notify failed for tenant=%s (best-effort)",
+            tenant_id, exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------

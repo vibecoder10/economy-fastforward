@@ -34,6 +34,13 @@ RETRY_DELAY = 3.0  # seconds
 MAX_CHANNEL_VIDEOS = 200  # uploads playlist import cap (quota guard)
 DAILY_TIMESERIES_DAYS = 90
 
+# Per-launch pattern flywheel (checklist C56, P4.2-g): "matured enough to
+# analyze" reuses the EXACT bar routes/learning_extraction.py::extract_
+# learnings() already established as the SaaS-native learnings loop's
+# maturity gate (ctr populated AND impressions >= this), rather than
+# inventing a new time-based threshold.
+LAUNCH_ANALYSIS_MIN_IMPRESSIONS = 1000
+
 
 def _classify_error(e: Exception) -> str:
     """Classify an error into a category for the status response."""
@@ -389,20 +396,24 @@ async def _match_internal_videos(tenant_id: str) -> int:
 
 
 async def _writeback_matched_videos(tenant_id: str):
-    """Copy synced channel metrics onto linked `videos` rows and fill the
-    write-once 24h/48h/7d/30d snapshot columns the learning loop reads."""
+    """Copy synced channel metrics onto linked `videos` rows, fill the
+    write-once 24h/48h/7d/30d snapshot columns the learning loop reads, and
+    (checklist C56, P4.2-g) trigger the per-launch pattern flywheel for any
+    video whose analytics just matured this sync pass."""
     rows = await fetch_all(
         """SELECT cv.internal_video_id AS internal_id, cv.published_at,
                   cv.view_count, cv.like_count, cv.comment_count,
                   cv.impressions, cv.ctr_percent, cv.avg_view_duration_seconds,
                   cv.avg_retention AS cv_retention, cv.watch_time_hours, cv.subscribers_gained,
+                  cv.video_id AS cv_video_id,
                   v.upload_date, v.views_24h, v.views_48h, v.views_7d, v.views_30d,
-                  v.ctr_48h, v.retention_48h
+                  v.ctr_48h, v.retention_48h, v.launch_pattern_analyzed_at
            FROM channel_videos cv
            JOIN videos v ON v.id = cv.internal_video_id
            WHERE cv.tenant_id = $1""",
         tenant_id,
     )
+    pending_launch_analysis: list[dict] = []
     for r in rows:
         upload_date = r["upload_date"] or r["published_at"]
         update_fields: dict = {
@@ -430,6 +441,24 @@ async def _writeback_matched_videos(tenant_id: str):
         )
         update_fields.update(snapshots)
 
+        # Per-launch pattern flywheel trigger (checklist C56, P4.2-g): queue
+        # this video for launch analysis the first time it clears the
+        # maturity bar (ctr populated + impressions >= LAUNCH_ANALYSIS_MIN_
+        # IMPRESSIONS) and hasn't been analyzed yet (write-once marker,
+        # migration 110) — actual analysis runs ONCE for the whole batch
+        # after this loop (see below), not per-row.
+        if (
+            r["ctr_percent"] is not None
+            and (r["impressions"] or 0) >= LAUNCH_ANALYSIS_MIN_IMPRESSIONS
+            and r.get("launch_pattern_analyzed_at") is None
+            and r.get("cv_video_id")
+        ):
+            update_fields["launch_pattern_analyzed_at"] = datetime.now(timezone.utc)
+            pending_launch_analysis.append({
+                "youtube_video_id": r["cv_video_id"],
+                "internal_video_id": r["internal_id"],
+            })
+
         set_parts = []
         values = []
         for key, val in update_fields.items():
@@ -441,6 +470,18 @@ async def _writeback_matched_videos(tenant_id: str):
             f"UPDATE videos SET {', '.join(set_parts)} WHERE id = ${len(values)}",
             *values,
         )
+
+    if pending_launch_analysis:
+        try:
+            from channel_patterns import run_launch_pattern_analysis
+            await run_launch_pattern_analysis(tenant_id, pending_launch_analysis)
+        except Exception as e:
+            # Fail-soft (checklist C56 requirement): a scoring/DB hiccup in
+            # the pattern flywheel must never break the analytics sync that
+            # triggers it. The marker was already written per-row above
+            # (unconditionally, before this call), so a permanent failure
+            # here doesn't retry forever either.
+            print(f"[YouTubeSync] Launch pattern analysis failed for tenant {tenant_id}: {e}")
 
 
 async def _fetch_bulk_video_analytics(client, access_token: str) -> dict[str, dict]:
