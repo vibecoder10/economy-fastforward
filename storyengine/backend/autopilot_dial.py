@@ -35,6 +35,18 @@ C54 (P4.2-e) — per-tenant weekly budget ceiling:
     writers. Trip is idempotent — a second trip (e.g. two callers detecting
     the same breach in the same tick) never overwrites the FIRST recorded
     reason. Neither writer ever touches ``enabled``.
+
+C54b (orchestrator hardening pass) — "no autonomy without a ceiling":
+``validate_dial_change`` is the ONE shared invariant both writers
+(``routes/autopilot.py``'s config route, ``routes/mcp.py``'s
+``set_autopilot_dial``) enforce before ever writing: dial_level cannot be
+elevated above ``propose_only`` while ``weekly_budget_cap`` is (or would be
+left) unset. See its docstring for the exact four cases. Runtime belt-and-
+suspenders for any row that predates/escapes the writers lives in
+``main.py::_produce_for_tenant`` and ``autopilot_launch.py`` (both demote an
+elevated-dial-with-no-cap row to propose_only behavior at read time, with a
+loud log — never a kill-switch trip, since this is a config anomaly, not a
+spend breach).
 """
 
 from __future__ import annotations
@@ -88,6 +100,47 @@ async def get_autopilot_dial(tenant_id: str) -> AutopilotDial:
         kill_switch_tripped_at=row.get("kill_switch_tripped_at"),
         kill_switch_reason=row.get("kill_switch_reason"),
     )
+
+
+def validate_dial_change(
+    current: "AutopilotDial",
+    *,
+    new_dial_level: Optional[str] = None,
+    cap_provided: bool = False,
+    new_cap: Optional[float] = None,
+) -> Optional[str]:
+    """The server-side "no autonomy without a ceiling" invariant (C54b,
+    orchestrator hardening review) — the ONE shared validator both writers
+    (``routes/autopilot.py``'s ``POST /config`` and ``routes/mcp.py``'s
+    ``set_autopilot_dial``) call, so the rule can't drift between doors.
+
+    Computes the EFFECTIVE dial_level/cap this change would produce — the
+    new value if this call provides one, else whatever's already on the
+    row — and rejects if the effective state is elevated
+    (auto_draft/full_auto) with no cap. This one computation covers all
+    four shapes the invariant needs to handle:
+      1. Raising dial_level with no cap (neither already set nor supplied
+         now) -> effective cap is None -> rejected.
+      2. Raising dial_level WITH a cap supplied in the SAME call ->
+         effective cap is the new value -> allowed.
+      3. Clearing an existing cap (explicit null) while dial_level is (or
+         stays) elevated -> effective cap is None -> rejected.
+      4. Clearing the cap AND lowering dial_level to propose_only in the
+         SAME call -> effective dial_level is propose_only -> allowed
+         regardless of cap.
+
+    Returns an error message (None = valid) rather than raising, so each
+    caller renders it its own way (HTTPException 400 vs. MCP's
+    ``_error_result``) with zero duplicated invariant logic.
+    """
+    effective_dial = new_dial_level if new_dial_level is not None else current.dial_level
+    effective_cap = new_cap if cap_provided else current.weekly_budget_cap
+    if effective_dial != _DEFAULT_DIAL_LEVEL and effective_cap is None:
+        return (
+            f"Can't set dial_level to '{effective_dial}' without a weekly_budget_cap — "
+            "set weekly_budget_cap in the same call (or leave dial_level at 'propose_only')."
+        )
+    return None
 
 
 def _rows_affected(command_status: object) -> int:

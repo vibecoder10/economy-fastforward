@@ -395,6 +395,17 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
       depth — this loop-level check can go stale during candidate scoring);
       this is not redundant with that, it's the outer gate for the
       queue-drain path that check doesn't cover at all.
+    - C54b (orchestrator hardening pass): an elevated ``dial_level`` with no
+      ``weekly_budget_cap`` set is logged loudly HERE too (belt-and-
+      suspenders visibility for a config anomaly the writer-side invariant,
+      ``autopilot_dial.validate_dial_change``, should already prevent) —
+      this is a LOG ONLY at this site, since neither path this function
+      dispatches to actually branches on dial_level itself (the queue drain
+      never has, and autopilot_launch.py does its OWN demotion-to-
+      propose_only for this exact condition); logging here means the
+      anomaly is visible on every tick regardless of which path actually
+      ran, not only on a tick where the candidate path happened to be
+      reached.
 
     Kept as one function so both the queue-drain path (paid, no dial checks
     of its own) and the candidate-fallback path share exactly one gate,
@@ -410,6 +421,14 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
         return None
     if dial.kill_switch_tripped_at is not None:
         return None
+
+    if dial.dial_level != "propose_only" and dial.weekly_budget_cap is None:
+        logger.warning(
+            "[AutoQueue] Tenant %s: dial_level=%s but no weekly_budget_cap set — "
+            "config anomaly (not a kill-switch trip); the candidate path will "
+            "treat this as propose_only (propose, never launch) until a cap is set",
+            tenant_id[:8], dial.dial_level,
+        )
 
     try:
         ok, spent, cap = await check_weekly_budget(tenant_id)

@@ -97,6 +97,19 @@ real-money budget breach happened here. What's deferred:
    (both fields, then just one, then a bad `dial_level` to confirm the 400-equivalent error) and
    `reset_autopilot_kill_switch` from a real connected client; confirm neither needs a `confirm_token`
    and both changes are visible immediately via `get_autopilot_dial`/`GET /api/autopilot/summary`.
+7. **C54b invariant, live.** On a tenant with `dial_level='propose_only'` and no cap: try
+   `POST /api/autopilot/config {"dial_level": "auto_draft"}` (no cap) → confirm 400 with a message that
+   says to set `weekly_budget_cap` in the same call; retry with `{"dial_level": "auto_draft",
+   "weekly_budget_cap": 25}` → confirm 200 and the row now shows both. Then try
+   `POST /api/autopilot/config {"weekly_budget_cap": null}` alone (dial still `auto_draft`) → confirm 400
+   (can't remove the ceiling while elevated); retry with `{"dial_level": "propose_only",
+   "weekly_budget_cap": null}` → confirm 200. On `/autopilot`, confirm the Auto-Draft/Full Auto buttons
+   are visibly disabled (with the gold hint line) whenever the cap field is empty, and re-enable the
+   instant a cap is saved.
+8. **Kill-switch reset transparency, live.** After a real or hand-set trip, call the reset route/MCP tool
+   and confirm the response's `previous_kill_switch_reason`/`previous_kill_switch_tripped_at` actually
+   carries the trip that was just cleared (not null) — and that a reset when nothing was tripped returns
+   both as `null` (harmless no-op).
 - **Cost:** the budget check/trip/clear/dial-set writes are all free DB reads/writes at THIS layer — no
   new spend category. The actual spend this chunk gates continues to happen at each PAID stage's own
   confirm gate exactly as before; this chunk only adds an earlier stop sign in front of the unattended

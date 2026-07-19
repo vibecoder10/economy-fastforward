@@ -31,7 +31,13 @@ get_autopilot_dial``) — this is the FIRST real reader of ``dial_level``:
   adds one more gate on THIS branch only, immediately before the launch
   call: ``autopilot_dial.check_weekly_budget`` — a breach trips the kill
   switch and returns None instead of launching. propose_only never reaches
-  that check, so a budget breach can never block a free proposal.
+  that check, so a budget breach can never block a free proposal. C54b
+  (orchestrator hardening pass) adds a runtime demotion BEFORE this branch
+  decision even runs: an elevated ``dial_level`` with no
+  ``weekly_budget_cap`` set (a config anomaly the writer-side invariant
+  should prevent, but a belt-and-suspenders check for any row that
+  predates/escapes it) is treated as ``propose_only`` here — logged loudly,
+  never a kill-switch trip.
 """
 from __future__ import annotations
 
@@ -149,6 +155,21 @@ async def auto_launch_best_candidate(tenant_id: str) -> Optional[dict]:
     if dial.kill_switch_tripped_at is not None:
         return None
 
+    # C54b (orchestrator hardening pass) — runtime belt-and-suspenders for
+    # any row that predates/escapes the C54b writer-side invariant
+    # (autopilot_dial.validate_dial_change): an elevated dial_level with NO
+    # weekly_budget_cap is a CONFIG ANOMALY, not a spend breach, so it is
+    # demoted to propose_only behavior here (loud log, never a kill-switch
+    # trip) rather than allowed to launch uncapped.
+    effective_dial_level = dial.dial_level
+    if effective_dial_level != "propose_only" and dial.weekly_budget_cap is None:
+        logger.warning(
+            "[AutoLaunch] Tenant %s: dial_level=%s but no weekly_budget_cap set — "
+            "treating as propose_only this tick (config anomaly, not a kill-switch trip)",
+            tenant_id[:8], effective_dial_level,
+        )
+        effective_dial_level = "propose_only"
+
     cfg = await _autopilot_row(tenant_id)
     if not cfg or not cfg.get("enabled"):
         return None
@@ -167,7 +188,7 @@ async def auto_launch_best_candidate(tenant_id: str) -> Optional[dict]:
     if not candidate:
         return None
 
-    if dial.dial_level == "propose_only":
+    if effective_dial_level == "propose_only":
         # Invariant 2: this branch cannot reach launch_candidate — the name
         # is never imported/bound here, so there is nothing to call even by
         # mistake. Score + record only.

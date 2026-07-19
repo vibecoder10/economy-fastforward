@@ -1148,6 +1148,18 @@ _AUTOPILOT_PROPOSAL_WRITE_HANDLERS = {
 #     human "Launch" click) and still enforces its own weekly-budget check
 #     (autopilot_launch.py's auto_draft branch, C54) before anything paid
 #     happens. weekly_budget_cap is a ceiling, never a spend trigger.
+#
+#     C54b (orchestrator hardening pass) is WHY free-with-no-confirm is
+#     still safe here even though this tool alone could otherwise raise the
+#     dial with no ceiling: this handler dispatches straight through
+#     `routes.autopilot.update_config`, which enforces `autopilot_dial.
+#     validate_dial_change` — the ONE shared "no autonomy without a
+#     ceiling" invariant — before writing anything. A rogue/injected call
+#     that tries `set_autopilot_dial(dial_level="auto_draft")` with no cap
+#     anywhere gets a 400-equivalent `_error_result` back, not a silent
+#     uncapped auto_draft tenant. No parallel validation lives here; this
+#     handler is deliberately a thin pass-through so the invariant can't
+#     drift between the HTTP door and this one.
 #   - reset_autopilot_kill_switch: FREE, no confirm_token — the checklist
 #     flagged this as a real judgment call ("re-arms spending automation"),
 #     not a rubber-stamp. Decided FREE by the SAME precedent already used
@@ -1163,7 +1175,15 @@ _AUTOPILOT_PROPOSAL_WRITE_HANDLERS = {
 #     the switch does not bypass a future re-trip if spend is still over
 #     cap. It is a control-plane switch (same shape as toggle_autopilot's
 #     enable/disable, which has never been confirm-gated), not a quoted
-#     paid action.
+#     paid action. C54b sharpens the worst-case bound further: because
+#     `validate_dial_change` guarantees any elevated dial_level already has
+#     an explicit, human-set ceiling, the WORST an agent calling this tool
+#     (rogue or not) can do is let spend resume up to a ceiling a human
+#     already chose — never uncapped. C54b also makes the tool's response
+#     carry `previous_kill_switch_reason`/`previous_kill_switch_tripped_at`
+#     (the trip it just cleared) so the calling agent is forced to see —
+#     and can be made to surface to the human — WHAT went wrong, not just
+#     that the switch is now clear.
 # =============================================================================
 
 _SET_AUTOPILOT_DIAL_TOOL: dict[str, Any] = {
@@ -1176,7 +1196,12 @@ _SET_AUTOPILOT_DIAL_TOOL: dict[str, Any] = {
         "'propose_only' (autopilot only proposes, a human launches — today's default), "
         "'auto_draft' (autopilot may create a video/draft unattended), 'full_auto' (reserved, "
         "treated identically to auto_draft today). weekly_budget_cap: dollar ceiling on "
-        "weekly autopilot spend; pass null to remove an existing cap. Provide either or both."
+        "weekly autopilot spend; pass null to remove an existing cap. Provide either or both. "
+        "INVARIANT: dial_level cannot be set above 'propose_only' unless weekly_budget_cap is "
+        "already set on the account OR supplied in this SAME call — set both together the "
+        "first time you raise the dial. Likewise, an existing cap cannot be cleared while "
+        "dial_level is (or stays) elevated; lower dial_level to 'propose_only' in the same "
+        "call if you want to remove the cap."
     ),
     "inputSchema": {
         "type": "object",
@@ -1197,8 +1222,11 @@ _RESET_AUTOPILOT_KILL_SWITCH_TOOL: dict[str, Any] = {
         "breach). Free, no confirm_token — see module docstring's classification note: this "
         "only re-arms EXISTING automation paths (auto_draft launches, queue drain), each of "
         "which still enforces its own gates when it actually reaches a paid stage; it does "
-        "not itself spend anything. Calling this when the switch isn't tripped is a harmless "
-        "no-op. Attributed to the calling agent."
+        "not itself spend anything, and any elevated dial_level is guaranteed to already carry "
+        "a human-set weekly_budget_cap (see set_autopilot_dial), so re-armed spend is always "
+        "capped. Calling this when the switch isn't tripped is a harmless no-op. Attributed to "
+        "the calling agent. The response carries previous_kill_switch_reason/_tripped_at — the "
+        "trip THIS call just cleared — surface that to the human, don't just report success."
     ),
     "inputSchema": {"type": "object", "properties": {}},
 }

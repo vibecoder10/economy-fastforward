@@ -9303,3 +9303,90 @@ tenant that explicitly sets a cap via the new `/config` fields or MCP tool can e
 switch queue-drain fix is a strict bug fix (a tripped switch skipping only half the automation was never
 intended behavior) and cannot fire for any tenant that has never been tripped (100% of tenants today,
 since C50 added the column with nothing to trip it before this chunk).
+
+## C54b — hardening: "no autonomy without a ceiling" server-side invariant (orchestrator review, added 2026-07-19)
+
+Orchestrator review of C54 found one real gap: nothing stopped `dial_level` being raised to
+`auto_draft`/`full_auto` with `weekly_budget_cap` still `NULL` — `check_weekly_budget`'s NULL-cap-always-ok
+posture (correct for `propose_only` tenants) then meant unattended spending with NO ceiling, reachable
+via the free `set_autopilot_dial` MCP tool with no confirm.
+
+**`storyengine/backend/autopilot_dial.py`** gains `validate_dial_change(current, *, new_dial_level,
+cap_provided, new_cap) -> Optional[str]` — the ONE shared invariant both writers call. It computes the
+EFFECTIVE dial_level/cap the change would produce (the new value if supplied, else whatever's already on
+the row) and rejects (returns an error string; `None` = valid) if the effective state is elevated with no
+cap. One computation covers all four shapes: raise-with-no-cap-anywhere (rejected), raise-with-cap-
+supplied-in-the-same-call (allowed), clear-an-existing-cap-while-elevated (rejected), clear-the-cap-AND-
+lower-to-propose_only-in-the-same-call (allowed).
+
+**Writers**: `routes/autopilot.py::update_config` calls `validate_dial_change` (400 on violation) after
+its existing `dial_level`/`cap>0` checks, using the CURRENT row (`get_autopilot_dial`) as the baseline.
+`routes/mcp.py::set_autopilot_dial` needed NO new call — it already dispatches straight through
+`update_config`, so the invariant is enforced transitively with zero parallel logic (confirmed by new
+end-to-end tests that exercise the real `update_config`, not a mock).
+
+**Runtime belt-and-suspenders** (any row that predates/escapes the writers): `autopilot_launch.py`'s
+`auto_launch_best_candidate` computes an `effective_dial_level` right after the kill-switch check — an
+elevated `dial_level` with no cap demotes to `"propose_only"` for that tick (loud `logger.warning`, never
+a kill-switch trip — this is a config anomaly, not a spend breach) — and the branch decision below uses
+`effective_dial_level`, not the raw `dial.dial_level`. `main.py::_produce_for_tenant` logs the SAME
+condition (visibility on every tick regardless of which path runs) but doesn't itself branch on
+dial_level — the queue drain never has, and autopilot_launch.py does its own demotion internally, so a
+loop-level behavior change would be redundant.
+
+**Kill-switch reset transparency**: `KillSwitchResetResult` gains `previous_kill_switch_reason`/
+`previous_kill_switch_tripped_at` — the trip THIS call just cleared (`None`/`None` if it was a harmless
+no-op). `reset_kill_switch` reads the prior dial state BEFORE clearing. The bot_activity notify message
+now includes the prior reason too. This is what makes `reset_autopilot_kill_switch` staying FREE (no
+confirm_token) defensible per the orchestrator's framing: the agent's response forces it to see (and
+should be made to surface) WHAT went wrong, not just "ok, cleared."
+
+**Frontend** (`storyengine/frontend/src/app/autopilot/page.tsx`): the Auto-Draft/Full Auto dial buttons
+are `disabled` (with a `title` tooltip) whenever `config.weekly_budget_cap == null`, with an inline gold
+hint line above the selector ("Set a weekly budget cap below before enabling Auto-Draft or Full Auto.")
+so a user doesn't hit the 400 blind. `handleSetDial` also surfaces a red inline error if the call is
+rejected anyway (e.g. a stale cache in another tab already cleared the cap) — belt-and-suspenders on the
+client, not a replacement for the disabled state.
+
+### Verification (C54b)
+
+17 new tests: 7 pure-function `validate_dial_change` cases, 4 HTTP-route invariant tests (`POST /config`
+raise-without-cap rejected / raise-with-cap-in-same-request allowed / clear-while-elevated rejected /
+clear-with-simultaneous-lower allowed), 4 MCP end-to-end tests (same four shapes, but calling
+`_call_set_autopilot_dial` against the REAL `update_config`, not mocked, to prove the invariant holds
+through that door too), 1 runtime-demotion test in `autopilot_launch.py` (proposal created, launch never
+called, kill switch never tripped, warning logged), 1 runtime-demotion LOG test in `main.py`'s
+`_produce_for_tenant`. Plus the kill-switch-reset test was split in two (carries-prior-reason /
+harmless-no-op) and 2 pre-existing C51 tests were fixed to supply `weekly_budget_cap` now that raising
+the dial in a test fixture without one demotes to propose_only. Non-vacuous via `git stash` on the 5
+touched backend `.py` files (test files kept): all 15 hardening-specific tests fail restored-to-pass (the
+4 "allowed" shapes pass either way, correctly — old code never rejected anything, so they're not testing
+the new gate specifically, same posture C53's stash-proof noted). Full backend suite: **1771P/15F/1E** =
+previous C54 baseline (1752P/15F/1E) + 19 new tests, same 15 pre-existing failures + same 1 error, zero
+new failures. Frontend: `npx tsc --noEmit` clean, `npm run build` succeeds.
+
+### Modified/New Files (C54b)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/autopilot_dial.py` | NEW `validate_dial_change` |
+| `storyengine/backend/routes/autopilot.py` | `update_config` calls the invariant; `KillSwitchResetResult`/`reset_kill_switch` carry the prior trip reason |
+| `storyengine/backend/routes/mcp.py` | Docstring/description updates only — the invariant enforcement is transitive via `update_config`, no functional change needed |
+| `storyengine/backend/autopilot_launch.py` | `effective_dial_level` demotion (elevated + no cap -> propose_only, logged, never tripped) |
+| `storyengine/backend/main.py` | `_produce_for_tenant` logs the same condition (visibility only, no behavior branch) |
+| `storyengine/backend/tests/test_c54_weekly_budget_kill_switch.py` | +17 tests (see above) |
+| `storyengine/backend/tests/test_c51_candidate_auto_launch.py` | 2 tests fixed (now supply `weekly_budget_cap`), 1 new runtime-demotion test |
+| `storyengine/frontend/src/app/autopilot/page.tsx` | Dial buttons disabled without a cap + inline hint/error |
+
+No new migration.
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate, stacked on C54's commit.** Same no-op-on-default-path argument as C54
+itself: for every tenant that has never set a `weekly_budget_cap` (100% today, since neither C50 nor C54
+shipped a writer that could set one before this pass merges alongside it), `dial_level` has also never
+been raised past `propose_only` through these doors (the SAME invariant blocks it), so the runtime
+demotion in `autopilot_launch.py`/`main.py` is unreachable on the default path — it only ever fires for a
+row an operator hand-edited directly in the DB, bypassing both writers entirely. The MCP tool's
+classification (FREE, no confirm_token) is now backed by a hard ceiling: the worst a rogue/injected call
+can do is resume spend up to a cap a human explicitly set, never uncapped.

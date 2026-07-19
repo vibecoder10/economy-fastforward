@@ -121,6 +121,7 @@ export default function AutopilotPage() {
 
   // C54 (P4.2-e) — autonomy dial + weekly budget ceiling + kill switch.
   const [savingDial, setSavingDial] = useState<string | null>(null);
+  const [dialError, setDialError] = useState<string | null>(null);
   const [editingBudgetCap, setEditingBudgetCap] = useState(false);
   const [budgetCapValue, setBudgetCapValue] = useState("");
   const [savingBudgetCap, setSavingBudgetCap] = useState(false);
@@ -289,12 +290,18 @@ export default function AutopilotPage() {
   // C54 (P4.2-e) — autonomy dial + weekly budget ceiling.
   const handleSetDial = async (level: "propose_only" | "auto_draft" | "full_auto") => {
     if (savingDial) return;
+    setDialError(null);
     setSavingDial(level);
     try {
       await updateAutopilotConfig({ dial_level: level });
       queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
     } catch (err) {
       console.error("Error setting autopilot dial:", err);
+      // C54b: the server-side "no autonomy without a ceiling" invariant can
+      // still reject this (e.g. a stale cache in another tab already
+      // cleared the cap) even though the button above is disabled for the
+      // common case — surface it rather than failing silently.
+      setDialError(err instanceof Error ? err.message : "Couldn't set the autopilot dial");
     } finally {
       setSavingDial(null);
     }
@@ -774,8 +781,17 @@ export default function AutopilotPage() {
               Autonomy &amp; Budget
             </h2>
           </div>
-          <p className="text-[11px] mb-5" style={{ color: "var(--text-secondary)" }}>
+          <p className="text-[11px] mb-1" style={{ color: "var(--text-secondary)" }}>
             How much autopilot may do unattended, and a spending ceiling to keep it honest.
+          </p>
+          {/* C54b (orchestrator hardening pass): "no autonomy without a
+              ceiling" is a server-side invariant now — Auto-Draft/Full Auto
+              would 400 without a cap set, so reflect that here instead of
+              letting the user hit the error blind. */}
+          <p className="text-[11px] mb-4 h-4" style={{ color: "var(--gold)" }}>
+            {config.weekly_budget_cap == null
+              ? "Set a weekly budget cap below before enabling Auto-Draft or Full Auto."
+              : ""}
           </p>
 
           {/* Dial selector */}
@@ -783,12 +799,15 @@ export default function AutopilotPage() {
             {DIAL_OPTIONS.map((opt) => {
               const isActive = (config.dial_level || "propose_only") === opt.value;
               const isSaving = savingDial === opt.value;
+              const needsCapFirst = opt.value !== "propose_only" && config.weekly_budget_cap == null;
+              const isDisabled = !!savingDial || needsCapFirst;
               return (
                 <button
                   key={opt.value}
                   onClick={() => handleSetDial(opt.value)}
-                  disabled={!!savingDial}
-                  className="text-left rounded-xl px-4 py-3 transition-all disabled:opacity-60"
+                  disabled={isDisabled}
+                  title={needsCapFirst ? "Set a weekly budget cap first" : undefined}
+                  className="text-left rounded-xl px-4 py-3 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
                     background: isActive ? "rgba(0, 212, 170, 0.12)" : "rgba(255,255,255,0.02)",
                     border: isActive ? "1px solid rgba(0, 212, 170, 0.35)" : "1px solid rgba(255,255,255,0.06)",
@@ -814,6 +833,9 @@ export default function AutopilotPage() {
               );
             })}
           </div>
+          {dialError && (
+            <p className="text-[11px] mb-4" style={{ color: "var(--red)" }}>{dialError}</p>
+          )}
 
           {/* Weekly budget cap + spend */}
           <div

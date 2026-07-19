@@ -238,7 +238,7 @@ def test_propose_only_records_proposal_and_never_launches(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_auto_draft_calls_existing_launch_candidate_once(monkeypatch):
-    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft"))
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0))
     _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
     _patch_get_candidates(monkeypatch, [_candidate(id_="cand-7", confidence=80.0)])
     _patch_no_active_proposals(monkeypatch)
@@ -262,7 +262,7 @@ def test_auto_draft_calls_existing_launch_candidate_once(monkeypatch):
 
 
 def test_full_auto_is_treated_as_auto_draft_this_chunk(monkeypatch):
-    _patch_dial(monkeypatch, AutopilotDial(dial_level="full_auto"))
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="full_auto", weekly_budget_cap=100.0))
     _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
     _patch_get_candidates(monkeypatch, [_candidate(id_="cand-5", confidence=80.0)])
     _patch_no_active_proposals(monkeypatch)
@@ -288,7 +288,7 @@ def test_full_auto_is_treated_as_auto_draft_this_chunk(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_auto_draft_budget_breach_trips_kill_switch_and_skips_launch(monkeypatch):
-    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft"))
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0))
     _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
     _patch_get_candidates(monkeypatch, [_candidate(id_="cand-8", confidence=80.0)])
     _patch_no_active_proposals(monkeypatch)
@@ -331,6 +331,40 @@ def test_propose_only_never_reaches_the_budget_check(monkeypatch):
     result = asyncio.run(autopilot_launch.auto_launch_best_candidate(TENANT))
     assert result["status"] == "proposed"
     assert len(created) == 1
+
+
+# ---------------------------------------------------------------------------
+# C54b (orchestrator hardening pass): a runtime row with dial_level elevated
+# but NO weekly_budget_cap (a config anomaly the writer-side invariant
+# should prevent, but this covers any row that predates/escapes it) must be
+# treated as propose_only — propose, never launch, no kill-switch trip.
+# ---------------------------------------------------------------------------
+
+def test_elevated_dial_with_no_cap_is_treated_as_propose_only(monkeypatch, caplog):
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft", weekly_budget_cap=None))
+    _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
+    _patch_get_candidates(monkeypatch, [_candidate(id_="cand-anomaly", confidence=80.0)])
+    _patch_no_active_proposals(monkeypatch)
+    created = _patch_create_proposal(monkeypatch)
+    trip_calls = _patch_trip_kill_switch(monkeypatch)
+
+    launch_calls = []
+
+    async def fake_launch_candidate(candidate_id, background_tasks, tenant_id):
+        launch_calls.append(candidate_id)
+        raise AssertionError("launch_candidate must NEVER be called for an uncapped elevated dial")
+
+    monkeypatch.setattr(autopilot_route, "launch_candidate", fake_launch_candidate)
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="autopilot_launch"):
+        result = asyncio.run(autopilot_launch.auto_launch_best_candidate(TENANT))
+
+    assert result["status"] == "proposed"
+    assert launch_calls == []
+    assert len(created) == 1
+    assert trip_calls == []  # a config anomaly is NOT a kill-switch trip
+    assert any("config anomaly" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

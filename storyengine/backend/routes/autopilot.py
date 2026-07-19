@@ -20,6 +20,7 @@ from autopilot_dial import (
     clear_kill_switch,
     get_autopilot_dial,
     get_weekly_spend,
+    validate_dial_change,
 )
 from database import fetch_all, fetch_one, execute
 import autopilot_proposals
@@ -782,6 +783,22 @@ async def update_config(
             detail="weekly_budget_cap must be greater than 0 (or null to remove the cap)",
         )
 
+    # C54b (orchestrator hardening pass) — "no autonomy without a ceiling":
+    # reject a request that would leave dial_level elevated with no cap set,
+    # whether that's raising the dial with no cap anywhere, or clearing an
+    # existing cap while the dial is (or stays) elevated. Computed against
+    # the CURRENT row so "already elevated, cap already set, this call only
+    # touches something else" stays a no-op pass-through.
+    current_dial = await get_autopilot_dial(tenant_id)
+    invariant_error = validate_dial_change(
+        current_dial,
+        new_dial_level=body.dial_level,
+        cap_provided=cap_provided,
+        new_cap=body.weekly_budget_cap,
+    )
+    if invariant_error:
+        raise HTTPException(status_code=400, detail=invariant_error)
+
     if existing:
         # Update existing config
         updates = []
@@ -937,6 +954,14 @@ class KillSwitchResetResult(BaseModel):
     kill_switch_tripped_at: Optional[str] = None
     kill_switch_reason: Optional[str] = None
     cleared_by: str
+    # C54b (orchestrator hardening pass) — the trip THIS call just cleared
+    # (None/None if it wasn't tripped at all — a harmless no-op reset). The
+    # caller (a human, or an agent acting for one) must be able to see WHAT
+    # went wrong, not just that the switch is now clear — this is what makes
+    # the MCP tool's free classification safe: an agent calling it is forced
+    # to surface the reason, not silently wave the trip away.
+    previous_kill_switch_reason: Optional[str] = None
+    previous_kill_switch_tripped_at: Optional[str] = None
 
 
 @router.post("/kill-switch/reset", response_model=KillSwitchResetResult)
@@ -951,21 +976,29 @@ async def reset_kill_switch(
     MCP tool). Re-arms unattended spending automation, so this drops an
     attributed bot_activity row — same best-effort reuse of the existing
     activity feed as the trip notify and C52's proposal notify — for an
-    audit trail of WHO cleared it, not just that it happened."""
+    audit trail of WHO cleared it, not just that it happened. C54b: reads
+    the PRIOR trip state before clearing so the response can carry the
+    reason/when of the trip it just cleared (see model docstring)."""
+    prior = await get_autopilot_dial(tenant_id)
     cleared_by = user.email or user.id or "user"
     await clear_kill_switch(tenant_id)
     try:
+        detail = f" (was tripped for: {prior.kill_switch_reason})" if prior.kill_switch_reason else ""
         await execute(
             """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
                VALUES ($1, $2, $3, $4)""",
             tenant_id, "autopilot_kill_switch", "completed",
-            f"Kill switch re-enabled by {cleared_by}",
+            f"Kill switch re-enabled by {cleared_by}{detail}",
         )
     except Exception as e:
         print(f"Error logging kill-switch reset activity: {e}")
 
     return KillSwitchResetResult(
         status="ok", kill_switch_tripped_at=None, kill_switch_reason=None, cleared_by=cleared_by,
+        previous_kill_switch_reason=prior.kill_switch_reason,
+        previous_kill_switch_tripped_at=(
+            prior.kill_switch_tripped_at.isoformat() if prior.kill_switch_tripped_at else None
+        ),
     )
 
 

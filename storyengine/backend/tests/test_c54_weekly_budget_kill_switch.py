@@ -165,6 +165,58 @@ def test_check_weekly_budget_above_cap_is_a_breach(monkeypatch):
     assert ok is False
 
 
+# ---------------------------------------------------------------------------
+# C54b (orchestrator hardening pass): validate_dial_change — the ONE shared
+# "no autonomy without a ceiling" invariant both writers call.
+# ---------------------------------------------------------------------------
+
+def test_validate_dial_change_raise_with_no_cap_anywhere_is_rejected():
+    current = AutopilotDial(dial_level="propose_only", weekly_budget_cap=None)
+    err = ad.validate_dial_change(current, new_dial_level="auto_draft", cap_provided=False, new_cap=None)
+    assert err is not None
+    assert "weekly_budget_cap" in err
+
+
+def test_validate_dial_change_raise_with_cap_supplied_in_same_call_is_ok():
+    current = AutopilotDial(dial_level="propose_only", weekly_budget_cap=None)
+    err = ad.validate_dial_change(current, new_dial_level="auto_draft", cap_provided=True, new_cap=50.0)
+    assert err is None
+
+
+def test_validate_dial_change_raise_with_cap_already_on_row_is_ok():
+    current = AutopilotDial(dial_level="propose_only", weekly_budget_cap=25.0)
+    err = ad.validate_dial_change(current, new_dial_level="auto_draft", cap_provided=False, new_cap=None)
+    assert err is None
+
+
+def test_validate_dial_change_clearing_cap_while_elevated_is_rejected():
+    current = AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0)
+    err = ad.validate_dial_change(current, new_dial_level=None, cap_provided=True, new_cap=None)
+    assert err is not None
+
+
+def test_validate_dial_change_clearing_cap_with_simultaneous_lower_is_ok():
+    current = AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0)
+    err = ad.validate_dial_change(
+        current, new_dial_level="propose_only", cap_provided=True, new_cap=None,
+    )
+    assert err is None
+
+
+def test_validate_dial_change_no_op_change_when_already_elevated_and_capped():
+    """Touching an unrelated field (neither dial_level nor cap) on an
+    already-valid elevated+capped row must stay a no-op pass-through."""
+    current = AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0)
+    err = ad.validate_dial_change(current, new_dial_level=None, cap_provided=False, new_cap=None)
+    assert err is None
+
+
+def test_validate_dial_change_full_auto_also_requires_a_cap():
+    current = AutopilotDial(dial_level="propose_only", weekly_budget_cap=None)
+    err = ad.validate_dial_change(current, new_dial_level="full_auto", cap_provided=False, new_cap=None)
+    assert err is not None
+
+
 def test_trip_kill_switch_first_call_trips_and_notifies(monkeypatch):
     execute_calls = []
 
@@ -338,6 +390,29 @@ def test_produce_for_tenant_budget_ok_queue_empty_falls_back_to_candidate(monkey
     assert candidate_calls == [TENANT]
 
 
+def test_produce_for_tenant_logs_warning_for_elevated_dial_with_no_cap(monkeypatch, caplog):
+    """C54b (orchestrator hardening pass): the loop-level belt-and-
+    suspenders is a LOG ONLY at this site — neither the queue drain nor the
+    candidate-call decision here branches on dial_level itself (autopilot_
+    launch.py does its own demotion internally) — so this just proves the
+    warning fires and the tick still proceeds normally."""
+    import logging
+
+    _patch_enabled(monkeypatch, enabled=True)
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft", weekly_budget_cap=None))
+    _patch_budget(monkeypatch, ok=True)
+    queue_calls, candidate_calls = _patch_queue_and_candidate(
+        monkeypatch, queue_result={"video_id": "v1", "video_title": "t1"},
+    )
+
+    with caplog.at_level(logging.WARNING, logger="storyengine"):
+        result = asyncio.run(main_mod._produce_for_tenant(TENANT))
+
+    assert result == {"video_id": "v1", "video_title": "t1"}
+    assert queue_calls == [TENANT]
+    assert any("config anomaly" in r.message for r in caplog.records)
+
+
 # =============================================================================
 # 3. routes/autopilot.py — config route validation + kill-switch reset route
 # =============================================================================
@@ -412,13 +487,66 @@ def test_config_route_null_cap_is_accepted_as_a_clear(monkeypatch):
     assert any("weekly_budget_cap" in q for q, _ in execute_calls)
 
 
-def test_kill_switch_reset_route_clears_and_attributes(monkeypatch):
+# ---------------------------------------------------------------------------
+# C54b (orchestrator hardening pass): the config route enforces the "no
+# autonomy without a ceiling" invariant against the CURRENT row state.
+# ---------------------------------------------------------------------------
+
+def test_config_route_rejects_raising_dial_with_no_cap_anywhere(monkeypatch):
+    client, execute_calls = _build_client(
+        monkeypatch, dial=AutopilotDial(dial_level="propose_only", weekly_budget_cap=None),
+    )
+    resp = client.post("/api/autopilot/config", json={"dial_level": "auto_draft"})
+    assert resp.status_code == 400
+    assert "weekly_budget_cap" in resp.json()["detail"]
+    assert not any("dial_level" in q for q, _ in execute_calls)
+
+
+def test_config_route_allows_raising_dial_with_cap_in_same_request(monkeypatch):
+    client, _execute_calls = _build_client(
+        monkeypatch, dial=AutopilotDial(dial_level="propose_only", weekly_budget_cap=None),
+    )
+    resp = client.post("/api/autopilot/config", json={"dial_level": "auto_draft", "weekly_budget_cap": 50})
+    assert resp.status_code == 200
+
+
+def test_config_route_allows_raising_dial_when_cap_already_on_row(monkeypatch):
+    client, _execute_calls = _build_client(
+        monkeypatch, dial=AutopilotDial(dial_level="propose_only", weekly_budget_cap=25.0),
+    )
+    resp = client.post("/api/autopilot/config", json={"dial_level": "auto_draft"})
+    assert resp.status_code == 200
+
+
+def test_config_route_rejects_clearing_cap_while_dial_stays_elevated(monkeypatch):
+    client, execute_calls = _build_client(
+        monkeypatch, dial=AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0),
+    )
+    resp = client.post("/api/autopilot/config", json={"weekly_budget_cap": None})
+    assert resp.status_code == 400
+    assert not any("weekly_budget_cap" in q for q, _ in execute_calls)
+
+
+def test_config_route_allows_clearing_cap_with_simultaneous_lower_to_propose_only(monkeypatch):
+    client, execute_calls = _build_client(
+        monkeypatch, dial=AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0),
+    )
+    resp = client.post("/api/autopilot/config", json={"dial_level": "propose_only", "weekly_budget_cap": None})
+    assert resp.status_code == 200
+    assert any("weekly_budget_cap" in q for q, _ in execute_calls)
+
+
+def _build_kill_switch_reset_client(monkeypatch, *, prior_dial=None):
     clear_calls = []
 
     async def fake_clear(tenant_id):
         clear_calls.append(tenant_id)
 
+    async def fake_get_dial(tenant_id):
+        return prior_dial if prior_dial is not None else AutopilotDial()
+
     monkeypatch.setattr(autopilot_route, "clear_kill_switch", fake_clear)
+    monkeypatch.setattr(autopilot_route, "get_autopilot_dial", fake_get_dial)
     execute_calls = []
 
     async def fake_execute(query, *args):
@@ -430,7 +558,17 @@ def test_kill_switch_reset_route_clears_and_attributes(monkeypatch):
     app.include_router(autopilot_route.router)
     app.dependency_overrides[verify_token] = lambda: AuthUser(id="user-1", email="ryan@example.com")
     app.dependency_overrides[get_tenant_id] = lambda: TENANT
-    client = TestClient(app)
+    return TestClient(app), clear_calls, execute_calls
+
+
+def test_kill_switch_reset_route_clears_and_attributes(monkeypatch):
+    import datetime as dt
+
+    prior = AutopilotDial(
+        kill_switch_tripped_at=dt.datetime(2026, 7, 19, 12, 0, 0, tzinfo=dt.timezone.utc),
+        kill_switch_reason="Weekly budget cap $10.00 reached (spent $12.00)",
+    )
+    client, clear_calls, execute_calls = _build_kill_switch_reset_client(monkeypatch, prior_dial=prior)
 
     resp = client.post("/api/autopilot/kill-switch/reset")
     assert resp.status_code == 200
@@ -438,10 +576,27 @@ def test_kill_switch_reset_route_clears_and_attributes(monkeypatch):
     assert body["status"] == "ok"
     assert body["kill_switch_tripped_at"] is None
     assert body["cleared_by"] == "ryan@example.com"
+    # C54b: the response must surface the reason/when of the trip it just
+    # cleared, not just report "ok" — this is what forces an agent to
+    # surface what went wrong rather than silently waving it away.
+    assert body["previous_kill_switch_reason"] == "Weekly budget cap $10.00 reached (spent $12.00)"
+    assert body["previous_kill_switch_tripped_at"] is not None
     assert clear_calls == [TENANT]
     assert len(execute_calls) == 1
     assert "bot_activity" in execute_calls[0][0]
     assert any("ryan@example.com" in str(a) for a in execute_calls[0][1])
+    assert any("Weekly budget cap $10.00" in str(a) for a in execute_calls[0][1])
+
+
+def test_kill_switch_reset_route_no_prior_trip_is_a_harmless_noop(monkeypatch):
+    client, clear_calls, _execute_calls = _build_kill_switch_reset_client(monkeypatch, prior_dial=AutopilotDial())
+
+    resp = client.post("/api/autopilot/kill-switch/reset")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["previous_kill_switch_reason"] is None
+    assert body["previous_kill_switch_tripped_at"] is None
+    assert clear_calls == [TENANT]
 
 
 # =============================================================================
@@ -510,6 +665,70 @@ async def test_set_autopilot_dial_tool_rejects_non_positive_cap():
 async def test_set_autopilot_dial_tool_requires_at_least_one_field():
     result = await mcp_mod._call_set_autopilot_dial(TENANT, {}, "agent")
     assert result["isError"] is True
+
+
+# ---------------------------------------------------------------------------
+# C54b (orchestrator hardening pass): set_autopilot_dial dispatches through
+# the REAL routes.autopilot.update_config (NOT mocked here, unlike the
+# tests above) so these prove the invariant is enforced end-to-end through
+# the MCP door too — not just that the HTTP door validates it. Same
+# monkeypatch-the-DB convention as _build_client, applied directly against
+# autopilot_route without going through TestClient.
+# ---------------------------------------------------------------------------
+
+def _patch_autopilot_route_db(monkeypatch, *, dial=None, weekly_spent=0.0):
+    execute_calls = []
+
+    async def fake_execute(query, *args):
+        execute_calls.append((query, args))
+        return "INSERT 0 1"
+
+    async def fake_fetch_one(query, *args):
+        return None  # no existing row -> insert branch
+
+    async def fake_get_dial(tenant_id):
+        return dial if dial is not None else AutopilotDial()
+
+    async def fake_get_weekly_spend(tenant_id):
+        return weekly_spent
+
+    monkeypatch.setattr(autopilot_route, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(autopilot_route, "execute", fake_execute)
+    monkeypatch.setattr(autopilot_route, "get_autopilot_dial", fake_get_dial)
+    monkeypatch.setattr(autopilot_route, "get_weekly_spend", fake_get_weekly_spend)
+    return execute_calls
+
+
+async def test_set_autopilot_dial_tool_rejects_raise_with_no_cap_end_to_end(monkeypatch):
+    execute_calls = _patch_autopilot_route_db(
+        monkeypatch, dial=AutopilotDial(dial_level="propose_only", weekly_budget_cap=None),
+    )
+    result = await mcp_mod._call_set_autopilot_dial(TENANT, {"dial_level": "auto_draft"}, "agent")
+    assert result["isError"] is True
+    assert "weekly_budget_cap" in result["content"][0]["text"]
+    assert not any("dial_level" in q for q, _ in execute_calls)
+
+
+async def test_set_autopilot_dial_tool_allows_raise_with_cap_end_to_end(monkeypatch):
+    _patch_autopilot_route_db(monkeypatch, dial=AutopilotDial(dial_level="propose_only", weekly_budget_cap=None))
+    result = await mcp_mod._call_set_autopilot_dial(
+        TENANT, {"dial_level": "auto_draft", "weekly_budget_cap": 50}, "agent",
+    )
+    assert result["isError"] is False
+
+
+async def test_set_autopilot_dial_tool_rejects_clearing_cap_while_elevated_end_to_end(monkeypatch):
+    _patch_autopilot_route_db(monkeypatch, dial=AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0))
+    result = await mcp_mod._call_set_autopilot_dial(TENANT, {"weekly_budget_cap": None}, "agent")
+    assert result["isError"] is True
+
+
+async def test_set_autopilot_dial_tool_allows_clearing_cap_with_simultaneous_lower_end_to_end(monkeypatch):
+    _patch_autopilot_route_db(monkeypatch, dial=AutopilotDial(dial_level="auto_draft", weekly_budget_cap=100.0))
+    result = await mcp_mod._call_set_autopilot_dial(
+        TENANT, {"dial_level": "propose_only", "weekly_budget_cap": None}, "agent",
+    )
+    assert result["isError"] is False
 
 
 async def test_reset_autopilot_kill_switch_tool_calls_route_with_attribution():
