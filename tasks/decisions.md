@@ -411,3 +411,22 @@ New patterns as the channel grows with our platform." Design law:
 - Imported baseline + incremental learning COMPOSE: patterns keep evolving post-import; nothing is
   frozen at import day; confirmed rules can be superseded by newer evidence (proposal to retire a
   pattern is also evidence-backed + confirmed).
+
+## 2026-07-19 — "Model this video" is the MCP's flagship workflow (Ryan, direct)
+Ryan: "give it a video and ask it to model this video where it will give me new title ideas based on
+looking at a channel's top 3 videos. Then be able to clone the video style but with my own twist. I
+should be able to in plain English work with Claude to custom craft any video style I want at any
+length as long as I am willing to pay for it. It will be smart enough to know the pathways and help
+me decide in a Claude chat and craft anything or style I want." Design law for C48/C49:
+- The MCP surface's job is not just atomic tools — it must support the MODELING workflow end-to-end:
+  reference video in → analyze it + the channel's top performers → title ideas grounded in that data
+  → a style-clone profile the user can TWIST in plain English → walkthrough creation with boards in
+  steps → normal quote+confirm on every paid step, any length, any wired model.
+- REUSE, don't rebuild: the ingredients exist — routes/niche.py's Model-A-Video metadata pull,
+  competitor_videos top-performer data, title_idea/idea_modeling.py + curiosity_gap, Channel DNA
+  (learn_channel) for style capture, style/script profiles + director_preferences for the "twist".
+  C48/C49 wire these into MCP-reachable pathways; the intelligence layer is the connected Claude
+  session itself (on the user's subscription — the MCP-economics decision), guided by a §C29
+  runbook recipe ("model a video") so Claude knows the pathway.
+- "Smart enough to know the pathways" = the runbook recipes + tool descriptions carry the pathway
+  knowledge; no new server-side orchestrator LLM for this.
