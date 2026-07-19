@@ -413,8 +413,8 @@ async def activate_visual_style(
         project_id,
     )
     await execute(
-        "UPDATE visual_styles SET is_active = true, updated_at = now() WHERE id = $1",
-        style_id,
+        "UPDATE visual_styles SET is_active = true, updated_at = now() WHERE id = $1 AND project_id = $2",
+        style_id, project_id,
     )
 
     return await _list_styles_with_characters(project_id)
@@ -445,12 +445,12 @@ async def delete_visual_style(
         )
         if first_default:
             await execute(
-                "UPDATE visual_styles SET is_active = true, updated_at = now() WHERE id = $1",
-                str(first_default["id"]),
+                "UPDATE visual_styles SET is_active = true, updated_at = now() WHERE id = $1 AND project_id = $2",
+                str(first_default["id"]), project_id,
             )
 
     # Cascade deletes characters via FK
-    await execute("DELETE FROM visual_styles WHERE id = $1", style_id)
+    await execute("DELETE FROM visual_styles WHERE id = $1 AND project_id = $2", style_id, project_id)
 
     return {"status": "ok"}
 

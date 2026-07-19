@@ -661,11 +661,25 @@ async def health_detailed(request: Request):
     """Extended health check — protected by HEALTH_TOKEN env var.
 
     Returns task queue depth, error rate, and resource info.
+
+    Fails CLOSED (S5-7): this endpoint returns internal error-rate, task
+    queue depth, and memory/uptime info — it must never serve without a
+    token configured. An unset HEALTH_TOKEN previously made the `if token
+    and ...` check a no-op, serving the endpoint to anyone. Now a missing
+    HEALTH_TOKEN 503s instead. The plain /api/health check above stays
+    public on purpose (needed unauthenticated by uptime monitors and the
+    queue-status field, C16d/S7-7) — this fix does not touch it.
     """
+    from fastapi import HTTPException
+
     token = os.getenv("HEALTH_TOKEN")
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="Health detailed endpoint disabled — HEALTH_TOKEN not configured",
+        )
     auth = request.headers.get("authorization", "")
-    if token and (not auth.startswith("Bearer ") or auth[7:] != token):
-        from fastapi import HTTPException
+    if not auth.startswith("Bearer ") or auth[7:] != token:
         raise HTTPException(status_code=401, detail="Invalid health token")
 
     checks: dict = {}

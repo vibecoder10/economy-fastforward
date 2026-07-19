@@ -5126,3 +5126,88 @@ held for the duration). Flagged in `tasks/live-verification-queue.md` §C25a as 
 that deploy: confirm every image surface (Scenes workspace, chat boards, characters/environments,
 thumbnails, render preview) actually renders post-deploy with a live browser pass — Playwright per
 `webapp-testing`, not self-evaluation.
+
+## C25b — S5-5/6/7 security hardening batch (added 2026-07-19)
+
+**Checklist §C25b (audit `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` §S5):**
+three independent MED findings. Deliberately kept clear of every file C25a touched (media.py,
+characters.py/environments.py vision-fetch paths, pipeline_executor's talking-clip path, frontend
+utils/ChatCore/ScenesWorkspaceTab) — no overlap with the held branch.
+
+**S5-5 — SQLi-lock coverage gap:** `tests/functional/test_sql_column_injection_lock.py`'s
+`AUDIT_FILES` never covered `routes/characters.py`, `routes/environments.py`, `routes/queue.py`,
+`routes/chat.py`. Added all 4. Adding them surfaced two false-positive shapes in the AST audit
+itself (not real vulnerabilities — every offending column name traced back to a hardcoded literal
+or a closed dict, never request input):
+- `len(params)` / `len(params) - 1` arithmetic sizing `$N` placeholders (characters.py/
+  environments.py/queue.py's `UPDATE ... SET {', '.join(sets)} WHERE id = $N AND ... = $N+1`
+  pattern) — the audit's safe-by-index regex only recognized bare `idx ± N`, not `len(x) ± N`.
+  Extended the regex (`len\(\w+\)(\s*[-+]\s*\d+)?`) — same safety class as `idx`, len() can only
+  ever return an int. This ALSO retroactively fixed a genuine pre-existing failure in this same
+  test caused by `routes/youtube_sync.py`'s identical `len(values)` shape (see Verify below).
+- `chat.py`'s `key_col` (`_delete_competitor`, ~L2005/2011 — a hardcoded 2-way ternary,
+  `("channel_url", ...) if url else ("channel", ...)`, never from request input) and `col`
+  (`_apply_profile_ops`, ~L2311 — `_PROFILE_FIELD_COLS[kind]`, a closed 4-entry dict, gated by
+  `kind in _PROFILE_FIELD_COLS` before use) — added both to `_VERIFIED_SAFE` with a comment on
+  why each is safe. `routes/characters.py`/`routes/environments.py`/`routes/queue.py` needed no
+  further changes — their only SQL f-string is the `sets`-join update, already safe-by-join.
+
+**S5-6 — visual_styles bare-id mutations:** `activate_visual_style` and `delete_visual_style`
+(`routes/visual_styles.py`) did an ownership `SELECT ... WHERE id = $1 AND project_id = $2`, then
+mutated with `UPDATE/DELETE ... WHERE id = $1` only — no project_id repeated in the mutating
+query. `visual_styles` has no `tenant_id` column (schema.sql: `project_id UUID REFERENCES
+projects(id)`, tenant scoping goes through `projects.tenant_id`), so `project_id` is the correct
+repeated clause. Fixed all 3 call sites: `activate_visual_style`'s activation UPDATE (~L416),
+`delete_visual_style`'s reactivate-first-default UPDATE (~L448), and its own DELETE (~L453) — each
+now carries `AND project_id = $2` with `project_id` as an explicit bound param.
+
+**S5-7 — health/detailed fails open:** `main.py`'s `/api/health/detailed` used `if token and (not
+auth... or ...)` — when `HEALTH_TOKEN` was unset, the whole condition short-circuited False and
+the endpoint (error rate, task queue depth, memory/uptime) served with zero auth. Now: `if not
+token: raise HTTPException(503, ...)` before the bearer-token check, so a missing HEALTH_TOKEN
+fails closed instead of failing open. `/api/health` (the plain check, needed unauthenticated by
+uptime monitors and carrying the C16d/S7-7 queue-status field) is untouched and still public.
+
+### New/Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/tests/functional/test_sql_column_injection_lock.py` | +4 `AUDIT_FILES`; `len(\w+)` safe-by-index regex; 3 new `_VERIFIED_SAFE` entries (chat.py key_col ×2, col) |
+| `storyengine/backend/routes/visual_styles.py` | 3 mutating queries gained `AND project_id = $2` |
+| `storyengine/backend/main.py` | `/api/health/detailed` fails closed (503) when `HEALTH_TOKEN` unset |
+| `storyengine/backend/tests/functional/test_c16d_health_queue_status.py` | Updated the no-token test to use a real token (old behavior assumed fail-open); added 3 new tests for the fail-closed gate, the 401-wrong-token path, and that `/api/health` stays public |
+| `storyengine/backend/tests/test_visual_styles_tenant_scoping.py` | NEW — 5 tests: activate/delete scoped to project_id, cross-tenant 404 + zero mutation, and a direct forged-project_id call against a fake table proving the WHERE clause itself (not just the route's 404 pre-check) blocks the mutation |
+
+**Verify:** SQLi lock — canary proof: injecting a raw `f"UPDATE production_queue SET {bad_col} =
+$1 ..."` into `routes/queue.py` (bad_col from `body.status`, unrouted) makes
+`test_no_unvalidated_column_interpolations` fail immediately; reverted, passes again. visual_styles
+— non-vacuous via `git stash` on `routes/visual_styles.py` alone: 3/5 new tests fail against
+pre-fix code (`test_activate_scopes_update_to_project`, `test_delete_scopes_to_project_and_rejects_
+cross_tenant`, `test_delete_active_style_reactivates_scoped_default`), pass after. health/detailed
+— non-vacuous via `git stash` on `main.py` alone: the new fail-closed test fails pre-fix (endpoint
+serves with no exception), passes after. `python -m py_compile` clean on all 3 touched `.py`
+files. **Pre-existing-failure note:** `test_sql_column_injection_lock.py::
+test_no_unvalidated_column_interpolations` WAS already failing on a clean checkout before this
+chunk — confirmed via `git stash -u` full-tree baseline (1113P/16F/1E) — root cause was
+`routes/youtube_sync.py`'s `len(values)` shape tripping the same false-positive the 4 new files
+also tripped. The `len(\w+)` regex fix resolves it for both, so this chunk's actual full-suite
+result is 16→**15** pre-existing failures, not merely "no new failures." Full backend suite:
+**1122 passed / 15 failed / 1 error** (true clean-checkout baseline on this branch, confirmed via
+`git stash -u`, was **1113P/16F/1E** — the checklist's stated "1131P/16F/1E" is C25a's
+post-fix count; C25a is parked on the separate `claude/c25a-media-auth-hold` branch and is NOT
+present on this branch, so 1113 is the correct baseline to diff against here). Net: +9 passing
+(5 new visual_styles tests + 3 new health tests + 1 previously-failing SQLi-lock test now fixed),
+zero new failures, one pre-existing failure resolved. Frontend: untouched (`git status` confirms
+zero files under `storyengine/frontend/`) — no `tsc`/`build` run needed.
+
+Checklist §C25b ticked — all 3 MED findings closed with regression locks.
+
+**Deploy-safety assessment — clean ff-merge candidate:** all 3 fixes are backend-only,
+additive-shaped (new WHERE clauses, a new 503 branch, test-file changes), and touch none of
+C25a's files. No frontend skew risk (S5-7's 503 only fires for callers who already need
+`HEALTH_TOKEN`; S5-6's stricter WHERE only removes an unreachable-in-practice path since the
+prior SELECT already enforced project_id; S5-5 is test-only). Safe to ff-merge to main on the
+routine hourly deploy — no coordination needed, unlike C25a.
+
+**Next up: C26 · MCP endpoint + agent_tokens + auth (checklist S5-3/S5-4 design laws).** MUST ship
+DARK behind `MCP_ENABLED=false` per the C25 sweep's own gate note — do not flip it on without a
+separate explicit go-ahead.

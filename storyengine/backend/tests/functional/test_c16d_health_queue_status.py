@@ -30,6 +30,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 import main  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 
 
 def test_health_reports_degraded_when_arq_pool_absent():
@@ -51,12 +52,12 @@ def test_health_reports_arq_when_pool_connected():
 
 
 def test_health_detailed_reports_same_queue_field(monkeypatch):
-    """/api/health/detailed carries the same field — no HEALTH_TOKEN set in
-    this test env, so the auth gate is a no-op (matches the route's own
-    `if token and ...` skip-when-unset logic)."""
-    monkeypatch.delenv("HEALTH_TOKEN", raising=False)
+    """/api/health/detailed carries the same field as /api/health, gated by a
+    valid HEALTH_TOKEN bearer header (S5-7 — the endpoint fails closed when
+    HEALTH_TOKEN is unset, see the dedicated tests below for that gate)."""
+    monkeypatch.setenv("HEALTH_TOKEN", "test-token")
     main.app.state.arq = None
-    request = SimpleNamespace(headers={})
+    request = SimpleNamespace(headers={"authorization": "Bearer test-token"})
     result = asyncio.run(main.health_detailed(request))
     assert result["queue"] == "degraded-inprocess"
 
@@ -66,6 +67,52 @@ def test_health_detailed_reports_same_queue_field(monkeypatch):
         assert result["queue"] == "arq"
     finally:
         main.app.state.arq = None
+
+
+def test_health_detailed_fails_closed_without_health_token(monkeypatch):
+    """S5-7 regression lock: an unset HEALTH_TOKEN must 503, never serve the
+    endpoint unauthenticated (the pre-fix `if token and ...` check silently
+    skipped auth entirely when the env var was missing)."""
+    monkeypatch.delenv("HEALTH_TOKEN", raising=False)
+    request = SimpleNamespace(headers={})
+    try:
+        asyncio.run(main.health_detailed(request))
+        raised = None
+    except HTTPException as e:
+        raised = e
+    assert raised is not None and raised.status_code == 503
+
+    # Even a request that *claims* a bearer token still 503s — there is no
+    # correct token to check against when HEALTH_TOKEN isn't configured.
+    request_with_header = SimpleNamespace(headers={"authorization": "Bearer whatever"})
+    try:
+        asyncio.run(main.health_detailed(request_with_header))
+        raised = None
+    except HTTPException as e:
+        raised = e
+    assert raised is not None and raised.status_code == 503
+
+
+def test_health_detailed_rejects_wrong_token_when_configured(monkeypatch):
+    """Sanity check the 401 path still works once HEALTH_TOKEN is set."""
+    monkeypatch.setenv("HEALTH_TOKEN", "correct-token")
+    request = SimpleNamespace(headers={"authorization": "Bearer wrong-token"})
+    try:
+        asyncio.run(main.health_detailed(request))
+        raised = None
+    except HTTPException as e:
+        raised = e
+    assert raised is not None and raised.status_code == 401
+
+
+def test_basic_health_stays_public_with_queue_field(monkeypatch):
+    """/api/health (no auth gate at all) must keep working regardless of
+    HEALTH_TOKEN — this fix only touches /api/health/detailed."""
+    monkeypatch.delenv("HEALTH_TOKEN", raising=False)
+    main.app.state.arq = None
+    result = asyncio.run(main.health())
+    assert result["queue"] == "degraded-inprocess"
+    assert "status" in result and "database" in result
 
 
 if __name__ == "__main__":

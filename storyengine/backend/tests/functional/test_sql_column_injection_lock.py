@@ -51,6 +51,10 @@ AUDIT_FILES = [
     "routes/preferences.py",
     "routes/learning_extraction.py",
     "routes/channel_profile.py",
+    "routes/characters.py",
+    "routes/environments.py",
+    "routes/queue.py",
+    "routes/chat.py",
 ]
 
 
@@ -191,6 +195,15 @@ _VERIFIED_SAFE = [
     ("supabase_adapter.py", "SELECT * FROM learnings {where}"),
     # no column interpolation — the {} is an escaped literal in an inner f-string
     ("supabase_adapter.py", "(SELECT id FROM videos WHERE video_title ="),
+    # key_col = ("channel_url", url) if url else (("channel", name) if name
+    # else (None, None)) — a hardcoded ternary two literal names, never from
+    # request input. Guarded by `if key_col:` before use.
+    ("routes/chat.py", "UPDATE discovery_ideas SET competitor_video_id = NULL WHERE tenant_id = $1"),
+    ("routes/chat.py", "DELETE FROM competitor_videos WHERE tenant_id = $1 AND {key_col}"),
+    # col = _PROFILE_FIELD_COLS[kind], a closed dict of 4 hardcoded column
+    # names; kind is checked with `kind in _PROFILE_FIELD_COLS` before this
+    # runs, so col can only ever be one of the dict's literal values.
+    ("routes/chat.py", "INSERT INTO channel_profiles (tenant_id, {col})"),
 ]
 
 
@@ -258,6 +271,14 @@ def test_no_unvalidated_column_interpolations():
             if re.fullmatch(r"idx(\s*[-+]\s*\d+)?", stripped):
                 continue
             if re.fullmatch(r"param_idx(\s*[-+]\s*\d+)?", stripped):
+                continue
+            # safe-by-index (call form): `len(params)` / `len(values) - 1` etc.
+            # — the routes that build UPDATE ... SET <literal cols> = $N one
+            # param at a time size the placeholder off the params list length,
+            # not off any column name. len() can only ever yield an int, so
+            # this is the same safety class as `idx ± N` above, just spelled
+            # as a call instead of a bare counter name.
+            if re.fullmatch(r"len\(\w+\)(\s*[-+]\s*\d+)?", stripped):
                 continue
             # safe-by-verified: manually vetted line-specific entries
             if _is_verified_safe(rel, line):
