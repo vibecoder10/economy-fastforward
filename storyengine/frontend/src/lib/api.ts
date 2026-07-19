@@ -1374,6 +1374,30 @@ export const getAnalyticsVideos = (limit: number = 50) =>
 export const getFrameworkPerformance = () =>
   fetchApi<FrameworkPerformance[]>("/api/analytics/framework-performance");
 
+// Style/model performance — checklist §3.1 [U] / C31 (data layer shipped C30).
+// Field names copied verbatim from backend/models.py's StyleChoiceAggregate /
+// StylePerformanceResponse — don't retype.
+export interface StyleChoiceAggregate {
+  dimension: string;
+  choice: string;
+  video_count: number;
+  synced_count: number;
+  avg_ctr: number | null;
+  avg_retention: number | null;
+  total_views: number;
+  total_spend: number;
+}
+
+export interface StylePerformanceResponse {
+  by_style_preset: StyleChoiceAggregate[];
+  by_render_style: StyleChoiceAggregate[];
+  by_script_profile: StyleChoiceAggregate[];
+  by_clip_model: StyleChoiceAggregate[];
+}
+
+export const getStylePerformance = () =>
+  fetchApi<StylePerformanceResponse>("/api/analytics/by-style");
+
 // Competitor Benchmark
 export interface CompetitorBenchmark {
   channel_avg_ctr: number | null;

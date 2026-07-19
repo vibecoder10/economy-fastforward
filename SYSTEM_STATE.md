@@ -5922,3 +5922,152 @@ chunk). No paid-generation surface touched. Safe to ff-merge on the routine hour
 recommendations** — build the frontend panel reading `GET /api/analytics/by-style`, and wire the
 producer's LOOK-recommendation copy to cite `_style_performance_brief`'s numbers explicitly (this
 chunk only made the tool reachable, didn't change what the producer says yet).
+
+---
+
+## C31 — P3.1b "by style" analytics panel + producer LOOK citations (added 2026-07-19)
+
+**Checklist §3.1 `[U]` closer** (the preset-performance loop's last piece — C30 built the
+aggregation and made it reachable by both chat surfaces; this chunk gives it a face on the
+Analytics page and teaches the producer to actually QUOTE the numbers, not just have access to
+them). Two doors note (UX map): the copilot's `channel_data` tool already covers the
+conversational read (C30) — nothing more to wire there.
+
+### `[U]` Analytics "by style" panel
+
+New section on the existing `storyengine/frontend/src/app/analytics/page.tsx`, placed right after
+the existing "What's Working (by framework)" block (same page, matching its established
+GlassCard/tab-strip visual language — no new design system introduced). Four dimension tabs with
+labels taken verbatim from schema.sql's own column comments so the UI vocabulary matches what the
+columns actually mean, not a guess: **Look Engine** (`by_style_preset` — `style_preset_id`,
+migration 097 FK), **Channel Look** (`by_render_style` — `render_style`, migration 089's
+'animated'/'realistic' declaration), **Script Voice** (`by_script_profile` — migration 098's
+editorial voice), **Clip Model** (`by_clip_model` — dominant model per video, from
+`generation_ledger`). Table columns per the spec: Choice · Videos (`synced_count`/`video_count`
+synced) · Avg CTR · Avg Retention · Total Views · Total Spend · Cost/1k Views.
+
+- **"No data yet" contract (C30's `synced_count`, honored, not re-derived)**: a row with
+  `synced_count === 0` renders its CTR/Retention cells as an italic "no data yet" label (not a
+  bare dash — the spec asked for a CLEAR no-data state, distinguishable from a real small number)
+  and the whole row is dimmed (`opacity: 0.55`); Total Views/Total Spend still render normally for
+  that row because C30's aggregation already keeps those honest (spend on an unsynced video is
+  still real ledger spend). Unlike the "What's Working (by framework)" panel above it (which
+  `HAVING COUNT(*) >= 2`-filters weak groups out entirely), this panel shows EVERY row the endpoint
+  returns, including `video_count === 1` groups — full transparency is the explicit ask here, the
+  MIN_SAMPLE-style filtering is only for the chat brief's citation discipline (channel_briefs.py),
+  not for what a user browsing their own dashboard gets to see.
+- **Cost-per-1k-views — derived, no new math source**: `costPer1kViews(total_spend, total_views)`
+  computes `total_spend / (total_views / 1000)` from the SAME two fields the endpoint already
+  serves, nothing else. Guards `total_views <= 0` (and null/undefined) to `"--"` before dividing —
+  never NaN/Infinity.
+- **Fail-safe rendering, everywhere**: `pct1`/`pct0`/`money` helpers each return `"--"` on
+  null/undefined/NaN input rather than rendering `NaN%` or `$NaN` — every cell in the table routes
+  through one of these three or the explicit "no data yet" branch, so there is no path from a
+  missing backend field to a broken-looking cell.
+- **Loading/error/empty states**: `useQuery({queryKey: ["style-performance"], queryFn:
+  getStylePerformance})` — spinner while loading, a plain "couldn't load" line on error (matches
+  the page's existing inline-error tone, doesn't blow away the rest of the page), and the shared
+  `EmptyState` component when the selected dimension's array is empty (e.g. a brand-new channel
+  with only one look ever used).
+- **New API surface** (`frontend/src/lib/api.ts`): `StyleChoiceAggregate` +
+  `StylePerformanceResponse` interfaces copied field-for-field from
+  `backend/models.py` (never retyped by hand), and `getStylePerformance()` hitting the existing
+  `GET /api/analytics/by-style` (C30, unchanged this chunk).
+
+**dataviz skill note**: this chunk didn't build a chart — the spec explicitly allows "a compact
+table or bar comparison" and a table was in scope and simplest for showing 5+ numeric columns
+side by side per row; no `dataviz` read was needed since no chart/mark/palette code was written.
+
+### `[B]` Producer cites channel data in LOOK recommendations
+
+**`storyengine/backend/producer_prompt.py`** — one new paragraph appended to the existing LOOK
+bullet inside `CARD GUIDANCE:` (between the six-option LOOK card instruction and the LENGTH
+bullet, not a freestanding section — keeps the citation logic attached to the exact moment the
+producer is picking a look):
+
+> "CITING CHANNEL DATA WHEN RECOMMENDING A LOOK (checklist §3.1/C31 — the preset-performance
+> loop, the moat Higgsfield can't copy): when a "PERFORMANCE BY CREATIVE CHOICE" block is present
+> below, weave its real numbers into your LOOK pitch instead of recommending blind — e.g. "your
+> holographic videos average 2.1x the channel CTR — want to stay with it?" or "flat_2d has run the
+> most videos here but pixar_3d is pulling a stronger CTR, if you want a switch." Only cite a
+> choice that block actually lists, and always use its exact numbers — never invent, round up, or
+> extrapolate a stat that isn't there. If that block is ABSENT, or a choice you'd otherwise
+> recommend simply isn't in it, say nothing about channel performance and recommend on creative
+> merit alone — never fabricate a number or imply data exists when it doesn't. This applies
+> whenever you're recommending a LOOK, not only on the first turn."
+
+No new ops, no new tool, no schema/route change — `_style_performance_brief` was already appended
+to `_loop_brief` (C30) which is already passed into `build_system_prompt(brief)` at both call
+sites in `routes/chat.py`; this chunk only teaches the model what to DO with the numbers that were
+already arriving.
+
+### Verify
+
+**Non-vacuous via `git stash`** (only `producer_prompt.py` stashed,
+`test_c31_style_citation.py` left in place): all 5 new tests fail — `AssertionError` on the
+citation phrase not being in the prompt — proving they exercise the real added text, not a
+tautology. Stash popped, re-ran clean.
+
+**5 new tests, `storyengine/backend/tests/functional/test_c31_style_citation.py`** (C15d
+prompt-pin pattern — prove the REAL composed runtime string, not just source text):
+- The instruction text is present in `PRODUCER_SYSTEM_PROMPT`, lives inside the LOOK bullet's
+  `CARD GUIDANCE:` block (ordering-asserted: between the LOOK card instruction and the LENGTH
+  bullet, not a new top-level section), and forbids fabrication when the data block is absent.
+- **The pin**: `channel_briefs._style_performance_brief` (monkeypatched `analytics_by_style
+  .get_style_performance` with a stub matching C30's own test fixture shape — one synced
+  `holographic_hud` group, one sub-`MIN_SAMPLE` `dossier` group) produces a real brief string,
+  fed into `producer_prompt.build_system_prompt(brief)` — asserts BOTH the citation instruction
+  AND the brief's actual cited numbers (`"holographic_hud"`, `"8.4% CTR"`) coexist in the ONE
+  composed prompt string an Anthropic call would actually receive.
+- A second pin with an all-empty brief (`_style_performance_brief` returns `""`) proves the
+  composed prompt carries NO "PERFORMANCE BY CREATIVE CHOICE" brief content (checked via the
+  brief's own literal header sentence, not the instruction's paraphrase of it, since the
+  instruction text itself necessarily names the block) while the citation instruction remains
+  present — the "stay silent when absent" contract has real data (or its absence) to apply to.
+
+`python -m py_compile` clean on all touched/new backend files. **Full backend suite: 1220 passed /
+15 failed / 1 error** — baseline (C30 handoff) was **1215 passed / 15 failed / 1 error**; 1220 −
+1215 = exactly the 5 new tests; the failing-test-name list and the 1 error are byte-identical to
+the baseline's (same `test_activity_feed_no_raw_errors.py` ×2, `test_auto_scrape_ungated.py`,
+`test_clip_dialogue.py`, `test_dialogue_alignment.py`, `test_discovery_error_surfacing.py`,
+`test_discovery_generation_no_leak.py` ×2, `test_model_video.py` ×2,
+`test_refresh_ideas_error_surfaced_lock.py`, `test_suggest_titles_wire.py`,
+`test_youtube_my_videos.py`, `test_youtube_oauth_diagnostics.py` ×2, plus
+`test_validator_error_parsing.py::test_api_key`) — zero new failures.
+
+**Frontend**: `npx tsc --noEmit` clean. `npm run build` reproduces a PRE-EXISTING prerender
+failure on `/pipeline` AND `/analytics` (`NEXT_PUBLIC_API_URL is required in production builds`) —
+confirmed unrelated to this chunk by re-running with `NEXT_PUBLIC_API_URL` set: build completes
+cleanly, all 33 routes generate including `/analytics`, and the new panel's route is part of that
+clean build.
+
+**Live verification deferred** to `tasks/live-verification-queue.md` §C31 (needs a tenant with
+real synced multi-preset analytics to see actual citation/panel numbers rendered, same data
+dependency C30 already deferred).
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c31_style_citation.py` | 5 tests, prompt-pin pattern |
+
+### Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/producer_prompt.py` | LOOK bullet gains the channel-data citation instruction |
+| `storyengine/frontend/src/app/analytics/page.tsx` | new "Performance by Style" panel (4 dimension tabs) |
+| `storyengine/frontend/src/lib/api.ts` | `StyleChoiceAggregate`/`StylePerformanceResponse` types + `getStylePerformance()` |
+
+**Deploy-safety assessment — ff-merge candidate:** purely additive both sides. Backend: one new
+paragraph appended inside an existing prompt string (no schema/route/model change, no new op, no
+new paid path) — an old turn where the brief is empty behaves byte-identical since the added
+instruction only fires when there's data to cite. Frontend: one new page section reading an
+already-shipped (C30) GET endpoint; every other component/query on the page is untouched. No
+paid-generation surface touched anywhere in this chunk. Safe to ff-merge on the routine hourly
+deploy.
+
+**Next up: C32 · P3.2 legacy stubs** — `confidence_scorer.py`'s `momentum`/`retention`
+placeholders, `learning_extractor.run_daily_extraction()`'s unwired Airtable CTR TODO, and
+`osiris/learnings_engine.get_competitor_title_patterns()`'s empty-string stub: wire each to real
+data or delete the call sites (Anti-Bandaid rule — no dark stubs left standing). May split into
+sub-chunks depending on how entangled each turns out to be with the legacy Airtable pipeline vs.
+StoryEngine's own reimplementation.

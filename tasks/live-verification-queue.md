@@ -215,6 +215,31 @@ chunk, so there's no `information_schema` proof to run here — this is the ONLY
 
 ---
 
+## C31 — "by style" analytics panel + producer LOOK citations · same data dependency as C30
+
+**Why deferred:** same root cause as C30 above (no multi-preset synced-analytics tenant in the
+sandbox) — this chunk is the UI/prompt half built ON TOP of C30's data layer, so it inherits the
+same gap. Unit-level correctness (panel rendering logic, prompt composition) is proven in
+`test_c31_style_citation.py` + a clean `npx tsc --noEmit` / `npm run build` (with
+`NEXT_PUBLIC_API_URL` set) — what's NOT provable without real data is "does the panel actually
+show real channel aggregates, and does the producer actually cite them unprompted."
+
+1. Once the C30 checklist above confirms `GET /api/analytics/by-style` returns real multi-preset
+   data for a tenant, open `/analytics` in the browser as that tenant and confirm: the new
+   "Performance by Style" section renders (not stuck on the loading spinner or the "no data yet"
+   empty state), all 4 dimension tabs (Look Engine / Channel Look / Script Voice / Clip Model)
+   switch correctly, and a row with `synced_count === 0` shows the dimmed "no data yet" cells
+   rather than a raw `0%`/`NaN%`.
+2. In the home producer chat, ask for a video in a look this tenant already has real synced data
+   for (e.g. "make me another holographic one") and confirm the assistant's LOOK recommendation
+   text actually quotes a real number from the brief (not just "I have data on this" — the actual
+   CTR/retention figure), and that it says NOTHING about channel performance for a tenant/look
+   with no synced data (no fabricated stat).
+3. Confirm the cost-per-1k-views column on the panel is arithmetically consistent with the ledger:
+   spot-check one row's `total_spend`/`total_views` against `se db` directly.
+
+---
+
 ## C25a — media proxy tenant auth · REQUIRED live browser check before the next `--with-frontend` deploy
 
 **Why this is REQUIRED, not optional (unlike most rows below):** the fix (tenant-scoped

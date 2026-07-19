@@ -45,6 +45,8 @@ import {
   getIntelligenceRecommendations,
   getNicheMetaInsights,
   triggerMetaAnalysis,
+  getStylePerformance,
+  type StylePerformanceResponse,
 } from "@/lib/api";
 import { formatNumber, timeAgo } from "@/lib/utils";
 
@@ -104,6 +106,41 @@ const FRAMEWORK_COLORS = [
   "var(--red)",
   "var(--yellow)",
 ];
+
+// By-style panel — checklist §3.1 [U] / C31. Labels match schema.sql's column
+// comments exactly: style_preset_id is the LOOK ENGINE preset (migration 097
+// FK), render_style is the channel's declared LOOK ("animated"/"realistic",
+// migration 089), script_profile is the editorial voice (migration 098),
+// dominant clip model comes from generation_ledger (see analytics_by_style.py).
+type StyleDimensionKey = keyof StylePerformanceResponse;
+const STYLE_DIMENSIONS: { key: StyleDimensionKey; label: string }[] = [
+  { key: "by_style_preset", label: "Look Engine" },
+  { key: "by_render_style", label: "Channel Look" },
+  { key: "by_script_profile", label: "Script Voice" },
+  { key: "by_clip_model", label: "Clip Model" },
+];
+
+// Fail-safe formatting: every one of these takes possibly-null/zero backend
+// fields and always returns a renderable string — never NaN, never a crash.
+function pct1(v: number | null | undefined): string {
+  return v === null || v === undefined || Number.isNaN(v) ? "--" : `${v.toFixed(1)}%`;
+}
+
+function pct0(v: number | null | undefined): string {
+  return v === null || v === undefined || Number.isNaN(v) ? "--" : `${v.toFixed(0)}%`;
+}
+
+function money(v: number | null | undefined): string {
+  return v === null || v === undefined || Number.isNaN(v) ? "--" : `$${v.toFixed(2)}`;
+}
+
+// Cost-per-1k-views: derived ONLY from the two totals the endpoint already
+// serves (total_spend, total_views) — no new math source, per spec. Guards
+// the zero-views case so this never divides by zero into Infinity/NaN.
+function costPer1kViews(totalSpend: number | null | undefined, totalViews: number | null | undefined): string {
+  if (!totalViews || totalViews <= 0 || totalSpend === null || totalSpend === undefined) return "--";
+  return money(totalSpend / (totalViews / 1000));
+}
 
 function CollapsibleSection({
   icon,
@@ -174,6 +211,14 @@ export default function AnalyticsPage() {
     queryKey: ["analytics-competitor-benchmark"],
     queryFn: getCompetitorBenchmark,
   });
+
+  // Performance by creative choice (Look Engine / Channel Look / Script Voice /
+  // Clip Model) — checklist §3.1 [U] / C31, reading C30's GET /api/analytics/by-style.
+  const { data: stylePerformance, isLoading: styleLoading, error: styleError } = useQuery({
+    queryKey: ["style-performance"],
+    queryFn: getStylePerformance,
+  });
+  const [styleDimension, setStyleDimension] = useState<StyleDimensionKey>("by_style_preset");
 
   // Learning system data
   const { data: learnings } = useQuery({
@@ -896,6 +941,123 @@ export default function AnalyticsPage() {
           </GlassCard>
         </motion.div>
       )}
+
+      {/* Performance by creative choice — checklist §3.1 [U] / C31 */}
+      <motion.div variants={item}>
+        <GlassCard className="p-6 overflow-x-auto">
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Performance by Style
+            </h2>
+            <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              {STYLE_DIMENSIONS.map((d) => (
+                <button
+                  key={d.key}
+                  onClick={() => setStyleDimension(d.key)}
+                  className="px-3 py-1.5 text-[11px] font-medium transition-colors whitespace-nowrap"
+                  style={{
+                    background: styleDimension === d.key ? "rgba(0,212,170,0.12)" : "transparent",
+                    color: styleDimension === d.key ? "var(--turquoise)" : "var(--text-tertiary)",
+                  }}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {styleLoading ? (
+            <div className="h-40 flex items-center justify-center">
+              <Spinner />
+            </div>
+          ) : styleError ? (
+            <p className="text-xs" style={{ color: "var(--text-tertiary)" }}>
+              Couldn&apos;t load style performance right now.
+            </p>
+          ) : (stylePerformance?.[styleDimension]?.length ?? 0) === 0 ? (
+            <EmptyState
+              icon={BarChart3}
+              title="No data yet"
+              description="Once videos are made with more than one choice for this dimension, their performance compares here."
+            />
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  {["Choice", "Videos", "Avg CTR", "Avg Retention", "Total Views", "Total Spend", "Cost / 1k Views"].map((h) => (
+                    <th
+                      key={h}
+                      className="pb-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap px-3"
+                      style={{ color: "var(--text-tertiary)" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(stylePerformance?.[styleDimension] ?? []).map((r) => {
+                  const noDataYet = r.synced_count === 0;
+                  return (
+                    <tr
+                      key={r.choice}
+                      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", opacity: noDataYet ? 0.55 : 1 }}
+                    >
+                      <td className="py-3 px-3">
+                        <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                          {r.choice}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {r.synced_count} / {r.video_count} synced
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        {noDataYet ? (
+                          <span className="text-[11px] italic" style={{ color: "var(--text-tertiary)" }}>
+                            no data yet
+                          </span>
+                        ) : (
+                          <span className="text-sm font-mono font-semibold" style={{ color: ctrColor(r.avg_ctr) }}>
+                            {pct1(r.avg_ctr)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {noDataYet ? (
+                          <span className="text-[11px] italic" style={{ color: "var(--text-tertiary)" }}>
+                            no data yet
+                          </span>
+                        ) : (
+                          <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                            {pct0(r.avg_retention)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                          {formatNumber(r.total_views)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {money(r.total_spend)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
+                          {costPer1kViews(r.total_spend, r.total_views)}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </GlassCard>
+      </motion.div>
 
       {/* System Intelligence (learned patterns), collapsed by default */}
       {learnings && learnings.length > 0 && (
