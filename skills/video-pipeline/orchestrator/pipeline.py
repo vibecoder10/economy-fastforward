@@ -507,11 +507,18 @@ class VideoPipeline:
             self._load_idea(idea)
             return await self._run_step_safe("Render Bot", self.run_render_bot)
 
-        # 10. YouTube Upload Bot — generate SEO + upload as unlisted draft
-        idea = self.get_idea_by_status(self.STATUS_RENDERED)
-        if idea:
-            self._load_idea(idea)
-            return await self._run_step_safe("YouTube Upload Bot", self.run_youtube_upload_bot)
+        # 10. YouTube Upload Bot — REMOVED (C34a, S10-1 audit finding; operator
+        # confirmed 2026-07-19 this Power Doctrine cron pipeline and its Slack
+        # channel are retired). skills/video-pipeline/upload/run.py,
+        # seo_generator.py, and youtube_uploader.py are deleted — that package
+        # hardcoded @Power_Doctrine SEO and uploaded through the shared VPS
+        # OAuth token onto Ryan's own channel, the exact path StoryEngine's
+        # per-tenant upload had to be walled off from (see
+        # storyengine/backend/pipeline_executor.py's run_upload docstring).
+        # A Rendered idea now simply falls through to "No work to do" below
+        # instead of crashing on the deleted import — upload to YouTube is a
+        # manual step (YouTube Studio) for this pipeline until/unless a
+        # replacement is wired.
 
         # No work to do
         print("\n✅ No videos ready for processing!")
@@ -855,9 +862,25 @@ class VideoPipeline:
         return await _step_run(self, audio_path, scene_list)
 
     async def run_youtube_upload_bot(self) -> dict:
-        """Generate SEO metadata and upload video to YouTube as unlisted draft."""
-        from upload.run import run as _step_run
-        return await _step_run(self)
+        """REMOVED (C34a, S10-1 audit finding). The implementation this called
+        (skills/video-pipeline/upload/run.py, seo_generator.py,
+        youtube_uploader.py) is deleted — it hardcoded @Power_Doctrine SEO
+        onto whatever idea was current and uploaded through the shared VPS
+        OAuth token files onto Ryan's own YouTube channel, bypassing
+        StoryEngine's per-tenant upload path and its quota guard entirely.
+        Operator confirmed (2026-07-19) this cron pipeline's Slack channel
+        and Power Doctrine branding are retired. Kept as a soft-fail stub
+        (not deleted outright) only because orchestrator/pipeline_control.py's
+        Slack `upload` command still calls it — this way that command gets a
+        clear error instead of an AttributeError/ImportError crash.
+        """
+        return {
+            "status": "failed",
+            "bot": "YouTube Upload Bot",
+            "error": "YouTube upload bot removed (C34a) — the Power Doctrine "
+                     "cron upload path is retired. Use StoryEngine's "
+                     "per-tenant YouTube upload instead.",
+        }
 
     async def package_for_remotion(self) -> dict:
         """Package all assets for Remotion video editing."""

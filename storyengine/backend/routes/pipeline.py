@@ -2097,6 +2097,13 @@ async def run_upload(
     upload. Default False skips a video that already has a recorded YouTube
     id/URL — this prevents a re-invoke (a resumed status machine, a retried
     click) from minting a second YouTube draft and burning ~1,600 quota units.
+
+    S10-1 (C34a): belt-and-suspenders precondition — reject here, at the
+    route, before any task lock is claimed, if the tenant has no connected
+    YouTube channel. This is NOT the authority (an internal caller can reach
+    PipelineExecutor.run_upload directly, bypassing this route entirely) —
+    the real gate is inside run_upload itself, which now fails the same way
+    instead of ever falling back to the legacy shared-token upload bot.
     """
     video = await fetch_one(
         "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
@@ -2106,6 +2113,16 @@ async def run_upload(
         raise HTTPException(status_code=404, detail="Video not found")
 
     _require_stage_enabled(video, "upload")
+
+    cp = await fetch_one(
+        "SELECT youtube_refresh_token FROM channel_profiles WHERE tenant_id = $1",
+        tenant_id,
+    )
+    if not (cp and cp.get("youtube_refresh_token")):
+        raise HTTPException(
+            status_code=400,
+            detail="Connect your YouTube channel first — Settings → YouTube.",
+        )
 
     if not is_at_or_past_stage(video["status"], "rendered"):
         raise HTTPException(

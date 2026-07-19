@@ -6446,3 +6446,178 @@ loop's sweep-then-fix playbook, recommend the orchestrator dispatches the S10 sw
 half) and folds its findings into the same chunk as the SEO-branding fix (`upload/seo_generator.py`'s
 hardcoded `@Power_Doctrine`/`#PowerDoctrine`, checklist §3.4's last unfixed bullet) rather than
 sequencing them as two separate chunks.
+
+## C34a — S10-1 CRITICAL fix: remove/hard-block the legacy upload fallback (added 2026-07-19)
+
+Audit finding §S10-1 (docs/reports/2026-07-17-storyengine-agent-audit-findings.md, found by the C34
+sweep): `pipeline_executor.py::run_upload` fell through to `self._pipeline.run_upload_bot()` (the
+legacy `skills/video-pipeline/upload/` bot) whenever a tenant had no connected YouTube channel
+(`channel_profiles.youtube_refresh_token`). That legacy bot (a) hardcoded `@Power_Doctrine` SEO onto
+the TENANT's video via Airtable fields, (b) uploaded through the SHARED VPS OAuth token files — i.e.
+onto RYAN's own YouTube channel, category 25, not the tenant's — and (c) never passed through C33's
+YouTube quota guard (that guard lives entirely inside `youtube_publish.upload_video_to_youtube`, the
+native path's own function; the legacy bot never calls it). None of that is recoverable after the
+fact — it publishes.
+
+### The fix
+
+**Executor is the authority.** `pipeline_executor.py::run_upload` — the `if cp and
+cp.get("youtube_refresh_token"):` native-path branch is untouched (byte-identical); the `else` no
+longer falls through to `self._pipeline.run_upload_bot()`. It now returns immediately:
+```python
+error_msg = "Connect your YouTube channel first — Settings → YouTube."
+await self._log_activity(bot_name, video_id, "failed", error_msg)
+return {"status": "failed", "error": error_msg}
+```
+This sits AFTER the pre-existing C16e skip-if-done guard (an already-uploaded video still short-
+circuits to "Already uploaded — skipping" before the channel check even runs) and BEFORE any code
+that could touch `self._pipeline`.
+
+**Every caller traced** (all funnel through this one method, so the fix is centralized):
+- `routes/pipeline.py POST /upload/{video_id}` (manual trigger) — gets `{"status":"failed","error":
+  ...}` back, surfaced via the existing `_set_task_status` channel.
+- `actions.make_action_step` (chat "upload" verb, and the MCP `upload` tool via
+  `routes/mcp.py` → `routes/chat.py::_run_pending_action` → this same factory) — the existing
+  `if result.get("error"): break` / `_set_task_status(..., result.get("status"), result.get("error"))`
+  loop (unchanged) surfaces it identically to any other stage failure (e.g. a render failure) — no
+  special-casing needed.
+- `claude_orchestrator.py`'s skill-dispatch map (`"upload": executor.run_upload`) — same dict return,
+  same existing handling.
+- `worker.py::arq_run_upload` → `_run_stage` — `status=="failed"` path persists the error to
+  `background_tasks` and (since it isn't a Kie-block "terminal failure") raises `RuntimeError` so arq
+  retries up to `max_tries=3` — harmless (no spend, same as any other non-terminal stage failure
+  today; not special-cased further, matching existing convention).
+- **Autobuild "finish" chain** (`actions.make_autobuild_step`) — traced in full: `DONE_STATUSES`
+  includes `"rendered"` itself, so the finish loop's top-of-iteration check
+  (`if target == "finish" and status in DONE_STATUSES: return`) stops BEFORE ever reaching the
+  generic `ex.run_next_step(video_id)` fallback for a rendered video — upload was never part of the
+  automatic finish chain to begin with (by design: it's a paid, PUBLISHING action, gated behind an
+  explicit "upload" verb). `run_next_step`'s status map (`"rendered": self.run_upload`) is still the
+  path for `routes/discovery.py`, `routes/queue.py`, `routes/autopilot.py`, and
+  `routes/pipeline.py`'s other `run_next_step` call sites — all get the same dict-return handling,
+  no changes needed since the fix lives inside `run_upload` itself.
+
+**Route gate (belt-and-suspenders, not the authority).** `routes/pipeline.py`'s
+`POST /upload/{video_id}` now checks `channel_profiles.youtube_refresh_token` right after
+`_require_stage_enabled` and BEFORE `_is_task_active`/`_set_task_status` — so an unconnected tenant
+never claims a task lock for a request that can't succeed. Same copy as the executor
+("Connect your YouTube channel first — Settings → YouTube."), `HTTPException(400, ...)`. Explicitly
+documented as non-authoritative — an internal caller (chat, MCP, orchestrator, arq) reaches
+`PipelineExecutor.run_upload` directly, bypassing this route.
+
+### Legacy package verdict: DELETE (operator-confirmed, not "leave for cron")
+
+Original brief's default was "leave it if only Ryan's own Airtable cron pipeline
+(`orchestrator/pipeline.py`) still uses it." Mid-chunk, the operator (Ryan) stated he no longer runs
+Power Doctrine or its Slack channel — the prototype that got this project started. That changes the
+calculus: the legacy upload bot wasn't protecting a live workflow.
+
+**Deleted** (grep-proofed — nothing else imports these):
+`skills/video-pipeline/upload/run.py`, `seo_generator.py`, `youtube_uploader.py`, `manifest.json`.
+```
+$ grep -rn "upload\.run\b|upload\.seo_generator|upload\.youtube_uploader" --include=*.py .
+(no output)
+```
+**Kept:** `skills/video-pipeline/upload/run_package.py` + `__init__.py` — a DIFFERENT feature living
+in the same folder (packages assets for Remotion, called from `render/run.py:113` and
+`orchestrator/pipeline.py:1302`'s `package_for_remotion()`), unrelated to YouTube upload/SEO/publish.
+Confirmed still reachable:
+```
+$ grep -rn "package_for_remotion" --include=*.py .
+orchestrator/pipeline.py:885:    async def package_for_remotion(self) -> dict:
+orchestrator/pipeline.py:1302:        props = await pipeline.package_for_remotion()
+render/run.py:113:    props = await pipeline.package_for_remotion()
+```
+`manifest.json` was scanned by `shared/skill_registry.py` (a `*/manifest.json` glob), but
+`get_registry()` is never instantiated anywhere in the repo except its own module docstring —
+confirmed dead infrastructure, so deleting the manifest breaks nothing live.
+
+**SaaS backend can no longer reach `skills/video-pipeline/upload/`'s deleted files at all** — not
+just "unreachable," literally removed: the `run_upload_bot` closure + its assignment onto the
+`LightPipeline` shim (`pipeline_executor.py::_ensure_initialized`, previously lines 6542-6544/6580)
+are deleted, since nothing calls `self._pipeline.run_upload_bot` anymore.
+```
+$ grep -rn "run_upload_bot" --include=*.py .
+storyengine/backend/pipeline_executor.py:<docstring line citing the removed shim by name, for history>
+storyengine/backend/tests/functional/test_c34a_upload_no_legacy_fallback.py:<the tests proving it's gone>
+```
+(the legacy cron pipeline's method is named `run_youtube_upload_bot` — a different name, kept as a
+stub, see below — not `run_upload_bot`, which was only ever the `LightPipeline` shim's name.)
+
+**Ryan's legacy cron pipeline** (`orchestrator/pipeline.py`) — the stage-10 hookup
+(`get_idea_by_status(STATUS_RENDERED)` → `run_youtube_upload_bot`) is removed surgically from
+`run_next_step`'s crawler, with an inline comment explaining why (matches this chunk's fix rationale
+— same shared-OAuth/Power-Doctrine path StoryEngine had to wall off). A `Rendered` idea in that
+pipeline now just falls through to "No work to do" instead of crashing on the deleted import — upload
+is a manual (YouTube Studio) step for that pipeline until/unless a replacement is built (a C37-level
+product call, not reopened here). `run_youtube_upload_bot` itself is kept, but reduced to a soft-fail
+stub (`{"status": "failed", "error": "YouTube upload bot removed (C34a)..."}`) rather than deleted
+outright, because `orchestrator/pipeline_control.py:1411`'s Slack `upload`/`run uploads?` command
+still calls it directly — deleting the method would turn that (rarely-used, per the operator) Slack
+command into an `AttributeError` crash instead of a clean message. The module still imports fine
+(`python -m py_compile` clean); `package_for_remotion`'s import of `upload.run_package` is untouched.
+
+### Verify
+
+**Non-vacuous via `git stash`:** full stash of every C34a file change, re-ran the new test file
+against pre-fix code — 4 of 8 new tests correctly FAIL (the ones asserting the fallback is gone/route
+gate exists), 4 pass unchanged (video-not-found, already-uploaded skip, connected-tenant native path,
+route-proceeds-when-connected) — proving the tests exercise the actual fix, not tautologies. Popped
+clean, re-ran green (8/8).
+
+**8 new tests** — `tests/functional/test_c34a_upload_no_legacy_fallback.py`: unconnected tenant gets
+the clear error and `self._pipeline` (a sentinel that raises on ANY attribute access) is never
+touched; `run_upload_bot` no longer exists in `_ensure_initialized`'s source nor is called from
+`run_upload`'s executable body (docstring mentions allowed); video-not-found and already-uploaded
+skip-if-done still short-circuit correctly (ordering pin); connected-tenant native path unchanged;
+`routes/pipeline.py`'s route gate rejects with 400 before claiming a task lock, and passes through
+silently when connected.
+
+**Pre-existing `test_c16e_upload_skip_if_done.py`** (11 tests, connected-tenant coverage) — all still
+pass unchanged; this chunk did not touch that branch's logic.
+
+**Full backend suite:** `./venv/bin/python -m pytest tests/ -q` → **1249 passed / 15 failed / 1
+error** (baseline 1241/15/1 + this chunk's 8 new tests, zero new failures — identical 15
+pre-existing failure names, none touching any file this chunk modified).
+
+**Autopilot suite (untouched except the one surgical `orchestrator/pipeline.py` edit, which the
+suite doesn't cover):** `cd skills/video-pipeline && python3 -m pytest autopilot/tests/ -q` → **146
+passed / 0 failed**, unchanged from the C32b baseline.
+
+`python -m py_compile` clean on every touched/new file (`pipeline_executor.py`, `routes/pipeline.py`,
+`orchestrator/pipeline.py`, `orchestrator/pipeline_control.py` (unchanged, compile-checked anyway
+since it references the stub), `upload/run_package.py`, the new test file).
+
+**Frontend:** untouched — `git status --short storyengine/frontend/` empty. No `npx tsc --noEmit`
+needed (nothing to check); explicitly flagged, not silently skipped.
+
+**Live verification deferred** to `tasks/live-verification-queue.md` §C34a: an unconnected tenant
+actually seeing "Connect your YouTube channel first — Settings → YouTube." in the live chat/UI.
+
+### Modified/New/Deleted Files (C34a)
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | `run_upload`'s no-channel branch returns a clear failure instead of calling `self._pipeline.run_upload_bot()`; deleted the now-dead `run_upload_bot` closure + shim assignment in `_ensure_initialized` |
+| `storyengine/backend/routes/pipeline.py` | `POST /upload/{video_id}` gains a connected-channel precondition (400) before the task-lock is claimed |
+| `skills/video-pipeline/orchestrator/pipeline.py` | `run_next_step`'s stage-10 upload hookup removed surgically (Rendered now falls through to "No work to do"); `run_youtube_upload_bot` reduced to a soft-fail stub (kept only because `pipeline_control.py` still calls it) |
+| `skills/video-pipeline/upload/run.py` | DELETED |
+| `skills/video-pipeline/upload/seo_generator.py` | DELETED |
+| `skills/video-pipeline/upload/youtube_uploader.py` | DELETED |
+| `skills/video-pipeline/upload/manifest.json` | DELETED (described the now-deleted `run.py` entry point; dead metadata, no live loader reads it) |
+| `storyengine/backend/tests/functional/test_c34a_upload_no_legacy_fallback.py` | NEW — 8 tests |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Connected-tenant behavior is byte-identical (proven above). An unconnected tenant that would
+previously have silently shipped onto Ryan's own channel now gets a clear, safe failure instead —
+strictly a bug fix, no legitimate workflow depended on the old fallback (operator-confirmed: Power
+Doctrine cron + its Slack channel are retired). The legacy cron pipeline (`orchestrator/pipeline.py`)
+still imports and runs fine; its one remaining upload entry point (the Slack command) degrades to a
+clear message instead of crashing. Safe to ff-merge; no VPS coordination needed beyond the routine
+hourly `git pull --ff-only` (a running video build elsewhere on the VPS is unaffected — this chunk
+touches no in-flight generation code).
+
+**Next up: C34b · S10-2/S10-3 voice + Slack de-globalization** — no tenant silently gets Ryan's
+cloned ElevenLabs voice (explicit onboarding choice, stock default) and `SlackClient` becomes a no-op
+for SaaS tenant runs (tenant content must not post to Ryan's workspace). Then C34c, C35, C36,
+C37(Ryan).

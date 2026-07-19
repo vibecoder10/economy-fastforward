@@ -6539,10 +6539,6 @@ class PipelineExecutor:
             from render.run import run
             return await run(self._pipeline)
 
-        async def run_upload_bot():
-            from upload.run import run
-            return await run(self._pipeline)
-
         async def run_sound_prompt_bot():
             from sound.run_design import run
             return await run(self._pipeline)
@@ -6577,7 +6573,6 @@ class PipelineExecutor:
         self._pipeline.run_storyboard_prompts = run_storyboard_prompts
         self._pipeline.run_storyboard_images = run_storyboard_images
         self._pipeline.run_storyboard_extract = run_storyboard_extract
-        self._pipeline.run_upload_bot = run_upload_bot
 
         print("[INIT] Pipeline ready!", flush=True)
 
@@ -15161,22 +15156,40 @@ separate scenes."""
         """Generate SEO metadata and upload video to YouTube as unlisted draft.
 
         `force` (C16e, S7-9 follow-up — mirrors C16d's run_thumbnail guard
-        exactly): default False skips the upload (both the per-tenant native
-        path and the legacy bot fallback below) when the video already has a
-        recorded youtube_video_id/youtube_url — every one of this method's
-        callers previously re-ran the full upload unconditionally on a
-        second invocation, which mints a genuine SECOND YouTube draft
-        (recoverable by deleting it in Studio, but burns ~1,600 of the
-        10,000/day quota units and confuses the creator with two drafts).
-        force=True (the ONLY way to bypass the guard) is not yet threaded
-        from any caller by default — every real caller (the autobuild finish
-        chain via run_next_step, the arq/queue stage runner, claude_
-        orchestrator's skill dispatch, the manual POST /upload/{video_id}
-        route, and the chat "upload" verb via actions.make_action_step)
-        passes nothing and gets the skip-if-done default. routes/pipeline.py
-        exposes `?force=true` on the manual route (mirroring the existing
-        POST /thumbnail/{video_id}?force=true convention) for a future
-        genuinely-new-upload affordance; no caller sets it today.
+        exactly): default False skips the upload (the per-tenant native path)
+        when the video already has a recorded youtube_video_id/youtube_url —
+        every one of this method's callers previously re-ran the full upload
+        unconditionally on a second invocation, which mints a genuine SECOND
+        YouTube draft (recoverable by deleting it in Studio, but burns
+        ~1,600 of the 10,000/day quota units and confuses the creator with
+        two drafts). force=True (the ONLY way to bypass the guard) is not
+        yet threaded from any caller by default — every real caller (the
+        autobuild finish chain via run_next_step, the arq/queue stage
+        runner, claude_orchestrator's skill dispatch, the manual POST
+        /upload/{video_id} route, and the chat "upload" verb via
+        actions.make_action_step) passes nothing and gets the skip-if-done
+        default. routes/pipeline.py exposes `?force=true` on the manual
+        route (mirroring the existing POST /thumbnail/{video_id}?force=true
+        convention) for a future genuinely-new-upload affordance; no caller
+        sets it today.
+
+        S10-1 (C34a, audit finding — multi-tenant branding sweep): there is
+        NO legacy-bot fallback here anymore. A tenant with no connected
+        YouTube channel (`channel_profiles.youtube_refresh_token`) gets a
+        clear failure, full stop. The old fallback called into
+        skills/video-pipeline/upload/ (via a now-deleted `run_upload_bot`
+        shim in `_ensure_initialized` — the SaaS backend has no remaining
+        import path to that package; it's still used, correctly, by Ryan's
+        own Airtable-driven cron pipeline at
+        skills/video-pipeline/orchestrator/pipeline.py:859), which
+        (a) hardcodes @Power_Doctrine SEO defaults onto the wrong
+        tenant's video, (b) uploads through Ryan's own shared VPS OAuth
+        token files — i.e. onto RYAN'S personal channel, category 25 — not
+        the tenant's, and (c) never passed through C33's YouTube quota
+        guard (that guard lives in `youtube_publish.upload_video_to_youtube`,
+        the native path's function, not in the legacy bot). None of that is
+        recoverable after the fact — it publishes. See
+        `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` §S10-1.
         """
         await self._ensure_initialized()
         bot_name = "YouTube Upload Bot"
@@ -15196,12 +15209,11 @@ separate scenes."""
                         "youtube_video_id": existing_id or None,
                         "message": msg, "skipped": True}
 
-            current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Uploading to YouTube")
 
             # Supabase-native, per-tenant path: if the creator has connected their OWN
             # YouTube channel, upload there using the stored SEO (no Airtable, no shared
-            # token, no Power Doctrine defaults). Falls back to the legacy bot otherwise.
+            # token, no Power Doctrine defaults).
             cp = await fetch_one(
                 "SELECT youtube_refresh_token FROM channel_profiles WHERE tenant_id=$1",
                 self.tenant_id)
@@ -15222,28 +15234,11 @@ separate scenes."""
                 return {"status": "uploaded_draft", "video_id": video_id,
                         "video_url": up.get("youtube_url")}
 
-            self._load_idea_from_video(video_id)
-
-            result = await self._pipeline.run_upload_bot()
-
-            if result.get("error"):
-                raise Exception(result["error"])
-
-            new_status = result.get("new_status", "Uploaded (Draft)")
-
-            # Update with YouTube URL if available
-            video_url = result.get("video_url")
-            if video_url:
-                await execute(
-                    "UPDATE videos SET youtube_url = $1 WHERE id = $2",
-                    video_url, video_id,
-                )
-
-            await self._update_video_status(video_id, to_supabase(new_status))
-            await self._log_transition(video_id, current_status, to_supabase(new_status), "api")
-            await self._log_activity(bot_name, video_id, "completed", "Video uploaded to YouTube")
-
-            return {"status": to_supabase(new_status), "video_id": video_id}
+            # S10-1: no connected channel — fail clearly. Do NOT fall through to
+            # skills/video-pipeline/upload/'s legacy bot (see class docstring above).
+            error_msg = "Connect your YouTube channel first — Settings → YouTube."
+            await self._log_activity(bot_name, video_id, "failed", error_msg)
+            return {"status": "failed", "error": error_msg}
 
         except Exception as e:
             error_msg = str(e)
