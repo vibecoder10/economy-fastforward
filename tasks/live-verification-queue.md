@@ -186,6 +186,38 @@ this is a redirect, not a duplicate.
 
 ---
 
+## C34b — voice + Slack de-globalization · needs a real ElevenLabs listen + a live Slack-silence check
+
+**Why deferred:** the fix is proven correct in-sandbox with a fully monkeypatched vault/env (see
+`test_c34b_voice_and_slack_tenant_isolation.py` — 12 tests, non-vacuous via `git stash`: 6 of 12
+correctly fail against pre-fix code). What's NOT provable without hitting the real ElevenLabs API and
+the real (shared) storyengine backend process: does a tenant with no configured voice actually
+NARRATE in the stock "Rachel" voice rather than Ryan's clone, and does a live pipeline run on the SaaS
+backend really produce zero Slack traffic even if a bot token exists somewhere in that process's env.
+No paid generation is required beyond whatever a normal voice-stage run already costs (~$1-2/video,
+ElevenLabs bills per character regardless of which voice id is used) — don't trigger one solely for
+this check, piggyback on a real tenant's normal voice run.
+
+1. **Stock-voice listen-check.** Pick (or create) a SaaS tenant with NO `elevenlabs_voice_id` set in
+   Settings → API Keys. Run/re-run the voice stage on one of their videos, then listen to the
+   resulting narration audio — it should sound like ElevenLabs' "Rachel" premade voice
+   (`21m00Tcm4TlvDq8ikWAM`), not Ryan's own cloned voice. Cross-check server-side: the `[INIT]
+   ElevenLabsClient OK (voice=...)` log line (`se logs backend`) around that run should read
+   `voice=21m00Tcm4TlvDq8ikWAM`.
+2. **Tenant's-own-voice still wins, live.** Same as above but for a tenant who HAS set their own
+   `elevenlabs_voice_id` — confirm the log line shows their configured id, not the stock one, and
+   the audio matches their chosen voice.
+3. **Slack silence, live.** On the VPS, confirm `storyengine/.env` does not set
+   `SLACK_NOTIFICATIONS_ENABLED` (it shouldn't; `.env.example` documents it as legacy-cron-only).
+   Trigger a normal voice or thumbnail run for any SaaS tenant and confirm nothing posts to Slack
+   (no new message in the retired C0A9U1X8NSW channel) even if `SLACK_BOT_TOKEN` happens to be set
+   in that process's env for some other reason.
+4. **Legacy cron pipeline, if Ryan wants his own Slack notifications back:** add
+   `SLACK_NOTIFICATIONS_ENABLED=true` to `skills/video-pipeline`'s own `.env` (NOT storyengine's) and
+   confirm one of the legacy cron notifications (e.g. `notify_voice_done`) posts again.
+
+---
+
 ## C33 — YouTube quota guard + own-video VPH · needs a real upload day + a real synced channel
 
 **Why deferred:** the quota tracker (`youtube_quota.py`) and VPH derivation (`own_vph.py`) are

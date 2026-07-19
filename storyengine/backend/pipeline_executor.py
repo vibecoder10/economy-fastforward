@@ -27,6 +27,18 @@ PIPELINE_PATH = Path(__file__).parent.parent.parent / "skills" / "video-pipeline
 if str(PIPELINE_PATH) not in sys.path:
     sys.path.insert(0, str(PIPELINE_PATH))
 
+# C34b/S10-2: tenant-neutral narrator default. ElevenLabs premade/stock voice
+# "Rachel" — documented in ElevenLabs' public voice library, and already the
+# example id shown in the onboarding UI's placeholder text
+# (frontend/src/components/onboarding/ApiKeysStep.tsx KEY_FORMAT_HINTS). Used
+# whenever a tenant hasn't configured their own elevenlabs_voice_id in
+# Settings -> API Keys. Deliberately NOT Models.VOICE_ID / ElevenLabsClient.
+# DEFAULT_VOICE_ID — those are evaluated once at first import in this shared
+# multi-tenant process and could freeze in whichever identity's env var
+# happened to be set at that moment; this constant is applied explicitly,
+# per tenant, at ElevenLabsClient construction time below (_ensure_initialized).
+STOCK_NARRATOR_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"
+
 # Each bot folder has internal imports (e.g., script/run.py imports brief_translator).
 # Add bot subdirectories to sys.path so these resolve correctly.
 for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
@@ -6242,11 +6254,31 @@ class PipelineExecutor:
             "openai_api_key",
             "gemini_api_key",
         ]
-        # Voice-config keys have a legitimate process-level default in the
-        # service .env (legacy single-tenant behavior). Snapshot those before
-        # clearing so a tenant WITHOUT a vault override keeps the .env value
-        # instead of silently dropping to the hardcoded default voice.
-        VOICE_CONFIG_KEYS = ("elevenlabs_voice_id", "elevenlabs_model_id", "elevenlabs_voice_style")
+        # Model/style tuning keys (NOT identity) have a legitimate process-level
+        # default in the service .env (legacy single-tenant behavior). Snapshot
+        # those before clearing so a tenant WITHOUT a vault override keeps the
+        # .env engine-quality default instead of silently dropping to the
+        # hardcoded default.
+        #
+        # elevenlabs_voice_id is DELIBERATELY EXCLUDED from this restore set.
+        # C34b/S10-2: this used to include voice_id too, which meant ANY tenant
+        # with no vault-configured voice got whatever ELEVENLABS_VOICE_ID sat in
+        # this shared backend process's env — Ryan's own cloned voice, set in
+        # storyengine/.env for his legacy single-tenant usage. That's a real
+        # cross-tenant identity leak, not a helpful default: every SaaS tenant
+        # who skipped the voice step narrated in Ryan's actual cloned voice.
+        # Fix: a tenant-scoped run's voice chain is now vault (this tenant's
+        # own elevenlabs_voice_id, loaded below) -> STOCK_NARRATOR_VOICE_ID (a
+        # neutral ElevenLabs stock voice, passed explicitly to ElevenLabsClient
+        # at construction below) — NEVER this process's env value, which
+        # belongs to whichever identity's .env happens to be loaded. Ryan's
+        # own legacy cron pipeline (skills/video-pipeline, a separate
+        # process/env from this backend) is unaffected —
+        # it reads ELEVENLABS_VOICE_ID directly from ITS OWN .env, never through
+        # this tenant-scoped executor. For Ryan's storyengine tenant to keep his
+        # cloned voice here, he needs his own vault-set elevenlabs_voice_id
+        # (Settings -> API Keys, the field already exists) — same as any tenant.
+        VOICE_CONFIG_KEYS = ("elevenlabs_model_id", "elevenlabs_voice_style")
         process_voice_defaults = {
             k.upper(): os.environ[k.upper()]
             for k in VOICE_CONFIG_KEYS
@@ -6384,8 +6416,17 @@ class PipelineExecutor:
 
         try:
             from shared.clients.elevenlabs_client import ElevenLabsClient
-            self._pipeline.elevenlabs = ElevenLabsClient()
-            print("[INIT] ElevenLabsClient OK", flush=True)
+            # C34b/S10-2: resolve the voice EXPLICITLY from this tenant's own
+            # current env state (set above from vault, or absent — never
+            # restored from a process default, see VOICE_CONFIG_KEYS note),
+            # falling back to the tenant-neutral stock voice. Passed as an
+            # explicit constructor arg rather than letting ElevenLabsClient
+            # fall through to its own os.getenv/DEFAULT_VOICE_ID resolution —
+            # that class-level default is computed once at first import in
+            # this shared process and must not be trusted as a per-tenant seam.
+            resolved_voice_id = os.environ.get("ELEVENLABS_VOICE_ID") or STOCK_NARRATOR_VOICE_ID
+            self._pipeline.elevenlabs = ElevenLabsClient(voice_id=resolved_voice_id)
+            print(f"[INIT] ElevenLabsClient OK (voice={resolved_voice_id})", flush=True)
         except Exception as e:
             print(f"[INIT] ElevenLabsClient skipped: {e}", flush=True)
             self._pipeline.elevenlabs = None

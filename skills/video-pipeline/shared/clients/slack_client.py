@@ -23,9 +23,25 @@ class SlackClient:
         channel_id: Optional[str] = None,
     ):
         self.bot_token = bot_token or os.getenv("SLACK_BOT_TOKEN")
-        # Neutered mode: with no token, this client is a silent no-op instead of
-        # raising. Required for customer-facing / non-Slack channels.
-        self.enabled = bool(self.bot_token)
+
+        # C34b/S10-3: notifications are OPT-IN, not "on whenever a token is
+        # present." The prototype channel (C0A9U1X8NSW) is retired (Ryan,
+        # tasks/decisions.md 2026-07-19: "I don't use ... the Slack channel
+        # anymore") and this client is reachable from SaaS multi-tenant runs
+        # via legacy bot code (voice/run.py, thumbnail/run.py, upload/run.py,
+        # etc. — see pipeline_executor.py's LightPipeline) that has no
+        # tenant-scoping for Slack at all: a bot token sitting anywhere in a
+        # shared process's env would otherwise post every tenant's content
+        # (thumbnails, titles, YouTube URLs) into Ryan's own workspace.
+        # SLACK_NOTIFICATIONS_ENABLED defaults OFF; a bot token alone is no
+        # longer sufficient to send. Explicitly set
+        # SLACK_NOTIFICATIONS_ENABLED=true in a process's OWN .env (e.g.
+        # skills/video-pipeline's, for Ryan's legacy cron pipeline) to restore
+        # the old behavior there — the SaaS backend's storyengine/.env should
+        # never set it. A future legacy stage added to SaaS reach is silent
+        # by default, not opt-out.
+        notifications_enabled = os.getenv("SLACK_NOTIFICATIONS_ENABLED", "false").lower() == "true"
+        self.enabled = bool(self.bot_token) and notifications_enabled
 
         self.channel_id = channel_id or os.getenv("SLACK_CHANNEL_ID", self.DEFAULT_CHANNEL_ID)
         self.client = WebClient(token=self.bot_token) if self.enabled else None

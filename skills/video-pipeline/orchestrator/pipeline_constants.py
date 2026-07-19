@@ -412,7 +412,16 @@ class Models:
     SOUND_EFFECT = "elevenlabs/sound-effect-v2"
 
     # Voice
-    VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "G17SuINrv2H9FC6nvetn")
+    # Default is a tenant-neutral ElevenLabs premade/stock voice ("Rachel",
+    # documented in ElevenLabs' public voice library) — NOT a specific
+    # person's cloned voice (C34b/S10-2: the old hardcoded default,
+    # G17SuINrv2H9FC6nvetn, was Ryan's own ElevenLabs clone; any run without
+    # its own ELEVENLABS_VOICE_ID silently narrated in his actual voice).
+    # Ryan's legacy single-tenant cron pipeline (this file's own process/env,
+    # separate from the StoryEngine SaaS backend) keeps using his voice via
+    # the ELEVENLABS_VOICE_ID env var itself, set in ITS OWN .env — untouched
+    # by this literal fallback, which only applies when that env var is unset.
+    VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 
     # Airtable model name mapping (display name → API name)
     AIRTABLE_MODEL_MAP = {

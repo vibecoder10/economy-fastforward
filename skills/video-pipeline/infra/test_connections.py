@@ -70,6 +70,10 @@ async def test_slack():
     try:
         from shared.clients.slack_client import SlackClient
         client = SlackClient()
+        if not client.enabled:
+            reason = "no SLACK_BOT_TOKEN" if not client.bot_token else "SLACK_NOTIFICATIONS_ENABLED not set to true"
+            print(f"   ⚪ Slack: disabled ({reason}) — set both to test a live connection")
+            return True
         # Test by getting bot info
         response = client.client.auth_test()
         print(f"   ✅ Slack: Connected as @{response['user']}")

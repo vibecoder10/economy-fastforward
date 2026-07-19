@@ -6621,3 +6621,162 @@ touches no in-flight generation code).
 cloned ElevenLabs voice (explicit onboarding choice, stock default) and `SlackClient` becomes a no-op
 for SaaS tenant runs (tenant content must not post to Ryan's workspace). Then C34c, C35, C36,
 C37(Ryan).
+
+## C34b — S10-2/S10-3 fix: voice + Slack de-globalization (added 2026-07-19)
+
+Audit findings §S10-2/§S10-3 (docs/reports/2026-07-17-storyengine-agent-audit-findings.md, C34
+sweep). Both bugs share one root shape: SaaS-tenant-reachable legacy bot code
+(`skills/video-pipeline/voice/run.py`, `thumbnail/run.py`, `upload/run.py`, etc. — wired onto the
+`LightPipeline` shim in `pipeline_executor.py::_ensure_initialized`) reads/writes globals (an env var,
+a Slack bot token) that belong to Ryan's own single-tenant identity, with no per-tenant scoping at all.
+
+### S10-2 — the cross-tenant voice leak (the real bug, not just a bad default)
+
+`Models.VOICE_ID` (`pipeline_constants.py:415`) hardcoded Ryan's own ElevenLabs clone
+(`G17SuINrv2H9FC6nvetn`) as the literal fallback. Worse: `pipeline_executor.py::_ensure_initialized`
+had a `VOICE_CONFIG_KEYS` "restore process-level voice defaults" step (added by the DvsU 2026-07-07
+fix, meaning well — "don't drop a tenant's configured voice") that snapshotted
+`os.environ["ELEVENLABS_VOICE_ID"]` BEFORE clearing it and restored it whenever a tenant had no vault
+override. On the shared storyengine backend process, that snapshot is whatever identity's `.env`
+happens to be loaded — i.e. Ryan's own cloned voice — so **any SaaS tenant who skipped the voice step
+narrated in Ryan's actual cloned voice.** Confirmed by tracing `vault.get_secret`: with a `tenant_id`,
+it NEVER falls back to env vars (by design, security comment in `vault.py`) — so the leak could only
+be coming from this executor-level restore, not vault.
+
+**Fix, three parts:**
+1. `elevenlabs_voice_id` removed from `VOICE_CONFIG_KEYS` (now `("elevenlabs_model_id",
+   "elevenlabs_voice_style")` only — those two are non-identity engine-tuning knobs, kept
+   restore-eligible on purpose). `elevenlabs_voice_id` is still LOADED from vault into env (so a
+   tenant's own choice reaches `ElevenLabsClient`) — it just never gets the process-default restore.
+2. `_ensure_initialized`'s `ElevenLabsClient(...)` construction now passes `voice_id` EXPLICITLY:
+   `os.environ.get("ELEVENLABS_VOICE_ID") or STOCK_NARRATOR_VOICE_ID` — resolved fresh, per tenant, at
+   construction time. Deliberately bypasses `ElevenLabsClient.DEFAULT_VOICE_ID`/`Models.VOICE_ID`
+   entirely for this call site: those are evaluated ONCE at first import in this shared multi-tenant
+   process and would freeze in whichever identity's env happened to be set at that moment (a second,
+   subtler leak vector — closed by never relying on them here).
+3. `STOCK_NARRATOR_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"` (new module constant, `pipeline_executor.py`) —
+   ElevenLabs' own premade/stock "Rachel" voice, publicly documented, already used as the onboarding
+   placeholder example (`ApiKeysStep.tsx` `KEY_FORMAT_HINTS`). `Models.VOICE_ID`'s literal fallback
+   also changed to this same id, for hygiene (covers Ryan's own legacy cron pipeline — a separate
+   process/env — if IT ever runs with no `ELEVENLABS_VOICE_ID` set either).
+
+**Onboarding nudge already exists — no UI built this chunk.** `ApiKeysStep.tsx` already renders an
+`elevenlabs_voice_id` field ("Voice ID", unmasked, placeholder `21m00Tcm4TlvDq8ikWAM`) under the
+ElevenLabs provider card in onboarding, reachable again via Settings → API Keys
+(`app/settings/keys/page.tsx`). Follow-up (not this chunk): a friendlier voice-PICKER (browse/preview
+ElevenLabs voices) instead of a raw ID paste field — flagged, not built.
+
+**Ryan's own voice is preserved by**: his legacy single-tenant cron pipeline
+(`skills/video-pipeline/orchestrator/`, a completely separate process from the StoryEngine SaaS
+backend) reads `ELEVENLABS_VOICE_ID` directly from its OWN `.env` — untouched by any of this. For
+Ryan's *storyengine tenant* (if he uses the SaaS product himself) to keep his cloned voice there, he
+needs his own vault-set `elevenlabs_voice_id` (Settings → API Keys) — same mechanism as any tenant, no
+special-casing.
+
+### S10-3 — SlackClient posting tenant content into Ryan's retired channel
+
+`SlackClient` (`shared/clients/slack_client.py`) was "enabled whenever a bot token is present" — no
+per-tenant scoping, and reachable from SaaS runs via the same `LightPipeline` legacy-bot wiring
+(`voice/run.py`'s `notify_voice_start/done`, plus the two flagged sites in `thumbnail/run.py` and
+`upload/run.py`). Per operator decision (`tasks/decisions.md` 2026-07-19): Ryan retired the prototype
+channel (C0A9U1X8NSW) entirely — no per-tenant Slack integration is wanted.
+
+**Fix:** notifications are now OPT-IN, not opt-out. `SlackClient.__init__` requires BOTH a bot token
+AND `SLACK_NOTIFICATIONS_ENABLED=true` (new env var, default `"false"`) to enable — a token alone is no
+longer sufficient. This is a single change at the client's constructor, so it covers every
+instantiation site without a per-site audit needed for regressions; a FUTURE legacy stage added to
+SaaS reach is silent by default, not opt-out (the "can't regress" design the checklist asked for).
+
+**Every `SlackClient()` instantiation site, and its behavior now:**
+| Site | Process | Behavior now |
+|------|---------|-------------|
+| `storyengine/backend/pipeline_executor.py:6366` | SaaS backend (multi-tenant) | Silent — `storyengine/.env` must never set `SLACK_NOTIFICATIONS_ENABLED` |
+| `skills/video-pipeline/autopilot/autopilot.py:99` | Legacy cron | Silent unless `SLACK_NOTIFICATIONS_ENABLED=true` in that pipeline's own `.env` |
+| `render/render_video.py:464,537,547` | Legacy cron | Same |
+| `autopilot/monitoring/ctr_monitor.py:290` | Legacy cron | Same |
+| `analytics/performance_tracker.py:739` | Legacy cron | Same |
+| `analytics/osiris/performance_analyzer.py:550`, `title_analyzer.py:560`, `competitor_scraper.py:291` | Legacy cron (Osiris) | Same |
+| `competitor_scraper/run.py:84` | Legacy cron | Same |
+| `orchestrator/pipeline.py:103,1044` | Legacy cron (main orchestrator) | Same |
+| `orchestrator/pipeline_control.py:2897,2940,2988,3036,3345` | Legacy Slack bot process | Same — the Bolt `AsyncApp` itself still needs `SLACK_BOT_TOKEN` to start; these particular follow-up notifications now ALSO need the new flag |
+| `discovery/bot.py:153` | Legacy Slack bot process | Same |
+| `orchestrator/approval_watcher.py:316` | Legacy cron | Same |
+| `infra/test_connections.py:72` | Manual ops diagnostic | Updated to check `client.enabled` first and print a clear "disabled (…)" line instead of crashing on `client.client is None` |
+
+Per the checklist's explicit guidance ("if the ONLY consumers are cron jobs posting to a dead channel,
+prefer defaulting the whole client to disabled-unless-env-set... the cron side simply goes quiet
+(harmless)") — that is exactly what happens here: every legacy-cron site goes silent by default too,
+which matches Ryan's own stated intent ("I don't use ... the Slack channel anymore"), not just the
+SaaS-reachable ones. Re-enabling any of them is one env var away if he changes his mind (OPEN C37).
+
+### Verify
+
+**Non-vacuous via `git stash`:** stashed all 6 source-file changes (test file is untracked, unaffected
+by stash), re-ran the new test file against pre-fix code — 6 of 12 tests correctly FAIL (the voice
+stock-default, cross-tenant-leak-pin, `VOICE_CONFIG_KEYS` source pin, `STOCK_NARRATOR_VOICE_ID`
+constant, `pipeline_constants.py` literal, and Slack-disabled-by-default tests); 6 pass unchanged
+(tenant's-own-vault-voice, model/style-still-restore, and the three other Slack on/off combinations —
+proving those assertions describe pre-existing/orthogonal behavior, not tautologies). Popped clean,
+re-ran green (12/12).
+
+**12 new tests** —
+`tests/functional/test_c34b_voice_and_slack_tenant_isolation.py`: no-vault-voice-and-no-leaked-env
+gets the stock id; tenant's own vault voice wins; the cross-tenant-leak regression pin (simulates a
+leaked identity voice already sitting in process env, proves a no-override tenant never receives it,
+and that the env var isn't silently restored either); model/style tuning keys still restore from
+process default (scope check — only voice_id was removed); `VOICE_CONFIG_KEYS` source pin;
+`STOCK_NARRATOR_VOICE_ID` constant pin; `pipeline_constants.py` literal pin; four SlackClient
+enabled/disabled combinations (token-only, neither, both, flag-only); `notify()` is a true no-op when
+disabled (the actual call shape legacy bot code uses).
+
+**Full backend suite:** `./venv/bin/python -m pytest tests/ -q` → **1261 passed / 15 failed / 1
+error** (baseline 1249/15/1 + this chunk's 12 new tests, zero new failures — identical pre-existing
+failure/error names, none touching any file this chunk modified).
+
+**Autopilot suite** (touched: `pipeline_constants.py`, `slack_client.py`, `infra/test_connections.py`
+all live under `skills/video-pipeline`, imported by autopilot): `cd skills/video-pipeline && python3
+-m pytest autopilot/tests/ -q` → **146 passed / 0 failed**, unchanged.
+
+**Legacy `skills/video-pipeline/tests/` suite:** pre-existing environment-only failures/collection
+errors on this box (missing `_cffi_backend` for `cryptography`'s rust bindings under system Python,
+plus unrelated PIL/image-prompt-marker failures) — confirmed unrelated to this chunk's files (none of
+the failing tests reference `slack_client` or `pipeline_constants`'s voice constant; failure messages
+are about `16:9 aspect ratio`/`photorealistic` prompt markers and storyboard panel extraction, not
+Slack or voice). Not fixed here — pre-existing, out of scope.
+
+`python -m py_compile` clean on every touched/new file (`pipeline_executor.py`, `pipeline_constants.py`,
+`slack_client.py`, `infra/test_connections.py`, the new test file).
+
+**Frontend:** untouched — `git status --short storyengine/frontend/` empty. No `npx tsc --noEmit`
+needed; explicitly flagged, not silently skipped.
+
+**Live verification deferred** to `tasks/live-verification-queue.md` §C34b: an actual ElevenLabs
+listen-check (SaaS tenant with no configured voice really narrates as "Rachel," not Ryan's clone) and
+a live Slack-silence check (trigger a SaaS voice/thumbnail run with `SLACK_BOT_TOKEN` present in the
+storyengine backend's env and confirm nothing posts).
+
+### Modified/New Files (C34b)
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | New `STOCK_NARRATOR_VOICE_ID` constant; `VOICE_CONFIG_KEYS` narrowed to `(elevenlabs_model_id, elevenlabs_voice_style)`; `ElevenLabsClient(...)` construction now passes `voice_id` explicitly |
+| `skills/video-pipeline/orchestrator/pipeline_constants.py` | `Models.VOICE_ID` literal fallback changed from Ryan's clone id to the stock voice id |
+| `skills/video-pipeline/shared/clients/slack_client.py` | `SlackClient.__init__` now requires `SLACK_NOTIFICATIONS_ENABLED=true` in addition to a bot token to enable |
+| `skills/video-pipeline/infra/test_connections.py` | `test_slack()` checks `client.enabled` first, prints a clear disabled-reason line instead of an `AttributeError` |
+| `.env.example` | Documented `SLACK_NOTIFICATIONS_ENABLED` (default false); annotated Slack section as legacy-cron-only |
+| `docs/env-vars.md` | `ELEVENLABS_VOICE_ID` and `SLACK_BOT_TOKEN`/`SLACK_CHANNEL_ID` rows annotated legacy-cron-only; new `SLACK_NOTIFICATIONS_ENABLED` row |
+| `storyengine/backend/tests/functional/test_c34b_voice_and_slack_tenant_isolation.py` | NEW — 12 tests |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Ryan's own voice/Slack behavior is unaffected: his legacy cron pipeline reads `ELEVENLABS_VOICE_ID` and
+`SLACK_BOT_TOKEN` from its own separate `.env`, and this chunk doesn't touch that env or that process's
+control flow beyond the client-level opt-in flag (which he can set for himself if he wants his cron's
+Slack notifications back). The SaaS backend gets strictly safer behavior — a tenant with no configured
+voice now gets a neutral stock voice instead of a specific person's identity, and no tenant content can
+reach Ryan's workspace even if a stray bot token exists in that process's env. No paid path changed, no
+migration. Safe to ff-merge; no VPS coordination needed beyond the routine hourly `git pull --ff-only`.
+
+**Next up: C34c · thumbnail/title/category genericization** (S10-4/S10-5/S10-6) — niche-neutral
+thumbnail fallback (currently a geopolitical world map template), neutral system-prompt default in
+`title_generator.py` (currently hardcodes "Economy FastForward finance channel"), and persisting the
+already-computed YouTube category instead of always uploading category 27. Then C35, C36, C37(Ryan).
