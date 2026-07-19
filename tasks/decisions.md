@@ -396,3 +396,18 @@ the YouTube analytics, not a hardcoded system." Design law for C46e item 2 (and 
   and NEVER copied across channels or baked into code/prompts as universal truths.
 - The exclusion mechanism (keep a tagged pattern out of style-seed/few-shot sets) is generic
   capability; WHICH patterns get tagged is always that channel's data + that creator's confirmation.
+
+## 2026-07-19 — Pattern learning has TWO convergent entry points (Ryan, direct — the import caveat)
+Ryan: an imported channel arrives WITH YouTube analytics/history — "we will need to analyze the
+analytics and the patterns when we import a channel for those patterns to create a rule for that
+channel"; a ground-up channel learns "with every new video that launches"; and after import both
+apply — "we will obviously be launching new videos, so those videos will also teach the system.
+New patterns as the channel grows with our platform." Design law:
+- ONE per-channel pattern store, ONE evidence+confirm flow (per the OR-6 expansion), TWO triggers:
+  (a) IMPORT-TIME bulk analysis — part of the P4.1 learn_channel ingestion: analyze the imported
+  channel_videos' analytics history and PROPOSE the channel's initial patterns in the DNA digest;
+  (b) PER-LAUNCH incremental — each new platform-published video's analytics feed ongoing proposals
+  (the P4.2 flywheel's job).
+- Imported baseline + incremental learning COMPOSE: patterns keep evolving post-import; nothing is
+  frozen at import day; confirmed rules can be superseded by newer evidence (proposal to retire a
+  pattern is also evidence-backed + confirmed).
