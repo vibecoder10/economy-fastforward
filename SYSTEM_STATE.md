@@ -8260,3 +8260,176 @@ call against a real weak/strong script, confirming the judge still discriminates
 Next: **C46b · per-channel rules store** (new table modeled on the QL/QD row shape + `shared/profiles/
 script`'s typed schema; replaces the `script_templates.structure` stopgap `rules_text` source above with
 the real thing).
+
+## C46b — Per-channel quality-rules store with scope-aware resolution (added 2026-07-19)
+
+Builds the real rules table C46a's `rules_text` seam stubbed out. Traced the two named artifacts first:
+`storyengine/notes/dvsu-quality-law.md` (74 QL/QD laws, each row `id | law (testable) | evidence | Triangle
+B/R/G | severity` — the row shape to steal, minus the B/R/G legs which this chunk's `[D]` spec didn't ask
+to store) and `shared/profiles/script/schema.py`'s typed `ValidationConfig`/`RetentionConfig` dataclasses
+(confirmed a distinct axis — that schema is a channel's WRITER-facing voice config, this table is
+GRADER-facing law rows; no overlap, no refactor needed).
+
+**New `quality_rules` table (migration 105, applied LIVE via Supabase MCP against
+`wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`):** `tenant_id`, `rule_id` text (e.g.
+"QL-12"), `law` text, `evidence` text nullable, `severity` (`hard_gate`|`warn`|`guidance`), `applies_to`
+jsonb (default `{"all": true}`), `source` (`doc_upload`|`chat`|`seed`), `active` bool, created/updated.
+`UNIQUE (tenant_id, rule_id)`. RLS enabled, no policies (same deny-all-to-anon pattern as
+`agent_tokens`/`mcp_confirm_tokens`).
+
+**`applies_to` vocabulary (Ryan's 2026-07-19 scoping requirement: resolved from DATA the video already
+carries, never LLM judgment about which gates apply — full rationale in the migration's own header
+comment, mirrored in `quality_rules.py`'s module docstring):**
+
+| Key | Matches when | Video column(s) read |
+|---|---|---|
+| `"all": true` | always | none — universal |
+| `"research": true` | research stage actually ran (not skipped) | `videos.research_skipped` (false/NULL = ran) + `videos.pipeline_stages` (the workflow plan; NULL = full pipeline = research included, else must be a plan member) via `status_map.stage_enabled_in_plan` |
+| `"story": true` | narrative/documentary-arc laws (twist, punch, act spine) | `videos.render_mode == 'static_docu'` — the one render_mode this signal set can identify as arc-driven today; extend the resolver's `resolve_video_shape()`, not its contract, as more arc-driven formats land |
+| `"animated": true` | | `videos.render_style == 'animated'` |
+| `"realistic": true` | | `videos.render_style == 'realistic'` |
+| `"channel_format": "<value>"` | STRING-valued, case-insensitive match | a `channel_format_value` the CALLER supplies (forward-compatible stub — `channel_rules.py` does no `channel_profiles` lookup of its own this chunk; a rule scoped this way simply never matches until a caller starts passing the value; pipeline_executor's call site doesn't pass one yet, an honest scope-boundary, not a bug) |
+
+A rule matches if ANY key resolves true (OR across keys — a hybrid research+story video, e.g. DvsU's
+`static_docu` render_mode with research not skipped, collects BOTH scopes' rules). An unrecognized
+applies_to key is logged and skipped, never crashes; a rule with only unrecognized keys never matches
+any video (fails closed on garbage scope, confirmed by `caplog`-asserting the exact warning fires).
+
+**Scope-resolution quote** (`quality_rules.py`):
+```python
+def resolve_video_shape(video_row: dict) -> dict:
+    video_row = video_row or {}
+    return {
+        "all": True,
+        "research": _research_active(video_row),
+        "story": (video_row.get("render_mode") or "") == "static_docu",
+        "animated": (video_row.get("render_style") or "") == "animated",
+        "realistic": (video_row.get("render_style") or "") == "realistic",
+    }
+```
+`active_rules_for_video(video_row, rules)` is a PURE function (no DB) — `pipeline_executor.py` fetches the
+tenant's active rule rows itself (via its own already-patched `fetch_all`, matching
+`tests/test_c46a_quality_critic_wiring.py`'s established fake-DB convention) and hands them in, rather
+than `quality_rules.py` opening a second, separately-mockable DB surface for the same table — this is
+what let the existing C46a wiring test (`test_sources_rules_text_from_script_templates_structure`) keep
+passing byte-for-byte unmodified against the new code path.
+
+**Severity reaches the critic's blocking logic (minimal, justified extension to `script_quality.py`):**
+C46a's `CritiqueResult`/`run_critique_and_edit` gained an optional `severity_by_rule: Optional[Dict[str,
+str]]` parameter (default `None` — byte-identical when omitted). New `script_quality._apply_rule_severity`
+deterministically upgrades a judge's own `verdict: "pass"` to `"revise"` whenever a FAILED `rule_verdict`
+names a rule tagged `hard_gate` in that map — severity is an authored fact about the rule, not something
+the grading call's own holistic verdict should be trusted alone to encode. `warn`/`guidance` failures
+never force a verdict change (informational only, still surfaced via `violations`). `compose_rules_text`
+formats each rule as `[<rule_id>] [<SEVERITY>] <law> (why: <evidence>)`, hard-gate first, and instructs
+the judge to echo the exact bracketed id back in `rule_verdicts[].rule` so the severity map can match it
+after grading. Proven end-to-end (not just at the `script_quality` unit level): a hard-gate rule the
+judge under-called as "pass" still reaches `run_critique_and_edit`'s bounded edit loop inside
+`pipeline_executor._grade_and_maybe_revise_script`
+(`test_hard_gate_rule_failure_reaches_the_bounded_edit_loop` — 3 Claude calls: grade(forced-revise) →
+edit → re-grade(pass), scene rows actually persisted).
+
+**`pipeline_executor.py` rewiring:** `_grade_and_maybe_revise_script`'s `rules_text` seam now sources from
+`quality_rules.active_rules_for_video` + `compose_rules_text` FIRST, with `script_templates.structure`
+(the channel's house FORMAT prose — a distinct, still-useful signal: quality_rules answers "what must
+this script clear," script_templates answers "what shape should this script take") kept as an ADDITIONAL
+appended block under a `--- CHANNEL HOUSE FORMAT ---` header, never dropped. When no quality_rules rows
+exist yet AND no script_templates row exists, `rules_text` stays exactly `""` — confirmed
+byte-compatible with pre-C46b/pre-C46a behavior (`test_empty_quality_rules_and_no_template_is_byte_
+compatible_with_c46a`).
+
+**Ingestion doors (two doors law):**
+1. **Chat op `draft_quality_rules`** (`routes/chat.py`, mirrors C22's `draft_style` confirm pattern
+   exactly): value `{"asset_id": ...}` (reuses the C05 `chat_assets.parsed_text` path) or `{"text": ...}`.
+   Calls `quality_rules.parse_rules_document` — NEVER writes a row, only stashes
+   `state["pending_quality_rules_draft"]`. A `quality_rules_draft` preview card (rule count + hard-gate/
+   warn/guidance split + a 3-rule preview) is attached ONLY when this turn's ops genuinely included the
+   op AND a real draft was stashed (never manufactured from the LLM's own words). `chat_turn`'s dispatch
+   intercepts the card's "yes"/"no" tap at step 3.6a — BEFORE the normal producer-intake turn — and
+   `_handle_quality_rules_draft_confirm` is the ONLY place `quality_rules.bulk_create_rules` gets called
+   from chat, gated strictly on an explicit `"yes"`. Producer taught the vocabulary in both the prose
+   guidance and the JSON schema's `profile_ops` example list (same lock C22 used for `draft_style`/
+   `use_style`, proven by a source-string assertion on `PRODUCER_SYSTEM_PROMPT`).
+2. **Thin CRUD route** (`routes/quality_rules.py`, registered in `main.py`): `GET/POST/PATCH/DELETE
+   /api/quality-rules[/{id}]`, tenant-scoped via `Depends(get_tenant_id)`, every write going through
+   `quality_rules.py`'s CRUD functions (never a second implementation) — for C47's MCP pickup and a
+   future settings UI (no UI this chunk, per spec).
+
+**Parser (`quality_rules.py`):** `parse_markdown_table` is a DETERMINISTIC, zero-cost regex/pipe-table
+splitter that round-trips `dvsu-quality-law.md`'s own row shape (`| ID | Law | Evidence | Triangle | Sev
+|`) exactly — tried FIRST by `parse_rules_document`, dropping the Triangle (B/R/G) column (not part of
+this chunk's stored row shape). `llm_parse_rules_prose` is the ONE Claude-call fallback for a rules doc
+that isn't table-shaped (plain prose/bullets) — only reached when the table parser finds zero rows,
+proven by a test whose fallback client raises `AssertionError` if ever called against table input.
+`suggest_applies_to` is a zero-cost keyword heuristic (research/story keyword lists) that proposes a
+DEFAULT scope at ingestion time only — explicitly documented as distinct from, never a substitute for,
+`active_rules_for_video`'s runtime resolution (which reads video data, never a law's wording) — the human
+sees and can edit the suggestion on the confirm card before anything saves.
+
+**Not this chunk (explicit scope boundaries):** DvsU's 74 laws are NOT seeded here — C46c does that
+deliberately as the reference-tenant proof. No gate-behavior changes beyond feeding the existing critic
+real rules (C46c lands the hard-gate replacements for `_validate_machine_story_sentences`). No settings
+UI for the CRUD route. `channel_format` scope key has no live data source yet (documented stub).
+
+### Verification
+
+61 new tests: `storyengine/backend/tests/test_quality_rules.py` (39, pure-module — scope matrix incl. the
+research/story/hybrid/unknown-key/channel_format cases, `compose_rules_text` severity tagging + ordering,
+`script_quality._apply_rule_severity` unit + one full `critique_script()` end-to-end call proving the
+upgrade fires, `parse_markdown_table` round-tripping a REAL excerpt copied verbatim from
+`dvsu-quality-law.md` incl. header/separator-row skipping and Triangle-column drop, `suggest_applies_to`'s
+keyword heuristic, `llm_parse_rules_prose` incl. fail-open-to-empty-list, `parse_rules_document`'s
+table-first/LLM-fallback precedence, and every CRUD function against a fake tenant-scoped DB) +
+`storyengine/backend/tests/functional/test_c46b_quality_rules_wiring.py` (22, wiring — real
+`quality_rules` DB rows scope-matched into a real `_grade_and_maybe_revise_script` call incl. the
+hybrid-video and out-of-scope-exclusion cases, house-format-kept-additional, the empty-rules
+byte-compatibility pin, the hard-gate-reaches-the-edit-loop end-to-end proof, the full chat draft →
+card → confirm → `bulk_create_rules` flow incl. the "no" discard and CRUD-raises fail-soft paths, the
+`chat_turn` source-lock intercept assertion, producer-prompt vocabulary, and all 4 CRUD route functions
+tenant-scoped). Non-vacuous via `git stash push` on the 6 tracked modified files (`main.py`,
+`pipeline_executor.py`, `producer_prompt.py`, `routes/chat.py`, `script_quality.py`, `schema.sql`) +
+temporarily moving aside the 2 new modules (`quality_rules.py`, `routes/quality_rules.py`) — both new
+test files fail to collect (`ModuleNotFoundError`) against pre-chunk code, confirming they exercise the
+new modules, not vacuously pass. `python -m py_compile` clean on all 8 touched/new backend `.py` files.
+Full backend suite **1511P/15F/1E** = baseline (1450P/15F/1E) + exactly 61, identical 15 pre-existing
+failure names/1 error (all unrelated — YouTube OAuth/oembed, discovery error-surfacing, activity-feed,
+clip-dialogue ffmpeg — none touch chat/pipeline_executor/script_quality/quality_rules), zero new
+failures.
+
+### Modified/New Files (C46b)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/migrations/105_quality_rules.sql` | NEW — the table + applies_to vocabulary doc, applied LIVE |
+| `storyengine/schema.sql` | `quality_rules` table appended (canonical schema mirror) |
+| `storyengine/backend/quality_rules.py` | NEW — pure scope resolver + CRUD + ingestion parser |
+| `storyengine/backend/routes/quality_rules.py` | NEW — thin tenant-scoped CRUD route |
+| `storyengine/backend/main.py` | registers `quality_rules.router` |
+| `storyengine/backend/script_quality.py` | `critique_script`/`run_critique_and_edit` gain optional `severity_by_rule`; new `_apply_rule_severity` |
+| `storyengine/backend/pipeline_executor.py` | `_grade_and_maybe_revise_script`'s rules_text seam re-pointed to `quality_rules`, `script_templates.structure` kept as an additional block |
+| `storyengine/backend/routes/chat.py` | new `draft_quality_rules` op, `_quality_rules_draft_card`, `_maybe_attach_quality_rules_draft_card`, `_handle_quality_rules_draft_confirm`, dispatch intercept at 3.6a |
+| `storyengine/backend/producer_prompt.py` | teaches `draft_quality_rules` (prose + `profile_ops` schema example) |
+| `storyengine/backend/tests/test_quality_rules.py` | NEW — 39 tests |
+| `storyengine/backend/tests/functional/test_c46b_quality_rules_wiring.py` | NEW — 22 tests |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate, not yet ff-merged by this chunk** (leaving that call to the orchestrator
+per protocol) — new migration (additive table, no existing-table ALTER, zero risk to any current query),
+new route (dark until a caller exists — no frontend calls it yet), new chat op (dormant until the
+producer LLM actually emits `draft_quality_rules`, which needs a real chat turn to exercise — the
+prompt-vocabulary tests only pin that the words are TAUGHT, not that a live model reliably emits them).
+The one real behavior change on the hot path: `_grade_and_maybe_revise_script`'s `rules_text` composition
+changed shape — byte-compatible today (zero `quality_rules` rows exist for any tenant yet, confirmed via
+the live Supabase check above showing the fresh table has 0 rows), so this ships inert until either a
+chat upload or a manual CRUD POST puts a row in. Frontend untouched — confirmed via `git status` on
+`storyengine/frontend`, no `tsc`/`build` run needed.
+
+**Deferred to `tasks/live-verification-queue.md` §C46b:** real doc-upload → parse → confirm-card → save
+round trip (incl. the dvsu-quality-law.md doc itself), the prose-fallback LLM parser against a real
+model, and a real grading call proving scope-matched rules actually change judge behavior.
+
+Next: **C46c · DvsU deltas as reference implementation** — seed DvsU's 74 laws (Section 3's DELTAS +
+already-ruled Section 4 items) as the first TABLE-DRIVEN gates via this chunk's `bulk_create_rules`/
+`source="seed"`, replacing the hardcoded `_validate_machine_story_sentences` constants with reads from
+this table. Proves the engine generalizes beyond one tenant's stopgap.

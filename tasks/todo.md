@@ -319,6 +319,59 @@
   channel rules store** (new table modeled on the QL/QD row shape + `shared/profiles/script`'s typed
   schema — replaces this chunk's `script_templates.structure` stopgap `rules_text` source with the real
   thing).
+- **Also done:** C46b · per-channel quality-rules store with scope-aware resolution — DONE 2026-07-19,
+  full detail in SYSTEM_STATE.md §C46b. New `quality_rules` table (migration 105, applied LIVE via
+  Supabase MCP against `wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`, 0 rows today):
+  `tenant_id`/`rule_id`/`law`/`evidence`/`severity` (hard_gate|warn|guidance)/`applies_to` jsonb/`source`
+  (doc_upload|chat|seed)/`active`, `UNIQUE(tenant_id, rule_id)`, RLS enabled no policies. **`applies_to`
+  vocabulary** (Ryan's 2026-07-19 scoping requirement — resolved from DATA the video carries, never LLM
+  judgment about which gates apply): `all` (universal), `research` (from `videos.research_skipped` +
+  `pipeline_stages` workflow plan), `story` (from `render_mode == 'static_docu'`, the one signal that
+  identifies a narrative-arc format today), `animated`/`realistic` (from `render_style`), `channel_format`
+  (string-valued, forward-compatible stub — no live data source plumbed yet, documented boundary). A rule
+  matches if ANY key resolves true (OR); a hybrid research+story video (e.g. DvsU) collects BOTH scopes'
+  rules; an unrecognized key is logged+skipped, never matches, never crashes. `quality_rules.py`'s
+  `active_rules_for_video`/`resolve_video_shape`/`rule_matches`/`compose_rules_text` are PURE (no DB) —
+  `pipeline_executor.py` fetches rule rows itself via its own already-patched `fetch_all` (matching
+  `test_c46a_quality_critic_wiring.py`'s fake-DB convention) rather than a second, separately-mockable DB
+  surface, which is exactly what let C46a's existing wiring test keep passing unmodified against the new
+  code path. **Severity reaches the critic's blocking logic**: `script_quality.critique_script`/
+  `run_critique_and_edit` gained an optional `severity_by_rule` map (default `None`, byte-compatible); new
+  `_apply_rule_severity` deterministically upgrades a judge's own `"pass"` to `"revise"` when a FAILED
+  rule_verdict names a `hard_gate` rule — proven end-to-end through `pipeline_executor`'s real wiring (3
+  Claude calls: forced-revise grade → edit → re-grade pass, scenes actually persisted), not just at the
+  script_quality unit level. `_grade_and_maybe_revise_script`'s `rules_text` seam now sources from
+  `quality_rules` FIRST, with `script_templates.structure` (the house FORMAT, a distinct signal from a
+  graded LAW) kept as an ADDITIONAL block, never dropped — empty-both case stays byte-identical `""`.
+  **Two ingestion doors:** (1) chat op `draft_quality_rules` (mirrors C22's `draft_style` confirm pattern
+  exactly — stash-only, a preview card, `_handle_quality_rules_draft_confirm` is the ONLY place a row can
+  be created from chat, gated on an explicit "yes"; producer taught the vocabulary in prose + the
+  `profile_ops` JSON schema example); (2) thin CRUD route `routes/quality_rules.py`
+  (`GET/POST/PATCH/DELETE /api/quality-rules[/{id}]`, tenant-scoped, registered in `main.py`) for C47's
+  MCP pickup + a future settings UI, no UI this chunk. **Parser:** `parse_markdown_table` is a
+  deterministic, zero-cost pipe-table splitter that round-trips `dvsu-quality-law.md`'s own row shape
+  exactly (tried first); `llm_parse_rules_prose` is the one-Claude-call fallback for non-tabular docs
+  (only reached when the table parser finds zero rows, proven by a forbidden-call assertion);
+  `suggest_applies_to` is a zero-cost keyword-heuristic DEFAULT scope proposed at ingestion time only —
+  explicitly distinct from, never a substitute for, the runtime resolver. **Not this chunk:** DvsU's 74
+  laws are NOT seeded (C46c's job, deliberately, as the reference-tenant proof); no gate-behavior changes
+  beyond feeding the existing critic real rules; no settings UI. VERIFIED: 61 new tests
+  (`test_quality_rules.py` ×39 pure-module, `test_c46b_quality_rules_wiring.py` ×22 wiring) — non-vacuous
+  via `git stash push` on the 6 tracked modified files + temporarily moving aside the 2 new modules (both
+  new test files fail to collect, `ModuleNotFoundError`, against pre-chunk code). `python -m py_compile`
+  clean on all 8 touched/new files. Full backend suite **1511P/15F/1E** = baseline(1450P/15F/1E) +
+  exactly 61, identical 15 pre-existing failure names/1 error (all unrelated — YouTube OAuth/oembed,
+  discovery, activity-feed, clip-dialogue ffmpeg), zero new failures. Frontend untouched — confirmed via
+  `git status`, no `tsc`/`build` run needed (no UI this chunk, per spec). Checklist §C46b ticked.
+  **Deploy-safety: recommend ff-merge candidate, not yet ff-merged by this chunk** (left to the
+  orchestrator) — additive migration (new table, zero risk to any existing query), new route (dark, no
+  frontend caller yet), new chat op (dormant until the producer LLM actually emits it live — a real chat
+  round-trip is queued, not proven here). The one hot-path change (`rules_text` composition) ships inert
+  today since the live `quality_rules` table has 0 rows for every tenant (confirmed via Supabase MCP).
+  Live doc-upload round-trip, prose-fallback-parser-against-a-real-model, and scope-matched-rules-change-
+  real-grading checks deferred → `tasks/live-verification-queue.md` §C46b. **Next: C46c · DvsU deltas as
+  reference implementation** — seed the 74 laws via this chunk's `bulk_create_rules`/`source="seed"`,
+  replacing `_validate_machine_story_sentences`'s hardcoded constants with reads from this table.
 - **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 

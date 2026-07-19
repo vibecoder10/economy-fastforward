@@ -10966,10 +10966,13 @@ class PipelineExecutor:
             no hold_status because grading runs BEFORE it advances status -
             the caller just checks this method's return value first.
 
-        rules_text seam (C46b lands the real per-channel rules table): wires
-        this tenant's script_templates.structure (the channel's own house
-        script format, already used by routes/script_templates.py to steer
-        the WRITER) as the cheapest EXISTING per-tenant rules-ish text.
+        rules_text seam (C46b): sourced from this tenant's active
+        `quality_rules` rows, scope-matched against THIS video's own shape
+        (research/story/render_style — see quality_rules.resolve_video_shape)
+        via quality_rules.active_rules_for_video, severity-tagged by
+        quality_rules.compose_rules_text. script_templates.structure (the
+        channel's house SCRIPT FORMAT, distinct from a graded law) is kept
+        as an additional appended block, not dropped.
 
         Returns {} when grading itself could not run at all (no script, no
         client) - falsy, so a caller/test that ignores the return value keeps
@@ -11000,16 +11003,52 @@ class PipelineExecutor:
             except Exception:
                 niche = ""
 
+            # C46b: the real per-channel rules table replaces C46a's
+            # script_templates.structure-only stopgap. Scope-matched
+            # deterministically against THIS video's own shape data (never
+            # LLM judgment about which gates apply — Ryan's 2026-07-19
+            # ruling) via quality_rules.active_rules_for_video, using this
+            # method's OWN already-patched fetch_all (see
+            # tests/test_c46a_quality_critic_wiring.py's fake-DB convention)
+            # rather than quality_rules.py opening a second DB surface.
+            import quality_rules
+
             rules_text = ""
+            severity_by_rule: dict = {}
+            try:
+                rule_rows = await fetch_all(
+                    "SELECT rule_id, law, evidence, severity, applies_to "
+                    "FROM quality_rules WHERE tenant_id = $1 AND active",
+                    self.tenant_id,
+                )
+                matched = quality_rules.active_rules_for_video(video, rule_rows or [])
+                rules_text, severity_by_rule = quality_rules.compose_rules_text(matched)
+            except Exception:
+                rules_text, severity_by_rule = "", {}
+
+            # script_templates.structure is the channel's house FORMAT prose
+            # (hook shape, segment order, pacing) — a distinct, still-useful
+            # signal from the LAW/gate rows above, so it's kept as an
+            # ADDITIONAL block rather than dropped: quality_rules answers
+            # "what must this script clear", script_templates answers "what
+            # shape should this script take". Byte-compatible with C46a's
+            # own wiring test when no quality_rules rows exist yet (empty
+            # rules_text + this block == exactly the old rules_text).
             try:
                 tpl = await fetch_one(
                     "SELECT structure FROM script_templates WHERE tenant_id = $1 AND is_default "
                     "ORDER BY created_at DESC LIMIT 1",
                     self.tenant_id,
                 )
-                rules_text = (tpl or {}).get("structure") or ""
+                house_format = (tpl or {}).get("structure") or ""
+                if house_format:
+                    rules_text = (
+                        house_format if not rules_text
+                        else rules_text + "\n\n--- CHANNEL HOUSE FORMAT (structural convention, not a graded law) ---\n"
+                        + house_format
+                    )
             except Exception:
-                rules_text = ""
+                pass
 
             scene_rows = await fetch_all(
                 "SELECT scene, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
@@ -11045,6 +11084,7 @@ class PipelineExecutor:
                 title=video.get("video_title"),
                 hook=video.get("executive_hook") or video.get("hook_script"),
                 rules_text=rules_text,
+                severity_by_rule=severity_by_rule,
                 regenerate=_regenerate_scenes if regenerate is not None else None,
             )
 

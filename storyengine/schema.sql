@@ -1734,3 +1734,35 @@ CREATE TABLE IF NOT EXISTS youtube_quota_usage (
 ALTER TABLE youtube_quota_usage ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+-- =============================================================================
+-- QUALITY_RULES (migration 105 — checklist C46b, per-channel quality-rules store)
+-- =============================================================================
+-- The real per-channel rules table C46a's `rules_text` seam was a stopgap for
+-- (script_templates.structure). Discrete, severity-tagged LAW rows modeled on
+-- storyengine/notes/dvsu-quality-law.md's QL/QD row shape, scoped per-video
+-- via `applies_to`. Full applies_to vocabulary + scope-resolution rationale
+-- documented in migrations/105_quality_rules.sql's header (read it before
+-- touching this table) and implemented in backend/quality_rules.py's
+-- `active_rules_for_video()`.
+CREATE TABLE IF NOT EXISTS quality_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  rule_id TEXT NOT NULL,
+  law TEXT NOT NULL,
+  evidence TEXT,
+  severity TEXT NOT NULL CHECK (severity IN ('hard_gate', 'warn', 'guidance')),
+  applies_to JSONB NOT NULL DEFAULT '{"all": true}'::jsonb,
+  source TEXT NOT NULL CHECK (source IN ('doc_upload', 'chat', 'seed')),
+  active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, rule_id)
+);
+
+CREATE INDEX IF NOT EXISTS quality_rules_tenant_active_idx
+  ON quality_rules (tenant_id, active);
+
+ALTER TABLE quality_rules ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

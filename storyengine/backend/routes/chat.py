@@ -2369,6 +2369,51 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     continue
                 state["pending_style_draft"] = {"name": name, "look": look}
                 results.append(f'Here\'s the style I\'ve drafted — "{name}": {look}')
+            elif kind == "draft_quality_rules":
+                # value: {"asset_id": "<chat_assets id>"} | {"text": "..."}.
+                # NEVER writes a row — parses candidate rules and stashes the
+                # draft for the creator's own confirm tap (checklist §C46b,
+                # same "no rows until confirmed" pattern draft_style uses
+                # above). See _handle_quality_rules_draft_confirm for the
+                # ONLY place quality_rules rows actually get created from chat.
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                text_body = str(raw.get("text") or "").strip()
+                asset_id = str(raw.get("asset_id") or "").strip() or None
+                if not text_body and asset_id:
+                    arow = await fetch_one(
+                        "SELECT parsed_text FROM chat_assets WHERE id = $1 AND tenant_id = $2",
+                        asset_id, tenant_id,
+                    )
+                    text_body = ((arow or {}).get("parsed_text") or "").strip()
+                if not text_body:
+                    results.append(
+                        "I couldn't read any quality-rules text — paste them here, or "
+                        "drop in the document again?"
+                    )
+                    continue
+                import quality_rules as _quality_rules
+                parse_client = None
+                try:
+                    parse_client = await _resolve_producer_client(tenant_id)
+                except Exception:
+                    parse_client = None
+                rows = await _quality_rules.parse_rules_document(text_body, client=parse_client)
+                if not rows:
+                    results.append(
+                        "I couldn't find any testable rules in that — a numbered/bulleted list of "
+                        "\"always/never\" style rules works best, or the table format from a doc "
+                        "like dvsu-quality-law.md."
+                    )
+                    continue
+                state["pending_quality_rules_draft"] = {"rows": rows, "asset_id": asset_id}
+                hard = sum(1 for r in rows if r.get("severity") == "hard_gate")
+                warn = sum(1 for r in rows if r.get("severity") == "warn")
+                guidance = sum(1 for r in rows if r.get("severity") == "guidance")
+                results.append(
+                    f"Found {len(rows)} rule{'s' if len(rows) != 1 else ''} "
+                    f"({hard} hard-gate, {warn} warn, {guidance} guidance) — "
+                    "tap to save them to your channel's quality rules."
+                )
             elif kind == "use_style":
                 # value: the saved style's name (or a close match to it). Switches
                 # the tenant's ACTIVE visual_styles row — same activate semantics
@@ -2541,6 +2586,101 @@ async def _handle_style_draft_confirm(selections, conversation_id, tenant_id, tr
     return await _reply(
         f'Saved — "{style.name}" is in your styles now. Find it on the Profile page under Visual '
         f'Styles, or just say "use {style.name}" any time to build with it or make it your default look.'
+    )
+
+
+def _quality_rules_draft_card(draft: dict) -> dict[str, Any]:
+    """The quality-rules draft preview/confirm card (checklist §C46b) — same
+    yes/no confirm shape as _style_draft_card, never a route that writes
+    without this explicit tap."""
+    rows = draft.get("rows") or []
+    hard = sum(1 for r in rows if r.get("severity") == "hard_gate")
+    warn = sum(1 for r in rows if r.get("severity") == "warn")
+    guidance = sum(1 for r in rows if r.get("severity") == "guidance")
+    preview = "; ".join(f"{r.get('rule_id')}: {r.get('law')}" for r in rows[:3])
+    if len(rows) > 3:
+        preview += f"; +{len(rows) - 3} more"
+    return {
+        "id": "quality_rules_draft",
+        "label": f"{len(rows)} quality rule{'s' if len(rows) != 1 else ''} found",
+        "type": "single",
+        "body": f"{hard} hard-gate, {warn} warn, {guidance} guidance. {preview}",
+        "options": [
+            {"value": "yes", "label": "Save these rules"},
+            {"value": "no", "label": "Not quite — let's tweak it"},
+        ],
+    }
+
+
+def _maybe_attach_quality_rules_draft_card(data: dict, state: dict) -> None:
+    """After a turn whose ops included draft_quality_rules, attach the
+    preview card the creator taps to actually save the parsed rules —
+    deterministic mirror of _maybe_attach_style_draft_card: a card only ever
+    appears when THIS turn's ops genuinely included the op AND a real draft
+    was stashed, never manufactured from the LLM's own words alone."""
+    ops = data.get("profile_ops") if isinstance(data.get("profile_ops"), list) else []
+    for alt_key in ("queue_ops", "file_ops", "asset_ops"):
+        alt = data.get(alt_key)
+        if isinstance(alt, list):
+            ops = ops + alt
+    if not any(isinstance(o, dict) and o.get("op") == "draft_quality_rules" for o in ops):
+        return
+    draft = state.get("pending_quality_rules_draft")
+    if not draft or not draft.get("rows"):
+        return
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        cards = []
+    cards.append(_quality_rules_draft_card(draft))
+    data["cards"] = cards
+
+
+async def _handle_quality_rules_draft_confirm(
+    selections, conversation_id, tenant_id, transcript, state
+) -> ChatTurnResponse:
+    """Turn 2 of the quality-rules ingestion door (checklist §C46b): the
+    creator's tap on the quality_rules_draft preview card. Deterministic,
+    NOT routed back through the producer LLM — rows can ONLY be created
+    here (or via the CRUD route, routes/quality_rules.py), and ONLY on an
+    explicit "yes"."""
+    draft = state.pop("pending_quality_rules_draft", None)
+
+    async def _reply(text: str) -> ChatTurnResponse:
+        transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+
+    if not draft or not draft.get("rows"):
+        return await _reply(
+            "I don't have a quality-rules draft waiting — paste or upload the rules again and I'll parse them."
+        )
+    if selections.get("quality_rules_draft") != "yes":
+        return await _reply(
+            "No problem — didn't save those. Paste the rules again (or say what to change) and I'll re-parse them."
+        )
+
+    import quality_rules as _quality_rules
+    try:
+        saved = await _quality_rules.bulk_create_rules(tenant_id, draft["rows"], source="doc_upload")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: quality_rules_draft confirm failed to save: %s", e)
+        return await _reply("I hit a snag saving those rules — mind trying again?")
+
+    asset_id = draft.get("asset_id")
+    if asset_id:
+        try:
+            await execute(
+                "UPDATE chat_assets SET status = 'filed', filed_as = 'quality_rules' "
+                "WHERE id = $1 AND tenant_id = $2",
+                asset_id, tenant_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: failed to mark quality-rules asset filed: %s", e)
+
+    return await _reply(
+        f"Saved — {len(saved)} quality rule{'s' if len(saved) != 1 else ''} are locked into your "
+        "channel now. Every script I grade from here on checks against them. Drop in an updated "
+        "doc any time to edit or add more."
     )
 
 
@@ -3340,6 +3480,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, None)
     _maybe_attach_style_draft_card(data, state)
+    _maybe_attach_quality_rules_draft_card(data, state)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -4286,6 +4427,13 @@ async def chat_turn(
             body.selections, conversation_id, tenant_id, transcript, state
         )
 
+    # 3.6a Quality-rules draft confirm — turn 2 of "here are my quality rules"
+    #      (checklist §C46b). Same deterministic, no-LLM-call discipline as 3.6.
+    if body.selections and "quality_rules_draft" in body.selections and state.get("pending_quality_rules_draft"):
+        return await _handle_quality_rules_draft_confirm(
+            body.selections, conversation_id, tenant_id, transcript, state
+        )
+
     # 3.6b Channel-DNA digest card actions (checklist C42) — keep/revert/correct
     #      taps on the digest card. Same source-lock discipline as 3.6 above:
     #      deterministic, runs BEFORE producer intake, only fires when a digest
@@ -4432,6 +4580,7 @@ async def chat_turn(
     await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
     _maybe_attach_style_draft_card(data, state)
+    _maybe_attach_quality_rules_draft_card(data, state)
     transcript.append(_assistant_turn(data))
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None

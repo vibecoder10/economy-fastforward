@@ -153,12 +153,40 @@ def _rules_addendum(rules_text: str) -> str:
     )
 
 
+def _apply_rule_severity(
+    result: CritiqueResult, severity_by_rule: Optional[Dict[str, str]]
+) -> CritiqueResult:
+    """Deterministic enforcement (checklist C46b): a rule's severity is an
+    authored fact set when the rule was created/parsed, not something the
+    grading call's own holistic verdict should be trusted alone to encode.
+    If ANY failed rule_verdict names a rule tagged ``hard_gate`` in
+    ``severity_by_rule``, the result must be at least 'revise' even when the
+    judge itself returned 'pass' overall - this is what lets
+    ``run_critique_and_edit``'s existing bounded edit loop (which only runs
+    on ``verdict == "revise"``) actually engage for a hard-gate failure the
+    judge under-called. 'warn'/'guidance' failures never force a verdict
+    change on their own - they still surface via rule_verdicts/violations
+    either way, informationally. No-op when severity_by_rule is empty/None
+    (byte-identical to pre-C46b behavior for any caller that doesn't pass
+    per-rule severity)."""
+    if not severity_by_rule:
+        return result
+    hard_failed = any(
+        not rv.passed and severity_by_rule.get(rv.rule) == "hard_gate"
+        for rv in result.rule_verdicts
+    )
+    if hard_failed and result.verdict == "pass":
+        result.verdict = "revise"
+    return result
+
+
 async def critique_script(
     tenant_id: str,
     video_id: str,
     script_payload: Dict[str, Any],
     *,
     rules_text: Optional[str] = None,
+    severity_by_rule: Optional[Dict[str, str]] = None,
     client: Any = None,
 ) -> CritiqueResult:
     """Grade a freshly generated script (one Claude call). Lifts
@@ -168,6 +196,13 @@ async def critique_script(
     ``script_payload`` is a dict with at least ``script``, optionally
     ``title``, ``hook``, ``niche`` - identical contract to
     ``originality.grade_script``'s ``draft``.
+
+    ``severity_by_rule`` (checklist C46b, ``quality_rules.compose_rules_text``'s
+    second return value): an optional ``{rule_id: severity}`` map used to
+    deterministically upgrade a 'pass' verdict to 'revise' when a hard-gate
+    rule failed but the judge's own holistic verdict missed it - see
+    ``_apply_rule_severity``. Ignored when ``rules_text`` carries no rule
+    ids the judge could echo back.
 
     ``client`` is any object with an async
     ``generate(prompt, system_prompt, max_tokens, temperature) -> str``
@@ -192,7 +227,8 @@ async def critique_script(
             max_tokens=900 if text_rules else 700,
             temperature=0.3,  # low, for stable gate decisions
         )
-        return CritiqueResult(**json.loads(_extract_json(raw)))
+        result = CritiqueResult(**json.loads(_extract_json(raw)))
+        return _apply_rule_severity(result, severity_by_rule)
     except Exception:
         print(
             f"[script_quality] critique failed open for {str(video_id)[:8]} "
@@ -299,6 +335,7 @@ async def run_critique_and_edit(
     title: Optional[str] = None,
     hook: Optional[str] = None,
     rules_text: Optional[str] = None,
+    severity_by_rule: Optional[Dict[str, str]] = None,
     regenerate: Optional[Callable[[], Any]] = None,
     max_edit_rounds: int = MAX_EDIT_ROUNDS,
 ) -> Dict[str, Any]:
@@ -330,7 +367,8 @@ async def run_critique_and_edit(
     async def _grade() -> CritiqueResult:
         payload = {"niche": niche, "title": title, "hook": hook, "script": _full_text(current)}
         return await critique_script(
-            tenant_id, video_id, payload, rules_text=rules_text, client=client,
+            tenant_id, video_id, payload, rules_text=rules_text,
+            severity_by_rule=severity_by_rule, client=client,
         )
 
     grade = await _grade()

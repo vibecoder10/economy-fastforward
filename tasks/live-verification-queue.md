@@ -2459,6 +2459,44 @@ the generalized `@@@SCENE n@@@` edit loop produces a sane targeted edit against 
 
 ---
 
+## C46b — per-channel quality-rules store · live rules-upload round-trip check
+
+Everything this chunk touches was proven at unit level only (61 tests, SYSTEM_STATE.md §C46b) — a fake
+parser client, fake DB rows, fake chat state. No live check has confirmed the doc-upload → parse →
+confirm-card → save round trip against a REAL uploaded document, nor that the composed `rules_text`
+actually changes a real Claude judge's grading behavior.
+
+- [ ] **Real doc upload + parse.** On a tenant with a live Anthropic/Kie key, drop the real
+      `storyengine/notes/dvsu-quality-law.md` (or an excerpt) into chat as a file attachment, say
+      "here are my quality rules," and confirm: the file's `chat_assets.parsed_text` round-trips
+      through `quality_rules.parse_markdown_table` (should hit the deterministic table path, zero LLM
+      cost) into the expected rule count/severities, the draft card shows the right hard-gate/warn/
+      guidance split, and NO `quality_rules` row exists yet (query `quality_rules` table — should be
+      empty for this tenant until the confirm tap).
+- [ ] **Confirm tap actually saves.** Tap "Save these rules" on the card; confirm the exact parsed rows
+      landed in `quality_rules` (`rule_id`/`law`/`severity`/`applies_to` match what the card showed), and
+      that `chat_assets.filed_as = 'quality_rules'` was set on the source file.
+- [ ] **Prose fallback.** Paste a few "always/never"-style rules as plain prose (not a table) and confirm
+      the LLM fallback parser (`llm_parse_rules_prose`) produces sane rows — this is the one code path
+      unit tests could only fake-client-test, never confirm against a real model's JSON discipline.
+- [ ] **Scope resolution changes real grading.** With a hard-gate rule saved and scoped to `{"all": true}`,
+      generate (or re-grade) a real script that deliberately violates it (e.g. a banned hype word) and
+      confirm `script_validation.quality_critic.violations` names that rule — and that a script on a
+      DIFFERENT scope (e.g. a rule scoped `{"story": true}` on a non-`static_docu` video) is correctly
+      absent from the judge's system prompt (`docs/failure-modes.md`-style spot check via VPS logs, not
+      just the DB row).
+- [ ] **CRUD route smoke test.** `GET /api/quality-rules`, `POST /api/quality-rules`, `PATCH
+      /api/quality-rules/{id}` against a real tenant token — confirm tenant isolation (a second tenant's
+      token never sees the first tenant's rules).
+- **Cost:** the deterministic table parser is free; the prose fallback and the rules-augmented script
+  grading pass are the only paid calls here — same class as C46a's already-queued grading spend, no new
+  cost category.
+- **Safety net:** parsing/ingestion never writes without an explicit confirm tap (proven at unit level);
+  scope resolution fails closed on a garbage/unknown key (logged, never matches, never crashes); grading
+  itself stays fail-open per script_quality.py's existing contract.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:
