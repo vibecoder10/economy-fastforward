@@ -228,10 +228,54 @@
   (a real chat correction changing the NEXT real script/research/thumbnail generation) deferred to
   `tasks/live-verification-queue.md` §C44. Deploy-safe both directions, additive-only — ff-merge
   candidate.
-  **Next up: C45 · P4.1f onboarding hookup + intelligence-report retirement** — the P4.1 closer: wire
-  onboarding to call C41's `learn_channel` orchestrator; retire the dead-end `_build_intelligence_report`
-  gracefully (live routes need a deprecation plan, not a silent delete).
-- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 UNDERWAY (2026-07-19):** P4.1 scouted + chunked C40-C45 (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) queued from C37 answers; next chunk = C45 (C40-C44 done).
+- **Also done:** C45 · P4.1f onboarding hookup + intelligence-report retirement — the P4.1 closer,
+  DONE 2026-07-19, full detail in SYSTEM_STATE.md §C45. Traced the LIVE onboarding surface first (not
+  the stale docstring): `/onboarding` now
+  redirects to the chat-driven flow at `/` (the multi-step form only survives behind
+  `?manual=1`, and its own STEPS array doesn't even render a competitors/intelligence step) —
+  `routes/chat.py`'s `_handle_onboarding` step machine is the one real caller of
+  `routes.onboarding.connect_youtube`/`analyze_competitors`, and it already fires-and-forgets every
+  background step (never "waits" on anything) — so the smallest-change hook point is
+  `connect_youtube` itself, not a new step. Added `_import_then_learn` (one background task:
+  import, THEN `channel_dna.learn_channel(tenant_id)` in own-channel mode — no `channel_url`, since
+  the import already seeded `channel_videos` and passing one would make learn_channel's own
+  optional import step re-scrape the same channel a second time), gated by a new
+  `_has_usable_generation_key` check computed BEFORE scheduling — a keyless tenant gets zero
+  background tasks and a `dna_learning: "needs_key"` response field instead of a doomed task;
+  `connect_youtube` reports `"started"`/`"needs_key"` so `_handle_onboarding`'s "channel" step ack
+  either states the ~$0.10-0.30 cost or shows a non-blocking "add a key" hint (C04 precedent —
+  onboarding always advances to "competitors" regardless). Digest surfacing: rather than invent a
+  new wait-then-show step (nothing else in this flow waits either), `_finish_onboarding` — the
+  existing end-of-flow moment that already folds in competitor results — now also checks
+  `channel_dna.is_learning`/`channel_identity["_last_run"]` and appends the SAME C42
+  `_build_dna_digest_card` card the "show the channel digest" chat intent renders (one digest, both
+  surfaces, no second renderer), or a "still learning, ask me in a bit" note if the background pass
+  hasn't finished yet, or nothing at all if no channel was ever connected. Retirement: grepped every
+  frontend surface (chat + manual form + api.ts) and found ZERO callers of
+  `/api/onboarding/intelligence-report*` anywhere — the live flow was already using
+  `_propose_modeling_angles`/`_generate_competitor_ideas` before this chunk, so there was no
+  frontend step left to re-point. The 3 routes now return `410 Gone` pointing at Channel DNA
+  (matching this repo's existing 410-retirement convention, e.g. `routes/pipeline.py`);
+  `_build_intelligence_report` + `_fallback_intelligence_report` + `_parse_report_json` +
+  `_run_intelligence_report_job` + the `_report_jobs` dict + the unused `IntelligenceReportRequest`
+  model are DELETED outright (not left unreachable) — grep-proofed zero remaining callers.
+  `intelligence_reports` (DB table) is untouched, retired-in-place, no drop migration — same for
+  `content_intelligence` (a DIFFERENT, actively-used table the original brief's parenthetical
+  conflated with `intelligence_reports`; confirmed by grep it's read by `/api/intelligence/*`,
+  distillation, discovery, autopilot, dashboard — correctly left alone). 19 new tests in
+  `test_c45_onboarding_dna_hookup.py`, non-vacuous via the pre-C45 baseline commit (`8b44187`) swapped
+  in for `routes/onboarding.py`/`routes/chat.py` since a parallel docs commit on this branch had
+  already folded part of this chunk's onboarding.py diff into history mid-session (`git stash` would
+  have been distorted) — 18/19 fail against that baseline. Full backend suite **1415P/15F/1E** =
+  baseline(1396)+19, zero new failures, identical 15 failure names/1 error. `py_compile` clean on
+  all touched modules. Frontend untouched (no re-pointing needed, per the grep above) — `npx tsc
+  --noEmit` clean regardless. No migration, no schema change, no new route (only 410s on 3 existing
+  ones). Deploy-safe, additive-only on the live path — ff-merge candidate. Live verification (fresh
+  tenant → onboard → channel learned → digest → produce, closing the whole P4.1 arc's acceptance
+  test) deferred to `tasks/live-verification-queue.md` §C45.
+  **P4.1 COMPLETE (C40-C45, 2026-07-19).** Next: either C46 (quality-rules engine, awaiting Ryan's
+  yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
+- **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 
 ## Handoff — 2026-07-17 (Higgsfield teardown + full build plan COMPLETE → next session BUILDS)

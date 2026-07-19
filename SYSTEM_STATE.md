@@ -8023,3 +8023,131 @@ prompt sent to Claude. No paid key in this sandbox to run that live.
 onboarding to call C41's `learn_channel` orchestrator instead of its own dead-end path; retire
 `_build_intelligence_report` gracefully (it has live routes — needs a deprecation plan, not a silent
 delete).
+
+## C45 — P4.1f onboarding hookup + intelligence-report retirement — the P4.1 closer (added 2026-07-19)
+
+Sixth and final build chunk of Phase 4 Pillar 1. Two halves: wire onboarding into C41's
+`learn_channel` orchestrator, and gracefully retire onboarding's dead-end 4th intelligence pipeline
+(`_build_intelligence_report`) the P4.1 scout flagged. **P4.1 (C40-C45) is now COMPLETE.**
+
+### Tracing the LIVE onboarding surface first (the surprise this chunk turned up)
+
+`routes/onboarding.py`'s own module docstring described a "5-step onboarding flow" ending in an
+INTELLIGENCE step — but `storyengine/frontend/src/app/onboarding/page.tsx` no longer renders that flow
+by default: `/onboarding` redirects straight to `/` (the chat-driven onboarding), and the multi-step
+form (`OnboardingContent`, still reachable at `/onboarding?manual=1`) has its own `STEPS` array —
+`channel, keys, youtube, style, video` — which never even had a competitors/intelligence step in the
+UI. Grepping the ENTIRE frontend (`api.ts`, every `.tsx`) for any call to
+`/api/onboarding/intelligence-report*` returned zero hits. The real, live onboarding is
+`routes/chat.py`'s `_handle_onboarding` step machine (`intent → key → key_claude → goals/channel →
+channel → competitors → connect_yt → connect_drive → upsell → modeling/done`), which calls
+`routes.onboarding.connect_youtube`/`analyze_competitors` directly (not over HTTP) and — critically —
+NEVER calls `_build_intelligence_report`. Its `_finish_onboarding` already gets competitor-driven
+recommendations from a DIFFERENT, newer mechanism (`_propose_modeling_angles`/
+`_generate_competitor_ideas`), which superseded the intelligence-report path before this chunk even
+started. This reframed both halves of the task: the "hookup" point is `connect_youtube` (the one real
+call site), not a new onboarding step; the "retirement" is pure backend cleanup with no frontend
+re-pointing needed, because nothing ever pointed at it.
+
+### Half 1 — onboarding hookup
+
+`routes.onboarding.connect_youtube` used to fire-and-forget `_import_channel_videos` as its only
+background task. It now schedules ONE task, `_import_then_learn(tenant_id, channel_url, channel_name,
+learn)`: awaits the import (unchanged), then — if `learn` is true — calls
+`channel_dna.learn_channel(tenant_id)` with **no** `channel_url` ("own-channel mode"): learn_channel's
+own optional step-1 import is skipped, since the import just above already seeded `channel_videos`;
+passing the URL again would make learn_channel re-scrape the same channel via yt-dlp a second time.
+`learn` is decided by a new `_has_usable_generation_key(tenant_id)` (sibling check to
+`routes.chat._has_generation_key` — same two vault slots, duplicated rather than imported to avoid a
+chat.py↔onboarding.py import cycle) computed BEFORE scheduling: a keyless tenant gets **zero**
+background tasks scheduled for this (not a task destined to fail for free) and `connect_youtube`'s
+response carries `"dna_learning": "needs_key"` instead of `"started"`.
+
+`routes/chat.py`'s `_handle_onboarding` "channel" step reads that field and extends its existing ack:
+cost-honest ("~$0.10-0.30 of your API budget") when DNA learning actually started, or a non-blocking
+"add a generation key (Settings → Keys)" hint when it didn't — either way the step still advances to
+"competitors" (never blocks onboarding on a missing key, the C04 precedent). Claim safety is entirely
+inherited from C41: a second `learn_channel` call for the same tenant (e.g. a "learn this channel" chat
+ask fired moments later) is refused as busy by `generation_claims.acquire_channel`, not raced.
+
+**Digest surface — chosen, not both offered.** The task allowed two designs: a dedicated
+"learning…then show the card" onboarding step, or delivering the digest as the first home-chat
+message. Rejected the first because nothing else in this flow waits either — every background step
+(competitor analysis, connect_youtube's import) already fires-and-forgets, so inventing a wait state
+here would be the ONE place in the flow that behaves differently. Instead extended
+`_finish_onboarding` — the existing end-of-flow moment that already reaches back for competitor
+results (`_propose_modeling_angles`) — with a new `_finish_onboarding_dna_note(tenant_id)`: reads
+`channel_profiles.channel_identity`, and (a) returns `("", None)` if no channel was ever connected
+(`_last_run` absent — nothing to report), (b) a "still learning, ask me in a bit" text note with no
+card if `channel_dna.is_learning` is still true, or (c) a text note PLUS the exact same
+`_build_dna_digest_card(identity, run, preferences)` C42's "show the channel digest" chat intent
+renders — one digest, both surfaces, no second card-shape to maintain. The card is appended to
+whichever cards list the finishing turn already has (the modeling-angle selection card, or nothing in
+the no-competitor-data fallback) — proven safe because the frontend already renders `cards` as a list
+(`ChatCore.tsx`'s `cards.map(...)`), not a single card, so two unrelated cards on one turn is an
+existing, not a new, pattern.
+
+### Half 2 — intelligence-report retirement (graceful)
+
+Confirmed via grep that `intelligence_reports` (the table `_build_intelligence_report` writes) has
+exactly ONE referencing file in the whole backend — `routes/onboarding.py` itself — versus
+`content_intelligence` (a similarly-named but DIFFERENT table, populated by
+`distillation/pipeline.py` and read by `routes/intelligence.py`, `routes/discovery.py`,
+`routes/autopilot.py`, `routes/dashboard.py`, the analytics page's `getIntelligenceStats`/
+`getIntelligenceRecommendations` etc.) — the chunk brief's parenthetical calling out
+"`content_intelligence` nobody reads" conflated the two; `content_intelligence` is very much alive and
+was NOT touched. `intelligence_reports` is the genuinely dead-end table.
+
+The three routes (`POST /intelligence-report`, `GET /intelligence-report/status/{job_id}`,
+`GET /intelligence-report`) now `raise HTTPException(410, ...)` pointing at Channel DNA as the
+replacement — mirroring this repo's own existing retirement convention (`routes/pipeline.py`'s several
+410 stubs) rather than inventing a new deprecation shape. A shape-preserving thin-proxy to the DNA
+digest was considered and rejected: the two response shapes (`title_ideas`/`thumbnail_insights`/... vs.
+`learners`/`fields`/provenance) don't align cheaply, and with zero live callers there's no real client
+to keep happy with a translated shape — an honest 410 is simpler and more discoverable. Unlike
+`routes/pipeline.py`'s precedent (which leaves the old body sitting unreachable below the raise),
+`_build_intelligence_report`, `_fallback_intelligence_report`, `_parse_report_json`, and
+`_run_intelligence_report_job` are DELETED outright — the checklist's own explicit ask ("delete dead
+helpers with grep-proofs"), consistent with this repo's "no commented-out/dead code" rule. The
+`_report_jobs` in-memory dict and the never-actually-used `IntelligenceReportRequest` Pydantic model
+went with them. `intelligence_reports` (the table) is untouched — no drop migration, retired-in-place;
+the `/status` endpoint's historical `SELECT id FROM intelligence_reports ...` existence check (for a
+tenant who generated one under the old flow) is left alone, since it's a read of pre-existing data, not
+part of the retired write path.
+
+### Verification
+
+19 new tests in `storyengine/backend/tests/functional/test_c45_onboarding_dna_hookup.py`. Non-vacuous:
+a parallel docs commit on this branch (`9ac1fbb`) accidentally folded part of this chunk's
+`routes/onboarding.py` diff into history mid-session (a `git add -A` swept up in-progress edits), which
+would have distorted a plain `git stash` proof — instead swapped `git show 8b44187:...` (the pre-C45
+baseline commit, C44's tip) into `routes/onboarding.py` and `routes/chat.py`, ran the new suite (18/19
+fail against that baseline — only the grep-based "no remaining callers" proof trivially passes since
+the old file predates the new helper names), then restored the current files and confirmed `git diff
+--stat` matched exactly. Full backend suite **1415P/15F/1E** = baseline(1396)+19, zero new failures,
+identical 15 failure names/1 error. `py_compile` clean on every touched module. Frontend untouched (no
+re-pointing needed — confirmed zero pre-existing callers); `npx tsc --noEmit` clean regardless. No
+migration, no schema change, no new route (3 existing routes now 410).
+
+### Modified/New Files (C45)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/onboarding.py` | Module docstring rewritten (reflects the chat-driven flow, documents the retirement); `connect_youtube` now schedules `_import_then_learn` (new) instead of bare `_import_channel_videos`, gated by new `_has_usable_generation_key`; response gains `dna_learning`; `_build_intelligence_report`/`_fallback_intelligence_report`/`_parse_report_json`/`_run_intelligence_report_job`/`_report_jobs`/`IntelligenceReportRequest` DELETED; the 3 intelligence-report routes now raise `HTTPException(410, ...)` |
+| `storyengine/backend/routes/chat.py` | `_handle_onboarding`'s "channel" step ack extended per `dna_learning`; NEW `_finish_onboarding_dna_note`; `_finish_onboarding` appends the DNA note/card to both its exit paths |
+| `storyengine/backend/tests/functional/test_c45_onboarding_dna_hookup.py` | NEW — 19 tests |
+
+### Deploy-safety assessment
+
+No migration, no schema change, no new route (only 410s replacing live-but-uncalled bodies on 3
+existing ones). `connect_youtube`'s new behavior is additive for every existing caller — the response
+gains a field (`dna_learning`), nothing removed; a keyless tenant's behavior is unchanged apart from
+that new field (still imports, still returns 200). Safe to ff-merge.
+
+**Deferred to `tasks/live-verification-queue.md` §C45:** the live acceptance test that closes the
+WHOLE P4.1 arc — a fresh tenant onboards, connects a real channel, the Channel-DNA learn pass actually
+runs and produces a digest, and that digest visibly informs the next real production. No paid key in
+this sandbox to run that live.
+
+**P4.1 (C40-C45) COMPLETE.** Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2
+(tenant-autopilot scouting) — the orchestrator decides.

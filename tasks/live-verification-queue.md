@@ -2384,6 +2384,47 @@ with monkeypatched DB reads. SYSTEM_STATE.md §C44.
 
 ---
 
+## C45 — onboarding hookup + intelligence-report retirement · live checks (P4.1 arc closer)
+
+Everything this chunk touches was proven at unit level only (19 tests, SYSTEM_STATE.md §C45) with
+monkeypatched DB/vault/`channel_dna` — no live Claude call, no live Firecrawl scrape, no real chat
+onboarding run yet. This is the acceptance test for the WHOLE P4.1 arc (C40-C45): a fresh tenant
+onboards, connects a real channel, gets learned, and sees the digest.
+
+- [ ] **Fresh tenant, full onboarding, real channel.** Create (or reuse) a tenant with zero
+      `channel_profiles` row. In the home chat, run the onboarding flow through the "channel" step
+      with a real public YouTube channel URL. Confirm: (a) the ack states the ~$0.10-0.30 cost (this
+      tenant must already have a Kie/Anthropic key from the earlier "key" step — expected, since the
+      flow gates on one before reaching "channel"); (b) a minute or two later, `se db "SELECT
+      channel_identity FROM channel_profiles WHERE tenant_id='<id>'"` shows a real `_last_run` with
+      `identity_builder` learned (not the empty/skeleton shape); (c) `channel_videos` for that tenant
+      has real rows (proving the import step actually ran before `_import_then_learn`'s learn_channel
+      call, not concurrently with it).
+- [ ] **Digest lands at the end of onboarding.** Continue the same onboarding session through
+      competitors/connect_yt/connect_drive/upsell to the finishing turn. If the DNA learn pass
+      finished by then, confirm the finishing turn's `cards` list includes a `channel_dna_digest` card
+      (same shape "show the channel digest" renders) ALONGSIDE the modeling-angle card (or alone, in
+      the no-competitor-data fallback) — proving two unrelated cards render correctly on one turn. If
+      it's still running, confirm the finishing text says "still learning... ask me in a bit" instead.
+- [ ] **Keyless path never blocks.** With a tenant that has never configured ANY generation key,
+      attempt the "channel" step directly via `POST /api/onboarding/connect-youtube` (bypassing the
+      chat flow's earlier key gate, to actually exercise the defensive check). Confirm: (a) the
+      response has `"dna_learning": "needs_key"`, `"status": "ok"`; (b) `channel_videos` still gained
+      rows (the import ran); (c) `generation_claims` gained NO new "dna"-stage row (learn_channel was
+      never scheduled at all, not scheduled-then-failed).
+- [ ] **Retired routes respond honestly.** `curl -X POST .../api/onboarding/intelligence-report`
+      (and the two GET variants) on any tenant — confirm all three return HTTP 410 with a detail
+      message naming Channel DNA / `learn_channel` as the replacement, not a 404/500 or a silent 200.
+- **Cost:** per SYSTEM_STATE.md §C41/§C42's estimate, roughly $0.05-$0.30 in Claude calls (tenant's own
+  BYOK key) for the DNA learn pass triggered by connect-youtube — same spend category already
+  live-verification-queued under §C41/§C42, not a new one. Get a cost quote/go-ahead per
+  storyengine/CLAUDE.md's money rule before running the full onboarding checks above on a real (not
+  throwaway) tenant.
+- **Safety net:** every learner inside `learn_channel` is individually fail-soft (see §C41/§C42's own
+  safety-net note) — a bad run here degrades to a partial digest, never a broken onboarding flow.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

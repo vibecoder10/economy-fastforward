@@ -3379,6 +3379,40 @@ async def _present_ideas_turn(conversation_id, tenant_id, transcript, state, ide
     return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
 
 
+async def _finish_onboarding_dna_note(tenant_id) -> tuple[str, Optional[dict]]:
+    """C45 (P4.1f): surface the Channel-DNA learn pass the "channel" step
+    kicked off, right at this natural end-of-flow moment — the same spot
+    competitor results already get folded in just above. Reuses C42's exact
+    `_build_dna_digest_card` builder so onboarding and the "show the channel
+    digest" chat intent render the IDENTICAL card — one digest, both
+    surfaces, no second renderer to keep in sync.
+
+    Returns (note_text, card_or_None). Both empty when no channel was ever
+    connected (channel step was skipped, or connect_youtube failed) — there's
+    nothing to report. `note_text` is a suffix to append to whichever
+    message this turn already shows; `card` (when not None) is meant to be
+    appended to that same turn's `cards` list."""
+    row = await fetch_one(
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1", str(tenant_id),
+    )
+    ident = _as_dict((row or {}).get("channel_identity"))
+    run = ident.get("_last_run") if isinstance(ident.get("_last_run"), dict) else None
+    if not run:
+        return "", None
+
+    from channel_dna import is_learning as _dna_is_learning
+    if await _dna_is_learning(str(tenant_id)):
+        return (
+            "\n\n🧬 Still learning your channel's voice, hooks, and structure in the background — "
+            "say **\"show the channel digest\"** in a bit and I'll lay out everything.",
+            None,
+        )
+
+    preferences = await _list_preferences(tenant_id, video_id=None)
+    card = _build_dna_digest_card(ident, run, preferences)
+    return "\n\n🧬 I also learned your channel's voice, hooks, and structure — see below.", card
+
+
 async def _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks):
     """Mark onboarding done, then help the creator MODEL their competitors: summarize
     the winning format and propose concrete ways to make it their OWN niche. They
@@ -3389,6 +3423,8 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
         await complete_onboarding(tenant_id=tenant_id)
     except Exception as e:  # noqa: BLE001
         logger.warning("onboarding: complete failed: %s", e)
+
+    dna_note, dna_card = await _finish_onboarding_dna_note(tenant_id)
 
     angles = await _propose_modeling_angles(tenant_id, state)
     if angles and angles.get("angles"):
@@ -3402,13 +3438,15 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
             + (angles.get("format_summary") or "strong, repeatable hooks")
             + "\n\nThere are a few ways to make this **your own** — pick a direction (or just type the niche "
             "you want to own):\n\n" + "\n".join(lines)
+            + dna_note
         )
         opts = [
             {"value": str(i), "label": (x.get("label") or "Angle")[:60], "hint": (x.get("description") or "")[:140]}
             for i, x in enumerate(a)
         ]
         card = {"id": "modeling_angle", "label": "How do you want to model it?", "type": "single", "options": opts}
-        return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
+        cards = [card, dna_card] if dna_card else [card]
+        return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=cards)
 
     # No recent competitor data yet — hand off honestly (never "ask me").
     state["mode"] = "producer"
@@ -3417,10 +3455,12 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
         "You're all set! 🎉 I pulled your competitor channel(s), but couldn't find enough of their "
         "recent videos to model from yet — they may still be importing. Paste another channel under "
         "Competitors, or just tell me what you'd like to make and I'll run with it."
+        + dna_note
     )
-    fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
+    cards = [dna_card] if dna_card else None
+    fresh = [_assistant_turn({"assistant_text": text, "phase": "asking", "cards": cards})]
     await _persist(conversation_id, tenant_id, fresh, state, "asking")
-    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking", cards=cards)
 
 
 async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state, background_tasks):
@@ -3556,6 +3596,22 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
                 res = await connect_youtube(YouTubeConnect(channel_url=msg), background_tasks, tenant_id=tenant_id)
                 state["channel"] = (res or {}).get("channel_name") or msg
                 ack = f"Connected **{state['channel']}** — I'll study it in the background. "
+                # C45: connect_youtube schedules the C41 Channel-DNA learn pass
+                # right after the import (own-channel mode) and tells us via
+                # `dna_learning` whether it actually fired — money-honest ack
+                # when it did, a non-blocking "add a key" hint when it didn't
+                # (C04 precedent: never block onboarding on a missing key).
+                dna_status = (res or {}).get("dna_learning")
+                if dna_status == "started":
+                    ack += (
+                        "I'll also learn its voice, hooks, and structure (~$0.10-0.30 of your API "
+                        "budget) — say “show the channel digest” once it's done. "
+                    )
+                elif dna_status == "needs_key":
+                    ack += (
+                        "Add a generation key (Settings → Keys) and I can also learn its voice "
+                        "and structure automatically. "
+                    )
             except Exception as e:  # noqa: BLE001
                 logger.warning("onboarding: connect_youtube failed: %s", e)
                 ack = "I couldn't read that channel just now, but no worries — we can add it later. "
