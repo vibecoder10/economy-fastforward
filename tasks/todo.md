@@ -67,7 +67,7 @@
   via `git stash` of the 3 modified writer files (3 of the 19 fail against pre-C40 code, the other 16
   pass unaffected — confirmed live). Full suite 1319P/15F/1E = baseline(1300P)+19, zero new failures.
   `py_compile` clean. Frontend untouched (backend-only diff). Not committed as its own commit yet at
-  time of this note — see git log for the actual C40 commit. ff-merge candidate (additive JSONB shape
+  time of this note — see git log for the actual C40 commit. ff-merged to main (orchestrator verdict — zero live callers = zero regression surface; migration 104 verified idempotent AND applied live via MCP by the orchestrator, video_id nullable confirmed) (additive JSONB shape
   change, all writers' public return values unchanged, no migration to apply).
 - **Also done:** C41 · P4.1b unified Channel-DNA ingestion orchestrator — DONE 2026-07-19, full detail
   in SYSTEM_STATE.md §C41. New `storyengine/backend/channel_dna.py::learn_channel(tenant_id, *,
