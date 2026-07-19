@@ -3689,3 +3689,112 @@ run). Live click-through (draft → tick 3 scenes → finalize → confirm
 savings-line numbers match the ledger) deferred to `tasks/live-
 verification-queue.md` §C18 — needs a live DB + paid API session, not
 available in the sandbox.
+
+## C16e — Upload Re-Publish Guard (added 2026-07-19)
+
+**Problem (found by C16d's S7-9 resumability pass, docs/failure-modes.md's
+"Per-Stage Resumability" table): `PipelineExecutor.run_upload` had NO
+re-invoke guard at all** — unlike voice/sound/clips/images/thumbnail (all
+skip-if-done by now), every call unconditionally ran either the per-tenant
+native upload path (`youtube_publish.upload_video_to_youtube`) or the legacy
+from-scratch bot. A second invocation (a routine status-machine resume, an
+arq retry, a chat "upload it" double-tap, claude_orchestrator's skill
+dispatch re-firing) minted a genuine SECOND YouTube draft — recoverable
+(delete it in Studio) but messy, and burns ~1,600 of the 10,000/day YouTube
+API quota units for nothing.
+
+**Fix — mirrors C16d's `run_thumbnail` guard exactly, at the executor layer:**
+
+1. `PipelineExecutor.run_upload(video_id, force: bool = False)` now checks
+   `videos.youtube_url` OR `videos.youtube_video_id` right after fetching the
+   video — either column being non-blank skips the entire method (both the
+   native path's `channel_profiles` lookup and the legacy bot) and returns
+   `{"status": "completed", "skipped": True, "youtube_url": ..., "youtube_video_id": ...}`
+   plus an activity-log line, with `force=True` the only bypass. Every real
+   caller (the autobuild finish chain via `run_next_step`'s `"rendered":
+   self.run_upload` mapping, the arq/queue stage runner, `claude_
+   orchestrator.py`'s skill dispatch, the manual `POST /upload/{video_id}`
+   route, and the chat "upload" verb via `actions.make_action_step`) passes
+   nothing and gets the skip-if-done default — no caller sets `force=True`
+   yet (see the new `?force=true` route param below, added for a future
+   genuinely-new-upload affordance).
+
+2. `routes/pipeline.py`'s `POST /upload/{video_id}` gains `force: bool =
+   False`, threaded to `executor.run_upload(video_id, force=force)` AND to
+   `_enqueue_or_fallback(..., force=force)` (which already forwards
+   `**stage_kwargs` to the arq path generically, unchanged since C16d).
+   `worker.py`'s `arq_run_upload` gains the matching `force: bool = False`
+   parameter, forwarded to `_run_stage`.
+
+3. **Deliberate design DIFFERENCE from C16d's thumbnail verb** (which always
+   forces): the chat "upload" verb does NOT force. New shared helper
+   `actions.already_uploaded_reply(tenant_id, video_id)` returns a friendly
+   message naming the existing YouTube URL (or id, if only that's set) when
+   the video is already uploaded, or `None` otherwise. `routes/chat.py::
+   _run_pending_action`'s "upload" branch calls this BEFORE claiming a
+   `generation_claims` lane or scheduling any `background_tasks` — a
+   double-tap on an already-uploaded video gets the friendly reply
+   immediately and starts nothing (no wasted claim, no wasted task).
+   **Justification:** unlike "redo the thumbnail" (unambiguous — there is no
+   other way to say "regenerate" in this codebase, so C16d always forces),
+   an explicit "upload it"/"publish" chat turn on an already-uploaded video
+   is much more likely to be an accidental repeat (the same request re-sent,
+   or the autobuild finish chain having just uploaded it moments earlier)
+   than genuine intent to mint a second draft — and a duplicate draft is
+   real, non-refundable quota burn, not just a redundant $0 API call. The
+   executor's own `force=` guard (checked independently on every call,
+   regardless of caller) is the actual money/quota-safety backstop; the chat
+   short-circuit only keeps the reply honest instead of scheduling a task
+   that would silently skip. A genuinely-new upload stays possible via the
+   route's `force=true` (not yet wired to any chat verb or UI control this
+   chunk — noted as a follow-up, since `UploadTab.tsx`'s "Upload to YouTube"
+   button already disables itself once `youtubeUrl` exists, so there's no
+   existing UI hook to force from).
+
+**Invariant achieved:** a double-tap (any caller, any door) can never mint a
+second YouTube draft; a deliberate re-upload stays possible via
+`?force=true` on the manual route.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c16e_upload_skip_if_done.py` | 11 tests across 3 layers: executor guard (skip on url-set/id-set/force-bypass/blank-string/video-not-found, upload client asserted NOT called when skipped), `actions.already_uploaded_reply` (None/url-named/id-fallback), `chat._run_pending_action`'s upload branch (double-tap → no dispatch + friendly reply; not-yet-uploaded → normal claim+schedule) |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/pipeline_executor.py` | `run_upload` gains `force: bool = False` + the skip-if-done guard (checks `youtube_url`/`youtube_video_id` before the channel_profiles lookup) |
+| `storyengine/backend/actions.py` | New `already_uploaded_reply(tenant_id, video_id)` helper |
+| `storyengine/backend/routes/chat.py` | Imports `already_uploaded_reply`; `_run_pending_action`'s "upload" branch checks it before claiming a lane/scheduling |
+| `storyengine/backend/routes/pipeline.py` | `POST /upload/{video_id}` gains `force: bool = False` query param, threaded to the executor call and `_enqueue_or_fallback` |
+| `storyengine/backend/worker.py` | `arq_run_upload` gains `force: bool = False`, threaded through `_run_stage` |
+
+**Deploy-safety assessment:** ff-merge candidate. Purely additive: a new
+optional `force` parameter (default `False`, preserving today's behavior
+shape apart from now correctly refusing a duplicate draft) on `run_upload`/
+the manual route/the arq handler; a new standalone helper function; one new
+early-return branch in `_run_pending_action` that only fires for `verb ==
+"upload"`. No column/schema change (youtube_video_id/youtube_url already
+existed), no frontend change, no existing caller's signature broken (all new
+params have defaults). Old frontend + new backend: byte-identical behavior
+except a genuine safety improvement (no more accidental duplicate drafts).
+Frontend untouched this chunk — no UI hook for `force=true` yet; noted as a
+follow-up (a "Re-upload" affordance on `UploadTab.tsx` if a genuine
+re-upload need ever comes up in practice).
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c16e_upload_skip_if_done.py -q` — 11 passed.
+Non-vacuous: `git stash push -- storyengine/backend/actions.py
+storyengine/backend/pipeline_executor.py storyengine/backend/routes/chat.py
+storyengine/backend/routes/pipeline.py storyengine/backend/worker.py` then
+rerunning the same file — 8/11 fail (`AssertionError` from the boom-mocks
+actually being reached, `AttributeError` on the missing `already_uploaded_reply`/
+`_already_uploaded_reply`) against pre-C16e source; stash popped clean,
+re-verified green. `python -m py_compile` clean on all 5 touched files + the
+new test file. Full backend suite: `./venv/bin/python -m pytest tests/ -q` —
+1019 passed (1008 baseline + 11 new) / 16 pre-existing failures (identical
+file list to every prior chunk) / 1 pre-existing error — zero new failures.
+Frontend untouched — confirmed via `git diff --stat` (no `storyengine/
+frontend` paths in the diff). Live re-invoke-costs-zero-quota proof deferred
+to `tasks/live-verification-queue.md` §C16e — needs a real connected YouTube
+channel + an already-uploaded test video, not available in the sandbox.

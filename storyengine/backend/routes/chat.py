@@ -42,6 +42,7 @@ from actions import (
     BUILD_TO_PICTURES as _BUILD_TO_PICTURES,
     CLIP_COST as _CLIP_COST,
     PICTURE_COST as _PICTURE_COST,
+    already_uploaded_reply as _already_uploaded_reply,
     apply_followup_edit as _apply_followup_edit,
     blocked_reason as _action_blocked,
     cost_breakdown as _cost_breakdown,
@@ -719,6 +720,21 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     # handlers the UI buttons call and speak the result back directly.
     if cfg.get("runner"):
         return await _ACTION_RUNNERS[cfg["runner"]](tenant_id, video_id, background_tasks, pending)
+    # C16e (S7-9 follow-up): "upload it"/"publish" on a video that's already
+    # uploaded is far more likely a double-tap (a repeated turn, or the
+    # autobuild finish chain having just uploaded it) than genuine intent to
+    # mint a SECOND YouTube draft — real quota burn (~1,600 of the 10,000/day
+    # units). Check + reply BEFORE claiming a lane or scheduling anything, so
+    # a double-tap never even starts a background task. Design choice
+    # (deliberately unlike C16d's thumbnail verb, which ALWAYS forces): see
+    # actions.already_uploaded_reply's docstring for the full rationale.
+    # PipelineExecutor.run_upload's own force= guard (checked independently
+    # on every call) is the real money-safety backstop — this only keeps the
+    # chat reply honest instead of scheduling a task that will silently skip.
+    if verb == "upload":
+        already = await _already_uploaded_reply(tenant_id, video_id)
+        if already:
+            return already
     # C16a (S7-1 CRITICAL): same claim/refuse discipline for single-stage
     # copilot verbs. Granularity: a verb with its own independent lane in the
     # existing in-process system (voice/characters/thumbnail) claims that

@@ -178,8 +178,8 @@ async def arq_run_render(ctx: dict, video_id: str, tenant_id: str, attempt: int)
     return await _run_stage(ctx, "render", "run_render", video_id, tenant_id, attempt)
 
 
-async def arq_run_upload(ctx: dict, video_id: str, tenant_id: str, attempt: int) -> dict:
-    return await _run_stage(ctx, "upload", "run_upload", video_id, tenant_id, attempt)
+async def arq_run_upload(ctx: dict, video_id: str, tenant_id: str, attempt: int, force: bool = False) -> dict:
+    return await _run_stage(ctx, "upload", "run_upload", video_id, tenant_id, attempt, force=force)
 
 
 # -- WorkerSettings -----------------------------------------------------------

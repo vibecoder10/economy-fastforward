@@ -15067,8 +15067,27 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_upload(self, video_id: str) -> dict:
-        """Generate SEO metadata and upload video to YouTube as unlisted draft."""
+    async def run_upload(self, video_id: str, force: bool = False) -> dict:
+        """Generate SEO metadata and upload video to YouTube as unlisted draft.
+
+        `force` (C16e, S7-9 follow-up — mirrors C16d's run_thumbnail guard
+        exactly): default False skips the upload (both the per-tenant native
+        path and the legacy bot fallback below) when the video already has a
+        recorded youtube_video_id/youtube_url — every one of this method's
+        callers previously re-ran the full upload unconditionally on a
+        second invocation, which mints a genuine SECOND YouTube draft
+        (recoverable by deleting it in Studio, but burns ~1,600 of the
+        10,000/day quota units and confuses the creator with two drafts).
+        force=True (the ONLY way to bypass the guard) is not yet threaded
+        from any caller by default — every real caller (the autobuild finish
+        chain via run_next_step, the arq/queue stage runner, claude_
+        orchestrator's skill dispatch, the manual POST /upload/{video_id}
+        route, and the chat "upload" verb via actions.make_action_step)
+        passes nothing and gets the skip-if-done default. routes/pipeline.py
+        exposes `?force=true` on the manual route (mirroring the existing
+        POST /thumbnail/{video_id}?force=true convention) for a future
+        genuinely-new-upload affordance; no caller sets it today.
+        """
         await self._ensure_initialized()
         bot_name = "YouTube Upload Bot"
 
@@ -15076,6 +15095,16 @@ separate scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+
+            existing_url = (video.get("youtube_url") or "").strip()
+            existing_id = (video.get("youtube_video_id") or "").strip()
+            if not force and (existing_url or existing_id):
+                msg = f"Already uploaded to YouTube — skipping (existing draft: {existing_url or existing_id})."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "completed", "video_id": video_id,
+                        "youtube_url": existing_url or None,
+                        "youtube_video_id": existing_id or None,
+                        "message": msg, "skipped": True}
 
             current_status = video.get("status")
             await self._log_activity(bot_name, video_id, "started", "Uploading to YouTube")

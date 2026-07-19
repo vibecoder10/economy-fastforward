@@ -209,6 +209,43 @@ async def apply_followup_edit(tenant_id, video_id, stage: str, edit: dict) -> No
         )
 
 
+async def already_uploaded_reply(tenant_id, video_id) -> Optional[str]:
+    """C16e (S7-9 follow-up): friendly short-circuit for the "upload" verb when
+    the video already has a recorded YouTube id/URL.
+
+    Design choice (mirrors, but deliberately DIFFERS from, C16d's thumbnail
+    force-always convention): a chat "upload it"/"publish" turn is much more
+    likely to be an accidental double-tap (the same request re-sent, or the
+    autobuild finish chain having already uploaded moments earlier) than a
+    genuine "make a second draft" intent — unlike "redo the thumbnail", which
+    is unambiguous because there is no other way to say "regenerate" in this
+    codebase. A duplicate draft is real quota burn (~1,600 of the 10,000/day
+    YouTube units) for a mistake that's easy to make and easy to prevent, so
+    the safer default is: the explicit verb ALSO skips, same as every other
+    caller. `PipelineExecutor.run_upload`'s own `force=` guard (checked again,
+    independently, at the executor layer) is the actual money-safety
+    backstop; this function only makes the chat reply honest and immediate —
+    it fires BEFORE `make_action_step` is even scheduled, so a double-tap
+    never even claims the "main" lane or spins up a background task for
+    nothing.
+
+    Returns the reply string when the video is already uploaded, else None
+    (the caller proceeds with the normal confirm-card/dispatch flow)."""
+    row = await fetch_one(
+        "SELECT youtube_url, youtube_video_id FROM videos WHERE id=$1 AND tenant_id=$2",
+        video_id, tenant_id)
+    url = ((row or {}).get("youtube_url") or "").strip()
+    yt_id = ((row or {}).get("youtube_video_id") or "").strip()
+    if not (url or yt_id):
+        return None
+    where = f" It's here: {url}" if url else f" (YouTube id {yt_id})."
+    return ("This video's already uploaded to YouTube as an unlisted draft." + where +
+            " I won't create a second draft from a repeat request — that's the kind "
+            "of double-tap that burns real YouTube upload quota. If you genuinely need "
+            "a brand-new draft, use the force option on the upload endpoint (not wired "
+            "to chat yet — ask your engineer for the ?force=true route).")
+
+
 async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     """Compact, current state of the video for the classifier, the gate, the cost
     estimate, and read answers — all from the video row + scripts + assets."""

@@ -2087,9 +2087,17 @@ async def run_upload(
     video_id: str,
     request: Request,
     background_tasks: BackgroundTasks,
+    force: bool = False,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Upload video to YouTube as unlisted draft."""
+    """Upload video to YouTube as unlisted draft.
+
+    force=true (C16e, mirrors POST /thumbnail/{video_id}?force=true) bypasses
+    PipelineExecutor.run_upload's skip-if-done guard for a genuinely-new
+    upload. Default False skips a video that already has a recorded YouTube
+    id/URL — this prevents a re-invoke (a resumed status machine, a retried
+    click) from minting a second YouTube draft and burning ~1,600 quota units.
+    """
     video = await fetch_one(
         "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -2113,7 +2121,7 @@ async def run_upload(
     async def _run():
         try:
             executor = PipelineExecutor(tenant_id)
-            result = await executor.run_upload(video_id)
+            result = await executor.run_upload(video_id, force=force)
             _set_task_status(video_id, result.get("status", "unknown"), result.get("error"), tenant_id=tenant_id)
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
@@ -2121,7 +2129,7 @@ async def run_upload(
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 
-    await _enqueue_or_fallback(request, background_tasks, "upload", video_id, tenant_id, _run)
+    await _enqueue_or_fallback(request, background_tasks, "upload", video_id, tenant_id, _run, force=force)
 
     return PipelineResponse(video_id=video_id, status="running", message="Upload started")
 
