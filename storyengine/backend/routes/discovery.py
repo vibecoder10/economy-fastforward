@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
 from error_utils import humanize_error
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -597,7 +599,7 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
         try:
             text = await text_client.generate(
                 prompt,
-                model="claude-sonnet-4-6",
+                model=CLAUDE_MODELS["anthropic"]["smart"],
                 max_tokens=4096,
             )
         except Exception as e:

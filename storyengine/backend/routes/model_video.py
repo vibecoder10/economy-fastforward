@@ -36,6 +36,11 @@ from pydantic import BaseModel
 from auth import get_tenant_id
 from database import execute, fetch_one
 from error_utils import humanize_error, user_facing
+# Single Claude tier source (checklist §3.4 / C35): this dict used to be
+# defined locally here (and independently at ~15 other call sites across
+# the backend) — now everyone reads shared.channel_profile.CLAUDE_MODELS
+# via this actions.py re-export. Values unchanged.
+from actions import CLAUDE_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +52,6 @@ router = APIRouter(prefix="/api/model-video", tags=["model-video"])
 KIE_CLAUDE_API_URL = os.getenv("KIE_CLAUDE_API_URL", "https://api.kie.ai/claude/v1/messages")
 ANTHROPIC_API_URL = os.getenv("ANTHROPIC_API_URL", "https://api.anthropic.com/v1/messages")
 
-# Model ids per provider/tier. Kie.ai uses undated aliases.
-CLAUDE_MODELS = {
-    "kie": {"smart": "claude-sonnet-4-5", "fast": "claude-haiku-4-5"},
-    "anthropic": {"smart": "claude-sonnet-4-6", "fast": "claude-haiku-4-5-20251001"},
-}
 TRANSCRIPT_PROMPT_CHAR_CAP = 8000
 TASK_TYPE = "model_video"
 

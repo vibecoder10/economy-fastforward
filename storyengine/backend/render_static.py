@@ -48,6 +48,9 @@ _PIPELINE_PATH = Path(__file__).resolve().parents[2] / "skills" / "video-pipelin
 if str(_PIPELINE_PATH) not in sys.path:
     sys.path.insert(0, str(_PIPELINE_PATH))
 
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from shared.channel_profile import CLAUDE_MODELS  # noqa: E402
+
 # One Remotion render at a time — a render is CPU-bound across ~3 chrome
 # workers and the box is small; a second static render queues instead of
 # fighting for cores. Env-tunable like the stitch semaphore.
@@ -255,7 +258,7 @@ async def _select_music_beds(tenant_id: str, segments: list[dict],
                 'object only, e.g. {"1": "tension", "2": "strategic"}.\n\n' + listing),
                 "max_tokens": 300}
             if type(client).__name__ == "AnthropicDirectClient":
-                kwargs["model"] = "claude-haiku-4-5"
+                kwargs["model"] = CLAUDE_MODELS["anthropic"]["fast"]
             raw = await client.generate(**kwargs)
             m = re.search(r"\{.*\}", raw or "", re.DOTALL)
             if m:

@@ -17,6 +17,8 @@ from typing import Optional
 
 from database import fetch_all, fetch_one, execute
 from distillation.advisor import IntelligenceAdvisor
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS
 
 logger = logging.getLogger("storyengine")
 
@@ -400,7 +402,7 @@ async def generate_niche_meta_insights(tenant_id: str) -> Optional[dict]:
         import anthropic
         client = anthropic.AsyncAnthropic(api_key=api_key)
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=CLAUDE_MODELS["anthropic"]["fast"],
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )

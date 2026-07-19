@@ -25,6 +25,8 @@ from typing import Any, Optional
 import httpx
 
 from database import execute, fetch_all
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS, claude_model_for_direct_client
 
 FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape"
 _YT_VIDEOS_API = "https://www.googleapis.com/youtube/v3/videos"
@@ -185,7 +187,7 @@ async def _thumbnail_style(tenant_id: str, thumb_urls: list[str]) -> Optional[di
                 # 1400 tokens: the formula JSON alone can exceed 700 and a
                 # truncated reply fails json.loads -> the style silently
                 # vanished from rebuilt identities (bit DVU 2026-07-01).
-                json={"model": "claude-haiku-4-5", "max_tokens": 1400,
+                json={"model": CLAUDE_MODELS["kie"]["fast"], "max_tokens": 1400,
                       "messages": [{"role": "user", "content": content}]},
             )
         body = r.json()
@@ -231,8 +233,9 @@ async def build_channel_identity(tenant_id: str, top_n: int = 3) -> dict[str, An
     client = await get_text_client_for_tenant(tenant_id)  # raises if keyless
     body = "\n\n".join(f"VIDEO: {title}\nTRANSCRIPT:\n{tr}" for title, tr in analyzed)
     kwargs: dict[str, Any] = {"prompt": IDENTITY_PROMPT + "\n\n" + body, "max_tokens": 2200}
-    if type(client).__name__ == "AnthropicDirectClient":
-        kwargs["model"] = "claude-sonnet-4-6"
+    model = claude_model_for_direct_client(client)
+    if model:
+        kwargs["model"] = model
     raw = await client.generate(**kwargs)
     identity = _parse_json(raw or "")
     if not identity:

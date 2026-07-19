@@ -19,7 +19,7 @@ from pathlib import Path
 
 from orchestrator.pipeline_constants import ImageFields
 
-from render.audio_sync.transcriber import transcribe
+from render.audio_sync.transcriber import transcribe, is_configured as _whisper_key_configured
 from render.audio_sync.transition_engine import assign_transitions
 from render.audio_sync.ken_burns_calculator import assign_ken_burns
 
@@ -30,6 +30,30 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
         return {"error": "No current idea loaded"}
 
     print(f"\n🎵 AUDIO SYNC: Processing '{pipeline.video_title}'")
+
+    # Fail fast and loud if Whisper can't run at all — before burning time on
+    # Drive downloads or per-scene API calls that are doomed anyway. Without
+    # this check, every scene's transcribe() call raised the same
+    # "OPENAI_API_KEY not configured" error, was caught individually, and the
+    # step still returned a bot="Audio Sync" dict with no "error" key —
+    # callers (Slack `sync` command, orchestrator status router) reported it
+    # as a success with 0 durations written, and the render step downstream
+    # silently got captionless/untimed scenes (C35 fix — see
+    # docs/reports/2026-07-17-storyengine-agent-audit-findings.md Sweep 2
+    # finding 5 / checklist §3.4).
+    if not _whisper_key_configured():
+        msg = (
+            "Audio sync needs OPENAI_API_KEY (Whisper transcription) and none "
+            "is configured. Add a real OpenAI API key to run word-level "
+            "caption/duration timing, or skip this stage for a channel that "
+            "doesn't need it."
+        )
+        print(f"  ❌ {msg}")
+        try:
+            pipeline.slack.notify(f":x: *Audio sync stopped:* _{pipeline.video_title}_\n{msg}")
+        except Exception:
+            pass
+        return {"error": msg, "bot": "Audio Sync"}
 
     video_id = pipeline.current_idea_id or "unknown"
     pipeline_dir = Path(__file__).parent.parent
@@ -285,6 +309,27 @@ async def run(pipeline, audio_path: str = None, scene_list: list = None) -> dict
             print(f"      Image {img_index}: {dur:.2f}s ({wc}w) — \"{sentence[:50]}...\"")
 
         scene_durations[scene_num] = scene_total
+
+    # Every scene's transcribe() call failed (or every scene had no usable
+    # words) — writing render_config.json here would look like a completed
+    # stage while carrying zero real timing, and the render step downstream
+    # would silently ship a captionless/mistimed video. Stop and say why
+    # instead (C35 — same finding as the upfront key check above; this
+    # branch also catches transient per-scene failures that add up to a
+    # total wipeout even when the key IS configured).
+    if duration_updates == 0:
+        msg = (
+            "Audio sync ran but produced 0 timed images — every scene's "
+            "transcription failed or had no usable words. Check the "
+            "per-scene warnings above (often OPENAI_API_KEY missing/invalid, "
+            "or corrupt scene audio). Not writing render_config.json."
+        )
+        print(f"  ❌ {msg}")
+        try:
+            pipeline.slack.notify(f":x: *Audio sync failed:* _{pipeline.video_title}_\n{msg}")
+        except Exception:
+            pass
+        return {"error": msg, "bot": "Audio Sync"}
 
     # ── Step 4: Build per-IMAGE render config ──
     print(f"  Step 4/4: Writing per-image render config...")

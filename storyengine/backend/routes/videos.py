@@ -18,6 +18,8 @@ from error_utils import humanize_error
 from status_map import get_next_status_supabase, normalize_stage_plan, first_status_for_plan
 from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS
 
 
 def _strip_md(s: Optional[str]) -> Optional[str]:
@@ -1975,7 +1977,7 @@ async def rewrite_scene_text(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
-                json={"model": "claude-sonnet-4-6", "max_tokens": max_tokens,
+                json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": max_tokens,
                       "temperature": temperature,
                       "system": system_prompt,
                       "messages": [{"role": "user", "content": prompt}]})
@@ -2180,7 +2182,7 @@ async def suggest_titles(
         # sharper hooks. Works on both the Anthropic and kie.ai paths.
         text = await text_client.generate(
             prompt,
-            model="claude-sonnet-4-6",
+            model=CLAUDE_MODELS["anthropic"]["smart"],
             max_tokens=1024,
         )
 

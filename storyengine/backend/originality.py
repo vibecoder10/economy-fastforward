@@ -43,8 +43,11 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-# Ryan's call: Claude Sonnet, direct cloud. Exact ID, no date suffix.
-MODEL = "claude-sonnet-4-6"
+# Ryan's call: Claude Sonnet, direct cloud, "smart" tier. Single Claude tier
+# source (checklist §3.4 / C35) — value lives in shared.channel_profile,
+# next to MODEL_REGISTRY, not duplicated here.
+from actions import CLAUDE_MODELS
+MODEL = CLAUDE_MODELS["anthropic"]["smart"]
 
 # How many recent videos a new one is asked to diverge from. Tunable.
 DEFAULT_HISTORY_WINDOW = 10

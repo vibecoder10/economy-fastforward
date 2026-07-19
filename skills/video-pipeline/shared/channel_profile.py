@@ -581,6 +581,63 @@ VOICE_PRICE_FLAT_ESTIMATE = 0.30
 SOUND_PRICE_ESTIMATE = 0.05
 
 
+# --- Claude Text Model Tiers ---
+#
+# C35 (P3.4, docs/reports/2026-07-17-storyengine-agent-audit-findings.md
+# Sweep 2 finding 4 / tasks/storyengine-wiring-fix-checklist.md §3.4): which
+# Claude model backs the "smart" vs "fast" text tier, per provider, used to
+# be hardcoded independently at ~15 call sites across storyengine/backend
+# (routes/chat.py, routes/videos.py, routes/model_video.py,
+# producer_prompt.py, static_docu.py, identity_builder.py, user_script.py,
+# script_templates.py, routes/pipeline.py, youtube_publish.py,
+# distillation/*.py, coverage_to_app.py, originality.py — see git history
+# before this commit) instead of reading one shared map. Bumping a Claude
+# version meant grep-and-pray across the whole backend, exactly the
+# CLIP_PRICE_BY_MODEL problem C09 already solved for clip pricing. This dict
+# IS the single source every one of those call sites now imports from.
+#
+# Two tiers only (matches every real caller): "smart" = Sonnet, the default
+# for anything user-facing or judgment-heavy (scripts, chat, SEO, DNA
+# modeling); "fast" = Haiku, for cheap high-volume classification (dialogue
+# mode detection, thumbnail text-fix judging, canary probes). Two providers:
+# Kie's Claude gateway uses undated aliases; direct Anthropic wants the
+# dated ids Anthropic actually serves for that alias today.
+#
+# NOT covered here (deliberately): the canaries/ drift probes
+# (validator_drift.py, vision_drift.py) pin literal model strings on
+# purpose — their entire job is detecting when Anthropic changes a specific
+# model's behavior, so they must NOT silently follow a shared "current
+# tier" pointer that moves out from under them.
+#
+# `claude_orchestrator.DECISION_MODEL`, `routes/system_prompts.py`, and
+# `routes/youtube_channel.py` used to independently pin a stale dated
+# sonnet id (`claude-sonnet-4-20250514`) that 404s on the live API
+# (confirmed by producer_prompt.py's own note before this fix) — genuine
+# live bugs, not just duplication, now folded into this map (C35) since the
+# fix is the same "read the single source" change either way.
+CLAUDE_MODELS: dict[str, dict[str, str]] = {
+    "kie": {"smart": "claude-sonnet-4-5", "fast": "claude-haiku-4-5"},
+    "anthropic": {"smart": "claude-sonnet-4-6", "fast": "claude-haiku-4-5-20251001"},
+}
+
+
+def claude_model_for_direct_client(client, tier: str = "smart") -> Optional[str]:
+    """Model id to pass explicitly for a Claude call, or None to let a
+    Kie-wrapped client fall back to its own default.
+
+    Replaces the repeated
+    ``"claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None``
+    idiom that was copy-pasted at every call site that resolves a
+    provider-generic Claude client and only needs to override the model
+    when that client turned out to be direct Anthropic (Kie's wrapper picks
+    its own default already). Behavior-identical to every prior call site —
+    single-sourced, not changed.
+    """
+    if type(client).__name__ == "AnthropicDirectClient":
+        return CLAUDE_MODELS["anthropic"][tier]
+    return None
+
+
 def clip_price_for(model_id: Optional[str]) -> float:
     """Cheapest wired price for a clip model, read straight off
     ModelProfile.cost_per_clip — the single source CLIP_PRICE_BY_MODEL below

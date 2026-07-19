@@ -20,6 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import claude_model_for_direct_client
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,8 @@ async def analyze_and_save_template(
     client = await get_text_client_for_tenant(tenant_id)
     # Direct-API tenants need a real model id — the KIE default env value can
     # be stale for the direct endpoint (same guard as youtube_publish.py).
-    kwargs = {"model": "claude-sonnet-4-6"} if type(client).__name__ == "AnthropicDirectClient" else {}
+    model = claude_model_for_direct_client(client)
+    kwargs = {"model": model} if model else {}
     structure = (await client.generate(
         prompt=ANALYZER_PROMPT + text[:24000],
         max_tokens=1200,

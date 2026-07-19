@@ -29,6 +29,9 @@ _PIPELINE_PATH = Path(__file__).resolve().parents[2] / "skills" / "video-pipelin
 if str(_PIPELINE_PATH) not in sys.path:
     sys.path.insert(0, str(_PIPELINE_PATH))
 
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from shared.channel_profile import CLAUDE_MODELS, claude_model_for_direct_client  # noqa: E402
+
 STATIC_RENDER_MODE = "static_docu"
 
 # Fingerprints of a static-image documentary format in the extracted identity's
@@ -466,7 +469,7 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                     headers={"x-api-key": akey,
                              "anthropic-version": "2023-06-01",
                              "Content-Type": "application/json"},
-                    json={"model": "claude-haiku-4-5-20251001", "max_tokens": 80,
+                    json={"model": CLAUDE_MODELS["anthropic"]["fast"], "max_tokens": 80,
                           "messages": [{"role": "user", "content": content}]},
                 )
             else:
@@ -477,7 +480,7 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                     _KIE_CLAUDE_URL,
                     headers={"Authorization": f"Bearer {key}",
                              "Content-Type": "application/json"},
-                    json={"model": "claude-haiku-4-5", "max_tokens": 80,
+                    json={"model": CLAUDE_MODELS["kie"]["fast"], "max_tokens": 80,
                           "messages": [{"role": "user", "content": content}]},
                 )
         body = r.json()
@@ -523,8 +526,9 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
         "prompt": _SUBJECT_HEADER.format(facts=facts or "(none)", segments=listing),
         "max_tokens": 1800,
     }
-    if type(client).__name__ == "AnthropicDirectClient":
-        kwargs["model"] = "claude-sonnet-4-6"
+    model = claude_model_for_direct_client(client)
+    if model:
+        kwargs["model"] = model
     raw = await client.generate(**kwargs)
     out: dict[int, dict] = {}
     for item in _parse_json_array(raw or "") or []:

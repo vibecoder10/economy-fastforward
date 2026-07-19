@@ -22,8 +22,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # The proven current Sonnet id (what originality.py uses in prod). The
-# orchestrator's dated id was never actually exercised and 404s on the live API.
-MODEL = "claude-sonnet-4-6"
+# orchestrator's dated id was never actually exercised and 404s on the live
+# API (see claude_orchestrator.py's DECISION_MODEL, fixed alongside this to
+# read the same single source instead of its own stale literal — C35).
+# Single Claude tier source (checklist §3.4 / C35): value lives in
+# shared.channel_profile, next to MODEL_REGISTRY, not duplicated here.
+from actions import CLAUDE_MODELS
+MODEL = CLAUDE_MODELS["anthropic"]["smart"]
 
 # Always hit Anthropic directly — never inherit a Kie gateway base_url that a
 # prior pipeline_executor run may have left in the process env.

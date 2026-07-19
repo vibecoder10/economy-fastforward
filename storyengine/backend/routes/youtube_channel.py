@@ -28,6 +28,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from auth import get_tenant_id
 from database import fetch_one
 from error_utils import humanize_error
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS
 from youtube_owner_api import (
     refresh_access_token as _refresh_access_token,
     fetch_uploads_playlist_id as _fetch_uploads_playlist_id,
@@ -229,7 +231,7 @@ async def _claude_summarize_voice(
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": CLAUDE_MODELS["anthropic"]["smart"],
                 "max_tokens": 1200,
                 "messages": [{"role": "user", "content": prompt}],
             },

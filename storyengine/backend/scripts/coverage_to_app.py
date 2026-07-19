@@ -59,7 +59,10 @@ from storyboard.coverage import (  # noqa: E402
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
-from shared.channel_profile import load_profile               # noqa: E402
+from shared.channel_profile import (  # noqa: E402
+    load_profile,
+    claude_model_for_direct_client,
+)
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
@@ -851,7 +854,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         return {"status": "failed", "error": "no scenes with text"}
 
     claude = await get_text_client_for_tenant(tenant)
-    claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+    claude_model = claude_model_for_direct_client(claude)
     kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
     ic = ImageClient(api_key=kie_key)
     # Scene-aware bible so each scene's storyboard names ONLY its characters + the
@@ -1461,7 +1464,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         return {"status": "failed", "error": "no scenes with text to cover"}
 
     claude = await get_text_client_for_tenant(tenant)
-    claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+    claude_model = claude_model_for_direct_client(claude)
     kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
     ic = ImageClient(api_key=kie_key)
     # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
@@ -1670,7 +1673,7 @@ async def main():
     # Characters tab and fill each scene's storyboard board from the coverage frames on disk.
     if args.complete:
         claude = await get_text_client_for_tenant(tenant)
-        claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+        claude_model = claude_model_for_direct_client(claude)
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
         ic = ImageClient(api_key=kie_key)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
@@ -1689,7 +1692,7 @@ async def main():
     # character-creation prompt) + tighten its description. The consistency foundation; no scenes.
     if args.redo_characters:
         claude = await get_text_client_for_tenant(tenant)
-        claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+        claude_model = claude_model_for_direct_client(claude)
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
         ic = ImageClient(api_key=kie_key)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
@@ -1705,7 +1708,7 @@ async def main():
         claude = await get_text_client_for_tenant(tenant)
         # A direct Anthropic client's built-in default model id can be stale (we hit a 404
         # on it); pass a current one. The Kie-routed client uses its own market model (None).
-        claude_model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+        claude_model = claude_model_for_direct_client(claude)
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
         ic = ImageClient(api_key=kie_key)
         profile, _ = _resolve_style(v["image_style_override"], v["visual_style"])

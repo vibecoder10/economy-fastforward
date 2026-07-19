@@ -66,6 +66,11 @@ from shared.channel_profile import (  # noqa: E402
     VOICE_PRICE_FLAT_ESTIMATE as VOICE_COST_ESTIMATE,
     SOUND_PRICE_ESTIMATE as SOUND_COST_ESTIMATE,
     picture_price_for,
+    # Single Claude tier source (checklist §3.4 / C35) — same re-export
+    # pattern as the cost constants above; the values live in
+    # shared.channel_profile, next to MODEL_REGISTRY.
+    CLAUDE_MODELS,
+    claude_model_for_direct_client,
 )
 from shared.model_router import resolve_clip_model  # noqa: E402
 from image_prompts.engine.camera_moves import get_move  # noqa: E402

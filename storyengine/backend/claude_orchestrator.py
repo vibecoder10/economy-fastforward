@@ -28,6 +28,7 @@ if str(PIPELINE_PATH) not in sys.path:
     sys.path.insert(0, str(PIPELINE_PATH))
 
 from shared.skill_registry import get_registry, SkillManifest
+from shared.channel_profile import CLAUDE_MODELS
 from database import fetch_one, fetch_all, execute
 
 
@@ -63,7 +64,14 @@ class ClaudeOrchestrator:
     """
 
     CONFIDENCE_THRESHOLD = 0.7  # Below this, return alternatives for user approval
-    DECISION_MODEL = "claude-sonnet-4-20250514"
+    # Single Claude tier source (checklist §3.4 / C35): this used to pin its
+    # own stale dated id ("claude-sonnet-4-20250514") independently of every
+    # other Claude call site in the backend — see producer_prompt.py's note
+    # that this exact id 404s on the live API today (the direct
+    # anthropic.Anthropic() call below has no fallback, so every dispatch
+    # calling .decide() was failing outright). Now reads the same "smart"
+    # tier every other direct-Anthropic call site uses.
+    DECISION_MODEL = CLAUDE_MODELS["anthropic"]["smart"]
 
     def __init__(self, tenant_id: str):
         self.tenant_id = tenant_id

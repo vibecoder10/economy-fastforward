@@ -8,7 +8,10 @@ import json
 import httpx
 from typing import Optional
 
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS
+
+HAIKU_MODEL = CLAUDE_MODELS["anthropic"]["fast"]
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 
 

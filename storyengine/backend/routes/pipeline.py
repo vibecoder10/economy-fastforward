@@ -2365,7 +2365,7 @@ async def improve_prompt(
         client = None
     if client is None:
         raise HTTPException(status_code=400, detail="Add a Kie.ai or Anthropic key in Settings first.")
-    model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
+    model = actions.claude_model_for_direct_client(client)
     from routes.chat import _rewrite_prompt
     text = await _rewrite_prompt(
         client, model, body.surface, (body.current or "").strip(),

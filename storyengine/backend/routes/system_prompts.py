@@ -10,6 +10,8 @@ from auth import get_tenant_id
 from database import fetch_all, fetch_one, execute
 from error_utils import humanize_error
 from prompt_defaults import PROMPT_DEFAULTS, META_PROMPT_TEMPLATE
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import CLAUDE_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +130,7 @@ async def generate_prompts(body: StyleGenerateRequest, tenant_id: str = Depends(
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": CLAUDE_MODELS["anthropic"]["smart"],
                     "max_tokens": 8000,
                     "messages": [{"role": "user", "content": meta_prompt}],
                 },

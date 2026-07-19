@@ -16,6 +16,8 @@ import logging
 import re
 
 from database import execute, fetch_one
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import claude_model_for_direct_client
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,8 @@ async def semantic_split(tenant_id, text: str) -> Optional[list[dict]]:
         + hint +
         "\n- Output ONLY the marked-up script, nothing else.\n\nSCRIPT:\n" + text
     )
-    kwargs = {"model": "claude-sonnet-4-6"} if type(client).__name__ == "AnthropicDirectClient" else {}
+    model = claude_model_for_direct_client(client)
+    kwargs = {"model": model} if model else {}
     try:
         raw = await client.generate(prompt=prompt, max_tokens=16000, temperature=0.2, **kwargs)
     except Exception as e:  # noqa: BLE001

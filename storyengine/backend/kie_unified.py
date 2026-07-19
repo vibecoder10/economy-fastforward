@@ -288,11 +288,22 @@ class AnthropicDirectClient:
         self,
         prompt: str,
         system_prompt: str = "",
-        model: str = "claude-sonnet-4-20250514",
+        model: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 1.0,
         tools: Optional[list[dict[str, Any]]] = None,
     ) -> str:
+        if model is None:
+            # Single Claude tier source (checklist §3.4 / C35): this used to
+            # default to a hardcoded "claude-sonnet-4-20250514", a stale id
+            # that 404s on the live API (confirmed live — see
+            # producer_prompt.py's note) — every caller that detected
+            # `AnthropicDirectClient` had to defensively pass an explicit
+            # model to avoid it. Lazy import: kie_unified is imported very
+            # early/widely, and actions.py's own sys.path setup shouldn't be
+            # a load-bearing side effect of importing this module.
+            from actions import CLAUDE_MODELS
+            model = CLAUDE_MODELS["anthropic"]["smart"]
         kwargs: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,

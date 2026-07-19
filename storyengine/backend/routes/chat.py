@@ -52,6 +52,8 @@ from actions import (
     make_action_step as _make_copilot_step,
     make_autobuild_step as _make_autobuild_step,
     video_summary as _copilot_summary,
+    # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+    claude_model_for_direct_client as _claude_model_for_direct_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -948,7 +950,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         )
     # AnthropicDirectClient.generate defaults to a stale model id; pass the current
     # one (the Kie client keeps its own valid default). Mirrors coverage_to_app.py.
-    copilot_model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
+    copilot_model = _claude_model_for_direct_client(client)
 
     # While a proposed prompt is open, plain text REFINES it (no spend). Bail words
     # drop the draft; otherwise feed the words back as more direction and redraft.
@@ -2343,7 +2345,8 @@ async def _derive_script_title(tenant_id, text: str) -> str:
     try:
         from kie_unified import get_text_client_for_tenant
         client = await get_text_client_for_tenant(tenant_id)
-        kwargs = {"model": "claude-sonnet-4-6"} if type(client).__name__ == "AnthropicDirectClient" else {}
+        model = _claude_model_for_direct_client(client)
+        kwargs = {"model": model} if model else {}
         raw = await client.generate(
             prompt=(
                 "Here is the opening of a video script:\n\n" + text[:2000] +
@@ -3987,7 +3990,7 @@ async def _model_rationales(tenant_id, rows: list) -> dict:
     )
     try:
         from producer_prompt import _extract_json
-        model = "claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None
+        model = _claude_model_for_direct_client(client)
         kw: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.4}
         if model:
             kw["model"] = model

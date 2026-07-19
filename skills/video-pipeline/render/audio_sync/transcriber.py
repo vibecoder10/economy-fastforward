@@ -78,6 +78,21 @@ def _load_openai_key() -> None:
 _load_openai_key()
 
 
+def is_configured() -> bool:
+    """True if a real (non-placeholder) OPENAI_API_KEY is available.
+
+    Single source of truth for "can Whisper actually run" — callers that
+    want to fail fast (before spending time downloading audio or making a
+    doomed API call) should check this instead of catching transcribe()'s
+    RuntimeError after the fact. See C35 (docs/reports/2026-07-17-storyengine
+    -agent-audit-findings.md Sweep 2 finding 5): a missing key used to
+    surface as N silent per-scene skips instead of one clear stop.
+    """
+    _load_openai_key()
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    return bool(api_key) and not api_key.startswith("sk-xxxxx")
+
+
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------

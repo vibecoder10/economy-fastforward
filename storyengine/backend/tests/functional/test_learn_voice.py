@@ -29,6 +29,7 @@ from routes.youtube_channel import (
     VOICE_LEARN_PROMPT,
     _claude_summarize_voice,
 )
+from actions import CLAUDE_MODELS
 
 
 SAMPLE_VIDEOS = [
@@ -120,7 +121,12 @@ async def test_prompt_shape_includes_all_videos(monkeypatch):
     assert call["headers"]["x-api-key"] == "fake-key"
     assert call["headers"]["anthropic-version"] == "2023-06-01"
     body = call["body"]
-    assert body["model"] == "claude-sonnet-4-20250514"
+    # C35: this used to pin its own stale "claude-sonnet-4-20250514" id,
+    # which 404s on the live API (confirmed live — see
+    # producer_prompt.py's note) — now reads the same single Claude tier
+    # source (shared.channel_profile.CLAUDE_MODELS) every other direct-
+    # Anthropic call site uses.
+    assert body["model"] == CLAUDE_MODELS["anthropic"]["smart"]
     assert body["max_tokens"] == 1200
     prompt_text = body["messages"][0]["content"]
 

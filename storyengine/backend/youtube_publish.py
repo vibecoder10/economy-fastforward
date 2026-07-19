@@ -20,6 +20,8 @@ from typing import Optional
 from database import fetch_one, fetch_all, execute
 from kie_unified import get_text_client_for_tenant
 from youtube_quota import check_quota_available, quota_exceeded_message, record_units, upload_cost
+# Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
+from actions import claude_model_for_direct_client
 
 # YouTube videoCategory ids. Education is our default — it fits ESL/explainer content
 # far better than the old hardcoded "25" (News & Politics).
@@ -92,7 +94,7 @@ async def generate_and_store_seo(video_id: str, tenant_id: str) -> dict:
     audience = ((cp and cp["target_audience"]) or "").strip()
 
     claude = await get_text_client_for_tenant(tenant_id)
-    model = "claude-sonnet-4-6" if type(claude).__name__ == "AnthropicDirectClient" else None
+    model = claude_model_for_direct_client(claude)
     kwargs = dict(prompt=_seo_prompt(channel, niche, audience, title, script),
                   system_prompt=_SEO_SYSTEM, max_tokens=900, temperature=0.5)
     if model:

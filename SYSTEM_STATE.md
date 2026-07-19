@@ -7048,4 +7048,117 @@ ever REDUCE false-positive Template B/C/D/A matches (word-boundary anchoring is 
 substring matching) — proven no real keyword occurrence regresses via the 3 word-stem/plural/phrase
 tests above. Safe to ff-merge; no VPS coordination needed, no migration to run.
 
+## C35 — P3.4 Whisper-key friction + Claude tier map single-sourcing (added 2026-07-19)
+
+Two independent P3.4 audit findings (docs/reports/2026-07-17-storyengine-agent-audit-findings.md
+Sweep 2 findings 4/5; tasks/storyengine-wiring-fix-checklist.md §3.4).
+
+### Whisper-key friction — traced, then fixed at the actual silent-failure point
+
+Traced today's live keyless-tenant behavior before touching anything: the only real Whisper
+(OpenAI) call site left in the codebase is `skills/video-pipeline/render/audio_sync/transcriber.py`,
+used by the legacy Airtable-cron pipeline's `render/run_audio_sync.py` stage. StoryEngine SaaS's
+three real render paths (`render_perform.py`, `render_static.py`, `render_stitch.py`) never call
+Whisper at all — captions/word-timing simply aren't wired into the SaaS render engine today, so
+`routes/pipeline.py`'s existing "pipeline still runs without it" readiness hint (the C04 soft-hint
+precedent, `PIPELINE_OPTIONAL_KEYS`) is actually accurate for those paths, left unchanged.
+
+The REAL bug was in `run_audio_sync.py` itself: when `OPENAI_API_KEY` is missing (or every scene's
+transcription otherwise fails), the per-scene `except Exception: continue` swallowed the error,
+and the function still returned a "bot": "Audio Sync" dict with NO `"error"` key and 0
+`duration_updates` — every caller (the Slack `sync` command, the direct `pipeline.run_audio_sync()`
+call) reported this as **success**, matching the exact silent-failure symptom already documented in
+docs/failure-modes.md ("Audio alignment fails ... 3s uniform durations").
+
+Fix — smallest honest improvement, no new paid integration (Kie has no confirmed Whisper-equivalent
+in this codebase, so `[B]` routing through Kie wasn't feasible; C04's graceful-degradation precedent
+followed instead):
+- `transcriber.py` gains `is_configured()` — single source of truth for "can Whisper run at all."
+- `run_audio_sync.py` now (a) fails FAST with a clear `{"error": ...}` + a Slack notification the
+  moment the key is missing/placeholder, before burning time on Drive downloads or doomed API
+  calls, and (b) after the per-scene loop, if `duration_updates == 0` (every scene failed for ANY
+  reason), returns a clear error instead of writing `render_config.json` and claiming success.
+
+### Claude tier map — single-sourced
+
+Traced ~15 independent call sites across storyengine/backend hardcoding the same Claude
+smart/fast tier ids (`routes/chat.py` ×3, `routes/videos.py` ×2, `routes/model_video.py`,
+`routes/pipeline.py`, `routes/script_templates.py`, `routes/discovery.py`,
+`routes/system_prompts.py`, `routes/youtube_channel.py`, `producer_prompt.py`, `static_docu.py`,
+`identity_builder.py`, `user_script.py`, `originality.py`, `youtube_publish.py`,
+`claude_orchestrator.py`, `distillation/distiller.py`, `distillation/meta_analyzer.py`,
+`render_static.py`, `scripts/coverage_to_app.py` ×5, `kie_unified.py`'s own
+`AnthropicDirectClient.generate` default) instead of one shared map. Three of those independent
+copies (`claude_orchestrator.DECISION_MODEL`, `routes/system_prompts.py`,
+`routes/youtube_channel.py`, plus `kie_unified.AnthropicDirectClient`'s own default parameter) had
+drifted to a stale `"claude-sonnet-4-20250514"` id that **404s on the live Anthropic API today**
+(confirmed by a pre-existing comment in `producer_prompt.py`) — a genuine live bug fixed alongside
+the consolidation, not just duplication.
+
+Single source: `shared/channel_profile.py::CLAUDE_MODELS` (next to `MODEL_REGISTRY`, mirroring the
+C09 single-price-source pattern) + `claude_model_for_direct_client(client, tier="smart")` (replaces
+the repeated `"claude-sonnet-4-6" if type(client).__name__ == "AnthropicDirectClient" else None`
+idiom). `storyengine/backend/actions.py` re-exports both (same re-export pattern as `CLIP_COST`
+etc.); every one of the ~20 call sites above now imports from there instead of carrying its own
+literal. `kie_unified.py`'s `CLAUDE_MODEL_ALIASES` translation table and `canaries/validator_drift.py`
+/`canaries/vision_drift.py`'s pinned probe strings are deliberately NOT folded in (documented in
+`channel_profile.py`'s own comment) — different concerns (a compat shim for old ids; drift canaries
+that must pin a version on purpose).
+
+Regression pin: `storyengine/backend/tests/functional/test_c35_claude_tier_single_source.py` — (1)
+the map's shape/values, (2) `actions.py`'s re-export, (3) a static AST-based audit walking every
+`.py` file under `storyengine/backend` for the canonical literal strings, allowlisting only
+`kie_unified.py` and `canaries/*.py`. Non-vacuous: reverting the source (keeping only the new test)
+fails all 3 assertions, listing all ~30 duplicate/stale sites.
+
+### Verify
+
+**Non-vacuous via `git stash`** (two separate stashes):
+- Stashed the Whisper fix files only, kept the new test file: 7 of 9
+  `test_run_audio_sync_keyless.py` assertions correctly FAIL against pre-fix code (missing/placeholder
+  key silently "succeeds" with 0 durations; all-scenes-failed also silently "succeeds"). Popped clean,
+  re-ran 9/9 green, full `render/audio_sync/tests/` suite 61/61.
+- Stashed all ~20 tier-map consumer files (kept `test_c35_claude_tier_single_source.py`): all 3
+  assertions fail (map doesn't exist; `actions.py` doesn't re-export it; the static audit finds ~30
+  literal-hardcoding sites). Popped clean, re-ran 3/3 green.
+
+One test needed updating, not just adding: `tests/functional/test_learn_voice.py` pinned the OLD
+stale `"claude-sonnet-4-20250514"` id as the expected request body model — updated to assert against
+`CLAUDE_MODELS["anthropic"]["smart"]` (the bug-fixed value), with a comment explaining why.
+
+**Full backend suite:** `./venv/bin/python -m pytest tests/ -q` → **1272 passed** (1269 baseline + 3
+new tier-map tests) **/ 15 pre-existing failures / 1 pre-existing error** — matches the documented
+baseline exactly, zero new failures. `skills/video-pipeline` autopilot suite: **146/0** (unaffected —
+`channel_profile.py` only gained new symbols, nothing removed/changed). `py_compile` clean across all
+~27 touched files.
+
+**Frontend:** untouched — no `storyengine/frontend/` paths in `git status --short`.
+
+### Modified/New Files (C35)
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/render/audio_sync/transcriber.py` | + `is_configured()` |
+| `skills/video-pipeline/render/run_audio_sync.py` | Upfront key-check (fail fast with error + Slack notify); post-loop `duration_updates == 0` guard (never silently "succeed" with 0 timed images) |
+| `skills/video-pipeline/render/audio_sync/tests/test_run_audio_sync_keyless.py` | NEW — 9 tests |
+| `skills/video-pipeline/shared/channel_profile.py` | + `CLAUDE_MODELS` dict, `claude_model_for_direct_client()` |
+| `storyengine/backend/actions.py` | Re-exports `CLAUDE_MODELS`, `claude_model_for_direct_client` |
+| `storyengine/backend/{routes/chat.py, routes/videos.py, routes/model_video.py, routes/pipeline.py, routes/script_templates.py, routes/discovery.py, routes/system_prompts.py, routes/youtube_channel.py, producer_prompt.py, static_docu.py, identity_builder.py, user_script.py, originality.py, youtube_publish.py, claude_orchestrator.py, distillation/distiller.py, distillation/meta_analyzer.py, render_static.py, scripts/coverage_to_app.py, kie_unified.py}` | Hardcoded Claude tier literal replaced with the single-source import; `kie_unified.AnthropicDirectClient.generate`'s default `model` param now resolves lazily instead of defaulting to the stale 404ing id |
+| `storyengine/backend/tests/functional/test_learn_voice.py` | Updated stale-id assertion to the bug-fixed canonical value |
+| `storyengine/backend/tests/functional/test_c35_claude_tier_single_source.py` | NEW — 3 tests (shape/values, re-export, static no-duplication audit) |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Both fixes are behavior corrections with no schema change and no new paid integration. The Whisper
+fix can only ever turn a previously-silent "success" into a clear, correctly-labeled failure — no
+path that worked before now fails, and no path that failed before now silently "succeeds." The tier
+map fix is a pure refactor for ~17 of the ~20 sites (identical literal value, single source instead
+of N copies) plus a genuine bug fix for the 4 stale-id sites (`claude_orchestrator.py`,
+`routes/system_prompts.py`, `routes/youtube_channel.py`, `kie_unified.AnthropicDirectClient`'s
+default) that were confirmed 404ing — fixing a confirmed-broken call can only improve those code
+paths, never regress a working one. Safe to ff-merge; no VPS coordination needed, no migration to
+run.
+
+**Next up: C36 · P3.3 UX debt batch (checkpoint-audio expectation, cold-start card, budget ceiling,
+confidence telemetry — split per item if any runs long).**
+
 **Next up: C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing.**
