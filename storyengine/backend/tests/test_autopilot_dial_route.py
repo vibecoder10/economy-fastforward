@@ -40,7 +40,7 @@ async def _empty_fetch_all(query, *args):
     return []
 
 
-def _build_client(monkeypatch, *, config_row=None, dial=None):
+def _build_client(monkeypatch, *, config_row=None, dial=None, weekly_spent=0.0):
     monkeypatch.setattr(autopilot_route, "fetch_one", _fake_fetch_one_factory(config_row))
     monkeypatch.setattr(autopilot_route, "fetch_all", _empty_fetch_all)
 
@@ -48,6 +48,13 @@ def _build_client(monkeypatch, *, config_row=None, dial=None):
         return dial if dial is not None else AutopilotDial()
 
     monkeypatch.setattr(autopilot_route, "get_autopilot_dial", fake_get_autopilot_dial)
+
+    # C54 (P4.2-e) — real spend in the current weekly window, additive on
+    # this same summary response.
+    async def fake_get_weekly_spend(tenant_id):
+        return weekly_spent
+
+    monkeypatch.setattr(autopilot_route, "get_weekly_spend", fake_get_weekly_spend)
 
     app = FastAPI()
     app.include_router(autopilot_route.router)
@@ -65,6 +72,7 @@ def test_summary_response_includes_dial_fields_with_defaults(monkeypatch):
     assert config["weekly_spend_reset_at"] is None
     assert config["kill_switch_tripped_at"] is None
     assert config["kill_switch_reason"] is None
+    assert config["weekly_spent"] == 0.0
 
 
 def test_summary_response_surfaces_non_default_dial_values(monkeypatch):

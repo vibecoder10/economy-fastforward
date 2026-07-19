@@ -23,6 +23,9 @@ import {
   Clock,
   AlertCircle,
   Inbox,
+  ShieldAlert,
+  Gauge,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -35,6 +38,7 @@ import {
   getAutopilotSummary,
   toggleAutopilot,
   updateAutopilotConfig,
+  resetAutopilotKillSwitch,
   launchCandidate,
   syncYouTubeMetrics,
   getYouTubeSyncStatus,
@@ -49,6 +53,12 @@ import {
   type AutopilotProposal,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
+
+const DIAL_OPTIONS: { value: "propose_only" | "auto_draft" | "full_auto"; label: string; description: string }[] = [
+  { value: "propose_only", label: "Propose Only", description: "Autopilot scores candidates and waits for you to launch." },
+  { value: "auto_draft", label: "Auto-Draft", description: "Autopilot creates and builds videos unattended." },
+  { value: "full_auto", label: "Full Auto", description: "Reserved — currently behaves the same as Auto-Draft." },
+];
 
 const DEFAULT_WEIGHTS = {
   competitor_vph: 0.55,
@@ -108,6 +118,13 @@ export default function AutopilotPage() {
   const [draftThresholds, setDraftThresholds] = useState<Record<string, number>>({});
   const [savingThresholds, setSavingThresholds] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // C54 (P4.2-e) — autonomy dial + weekly budget ceiling + kill switch.
+  const [savingDial, setSavingDial] = useState<string | null>(null);
+  const [editingBudgetCap, setEditingBudgetCap] = useState(false);
+  const [budgetCapValue, setBudgetCapValue] = useState("");
+  const [savingBudgetCap, setSavingBudgetCap] = useState(false);
+  const [budgetCapError, setBudgetCapError] = useState<string | null>(null);
 
   const launchMutation = useMutation({
     mutationFn: launchCandidate,
@@ -269,6 +286,48 @@ export default function AutopilotPage() {
     }
   };
 
+  // C54 (P4.2-e) — autonomy dial + weekly budget ceiling.
+  const handleSetDial = async (level: "propose_only" | "auto_draft" | "full_auto") => {
+    if (savingDial) return;
+    setSavingDial(level);
+    try {
+      await updateAutopilotConfig({ dial_level: level });
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    } catch (err) {
+      console.error("Error setting autopilot dial:", err);
+    } finally {
+      setSavingDial(null);
+    }
+  };
+
+  const handleSaveBudgetCap = async () => {
+    const trimmed = budgetCapValue.trim();
+    const parsed = trimmed === "" ? null : Number(trimmed);
+    if (parsed !== null && (!Number.isFinite(parsed) || parsed <= 0)) {
+      setBudgetCapError("Must be greater than 0 (or leave blank to remove the cap)");
+      return;
+    }
+    setBudgetCapError(null);
+    setSavingBudgetCap(true);
+    try {
+      await updateAutopilotConfig({ weekly_budget_cap: parsed });
+      setEditingBudgetCap(false);
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    } catch (err) {
+      console.error("Error saving weekly budget cap:", err);
+      setBudgetCapError("Failed to save — try again");
+    } finally {
+      setSavingBudgetCap(false);
+    }
+  };
+
+  const resetKillSwitchMutation = useMutation({
+    mutationFn: resetAutopilotKillSwitch,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["autopilot-summary"] });
+    },
+  });
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -342,6 +401,57 @@ export default function AutopilotPage() {
           {isEnabled ? "ON" : "OFF"}
         </button>
       </motion.div>
+
+      {/* Kill switch banner (checklist C54, P4.2-e) — an AUTOMATIC trip
+          (e.g. a weekly budget breach), distinct from the enabled/disabled
+          toggle above. Shown prominently because a trip withholds ALL
+          further automation (queue drain, candidate launches, even
+          propose_only proposals) until a human explicitly re-enables it. */}
+      {config.kill_switch_tripped_at && (
+        <motion.div variants={item}>
+          <GlassCard
+            style={{
+              borderColor: "rgba(255, 77, 106, 0.35)",
+              background: "rgba(255, 77, 106, 0.08)",
+            }}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <ShieldAlert size={20} style={{ color: "var(--red)" }} className="mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--red)" }}>
+                    Autopilot kill switch tripped
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                    {config.kill_switch_reason || "Automation was stopped automatically."}
+                    {" "}&middot; {timeAgo(config.kill_switch_tripped_at)}
+                  </p>
+                  <p className="text-[11px] mt-1" style={{ color: "var(--text-tertiary)" }}>
+                    All unattended production (queue drain, auto-draft launches, proposals) is paused until you re-enable it.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => resetKillSwitchMutation.mutate()}
+                disabled={resetKillSwitchMutation.isPending}
+                className="shrink-0 flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-all disabled:opacity-50"
+                style={{
+                  background: "rgba(0, 212, 170, 0.15)",
+                  color: "var(--turquoise)",
+                  border: "1px solid rgba(0, 212, 170, 0.3)",
+                }}
+              >
+                {resetKillSwitchMutation.isPending ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={12} />
+                )}
+                Re-enable
+              </button>
+            </div>
+          </GlassCard>
+        </motion.div>
+      )}
 
       {/* Production Cycle Status */}
       {(state.last_cycle || state.days_until_next > 0) && (
@@ -652,6 +762,152 @@ export default function AutopilotPage() {
               ))}
             </div>
           )}
+        </GlassCard>
+      </motion.div>
+
+      {/* Autonomy dial + weekly budget ceiling (checklist C54, P4.2-e) */}
+      <motion.div variants={item}>
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-1">
+            <Gauge size={16} style={{ color: "var(--turquoise)" }} />
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              Autonomy &amp; Budget
+            </h2>
+          </div>
+          <p className="text-[11px] mb-5" style={{ color: "var(--text-secondary)" }}>
+            How much autopilot may do unattended, and a spending ceiling to keep it honest.
+          </p>
+
+          {/* Dial selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+            {DIAL_OPTIONS.map((opt) => {
+              const isActive = (config.dial_level || "propose_only") === opt.value;
+              const isSaving = savingDial === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => handleSetDial(opt.value)}
+                  disabled={!!savingDial}
+                  className="text-left rounded-xl px-4 py-3 transition-all disabled:opacity-60"
+                  style={{
+                    background: isActive ? "rgba(0, 212, 170, 0.12)" : "rgba(255,255,255,0.02)",
+                    border: isActive ? "1px solid rgba(0, 212, 170, 0.35)" : "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span
+                      className="text-xs font-semibold"
+                      style={{ color: isActive ? "var(--turquoise)" : "var(--text-primary)" }}
+                    >
+                      {opt.label}
+                    </span>
+                    {isSaving ? (
+                      <Loader2 size={12} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+                    ) : isActive ? (
+                      <Check size={12} style={{ color: "var(--turquoise)" }} />
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] leading-snug" style={{ color: "var(--text-tertiary)" }}>
+                    {opt.description}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Weekly budget cap + spend */}
+          <div
+            className="rounded-xl px-4 py-3"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.05)" }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <Wallet size={13} style={{ color: "var(--gold)" }} />
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>Weekly Budget Cap</span>
+              </div>
+              {!editingBudgetCap && (
+                <button
+                  onClick={() => {
+                    setBudgetCapValue(config.weekly_budget_cap != null ? String(config.weekly_budget_cap) : "");
+                    setBudgetCapError(null);
+                    setEditingBudgetCap(true);
+                  }}
+                  className="text-[11px] font-mono transition-colors"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  edit
+                </button>
+              )}
+            </div>
+
+            {editingBudgetCap ? (
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>$</span>
+                  <input
+                    type="number"
+                    value={budgetCapValue}
+                    onChange={(e) => setBudgetCapValue(e.target.value)}
+                    placeholder="No cap"
+                    min={0}
+                    step={1}
+                    className="w-28 rounded-lg px-2 py-1 text-sm font-semibold font-body focus:outline-none"
+                    style={{
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(212, 168, 82, 0.3)",
+                      color: "var(--text-primary)",
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleSaveBudgetCap}
+                    disabled={savingBudgetCap}
+                    className="rounded-lg p-1.5 transition-colors"
+                    style={{ color: "var(--green)", background: "rgba(0, 230, 138, 0.1)" }}
+                  >
+                    {savingBudgetCap ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  </button>
+                  <button
+                    onClick={() => { setEditingBudgetCap(false); setBudgetCapError(null); }}
+                    className="rounded-lg p-1.5 transition-colors"
+                    style={{ color: "var(--red)", background: "rgba(255, 77, 106, 0.1)" }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <p className="text-[10px] mt-2 font-mono" style={{ color: "var(--text-tertiary)" }}>
+                  leave blank to remove the cap
+                </p>
+                {budgetCapError && (
+                  <p className="text-[11px] mt-1" style={{ color: "var(--red)" }}>{budgetCapError}</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>
+                {config.weekly_budget_cap != null ? (
+                  <>
+                    spent{" "}
+                    <span style={{ color: "var(--turquoise)" }}>
+                      ${(config.weekly_spent ?? 0).toFixed(2)}
+                    </span>{" "}
+                    of{" "}
+                    <span style={{ color: "var(--gold)" }}>
+                      ${config.weekly_budget_cap.toFixed(2)}
+                    </span>{" "}
+                    this week
+                  </>
+                ) : (
+                  <>
+                    spent{" "}
+                    <span style={{ color: "var(--turquoise)" }}>
+                      ${(config.weekly_spent ?? 0).toFixed(2)}
+                    </span>{" "}
+                    this week &middot; no cap set
+                  </>
+                )}
+              </p>
+            )}
+          </div>
         </GlassCard>
       </motion.div>
 

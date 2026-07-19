@@ -27,7 +27,11 @@ get_autopilot_dial``) — this is the FIRST real reader of ``dial_level``:
   ``routes.autopilot.launch_candidate`` verbatim (same gates, same
   needs_approval stop as a manual click today). ``full_auto`` is treated
   identically to ``auto_draft`` here — carrying a draft through to
-  finalize+upload unattended is checklist C55, not this chunk.
+  finalize+upload unattended is checklist C55, not this chunk. C54 (P4.2-e)
+  adds one more gate on THIS branch only, immediately before the launch
+  call: ``autopilot_dial.check_weekly_budget`` — a breach trips the kill
+  switch and returns None instead of launching. propose_only never reaches
+  that check, so a budget breach can never block a free proposal.
 """
 from __future__ import annotations
 
@@ -36,7 +40,7 @@ import logging
 from typing import Optional
 
 import autopilot_proposals
-from autopilot_dial import get_autopilot_dial
+from autopilot_dial import check_weekly_budget, get_autopilot_dial, trip_kill_switch
 from database import fetch_one
 
 logger = logging.getLogger(__name__)
@@ -188,6 +192,26 @@ async def auto_launch_best_candidate(tenant_id: str) -> Optional[dict]:
     # carrying a full_auto draft through to finalize+upload is C55, not this
     # chunk). Calls the EXISTING launch path verbatim; all its gates
     # (already-launched check, needs_approval stop) apply unchanged.
+    #
+    # C54 (P4.2-e): re-check the weekly budget HERE, immediately before
+    # launching — not just once at the loop level (main.py::_produce_for_
+    # tenant). Candidate scoring above (_pick_candidate -> get_candidates)
+    # can take real time, so the loop-level check could be a whole launch
+    # stale by then; this is the last gate before an actual paid pipeline
+    # starts. propose_only above never reaches this line at all, so a
+    # budget breach can NEVER block a free proposal — only auto_draft/
+    # full_auto spend is gated.
+    try:
+        ok, spent, cap = await check_weekly_budget(tenant_id)
+    except Exception:
+        logger.exception("[AutoLaunch] Tenant %s: budget check failed, skipping launch", tenant_id[:8])
+        return None
+    if not ok:
+        reason = f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f})"
+        await trip_kill_switch(tenant_id, reason)
+        logger.warning("[AutoLaunch] Tenant %s: %s — kill switch tripped, launch skipped", tenant_id[:8], reason)
+        return None
+
     from fastapi import BackgroundTasks
     from routes.autopilot import launch_candidate
 

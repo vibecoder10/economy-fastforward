@@ -81,6 +81,31 @@ def _patch_no_active_proposals(monkeypatch):
     monkeypatch.setattr(autopilot_proposals, "has_active_proposal", fake)
 
 
+def _patch_budget(monkeypatch, *, ok=True, spent=0.0, cap=None):
+    """checklist C54 (P4.2-e) added a pre-launch budget re-check on the
+    auto_draft/full_auto branch — every test that reaches that branch must
+    patch this or it falls through to a real (missing) DB connection."""
+    calls = []
+
+    async def fake_check_weekly_budget(tenant_id):
+        calls.append(tenant_id)
+        return ok, spent, cap
+
+    monkeypatch.setattr(autopilot_launch, "check_weekly_budget", fake_check_weekly_budget)
+    return calls
+
+
+def _patch_trip_kill_switch(monkeypatch):
+    calls = []
+
+    async def fake_trip(tenant_id, reason):
+        calls.append((tenant_id, reason))
+        return True
+
+    monkeypatch.setattr(autopilot_launch, "trip_kill_switch", fake_trip)
+    return calls
+
+
 def _patch_create_proposal(monkeypatch):
     created = []
 
@@ -217,6 +242,7 @@ def test_auto_draft_calls_existing_launch_candidate_once(monkeypatch):
     _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
     _patch_get_candidates(monkeypatch, [_candidate(id_="cand-7", confidence=80.0)])
     _patch_no_active_proposals(monkeypatch)
+    _patch_budget(monkeypatch, ok=True)
     created = _patch_create_proposal(monkeypatch)
 
     launch_calls = []
@@ -240,6 +266,7 @@ def test_full_auto_is_treated_as_auto_draft_this_chunk(monkeypatch):
     _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
     _patch_get_candidates(monkeypatch, [_candidate(id_="cand-5", confidence=80.0)])
     _patch_no_active_proposals(monkeypatch)
+    _patch_budget(monkeypatch, ok=True)
 
     launch_calls = []
 
@@ -253,6 +280,57 @@ def test_full_auto_is_treated_as_auto_draft_this_chunk(monkeypatch):
     result = asyncio.run(autopilot_launch.auto_launch_best_candidate(TENANT))
     assert result["status"] == "launched"
     assert launch_calls == ["cand-5"]
+
+
+# ---------------------------------------------------------------------------
+# C54 (P4.2-e): auto_draft's own pre-launch budget re-check — a breach trips
+# the kill switch and returns None WITHOUT ever calling launch_candidate.
+# ---------------------------------------------------------------------------
+
+def test_auto_draft_budget_breach_trips_kill_switch_and_skips_launch(monkeypatch):
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="auto_draft"))
+    _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
+    _patch_get_candidates(monkeypatch, [_candidate(id_="cand-8", confidence=80.0)])
+    _patch_no_active_proposals(monkeypatch)
+    _patch_budget(monkeypatch, ok=False, spent=50.0, cap=40.0)
+    trip_calls = _patch_trip_kill_switch(monkeypatch)
+
+    launch_calls = []
+
+    async def fake_launch_candidate(candidate_id, background_tasks, tenant_id):
+        launch_calls.append(candidate_id)
+        raise AssertionError("launch_candidate must NEVER be called on a budget breach")
+
+    monkeypatch.setattr(autopilot_route, "launch_candidate", fake_launch_candidate)
+
+    result = asyncio.run(autopilot_launch.auto_launch_best_candidate(TENANT))
+
+    assert result is None
+    assert launch_calls == []
+    assert len(trip_calls) == 1
+    assert trip_calls[0][0] == TENANT
+    assert "40.00" in trip_calls[0][1] and "50.00" in trip_calls[0][1]
+
+
+def test_propose_only_never_reaches_the_budget_check(monkeypatch):
+    """propose_only must be structurally free — the budget check function is
+    never even called on this branch (it's imported/called only inside the
+    auto_draft branch code path, after the propose_only branch's early
+    return)."""
+    _patch_dial(monkeypatch, AutopilotDial(dial_level="propose_only"))
+    _patch_fetch_one(monkeypatch, thresholds={"min_confidence_score": 60})
+    _patch_get_candidates(monkeypatch, [_candidate(id_="cand-9", confidence=80.0)])
+    _patch_no_active_proposals(monkeypatch)
+    created = _patch_create_proposal(monkeypatch)
+
+    async def fake_check_weekly_budget(tenant_id):
+        raise AssertionError("check_weekly_budget must NEVER be called in propose_only mode")
+
+    monkeypatch.setattr(autopilot_launch, "check_weekly_budget", fake_check_weekly_budget)
+
+    result = asyncio.run(autopilot_launch.auto_launch_best_candidate(TENANT))
+    assert result["status"] == "proposed"
+    assert len(created) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -340,17 +418,38 @@ def test_has_active_proposal_false_when_no_row(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# main.py wiring — the fallback call exists in _auto_produce_queue's source
-# (source-presence check rather than a full app import, to keep this test
-# light; the function-level behavior above is exercised directly).
+# main.py wiring — the fallback call exists in source (source-presence check
+# rather than a full app import, to keep this test light; the function-level
+# behavior above is exercised directly). checklist C54 (P4.2-e) extracted the
+# per-tenant tick into `_produce_for_tenant` so the kill-switch/budget gate
+# covers BOTH the queue-drain and candidate-fallback paths — the fallback
+# call itself now lives there, not inline in `_auto_produce_queue`.
 # ---------------------------------------------------------------------------
 
-def test_main_py_wires_the_candidate_fallback_into_auto_produce_queue():
+def _main_py_source() -> str:
     main_path = os.path.join(os.path.dirname(__file__), "..", "main.py")
     with open(main_path) as f:
-        source = f.read()
-    start = source.index("async def _auto_produce_queue")
-    end = source.index("\nasync def ", start + 10)
+        return f.read()
+
+
+def test_main_py_wires_the_candidate_fallback_into_produce_for_tenant():
+    source = _main_py_source()
+    start = source.index("async def _produce_for_tenant")
+    end = source.index("\nasync def _auto_produce_queue", start + 10)
     body = source[start:end]
     assert "from autopilot_launch import auto_launch_best_candidate" in body
     assert "auto_launch_best_candidate(tenant_id)" in body
+    # C54: the same per-tenant tick also gates on the kill switch/budget
+    # BEFORE either the queue drain or the candidate fallback runs.
+    assert "get_autopilot_dial" in body
+    assert "check_weekly_budget" in body
+    assert "trip_kill_switch" in body
+    assert "from routes.queue import auto_produce_next" in body
+
+
+def test_main_py_auto_produce_queue_loop_calls_the_extracted_helper():
+    source = _main_py_source()
+    start = source.index("async def _auto_produce_queue")
+    end = source.index("\nasync def ", start + 10)
+    body = source[start:end]
+    assert "_produce_for_tenant(tenant_id)" in body

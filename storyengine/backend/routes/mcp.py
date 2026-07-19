@@ -76,6 +76,15 @@ accept_proposal/dismiss_proposal functions the HTTP door uses — see the
 "AUTOPILOT PROPOSAL TOOLS" section below for the accept-is-free
 classification's full reasoning).
 
+TOOL SURFACE v5 (C54 — checklist P4.2-e, weekly budget ceiling + kill
+switch): set_autopilot_dial (free write — dial_level and/or
+weekly_budget_cap, calling the SAME routes.autopilot.update_config the HTTP
+config route uses), reset_autopilot_kill_switch (free write — calls the SAME
+routes.autopilot.reset_kill_switch the HTTP door uses). See the "AUTOPILOT
+DIAL TOOLS" section below for both tools' free-vs-confirm classification
+reasoning (the kill-switch reset in particular was a real judgment call, not
+a rubber-stamp of the create_video/accept_autopilot_proposal precedent).
+
 Every verb tool (free or paid) dispatches through actions.ACTIONS/
 routes.chat._run_pending_action — the EXACT SAME dispatcher chat.py's
 confirmed-action path calls. This module adds ONLY: (1) MCP framing
@@ -1123,6 +1132,135 @@ _AUTOPILOT_PROPOSAL_WRITE_HANDLERS = {
 
 
 # =============================================================================
+# AUTOPILOT DIAL TOOLS (checklist C54, P4.2-e — the dial finally becomes
+# settable, and a tripped kill switch finally becomes clearable, from MCP).
+# Both writes go through the EXISTING route functions
+# (routes.autopilot.update_config / routes.autopilot.reset_kill_switch) the
+# SAME way set_render_style/set_style_preset above call routes.videos.
+# update_video directly — no parallel write logic.
+#
+# Classification (this module's money-gate house rules, see docstring above):
+#   - set_autopilot_dial: FREE, no confirm_token. Same bucket as set_render_
+#     style/set_style_preset — a routing/config guardrail, not a spend
+#     itself. Setting dial_level to auto_draft/full_auto does not spend
+#     anything AT THIS CALL; it only changes which branch the NEXT autopilot
+#     tick takes, and that tick still runs launch_candidate (same gates as a
+#     human "Launch" click) and still enforces its own weekly-budget check
+#     (autopilot_launch.py's auto_draft branch, C54) before anything paid
+#     happens. weekly_budget_cap is a ceiling, never a spend trigger.
+#   - reset_autopilot_kill_switch: FREE, no confirm_token — the checklist
+#     flagged this as a real judgment call ("re-arms spending automation"),
+#     not a rubber-stamp. Decided FREE by the SAME precedent already used
+#     for accept_autopilot_proposal above: (1) it is not an actions.ACTIONS
+#     verb, so the confirm_token gate in `_call_verb` structurally doesn't
+#     wrap it; (2) clearing the switch re-arms EXISTING unattended paths
+#     (auto_draft launches, queue drain) that already run ungated by this
+#     module today — it adds no new unguarded path, it only lets automation
+#     that was already unguarded resume; (3) every individual PAID stage
+#     those paths reach still enforces its own confirm-token/needs_approval
+#     gate through any other door, AND (C54's own new gate) the weekly
+#     budget is re-checked on every subsequent tick regardless — clearing
+#     the switch does not bypass a future re-trip if spend is still over
+#     cap. It is a control-plane switch (same shape as toggle_autopilot's
+#     enable/disable, which has never been confirm-gated), not a quoted
+#     paid action.
+# =============================================================================
+
+_SET_AUTOPILOT_DIAL_TOOL: dict[str, Any] = {
+    "name": "set_autopilot_dial",
+    "description": (
+        "Set the autopilot autonomy dial and/or the weekly spend ceiling. Free, no "
+        "confirm_token (see module docstring's classification note — this changes routing "
+        "for the NEXT autopilot tick, it doesn't spend anything itself; every paid stage "
+        "reached from auto_draft/full_auto still enforces its own gates). dial_level: "
+        "'propose_only' (autopilot only proposes, a human launches — today's default), "
+        "'auto_draft' (autopilot may create a video/draft unattended), 'full_auto' (reserved, "
+        "treated identically to auto_draft today). weekly_budget_cap: dollar ceiling on "
+        "weekly autopilot spend; pass null to remove an existing cap. Provide either or both."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "dial_level": {"type": "string", "description": "One of: propose_only, auto_draft, full_auto."},
+            "weekly_budget_cap": {
+                "type": ["number", "null"],
+                "description": "Dollar ceiling on weekly autopilot spend, or null to remove the cap.",
+            },
+        },
+    },
+}
+
+_RESET_AUTOPILOT_KILL_SWITCH_TOOL: dict[str, Any] = {
+    "name": "reset_autopilot_kill_switch",
+    "description": (
+        "Re-enable autopilot after an automatic kill-switch trip (e.g. a weekly budget "
+        "breach). Free, no confirm_token — see module docstring's classification note: this "
+        "only re-arms EXISTING automation paths (auto_draft launches, queue drain), each of "
+        "which still enforces its own gates when it actually reaches a paid stage; it does "
+        "not itself spend anything. Calling this when the switch isn't tripped is a harmless "
+        "no-op. Attributed to the calling agent."
+    ),
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_AUTOPILOT_DIAL_TOOLS: list[dict[str, Any]] = [
+    _SET_AUTOPILOT_DIAL_TOOL, _RESET_AUTOPILOT_KILL_SWITCH_TOOL,
+]
+
+
+async def _call_set_autopilot_dial(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from autopilot_dial import DIAL_LEVELS
+
+    dial_level = arguments.get("dial_level")
+    cap_provided = "weekly_budget_cap" in arguments
+    weekly_budget_cap = arguments.get("weekly_budget_cap")
+
+    if dial_level is None and not cap_provided:
+        return _error_result("set_autopilot_dial requires dial_level and/or weekly_budget_cap")
+    if dial_level is not None and dial_level not in DIAL_LEVELS:
+        return _error_result(f"dial_level must be one of {DIAL_LEVELS}")
+    if cap_provided and weekly_budget_cap is not None:
+        try:
+            weekly_budget_cap = float(weekly_budget_cap)
+        except (TypeError, ValueError):
+            return _error_result("weekly_budget_cap must be a number or null")
+        if weekly_budget_cap <= 0:
+            return _error_result("weekly_budget_cap must be greater than 0 (or null to remove the cap)")
+
+    from routes.autopilot import ConfigUpdate
+    from routes.autopilot import update_config as _update_config_route
+
+    body_kwargs: dict[str, Any] = {}
+    if dial_level is not None:
+        body_kwargs["dial_level"] = dial_level
+    if cap_provided:
+        body_kwargs["weekly_budget_cap"] = weekly_budget_cap
+
+    _log_setup_write("set_autopilot_dial", tenant_id, caller, detail=str(body_kwargs))
+    try:
+        result = await _update_config_route(ConfigUpdate(**body_kwargs), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't set the autopilot dial")
+    return _text_result(result)
+
+
+async def _call_reset_autopilot_kill_switch(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from auth import AuthUser
+    from routes.autopilot import reset_kill_switch as _reset_kill_switch_route
+
+    _log_setup_write("reset_autopilot_kill_switch", tenant_id, caller)
+    user = AuthUser(id="mcp_agent", email=caller)
+    result = await _reset_kill_switch_route(user=user, tenant_id=tenant_id)
+    return _text_result(result.model_dump())
+
+
+_AUTOPILOT_DIAL_WRITE_HANDLERS = {
+    "set_autopilot_dial": _call_set_autopilot_dial,
+    "reset_autopilot_kill_switch": _call_reset_autopilot_kill_switch,
+}
+
+
+# =============================================================================
 # INGEST TOOLS (checklist C47 — decisions.md 2026-07-19 "MCP economics"
 # entry): the connected agent does research/scripting on the user's OWN
 # Claude subscription and hands StoryEngine the RESULT through the SAME
@@ -1244,7 +1382,7 @@ _INGEST_HANDLERS = {
 
 TOOLS: list[dict[str, Any]] = (
     _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
-    + _AUTOPILOT_PROPOSAL_TOOLS + _INGEST_TOOLS
+    + _AUTOPILOT_PROPOSAL_TOOLS + _AUTOPILOT_DIAL_TOOLS + _INGEST_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -1367,6 +1505,8 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _AUTOPILOT_PROPOSAL_READ_HANDLERS[name](tenant_id, arguments, caller)
         if name in _AUTOPILOT_PROPOSAL_WRITE_HANDLERS:
             return await _AUTOPILOT_PROPOSAL_WRITE_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _AUTOPILOT_DIAL_WRITE_HANDLERS:
+            return await _AUTOPILOT_DIAL_WRITE_HANDLERS[name](tenant_id, arguments, caller)
         if name in _INGEST_HANDLERS:
             return await _INGEST_HANDLERS[name](tenant_id, arguments, caller)
         return _error_result(f"Unknown tool: {name}")

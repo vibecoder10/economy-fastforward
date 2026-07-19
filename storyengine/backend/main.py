@@ -4,6 +4,7 @@ import os
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Optional
 from urllib.parse import urlparse as _urlparse
 from dotenv import load_dotenv
 
@@ -373,6 +374,74 @@ async def _auto_distill_intelligence():
         await asyncio.sleep(43200)  # Every 12 hours
 
 
+async def _produce_for_tenant(tenant_id) -> Optional[dict]:
+    """One per-tenant production tick — extracted from ``_auto_produce_queue``
+    (checklist C54, P4.2-e) so the kill-switch/budget gating is independently
+    testable rather than buried in a ``while True`` loop body.
+
+    Reads the C50 dial ONCE per tenant per tick, before touching either
+    production path:
+
+    - A tripped kill switch skips the tenant ENTIRELY — queue drain AND the
+      candidate fallback both. This closes the C51-found gap: routes/queue.py
+      ``auto_produce_next`` is a pre-existing, unconditionally-paid path
+      (older than the C50 dial) with NO dial awareness of its own at all, so
+      without this loop-level gate a tripped kill switch only stopped the
+      candidate lane, not the queue drain.
+    - A weekly-budget breach is treated the SAME way — trip the kill switch
+      (never a silent pause, so a human sees exactly why autopilot stopped)
+      and skip this tick. autopilot_launch.py's auto_draft branch ALSO checks
+      the budget again immediately before it actually launches (defense in
+      depth — this loop-level check can go stale during candidate scoring);
+      this is not redundant with that, it's the outer gate for the
+      queue-drain path that check doesn't cover at all.
+
+    Kept as one function so both the queue-drain path (paid, no dial checks
+    of its own) and the candidate-fallback path share exactly one gate,
+    rather than risking the two paths drifting out of sync."""
+    if not await _is_autopilot_enabled(tenant_id):
+        return None
+
+    from autopilot_dial import check_weekly_budget, get_autopilot_dial, trip_kill_switch
+    try:
+        dial = await get_autopilot_dial(tenant_id)
+    except Exception:
+        logger.exception("[AutoQueue] Tenant %s: dial read failed, skipping", tenant_id[:8])
+        return None
+    if dial.kill_switch_tripped_at is not None:
+        return None
+
+    try:
+        ok, spent, cap = await check_weekly_budget(tenant_id)
+    except Exception:
+        logger.exception("[AutoQueue] Tenant %s: budget check failed, skipping", tenant_id[:8])
+        return None
+    if not ok:
+        reason = f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f})"
+        await trip_kill_switch(tenant_id, reason)
+        logger.warning("[AutoQueue] Tenant %s: %s — kill switch tripped", tenant_id[:8], reason)
+        return None
+
+    from routes.queue import auto_produce_next
+    result = await auto_produce_next(tenant_id)
+    if result:
+        logger.info(
+            "[AutoQueue] Tenant %s launched queued video %s (%s)",
+            tenant_id[:8], result.get("video_id"), result.get("video_title"),
+        )
+        return result
+
+    from autopilot_launch import auto_launch_best_candidate
+    candidate_result = await auto_launch_best_candidate(tenant_id)
+    if candidate_result:
+        logger.info(
+            "[AutoLaunch] Tenant %s %s candidate %s (%s)",
+            tenant_id[:8], candidate_result.get("status"),
+            candidate_result.get("candidate_id"), candidate_result.get("video_title"),
+        )
+    return candidate_result
+
+
 async def _auto_produce_queue():
     """Background task: drain the creator's own production queue, every 30 min.
 
@@ -389,31 +458,18 @@ async def _auto_produce_queue():
     per-tenant cadence lane, so a tenant never gets a queue launch AND a
     candidate launch/proposal in the same window. That function does its own
     dial_level/kill-switch gating (autopilot_dial.get_autopilot_dial); it is
-    NOT gated by production_interval_days here a second time."""
+    NOT gated by production_interval_days here a second time.
+
+    Checklist C54 (P4.2-e): the kill-switch/weekly-budget gate that used to
+    live inline here (and only covered the candidate fallback) is now
+    ``_produce_for_tenant`` above, and covers BOTH paths."""
     await asyncio.sleep(240)  # Offset from other startup tasks
     while True:
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
                 try:
-                    if not await _is_autopilot_enabled(tenant_id):
-                        continue
-                    from routes.queue import auto_produce_next
-                    result = await auto_produce_next(tenant_id)
-                    if result:
-                        logger.info(
-                            "[AutoQueue] Tenant %s launched queued video %s (%s)",
-                            tenant_id[:8], result.get("video_id"), result.get("video_title"),
-                        )
-                        continue
-                    from autopilot_launch import auto_launch_best_candidate
-                    candidate_result = await auto_launch_best_candidate(tenant_id)
-                    if candidate_result:
-                        logger.info(
-                            "[AutoLaunch] Tenant %s %s candidate %s (%s)",
-                            tenant_id[:8], candidate_result.get("status"),
-                            candidate_result.get("candidate_id"), candidate_result.get("video_title"),
-                        )
+                    await _produce_for_tenant(tenant_id)
                 except Exception as e:
                     logger.error("[AutoQueue] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:

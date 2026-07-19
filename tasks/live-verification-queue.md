@@ -58,6 +58,52 @@ can't even start) and **no route to the VPS**, so no Playwright run happened her
 
 ---
 
+## C54 — per-tenant weekly budget ceiling + kill-switch writers + queue-drain gap (P4.2-e) · needs a real tenant with a live DB + running app
+
+Everything is proven at the unit/code-trace level in the sandbox (29 new tests,
+`tests/test_c54_weekly_budget_kill_switch.py`, plus 4 changed/added in `tests/test_c51_candidate_auto_
+launch.py`; non-vacuous via `git stash`; full suite 1752P/15F/1E, zero new failures vs. the 1720P/15F/1E
+baseline) — but the sandbox has no `DATABASE_URL` and no route to the VPS, so no Playwright run and no
+real-money budget breach happened here. What's deferred:
+
+1. **Set a real weekly cap and watch it breach.** On a real test tenant with `dial_level='auto_draft'`
+   (so autopilot can actually spend): set a small cap via the `/autopilot` page's new Autonomy & Budget
+   card (e.g. `$1`), or `POST /api/autopilot/config {"weekly_budget_cap": 1}`. Let a real paid stage run
+   (or hand-insert a `generation_ledger` row with `actual_cost > 1` for that tenant to fake the breach
+   without spending real money) then force an autopilot tick and confirm:
+   - `se db "SELECT dial_level, weekly_budget_cap, weekly_spend_reset_at, kill_switch_tripped_at, kill_switch_reason FROM autopilot_config WHERE tenant_id='<uuid>'"` → `kill_switch_tripped_at` is now set, `kill_switch_reason` mentions the cap/spend numbers.
+   - `se db "SELECT bot_name, status, message FROM bot_activity WHERE tenant_id='<uuid>' AND bot_name='autopilot_kill_switch' ORDER BY created_at DESC LIMIT 1"` → the trip notify landed.
+   - The NEXT autopilot tick does nothing for this tenant — neither a queue-drain launch nor a candidate
+     proposal/launch appears — confirming the queue-drain gap fix actually holds live, not just in the
+     monkeypatched test.
+2. **UI round-trip for the kill-switch banner.** Open `/autopilot`: confirm the red "Autopilot kill
+   switch tripped" banner renders with the real reason + relative time, and every other autopilot
+   surface (Proposals, Top Recommendations) still renders normally underneath it (the banner doesn't
+   replace the page).
+3. **Re-enable, live.** Tap "Re-enable" on the banner (or `POST /api/autopilot/kill-switch/reset`):
+   confirm (a) the banner disappears, (b) `se db` shows both `kill_switch_tripped_at`/`kill_switch_
+   reason` back to NULL, (c) a `bot_activity` row exists naming who cleared it
+   (`message LIKE 'Kill switch re-enabled by%'`), and (d) the NEXT autopilot tick resumes normally (if
+   the underlying spend is still over cap, it should re-trip on the very next tick rather than running
+   unattended again — confirms clearing the switch doesn't bypass the budget check itself).
+4. **Weekly window rolls over.** Hand-set `weekly_spend_reset_at` to 8+ days ago for a tenant with ledger
+   rows both before and after that timestamp; call `GET /api/autopilot/summary` and confirm (a)
+   `weekly_spend_reset_at` in the DB rolled forward to ~now, and (b) `config.weekly_spent` only reflects
+   spend AFTER the new reset point (not the old one).
+5. **Dial selector + budget cap UI.** On `/autopilot`, click each of the 3 Autonomy options and confirm
+   the active one highlights + persists on reload; edit the Weekly Budget Cap field, save a value, reload
+   and confirm it round-trips; clear it back to blank and confirm "no cap set" reappears.
+6. **MCP parity (only if `MCP_ENABLED=true`, folds into the C29 runbook).** Call `set_autopilot_dial`
+   (both fields, then just one, then a bad `dial_level` to confirm the 400-equivalent error) and
+   `reset_autopilot_kill_switch` from a real connected client; confirm neither needs a `confirm_token`
+   and both changes are visible immediately via `get_autopilot_dial`/`GET /api/autopilot/summary`.
+- **Cost:** the budget check/trip/clear/dial-set writes are all free DB reads/writes at THIS layer — no
+  new spend category. The actual spend this chunk gates continues to happen at each PAID stage's own
+  confirm gate exactly as before; this chunk only adds an earlier stop sign in front of the unattended
+  paths (queue drain, auto_draft launch).
+
+---
+
 ## C36 — budget ceiling + cold-start card + checkpoint-audio · needs a real tenant, a real chat turn, real UI
 
 Everything in C36 (checklist §3.3) is proven at the unit/code-trace level in the sandbox (27 new

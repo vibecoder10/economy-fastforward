@@ -1010,10 +1010,31 @@ export const toggleAutopilot = (enabled: boolean) =>
     body: JSON.stringify({ enabled }),
   });
 
-export const updateAutopilotConfig = (config: { videos_per_month?: number; videos_per_scrape?: number; weights?: Record<string, number>; thresholds?: Record<string, number> }) =>
+export const updateAutopilotConfig = (config: {
+  videos_per_month?: number;
+  videos_per_scrape?: number;
+  weights?: Record<string, number>;
+  thresholds?: Record<string, number>;
+  dial_level?: "propose_only" | "auto_draft" | "full_auto";
+  weekly_budget_cap?: number | null;
+}) =>
   fetchApi<{ status: string; config: AutopilotConfig }>("/api/autopilot/config", {
     method: "POST",
     body: JSON.stringify(config),
+  });
+
+// C54 (P4.2-e) — the explicit human re-enable after an automatic
+// kill-switch trip (a weekly budget breach, for example).
+export interface KillSwitchResetResult {
+  status: string;
+  kill_switch_tripped_at: string | null;
+  kill_switch_reason: string | null;
+  cleared_by: string;
+}
+
+export const resetAutopilotKillSwitch = () =>
+  fetchApi<KillSwitchResetResult>("/api/autopilot/kill-switch/reset", {
+    method: "POST",
   });
 
 export interface BackgroundTaskStatus {
@@ -2023,6 +2044,15 @@ export interface AutopilotConfig {
   videos_per_scrape: number;
   weights: Record<string, number>;
   thresholds: Record<string, number>;
+  // Autopilot dial (migration 107, checklist C50) + C54 (P4.2-e) budget
+  // ceiling/kill-switch fields. Optional so an older backend that predates
+  // these simply omits them and the UI falls back sanely.
+  dial_level?: "propose_only" | "auto_draft" | "full_auto";
+  weekly_budget_cap?: number | null;
+  weekly_spend_reset_at?: string | null;
+  kill_switch_tripped_at?: string | null;
+  kill_switch_reason?: string | null;
+  weekly_spent?: number | null;
 }
 
 export interface ConfidenceBreakdown {

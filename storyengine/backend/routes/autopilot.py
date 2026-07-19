@@ -15,7 +15,12 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from auth import get_tenant_id, verify_token, AuthUser
-from autopilot_dial import get_autopilot_dial
+from autopilot_dial import (
+    DIAL_LEVELS,
+    clear_kill_switch,
+    get_autopilot_dial,
+    get_weekly_spend,
+)
 from database import fetch_all, fetch_one, execute
 import autopilot_proposals
 
@@ -71,15 +76,19 @@ class AutopilotConfig(BaseModel):
         "ctr_success_threshold": 4.0,
         "ctr_failure_threshold": 2.5,
     }
-    # Autopilot dial (migration 107, checklist C50) — additive, read-only
-    # fields. dial_level defaults to 'propose_only' (today's only real
-    # behavior); the rest are None until C51-C56 start writing them. No
-    # frontend reads these yet — old frontends simply ignore them.
+    # Autopilot dial (migration 107, checklist C50) — additive fields.
+    # dial_level defaults to 'propose_only' (today's only real behavior). No
+    # old frontend reads these; they simply ignore them.
     dial_level: str = "propose_only"
     weekly_budget_cap: Optional[float] = None
     weekly_spend_reset_at: Optional[str] = None
     kill_switch_tripped_at: Optional[str] = None
     kill_switch_reason: Optional[str] = None
+    # C54 (P4.2-e) — additive, read-only. Real spend in the CURRENT weekly
+    # window (autopilot_dial.get_weekly_spend) so the UI/chat can show
+    # "spent $Y of $X this week". None only if the fail-soft read itself
+    # errors (never means "$0" — that case reads as 0.0).
+    weekly_spent: Optional[float] = None
 
 
 class CompetitorCandidate(BaseModel):
@@ -368,6 +377,15 @@ async def get_autopilot_summary(tenant_id: str = Depends(get_tenant_id)):
     config.weekly_spend_reset_at = dial.weekly_spend_reset_at.isoformat() if dial.weekly_spend_reset_at else None
     config.kill_switch_tripped_at = dial.kill_switch_tripped_at.isoformat() if dial.kill_switch_tripped_at else None
     config.kill_switch_reason = dial.kill_switch_reason
+
+    # C54 (P4.2-e): real spend in the current weekly window. Fails soft to
+    # None — same posture as candidates/learnings below — a ledger-sum hiccup
+    # must not take down the whole summary endpoint.
+    try:
+        config.weekly_spent = await get_weekly_spend(tenant_id)
+    except Exception as e:
+        print(f"Error computing weekly autopilot spend: {e}")
+        config.weekly_spent = None
 
     # C52: pending propose_only proposals awaiting a human decision. Fails
     # soft to 0 (same posture as the candidates/learnings blocks below) —
@@ -721,6 +739,11 @@ class ConfigUpdate(BaseModel):
     videos_per_scrape: Optional[int] = None
     weights: Optional[dict] = None
     thresholds: Optional[dict] = None
+    # C54 (P4.2-e) — the dial becomes settable through this route. NOT the
+    # kill-switch fields (those are system-tripped / explicit-reset-route
+    # only, never generic config — see autopilot_dial.py's module docstring).
+    dial_level: Optional[str] = None
+    weekly_budget_cap: Optional[float] = None
 
 
 @router.post("/config")
@@ -741,6 +764,23 @@ async def update_config(
     # Auto-calculate interval if only videos_per_month is provided
     if videos_per_month is not None and production_interval_days is None:
         production_interval_days = max(1, 30 // videos_per_month)
+
+    if body.dial_level is not None and body.dial_level not in DIAL_LEVELS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"dial_level must be one of {DIAL_LEVELS}",
+        )
+
+    # model_fields_set (not "is not None") distinguishes "field omitted from
+    # the request body" from "field explicitly sent as null" — the latter is
+    # how a caller clears an existing cap back to "no cap set", same as
+    # videos.max_spend's null-clears convention (routes/videos.py).
+    cap_provided = "weekly_budget_cap" in body.model_fields_set
+    if cap_provided and body.weekly_budget_cap is not None and body.weekly_budget_cap <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="weekly_budget_cap must be greater than 0 (or null to remove the cap)",
+        )
 
     if existing:
         # Update existing config
@@ -775,6 +815,16 @@ async def update_config(
             params.append(_j.dumps(body.thresholds))
             param_idx += 1
 
+        if body.dial_level is not None:
+            updates.append(f"dial_level = ${param_idx}")
+            params.append(body.dial_level)
+            param_idx += 1
+
+        if cap_provided:
+            updates.append(f"weekly_budget_cap = ${param_idx}")
+            params.append(body.weekly_budget_cap)
+            param_idx += 1
+
         if updates:
             updates.append("updated_at = NOW()")
             # SECURITY: column names are hardcoded per-field conditionals, values use $N params
@@ -791,6 +841,12 @@ async def update_config(
         if body.thresholds is not None:
             cols.append("thresholds")
             vals.append(_j.dumps(body.thresholds))
+        if body.dial_level is not None:
+            cols.append("dial_level")
+            vals.append(body.dial_level)
+        if cap_provided:
+            cols.append("weekly_budget_cap")
+            vals.append(body.weekly_budget_cap)
         placeholders = ", ".join(f"${i+1}::jsonb" if c in ("weights", "thresholds") else f"${i+1}" for i, c in enumerate(cols))
         # SECURITY: column names from hardcoded cols list, values use $N params with explicit ::jsonb casts
         await execute(
@@ -821,6 +877,22 @@ async def update_config(
         )
     else:
         config = AutopilotConfig()
+
+    # Dial fields (migration 107) via the single accessor — same as
+    # /summary. Without this, a write via THIS route to dial_level/
+    # weekly_budget_cap above would round-trip back to the model's
+    # defaults ('propose_only', no cap) instead of what was just saved.
+    dial = await get_autopilot_dial(tenant_id)
+    config.dial_level = dial.dial_level
+    config.weekly_budget_cap = dial.weekly_budget_cap
+    config.weekly_spend_reset_at = dial.weekly_spend_reset_at.isoformat() if dial.weekly_spend_reset_at else None
+    config.kill_switch_tripped_at = dial.kill_switch_tripped_at.isoformat() if dial.kill_switch_tripped_at else None
+    config.kill_switch_reason = dial.kill_switch_reason
+    try:
+        config.weekly_spent = await get_weekly_spend(tenant_id)
+    except Exception as e:
+        print(f"Error computing weekly autopilot spend: {e}")
+        config.weekly_spent = None
 
     return {
         "status": "ok",
@@ -857,6 +929,44 @@ async def toggle_autopilot(
         )
 
     return {"status": "ok", "enabled": body.enabled}
+
+
+class KillSwitchResetResult(BaseModel):
+    """Response for POST /kill-switch/reset."""
+    status: str = "ok"
+    kill_switch_tripped_at: Optional[str] = None
+    kill_switch_reason: Optional[str] = None
+    cleared_by: str
+
+
+@router.post("/kill-switch/reset", response_model=KillSwitchResetResult)
+async def reset_kill_switch(
+    user: AuthUser = Depends(verify_token),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """The explicit human re-enable after an automatic kill-switch trip
+    (checklist C54, P4.2-e) — the ONLY caller of autopilot_dial.
+    clear_kill_switch outside its own module (see that function's
+    docstring: never called automatically, only from here or the matching
+    MCP tool). Re-arms unattended spending automation, so this drops an
+    attributed bot_activity row — same best-effort reuse of the existing
+    activity feed as the trip notify and C52's proposal notify — for an
+    audit trail of WHO cleared it, not just that it happened."""
+    cleared_by = user.email or user.id or "user"
+    await clear_kill_switch(tenant_id)
+    try:
+        await execute(
+            """INSERT INTO bot_activity (tenant_id, bot_name, status, message)
+               VALUES ($1, $2, $3, $4)""",
+            tenant_id, "autopilot_kill_switch", "completed",
+            f"Kill switch re-enabled by {cleared_by}",
+        )
+    except Exception as e:
+        print(f"Error logging kill-switch reset activity: {e}")
+
+    return KillSwitchResetResult(
+        status="ok", kill_switch_tripped_at=None, kill_switch_reason=None, cleared_by=cleared_by,
+    )
 
 
 @router.post("/launch/{candidate_id}")

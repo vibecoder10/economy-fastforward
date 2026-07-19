@@ -9185,3 +9185,121 @@ provably unchanged": for a tenant UNDER their limit (the default/common case), b
 byte-identical. The race-fix claim column is a no-op for every existing row (`launch_claimed_at` starts
 NULL everywhere) and only ever matters under actual concurrent launch attempts, which is exactly the
 bug it fixes.
+
+## C54 — per-tenant weekly budget ceiling + kill-switch writers + closing the kill-switch queue-drain gap (P4.2-e, added 2026-07-19)
+
+Two things this chunk builds on top of C50's dial columns (migration 107, `autopilot_dial.py` read
+accessor): (1) the FIRST writers for `weekly_budget_cap`/`dial_level`/kill-switch, and (2) closing a
+real gap C51 flagged — the kill switch only gated the C51 candidate path, never the pre-existing
+`production_queue` drain (`routes/queue.py::auto_produce_next`), which is unconditionally paid and had
+zero dial awareness of its own.
+
+**`storyengine/backend/autopilot_dial.py`** (still the one home for the dial) gains:
+- `get_weekly_spend(tenant_id)` — sums `generation_ledger.actual_cost` (NOT `videos.total_cost`, which
+  is a per-video CUMULATIVE lifetime rollup with no "since when" axis) since `weekly_spend_reset_at`,
+  after first rolling the window forward via `_ensure_reset_window` (an atomic
+  `INSERT ... ON CONFLICT (tenant_id) DO UPDATE ... WHERE weekly_spend_reset_at IS NULL OR < now() -
+  interval '7 days'` — the WHERE guard means a losing concurrent caller's conflicting statement
+  re-evaluates the guard once the winner commits and finds it already rolled, so it becomes a no-op).
+- `check_weekly_budget(tenant_id) -> (ok, spent, cap)` — cap `None` is always ok (no cap set, today's
+  default for every tenant); breach is `spent >= cap` (exact-boundary inclusive).
+- `trip_kill_switch(tenant_id, reason) -> bool` — the FIRST kill-switch writer. Idempotent: the upsert's
+  `WHERE kill_switch_tripped_at IS NULL` guard means a second trip in the same tick never overwrites the
+  FIRST recorded reason, and the bot_activity notify (loud, never a silent pause) only fires when this
+  call actually tripped it (return value signals that).
+- `clear_kill_switch(tenant_id)` — the ONLY clearer. Called exclusively from the new
+  `POST /api/autopilot/kill-switch/reset` route (and its MCP mirror) — never automatically.
+
+**`storyengine/backend/main.py`** — the per-tenant tick inside `_auto_produce_queue`'s loop was
+extracted into `_produce_for_tenant(tenant_id)` so the gating is independently testable. Reads the dial
+ONCE per tenant per tick: a tripped kill switch OR a budget breach skips the tenant ENTIRELY — the queue
+drain (`routes.queue.auto_produce_next`) AND the candidate fallback (`autopilot_launch.
+auto_launch_best_candidate`) both — closing the gap described above. A breach trips the switch (never a
+silent pause) before skipping.
+
+**`storyengine/backend/autopilot_launch.py`** — the `auto_draft`/`full_auto` branch gains its OWN
+defense-in-depth `check_weekly_budget` call immediately before calling `launch_candidate` (candidate
+scoring above it can take real time, so the loop-level check could be stale by then). The `propose_only`
+branch returns before this code is ever reached, so a budget breach structurally cannot block a free
+proposal — pinned by `test_propose_only_never_reaches_the_budget_check` (the budget-check fake raises
+`AssertionError` if called at all in that branch).
+
+**`storyengine/backend/routes/autopilot.py`**:
+- `ConfigUpdate`/`POST /config` now accepts `dial_level` (validated against `DIAL_LEVELS`, 400 on a bad
+  value) and `weekly_budget_cap` (validated `>0` or `null` to clear — `null`-vs-"omitted" is
+  distinguished via Pydantic's `model_fields_set`, not an `is not None` check, so a caller CAN explicitly
+  clear an existing cap). The response now re-reads `get_autopilot_dial` + `get_weekly_spend` after the
+  write so it reflects what was ACTUALLY saved (a pre-existing gap: before this chunk, `/config`'s
+  response never surfaced real dial state at all — it silently returned the model's hardcoded defaults
+  even after a `/summary` call showed the true values).
+- `AutopilotConfig` gains `weekly_spent` (additive, fail-soft to `None` on a ledger-sum hiccup) — surfaced
+  on both `/summary` and `/config`'s response.
+- NEW `POST /api/autopilot/kill-switch/reset` — the explicit human re-enable, attributed via
+  `AuthUser.email`, drops a `bot_activity` row naming who cleared it.
+
+**`storyengine/backend/routes/mcp.py`** — two new tools, both classified FREE (no `confirm_token`):
+`set_autopilot_dial` (same bucket as `set_render_style`/`set_style_preset` — a routing/config guardrail,
+not a spend itself) and `reset_autopilot_kill_switch` (a real judgment call per the checklist's own
+framing — decided FREE by the SAME precedent as `accept_autopilot_proposal`: it isn't an
+`actions.ACTIONS` verb so the confirm gate doesn't wrap it, it only re-arms EXISTING unattended paths
+that already ran ungated, and every individual paid stage those paths reach still enforces its own gate
+— clearing the switch does not bypass a future re-trip if spend is still over cap). Both dispatch through
+the SAME `routes.autopilot.update_config`/`reset_kill_switch` functions the HTTP doors use.
+
+**`storyengine/frontend/src/app/autopilot/page.tsx`** — new "Autonomy & Budget" card (3-option dial
+selector with one-line explanations, weekly budget cap input with "spent $Y of $X this week"/"no cap
+set" line) plus a prominent red kill-switch banner (reason, when, "Re-enable" button) shown above the
+existing enabled/disabled banner when tripped. `src/lib/api.ts` gains the matching `AutopilotConfig`
+field additions (all optional, so an older backend simply omits them) and
+`resetAutopilotKillSwitch()`.
+
+### Verification (C54)
+
+29 new tests (`tests/test_c54_weekly_budget_kill_switch.py`) + 4 more added to
+`tests/test_c51_candidate_auto_launch.py` (2 pre-existing tests updated to patch the new pre-launch
+budget check; 2 new: budget-breach-trips-and-skips-launch, propose_only-never-reaches-the-check; the
+stale main.py wiring test was retargeted at the extracted `_produce_for_tenant` plus one new test
+proving `_auto_produce_queue`'s loop actually calls it). Non-vacuous via `git stash` on the 5 touched
+backend files: all 29 new tests fail (mostly with `RuntimeError: DATABASE_URL not set` — the stashed
+code has no monkeypatchable functions to intercept) when stashed, pass restored. Full backend suite:
+**1752P/15F/1E** = baseline (1720P/15F/1E) + 32 new tests (29 + 3 net new in test_c51, one renamed),
+same 15 pre-existing failures + same 1 error, zero new failures. Frontend: `npx tsc --noEmit` clean,
+`npm run build` succeeds (with `NEXT_PUBLIC_API_URL` set — a pre-existing, unrelated production-build
+requirement the sandbox doesn't set by default). No Playwright run (sandbox has no route to a live
+backend) — manual verification recipe appended to `tasks/live-verification-queue.md` §C54.
+
+### Modified/New Files (C54)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/autopilot_dial.py` | Adds `get_weekly_spend`, `check_weekly_budget`, `trip_kill_switch`, `clear_kill_switch`, `_ensure_reset_window`, `_rows_affected`, `_notify_kill_switch_tripped` |
+| `storyengine/backend/main.py` | `_auto_produce_queue`'s per-tenant body extracted into `_produce_for_tenant` (kill-switch + budget gate covers queue drain AND candidate fallback) |
+| `storyengine/backend/autopilot_launch.py` | `auto_draft`/`full_auto` branch gains its own pre-launch `check_weekly_budget` re-check |
+| `storyengine/backend/routes/autopilot.py` | `ConfigUpdate`/`update_config` accept `dial_level`/`weekly_budget_cap`; response re-reads real dial state + `weekly_spent`; NEW `POST /kill-switch/reset` route + `KillSwitchResetResult` model |
+| `storyengine/backend/routes/mcp.py` | NEW `set_autopilot_dial` / `reset_autopilot_kill_switch` tools + handlers, wired into `TOOLS`/`_dispatch` |
+| `storyengine/backend/tests/test_c54_weekly_budget_kill_switch.py` | NEW — 29 tests |
+| `storyengine/backend/tests/test_c51_candidate_auto_launch.py` | 2 tests updated (new budget-check patch required), 2 new tests, main.py wiring test retargeted + 1 new wiring test |
+| `storyengine/backend/tests/test_autopilot_dial_route.py` | `weekly_spent` added to the fixture + one assertion |
+| `storyengine/frontend/src/app/autopilot/page.tsx` | NEW "Autonomy & Budget" card + kill-switch banner |
+| `storyengine/frontend/src/lib/api.ts` | `AutopilotConfig` dial/budget/kill-switch fields; NEW `resetAutopilotKillSwitch()` + `KillSwitchResetResult` |
+
+No new migration — C50's migration 107 already added every column this chunk writes to.
+
+### Deploy-safety assessment
+
+**Skew note (backend deploys hourly ahead of frontend — separate `--with-frontend` build):** the new
+`weekly_spent`/dial/kill-switch fields on `AutopilotConfig` are all additive and optional on both the
+Pydantic model and the TypeScript interface — an old frontend against the new backend simply ignores the
+new fields (unchanged rendering); a stale frontend calling the NEW `POST /kill-switch/reset` route or
+`set_autopilot_dial`/`reset_autopilot_kill_switch` MCP tools before a `--with-frontend` deploy is a
+non-issue since nothing calls them until the new frontend ships. Backend-only deploy is safe standalone;
+frontend needs the backend's new routes to already exist (correct order — backend leads).
+
+**Recommend ff-merge candidate.** No migration. For every tenant that has never set a `dial_level`
+other than the default or a `weekly_budget_cap` (100% of tenants today, since C50 only added the columns
+with no writer until now), `check_weekly_budget` always returns `(True, spent, None)` — the cap-None
+branch — so `_produce_for_tenant`'s new budget gate is a provable no-op on the default path; only a
+tenant that explicitly sets a cap via the new `/config` fields or MCP tool can ever trip it. The kill
+switch queue-drain fix is a strict bug fix (a tripped switch skipping only half the automation was never
+intended behavior) and cannot fire for any tenant that has never been tripped (100% of tenants today,
+since C50 added the column with nothing to trip it before this chunk).
