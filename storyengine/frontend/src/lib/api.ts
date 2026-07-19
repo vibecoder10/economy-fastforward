@@ -594,6 +594,40 @@ export const revealApiKey = (name: string) =>
 export const validateAllApiKeys = () =>
   fetchApi<{ results: { key: string; success: boolean; message: string }[] }>("/api/settings/keys/validate", { method: "POST" });
 
+// Agent access tokens (checklist P2.4a/c, chunks C26/C28) — mint/list/revoke
+// for connecting an external MCP client (Claude, etc). Routes are
+// session-authed (routes/agent_access.py); minting an agent token requires a
+// real logged-in session, never an agent token itself.
+export interface AgentToken {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+// The plaintext `token` field is returned ONLY by createAgentToken, and only
+// on this one response — routes/agent_access.py never stores or re-serves it
+// (only its hash). Never persist this value beyond in-memory component state.
+export interface AgentTokenCreated {
+  id: string;
+  name: string;
+  token: string;
+  created_at: string;
+}
+
+export const getAgentTokens = () =>
+  fetchApi<AgentToken[]>("/api/agent-tokens");
+
+export const createAgentToken = (name: string) =>
+  fetchApi<AgentTokenCreated>("/api/agent-tokens", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+export const revokeAgentToken = (id: string) =>
+  fetchApi<{ revoked: boolean }>(`/api/agent-tokens/${id}`, { method: "DELETE" });
+
 // Channel Profile (legacy — redirects to projects)
 export const getChannelProfile = () =>
   fetchApi<ChannelProfile>("/api/channel-profile");
@@ -1920,6 +1954,12 @@ export interface TaskStatus {
   status: "pending" | "running" | "completed" | "failed";
   message: string | null;
   error?: string;
+  // C28: additive attribution — the agent's display name when the running
+  // task's claim is agent-held (generation_claims.claimed_by starts with
+  // "agent:"), null/absent otherwise. Optional so older cached responses or
+  // any other endpoint returning a TaskStatus-shaped object without this
+  // field still type-check — absence must always mean "no chip".
+  via_agent?: string | null;
 }
 
 export interface StyleUpdateResponse {

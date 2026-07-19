@@ -5502,3 +5502,131 @@ UI already has session-authed routes from C26 — `routes/agent_access.py` — t
 the frontend; the attribution chip reads `generation_claims.claimed_by LIKE 'agent:%'` live, per
 this chunk's note above, plus whatever task-status-message surfacing makes sense for the
 in-progress UI).
+
+## C28 — P2.4c Settings "Agent access" UI + "via agent" attribution chip (added 2026-07-19)
+
+**Checklist P2.4c (tasks/storyengine-copilot-ux-map.md §7):** the frontend for the mint/list/revoke
+routes C26 shipped (`routes/agent_access.py`, session-authed, already registered unconditionally in
+`main.py` — no `MCP_ENABLED` gate on this half of the surface) plus a running-task "via agent"
+chip so a web user isn't surprised by ghost activity an agent started.
+
+**Settings UI — `storyengine/frontend/src/app/settings/agent-access/page.tsx` (new):** a new
+"Agent Access" tab in the Profile hub (`components/nav/hub-tabs.tsx`'s `PROFILE_TABS`, between
+"API Keys" and "Billing"), deliberately built with `/settings/keys`' component vocabulary (`Card`/
+`Modal`/`Spinner` from `@/components/ui`) rather than `/settings/page.tsx`'s `GlassCard` style —
+an agent token is structurally the same kind of thing as an API key: a secret minted once, tested
+never, revoked later. Ships: list (name, created, last used, revoked badge — revoked tokens stay
+in the list, struck-through, for audit, never deleted from view), "Create token" (name input →
+`createAgentToken` → the response's plaintext `token` is shown in the SAME modal exactly once with
+a copy button and a "you won't see this again" warning), "Revoke" per active token (a confirm
+modal, not a bare click — mirrors the destructive-action pattern elsewhere in the app), and a
+"How to connect" block giving the literal MCP endpoint (`${API_URL}/api/mcp`) plus an honest note
+that it requires `MCP_ENABLED` on the server. Loading/error/empty states covered. React Query
+(`["agentTokens"]`) invalidates on both mint and revoke.
+
+**Plaintext-once discipline (verified by trace, not just written):** `createMutation`'s `onSuccess`
+calls `setMintedToken(result)` (component `useState`) and separately `invalidateQueries` on the
+LIST query — it never calls `queryClient.setQueryData` with the mutation result, so the plaintext
+never enters the React Query cache (only the id/name/created_at-shaped list does, per
+`agent_access.py`'s own `list_tokens` route, which never selects `token_hash`). No
+`localStorage`/`sessionStorage` write anywhere in the new file (grepped — zero hits). Closing the
+modal (backdrop, Escape, or the "Done" button — all three route through the same
+`closeCreateModal`) sets `mintedToken` back to `null`; there is no path to re-open the modal and
+see the same token again, matching the backend's own "shown once" contract
+(`agent_access.py::create_token`'s docstring).
+
+**"Via agent" chip — the attribution seam, extended one field, not rebuilt:** traced the C19a
+shared task watcher (`hooks/use-task-poller.ts`) end to end: `GuidedNextStep`'s running banner
+reads `taskWatcher.running`/`taskWatcher.message` directly off the `TaskWatcherBridge` object
+`pipeline/[videoId]/page.tsx` constructs from its ONE `useTaskWatcher({videoId, ...})` poll against
+`GET /api/pipeline/task/{video_id}` (`routes/pipeline.py::get_task_status`) — that endpoint did
+NOT carry attribution before this chunk (checked: response was `{status, message, error}` only).
+Smallest correct backend addition (no new migration, no durable column — same ephemeral,
+best-effort framing C27 already flagged for this signal):
+  - `generation_claims.py` gains `get_claimed_by(tenant_id, video_id)` — read-only, and
+    deliberately FAIL-SOFT (returns `None` on any DB error), unlike `acquire()`/`is_blocked()`
+    which fail closed — there is no money-safety reason for a UI chip to deny anything.
+  - `routes/pipeline.py` gains `_agent_name_from_claimed_by(claimed_by)` — the pure parser turning
+    `"agent:<name>:<verb...>"` (routes/mcp.py's `caller=f"agent:{name}"` threaded through every
+    `generation_claims.acquire()` an MCP-dispatched verb makes) into `"<name>"`; every other shape
+    (`"chat:..."`, `None`) returns `None` — the fail-safe the chip depends on.
+  - `get_task_status` now returns an additive `via_agent` field, looked up ONLY while
+    `status == "running"` (a finished task's claim is already released — no DB round-trip wasted
+    on the common case).
+  - Frontend: `TaskStatus.via_agent` (optional, `api.ts`), `useTaskWatcher` now
+    tracks a `viaAgent` state mirroring `message`'s exact lifecycle (set while active, cleared to
+    `null` on completion AND on `markStarted()`'s optimistic arm — a locally-started run has no
+    attribution to show yet, so any stale agent name from a PREVIOUS run is cleared immediately
+    rather than flashing briefly), threaded onto `TaskWatcherBridge.viaAgent` and read directly off
+    the bridge in `GuidedNextStep` (same pattern `running` already uses — no signature change to
+    `useSharedTaskWatcher`'s return value was needed). Chip renders only `{!locking && viaAgent &&
+    ...}` — absent/null `via_agent` renders nothing, by construction.
+
+**Tests — `storyengine/backend/tests/functional/test_c28_agent_attribution.py` (new, 15 tests):**
+pure-parser cases (single-verb claim, `build:target` claim, chat-held → `None`, `None`/empty →
+`None`, defensive `"agent:"` with no name segment → `None`), `get_claimed_by` (returns the live
+claim, `None` on no claim, ignores >2h-stale rows, fails soft on DB error — never raises — and is
+tenant-scoped: a claim under tenant A never surfaces for tenant B's lookup, mirroring
+`test_cross_tenant_task_isolation.py`'s existing contract for the rest of this task-status
+machinery), and the endpoint itself (`via_agent` present + correct name when claim is agent-held,
+absent when chat-held, absent when no claim, and — the cost-consciousness check — the claim lookup
+is never even called when the task isn't `"running"`). **Non-vacuous via `git stash push` on the 2
+tracked modified files** (`generation_claims.py`, `routes/pipeline.py`): 14 of 15 tests failed
+against the pre-chunk code (`KeyError: 'via_agent'`, `AttributeError` on the missing parser/lookup
+functions) — the 15th (`test_task_status_idle_response_still_has_no_via_agent_key_crash`) legitimately
+passes both ways, since the idle branch's 3-key shape predates this chunk. Stash popped, all 15
+pass again. `python -m py_compile` clean on both touched files.
+
+**Full backend suite: 1203 passed / 15 failed / 1 error** — baseline (C27 handoff) was **1188
+passed / 15 failed / 1 error**; 1203 − 1188 = exactly the 15 new tests, same 15 pre-existing
+failure names, same 1 pre-existing error. Zero new failures.
+
+**Frontend:** `npx tsc --noEmit` clean. `npm run build` — clean with `NEXT_PUBLIC_API_URL` set;
+without it, `/privacy` fails to prerender on the SAME pre-existing `env.ts` `requireInProd` guard
+that has nothing to do with this chunk (confirmed via `git log` — `env.ts` and `privacy/page.tsx`
+are both untouched by this diff; the guard predates C28 entirely) — this is the "prerender quirk
+pre-existing" the chunk brief itself named, not a new regression. `/settings/agent-access`
+prerendered successfully as a static page alongside the other 32 routes once the env var was set.
+
+**Files touched:**
+
+| File | Change |
+|------|--------|
+| `storyengine/backend/generation_claims.py` | + `get_claimed_by()` (read-only, fail-soft) |
+| `storyengine/backend/routes/pipeline.py` | + `_agent_name_from_claimed_by()`; `get_task_status` gains additive `via_agent` field |
+| `storyengine/backend/tests/functional/test_c28_agent_attribution.py` | New — 15 tests (parser, `get_claimed_by`, endpoint) |
+| `storyengine/frontend/src/app/settings/agent-access/page.tsx` | New — the Settings "Agent access" UI |
+| `storyengine/frontend/src/components/nav/hub-tabs.tsx` | + "Agent Access" tab in `PROFILE_TABS` |
+| `storyengine/frontend/src/lib/api.ts` | + `AgentToken`/`AgentTokenCreated` types, `getAgentTokens`/`createAgentToken`/`revokeAgentToken`; `TaskStatus` gains optional `via_agent` |
+| `storyengine/frontend/src/hooks/use-task-poller.ts` | `useTaskWatcher` tracks/returns `viaAgent`; `TaskWatcherBridge` gains `viaAgent` |
+| `storyengine/frontend/src/app/pipeline/[videoId]/page.tsx` | Threads `viaAgent` from `useTaskWatcher` into the `taskWatcher` bridge memo |
+| `storyengine/frontend/src/components/production/GuidedNextStep.tsx` | Running banner renders the "via agent: `<name>`" chip when `taskWatcher.viaAgent` is set |
+
+Checklist §C28 ticked. No live click-through (mint → copy → connect a real MCP client → chip
+appears on a live agent-driven run) — deferred to `tasks/live-verification-queue.md` §C28, rides
+with C29 after the coordinated deploy + `MCP_ENABLED` flip (same dependency C26/C27 already
+carry — this chunk's backend/frontend changes are independently safe to ship now; only the
+end-to-end MCP connection itself needs the flag).
+
+**Deploy-safety assessment — ff-merge candidate:** the Settings UI calls only `routes/agent_access.py`
+(session-authed, registered unconditionally, already live on main since C26 — no skew: main
+already has the routes this chunk's frontend calls) and the `get_task_status` endpoint (also
+already on main, this chunk only ADDS a field additively — any OLDER frontend build still parses
+the response fine since it simply ignores the unknown key, and this NEWER frontend handles a
+hypothetical rollback to an older backend fine too, since `via_agent` is read as `task.via_agent ??
+null` everywhere, never assumed present). No migration, no `MCP_ENABLED` interaction (the chip and
+the Settings UI both work whether or not MCP is enabled — an agent token can be minted/revoked
+regardless; it just can't be USED to call the dark MCP endpoint until the flag flips, same as
+before this chunk). No overlap with C25a's held files. Safe to ff-merge to main on the routine
+hourly deploy.
+
+**Next up: C29 · P2.4d full external-client loop verify (create → route → draft → finalize →
+upload draft).** This is a LIVE verification chunk — it needs the coordinated deploy, the
+`MCP_ENABLED=true` flip, AND a real external MCP client (Claude Desktop or equivalent) to drive
+the actual conversation from "outside" the app. Recommend the orchestrator treat C29 as a
+`tasks/live-verification-queue.md` entry (folding in §C26/§C27/§C28's already-deferred live checks)
+plus a separate sandbox-side dry-run of the JSON-RPC surface (`initialize`/`tools/list`/
+`tools/call` against a local `MCP_ENABLED=true` backend with a minted token, no real external
+client) rather than a normal Sonnet-worker build chunk — there is no more code to write here; C25a
+(media-proxy tenant-auth fix) still needs to land via its coordinated deploy first, same
+dependency C26/C27 already flagged.

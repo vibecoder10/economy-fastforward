@@ -116,6 +116,11 @@ interface UseTaskWatcherOptions {
 export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed, onProgress }: UseTaskWatcherOptions) {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // C28: "via agent" attribution — mirrors `message`'s lifecycle exactly
+  // (set while active, cleared to null once the task isn't running/pending
+  // — an agent's OWN claim is released the moment the run ends, so there is
+  // nothing meaningful to show once the task is done anyway).
+  const [viaAgent, setViaAgent] = useState<string | null>(null);
   const wasRunningRef = useRef(false);
   // Bumped by markStarted so a poll response that was ALREADY in flight when
   // new work started can't be misread as "the new work finished" (which would
@@ -140,6 +145,7 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
           wasRunningRef.current = true;
           setRunning(true);
           setMessage(task.message ?? null);
+          setViaAgent(task.via_agent ?? null);
           onProgressRef.current?.(task.message ?? null);
         } else {
           if (wasRunningRef.current) {
@@ -149,6 +155,7 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
           }
           setRunning(false);
           setMessage(null);
+          setViaAgent(null);
         }
       } catch {
         // Network blip — keep watching
@@ -164,9 +171,14 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
     epochRef.current += 1; // invalidate any poll already in flight
     wasRunningRef.current = true;
     setRunning(true);
+    // Optimistic arm has no way to know attribution yet (it fires the instant
+    // a LOCAL click starts work, before the first poll lands) — clear any
+    // stale agent name from a previous run rather than showing it briefly
+    // for a run this browser tab itself just started.
+    setViaAgent(null);
   }, []);
 
-  return { running, message, markStarted };
+  return { running, message, viaAgent, markStarted };
 }
 
 export interface TaskWatcherHandlers {
@@ -186,6 +198,11 @@ export interface TaskWatcherHandlers {
 export interface TaskWatcherBridge {
   running: boolean;
   message: string | null;
+  /** C28: the agent's display name when the running task's claim is
+   * agent-held, null otherwise — read directly off the bridge (same pattern
+   * `running` already uses), not threaded through useSharedTaskWatcher's
+   * return value. */
+  viaAgent: string | null;
   markStarted: () => void;
   /** Register handlers against the one shared poll stream; returns the
    * unsubscribe fn. A consumer only hears about completions/failures while

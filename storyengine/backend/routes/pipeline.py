@@ -2460,6 +2460,26 @@ async def cancel_pipeline_task(
     }
 
 
+def _agent_name_from_claimed_by(claimed_by: Optional[str]) -> Optional[str]:
+    """Extract the agent display name from a generation_claims.claimed_by
+    label (checklist P2.4c/C28's "via agent" chip seam).
+
+    routes/mcp.py threads ``caller=f"agent:{name}"`` down into every
+    generation_claims.acquire() an MCP-dispatched verb makes, and every
+    acquire site formats claimed_by as ``f"{caller}:{verb...}"`` (see
+    routes/chat.py's `_run_pending_action`/actions.py's autobuild/single-verb
+    dispatch) — so an agent-held claim's label always looks like
+    "agent:<name>:<verb>" or "agent:<name>:build:<target>". Splitting on ":"
+    with maxsplit=2 makes parts[1] the name in both shapes. Every non-agent
+    claimed_by (the "chat:..." default, None, or anything else) returns
+    None — this IS the fail-safe: an absent/None return means no chip.
+    """
+    if not claimed_by or not claimed_by.startswith("agent:"):
+        return None
+    parts = claimed_by.split(":", 2)
+    return parts[1] if len(parts) > 1 and parts[1] else None
+
+
 @router.get("/task/{video_id}")
 async def get_task_status(
     video_id: str,
@@ -2473,10 +2493,18 @@ async def get_task_status(
     task = await _get_task_status_async(video_id, tenant_id)
     if not task:
         return {"status": "idle", "message": None, "error": None}
+    # C28: additive attribution field, read-only and best-effort — only
+    # looked up while something is actually running, since a finished/idle
+    # task's claim is already released and would just resolve to None.
+    via_agent = None
+    if task["status"] == "running":
+        claimed_by = await generation_claims.get_claimed_by(tenant_id, video_id)
+        via_agent = _agent_name_from_claimed_by(claimed_by)
     return {
         "status": task["status"],
         "message": task.get("message"),
         "error": task.get("error"),
+        "via_agent": via_agent,
     }
 
 

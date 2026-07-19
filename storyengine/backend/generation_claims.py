@@ -183,6 +183,35 @@ async def release(tenant_id: str, video_id: str, stage: str) -> None:
         )
 
 
+async def get_claimed_by(tenant_id: str, video_id: str) -> Optional[str]:
+    """Read-only lookup of the most recent active (non-stale) claim's
+    ``claimed_by`` label for this video — UI attribution ONLY (checklist
+    P2.4c/C28's "via agent" chip), never used for access control (mirrors
+    the module docstring/migration comment: claimed_by is "free-text debug
+    label ... never used for access control").
+
+    Fail-SOFT, unlike acquire()/is_blocked(): returns None on any DB error.
+    A chip that fails to render must never affect anything else — there is
+    no money-safety reason to fail closed here.
+    """
+    try:
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT claimed_by FROM generation_claims WHERE tenant_id = $1 AND video_id = $2 "
+                "AND claimed_at > now() - interval '2 hours' ORDER BY claimed_at DESC LIMIT 1",
+                tenant_id, video_id,
+            )
+            return row["claimed_by"] if row else None
+    except Exception:
+        logger.warning(
+            "[generation_claims] get_claimed_by failed tenant=%s video=%s — "
+            "returning None (fail-soft: UI attribution only, never gates access)",
+            tenant_id, video_id, exc_info=True,
+        )
+        return None
+
+
 async def is_blocked(tenant_id: str, video_id: str, stage: str) -> bool:
     """Read-only check used by routes/pipeline.py's ``_is_task_active`` so
     the DB is consulted as the authority alongside the in-process dict fast

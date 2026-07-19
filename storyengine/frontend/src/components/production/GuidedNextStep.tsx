@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, Lock, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Loader2, Lock, RefreshCw, Search, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 import { useToast } from "@/components/ui/toast";
@@ -157,7 +157,7 @@ export function GuidedNextStep({ video, onNavigate, planStages, taskWatcher }: G
       setFailure(humanizeError(error, "That step didn't finish."));
     },
   });
-  const { running, markStarted } = taskWatcher;
+  const { running, viaAgent, markStarted } = taskWatcher;
 
   // One-tap enable for the research-transparency chip (checklist P0.5/C06):
   // the default autobuild skips research for speed, so this reuses the SAME
@@ -323,11 +323,26 @@ export function GuidedNextStep({ video, onNavigate, planStages, taskWatcher }: G
         <div className="flex items-center gap-3">
           <Loader2 size={20} className="animate-spin shrink-0" style={{ color: "var(--turquoise)" }} />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
-              {locking
-                ? "Locking the story…"
-                : (taskMessage || `Working on it — ${action.label.toLowerCase()}…`)}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                {locking
+                  ? "Locking the story…"
+                  : (taskMessage || `Working on it — ${action.label.toLowerCase()}…`)}
+              </p>
+              {/* C28: "via agent" attribution chip — only when the running
+                  task's claim is agent-held (via_agent set); absent field or
+                  a chat/manual-held claim renders nothing (the fail-safe). */}
+              {!locking && viaAgent && (
+                <span
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0"
+                  style={{ background: "rgba(0,245,212,0.12)", color: "var(--turquoise)" }}
+                  title={`Started by the "${viaAgent}" agent token via MCP`}
+                >
+                  <Bot size={11} aria-hidden="true" />
+                  via agent: {viaAgent}
+                </span>
+              )}
+            </div>
             <p className="text-xs mt-0.5" style={{ color: "var(--text-tertiary)" }}>
               You can leave this page — your video keeps working in the background.
             </p>

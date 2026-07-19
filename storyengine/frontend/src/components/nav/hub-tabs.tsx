@@ -13,6 +13,7 @@ export type HubTab = { label: string; href: string };
 export const PROFILE_TABS: HubTab[] = [
   { label: "Profile", href: "/settings" },
   { label: "API Keys", href: "/settings/keys" },
+  { label: "Agent Access", href: "/settings/agent-access" },
   { label: "Billing", href: "/billing" },
   { label: "Visual Styles", href: "/profile" },
 ];
