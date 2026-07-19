@@ -183,3 +183,44 @@ the most complete set in the codebase).
   (~L530-1099) should extract to a hook before C22/23 add chips there. Constraint noted on C22.
 - **S9-8 LOW — 3 stacked freshness mechanisms on ["video-assets"]** during a running task (watcher
   invalidation + 5s refetchInterval + SSE) — redundancy compounds with S9-1's fix. Fold into C19a.
+
+---
+
+# S5 · Security/tenancy sweep (C25, 2026-07-19) — HARD gate findings for the MCP build (C26-C29)
+
+**Verdict: C26 NOT safe to start until S5-1 lands; S5-3/S5-4 are C26 DESIGN LAWS; S5-2 resolves
+before C27 locks the tool set; S5-5/6/7 queued (C25b); S5-8 is a prod env check (live queue).**
+Calibration: tenant scoping is the NORM across ~30 spot-checked route files; vault/key-reveal is
+rate-limited+audit-logged+tenant-scoped; money gate is a single unforked path; SQLi has one choke
+point with a regression test; dev bypass needs DEV_TOKEN+DEV_MODE. The proxy is the one real gap.
+
+- **S5-1 BLOCKER — Drive media proxy: zero auth + tenant-blind allowlist.** `routes/media.py:137`
+  `serve_drive_file` has NO verify_token/get_tenant_id (registered bare, main.py:610); `_is_allowed()`
+  (media.py:37-76) checks the file id against assets/scripts/videos/video_characters/chat_assets/
+  projects ACROSS THE WHOLE DB, no tenant clause; `/api/media/` is rate-limit-exempt (rate_limit.py:45).
+  Today: narrow leak (needs a leaked/guessed 33-44-char id). Post-MCP: tool results carry these URLs
+  to external processes/logs forever, no revocation. Fix: tenant dependency + `tenant_id = $2` in every
+  EXISTS clause. → chunk C25a (BLOCKS C26)
+- **S5-2 HIGH — unconfirmed `remember` writes = two-hop indirect-prompt-injection foothold.**
+  `chat.py:1092-1096` routes remember/forget around the confirm card to `_save_preference` (verbatim,
+  channel-wide, hydrated every turn). Chained with `_compute_channel_intel` (chat.py:2648-2724)
+  distilling COMPETITOR-controlled titles into `hook_pattern` hydrated verbatim into system prompts —
+  a crafted public title could plant a durable standing instruction, silently under MCP. No tenant
+  crossing, no direct spend (money gates are code-level), but: MCP v1 must EXCLUDE memory-writing
+  tools or confirm-gate them + surface agent-originated writes (C28 "via agent" chip). → constraint on C27
+- **S5-3 HIGH — session JWTs are unrevocable (30d stateless)** — acceptable for browsers, WRONG
+  precedent for agent_tokens; UX map already requires per-token revoke. Fix: DB-row-backed tokens
+  (revoked_at IS NULL checked per request). → C26 design law
+- **S5-4 HIGH — agent tokens must be a DISTINCT auth dependency on an explicit MCP-route allowlist,**
+  never a 4th token type inside the shared verify_token — else an external token could immediately call
+  `/api/settings/keys/{name}/reveal` (returns decrypted BYOK keys; tenant-scoped but reachable by
+  anything satisfying the generic dependency) — worse than spending money, since THAT is gated and
+  key-reveal isn't. → C26 design law
+- **S5-5 MED — SQLi regression lock omits 4 dynamic-column files** (characters.py:396, environments.py:390,
+  queue.py:346, chat.py:2005/2311 — all currently safe by manual read). Fix: add to AUDIT_FILES. → C25b
+- **S5-6 MED — check-then-mutate drops the tenant clause** in visual_styles.py:416/448/453
+  (activate/delete verify ownership in a prior SELECT then mutate by bare id). Not exploitable today,
+  fragile under refactor. Fix: repeat the tenant/project clause in every mutating WHERE. → C25b
+- **S5-7 MED — /api/health/detailed fails OPEN when HEALTH_TOKEN unset** (main.py:659-669). Fail closed. → C25b
+- **S5-8 LOW — vault plaintext fallback when SECRETS_MASTER_KEY unset** (vault.py:64-66, documented).
+  CONFIRM the env var is actually set in prod before C26 widens DB-leak blast radius. → live queue (VPS check)
