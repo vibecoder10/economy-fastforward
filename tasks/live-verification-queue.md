@@ -2634,3 +2634,12 @@ script_validation.quality_critic) instead of silently advancing when it still fa
 edits + 1 reroll. Expected: rare. WATCH the first ~5 real script generations post-deploy — if
 needs_review fires on obviously-fine scripts, the judge prompt is too strict for that tenant's niche;
 tune before C46c widens the gate surface. Fail-open means infra errors can never cause this.
+
+## §RLS-recurrence · INVESTIGATE: why did RLS turn off on static_reference_cache/channel_video_retention?
+Found 2026-07-19 by C46e's worker, confirmed + RE-FIXED live by the orchestrator (idempotent re-enable,
+verified relrowsecurity=true). C01a had enabled + verified these same tables earlier — something in
+between disabled RLS (suspect: a DROP+recreate path in in-process DDL, or an out-of-band change).
+Watch: re-check `SELECT relname, relrowsecurity FROM pg_class WHERE relname IN
+('static_reference_cache','channel_video_retention')` after the next few backend restarts; if it
+regresses again, grep for DROP TABLE paths touching these and fix at the source. (`vault.secrets`
+rls=false is Supabase's own internal vault schema — by design, ignore.)
