@@ -2,6 +2,7 @@
 
 import pytest
 import asyncio
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from pathlib import Path
 from autopilot.autopilot import Autopilot, CompetitorVideoFields
@@ -16,6 +17,13 @@ class TestAutopilotIntegration:
     @pytest.fixture
     def mock_airtable(self):
         """Mock Airtable client."""
+        # Published Date must stay fresh relative to "now" (ConfidenceScorer
+        # scores freshness off hours-since-publication, MAX_HOURS=168) - a
+        # hardcoded absolute date rots past that window and starves both
+        # candidates of freshness score. Compute it from the intended
+        # "Hours Old" age instead so the fixture always represents the
+        # 24h/48h-old candidates it was written to be (see C32b).
+        now = datetime.now(timezone.utc)
         mock = Mock()
         mock.get_competitor_videos = Mock(return_value=[
             {
@@ -24,7 +32,7 @@ class TestAutopilotIntegration:
                     'Title': "China's Economic Collapse",
                     'VPH': 150.0,
                     'Hours Old': 24,
-                    'Published Date': '2026-03-17T12:00:00Z',
+                    'Published Date': (now - timedelta(hours=24)).isoformat().replace('+00:00', 'Z'),
                 }
             },
             {
@@ -33,7 +41,7 @@ class TestAutopilotIntegration:
                     'Title': "Why NATO is Failing",
                     'VPH': 80.0,
                     'Hours Old': 48,
-                    'Published Date': '2026-03-16T12:00:00Z',
+                    'Published Date': (now - timedelta(hours=48)).isoformat().replace('+00:00', 'Z'),
                 }
             },
         ])

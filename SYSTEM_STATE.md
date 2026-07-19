@@ -6218,4 +6218,52 @@ threshold" path — cosmetic/logging only, no scoring/decision logic changed.
 Ships on the routine hourly `git pull --ff-only`, no VPS coordination needed.
 Safe to ff-merge.
 
+## C32b — time-bomb fixture fix, `test_integration.py` (added 2026-07-19)
+
+Fixed the fixture C32a diagnosed: `mock_airtable`'s two competitor-video
+records hardcoded absolute `Published Date` strings (`2026-03-17T12:00:00Z`
+/ `2026-03-16T12:00:00Z`) meant to read as ~24h/~48h old at write time, but
+`check_cycle` computes `hours_old` from that date against
+`datetime.now(timezone.utc)` (`autopilot.py:149-156`) — it ignores the
+fixture's own `'Hours Old': 24`/`48` fields entirely, which is what let the
+dates silently rot past `ConfidenceScorer.MAX_HOURS` (168h) without anyone
+noticing. Changed both `Published Date` values to be computed at test-run
+time: `(datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()...`
+and `...timedelta(hours=48)...`, so the fixture always represents the
+24h/48h-old candidates it was written to be, regardless of wall-clock date.
+Added `from datetime import datetime, timedelta, timezone` to the test
+file's imports (timezone already used lower in the file; datetime/timedelta
+were missing at module scope).
+
+**Verify:** `python -m py_compile` clean on the touched test file. `cd
+skills/video-pipeline && python -m pytest autopilot/tests/ -q` → **146
+passed / 0 failed** (both previously-failing tests now pass; net +2 vs
+C32a's 144/2 baseline, zero new failures). Backend suite untouched — only
+`skills/video-pipeline/autopilot/tests/test_integration.py` changed.
+
+**Sweep for the same rot pattern:** grepped all `autopilot/tests/*.py` for
+absolute `202x-xx-xxT...` timestamps. Found five more hardcoded dates
+(`test_state_manager.py`, `test_pattern_library_curiosity_gap.py`,
+`test_memory_writer_structure.py`, `test_memory_writer.py`,
+`test_pattern_library.py`, `test_notifier.py`) — none are time-bombs: they're
+either opaque strings round-tripped through save/load equality checks
+(`test_state_manager.py`'s `last_cycle`) or static markdown content /
+assertion strings (`Last updated: 2026-03-18`, `notify_not_ready(...,
+next_date="2026-03-20")`) that are never diffed against `datetime.now()` or
+any computed age. Confirmed by grepping those files for
+`datetime.now|MAX_HOURS|freshness|days_until|age` — no hits. Only
+`test_integration.py`'s `Published Date` fields feed an actual age
+computation, so it was the only fixture at risk.
+
+### Modified Files (C32b)
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/autopilot/tests/test_integration.py` | `mock_airtable` fixture's `Published Date` values now computed relative to `datetime.now(timezone.utc)` (now-24h / now-48h) instead of hardcoded absolute strings; added `datetime`/`timedelta` import |
+
+### Deploy-safety assessment — ff-merge candidate
+
+Test-only change, zero production code touched. No behavior change to
+anything that runs in prod — purely fixes a test fixture so CI reflects
+reality. Safe to ff-merge; no VPS coordination needed.
+
 **Next up: C33 · P3.4 quota guard + own-video VPH.**
