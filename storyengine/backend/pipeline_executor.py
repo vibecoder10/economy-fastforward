@@ -10942,25 +10942,54 @@ class PipelineExecutor:
         except Exception as e:  # noqa: BLE001
             print(f"[Script] factual gate skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
 
-    async def _grade_and_maybe_revise_script(self, video_id: str, regenerate=None) -> None:
-        """Phase 2 retention gate: grade the freshly generated script against the
-        YouTube retention rules (hook speed, but/therefore causality, escalating
-        stakes, a delivered payoff, specificity). On a 'revise'/'regenerate'
-        verdict, append the grader's concrete guidance to writer_guidance and
-        regenerate the script ONCE.
+    async def _grade_and_maybe_revise_script(
+        self, video_id: str, regenerate=None, *, hold_status: Optional[str] = None,
+    ) -> dict:
+        """C46a generalized quality-critic hook. Absorbs the single grading
+        call this pipeline already made here (originality.grade_script_with_client)
+        into script_quality.critique_script - same one Claude call, never a
+        second one for the same draft - then runs DvsU's proven bounded
+        convergence instead of a flat one-reroll:
 
-        Mirrors originality.py's philosophy: no user-facing gate, just a silent
-        quality nudge. Fail-open and best-effort - any error here leaves the
-        already-generated script in place and never blocks the pipeline.
+          - 'revise': same-draft targeted EDIT (script_quality.edit_draft_with_
+            violations), up to script_quality.MAX_EDIT_ROUNDS (2) rounds -
+            NOT a fresh re-roll.
+          - 'regenerate': ONE fresh reroll via ``regenerate`` (originality's
+            own bound), when the caller wired one.
+          - Still failing after those bounds -> needs_review: violations are
+            attached to videos.script_validation (the same "passed"/"checks"
+            shape the modeled-script, user_script, and DvsU save paths
+            already use), and if ``hold_status`` is given (the modeled path
+            already advanced the video's status before grading runs), that
+            status is reverted so an unresolved script does not silently
+            slide to the next stage. The plain brief_translator path passes
+            no hold_status because grading runs BEFORE it advances status -
+            the caller just checks this method's return value first.
+
+        rules_text seam (C46b lands the real per-channel rules table): wires
+        this tenant's script_templates.structure (the channel's own house
+        script format, already used by routes/script_templates.py to steer
+        the WRITER) as the cheapest EXISTING per-tenant rules-ish text.
+
+        Returns {} when grading itself could not run at all (no script, no
+        client) - falsy, so a caller/test that ignores the return value keeps
+        the pre-C46a "always advance" behavior. Otherwise returns
+        {"needs_review": bool, "violations": [...]}. Fail-open and
+        best-effort throughout: any error leaves the already-generated
+        script in place and never blocks the pipeline.
         """
         try:
-            import asyncio
-            from originality import grade_script, grade_script_with_client
+            import json as _json_q
+            import script_quality
 
             video = await self._get_video(video_id)
             script = (video or {}).get("script") or ""
             if not script.strip():
-                return
+                return {}
+
+            client = getattr(self._pipeline, "anthropic", None)
+            if client is None:
+                return {}
 
             # Niche keeps grading niche-appropriate (a how-to is not punished for
             # lacking a story arc). Resolved defensively; falls back to neutral.
@@ -10971,56 +11000,121 @@ class PipelineExecutor:
             except Exception:
                 niche = ""
 
-            draft = {
-                "niche": niche,
-                "title": video.get("video_title"),
-                "hook": video.get("executive_hook") or video.get("hook_script"),
-                "script": script,
-            }
-            # Route through the tenant's AnthropicClient so grading works for
-            # EVERY tenant - direct-key tenants AND Kie-gateway tenants (Bearer
-            # auth + model aliasing). Fall back to the bare direct client only if
-            # the pipeline has no client (edge case).
-            client = getattr(self._pipeline, "anthropic", None)
-            if client is not None:
-                grade = await grade_script_with_client(draft, client)
-            else:
-                grade = await asyncio.to_thread(grade_script, draft)
-            print(f"[Script] retention grade {video_id[:8]}: {grade.verdict} "
-                  f"(score {grade.score}) gates={grade.failing_gates}", flush=True)
+            rules_text = ""
+            try:
+                tpl = await fetch_one(
+                    "SELECT structure FROM script_templates WHERE tenant_id = $1 AND is_default "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    self.tenant_id,
+                )
+                rules_text = (tpl or {}).get("structure") or ""
+            except Exception:
+                rules_text = ""
 
-            regenerating = bool(grade.needs_revision and (grade.rewrite_guidance or "").strip())
-            # Capture the grade so the creator can SEE it (autopilot scorecard + chat),
-            # whether or not we re-rolled - transparency, not a black box.
-            await self._record_applied_retention(video_id, grade, regenerating)
-            if not regenerating:
-                return
+            scene_rows = await fetch_all(
+                "SELECT scene, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+                video_id, self.tenant_id,
+            )
+            scene_list = [
+                {"scene": int(r["scene"]), "text": r["scene_text"] or ""}
+                for r in (scene_rows or []) if (r.get("scene_text") or "").strip()
+            ]
+            if not scene_list:
+                scene_list = [{"scene": 1, "text": script}]
 
-            # Append the grader's guidance and regenerate exactly once. writer_guidance
-            # is read by BOTH the documentary brief_translator and the modeled-script
-            # prompt, so the re-run picks it up on either pathway.
-            existing = (video.get("writer_guidance") or "")
-            block = (
-                "\n\n--- RETENTION REVISION (auto, internal) ---\n"
-                + grade.rewrite_guidance.strip()
-                + "\n--- END RETENTION REVISION ---"
-            )
-            await execute(
-                "UPDATE videos SET writer_guidance = $1 WHERE id = $2",
-                existing + block, video_id,
-            )
-            # Modeled videos must re-roll through the MODELED generator, not the
-            # documentary brief_translator (which would steamroll their style).
-            if regenerate is not None:
+            async def _regenerate_scenes():
+                if regenerate is None:
+                    return None
+                # Modeled videos re-roll through the MODELED generator, not the
+                # documentary brief_translator (which would steamroll their
+                # style); the plain path's callback is run_brief_translator.
                 await regenerate()
-            else:
-                self._load_idea_from_video(video_id)
-                await self._pipeline.run_brief_translator()
-            print(f"[Script] regenerated {video_id[:8]} once after retention grade", flush=True)
-            # ponytail: one re-roll only. If the rewrite is still weak it ships -
-            # a silent nudge, not a hard gate; looping would risk stalling a run.
+                fresh_rows = await fetch_all(
+                    "SELECT scene, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 ORDER BY scene",
+                    video_id, self.tenant_id,
+                )
+                out = [
+                    {"scene": int(r["scene"]), "text": r["scene_text"] or ""}
+                    for r in (fresh_rows or []) if (r.get("scene_text") or "").strip()
+                ]
+                return out or None
+
+            outcome = await script_quality.run_critique_and_edit(
+                self.tenant_id, video_id, scene_list,
+                client=client, niche=niche,
+                title=video.get("video_title"),
+                hook=video.get("executive_hook") or video.get("hook_script"),
+                rules_text=rules_text,
+                regenerate=_regenerate_scenes if regenerate is not None else None,
+            )
+
+            grade = outcome["critique"]
+            print(f"[Script] quality critic {video_id[:8]}: {grade.verdict} "
+                  f"(score {grade.score}) gates={grade.failing_gates} "
+                  f"edit_rounds={outcome['edit_rounds']} regenerated={outcome['regenerated']}",
+                  flush=True)
+
+            # Capture the grade so the creator can SEE it (autopilot scorecard +
+            # chat), whether or not we edited/rerolled - transparency, not a
+            # black box.
+            await self._record_applied_retention(
+                video_id, grade, bool(outcome["edit_rounds"] or outcome["regenerated"])
+            )
+
+            if outcome["changed"]:
+                new_scenes = outcome["scenes"]
+                full_script = "\n\n".join(s["text"].strip() for s in new_scenes)
+                await execute(
+                    "DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
+                    video_id, self.tenant_id,
+                )
+                for i, sc in enumerate(new_scenes, start=1):
+                    await execute(
+                        """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
+                           VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
+                        self.tenant_id, video_id, i, sc["text"].strip(),
+                        video.get("video_title"), "1SM7GgM6IMuvQlz2BwM3",
+                    )
+                await execute(
+                    "UPDATE videos SET script = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                    full_script, video_id, self.tenant_id,
+                )
+
+            needs_review = bool(outcome["needs_review"])
+            try:
+                existing_validation = video.get("script_validation")
+                if isinstance(existing_validation, str):
+                    existing_validation = (
+                        _json_q.loads(existing_validation) if existing_validation.strip() else {}
+                    )
+                if not isinstance(existing_validation, dict):
+                    existing_validation = {}
+                existing_validation["quality_critic"] = {
+                    "passed": not needs_review,
+                    "verdict": grade.verdict,
+                    "score": grade.score,
+                    "failing_gates": grade.failing_gates,
+                    "violations": grade.violations,
+                    "edit_rounds": outcome["edit_rounds"],
+                    "regenerated": outcome["regenerated"],
+                }
+                await execute(
+                    "UPDATE videos SET script_validation = $1 WHERE id = $2 AND tenant_id = $3",
+                    _json_q.dumps(existing_validation), video_id, self.tenant_id,
+                )
+            except Exception:
+                pass
+
+            if needs_review and hold_status:
+                await execute(
+                    "UPDATE videos SET status = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+                    hold_status, video_id, self.tenant_id,
+                )
+
+            return {"needs_review": needs_review, "violations": grade.violations}
         except Exception as e:
-            print(f"[Script] retention grade skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
+            print(f"[Script] quality critic skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
+            return {}
 
     async def _record_applied_retention(self, video_id: str, grade, regenerated: bool) -> None:
         """Persist the retention grade onto videos.applied_intelligence so the creator
@@ -11028,12 +11122,21 @@ class PipelineExecutor:
         Best-effort; never blocks the pipeline."""
         try:
             import json as _json
+            rule_verdicts = getattr(grade, "rule_verdicts", None) or []
             rec = {
                 "fired": bool(regenerated),
                 "score": getattr(grade, "score", None),
                 "verdict": getattr(grade, "verdict", None),
                 "failing_gates": list(getattr(grade, "failing_gates", []) or []),
             }
+            if rule_verdicts:
+                # Only present when a rules_text pass ran (script_quality
+                # C46a) - keeps the record byte-identical for callers that
+                # only ever pass a plain originality.ScriptGrade.
+                rec["rule_verdicts"] = [
+                    rv.model_dump() if hasattr(rv, "model_dump") else dict(rv)
+                    for rv in rule_verdicts
+                ]
             await execute(
                 "UPDATE videos SET applied_intelligence = "
                 "COALESCE(applied_intelligence, '{}'::jsonb) || jsonb_build_object('retention_grade', $1::jsonb) "
@@ -11042,6 +11145,42 @@ class PipelineExecutor:
             )
         except Exception as e:  # noqa: BLE001
             print(f"[Script] record retention grade failed: {str(e)[:160]}")
+
+    async def _telemetry_quality_critique(self, video_id: str, hold_result: dict) -> None:
+        """C46a additivity call site for the static-docu writer path.
+
+        _run_static_script_hold already runs its own hard-gate paragraph
+        harness (_validate_machine_story_sentences + its bounded EDIT loop:
+        grounding law, claim maps, hedge-word discipline, twist taxonomy —
+        stricter than the generic critic's 5 universal gates). Re-judging or
+        gating that output with the generic critic would double-critique a
+        path that already has a stricter judge; per decisions.md 2026-07-19's
+        additivity constraint, this call is TELEMETRY ONLY: one best-effort
+        grade recorded onto applied_intelligence for visibility (so the
+        creator's scorecard/chat digest sees a quality signal from every
+        script path, per checklist C46a item 3), never an edit loop, never a
+        status change. Fail-soft throughout — never touches the pipeline.
+        """
+        try:
+            if not isinstance(hold_result, dict) or hold_result.get("status") == "failed":
+                return
+            import script_quality
+
+            video = await self._get_video(video_id)
+            script = (video or {}).get("script") or ""
+            if not script.strip():
+                return
+            client = getattr(self._pipeline, "anthropic", None)
+            if client is None:
+                return
+            grade = await script_quality.critique_script(
+                self.tenant_id, video_id,
+                {"script": script, "title": (video or {}).get("video_title")},
+                client=client,
+            )
+            await self._record_applied_retention(video_id, grade, False)
+        except Exception as e:  # noqa: BLE001
+            print(f"[Script] static-docu telemetry critique skipped for {video_id[:8]}: {str(e)[:200]}", flush=True)
 
     async def _regen_modeled_script(self, video_id: str) -> None:
         """Re-roll a modeled script through the MODELED generator (used by the
@@ -11567,9 +11706,30 @@ separate scenes."""
                 await self._inject_learnings_into_writer_guidance(video_id)
                 video = await self._get_video(video_id)
                 result = await self._run_modeled_script(video_id, video)
-                await self._grade_and_maybe_revise_script(
-                    video_id, regenerate=lambda: self._regen_modeled_script(video_id)
+                # _run_modeled_script already advanced the video's status
+                # before grading runs (it commits ready_for_voice as part of
+                # its own save), so pass hold_status: if the critic still
+                # flags the script needs_review after its bounded edit/reroll
+                # loop, this reverts status rather than leaving an unresolved
+                # script silently on ready_for_voice.
+                grade_result = await self._grade_and_maybe_revise_script(
+                    video_id, regenerate=lambda: self._regen_modeled_script(video_id),
+                    hold_status=current_status,
                 )
+                if grade_result and grade_result.get("needs_review"):
+                    violations = grade_result.get("violations") or []
+                    # bot_activity.status has a hard CHECK (started/running/
+                    # completed/failed) - "failed" here logs the review need,
+                    # same convention _run_static_script_hold's own
+                    # per-machine save already uses; the RETURN dict's
+                    # "status" (a plain field, no DB constraint) is the one
+                    # that actually says "needs_review".
+                    await self._log_activity(
+                        bot_name, video_id, "failed",
+                        "Quality critic still flags issues after the edit-loop bound: "
+                        + "; ".join(violations)[:900],
+                    )
+                    return {"status": "needs_review", "video_id": video_id, "violations": violations}
                 return result
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
@@ -11630,7 +11790,16 @@ separate scenes."""
             # script path keeps the existing full-script generator untouched.
             roster = _machine_documentary_hold_roster(video)
             if roster:
-                return await self._run_static_script_hold(video_id, video, roster)
+                hold_result = await self._run_static_script_hold(video_id, video, roster)
+                # C46a additivity: this path already runs its OWN hard-gate
+                # harness (_validate_machine_story_sentences + its bounded
+                # EDIT loop, grounding law, claim maps, hedge words - much
+                # stricter than the generic critic). The generic critic must
+                # never re-judge or override that harness, so it runs here
+                # ONLY as telemetry: one best-effort grade recorded for
+                # visibility, no edit loop, no status change.
+                await self._telemetry_quality_critique(video_id, hold_result)
+                return hold_result
 
             # Run normal global script generation for animation/narrative videos,
             # and for static docs without an explicit locked machine roster.
@@ -11639,9 +11808,20 @@ separate scenes."""
             if result.get("error"):
                 raise Exception(result["error"])
 
-            # Phase 2: silent retention grade + at most one auto-revise.
-            # Best-effort; never blocks the stage.
-            await self._grade_and_maybe_revise_script(video_id)
+            # C46a quality critic: universal retention gates + this tenant's
+            # rules_text, with a bounded same-draft edit loop / one reroll on
+            # failure (script_quality.run_critique_and_edit). Status has NOT
+            # advanced yet at this point, so a still-failing verdict simply
+            # short-circuits below instead of needing to revert anything.
+            grade_result = await self._grade_and_maybe_revise_script(video_id)
+            if grade_result and grade_result.get("needs_review"):
+                violations = grade_result.get("violations") or []
+                await self._log_activity(
+                    bot_name, video_id, "failed",
+                    "Quality critic still flags issues after the edit-loop bound: "
+                    + "; ".join(violations)[:900],
+                )
+                return {"status": "needs_review", "video_id": video_id, "violations": violations}
 
             # Static documentaries are exact-figures formats: fact-check the
             # script against the research payload and re-roll once if claims

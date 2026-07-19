@@ -8151,3 +8151,112 @@ this sandbox to run that live.
 
 **P4.1 (C40-C45) COMPLETE.** Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2
 (tenant-autopilot scouting) — the orchestrator decides.
+
+---
+
+## C46a — Generalize the script-quality critic hook (added 2026-07-19)
+
+First build chunk of the quality-rules engine (decisions.md 2026-07-19: Ryan's HARD constraint —
+formalizes his existing dial-in work, never a parallel path). Traced the audit's two named artifacts
+before writing any code: `originality.py::grade_script`/`grade_script_with_client` (the fail-open LLM
+judge — verdict pass/revise/regenerate, niche-adaptive) and the DvsU EDIT-loop pattern
+(`pipeline_executor.py`'s `_run_static_script_hold`, same-draft targeted edit with named violations,
+2-round bound, then needs_review). Also found `_grade_and_maybe_revise_script` ALREADY wired into
+`run_script` at 2 call sites (modeled path L~11669, plain brief_translator path L~11768 pre-change) —
+this chunk generalizes/absorbs that existing hook rather than adding a parallel one.
+
+**New module `storyengine/backend/script_quality.py`:** `critique_script(tenant_id, video_id,
+script_payload, *, rules_text=None, client=None) -> CritiqueResult` reuses `originality._SCRIPT_JUDGE_
+SYSTEM` and `_build_script_judge_user_prompt` VERBATIM (imported, not re-typed) for the 5 universal
+gates; when `rules_text` is given, appends a second grading pass returning per-rule `rule_verdicts`.
+`rules_text` seam wired to this tenant's `script_templates.structure` (the channel's house script
+format, same query `routes/script_templates.py::apply_default_template` already uses to steer the
+WRITER) — cheap, existing, honest; C46b replaces this with the real per-channel rules table.
+`edit_draft_with_violations(scenes, violations, *, client)` generalizes DvsU's exact edit-prompt
+("EDIT THIS DRAFT MINIMALLY... change ONLY what the violations name") from its 5-sentence paragraph
+shape to an arbitrary multi-scene script, using the `@@@SCENE n@@@` sentinel format the modeled-script
+path and `user_script.py` already share — kept as a standalone parser (`_parse_scene_markers`) so this
+module has zero pipeline_executor import (mirrors originality.py's own DB-optional decoupling).
+`run_critique_and_edit(...)` is the orchestrator: grade once; `revise` → same-draft edit loop bounded
+at `MAX_EDIT_ROUNDS=2`; `regenerate` → ONE fresh reroll via a caller-supplied callback (originality's
+own bound); still failing after those bounds → `needs_review`.
+
+**pipeline_executor.py wiring — ONE absorbed call site + one telemetry-only site:**
+`_grade_and_maybe_revise_script` (signature-compatible: `(video_id, regenerate=None, *,
+hold_status=None)`) now calls `script_quality.run_critique_and_edit` instead of
+`grade_script_with_client` directly — the SAME single grading call this pipeline already made here,
+never a second one (traced and confirmed no prior double-grading risk). It fetches/persists scenes via
+the `scripts` table (DELETE+INSERT+`videos.script` UPDATE, same pattern the modeled-script/user_script
+save paths already use), attaches violations to `videos.script_validation.quality_critic` (the
+established "passed"/"checks" field, not a new one), and — new behavior — returns `{"needs_review":
+bool, "violations": [...]}` so callers can gate the stage advance; returns `{}` (falsy) when grading
+couldn't run at all, so a caller/test ignoring the return value keeps the pre-C46a "always advance"
+behavior (proven by a dedicated test). `hold_status`: the modeled path already commits
+`status=ready_for_voice` inside `_run_modeled_script` BEFORE grading runs, so its `run_script` call site
+passes `hold_status=current_status` — if still `needs_review` after the bound, this reverts the video's
+status rather than leaving an unresolved script silently advanced; the plain brief_translator path needs
+no hold_status since grading there runs BEFORE its own status-advance code. **Additivity for the
+static-docu roster path:** `_run_static_script_hold` already runs its OWN stricter hard-gate harness
+(`_validate_machine_story_sentences` + its bounded EDIT loop — grounding law, claim maps, hedge words,
+twist taxonomy). Per decisions.md 2026-07-19's additivity constraint, the generic critic must never
+re-judge or override that harness, so `run_script`'s roster branch calls new
+`_telemetry_quality_critique(video_id, hold_result)` instead — ONE best-effort grade recorded onto
+`applied_intelligence.retention_grade` for visibility, no edit loop, no status change, skipped entirely
+on a failed hold. This is genuinely NEW coverage (that path fired zero grading calls before C46a), not
+a duplicate. `user_script.py`'s `user_supplied` bypass is untouched and still returns before any of this
+code runs (pinned by a dedicated test).
+
+**Cost:** 1-3 extra Claude calls per script generation for the plain/modeled paths (1 grade + up to 2
+edit-rounds' re-grades, or 1 grade + 1 reroll re-grade) — same class as originality's existing single
+grade call, confirmed absorbed not duplicated (test asserts exactly 1 call on a `pass` verdict). The
+static-docu path gains exactly 1 new telemetry call where it previously had zero.
+
+### Verification
+
+35 new tests: `storyengine/backend/tests/test_script_quality.py` (22, pure-module unit tests — verdict
+matrix, fail-open, rules_text addendum, scene-marker round-trip, edit-loop bound, orchestrator's full
+pass/revise/regenerate matrix incl. parse-failure-stops-the-loop and regenerate-returns-nothing-usable)
++ `storyengine/backend/tests/test_c46a_quality_critic_wiring.py` (13, PipelineExecutor wiring — absorbed
+single-call no-double-grading, rules_text sourced from `script_templates`, scene persistence on revise,
+needs_review+violations-attached with/without hold_status revert, `run_script`'s 3 call sites incl. the
+user_supplied bypass and the static-docu telemetry-only path). Non-vacuous: `git stash` on
+`pipeline_executor.py` alone → 11/13 wiring tests fail (2 legitimately still pass — they pin unchanged
+pre-existing behavior: falsy-return backward-compat and the plain-path pass-through); separately moved
+`script_quality.py` aside → `test_script_quality.py` fails to collect (`ModuleNotFoundError`), confirming
+the new module itself is exercised, not vacuously imported. `python -m py_compile` clean on all 4
+touched/new files. Full backend suite **1450P/15F/1E** = baseline(1415P/15F/1E, independently
+re-confirmed via the same stash+file-move) + exactly 35, identical 15 failure names/1 error, zero new
+failures. Existing `tests/test_machine_documentary_hold.py` (239 tests, incl. the
+`_grade_and_maybe_revise_script`-is-noop'd animated-video test) still passes unchanged. Frontend
+untouched — confirmed via `git status`/`git diff --stat` on `storyengine/frontend`, no `tsc`/`build` run
+needed.
+
+### Modified/New Files (C46a)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/script_quality.py` | NEW — generic critic + DvsU-style bounded edit loop |
+| `storyengine/backend/pipeline_executor.py` | `_grade_and_maybe_revise_script` rewritten to call `script_quality` (signature gains `hold_status` kwarg, return value gains `{needs_review, violations}`); `_record_applied_retention` extended to record `rule_verdicts` when present; NEW `_telemetry_quality_critique`; both `run_script` call sites (modeled, plain) now check the grade's return value and short-circuit to `{"status": "needs_review", ...}` without advancing status; the static-docu roster branch gains the telemetry call |
+| `storyengine/backend/tests/test_script_quality.py` | NEW — 22 tests |
+| `storyengine/backend/tests/test_c46a_quality_critic_wiring.py` | NEW — 13 tests |
+
+### Deploy-safety assessment
+
+**Recommend ff-merge candidate, not yet ff-merged by this chunk** (leaving that call to the orchestrator
+per protocol) — no migration, no schema change, no new route. The one real behavior change: a script
+that STILL needs review after the full bounded loop no longer silently advances to `ready_for_voice` on
+the plain and modeled paths (pre-C46a: always advanced, "silent nudge" only). This is a deliberate,
+spec'd formalization of DvsU's own `_save_machine_script_block`'s `all_passed` gating convention, but it
+IS user-visible behavior for any tenant whose script fails the bounded critic — worth a scan of
+production data for how often that verdict path actually fires before/shortly after deploy (no live
+key in this sandbox to test that empirically here). Additive elsewhere: `script_validation` gains one
+new JSON key (`quality_critic`), `applied_intelligence.retention_grade` gains an optional `rule_verdicts`
+key, both backward-compatible with any reader that doesn't know about them.
+
+**Deferred to `tasks/live-verification-queue.md` §C46a:** live grade-a-real-script run (a real Claude
+call against a real weak/strong script, confirming the judge still discriminates the way
+`originality.py`'s own self-test proves it does standalone).
+
+Next: **C46b · per-channel rules store** (new table modeled on the QL/QD row shape + `shared/profiles/
+script`'s typed schema; replaces the `script_templates.structure` stopgap `rules_text` source above with
+the real thing).

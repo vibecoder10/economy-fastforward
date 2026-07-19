@@ -275,6 +275,50 @@
   test) deferred to `tasks/live-verification-queue.md` §C45.
   **P4.1 COMPLETE (C40-C45, 2026-07-19).** Next: either C46 (quality-rules engine, awaiting Ryan's
   yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
+- **Also done:** C46a · generalize the script-quality critic hook — DONE 2026-07-19, full detail in
+  SYSTEM_STATE.md §C46a. Ryan approved C46 with a HARD constraint (decisions.md 2026-07-19): the
+  quality-rules engine must AUDIT-THEN-ABSORB his prior dial-in work, never build a parallel path.
+  Traced first: `originality.py::grade_script`/`grade_script_with_client` (the fail-open LLM judge) and
+  the DvsU EDIT-loop pattern (`_run_static_script_hold`'s same-draft targeted edit, 2-round bound) —
+  AND found `_grade_and_maybe_revise_script` already wired into `run_script` at 2 call sites, so this
+  chunk generalizes/absorbs an EXISTING hook, it doesn't add a new one. New
+  `storyengine/backend/script_quality.py`: `critique_script(...)` reuses originality's judge prompt
+  verbatim + an optional per-tenant `rules_text` pass (wired to `script_templates.structure` — the
+  cheapest EXISTING per-tenant rules-ish text, until C46b's real rules table lands);
+  `edit_draft_with_violations(...)` generalizes DvsU's exact edit prompt from its 5-sentence-paragraph
+  shape to an arbitrary multi-scene script via the `@@@SCENE n@@@` marker format the modeled-script
+  path/`user_script.py` already share (kept import-free of pipeline_executor, mirroring originality.py's
+  own decoupling); `run_critique_and_edit(...)` orchestrates the bound: `revise` → same-draft edit loop
+  (max 2 rounds), `regenerate` → one fresh reroll via a caller callback, still failing → `needs_review`.
+  Wiring: `_grade_and_maybe_revise_script` now calls this (the SAME single grading call, confirmed not
+  doubled), persists edited scenes back to the `scripts` table + `videos.script`, attaches violations to
+  `videos.script_validation.quality_critic`, and (new) returns `{needs_review, violations}` so
+  `run_script`'s plain AND modeled call sites can short-circuit to `{"status": "needs_review", ...}`
+  instead of silently advancing — the modeled path passes `hold_status=current_status` since
+  `_run_modeled_script` already commits `ready_for_voice` before grading runs, so a still-failing verdict
+  reverts that status. **Additivity for the static-docu roster path:** it already runs a stricter
+  hard-gate harness (`_validate_machine_story_sentences` + its own bounded EDIT loop), so per Ryan's
+  constraint the generic critic runs there ONLY as telemetry (new `_telemetry_quality_critique` — one
+  best-effort grade recorded, no edit loop, no status change) — genuinely new coverage (that path fired
+  zero grading calls before), not a duplicate. `user_script.py`'s `user_supplied` bypass is untouched,
+  pinned by a dedicated test. VERIFIED: 35 new tests (`test_script_quality.py` ×22 pure-module,
+  `test_c46a_quality_critic_wiring.py` ×13 PipelineExecutor wiring) — non-vacuous via `git stash` on
+  `pipeline_executor.py` alone (11/13 wiring tests fail against pre-C46a code; the 2 that still pass
+  legitimately pin unchanged backward-compat behavior) plus moving `script_quality.py` aside (import
+  error, proving the new module itself is exercised). `python -m py_compile` clean on all 4
+  touched/new files. Full backend suite **1450P/15F/1E** = baseline(1415P/15F/1E, independently
+  re-confirmed) + exactly 35, identical failure names, zero new failures. Existing
+  `test_machine_documentary_hold.py` (239 tests) still passes unchanged. Frontend untouched (confirmed
+  via `git status`/`git diff --stat`). Checklist §C46a ticked. **Deploy-safety: recommend ff-merge
+  candidate, not yet merged by this chunk** (left to the orchestrator) — no migration/schema/route
+  change, but flags one real user-visible behavior change worth a second look before merge: a script
+  that's STILL `needs_review` after the full bounded loop no longer silently advances to
+  `ready_for_voice` on the plain/modeled paths (pre-C46a always advanced, "silent nudge" only) — a
+  deliberate formalization of DvsU's own `_save_machine_script_block` gating convention, but real.
+  Live grade-a-real-script check deferred → `tasks/live-verification-queue.md` §C46a. **Next: C46b · per-
+  channel rules store** (new table modeled on the QL/QD row shape + `shared/profiles/script`'s typed
+  schema — replaces this chunk's `script_templates.structure` stopgap `rules_text` source with the real
+  thing).
 - **BUILD QUEUE COMPLETE (C01-C37, 2026-07-19).** C37 (Ryan's decision chunk) is COMPOSED — see the checklist's C37 entry: 3 decisions already answered+recorded this week (Power Doctrine retirement; legacy cron stays as reference impl; Phase 4 green-lit, DNA-first), 5 open items for Ryan (create-surface convergence, per-user BYOK, multi-shot sequences timing, orphaned /storyboards route, coordinated-deploy scheduling) — none block anything. Remaining work: (1) tasks/live-verification-queue.md — at-the-computer runbook, C25a coordinated deploy + MCP go-live at top; (2) hold branch `claude/c25a-media-auth-hold` awaits that deploy; (3) Phase 4 outline + roadmap ideas map — chunk when Ryan green-lights. Fresh sessions resume from THIS file + the playbook. **PHASE 4 · P4.1 COMPLETE (C40-C45, 2026-07-19)** (checklist Phase 4 queue; inventory in audit report §P4.1); C38 (chat-primary create convergence) + C39 (storyboards page delete) still queued from C37 answers, untouched by P4.1. Next: either C46 (quality-rules engine, awaiting Ryan's yes) or P4.2 (tenant-autopilot scouting) — the orchestrator decides.
 - **Branch:** work + push on `claude/storyengine-build-orchestration-epkcr0` (this session's branch — the `tfdg8n`/`sgnm8l` names in older loop docs don't exist in this clone); ff-merge deploy-safe chunks to main. **C25a is an exception: hold it on the branch, do NOT ff-merge, until it can ship in the SAME `--with-frontend` deploy as its frontend half** (see the C25a entry above for why).
 

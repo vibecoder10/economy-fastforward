@@ -2425,6 +2425,40 @@ onboards, connects a real channel, gets learned, and sees the digest.
 
 ---
 
+## C46a — generalized script-quality critic hook · live grade-a-real-script check
+
+Everything this chunk touches was proven at unit level only (35 tests, SYSTEM_STATE.md §C46a) with a
+fake Claude client returning canned JSON — no live call has confirmed the judge still discriminates
+weak-vs-strong scripts the way `originality.py`'s own `_selftest()` proves it does standalone, nor that
+the generalized `@@@SCENE n@@@` edit loop produces a sane targeted edit against a REAL model response
+(vs. the fake client's clean marker output).
+
+- [ ] **Real critique call, both verdicts.** On a tenant with a live Anthropic/Kie key, run
+      `python3 storyengine/backend/originality.py`-style self-test through `script_quality.
+      critique_script` directly (or trigger `run_script` on one weak and one strong test video) —
+      confirm the weak script gets `revise`/`regenerate` with concrete `rewrite_guidance`, the strong
+      one gets `pass`, matching `originality.py`'s existing self-test discrimination.
+- [ ] **Real edit-loop round-trip.** Trigger a `revise` verdict on a real multi-scene script and confirm
+      `edit_draft_with_violations`'s response actually comes back with the SAME scene count and only the
+      flagged scene(s) changed — the fake-client tests prove the prompt/parse plumbing, not that a real
+      model reliably preserves untouched scenes byte-for-byte.
+- [ ] **rules_text pass is genuinely useful, not noise.** Pick a tenant with a populated
+      `script_templates.structure` row and confirm the judge's `rule_verdicts` are sensible (not
+      hallucinated rules, not silently empty) against that tenant's real house format text.
+- [ ] **needs_review actually surfaces.** Force a script to fail the full bounded loop (e.g. inject
+      deliberately bad `writer_guidance`) and confirm: (a) `run_script` returns `{"status":
+      "needs_review", ...}`; (b) the video's `status` column did NOT advance past its pre-scripting
+      value; (c) `script_validation.quality_critic` shows `passed: false` with the violations listed;
+      (d) the modeled path's `hold_status` revert actually un-sticks a status that `_run_modeled_script`
+      had already advanced.
+- **Cost:** 1-3 extra Claude calls per script generation (tenant's own key) — same class as the
+  originality grade call already live-verification-queued nowhere explicitly (it shipped silently
+  before C46a); this is the first live check of that spend category too.
+- **Safety net:** fail-open throughout (any error returns a `pass` verdict, per script_quality.py's own
+  docstring) — a broken live run degrades to "grade unavailable, ships as-is," never a blocked pipeline.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:
