@@ -590,7 +590,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, style_preset_id, script_profile, image_model_override, video_model,
                   dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
-                  video_length_minutes, youtube_url, final_video_url, total_cost, views, ctr, avg_retention,
+                  video_length_minutes, youtube_url, final_video_url, total_cost, max_spend, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
                   views_24h, views_48h, views_7d, views_30d,
@@ -715,7 +715,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style", "script_profile"}
+    allowed_fields = {"revision_notes", "video_title", "headline", "thumbnail_prompt", "thumbnail_style_override", "video_motion_system_prompt", "script_system_prompt", "thumbnail_system_prompt", "sound_system_prompt", "dialogue_audio", "aspect_ratio", "video_resolution", "skip_voice", "render_style", "script_profile", "max_spend"}
     # skip_voice records the guided flow's "skip the voiceover" choice — the
     # Scenes gate reads it (advancing status alone left the gate locked).
     if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
@@ -739,6 +739,20 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # not silently store a bogus profile id.
     if "script_profile" in body:
         body["script_profile"] = _resolve_script_profile(body.get("script_profile"))
+    # max_spend (migration 103, checklist §3.3/C36): the optional per-video
+    # budget ceiling the money gate consults. null CLEARS it (no cap — the
+    # default), same "null is a valid write" pattern as render_style above.
+    # Anything else must be a real non-negative number — a bad value here
+    # would either silently disable the cap (if ignored) or brick every paid
+    # action (if it somehow parsed as 0/negative), so reject it outright.
+    if "max_spend" in body and body["max_spend"] is not None:
+        try:
+            parsed = float(body["max_spend"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_spend must be a number or null")
+        if parsed <= 0:
+            raise HTTPException(status_code=400, detail="max_spend must be greater than 0 (or null to remove the cap)")
+        body["max_spend"] = parsed
     updates = []
     params = []
     idx = 1

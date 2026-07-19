@@ -462,6 +462,23 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     return Array.isArray(plan) && plan.length > 0 && !plan.includes("voice");
   }, [video.skip_voice, video.pipeline_stages]);
 
+  // C36 (checklist §3.3 item 1): the chat auto-build's "pictures" target
+  // deliberately DEFERS voice to the finish phase (actions.make_autobuild_step
+  // skips run_voice on the way to ready_for_images — voice is the slowest paid
+  // step and isn't needed to review pictures) — so a video can genuinely have
+  // real pictures with hasVoice=false and voiceSkipped=false at the exact
+  // moment the chat checkpoint says "Your pictures are ready — review them."
+  // Before this fix the gate below couldn't tell that state apart from "no
+  // pictures exist yet, voice hasn't run, go do that first" and showed the
+  // SAME hard "Voice Required" block either way — the review checkpoint the
+  // chat had just pointed the creator to was unreachable. Distinguish by
+  // whether pictures already exist: only pre-generation (no pictures) blocks;
+  // post-generation-without-voice shows an inline advisory instead (below).
+  const hasPictures = useMemo(
+    () => (assets ?? []).some((a) => !!a.image_url),
+    [assets],
+  );
+
   // Storyboarding is MANDATORY: boards are the only path to image spend.
   useEffect(() => {
     if (scriptScenes && scriptScenes.length > 0) {
@@ -1148,7 +1165,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     );
   }
 
-  if (!hasVoice && !voiceSkipped) {
+  if (!hasVoice && !voiceSkipped && !hasPictures) {
     return (
       <GlassCard className="p-10 text-center max-w-lg mx-auto">
         <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
@@ -1193,6 +1210,23 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // ── Render ──
   return (
     <div className="flex flex-col gap-4">
+      {/* C36 (checklist §3.3 item 1): set the expectation instead of implying
+          audio exists — this is the exact "pictures are ready, review them"
+          checkpoint the auto-build chat message points to, and at this point
+          in the pipeline voice genuinely hasn't run yet (deferred to the
+          finish phase on purpose). Advisory, not a block — hasPictures
+          already cleared the gate above. */}
+      {!hasVoice && !voiceSkipped && hasPictures && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+          style={{ background: "rgba(255, 165, 0, 0.08)", border: "1px solid rgba(255, 165, 0, 0.30)" }}>
+          <Volume2 size={16} style={{ color: "var(--orange)" }} className="shrink-0" />
+          <p className="text-sm flex-1 min-w-[12rem]" style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>No voice yet — that&apos;s expected here.</strong>{" "}
+            These pictures were timed from the script text. Voice-over generates in the finish step,
+            right before rendering — review the visuals now, audio comes next.
+          </p>
+        </div>
+      )}
       {/* Cast gate: characters were DESIGNED (often by the chat auto-build)
           but not approved — without this banner the stage strip lands here
           and the step looks silently skipped. */}

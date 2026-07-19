@@ -45,6 +45,7 @@ from actions import (
     already_uploaded_reply as _already_uploaded_reply,
     apply_followup_edit as _apply_followup_edit,
     blocked_reason as _action_blocked,
+    budget_check as _budget_check,
     cost_breakdown as _cost_breakdown,
     estimate_cost as _estimate_cost,
     estimate_plan_cost as _estimate_plan_cost,
@@ -626,6 +627,36 @@ _DENY_RE = re.compile(
     r"^\s*(n+o+|nope|cancel|stop|never ?mind|nevermind|don'?t|leave it|not now|hold off)[.!\s]*$", re.I)
 
 
+async def _log_classification_confidence(tenant_id, video_id: Optional[str], *, kind: str, verb: str,
+                                          confidence: float, source: str, gated: bool) -> None:
+    """C36 (checklist §3.3 item 4): the copilot's confidence gate
+    (``COPILOT_CONFIDENCE`` above) had no telemetry — a misfire (wrong verb,
+    or a legitimate request stuck in the clarify-loop because it scored just
+    under threshold) was invisible; there was no way to tell whether 0.55 was
+    even the right number without guessing. This writes ONE row per
+    classified turn: a log line (immediate, greppable) plus a row in
+    ``bot_activity`` — the existing generic activity-log table every other
+    bot already writes to (``pipeline_executor``, autopilot, etc.) — so a
+    later tuning pass has real numbers to look at instead of a guess. No new
+    table: `message` is a compact key=value line, `bot_name` is a new
+    constant value ("copilot_classifier") on the SAME column every other
+    activity row already keys on, so this can be filtered exactly like any
+    other bot's rows in `/api/activity` or a direct query. Deliberately NOT a
+    dashboard (out of scope this chunk, per the checklist) and deliberately
+    fail-soft — a broken telemetry write must never break a chat turn."""
+    try:
+        logger.info("copilot classify: kind=%s verb=%s confidence=%.3f source=%s gated=%s",
+                   kind, verb, confidence, source, gated)
+        message = f"kind={kind} verb={verb} confidence={confidence:.3f} source={source} gated={gated}"
+        await execute(
+            "INSERT INTO bot_activity (tenant_id, video_id, bot_name, status, message, cost) "
+            "VALUES ($1, $2, 'copilot_classifier', 'completed', $3, 0)",
+            tenant_id, video_id, message,
+        )
+    except Exception as e:  # noqa: BLE001 — telemetry must never break the copilot turn
+        logger.warning("copilot: confidence telemetry write failed: %s", e)
+
+
 async def _conversation_for_video(tenant_id, video_id: str) -> Optional[dict]:
     """Find-or-create ONE conversation bound to this video so the dock resumes the
     whole backstory. Verifies the video belongs to the tenant first (a foreign id
@@ -670,7 +701,8 @@ def _summary_line(s: dict[str, Any]) -> str:
 
 
 def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
-                   breakdown: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+                   breakdown: Optional[dict[str, Any]] = None,
+                   budget_warning: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Smallest-change confirm: a single-select card the frontend already renders;
     the dock reads the pick back as selections.confirm_action = yes|no.
 
@@ -679,18 +711,30 @@ def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
     the quote has one to show. Additive only — the key is omitted entirely
     when there's nothing to itemize, so an old frontend build (or a payload
     from a verb with no routing to break down) sees the EXACT same card
-    shape as before C15."""
+    shape as before C15.
+
+    C36 (checklist §3.3 item 3): ``budget_warning`` (``actions.budget_check``'s
+    return) rides along the same additive way when this quote would breach
+    the video's optional cap — the "yes" option's label changes from "Do it"
+    to "Do it anyway" so the tap itself reads as the explicit override the
+    design calls for, and a ``budget`` key carries the numbers for a frontend
+    that wants to render them distinctly. Omitted entirely when there's no
+    cap or the quote fits under it — an old frontend, or a video with no cap
+    set, sees the exact same card as before this chunk."""
     cfg = COPILOT_ACTIONS[verb]
     what = cfg["label"] + (f" — scene {scene}" if scene is not None else "")
+    yes_label = f"Do it anyway · {cost_text}" if budget_warning else f"Do it · {cost_text}"
     card: dict[str, Any] = {
         "id": "confirm_action", "label": what, "type": "single",
         "options": [
-            {"value": "yes", "label": f"Do it · {cost_text}"},
+            {"value": "yes", "label": yes_label},
             {"value": "no", "label": "Cancel"},
         ],
     }
     if breakdown and breakdown.get("lines"):
         card["breakdown"] = breakdown
+    if budget_warning:
+        card["budget"] = budget_warning
     return card
 
 
@@ -1016,6 +1060,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "put the voice description ('investigative reveal', 'framework explainer', 'neutral', etc.) VERBATIM "
         "in change. Free and reversible, no confirm needed. Does NOT itself rewrite an existing script — that's "
         "the 'script' verb. "
+        "'budget_cap' = set or clear a SPENDING CAP for this video ('cap this video at $15', 'set a $20 "
+        "budget limit', 'remove the budget cap', 'no spending limit') — put the amount VERBATIM in change "
+        "(e.g. '$15', 'remove the cap'). Free and reversible, no confirm needed — it only changes what future "
+        "paid actions check against, it never spends anything itself. "
         "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
         "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
         "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
@@ -1054,7 +1102,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
-        'camera_preset|script_profile|lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int picture/shot number or null>,'
@@ -1072,10 +1120,12 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # decision shape as the one-shot classifier. Any failure -> None -> the
     # legacy classifier below runs instead, so the brain can only add smarts.
     data = None
+    used_brain = False
     try:
         from agent_brain import run_copilot_brain
         data = await run_copilot_brain(client, copilot_model, tenant_id, video_id,
                                        summary, msg, ui_context, summary_with_assets)
+        used_brain = data is not None
     except Exception as e:  # noqa: BLE001
         logger.warning("copilot: agent brain failed, falling back: %s", e)
     if data is None:
@@ -1095,6 +1145,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     verb = (data.get("verb") or "none").strip()
     reply = (data.get("reply") or "").strip()
     conf = float(data.get("confidence") or 0)
+    await _log_classification_confidence(
+        tenant_id, video_id, kind=kind, verb=verb, confidence=conf, source="brain" if used_brain else "legacy",
+        gated=(verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE),
+    )
 
     # --- prompt studio: view / suggest / rewrite a generation prompt ---
     if kind == "prompt":
@@ -1153,6 +1207,12 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         pending["target"] = "pictures" if summary["status"] in _BUILD_TO_PICTURES else "finish"
 
     _cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
+    # C36 (checklist §3.3 item 3): would this quote push the video over its
+    # optional per-video cap? None on any video without one set — same
+    # module-wide "quote honestly, never silent-block" philosophy as the rest
+    # of this money gate. Folded into the SAME one-tap confirm card below —
+    # tapping "yes" after reading this warning IS the explicit override.
+    budget_warning = _budget_check(summary, _cost)
     # C15: itemize the SAME quote by model/tier — one resolver
     # (actions.cost_breakdown groups the exact per-row prices _estimate_cost
     # already summed), never a second cost path. None for verbs/states with
@@ -1183,9 +1243,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
             if names:
                 detail += f". {names}"
     guard = f" {_guardrail_note(summary.get('render_style'))}" if breakdown and breakdown["lines"] else ""
+    budget_note = f" ⚠️ {budget_warning['message']}" if budget_warning else ""
     intro = (f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}{detail}). "
-             f"Tap to run it, or tell me to change anything first.{guard}")
-    return await _reply(intro, cards=[_confirm_card(verb, scene, cost_text, breakdown)])
+             f"Tap to run it, or tell me to change anything first.{guard}{budget_note}")
+    return await _reply(intro, cards=[_confirm_card(verb, scene, cost_text, breakdown, budget_warning)])
 
 
 # --- prompt studio (full prompt-edit access) --------------------------------
@@ -1530,6 +1591,27 @@ def _secure_key_card(*, optional: bool) -> dict:
         "type": "single",
         "placeholder": "Paste your Kie.ai API key — it stays hidden",
         "options": [],
+    }
+
+
+def _add_competitors_card() -> dict[str, Any]:
+    """C36 (checklist §3.3 item 2): the cold-start fix — a fresh conversation
+    with zero competitor data used to fall straight to the generic dragon-
+    video greeting with no way out. This one-tap card (same single-select
+    shape as `_confirm_card`/`_secure_key_card`) is attached alongside that
+    greeting instead, so the creator can fix the ROOT cause (no competitor
+    data) in one turn rather than getting stuck with generic examples every
+    time. Handled by `chat_turn`'s "awaiting_competitor_paste" branch, which
+    reuses the SAME `analyze_competitors`/`_parse_urls` call the onboarding
+    "competitors" step already uses — not a second implementation."""
+    return {
+        "id": "add_competitors",
+        "label": "No competitor data yet",
+        "type": "single",
+        "options": [
+            {"value": "add", "label": "Add 3 competitors now"},
+            {"value": "skip", "label": "Not now — give me examples"},
+        ],
     }
 
 
@@ -3748,6 +3830,66 @@ async def onboarding_key(body: OnboardingKeyRequest, tenant_id=Depends(get_tenan
     )
 
 
+async def _handle_cold_start_competitor_followup(
+    body, conversation_id, tenant_id, transcript, state, background_tasks,
+) -> Optional[ChatTurnResponse]:
+    """C36 (checklist §3.3 item 2): continues the one-tap "add competitors
+    now" card attached by the fresh-conversation branch below (section 4)
+    when a tenant has zero competitor data — the fix for the cold-start
+    finding ("no competitors -> producer gives generic examples... add an
+    inline card instead of degrading silently").
+
+    Two turns can land here: the card tap itself (add/skip), or — after
+    tapping "add" — the follow-up message pasting the actual URLs. Handled
+    OUTSIDE the onboarding step machine (``state["onboarding_step"]``) on
+    purpose: this fires for an ALREADY-onboarded creator who simply never
+    added competitors, so routing back through connect_yt/connect_drive/
+    upsell would be a regression, not a fix — it reuses the SAME
+    analyze_competitors/_parse_urls calls the onboarding "competitors" step
+    already uses, just without the rest of that step machine attached.
+
+    Returns None (meaning "not my turn — fall through to normal intake")
+    when ``state["awaiting_competitor_paste"]`` isn't set, or is a stale/
+    unrecognized value — the caller must not get stuck."""
+    awaiting = state.get("awaiting_competitor_paste")
+    if not awaiting:
+        return None
+    choice = (body.selections or {}).get("add_competitors")
+    if awaiting == "prompt" and choice == "skip":
+        state["awaiting_competitor_paste"] = None
+        return await _ob_reply(conversation_id, tenant_id, transcript, state, _GREETING, phase="asking")
+    if awaiting == "prompt" and choice == "add":
+        state["awaiting_competitor_paste"] = "collecting"
+        return await _ob_reply(
+            conversation_id, tenant_id, transcript, state,
+            "Paste 1-3 competitor channel URLs or @handles (space or comma separated).",
+            phase="asking")
+    if awaiting == "collecting":
+        urls = _parse_urls(body.message or "")
+        if not urls:
+            return await _ob_reply(
+                conversation_id, tenant_id, transcript, state,
+                "I didn't catch a channel URL or @handle there — paste one to three, "
+                "or say \"skip\" to move on.",
+                phase="asking")
+        state["awaiting_competitor_paste"] = None
+        try:
+            from routes.onboarding import CompetitorAnalyze, analyze_competitors
+            await analyze_competitors(
+                CompetitorAnalyze(channel_urls=urls[:3]), background_tasks, tenant_id=tenant_id)
+            text = (f"On it — analyzing {len(urls[:3])} channel(s) in the background. I'll have "
+                    "data-backed ideas once that's done. In the meantime, tell me a topic and I'll "
+                    "get started.")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("chat: cold-start competitor add failed: %s", e)
+            text = "I'll line those up. In the meantime, tell me a topic and I'll get started."
+        return await _ob_reply(conversation_id, tenant_id, transcript, state, text, phase="asking")
+    # Stale/unrecognized value (e.g. they typed over the card) — clear it
+    # and fall through to the ordinary intake turn rather than getting stuck.
+    state["awaiting_competitor_paste"] = None
+    return None
+
+
 # --- the endpoint ------------------------------------------------------------
 
 @router.post("", response_model=ChatTurnResponse)
@@ -3822,6 +3964,12 @@ async def chat_turn(
             return await _handle_show_identity(
                 conversation_id, tenant_id, transcript, state, body.message.strip())
 
+    # 3.7 Cold-start "add competitors now" follow-up (checklist §3.3 item 2, C36).
+    cold_start_reply = await _handle_cold_start_competitor_followup(
+        body, conversation_id, tenant_id, transcript, state, background_tasks)
+    if cold_start_reply is not None:
+        return cold_start_reply
+
     # 4. Normal intake turn. Append the user's message and/or card selections.
     user_parts: list[str] = []
     if body.message and body.message.strip():
@@ -3863,6 +4011,26 @@ async def chat_turn(
                 return await _present_ideas_turn(
                     conversation_id, tenant_id, transcript, state, ideas
                 )
+            # C36 (checklist §3.3 item 2): distinguish WHY ideas came back None.
+            # No competitor rows -> the fixable cold-start case this item
+            # targets — offer the one-tap card instead of silently handing
+            # over the generic dragon-video example. Any other reason (no
+            # Anthropic key, a transient API failure) is a DIFFERENT problem
+            # (missing-key friction is P0.4's territory) — the card would be
+            # actively misleading there, so it's gated strictly on "genuinely
+            # no competitor data", not on ideas-is-None in general.
+            has_competitors = True
+            try:
+                has_competitors = bool(await _recent_competitor_rows(tenant_id))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("chat: cold-start competitor check failed: %s", e)
+                has_competitors = True  # fail open to the plain greeting, not a misleading card
+            if not has_competitors:
+                state["awaiting_competitor_paste"] = "prompt"
+                text = (_GREETING + "\n\nBy the way — you haven't added any competitor channels yet, so "
+                        "I can't pull data-backed ideas for you yet. Want to add a few now?")
+                return await _ob_reply(conversation_id, tenant_id, transcript, state, text,
+                                       phase="asking", cards=[_add_competitors_card()])
             transcript.append(_assistant_turn({"assistant_text": _GREETING, "phase": "asking"}))
             await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(

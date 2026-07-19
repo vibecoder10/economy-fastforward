@@ -7158,7 +7158,174 @@ default) that were confirmed 404ing — fixing a confirmed-broken call can only 
 paths, never regress a working one. Safe to ff-merge; no VPS coordination needed, no migration to
 run.
 
-**Next up: C36 · P3.3 UX debt batch (checkpoint-audio expectation, cold-start card, budget ceiling,
-confidence telemetry — split per item if any runs long).**
+## C36 — P3.3 UX debt batch: checkpoint-audio, cold-start card, budget ceiling, confidence telemetry (added 2026-07-19)
 
-**Next up: C35 · P3.4 Whisper-key friction + Claude tier map single-sourcing.**
+Four independent findings from the copilot-flow audit (docs/reports/2026-07-17-storyengine-agent-
+audit-findings.md Sweep 1, findings 3/6/7/8; tasks/storyengine-wiring-fix-checklist.md §3.3). This is
+the final BUILD chunk of the loop — C37 is Ryan's decision chunk (create-surface convergence, per-user
+BYOK), composed by the orchestrator, not built here.
+
+### Item 1 — checkpoint-audio expectation
+
+The pictures-review checkpoint (`actions.make_autobuild_step`'s target="pictures" stop) deliberately
+defers voice to the finish phase (voice is the slowest paid step, not needed to review pictures) — but
+two surfaces implied audio should already be there:
+
+1. `actions.PICTURES_READY_MSG` said only "review them, then say animate it" — never mentioning voice
+   isn't there yet. Fixed: now reads "review them (no voice yet, that's next), then say...".
+2. `ScenesWorkspaceTab.tsx`'s hard gate (`!hasVoice && !voiceSkipped` → a blocking "Voice Required"
+   card) didn't distinguish "no pictures yet, voice hasn't run" from "pictures exist, voice is
+   deliberately deferred" — a video built via the default chat autobuild (pictures made, voice not yet
+   run, `skip_voice` false) hit the SAME hard block reviewing pictures the chat had just told the
+   creator to go review. Fixed: the gate now only blocks when `!hasPictures` too; when pictures exist
+   without voice, an inline advisory banner replaces the block ("No voice yet — that's expected here...
+   review the visuals now, audio comes next").
+
+### Item 2 — cold-start card
+
+A fresh conversation with zero competitor data (`routes/chat.py`'s proactive-idea-pitch branch in
+`chat_turn()`) silently fell to the generic "dragon video" `_GREETING` forever — no way out. Fixed:
+when `_recent_competitor_rows()` is genuinely empty (NOT when it's empty because of a missing
+Anthropic key — that's P0.4's territory, and a competitors card would be misleading there), the
+greeting now carries a one-tap `_add_competitors_card()` ("Add 3 competitors now" / "Not now — give me
+examples"). The follow-up turns (card tap, then the URL paste) are handled by a new standalone
+`_handle_cold_start_competitor_followup()` — extracted as its own function (not left inline in
+`chat_turn()`) specifically so it's independently testable, reusing the SAME
+`analyze_competitors`/`_parse_urls` calls the onboarding "competitors" step already uses, WITHOUT
+routing through the onboarding step machine (`state["onboarding_step"]`) — this fires for an
+already-onboarded creator who simply never added competitors, so re-triggering connect_yt/
+connect_drive/upsell would be a regression, not a fix.
+
+### Item 3 — budget ceiling (the substantial item)
+
+`videos.max_spend` — an OPTIONAL, nullable per-video spend cap (migration 103, applied LIVE via
+Supabase MCP against `wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`, committed to
+`schema.sql` next to `total_cost`). NULL (the default) is byte-identical to every video that existed
+before this migration — nothing reads/writes it unless a creator sets one.
+
+**One column, three doors** (per the design note):
+1. **Existing video-update path** — `routes/videos.py`'s generic `PATCH /api/videos/{id}` (`allowed_
+   fields`), validated (must be a positive number or `null` to clear).
+2. **UI field** — `BudgetCapCard` in `ScriptVoiceTab.tsx` (next to `ScriptVoiceCard`, same
+   GlassCard/PATCH pattern), showing real spend-so-far (`video.total_cost`) alongside the cap input.
+3. **Chat verb** — new `budget_cap` verb (free, no confirm — like `camera_preset`/`script_profile`):
+   "cap this video at $15" / "remove the cap", parsed by `actions._resolve_budget_cap_text()`, written
+   by `actions._runner_budget_cap()`. Wired into both classifiers' prompts (the legacy one-shot
+   classifier in `routes/chat.py` AND `agent_brain.py`'s tool-loop brain) and `routes/mcp.py`'s
+   dynamically-generated tool list (auto-picked up since it's a `paid: False` `actions.ACTIONS` entry).
+
+**The gate**: `actions.budget_check(summary, quote_cost)` — pure function, no DB. Returns `None` when
+there's no cap or the quote fits under it; otherwise a dict with `cap`/`spent`/`quote`/`projected`/
+`message`. `spent` reads `summary["total_cost"]` — the REAL `generation_ledger` rollup (C07/C08),
+newly added to `video_summary()`'s SELECT alongside `max_spend` — deliberately NOT the existing
+`summary["spent"]` key (the artifact-count estimate every other caller already reads), to avoid
+regressing legacy videos that accrued real spend before the C07 ledger existed and were never
+backfilled (which would read as total_cost=$0 for them).
+
+**Never silent-blocks** (the money-gate philosophy: quote honestly, let the human decide):
+- `routes/chat.py`'s paid-verb confirm-card path folds `budget_warning` into the SAME one-tap card —
+  the "yes" option relabels to "Do it anyway · $X" and a `budget` key rides the payload; tapping it IS
+  the explicit override, no second confirmation step invented. Omitted entirely (byte-identical card)
+  when there's no cap or the quote fits.
+- `routes/mcp.py`'s quote response carries the same `budget_warning` key; the confirm_token is still
+  minted (the agent isn't blocked), it's just told first.
+- `actions.make_autobuild_step()`'s loop checks `video.get("max_spend")` against `video.get(
+  "total_cost")` at the top of every iteration (before that iteration's paid step) AND before the
+  pre-loop "finish" voice pass — already-at/over-cap pauses cleanly (task status "completed", a
+  message naming the cap and spend, "say keep going to continue" — mirroring the existing no-progress/
+  18-iteration-cap stop pattern, not a failure). No per-iteration quote exists at this granularity
+  (each iteration can be a different-priced stage), so the honest check available here is "have we
+  already reached the cap" rather than "would this specific step exceed it" — documented as the
+  deliberate distinction from the confirm-card path's precise quote+total check.
+
+### Item 4 — confidence telemetry
+
+`COPILOT_CONFIDENCE = 0.55` (`routes/chat.py`) gates every copilot classification (from either
+`agent_brain.run_copilot_brain()` or the legacy one-shot fallback) with zero visibility into real
+traffic — no way to tell whether 0.55 is even the right number without guessing. Smallest useful fix:
+`routes/chat._log_classification_confidence()` writes ONE row per classified turn — a `logger.info`
+line plus an INSERT into the EXISTING `bot_activity` table (no new table: `bot_name='copilot_
+classifier'`, a compact `kind=... verb=... confidence=... source=... gated=...` message on the same
+`message` column every other bot's activity rows already use) — called in `_handle_copilot()`
+immediately after the classifier decision is unpacked, BEFORE the confidence-gate branch, so a turn
+that gets stuck in the clarify-loop is recorded too, not just the ones that pass. Deliberately fail-
+soft (a broken telemetry write must never break a chat turn) and deliberately NOT a dashboard — out
+of scope this chunk, per the checklist ("no dashboards this chunk").
+
+### Verify
+
+**Non-vacuous via `git stash`**: stashed the 5 modified backend `.py` files (`actions.py`,
+`agent_brain.py`, `routes/chat.py`, `routes/mcp.py`, `routes/videos.py`; schema.sql included, new
+migration/test files kept), reran the 3 new C36 test files: **24 of 27 assertions correctly FAIL**
+against pre-C36 code (`AttributeError`s for every new function/verb that doesn't exist yet, a stale
+`PICTURES_READY_MSG` with no voice mention, a `_confirm_card`/mcp quote with no budget key). The 3
+incidental passes are the "no cap set" / "under cap" autobuild/card paths, which are supposed to be
+byte-identical to before — passing them pre-fix is correct, not vacuous. Popped clean, reran green.
+
+**Cap-gate matrix** (`test_c36_budget_cap.py`, 16 tests): `test_video_detail_model_and_get_video_
+query_carry_max_spend` (the wiring lock — caught a REAL bug live: `GET /api/videos/{id}` uses
+`response_model=VideoDetail`, a strict Pydantic model that silently drops undeclared DB columns, and
+its own SELECT is an explicit column list, not `SELECT *` — both needed `max_spend` added by hand or
+the whole UI door would always read null; fixed in `models.py` + `routes/videos.py` in this same
+chunk); `test_budget_check_no_cap_is_byte_identical_none` / `test_budget_check_under_cap_returns_none`
+/ `test_budget_check_would_exceed_surfaces_the_breach` / `test_budget_check_exactly_at_cap_is_not_a_
+breach` (the pure gate); `test_resolve_budget_cap_text_*` / `test_runner_budget_cap_sets_and_clears` /
+`test_budget_cap_verb_registered_free_no_confirm` (the chat verb); `test_confirm_card_carries_budget_
+warning_when_present` / `test_confirm_card_omits_budget_key_when_no_warning` (the card); `test_
+autobuild_pauses_cleanly_when_at_or_over_cap` / `test_autobuild_under_cap_proceeds_normally` / `test_
+autobuild_no_cap_is_byte_identical_to_before` (the loop — the actual cap-gate matrix); `test_mcp_
+quote_carries_budget_warning` (the MCP door).
+
+**Confidence telemetry** (`test_c36_confidence_telemetry.py`, 4 tests): writes one `bot_activity` row
+with the right fields; records ungated/legacy turns too, not just gated ones; fails soft on a broken
+DB write; source-lock confirms the log call sits BEFORE the confidence-gate branch in `_handle_
+copilot()`.
+
+**Cold-start + checkpoint-audio** (`test_c36_cold_start_and_checkpoint_audio.py`, 8 tests): the
+checkpoint message mentions voice; the add-competitors card shape; all 6 states of the follow-up
+handler (not-awaiting passthrough, skip, add→collecting, collecting+no-URLs re-prompt, collecting+URLs
+→ analyze+clear, stale-value fallthrough).
+
+**Migration proof**: `apply_migration` (idempotent `ADD COLUMN IF NOT EXISTS`) against
+`wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns` (`max_spend | numeric | YES`
+nullable). `schema.sql` updated in the same commit.
+
+**Full backend suite**: `./venv/bin/python -m pytest tests/ -q` → **1300 passed** (1272 baseline + 28
+new C36 tests) **/ 15 pre-existing failures / 1 pre-existing error** — matches the documented baseline
+exactly, zero new failures. `py_compile` clean on all touched `.py` files. `npx tsc --noEmit` clean
+(frontend: `ScenesWorkspaceTab.tsx`, `ScriptVoiceTab.tsx`, `lib/api.ts`).
+
+### Modified/New Files (C36)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/migrations/103_videos_max_spend.sql` | NEW — `ALTER TABLE videos ADD COLUMN IF NOT EXISTS max_spend NUMERIC` |
+| `storyengine/schema.sql` | `videos.max_spend NUMERIC` added next to `total_cost` |
+| `storyengine/backend/actions.py` | `PICTURES_READY_MSG` mentions voice deferral; `video_summary()` selects/returns `total_cost`/`max_spend`; new `budget_check()`, `_resolve_budget_cap_text()`, `_runner_budget_cap()`; new `budget_cap` ACTIONS/RUNNERS entry; `make_autobuild_step()`'s loop + pre-loop voice pass both check the cap before spending |
+| `storyengine/backend/routes/chat.py` | `_confirm_card()` accepts `budget_warning`; paid-verb path computes it via `_budget_check`; classifier prompt + JSON schema gain `budget_cap`; new `_log_classification_confidence()` called in `_handle_copilot()`; new `_add_competitors_card()` + `_handle_cold_start_competitor_followup()`, wired into `chat_turn()`'s fresh-conversation branch and a new §3.7 step |
+| `storyengine/backend/agent_brain.py` | Decision schema + verb-meanings text gain `budget_cap` |
+| `storyengine/backend/routes/mcp.py` | Quote response carries `budget_warning`; docstring/tool-schema text updated for `budget_cap` |
+| `storyengine/backend/routes/videos.py` | `PATCH /api/videos/{id}` allowlists + validates `max_spend`; `GET /api/videos/{id}`'s explicit SELECT column list now names `max_spend` (caught live — was silently dropped otherwise) |
+| `storyengine/backend/models.py` | `VideoDetail.max_spend: Optional[float] = None` (without this, `response_model=VideoDetail` silently drops the column from every API response) |
+| `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` | "Voice Required" gate now checks `hasPictures`; new inline advisory banner when pictures exist without voice |
+| `storyengine/frontend/src/components/production/ScriptVoiceTab.tsx` | New `BudgetCapCard`, rendered next to `ScriptVoiceCard` |
+| `storyengine/frontend/src/lib/api.ts` | `VideoDetail.max_spend?: number \| null` |
+| `storyengine/backend/tests/functional/test_c36_budget_cap.py` | NEW — 16 tests |
+| `storyengine/backend/tests/functional/test_c36_confidence_telemetry.py` | NEW — 4 tests |
+| `storyengine/backend/tests/functional/test_c36_cold_start_and_checkpoint_audio.py` | NEW — 8 tests |
+
+### Deploy-safety assessment
+
+All four items are additive/opt-in: `max_spend` defaults to NULL (no behavior change until a creator
+sets one); the confidence-telemetry write is a fail-soft side effect with no user-visible change; the
+cold-start card only appears when there's genuinely zero competitor data (never on an existing/working
+path); the checkpoint-audio fix only WIDENS when the Scenes tab renders (adds a bypass + advisory,
+narrows nothing). No path that worked before now fails. Safe to ff-merge; no VPS coordination needed
+beyond the already-applied migration (which is idempotent and was applied live this chunk).
+
+**Deferred to `tasks/live-verification-queue.md` §C36**: live end-to-end proof (set a cap via chat,
+hit it mid-autobuild on a real tenant, confirm the pause card and the "Do it anyway" confirm-card
+wording render correctly in the actual UI/dock).
+
+**BUILD queue complete after this chunk. Next up: C37 — Ryan's decision chunk (create-surface
+convergence, per-user BYOK slice), composed by the orchestrator, not built by a worker session.**

@@ -1706,6 +1706,10 @@ export interface VideoDetail extends VideoSummary {
   // null (undeclared — "Auto", the router's money-safe default). Drives
   // the Scenes workspace's "Channel look" control.
   render_style?: string | null;
+  // Optional per-video spend ceiling (migration 103, checklist §3.3/C36).
+  // null = no cap (default). The money gate (backend actions.budget_check)
+  // reads the SAME total_cost above against this before every paid verb.
+  max_spend?: number | null;
   aspect_ratio?: string | null;
   // Per-video pipeline plan: enabled stages (null = full pipeline). The video
   // page hides the tabs for stages that aren't in this list.

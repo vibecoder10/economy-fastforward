@@ -29,8 +29,8 @@ the money-gated verb registry):
   FREE WRITES (execute immediately, no confirm_token — same `paid: False`
   verbs actions.ACTIONS marks free for chat/buttons):
     approve_cast, approve_environments, skip_environments, approve_scene,
-    camera_preset, script_profile, lock, unlock, drive_push, drive_sync,
-    advance, create_video.
+    camera_preset, script_profile, budget_cap, lock, unlock, drive_push,
+    drive_sync, advance, create_video.
     (create_video is a special case, not an actions.ACTIONS verb — see
     _call_create_video. It's free because creating the row spends nothing;
     the first paid verb run against that video — "script", "build", ... —
@@ -445,7 +445,7 @@ def _verb_tool_schema(*, paid: bool) -> dict[str, Any]:
             "description": (
                 "Free-text guidance for edit-capable verbs (script, images, thumbnail), or the "
                 "specific move/style text for camera_preset (\"crash zoom\") / script_profile "
-                "(\"investigative\")."
+                "(\"investigative\") / budget_cap (\"$15\", or \"remove the cap\")."
             ),
         },
         "length_min": {
@@ -557,6 +557,14 @@ async def _call_verb(tenant_id, verb: str, arguments: dict[str, Any],
         }
         if breakdown:
             quote["breakdown"] = breakdown
+        # C36 (checklist §3.3 item 3): same optional per-video budget cap
+        # chat.py's confirm card surfaces — the quote says so honestly
+        # instead of silently minting a confirm_token as if nothing were
+        # different; the agent still gets a valid token and can proceed
+        # (redeeming it IS the explicit override), it's just told first.
+        budget_warning = actions.budget_check(summary, cost)
+        if budget_warning:
+            quote["budget_warning"] = budget_warning
         return _text_result(quote)
 
     ok = await confirm_tokens.redeem(tenant_id, video_id, verb, phash, confirm_token)

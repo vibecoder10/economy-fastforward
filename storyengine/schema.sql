@@ -263,6 +263,12 @@ CREATE TABLE videos (
 
   -- Costs
   total_cost NUMERIC DEFAULT 0,
+  -- Optional per-video spend ceiling (migration 103, checklist §3.3/C36).
+  -- NULL = no cap (default, byte-identical to pre-migration behavior). The
+  -- money gate (actions.py's cost estimator + the chat autobuild loop)
+  -- refuses/pauses a paid verb whose quote would push total_cost over this —
+  -- never silently, always with an honest quote the human can override.
+  max_spend NUMERIC,
 
   -- Learning loop tracking
   learnings_extracted_at TIMESTAMPTZ,

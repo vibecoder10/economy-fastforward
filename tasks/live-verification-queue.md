@@ -18,6 +18,34 @@
 
 ---
 
+## C36 — budget ceiling + cold-start card + checkpoint-audio · needs a real tenant, a real chat turn, real UI
+
+Everything in C36 (checklist §3.3) is proven at the unit/code-trace level in the sandbox (27 new
+tests, `test_c36_budget_cap.py`/`test_c36_confidence_telemetry.py`/`test_c36_cold_start_and_
+checkpoint_audio.py`); migration 103 (`videos.max_spend`) is already applied LIVE. What's deferred:
+
+1. **Budget cap end-to-end.** On a real test video: set a small cap (e.g. "cap this video at $1" in
+   chat, or the new Budget cap field on the Script/Voice tab), then run/continue a build past it.
+   Confirm (a) the confirm card shows "Do it anyway · $X" with the breach message when a quote would
+   exceed the cap, (b) an autobuild that hits the cap mid-chain pauses with the "Paused — you've spent
+   $X against your $Y cap" message (not silently continuing, not failing), and (c) clearing the cap
+   ("remove the cap") lets a paused build resume with "keep going". Free to check on a near-zero cap —
+   no need to actually let real spend accumulate first.
+2. **Cold-start card.** On a genuinely fresh tenant with zero competitors added (or a test tenant with
+   `competitor_videos` cleared), open the home chat cold — confirm the "Add 3 competitors now" card
+   appears alongside the greeting (not just the generic dragon-video example), tapping "Add" prompts
+   for URLs, pasting URLs kicks off `analyze_competitors` and acks, and "Not now" falls through to the
+   ordinary greeting cleanly.
+3. **Checkpoint-audio.** Run a normal chat "build it" to the pictures-review checkpoint (no explicit
+   voice request) on a test video, then open the Scenes tab: confirm the pictures render (no "Voice
+   Required" block) with the new "No voice yet — that's expected here" advisory banner, and that the
+   chat's own message says "(no voice yet, that's next)" rather than implying audio already exists.
+- **Cost:** budget-cap check is near-zero (cap it at $0.01 to force the breach instantly, no need to
+  actually spend); cold-start and checkpoint-audio checks are free (read-only / one cheap build to a
+  checkpoint you'd run anyway).
+
+---
+
 ## C29 — StoryEngine MCP go-live runbook · the ONE recipe for C26/C27/C28/C29's live checks
 
 **Why this is one runbook, not four:** C26 shipped the MCP endpoint + agent tokens, C27 the full tool

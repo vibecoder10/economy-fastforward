@@ -229,7 +229,7 @@ def _decision_schema() -> str:
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
-        'camera_preset|script_profile|lock|unlock|drive_push|drive_sync|advance|build|none",'
+        'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
@@ -282,6 +282,10 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "put the voice description ('investigative reveal', 'framework explainer', 'neutral', etc.) in change "
         "VERBATIM; free, no confirm needed, reversible by saying 'neutral'; does NOT itself rewrite an "
         "existing script (that's the 'script' verb); "
+        "budget_cap=set (or clear) a SPENDING CAP for this video ('cap this video at $15', 'set a $20 budget "
+        "limit', 'remove the budget cap') — put the amount in change VERBATIM (e.g. '$15', 'remove the cap'); "
+        "free, no confirm needed — it only changes what future paid actions check against, never spends "
+        "anything itself; "
         "lock/unlock=freeze the story; drive_push / drive_sync=script to/from Google "
         "Drive; advance=skip the CURRENT stage/gate and move on ('skip this step', 'skip research', 'move on') — "
         "and the script verb skips research automatically when they ask for the script early; "

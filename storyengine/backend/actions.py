@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -172,6 +173,14 @@ ACTIONS: dict[str, dict[str, Any]] = {
     # before OR after the script exists.
     "script_profile": {"runner": "script_profile", "paid": False, "needs": None,
                     "doing": "setting the script voice", "label": "Set the script voice"},
+    # C36 (checklist §3.3 item 3): "cap this video at $15" — the conversational
+    # door onto the SAME videos.max_spend column the New Video "Advanced" field
+    # and PATCH /api/videos/{id} write. Free (metadata only — setting a number
+    # doesn't itself spend) and reversible ("remove the cap"), so — like
+    # camera_preset/script_profile — it runs straight from the classifier's
+    # pick, no confirm card. No `needs` gate: a cap can be set any time.
+    "budget_cap":  {"runner": "budget_cap", "paid": False, "needs": None,
+                    "doing": "setting the budget cap", "label": "Set the budget cap"},
     # meta verb: build auto-runs the pipeline to the next checkpoint — to the pictures
     # if we're before them, else all the way to a finished video. NOT one step.
     "build":       {"calls": None, "paid": True, "needs": None,
@@ -196,8 +205,17 @@ BUILD_TO_PICTURES = {
     "ready_for_storyboard_images", "ready_for_storyboard_extraction",
 }
 DONE_STATUSES = {"rendered", "uploaded", "uploaded_draft", "done", "published"}
-PICTURES_READY_MSG = ("Your pictures are ready — review them, then say “animate it” or “finish it” "
-                      "and I'll take it the rest of the way.")
+# C36 (checklist §3.3 item 1): the audit flagged this exact checkpoint —
+# build-to-pictures deliberately skips voice (the slowest paid step, not
+# needed to review pictures — see the "finish" guard above) and leaves it for
+# the finish phase, but the old copy said only "review them", never mentioning
+# audio isn't there yet. A creator who then opened the Scenes tab and read a
+# stock "Voice Required" gate (see ScenesWorkspaceTab.tsx's hasPictures fix,
+# same chunk) had every reason to think something was broken. Set the
+# expectation here instead of implying audio exists.
+PICTURES_READY_MSG = ("Your pictures are ready — review them (no voice yet, that's next), then say "
+                      "“animate it” or “finish it” and I'll add the voice-over and take it the rest "
+                      "of the way.")
 
 # stage -> (executor methods to re-run in order, the column free-text guidance is
 # appended to). Columns are a fixed whitelist, safe to inline in SQL.
@@ -276,7 +294,8 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     """Compact, current state of the video for the classifier, the gate, the cost
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
-        "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style "
+        "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style, "
+        "total_cost, max_spend "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -316,11 +335,64 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         "clips": clips,
         "cast": int(c["n"] or 0),
         "spent": cost,
+        # C36 (checklist §3.3 item 3): the REAL ledger-rolled-up spend
+        # (generation_ledger.record_ledger_entry's SUM(actual_cost) —
+        # checklist §0.3/C07-C08), separate from "spent" above (the
+        # artifact-count estimate every existing caller of that key already
+        # reads — left untouched to avoid regressing legacy videos that
+        # accrued real spend before the C07 ledger existed and were never
+        # backfilled, which would make total_cost read as $0 for them).
+        # total_cost/max_spend exist ONLY to feed budget_check() below — the
+        # one new consumer that needs the honest number, not the estimate.
+        "total_cost": float(v.get("total_cost") or 0),
+        "max_spend": float(v["max_spend"]) if v.get("max_spend") is not None else None,
         "validation": str(v.get("script_validation") or "").strip()[:600],
         # C15: the channel-look guardrail state (checklist §1.2/C13b) — additive,
         # read by cost_breakdown/guardrail_note to explain a mixed or single-model
         # routing plan in the copilot's confirm text. None on any pre-C13b video.
         "render_style": v.get("render_style"),
+    }
+
+
+def budget_check(summary: dict[str, Any], quote_cost: float) -> Optional[dict[str, Any]]:
+    """C36 (checklist §3.3 item 3): would this quote push the video's REAL spend
+    (``summary["total_cost"]`` — the generation_ledger rollup, not the
+    artifact-count "spent" estimate) past its optional per-video cap
+    (``summary["max_spend"]``)?
+
+    Returns None when there's no cap set (the default — every video created
+    before migration 103, and every video that never sets one, behaves
+    byte-identically to before this function existed) or when the quote fits
+    under it. Returns a dict describing the breach otherwise.
+
+    Matches the money-gate philosophy the rest of this module already
+    follows (``estimate_cost``/``cost_breakdown``): quote honestly, let the
+    human decide with full information. This function NEVER blocks anything
+    itself — it only classifies. The two callers decide what "surfaced
+    honestly" means for their door: chat.py's confirm card folds the message
+    into the same one-tap yes/no card (tapping "yes" IS the explicit
+    override — no second confirmation step invented); the autobuild loop
+    (``make_autobuild_step``) pauses cleanly instead of silently continuing
+    past the cap, the same "stop and say so" pattern it already uses for the
+    no-progress and 18-iteration-cap stops."""
+    cap = summary.get("max_spend")
+    if cap is None:
+        return None
+    cap = float(cap)
+    spent = float(summary.get("total_cost") or 0)
+    projected = round(spent + max(quote_cost, 0.0), 2)
+    if projected <= cap:
+        return None
+    return {
+        "cap": cap,
+        "spent": spent,
+        "quote": round(quote_cost, 2),
+        "projected": projected,
+        "message": (
+            f"heads up — this would put you at ${projected:.2f} against your ${cap:.2f} "
+            f"cap for this video (${spent:.2f} spent so far + ${quote_cost:.2f} for this). "
+            "Tap to run it anyway, or raise the cap first."
+        ),
     }
 
 
@@ -867,12 +939,27 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         "SELECT 1 AS x FROM scripts WHERE video_id=$1 AND tenant_id=$2 "
                         "AND voice_over_url IS NULL LIMIT 1", video_id, tenant_id)
                     if missing:
-                        snap = await fetch_one(
-                            "SELECT status FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
+                        # C36 (checklist §3.3 item 3): this pre-loop voice pass
+                        # is itself a real paid step, ahead of the per-iteration
+                        # cap check below — same "already at/over cap" guard so
+                        # a capped video can't spend on voice before the loop
+                        # even gets a chance to look.
+                        vrow = await fetch_one(
+                            "SELECT status, max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                        cap = (vrow or {}).get("max_spend")
+                        spent = float((vrow or {}).get("total_cost") or 0)
+                        if cap is not None and spent >= float(cap):
+                            _set_task_status(
+                                video_id, "completed",
+                                f"Paused — you've spent ${spent:.2f} against this video's ${float(cap):.2f} "
+                                "cap. Raise the cap (or clear it) and say \"keep going\" to continue.",
+                                tenant_id=tenant_id)
+                            return
                         _set_task_status(video_id, "running", "Recording the voiceover…", tenant_id=tenant_id)
                         await ex.run_voice(video_id)
-                        if snap and snap.get("status"):
-                            await _advance(snap["status"])
+                        if vrow and vrow.get("status"):
+                            await _advance(vrow["status"])
                 except Exception:  # noqa: BLE001
                     pass
             last = None
@@ -891,6 +978,28 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 if status == last:  # no progress — never loop forever
                     _set_task_status(video_id, "completed", f"Paused at {status}.", tenant_id=tenant_id)
                     return
+                # C36 (checklist §3.3 item 3): the budget ceiling, checked before
+                # every remaining paid step in the chain — not just the
+                # 18-iteration hard cap above. No per-iteration quote exists here
+                # (each iteration can be a script/image/clip/render stage at a
+                # different price), so the honest check available at this
+                # granularity is "have we already reached or passed the cap" —
+                # read fresh off `video` (the SAME row this iteration already
+                # fetched, kept live by generation_ledger.record_ledger_entry's
+                # rollup after every completed paid unit). None set -> no cap ->
+                # byte-identical to every video that existed before migration
+                # 103. Pauses cleanly (same "stop and say so" shape as the
+                # no-progress/18-cap stops above) — never a silent skip.
+                cap = video.get("max_spend")
+                if cap is not None:
+                    spent = float(video.get("total_cost") or 0)
+                    if spent >= float(cap):
+                        _set_task_status(
+                            video_id, "completed",
+                            f"Paused — you've spent ${spent:.2f} against this video's ${float(cap):.2f} "
+                            "cap. Raise the cap (or clear it) and say \"keep going\" to continue.",
+                            tenant_id=tenant_id)
+                        return
                 last = status
                 # Skip the optional research step — it's slow/flaky (web/YouTube blocks)
                 # and the script writes fine from the topic. Go straight to the script;
@@ -1520,6 +1629,54 @@ async def _runner_script_profile(tenant_id, video_id, background_tasks, pending)
             "(this doesn't regenerate an existing script on its own).")
 
 
+_DOLLAR_RE = re.compile(r"\$?\s*(\d+(?:\.\d{1,2})?)")
+_BUDGET_CLEAR_WORDS = frozenset({"none", "no cap", "no limit", "remove", "clear", "off", "unlimited"})
+
+
+def _resolve_budget_cap_text(text: str) -> tuple[Optional[float], bool, bool]:
+    """Returns (amount_or_None, is_clear, is_valid). C36 (checklist §3.3 item 3):
+    plain-English -> videos.max_spend, for the copilot's "cap this video at $15"
+    / "remove the cap". is_clear=True means "no cap" (max_spend -> NULL) —
+    distinct from "couldn't parse an amount" (amount=None, is_valid=False)."""
+    t = (text or "").strip().lower()
+    if not t:
+        return None, False, False
+    if any(word in t for word in _BUDGET_CLEAR_WORDS):
+        return None, True, True
+    m = _DOLLAR_RE.search(t)
+    if not m:
+        return None, False, False
+    amount = round(float(m.group(1)), 2)
+    if amount <= 0:
+        return None, False, False
+    return amount, False, True
+
+
+async def _runner_budget_cap(tenant_id, video_id, background_tasks, pending) -> str:
+    """C36 (checklist §3.3 item 3): "cap this video at $15" / "remove the
+    budget cap" — writes videos.max_spend, the SAME column and the SAME
+    validation the New Video Advanced field's PATCH /api/videos/{id} uses —
+    all three doors (chat, PATCH, UI field), one write path (migration 103).
+
+    Free and reversible (say "remove the cap" to clear it back to unlimited)
+    — no confirm card; setting a NUMBER never spends money by itself, it only
+    changes what future paid-verb quotes/autobuild iterations check against."""
+    text = (pending.get("change") or "").strip()
+    amount, is_clear, is_valid = _resolve_budget_cap_text(text)
+    if not is_valid:
+        return ('What would you like the cap to be? e.g. "cap this video at $15", or '
+                '"remove the cap" for no limit.')
+    value = None if is_clear else amount
+    await execute(
+        "UPDATE videos SET max_spend = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+        value, video_id, tenant_id,
+    )
+    if value is None:
+        return "Budget cap removed — no spending limit on this video."
+    return (f"Budget cap set to ${value:.2f} for this video — I'll pause and tell you if a build "
+            "would push past it instead of spending on.")
+
+
 RUNNERS = {
     "advance": _runner_advance,
     "seo": _runner_seo,
@@ -1529,6 +1686,7 @@ RUNNERS = {
     "approve_scene": _runner_approve_scene,
     "camera_preset": _runner_camera_preset,
     "script_profile": _runner_script_profile,
+    "budget_cap": _runner_budget_cap,
     "lock": _runner_lock,
     "unlock": _runner_unlock,
     "drive_push": _runner_drive_push,

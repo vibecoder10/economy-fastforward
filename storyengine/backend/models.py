@@ -52,6 +52,10 @@ class VideoDetail(VideoSummary):
     # never upgrading tiers until a channel opts in). C14 surfaces this as
     # the Scenes workspace's "Channel look" control.
     render_style: Optional[str] = None
+    # Optional per-video spend ceiling (migration 103, checklist §3.3/C36).
+    # NULL = no cap (default). The money gate (backend actions.budget_check)
+    # reads total_cost against this before every paid verb.
+    max_spend: Optional[float] = None
     # Per-video pipeline plan: which stages this video runs (None = full
     # pipeline). The UI hides the tabs for stages that are turned off.
     skip_voice: bool = False

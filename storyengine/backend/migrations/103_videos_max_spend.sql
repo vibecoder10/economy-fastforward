@@ -1,0 +1,21 @@
+-- max_spend: an OPTIONAL per-video spend cap the money-gate (actions.py's
+-- estimate_cost/_confirm_card path, and the chat autobuild loop) consults
+-- before every paid verb. NULL (the default) means "no cap" — byte-identical
+-- behavior to every video created before this migration; every existing
+-- caller of videos.total_cost (generation_ledger.py's rollup, the pipeline
+-- page's spend display) is untouched, this is purely an additive read the
+-- gates opt into.
+--
+-- Checklist §3.3 item 3 (C36, docs/reports/2026-07-17-storyengine-agent-
+-- audit-findings.md Sweep 1 finding #6): "Cost shown is estimate-from-
+-- artifact-counts; videos.total_cost never rolled up... no budget ceiling
+-- (only 18-iteration autobuild cap)." C07/C08 already fixed the total_cost
+-- rollup (generation_ledger.py) — this migration adds the other half: a real
+-- ceiling a creator can opt into, checked against that same real total_cost.
+--
+-- One column, all three doors (design note in the checklist): the existing
+-- video-update path (routes/pipeline.py's PATCH), a small "Advanced" UI
+-- field, and the chat verb ("cap this video at $15") all write this same
+-- column — no per-door duplicate state.
+
+ALTER TABLE videos ADD COLUMN IF NOT EXISTS max_spend NUMERIC;
