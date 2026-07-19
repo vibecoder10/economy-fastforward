@@ -1605,6 +1605,77 @@ next dev-server pass with a real key.
 
 ---
 
+## C22 — conversational style creation: "make me a new style…" (checklist §2.1 [U] / P2.1c) · live chat check
+
+New home-producer `profile_ops` (`draft_style`, `use_style`) plus a
+deterministic confirm gate (`chat_turn` step 3.6 →
+`_handle_style_draft_confirm`) that saves through the SAME
+`routes.visual_styles.create_visual_style` the profile page's CRUD calls —
+full detail in SYSTEM_STATE.md §C22. Verified so far by 23 new sandbox
+tests (non-vacuous via `git stash`), `tsc --noEmit` + `npm run build`
+(both clean), and a full backend-suite byte-identical failure-list diff
+against the stashed baseline. No paid Anthropic/Kie key in the build
+sandbox, so the producer LLM was never actually driven this session — do
+these on the next dev-server pass with a real key.
+
+- [ ] **"Make me a new style" drafts, never saves, on turn 1.** In a fresh
+      home-chat conversation say something like "make me a new style —
+      dreamy Ghibli summer, soft light, no text overlays." Confirm: (a) the
+      reply describes a drafted name + one-sentence look, (b) a
+      `style_draft` preview card appears with "Save this style" / "Not
+      quite" buttons, (c) `se db "SELECT * FROM visual_styles WHERE
+      project_id='<test-project>' ORDER BY created_at DESC LIMIT 1"` shows
+      NO new row yet.
+- [ ] **Tapping "Save this style" creates exactly one row, tapping "Not
+      quite" creates none.** After the draft card above, tap Save — confirm
+      a NEW `visual_styles` row now exists with the drafted name and
+      `style_profile->>'prompt_prefix'` matching the drafted look, and the
+      assistant's reply names it and says where to find/use it. Start a
+      fresh draft (a different look) and tap "Not quite" instead — confirm
+      no new row appears and the reply invites another description.
+- [ ] **The new style shows up on the Profile page without a manual
+      refresh.** Immediately after tapping Save (same session, Profile page
+      NOT already open in another tab within the last 30s), navigate to
+      Profile → Visual Styles — the new style should already be listed. If
+      the Profile page WAS already mounted/cached, confirm the
+      `["visualStyles"]` query invalidation from `ChatCore.tsx` refreshes it
+      without requiring a manual page reload.
+- [ ] **"Use my <name> style" activates it — channel-wide.** In a later
+      conversation, say "always use my <drafted name> style" (or "make it my
+      default look") — confirm the reply confirms the switch, and `se db
+      "SELECT name, is_active FROM visual_styles WHERE project_id=
+      '<test-project>'"` shows ONLY that row `is_active = true`, every other
+      row `false`. Then build a plain video with no style mentioned and
+      confirm its generated image prompts front-load that style's look
+      sentence (via `identity.build_identity_context`'s
+      `channel_visual_style` fallback).
+- [ ] **"Use my <name> style for this one" resolves the CURRENT plan without
+      switching the default.** Ask for a new video and, while planning it,
+      say "use my <name> style for this one" without asking to make it the
+      default — confirm the created video's `image_style_override` matches
+      that saved style's look, but a DIFFERENT concurrent/later video (with
+      no style mentioned) still uses whatever was already the channel's
+      active default, not this one-off pick.
+- [ ] **A garbled or empty draft never half-creates anything.** Ask for a
+      style with genuinely no description ("make me a new style" and
+      nothing else) — confirm the producer asks a clarifying question
+      instead of drafting a blank card, and no `style_draft` card /
+      `visual_styles` row appears.
+- **Cost:** free — every check above is a chat-only, no-paid-generation
+  flow (text drafting + a DB row write, same cost profile as any other
+  profile_op like `remember`/`set_niche`).
+- **Safety net:** if a draft card ever seems to "save itself," confirm
+  `state["pending_style_draft"]` is actually being popped/cleared on both
+  the yes and no paths (`_handle_style_draft_confirm`) — a leftover pending
+  draft from an abandoned conversation could otherwise resurface if the
+  creator later says an unrelated "yes" to something else while a stale
+  card kind check misfires; this was reasoned through in the sandbox
+  (`_maybe_attach_style_draft_card` only re-attaches when THIS turn's ops
+  include `draft_style`) but never watched live across a long multi-topic
+  conversation.
+
+---
+
 ## C19a — task-watcher consolidation + GuidedNextStep price source
 (§S9-1/S9-2/S9-8, gate before C21) · live click-through check
 

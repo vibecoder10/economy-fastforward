@@ -4544,3 +4544,139 @@ re-run for this chunk.
 proven by fresh grep at delete-time, not by trusting a two-day-old audit. No behavior change for
 any reachable path. The one file NOT deleted (`storyboards/page.tsx`) is left exactly as it was —
 no risk either way.
+
+## C22 — Conversational Style Creation: "make me a new style…" (added 2026-07-19)
+
+**Checklist §2.1 [U] / P2.1c (UX map §3):** the gallery C21a/C21b built only ever surfaces the
+FIXED catalogs (5 `style_presets` engine rows, 6 `channel_format.STYLE_DESCRIPTIONS` looks) — a
+creator could never add their OWN. This chunk gives the producer chat a conversational door onto
+the one axis actually meant to be user-extensible.
+
+**Scope decision (made explicit, per the brief):** a chat-created "style" is a tenant-owned STYLE
+DESCRIPTION — a new row in the EXISTING `visual_styles` CRUD table (migration 010, the profile
+page's "Visual Styles" manager, `["visualStyles"]` query; C20's axis-2 in its "three axes" note
+above) — NOT a new `style_presets` row. `style_presets` rows are Python rendering ENGINES
+(`shared.profiles.visual.*`, each with its own scene-type/camera/composition logic); a creator's
+words can describe a LOOK, never author a new engine. The `visual_styles` CRUD was already exactly
+fit for purpose — free-text `style_profile` JSON (`{"prompt_prefix": "<look sentence>"}`, rendered
+by `identity._style_profile_to_look`), a name, activate/deactivate, cascade-deleting characters —
+so this chunk adds a conversational front door onto it, reusing its EXACT route handlers. No
+fourth style system (that would be S9-5's whole complaint, repeated a third time).
+
+**The confirm-before-save guarantee — the actual hard part.** Every existing `profile_ops` verb
+(`add_competitor`, `set_niche`, `remember`, …) executes the instant the producer emits it; the ONE
+exception (`remove_competitor`) gets its "are you sure" purely in NL, trusting the model to re-emit
+the op on the creator's next "yes". That pattern is not good enough for money-adjacent-feeling,
+identity-adjacent data like a saved style — the brief explicitly wants "no row until the creator
+confirms," provable in a test, not a hope. So this chunk borrows a DIFFERENT existing pattern
+instead: `_handle_copilot`'s `pending_action`/`confirm_action` two-turn state machine (stash a
+draft in conversation `state`, require the creator's own next-turn tap to actually run it) — but
+built fresh for the HOME producer path, since `_handle_copilot`'s version is video-scoped and
+`chat_turn` (the home path) had no prior "propose now, execute next turn, deterministically" shape
+of its own.
+
+1. **Turn 1 — draft (LLM-driven, DB-inert).** New `profile_ops` verb `draft_style`
+   (`producer_prompt.py`, taught alongside `remember`/`use_style` with the same "wired up" framing
+   the rest of the vocabulary uses): `{"op":"draft_style","value":{"name":"<short name>","look":"<one
+   sentence>"}}`. Its handler in `routes/chat.py::_apply_profile_ops` does **exactly one thing**:
+   `state["pending_style_draft"] = {"name": ..., "look": ...}` and a confirmation line. It NEVER
+   calls `fetch_one`/`execute`/`create_visual_style` — proven directly in
+   `tests/functional/test_c22_style_draft.py::test_draft_style_stashes_pending_draft_and_touches_no_database`,
+   which leaves `database.fetch_one/fetch_all/execute` bound to the test module's `_boom` stubs (any
+   write attempt would raise `AssertionError` and fail the test).
+2. **The preview card.** New `chat._style_draft_card(draft)` builds `{"id":"style_draft", "label":
+   <name>, "body": <look>, "options":[yes/no]}` — reusing the `label`/`body`/`options` fields
+   `ChatCard` already has (no new frontend-facing field needed; `body` is the same field
+   `prompt_apply` already carries a draft in). New `chat._maybe_attach_style_draft_card(data, state)`
+   attaches it to `data["cards"]` ONLY when THIS turn's `profile_ops` (or the known alt-key spellings
+   `queue_ops`/`file_ops`/`asset_ops`, mirroring `_apply_and_merge_profile_ops`'s own tolerance)
+   actually included `draft_style` AND `state["pending_style_draft"]` is non-empty — so the LLM's own
+   prose can never manufacture a save-ready card without a real draft having been stashed first.
+   Called from both producer entry points (`chat_turn`'s intake turn and `_seed_producer`'s
+   onboarding-seed turn), right after `_apply_and_merge_profile_ops`.
+3. **Turn 2 — confirm (deterministic, LLM never consulted).** New `chat_turn` step 3.6, positioned
+   BEFORE the normal intake turn (which would otherwise just hand `selections.style_draft` to the
+   LLM as text) and BEFORE the 3.5 identity-command check:
+   ```python
+   if body.selections and "style_draft" in body.selections and state.get("pending_style_draft"):
+       return await _handle_style_draft_confirm(body.selections, conversation_id, tenant_id, transcript, state)
+   ```
+   `_handle_style_draft_confirm` pops `state["pending_style_draft"]` (cleared either way — no stale
+   re-confirm on an unrelated later "yes"); on `selections.style_draft == "yes"` it calls
+   `routes.visual_styles.create_visual_style(CreateStyleRequest(name=draft["name"],
+   style_profile={"prompt_prefix": draft["look"]}), tenant_id=tenant_id)` **directly** — the SAME
+   function `POST /api/visual-styles` (the profile page's create button) calls, invoked the same way
+   `_handle_approve` calls `create_video` directly (bypassing the ASGI/`Depends` machinery, not
+   forking the route's logic). Any other value, or no pending draft at all, is a friendly no-op with
+   zero DB calls — proven by monkeypatching `create_visual_style` to an `AssertionError`-raising stub
+   in the "no" test. A CRUD failure (e.g. a DB error) fails soft to a friendly line, never a crashed
+   turn.
+4. **"Use <name>" — resolves via the CRUD's own activate semantics.** New `use_style` op: looks up
+   the tenant's `visual_styles` row by exact name (case-insensitive) with an `ILIKE '%...%'` fallback,
+   then calls `routes.visual_styles.activate_visual_style(style_id, tenant_id=tenant_id)` — the SAME
+   function the profile page's "Set active" control calls. This is a CHANNEL-WIDE switch (mirrors
+   `identity.build_identity_context`'s existing precedence: `video.image_style_override` (per-video) >
+   the ACTIVE `visual_styles` row (channel-wide) > `channel_profiles.style_description`) — distinct
+   from `set_visual_style` (which overwrites the single free-text default, not a saved reusable row).
+   A saved style can ALSO be resolved for just the video being planned right now, without switching
+   the channel default: new `_visual_styles_brief(tenant_id)` (fail-soft, empty-when-nothing-saved,
+   unlike `_style_presets_brief`'s frozen fallback — an empty section is correct here) lists the
+   tenant's saved styles by name + look, wired into both producer entry points; the prompt instructs
+   the producer to set `spec.image_style_override`/`visual_style_label` straight from a matching saved
+   entry when the creator names it for "this one," reusing fields `_spec_to_create_request` already
+   wires end-to-end (no new plumbing needed there).
+5. **Docked (in-video) co-pilot / `agent_brain.py` — deliberately NOT touched.** Every existing
+   channel-config verb (`add_competitor`, `set_niche`, `set_channel_format`, …) lives ONLY in the home
+   producer's `profile_ops`, never in the docked co-pilot's `kind` classifier or `agent_brain.py`'s
+   tool-loop schema — channel-level configuration has never been a docked-copilot concern, and a
+   saved style is exactly that (project-scoped, not video-scoped). Extending the docked schema too
+   would be new surface with no existing precedent asking for it and no path in `identity.py` to
+   change an EXISTING video's style after creation anyway (that's the UX map's separate, unbuilt
+   "video header chip, locked once images exist" clickable-door feature) — adding it here would be
+   scope creep, not "as appropriate." Flagged explicitly rather than silently skipped.
+6. **Frontend.** New `CardKind` entry `"style_draft"` in `ChatCore.tsx`'s `cardKind()` lookup (C21a's
+   refactor point — one more entry, no new string-match branch) and in `ACTION_CARD_KINDS`. New
+   `StyleDraftCard` component (text-only preview + Save/Not-quite buttons, same shape as
+   `ConfirmActionCard`) — deliberately NO image preview (the cost-cap constraint: an image preview
+   here would be paid generation with no quote gate). On "yes," `queryClient.invalidateQueries({
+   queryKey: ["visualStyles"] })` fires from `ChatCore.tsx` — the home chat and `/profile` are
+   different route trees but share ONE `QueryClient` (`app/providers.tsx` wraps the whole app), so
+   this reaches the Profile page's query directly instead of relying on its 30s default `staleTime`
+   window to eventually notice the new row.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/tests/functional/test_c22_style_draft.py` | 23 tests across all 7 layers above |
+
+### Modified
+| Path | Change |
+|------|--------|
+| `storyengine/backend/producer_prompt.py` | `draft_style`/`use_style` vocabulary taught in prose + the JSON schema's `profile_ops` example list |
+| `storyengine/backend/routes/chat.py` | `_apply_profile_ops` gains `draft_style`/`use_style` branches; new `_visual_styles_brief`, `_style_draft_card`, `_maybe_attach_style_draft_card`, `_handle_style_draft_confirm`; `chat_turn` step 3.6 intercept; `_visual_styles_brief`/`_maybe_attach_style_draft_card` wired into both `chat_turn` and `_seed_producer` |
+| `storyengine/frontend/src/components/chat/ChatCore.tsx` | New `"style_draft"` `CardKind` + `ACTION_CARD_RENDERERS` entry + `StyleDraftCard` component; `useQueryClient` import + `["visualStyles"]` invalidation on save |
+
+**Deploy-safety assessment:** ff-merge candidate. Purely additive: two new `profile_ops` verbs (an
+unrecognized op was already silently ignored by `_apply_profile_ops`'s `if kind == ...` chain before
+this chunk, so older transcripts/replays are unaffected); one new `ChatCard` id or an older frontend
+build simply never renders (falls through `cardKind()`'s `generic` case, same as any card kind added
+before it); no existing route, migration, or Pydantic field changed or removed; the CRUD write path
+(`routes/visual_styles.py`) is untouched, only called from a new call site. `ScenesWorkspaceTab.tsx`
+NOT touched this chunk (no S9-7 trust-ladder extraction needed) — that lands with C23, which does
+touch that file.
+
+**Verify:** `cd storyengine/backend && ./venv/bin/python -m pytest
+tests/functional/test_c22_style_draft.py -q` — 23 passed. Non-vacuous: `git stash` (the three
+modified tracked files only; the new test file kept in place) — all 23 fail against pre-C22 source
+(`AttributeError: module 'routes.chat' has no attribute '_visual_styles_brief'` etc.); `git stash
+pop` restored clean, re-verified green. `python -m py_compile` clean on all touched/added `.py`
+files. Full backend suite: **1074 passed (1051 baseline + 23 new) / 16 pre-existing failures / 1
+pre-existing error** — the failing/erroring test name list is BYTE-IDENTICAL to a full stashed-baseline
+rerun (`diff` on sorted `FAILED`/`ERROR` lines from both runs: zero output), not just an eyeballed
+count match. Frontend: `npx tsc --noEmit` clean; `npm run build` compiles+typechecks clean (same
+pre-existing `NEXT_PUBLIC_API_URL` prerender gap every prior frontend chunk hits, unset in this
+sandbox). Grep-proof: `card.id === "` matches in `ChatCore.tsx` exist only inside `cardKind()` (plus
+the pre-existing `isSliderCard` helper) — zero new scattered string-match sites. Live conversational
+round-trip (draft → confirm → row appears in Profile → "use it" on a new video) deferred to
+`tasks/live-verification-queue.md` §C22 — needs a live DB + a real Anthropic/Kie key to actually
+drive the producer LLM.

@@ -1942,6 +1942,44 @@ async def _style_presets_brief(tenant_id) -> str:
     )
 
 
+async def _visual_styles_brief(tenant_id) -> str:
+    """This tenant's own saved-style library (checklist §C22 — the `visual_styles`
+    CRUD table, the SAME rows the profile page's "Visual Styles" manager reads/
+    writes). Distinct from both the 6 LOOK descriptions and the 5 LOOK ENGINE
+    presets above — this is a project-scoped, user-EXTENSIBLE list (each row
+    created by draft_style or the profile page's AI generator). Lets the
+    producer resolve "use my <name> style" against a REAL saved look instead
+    of inventing a new description, for both a one-off plan pick
+    (spec.image_style_override) and a channel-wide switch (the use_style op).
+    Fail-soft: any DB error or an empty library returns "" — unlike
+    `_style_presets_brief`, an empty section here is fine (there's nothing to
+    offer when the creator hasn't saved any styles yet)."""
+    try:
+        from routes.visual_styles import _get_project_id
+        from identity import _style_profile_to_look
+        project_id = await _get_project_id(tenant_id)
+        rows = await fetch_all(
+            "SELECT name, style_profile, is_active FROM visual_styles "
+            "WHERE project_id = $1 ORDER BY is_active DESC, created_at DESC",
+            project_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: visual_styles brief failed: %s", e)
+        return ""
+    if not rows:
+        return ""
+    lines = []
+    for r in rows:
+        look = _style_profile_to_look(r.get("style_profile")) or ""
+        tag = " (their current default)" if r.get("is_active") else ""
+        lines.append(f'- "{r["name"]}"{tag}: {look}' if look else f'- "{r["name"]}"{tag}')
+    return (
+        "\n--- YOUR SAVED STYLES (this creator's own style library — use these "
+        "EXACT names when they ask to use or switch to one) ---\n"
+        + "\n".join(lines) + "\n"
+    )
+
+
 async def _delete_competitor(tenant_id, channel_id) -> None:
     """Remove a competitor channel and cascade-delete its scraped videos, matching
     the niche.remove_channel route's cascade so analytics don't orphan."""
@@ -2208,6 +2246,54 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     results.append(f"Forgot it — I'll no longer remember: {matched}.")
                 else:
                     results.append("I couldn't find a matching preference to forget — which one did you mean?")
+            elif kind == "draft_style":
+                # value: {"name": "<short name>", "look": "<one-sentence description>"}.
+                # NEVER writes a row — only stashes the draft for the creator's own
+                # confirm tap (checklist §C22). See _handle_style_draft_confirm for
+                # the ONLY place a visual_styles row actually gets created from chat.
+                raw = op.get("value") if isinstance(op.get("value"), dict) else {}
+                name = str(raw.get("name") or "").strip()[:80] or "Custom style"
+                look = str(raw.get("look") or "").strip()
+                if not look:
+                    results.append(
+                        "Describe the look a little more and I'll draft it — the medium, colors, "
+                        "lighting, or mood you're picturing."
+                    )
+                    continue
+                state["pending_style_draft"] = {"name": name, "look": look}
+                results.append(f'Here\'s the style I\'ve drafted — "{name}": {look}')
+            elif kind == "use_style":
+                # value: the saved style's name (or a close match to it). Switches
+                # the tenant's ACTIVE visual_styles row — same activate semantics
+                # the profile page's CRUD already uses (identity.py's
+                # channel_visual_style feeds every non-cloned video from then on).
+                if not val:
+                    results.append("Which saved style would you like to use?")
+                    continue
+                from routes.visual_styles import _get_project_id, activate_visual_style
+                project_id = await _get_project_id(tenant_id)
+                row = await fetch_one(
+                    "SELECT id, name FROM visual_styles WHERE project_id = $1 "
+                    "AND lower(name) = lower($2) LIMIT 1",
+                    project_id, val,
+                )
+                if not row:
+                    row = await fetch_one(
+                        "SELECT id, name FROM visual_styles WHERE project_id = $1 "
+                        "AND name ILIKE $2 LIMIT 1",
+                        project_id, f"%{val}%",
+                    )
+                if not row:
+                    results.append(
+                        f"I couldn't find a saved style called \"{val}\" — check Profile → "
+                        "Visual Styles for the exact name, or ask me to draft one first."
+                    )
+                    continue
+                await activate_visual_style(str(row["id"]), tenant_id=tenant_id)
+                results.append(
+                    f"Switched your active look to \"{row['name']}\" — every new video (and any "
+                    "video that doesn't set its own custom look) uses it from here on."
+                )
             elif kind in _PROFILE_FIELD_COLS:
                 if not val:
                     continue
@@ -2269,6 +2355,85 @@ async def _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
             text = f"{text}\n\n{joined}".strip() if text else joined
             data["assistant_text"] = text
     return text
+
+
+def _style_draft_card(draft: dict) -> dict[str, Any]:
+    """The style-draft preview/confirm card (checklist §C22): the draft's name
+    as the card label, the look sentence as its body (reuses the SAME `body`
+    field prompt_apply already carries a draft in — no new ChatCard field),
+    yes/no options read back exactly like confirm_action's."""
+    return {
+        "id": "style_draft", "label": draft.get("name") or "New style", "type": "single",
+        "body": draft.get("look") or "",
+        "options": [
+            {"value": "yes", "label": "Save this style"},
+            {"value": "no", "label": "Not quite — let's tweak it"},
+        ],
+    }
+
+
+def _maybe_attach_style_draft_card(data: dict, state: dict) -> None:
+    """After a turn where the producer drafted a style (a "draft_style" profile_op,
+    checklist §C22), attach the preview card the creator taps to actually save it.
+    This is the deterministic half of the confirm gate: a card only ever appears
+    when THIS turn's ops genuinely included draft_style, so the LLM's own words
+    can never manufacture a save-ready card without the backend having stashed a
+    real draft in `state["pending_style_draft"]` first."""
+    ops = data.get("profile_ops") if isinstance(data.get("profile_ops"), list) else []
+    for alt_key in ("queue_ops", "file_ops", "asset_ops"):
+        alt = data.get(alt_key)
+        if isinstance(alt, list):
+            ops = ops + alt
+    if not any(isinstance(o, dict) and o.get("op") == "draft_style" for o in ops):
+        return
+    draft = state.get("pending_style_draft")
+    if not draft:
+        return
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        cards = []
+    cards.append(_style_draft_card(draft))
+    data["cards"] = cards
+
+
+async def _handle_style_draft_confirm(selections, conversation_id, tenant_id, transcript, state) -> ChatTurnResponse:
+    """Turn 2 of the conversational style-creation door (checklist §C22): the
+    creator's tap on the style_draft preview card. Deterministic and NOT routed
+    back through the producer LLM — a visual_styles row can ONLY be created here,
+    and ONLY on an explicit "yes", so "confirm-before-save" is a backend
+    guarantee, not a hope that the model behaves.
+
+    Saves through the EXACT SAME create path the profile-page CRUD uses
+    (routes.visual_styles.create_visual_style) — one implementation, matching
+    the "reuse its route handler" requirement; this never forks the write."""
+    draft = state.pop("pending_style_draft", None)
+
+    async def _reply(text: str) -> ChatTurnResponse:
+        transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+
+    if not draft:
+        return await _reply("I don't have a style draft waiting — describe the look you want and I'll draft one.")
+    if selections.get("style_draft") != "yes":
+        return await _reply(
+            "No problem — didn't save that one. Describe the look again (or what you'd change) and I'll draft another."
+        )
+
+    from routes.visual_styles import create_visual_style, CreateStyleRequest
+    try:
+        style = await create_visual_style(
+            CreateStyleRequest(name=draft["name"], style_profile={"prompt_prefix": draft["look"]}),
+            tenant_id=tenant_id,
+        )
+    except Exception as e:  # noqa: BLE001 — HTTPException or anything else, never crash the turn
+        logger.warning("chat: style_draft confirm failed to save: %s", e)
+        return await _reply("I hit a snag saving that style — mind trying again?")
+
+    return await _reply(
+        f'Saved — "{style.name}" is in your styles now. Find it on the Profile page under Visual '
+        f'Styles, or just say "use {style.name}" any time to build with it or make it your default look.'
+    )
 
 
 # The durable subset of conversation `state` that defines a creator across sessions.
@@ -3052,6 +3217,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + _dna_brief(state)
         + await _profile_state_brief(tenant_id)
         + await _style_presets_brief(tenant_id)
+        + await _visual_styles_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
     )
     data = call_producer(transcript, build_system_prompt(brief), client=client)
@@ -3059,6 +3225,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     await _annotate_style_recommendation(data, tenant_id, state)
     await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, None)
+    _maybe_attach_style_draft_card(data, state)
     transcript.append(_assistant_turn(data))
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     if plan and isinstance(plan.get("spec"), dict):
@@ -3603,6 +3770,15 @@ async def chat_turn(
             state["last_spec"], conversation_id, tenant_id, transcript, state, background_tasks
         )
 
+    # 3.6 Style-draft confirm — turn 2 of "make me a new style…" (checklist §C22).
+    #     Deterministic, no LLM call: a saved style can ONLY come from here, and
+    #     ONLY on the creator's own "yes" tap. Must run before the normal intake
+    #     turn below, which would otherwise just feed the selection to the LLM.
+    if body.selections and "style_draft" in body.selections and state.get("pending_style_draft"):
+        return await _handle_style_draft_confirm(
+            body.selections, conversation_id, tenant_id, transcript, state
+        )
+
     # 3.5 Channel-identity commands ("build his identity" / "what's his voice?").
     #     Runs before producer intake so it doesn't get treated as a video request.
     if body.message and body.message.strip():
@@ -3691,6 +3867,7 @@ async def chat_turn(
         + await _format_brief(tenant_id)
         + await _script_template_brief(tenant_id)
         + await _style_presets_brief(tenant_id)
+        + await _visual_styles_brief(tenant_id)
         + await _assets_brief(tenant_id, state)
         + await _preferences_brief(tenant_id)
     )
@@ -3699,6 +3876,7 @@ async def chat_turn(
     await _annotate_style_recommendation(data, tenant_id, state)
     await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
+    _maybe_attach_style_draft_card(data, state)
     transcript.append(_assistant_turn(data))
 
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None

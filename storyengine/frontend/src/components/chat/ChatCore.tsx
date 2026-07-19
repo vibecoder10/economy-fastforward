@@ -10,6 +10,7 @@
 // ChatHome is a thin wrapper over <ChatCore /> so the home flow is unchanged.
 
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign } from "lucide-react";
@@ -111,8 +112,9 @@ const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string
 // adds the "look_engine" gallery card as one more entry here (the 5-preset
 // engine axis, StylePresetGallery, rendered inside SelectorCards alongside
 // the pre-existing 6-item "style" card — the two axes are independent and
-// both may appear together), not a new scattered check.
-type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "look_engine" | "generic";
+// both may appear together), not a new scattered check. C22 adds "style_draft"
+// (the conversational "make me a new style" preview/confirm card) the same way.
+type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "generic";
 
 function cardKind(card: ChatCard): CardKind {
   if (card.id === "prompt_apply") return "prompt_apply";
@@ -120,11 +122,12 @@ function cardKind(card: ChatCard): CardKind {
   if (card.id === "secure_key") return "secure_key";
   if (card.id === "connect_yt" || card.id === "connect_drive") return "connect";
   if (card.id === "look_engine") return "look_engine";
+  if (card.id === "style_draft") return "style_draft";
   if ((card.images?.length ?? 0) > 0) return "images";
   return "generic";
 }
 
-const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "secure_key"]);
+const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "secure_key", "style_draft"]);
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -197,6 +200,7 @@ export function ChatCore({
   docked?: boolean;
   uiContext?: { tab?: string; scene?: number; index?: number } | null;
 }) {
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -501,6 +505,20 @@ export function ChatCore({
       <ConfirmActionCard
         card={actionCard!}
         onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
+      />
+    ),
+    style_draft: () => (
+      <StyleDraftCard
+        card={actionCard!}
+        onChoose={(value, label) => {
+          turn({ selections: { style_draft: value } }, label);
+          // The row is only ever created backend-side on "yes" — invalidate the
+          // profile page's ["visualStyles"] query so it shows the new style
+          // without waiting out the 30s default staleTime (C22: chat and the
+          // Profile page are different route trees but share ONE QueryClient
+          // via the root Providers, so this invalidation reaches it directly).
+          if (value === "yes") queryClient.invalidateQueries({ queryKey: ["visualStyles"] });
+        }}
       />
     ),
     secure_key: () => (
@@ -1209,6 +1227,57 @@ function ConfirmActionCard({
           {no?.label ?? "Cancel"}
         </button>
       </div>
+    </GlassCard>
+  );
+}
+
+// --- style-draft card (conversational "make me a new style…", C22) -------
+// A text-only preview of the producer's drafted style (name + one-sentence
+// look) with a Save / Not-quite pair, same shape as ConfirmActionCard. No
+// image preview here on purpose (checklist's cost cap — a preview render
+// would be paid generation with no quote gate; text-only confirm instead).
+function StyleDraftCard({
+  card,
+  onChoose,
+}: {
+  card: ChatCard;
+  onChoose: (value: string, label: string) => void;
+}) {
+  const yes = card.options?.find((o) => o.value === "yes");
+  const no = card.options?.find((o) => o.value === "no");
+  return (
+    <GlassCard className="flex flex-col gap-3" style={{ borderColor: "var(--turquoise-dim)" }}>
+      <div className="flex items-center gap-2">
+        <Palette size={16} style={{ color: "var(--turquoise)" }} />
+        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{card.label}</span>
+      </div>
+      {card.body && (
+        <p
+          className="text-sm leading-relaxed rounded-lg px-3 py-2"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+        >
+          {card.body}
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => yes && onChoose("yes", yes.label)}
+          className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {yes?.label ?? "Save this style"}
+        </button>
+        <button
+          onClick={() => onChoose("no", no?.label ?? "Not quite")}
+          className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98]"
+          style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+        >
+          {no?.label ?? "Not quite"}
+        </button>
+      </div>
+      <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+        Saved styles show up on the Profile page, and you can say &quot;use it&quot; on any future video.
+      </p>
     </GlassCard>
   );
 }
