@@ -539,4 +539,7 @@ The orchestrator ran a docs commit + checkout main + ff-merge while a Sonnet wor
 editing the shared tree; git carried the worker's uncommitted modifications across the branch switch
 (harmless this time, could have clobbered). RULE: the orchestrator only runs checkout/merge/reset in
 the window between a worker's completion report and the next dispatch. Docs-only commits on the
-working branch are fine; branch switching is not.
+working branch are fine ONLY with explicit paths (`git add <file> <file>`) — NEVER `git add -A`/-a
+while a worker runs (2026-07-19 second incident: `git add -A` swept a worker's in-progress 633-line
+onboarding.py rewrite into a docs commit; tree stayed intact but history split the chunk's diff and
+broke the worker's stash-proof mechanics). Branch switching remains forbidden during a worker run.
