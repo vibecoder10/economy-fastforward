@@ -149,3 +149,37 @@ at chat dispatch; scene-level skip-if-done so "finalize N approved scenes" regen
 second finalize; kie_task_id threaded everywhere + ledger constraint as last-resort backstop; either fix
 attempt-bumping if routing through arq, or skip arq and rely on claim+constraint (consistent with how the
 paid pipeline actually runs).
+
+---
+
+# S9 · Frontend-state sweep (C19, 2026-07-19) — gate findings for the Phase 2 UI wave (C20-C24)
+
+**Verdict: C20 (backend gallery) safe now. S9-1 + S9-2 must land before C21-C23; S9-4/S9-5 are
+design constraints INSIDE C21; S9-3/6/7/8 are riders.** Clean bill on the two scariest checks: no
+query-key collisions with different fetchers, and NO paid action leaves stale UI (every path runs
+useTaskWatcher.onComplete→refreshAll or explicit invalidateQueries — GuidedNextStep.refreshAll is
+the most complete set in the codebase).
+
+- **S9-1 HIGH — duplicate task-watcher polling.** GuidedNextStep (always rendered, page.tsx:705) AND
+  the active tab EACH mount useTaskWatcher (3s setInterval on the same getPipelineTaskStatus) —
+  2x identical polls today, every production tab repeats the pattern, Phase 2 chips would make it
+  4-5x. Fix: hoist ONE watcher to pipeline/[videoId]/page.tsx, pass down. → chunk C19a
+- **S9-2 MED — GuidedNextStep cost line reads the mutable CLIP_COST_PER_MODEL module cache**
+  (next-action.ts:68/76-78 via clipCost()) — the exact one-render-stale anti-pattern
+  ScenesWorkspaceTab already works around (its own comment, ~L262-288); banner can show $0.30
+  fallback or a PREVIOUS video's price on first paint. It already fetches videoActions.prices.clip —
+  use it reactively. → chunk C19a
+- **S9-3 MED — ChatCore card rendering dispatches by string-matching card.id at 4 scattered sites**
+  (L201, 460-479, 685-691, 1349) in a 1638-line file; no kind/renderer lookup. Constraint folded
+  into C21 (introduce the lookup BEFORE adding the LOOK card type).
+- **S9-4 MED — style-preset <img> tags lack the onError fallback standard** (ChatCore.tsx:1399-1404,
+  pipeline/page.tsx:1383-1388; contrast SceneBoardsGrid's C15b pattern). Constraint folded into C21.
+- **S9-5 LOW — two parallel style systems:** hardcoded VISUAL_PRESETS (2 readers) vs profile/page.tsx's
+  server-backed VisualStyle CRUD (["visualStyles"]). C21 must reconcile (decision inside C21).
+- **S9-6 LOW — dead code:** 10/12 files in components/video-detail/ have zero imports; production/
+  ScriptTab.tsx (1114 lines, superseded, carries a frozen field-name bug) dead; storyboards/page.tsx
+  route orphaned. Name collisions already exist. → chunk C19b (delete)
+- **S9-7 MED — ScenesWorkspaceTab.tsx is 2399 lines**; clip trust-ladder/auto-resume state machine
+  (~L530-1099) should extract to a hook before C22/23 add chips there. Constraint noted on C22.
+- **S9-8 LOW — 3 stacked freshness mechanisms on ["video-assets"]** during a running task (watcher
+  invalidation + 5s refetchInterval + SSE) — redundancy compounds with S9-1's fix. Fold into C19a.
