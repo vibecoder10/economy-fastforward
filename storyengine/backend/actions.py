@@ -1339,7 +1339,13 @@ async def _runner_draft_pass(tenant_id, video_id, background_tasks, pending) -> 
         return ("Already drafted this exact video on the cheap model — nothing new to draft. "
                 "Approve the scenes worth finishing and say “finalize” when ready.")
 
-    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by="chat:draft_pass"):
+    # C27: `pending["caller"]` rides in from routes/chat.py's
+    # _run_pending_action ("chat" by default, "agent:<name>" for a confirmed
+    # MCP tool call) — the same attribution seam every other verb's claim
+    # uses, applied here too since draft_pass claims its own lane instead of
+    # going through _run_pending_action's generic claim path.
+    caller = (pending or {}).get("caller") or "chat"
+    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=f"{caller}:draft_pass"):
         return _ALREADY_WORKING_REPLY
 
     async def _run():
@@ -1409,7 +1415,9 @@ async def _runner_finalize(tenant_id, video_id, background_tasks, pending) -> st
         return (f"Already finalized these {n} approved scene{'s' if n != 1 else ''} at their routed "
                 "quality — nothing's changed since. Approve more scenes and I'll pick up just those.")
 
-    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by="chat:finalize"):
+    # C27: see _runner_draft_pass's comment just above — same attribution seam.
+    caller = (pending or {}).get("caller") or "chat"
+    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=f"{caller}:finalize"):
         return _ALREADY_WORKING_REPLY
 
     async def _run():

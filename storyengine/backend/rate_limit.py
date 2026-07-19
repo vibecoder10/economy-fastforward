@@ -4,6 +4,7 @@ No Redis needed for v1 — state resets on server restart, which is acceptable
 since rate limits are protective (not billing-critical).
 """
 
+import hashlib
 import os
 import time
 from collections import defaultdict
@@ -57,16 +58,58 @@ _PLAN_CACHE_TTL = 60.0
 _WINDOW = 60.0  # 1-minute sliding window
 
 
-def _extract_tenant_from_jwt(request: Request) -> Optional[str]:
-    """Extract tenant_id from JWT in Authorization header."""
+_AGENT_TOKEN_PREFIX = "se_agent_"
+# Short-lived resolution cache, keyed by a hash of the token (never the
+# plaintext secret itself — same "don't hold the credential verbatim in
+# memory longer than it has to be" instinct as agent_tokens.py's own
+# hash-not-plaintext storage). This is a RATE-LIMITING bucket key, not an
+# auth decision — auth_agent.get_agent_tenant_id re-checks the DB (including
+# revocation) on every single request regardless of what this cache returns;
+# a stale entry here only means a request briefly gets bucketed under a
+# tenant that just revoked the token, never that it's accepted as authed.
+_agent_tenant_cache: dict[str, tuple[str, float]] = {}
+_AGENT_CACHE_TTL = 30.0
+
+
+async def _extract_tenant_from_jwt(request: Request) -> Optional[str]:
+    """Resolve the tenant_id a request should be rate-limited under, from
+    either a session JWT or an MCP agent token (checklist P2.4b, chunk C27 —
+    C26 shipped `/api/mcp` auth'd by `se_agent_` bearer tokens, but this
+    function only ever tried pyjwt.decode() on them, which always raises ->
+    None -> the middleware's `if not tenant_id: return await call_next(...)`
+    skip branch let every MCP request through completely unmetered. An
+    agent token is recognized by its `se_agent_` prefix BEFORE the JWT
+    decode is even attempted (a JWT is never confused for one, and vice
+    versa), then resolved via agent_tokens.authenticate() — the SAME
+    DB-backed, individually-revocable lookup auth_agent.py uses for the real
+    auth decision, so the tenant this bucket counts against is always the
+    token's actual owner, never guessed.
+    """
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer "):
         return None
+    token = auth[7:]
+    if token.startswith(_AGENT_TOKEN_PREFIX):
+        cache_key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        now = time.time()
+        cached = _agent_tenant_cache.get(cache_key)
+        if cached and now - cached[1] < _AGENT_CACHE_TTL:
+            return cached[0]
+        try:
+            import agent_tokens
+            tenant_id = await agent_tokens.authenticate(token)
+        except Exception:
+            return None
+        if tenant_id is None:
+            return None
+        tenant_str = str(tenant_id)
+        _agent_tenant_cache[cache_key] = (tenant_str, now)
+        return tenant_str
     secret = os.getenv("SESSION_SECRET")
     if not secret:
         return None
     try:
-        payload = pyjwt.decode(auth[7:], secret, algorithms=["HS256"])
+        payload = pyjwt.decode(token, secret, algorithms=["HS256"])
         return payload.get("tenant_id")
     except Exception:
         return None
@@ -122,7 +165,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in _SKIP_PATHS or any(path.startswith(p) for p in _SKIP_PREFIXES):
             return await call_next(request)
 
-        tenant_id = _extract_tenant_from_jwt(request)
+        tenant_id = await _extract_tenant_from_jwt(request)
         if not tenant_id:
             return await call_next(request)
 

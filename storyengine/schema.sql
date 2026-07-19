@@ -1669,3 +1669,33 @@ CREATE INDEX IF NOT EXISTS agent_tokens_tenant_idx
 ALTER TABLE agent_tokens ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+
+-- =============================================================================
+-- MCP_CONFIRM_TOKENS (migration 100 — checklist P2.4b, chunk C27)
+-- =============================================================================
+-- The MCP money gate's single-use, param-bound confirm token. See
+-- migrations/100_mcp_confirm_tokens.sql for the full design rationale and
+-- backend/confirm_tokens.py for create()/redeem()/params_hash().
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS mcp_confirm_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  verb TEXT NOT NULL,
+  params_hash TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS mcp_confirm_tokens_token_hash_unique
+  ON mcp_confirm_tokens (token_hash);
+
+CREATE INDEX IF NOT EXISTS mcp_confirm_tokens_tenant_video_idx
+  ON mcp_confirm_tokens (tenant_id, video_id) WHERE used_at IS NULL;
+
+ALTER TABLE mcp_confirm_tokens ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

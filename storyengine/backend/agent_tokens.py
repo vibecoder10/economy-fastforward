@@ -95,6 +95,26 @@ async def revoke_agent_token(tenant_id, token_id) -> bool:
     return isinstance(result, str) and result.strip().endswith(" 1")
 
 
+async def name_for_token(token: str) -> Optional[str]:
+    """Fail-soft display-name lookup for attribution (checklist P2.4b, chunk
+    C27 — the "via agent" seam C28's chip reads). NEVER used for an auth
+    decision (authenticate() already made that call by the time anything
+    calls this) and NEVER raises — a lookup hiccup just means the
+    attribution string falls back to the generic "agent", not that the MCP
+    call fails."""
+    if not token or not token.startswith(TOKEN_PREFIX):
+        return None
+    try:
+        token_hash = _hash_token(token)
+        row = await fetch_one(
+            "SELECT name FROM agent_tokens WHERE token_hash = $1 AND revoked_at IS NULL",
+            token_hash,
+        )
+        return (row or {}).get("name")
+    except Exception:
+        return None
+
+
 async def authenticate(token: str) -> Optional[_uuid.UUID]:
     """The ONLY function an agent-authed request may call (auth_agent.py).
 

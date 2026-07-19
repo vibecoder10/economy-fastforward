@@ -395,13 +395,19 @@ import routes.mcp as mcp_mod  # noqa: E402
 
 
 def test_tools_list_is_exactly_the_two_read_only_tools():
+    """SUPERSEDED BY C27 (checklist P2.4b expands the C26 read-only-2 surface
+    with the money-gated verb registry — see test_c27_mcp_toolset_money_gate.py
+    for the new surface's own tests). Kept here, updated rather than deleted,
+    so this file's git history stays a readable record of what C26 shipped
+    and what C27 changed about it. list_videos/get_video are still present
+    (C26 is a strict subset of C27's surface); remember/forget/set_budget
+    are still absent (S5-2 still holds)."""
     names = {t["name"] for t in mcp_mod.TOOLS}
-    assert names == {"list_videos", "get_video"}, (
-        f"MCP v1 tool surface must be exactly list_videos/get_video, got {names}"
+    assert {"list_videos", "get_video"}.issubset(names), (
+        f"C26's two read-only tools must still be present, got {names}"
     )
-    for verb in ("create_video", "draft_pass", "finalize", "upload_draft_to_youtube",
-                 "remember", "forget", "set_budget", "regenerate"):
-        assert verb not in names, f"{verb!r} must not appear in MCP v1 (paid/write/memory)"
+    for verb in ("remember", "forget", "set_budget"):
+        assert verb not in names, f"{verb!r} must never appear in MCP (S5-2/scope)"
     print("✅ test_tools_list_is_exactly_the_two_read_only_tools")
 
 
@@ -478,7 +484,8 @@ async def test_initialize_and_tools_list_dispatch():
     assert init["protocolVersion"] == mcp_mod.PROTOCOL_VERSION
     assert init["serverInfo"]["name"] == "storyengine"
     listed = await mcp_mod._dispatch("tools/list", {}, "t1")
-    assert {t["name"] for t in listed["tools"]} == {"list_videos", "get_video"}
+    names = {t["name"] for t in listed["tools"]}
+    assert {"list_videos", "get_video"}.issubset(names)  # C27 expands, never removes
     print("✅ test_initialize_and_tools_list_dispatch")
 
 

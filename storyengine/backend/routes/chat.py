@@ -693,8 +693,18 @@ def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
 
 
 
-async def _run_pending_action(tenant_id, video_id, pending: dict, background_tasks) -> str:
-    """Kick off a confirmed action and return the 'on it' line."""
+async def _run_pending_action(tenant_id, video_id, pending: dict, background_tasks, caller: str = "chat") -> str:
+    """Kick off a confirmed action and return the 'on it' line.
+
+    ``caller`` (C27, checklist P2.4b) is the claimed_by prefix used for every
+    generation_claims acquire this dispatch makes — "chat" by default
+    (unchanged behavior, every existing chat.py call site omits it), or
+    "agent:<token name>" when routes/mcp.py calls this SAME dispatcher for a
+    confirmed MCP tool call. This is the attribution seam C28's "via agent"
+    chip reads (generation_claims.claimed_by LIKE 'agent:%' while a claim is
+    live) — deliberately not a new column/migration, per docs/reports/2026-
+    07-17-storyengine-agent-audit-findings.md §S5-2's "smallest correct v1"
+    framing."""
     verb = pending["verb"]
     scene = pending.get("scene")
     cfg = COPILOT_ACTIONS[verb]
@@ -726,14 +736,18 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
         # double-tap of the confirm card (or a retried turn) must not start
         # a second concurrent autobuild chain on the same video. Refuse and
         # DO NOT schedule when the lane is already claimed.
-        if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=f"chat:build:{target}"):
+        if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=f"{caller}:build:{target}"):
             return _ALREADY_WORKING_REPLY
         background_tasks.add_task(_make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg))
         return msg
     # Runner verbs (approvals, lock, Drive sync, SEO…) reuse the same route
     # handlers the UI buttons call and speak the result back directly.
+    # `caller` rides along in `pending` so the two runners that themselves
+    # claim generation_claims (draft_pass/finalize) can attribute their own
+    # acquire() the same way — see actions._runner_draft_pass/_runner_finalize.
     if cfg.get("runner"):
-        return await _ACTION_RUNNERS[cfg["runner"]](tenant_id, video_id, background_tasks, pending)
+        return await _ACTION_RUNNERS[cfg["runner"]](tenant_id, video_id, background_tasks,
+                                                     {**pending, "caller": caller})
     # C16e (S7-9 follow-up): "upload it"/"publish" on a video that's already
     # uploaded is far more likely a double-tap (a repeated turn, or the
     # autobuild finish chain having just uploaded it) than genuine intent to
@@ -757,7 +771,7 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     # routes/pipeline.py's existing lane vocabulary exactly, so a manual
     # click and a chat verb on the same lane genuinely conflict).
     claim_stage = generation_claims.stage_for_verb(verb)
-    if not await generation_claims.acquire(tenant_id, video_id, claim_stage, claimed_by=f"chat:{verb}"):
+    if not await generation_claims.acquire(tenant_id, video_id, claim_stage, claimed_by=f"{caller}:{verb}"):
         return _ALREADY_WORKING_REPLY
     background_tasks.add_task(
         _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…", stage=claim_stage)

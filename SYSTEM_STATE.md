@@ -5328,3 +5328,177 @@ deploy — the MCP surface stays inert until a deliberate, separate `MCP_ENABLED
 **Next up: C27 · P2.4b full tool set + quote/confirm_token money gate on every paid tool** (S5-2
 constraint stands: memory-writing tools stay excluded or confirm-gated + attributed via C28's "via
 agent" chip — do not silently add `remember`/`forget` to the MCP surface without that).
+
+---
+
+## C27 — P2.4b StoryEngine MCP full tool set + quote/confirm_token money gate, SHIPPED DARK (added 2026-07-19)
+
+**Checklist §P2.4b** (`tasks/storyengine-copilot-ux-map.md` §7; `docs/reports/2026-07-17-storyengine-
+agent-audit-findings.md` §S5-2 constraint + the rate-limit gap C26 flagged). Expands C26's 2
+read-only tools to the FULL `actions.ACTIONS` verb registry (free + paid) plus 5 more read tools
+plus `create_video`, with a two-step quote/confirm_token money gate on every paid verb. Still dark
+behind `MCP_ENABLED` — no new external surface until a deliberate flag flip + C25a lands.
+
+**One registry, three doors — no forked dispatch:** every verb tool (free or paid) dispatches
+through `routes.chat._run_pending_action` — the EXACT function chat's own confirm-card tap-to-run
+path calls, proven by patching THAT function (not an MCP-local copy) in
+`test_c27_mcp_toolset_money_gate.py::test_paid_verb_confirmed_call_dispatches_same_runner_as_chat`.
+`_run_pending_action` gained one new parameter, `caller: str = "chat"` — default preserves every
+existing chat.py call site's `claimed_by="chat:<verb>"` string byte-for-byte (pinned by
+`test_run_pending_action_default_caller_is_chat_unchanged`); MCP passes `caller="agent:<token
+name>"`. Underneath, `_run_pending_action` still holds C16a's generation_claims concurrency lock,
+C16b's skip-if-done, C16c's ledger backstop, and C16e's upload skip-if-already-uploaded — this
+chunk adds a gate IN FRONT, never touches what's inside.
+
+**Tool surface v2 (`routes/mcp.py`):**
+- **Reads (7, unchanged tenant scoping, no media URLs):** `list_videos`, `get_video` (from C26) +
+  new `get_scenes` (per-scene pics/clips/approved/routed_model/routing_reason/camera_preset_id —
+  hand-written query, deliberately never SELECTs an `*_url` column), `get_script` (scene_text/
+  status/voice_status/tone, same no-URL discipline), `get_ledger` (reuses
+  `routes.videos.get_video_ledger` verbatim), `list_style_presets` (reuses
+  `routes.style_presets.list_style_presets`, `preview_url` explicitly stripped — belt-and-
+  suspenders, same posture C26 took with `get_video`), `list_models` (reuses
+  `routes.model_registry.list_models` verbatim — no URLs in that shape at all).
+- **Free writes (12, execute immediately, no confirm_token):** every `actions.ACTIONS` verb with
+  `paid: False` — `approve_cast`, `approve_environments`, `skip_environments`, `approve_scene`,
+  `camera_preset`, `script_profile`, `lock`, `unlock`, `drive_push`, `drive_sync`, `advance` — plus
+  `create_video` (a special case, not an ACTIONS verb: reuses `routes.videos.create_video`
+  verbatim; free because creating the row spends nothing — the first paid verb run against that
+  video is what gates on a quote; `thumbnail_url` stripped from its result, belt-and-suspenders).
+- **Paid (15, the money gate below):** every `paid: True` verb — `script`, `characters`,
+  `storyboards`, `images`, `voice`, `animate`, `draft_pass`, `finalize`, `sound`, `thumbnail`,
+  `render`, `research`, `seo`, `upload`, `build`.
+- **Upload-in-v1 call (explicit, per the chunk's own instruction to state it):** INCLUDED, named
+  `upload` (not `upload_draft_to_youtube` — matches the ACTIONS verb name, not the UX map's prose).
+  Carries BOTH required semantics: C16e's skip-if-already-uploaded (`actions.already_uploaded_reply`
+  checked before a quote is even minted, so a repeat "upload" call never mints a fresh
+  confirm_token for a second YouTube draft) AND the money gate below (quote → confirm_token →
+  redeem, same as every other paid verb — "paid" here means "always confirms", matching
+  `ACTIONS["upload"]`'s own `paid: True` comment: "Free in dollars but it PUBLISHES").
+- **S5-2 pin:** `remember`/`forget`/`set_budget` are not in `actions.ACTIONS` at all, so there was
+  nothing to wrap — a test (`test_s5_2_memory_tools_never_appear`) pins their absence regardless,
+  and the superseded C26 assertion in `test_c26_mcp_agent_tokens.py` was updated (not deleted) to
+  match the new surface while keeping that exclusion.
+
+**The money gate — `confirm_tokens.py` (new module, migration 100, `mcp_confirm_tokens` table,
+applied LIVE via Supabase MCP against `wrromlupsmyzrrcqlucn`, confirmed present):** DB-row-backed
+(chat's `pending_action` lives in one conversation's state across two turns of the SAME
+conversation; an MCP client's quoting and confirming `tools/call` are two independent HTTP
+requests, possibly different backend processes — needs a real durable token, same reasoning that
+made `agent_tokens` a DB row instead of a stateless JWT). Design:
+- **Single-use:** `redeem()` is ONE atomic `UPDATE ... WHERE used_at IS NULL ... ` — the row-count
+  IS the check, no read-then-write race (same pattern as `agent_tokens.revoke_agent_token`).
+- **Short-lived:** 10-minute expiry (`confirm_tokens.TTL_SECONDS`), checked in the SAME atomic
+  UPDATE (`expires_at > now()`).
+- **Parameter-bound:** the token is minted against `params_hash(verb, scene, change, length_min,
+  target)` — a canonical sha256 of the exact quoted call. The confirming call recomputes the hash
+  from ITS OWN arguments; the redeem UPDATE's WHERE clause requires an exact match on tenant,
+  video, verb, AND params_hash — so a token minted for "animate scene 3" cannot spend on "animate
+  scene 12" (`test_confirm_token_rejects_params_mismatch_bait_and_switch`, and the same proof one
+  layer up through `_call_verb` in `test_paid_verb_params_mismatched_confirm_refused`). The "build"
+  verb's server-derived `target` ("pictures" vs "finish") rides in the same hash, so a video that
+  crosses that boundary between quote and confirm naturally invalidates the token
+  (`test_build_verb_target_rides_the_params_hash`).
+- Token shape mirrors `agent_tokens.py`: `mcpc_<43-char urlsafe secret>`, sha256 hex hash stored
+  (not a slow KDF — same "this hashes 256 bits of pure entropy, not a human password" rationale).
+
+**The money-gate matrix (`_call_verb` in `routes/mcp.py`), test names:**
+`test_paid_verb_without_confirm_token_returns_quote_not_execution` (quote returned, `_run_pending_
+action` NOT awaited), `test_paid_verb_wrong_confirm_token_refused`, `test_paid_verb_expired_or_
+reused_token_refused`, `test_paid_verb_params_mismatched_confirm_refused`, `test_confirm_token_is_
+single_use` (redeem twice — second is False), `test_confirm_token_expires`, `test_paid_verb_
+confirmed_call_dispatches_same_runner_as_chat` (the same-runner proof), `test_free_verb_dispatches_
+immediately_no_confirm_token_ever_touched` (patches `confirm_tokens.create`/`redeem` to RAISE if
+touched at all — proves a free verb never goes near the gate), `test_blocked_verb_refused_before_
+any_quote_minted` (missing prerequisite refuses before `confirm_tokens.create` is even called),
+`test_verb_call_is_tenant_scoped` (mirrors C26's `get_video` tenant test). One quoted refusal path
+(`test_paid_verb_wrong_confirm_token_refused`): a garbage `confirm_token` on the "animate" tool
+returns `isError: true`, message "confirm_token is invalid, expired, already used, or doesn't match
+these exact arguments — call this tool again WITHOUT confirm_token to get a fresh quote", and
+`_run_pending_action` is proven never awaited.
+
+**Rate limiting (the C26-flagged gap, fixed at the extractor):** `rate_limit.py::
+_extract_tenant_from_jwt` (now `async`) recognizes the `se_agent_` prefix BEFORE attempting a JWT
+decode and resolves the tenant via `agent_tokens.authenticate()` — the SAME DB-backed,
+revocation-aware lookup `auth_agent.py` uses for the real auth decision — with a 30s TTL cache keyed
+by a sha256 hash of the token (never the plaintext) to avoid a DB round-trip on every single
+request. `RateLimitMiddleware.dispatch`'s one call site (`_extract_tenant_from_jwt`) is now
+`await`ed. Proof: `test_agent_token_request_is_rate_limited_per_tenant` seeds a tenant's bucket to
+the free-plan limit (60/min) and shows a real `se_agent_...`-bearer request 429s through the actual
+middleware `dispatch()` (not just the extractor in isolation);
+`test_agent_token_request_passes_through_under_the_limit` shows it passes when under the limit;
+`test_session_jwt_path_is_unaffected` proves the existing JWT path never even reaches the new
+branch (asserts `agent_tokens.authenticate` is NOT called for a real session JWT).
+
+**Attribution (the seam for C28's "via agent" chip):** `mcp_rpc` resolves the calling token's
+display name via a new fail-soft `agent_tokens.name_for_token()` (one extra SELECT by token_hash,
+never raises, falls back to the generic `"agent"` string on any miss — never blocks the call) and
+threads `caller=f"agent:{name}"` into `_dispatch` → `_call_verb` → `_run_pending_action` →
+`generation_claims.acquire(..., claimed_by=f"{caller}:{verb}")` (single-stage verbs and the "build"
+autobuild chain) and, via `pending["caller"]`, into `actions._runner_draft_pass`/`_runner_finalize`'s
+own independent claims (those two runners claim their own lane rather than going through
+`_run_pending_action`'s generic claim path — same seam, threaded one level deeper).
+**What C28's chip should read:** `generation_claims.claimed_by LIKE 'agent:%'` — this is LIVE
+attribution (true only while a claim is held, the same ephemeral signal chat's own `claimed_by`
+already carries) — deliberately not a new durable column/migration, per the audit's "smallest
+correct v1" framing for S5-2. Free verbs (approve_scene, camera_preset, ...) and `create_video`
+have no generation_claims row at all (nothing to claim), so there is no durable "via agent" marker
+for those today — a real historical record would need a new column, explicitly out of this
+chunk's scope; noted as a C28 follow-up if wanted.
+
+### New Files
+| Path | Purpose |
+|------|---------|
+| `storyengine/backend/migrations/100_mcp_confirm_tokens.sql` | `mcp_confirm_tokens` table, applied live |
+| `storyengine/backend/confirm_tokens.py` | create/redeem/params_hash — the money-gate token |
+| `storyengine/backend/tests/functional/test_c27_mcp_toolset_money_gate.py` | 33 tests (tool surface, money-gate matrix, attribution) |
+| `storyengine/backend/tests/functional/test_c27_rate_limit_agent_tokens.py` | 6 tests (extractor + end-to-end middleware) |
+
+### Modified Files
+| Path | Change |
+|------|--------|
+| `storyengine/backend/routes/mcp.py` | Full verb-registry tool surface + money gate + attribution (see above) |
+| `storyengine/backend/routes/chat.py` | `_run_pending_action` gains `caller: str = "chat"` param, threaded into 2 `claimed_by` call sites + into `pending` for runner verbs |
+| `storyengine/backend/actions.py` | `_runner_draft_pass`/`_runner_finalize` read `pending["caller"]` for their own `claimed_by` |
+| `storyengine/backend/agent_tokens.py` | +`name_for_token()` (fail-soft display-name lookup for attribution) |
+| `storyengine/backend/rate_limit.py` | `_extract_tenant_from_jwt` now `async`, recognizes `se_agent_` tokens via `agent_tokens.authenticate()` (hashed 30s cache) |
+| `storyengine/backend/main.py` | Comment update only (C26→C26/C27 references) — no behavior change |
+| `storyengine/schema.sql` | `mcp_confirm_tokens` table appended (mirrors migration 100) |
+| `storyengine/backend/tests/functional/test_c26_mcp_agent_tokens.py` | 2 assertions updated (superseded, not deleted) to match the expanded tool surface — still pins list_videos/get_video present + S5-2 exclusions |
+
+**Verify:** 39 new tests (33 + 6), all passing standalone and under pytest. **Non-vacuous via
+`git stash push`** on the 7 tracked modified files (confirm_tokens.py/migration left untouched,
+since they're new/untracked): re-running the two new C27 test files against the stashed
+(pre-chunk) code produced **22 failed + 6 errored** (`AttributeError: module 'routes.mcp' has no
+attribute 'agent_tokens'` etc.) — only the 11 `confirm_tokens.py`-only unit tests passed (that
+module is independent of the stashed files). Stash popped, all 39 pass again. `python -m
+py_compile` clean on every touched/new `.py` file. **Full backend suite: 1188 passed / 15 failed /
+1 error** — baseline (C26 handoff) was **1149 passed / 15 failed / 1 error**; 1188 − 1149 = exactly
+the 39 new tests, same 15 pre-existing failure names, same 1 pre-existing error. Zero new failures.
+(One transient regression during development: adding migration 100 without updating `schema.sql`
+tripped `test_schema_sql_migrations_drift.py` — fixed by appending the same `CREATE TABLE` block to
+`schema.sql`, confirmed clean before the final run above.) Frontend: untouched (`git status`
+confirms zero files under `storyengine/frontend/`) — no `tsc`/build run needed, matches the
+checklist's `[U]` none this chunk.
+
+Checklist §C27 ticked. Live MCP-client full-loop verify (create → route → draft → finalize →
+upload draft, every paid step quote-gated) deferred to `tasks/live-verification-queue.md` §C27 —
+rides with C29 after the coordinated deploy (`MCP_ENABLED=true` + C25a merged first).
+
+**Deploy-safety assessment — ff-merge candidate, still dark:** every change in this chunk is either
+(a) inside `routes/mcp.py`, structurally unreachable while `MCP_ENABLED` is unset in prod (the
+entire expanded tool surface + money gate is dead code externally until that flag flips), (b) the
+`rate_limit.py` extractor fix, which is a pure ADDITION (an `se_agent_`-prefixed bearer was
+previously always `None` from this function; every other bearer shape — real session JWTs, garbage
+— takes the exact same path as before, proven by `test_session_jwt_path_is_unaffected`), or (c) the
+`_run_pending_action`/`_runner_draft_pass`/`_runner_finalize` `caller` parameter additions, which
+default to the byte-identical pre-C27 `claimed_by` strings for every existing chat.py call site
+(pinned by `test_run_pending_action_default_caller_is_chat_unchanged`). No overlap with C25a's held
+files. Safe to ff-merge to main on the routine hourly deploy — the MCP surface stays inert until a
+deliberate, separate `MCP_ENABLED=true` flip coordinated with C25a's media-proxy fix landing first.
+
+**Next up: C28 · P2.4c Settings "Agent access" UI + "via agent" attribution chip** (mint/list/revoke
+UI already has session-authed routes from C26 — `routes/agent_access.py` — this chunk just needs
+the frontend; the attribution chip reads `generation_claims.claimed_by LIKE 'agent:%'` live, per
+this chunk's note above, plus whatever task-status-message surfacing makes sense for the
+in-progress UI).

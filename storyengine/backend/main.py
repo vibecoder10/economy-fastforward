@@ -615,17 +615,19 @@ app.include_router(queue.router)
 app.include_router(script_templates.router)
 app.include_router(agent_access.router)
 
-# StoryEngine MCP server (checklist P2.4a, chunk C26 — tasks/storyengine-
-# copilot-ux-map.md §7, "the Higgsfield-killer door"). DARK BY DEFAULT: the
-# router only registers when MCP_ENABLED=true, so with the env var unset or
-# false these routes structurally do not exist (a request 404s, same as any
-# other undefined path — there is nothing "there but blocked" to probe).
-# Left off until a coordinated deploy flips the flag: C25a's Drive media-
-# proxy tenant-auth fix is held on `claude/c25a-media-auth-hold` and NOT on
-# this branch, and nothing external may reach an MCP tool result until that
-# lands (see docs/reports/2026-07-17-storyengine-agent-audit-findings.md §S5
-# and routes/mcp.py's module docstring — the v1 tool surface avoids media
-# URLs anyway, but the flag is the belt to that suspenders).
+# StoryEngine MCP server (checklist P2.4a/P2.4b, chunks C26/C27 — tasks/
+# storyengine-copilot-ux-map.md §7, "the Higgsfield-killer door"). DARK BY
+# DEFAULT: the router only registers when MCP_ENABLED=true, so with the env
+# var unset or false these routes structurally do not exist (a request
+# 404s, same as any other undefined path — there is nothing "there but
+# blocked" to probe). Left off until a coordinated deploy flips the flag:
+# C25a's Drive media-proxy tenant-auth fix is held on
+# `claude/c25a-media-auth-hold` and NOT on this branch, and nothing external
+# may reach an MCP tool result until that lands (see docs/reports/2026-07-17-
+# storyengine-agent-audit-findings.md §S5 and routes/mcp.py's module
+# docstring — the full verb-registry tool surface still avoids media URLs
+# (explicitly stripped where a reused route would otherwise carry one), but
+# the flag is the belt to that suspenders).
 if os.getenv("MCP_ENABLED", "").lower() == "true":
     from routes import mcp as mcp_routes
     app.include_router(mcp_routes.router)
