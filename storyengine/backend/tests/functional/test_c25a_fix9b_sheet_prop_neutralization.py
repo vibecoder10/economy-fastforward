@@ -165,19 +165,28 @@ def test_panel_brief_descriptions_are_fully_neutralized():
 
 
 # ---------------------------------------------------------------------------
-# 3. Boundary: CAPTION text is byte-identical through the pass, always.
+# 3. Boundary (updated by C25a-fix14, Ryan 2026-07-20): the verbatim spoken
+#    line is NO LONGER baked into the sheet IMAGE at all. fix9b left one open
+#    gap — a sheet could still 400 on OpenAI's content filter from CAPTION
+#    density alone (protected dialogue we can't reword). Since the sheet is a
+#    preview and the spoken lines live in the saved plan (they drive the real
+#    pictures + voice), captions were dropped from the image prompt entirely.
+#    So the spoken line and any "CAPTION" label must be ABSENT; the panel
+#    itself (number + shot type + neutralized brief) is still present.
 # ---------------------------------------------------------------------------
 
-def test_caption_text_is_byte_identical():
+def test_spoken_line_is_not_baked_into_the_sheet():
     prompt = _build_prompt()
-    assert 'CAPTION: Ryan: "Do I peel with a knife? Wait, what\'s knife again?"' in prompt, prompt
+    assert "CAPTION" not in prompt, prompt
+    assert "Do I peel with" not in prompt, prompt  # the spoken line is gone
+    assert "[1] M7 MCU OTS" in prompt  # the panel is still there, text-free
 
 
 def test_neutralize_risky_props_never_called_on_caption_field_directly():
     # Documents the boundary at the unit level: running the pass on the raw
-    # caption line WOULD alter it (proving the function is not caption-safe
-    # by itself) — it is _plan_sheet_prompts's job to never hand it caption
-    # text, which the two tests above confirm end to end.
+    # caption line WOULD alter it (proving the function is not caption-safe by
+    # itself). Under C25a-fix14 captions never reach the sheet image at all, so
+    # the pass is never handed one — this keeps that guarantee explicit.
     raw_caption = "Do I peel with a knife?"
     assert _neutralize_risky_props(raw_caption) != raw_caption
 
@@ -260,7 +269,7 @@ if __name__ == "__main__":
     test_fixed_set_keeps_single_canonical_knife_mention()
     test_camera_kit_is_fully_neutralized()
     test_panel_brief_descriptions_are_fully_neutralized()
-    test_caption_text_is_byte_identical()
+    test_spoken_line_is_not_baked_into_the_sheet()
     test_neutralize_risky_props_never_called_on_caption_field_directly()
     test_axis_line_untouched()
     test_panel_numbering_and_setup_letters_preserved()

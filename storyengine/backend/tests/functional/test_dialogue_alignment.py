@@ -261,7 +261,12 @@ def test_sheet_prompts_preview_the_whole_plan():
     joined = "\n".join(prompts)
     for k in range(1, total_panels + 1):
         assert f"[{k}]" in joined, f"panel {k} missing"
-    assert 'SPEAKING Marco: "linea 1"' in prompts[0]
+    # C25a-fix14 (Ryan, 2026-07-20): spoken lines are NO LONGER baked into the
+    # sheet image (they were the surviving content-filter trigger; the sheet is
+    # a preview and the lines live in the saved plan). The sheet previews every
+    # PANEL, but carries no dialogue text.
+    assert "CAPTION" not in "".join(prompts)
+    assert "linea 1" not in "".join(prompts)
     assert "Pixar 3D" in prompts[0] and "Pixar 3D" in prompts[1]
     assert "sheet 1 of 2" in prompts[0] and "sheet 2 of 2" in prompts[1]
     # hash pins the plan to the text, whitespace-insensitively

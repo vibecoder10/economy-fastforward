@@ -788,9 +788,9 @@ def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_l
             f"Storyboard sheet {chunk_index} of {total_chunks}: {panel_count} panels in a "
             "3-column grid on a light grey page, each panel a wide 16:9 frame. Style: "
             f"{style_line}. Match each character's appearance to the attached reference "
-            "images throughout. A caption strip below each panel shows its number and "
-            "caption; a silent panel's strip shows just the number and shot type. No "
-            "lettering inside the panels."
+            "images throughout. A small strip below each panel shows only its number and "
+            "shot type. No captions, dialogue, subtitles or lettering of any kind inside "
+            "or under the panels."
         )
     return (
         f"This is storyboard sheet {chunk_index} of {total_chunks} for an animated scene: a "
@@ -798,10 +798,10 @@ def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_l
         "panel is a wide 16:9 cinematic frame, never square or tall. Every panel uses the "
         f"same art style, {style_line}, with matching lighting and color grading throughout. "
         "Draw every character consistently across every panel, matching their appearance to "
-        "the attached reference images. A plain white strip sits below each panel showing "
-        "its number and its caption, spelled correctly; a silent panel's strip shows just "
-        "the number and shot type. The panel artwork itself carries no lettering, signs or "
-        "speech bubbles; text only appears in the caption strips below."
+        "the attached reference images. A small plain strip below each panel shows only its "
+        "panel number and shot type. The panel artwork carries no lettering, signs, speech "
+        "bubbles, captions, dialogue or written words of any kind — keep every panel free of "
+        "readable text except the small panel-number label."
     )
 
 
@@ -846,11 +846,14 @@ def _sheet_filter_reject(fail_info: Optional[dict]) -> bool:
 #   - FIXED SET (set_line / set_block) is the ONE place a risky prop may be
 #     named plainly. It is the single canonical naming slot and this pass is
 #     NEVER applied to it.
-#   - CAPTION text (m["speaker"] / m["line"], the verbatim spoken script —
-#     product law) is NEVER passed through this pass. In _plan_sheet_prompts
-#     below, the neutralizer runs on a panel's DESCRIPTION only, before the
-#     caption string is concatenated onto it — captions never touch this
-#     function.
+#   - CAPTION text (the verbatim spoken script) never reaches this pass — and
+#     as of C25a-fix14 (Ryan, 2026-07-20) it is no longer rendered into the
+#     sheet image at ALL. fix9b removed 100% of the BUILDER's density, but a
+#     sheet could still 400 on caption density alone (protected dialogue we
+#     can't reword — fix9b's open gap). Since the sheet is a preview and the
+#     spoken lines live in the saved coverage_directive plan (they drive the
+#     real pictures + voice), _plan_sheet_prompts below now emits panels with
+#     NO dialogue text — only the number, shot type, and neutralized brief.
 #   - AXIS/SCREEN-DIRECTION lines, panel numbering/order, SETUP letters, and
 #     character names/wardrobe are never touched (they don't carry prop
 #     nouns and are excluded from every call site of this pass).
@@ -940,21 +943,27 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     panels: list[str] = []
     for m in moments:
         n = m.get("moment_number")
-        # CAPTION is the verbatim spoken script (product law) — built straight
-        # from m["line"], NEVER routed through _neutralize_risky_props.
-        cap = (f' CAPTION: {m["speaker"]}: "{_trunc(m["line"], 90)}"'
-               if m.get("speaker") and m.get("line") else " CAPTION: (silent)")
+        # C25a-fix14 (Ryan, 2026-07-20): the verbatim spoken line is NO LONGER
+        # baked into the sheet image. fix9b left one open gap — a sheet could
+        # still 400 on OpenAI's content filter from CAPTION density alone (the
+        # Spanish lesson's dialogue vocabulary — "cuchillo"/"cortar"/haggling
+        # phrases — repeated across most panels), and captions are protected
+        # spoken script we can't reword. The sheet is a PREVIEW only: the lines
+        # live in the saved coverage_directive plan and drive the real pictures
+        # and voice, never this throwaway image. So panels now carry ONLY their
+        # number + shot type + the (neutralized) visual brief — no dialogue text
+        # the model must spell, so nothing dialogue-side can push the prompt
+        # over the filter's density line.
         master = m.get("master") or {}
         # Panel-brief visual description IS builder-authored text (C25a-fix9b):
-        # neutralize risky-prop density BEFORE truncating, then concatenate the
-        # untouched caption after.
+        # neutralize risky-prop density before truncating.
         master_desc = _neutralize_risky_props(master.get("description"))
         panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
-                      f"{_trunc(master_desc, 300)}{cap}")
+                      f"{_trunc(master_desc, 300)}")
         for a in (m.get("angles") or []):
             angle_desc = _neutralize_risky_props(a.get("description"))
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
-                          f"{_trunc(angle_desc, 300)} CAPTION: (silent)")
+                          f"{_trunc(angle_desc, 300)}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
     # FIXED SET is the ONE canonical slot a risky prop may be named plainly
     # (C25a-fix9b single-naming rule) — set_line is NEVER passed through
