@@ -568,3 +568,20 @@ reveal that gap to the user. That is a product/architecture ruling, not an addit
 C61 checklist bullet left UNCHECKED. Next step is Ryan's ruling, not another trace pass — the code
 was read closely enough this session to be confident the gap is structural, not a search-harder
 problem.
+
+## 2026-07-20 — C61 RULING (Ryan): Option A — ONE WORKSPACE = ONE CHANNEL
+Ryan: "Option A one workspace = one channel. Exactly."
+Consequences (append-only law):
+- A channel IS a tenant/workspace. Everything already per-tenant (DNA, OAuth, quality rules,
+  patterns, autopilot dial/budget/kill-switch, proposals) is therefore already per-channel —
+  NO migration, no restructuring, the C50-C56 arc was channel-scoped all along.
+- Multi-channel users = one human in multiple workspaces (memberships already supports this).
+  The Claude-side channel manager = one MCP connector per channel (one agent token per
+  workspace) — tool calls are unambiguous, isolation is total, and the paywall stays per-channel
+  (a pricing lever: each channel workspace is its own subscription seat).
+- `projects` multi-row ambition is DEAD for channel identity — a tenant's single project row is
+  channel-local config only. Do not build multi-project UI/tools.
+- C61 rescoped to: (a) document the one-connector-per-channel pattern (runbook); (b) a cheap
+  `get_workspace_info`/whoami MCP read so Claude always knows WHICH channel a connector speaks
+  for; (c) TRACE (report, decide later): can a user create a SECOND workspace today (UI/signup
+  flow, account/tenant/Stripe relationship), or is that the one missing build?
