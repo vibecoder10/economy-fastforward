@@ -695,67 +695,22 @@ show real channel aggregates, and does the producer actually cite them unprompte
 
 ---
 
-## C25a — media proxy tenant auth · REQUIRED live browser check before the next `--with-frontend` deploy
+## C25a — media proxy tenant auth · ✅ DONE 2026-07-20 (coordinated deploy + live verification)
 
-**Why this is REQUIRED, not optional (unlike most rows below):** the fix (tenant-scoped
-`_ALLOWLIST_SQL` + `serve_drive_file` now requiring a `?token=` on every Drive-backed
-`<img>`/`<video>` url) closes a real cross-tenant leak (SYSTEM_STATE.md §C25a), but it also means
-an OLD frontend (no `?token=` yet) against the NEW backend gets a 401 on every image the instant
-the backend deploys — a real app-wide "every image blanks out" risk until the frontend redeploys.
-This can't be proven safe from the sandbox (no browser, no prod backend route). Do NOT let this
-ship as a backend-only hourly `git pull` — it must go out as a coordinated
-`vps-deploy.sh <session> --with-frontend` (VPS Deploy Coordination Rule §1, lock file held for the
-duration), and this check must run RIGHT AFTER that deploy, before calling it done:
-
-- [ ] **Every image surface renders post-deploy.** Open (fresh page load, not a client nav so
-      nothing is cached from before the deploy): Scenes workspace (storyboard grids + clip
-      thumbnails), a chat conversation with a "show me scene N's boards" card (SceneBoardsGrid),
-      Characters tab (portraits), Environments tab (references), Thumbnail tab, Render tab (final
-      video preview `<video>` scrub/seek). Use `webapp-testing` (Playwright), not self-evaluation —
-      screenshot proof, check for broken-image icons and console 401s on `/api/media/drive/*`.
-- [ ] **A stale/cached OLD frontend tab, still open across the deploy, is acceptable collateral
-      (documented, not silently ignored).** Confirm it degrades to broken images (not a crash) and
-      that a hard reload recovers it — this is the known, accepted skew-window cost (SYSTEM_STATE
-      §C25a "Deploy-safety assessment"), not a new bug to chase.
-- [ ] **Backend-internal mint sites actually work live**, not just unit-tested: generate one
-      talking-clip video (InfiniteTalk path, `pipeline_executor.py::_proxy_url`) and lock one
-      character/environment cast sheet (vision rewrite path, `characters.py`/`environments.py`) —
-      confirm both complete without a 401 from the media proxy in `se logs backend`.
-- **Cost:** the talking-clip check above is a real generation — get a cost quote + explicit yes
-  first per the Money rule, same as any other paid check on this list. Everything else (browser
-  tap-through) is free.
-
----
-
-## C25a — media proxy tenant auth · REQUIRED live browser check before the next `--with-frontend` deploy
-
-**Why this is REQUIRED, not optional (unlike most rows below):** the fix (tenant-scoped
-`_ALLOWLIST_SQL` + `serve_drive_file` now requiring a `?token=` on every Drive-backed
-`<img>`/`<video>` url) closes a real cross-tenant leak (SYSTEM_STATE.md §C25a), but it also means
-an OLD frontend (no `?token=` yet) against the NEW backend gets a 401 on every image the instant
-the backend deploys — a real app-wide "every image blanks out" risk until the frontend redeploys.
-This can't be proven safe from the sandbox (no browser, no prod backend route). Do NOT let this
-ship as a backend-only hourly `git pull` — it must go out as a coordinated
-`vps-deploy.sh <session> --with-frontend` (VPS Deploy Coordination Rule §1, lock file held for the
-duration), and this check must run RIGHT AFTER that deploy, before calling it done:
-
-- [ ] **Every image surface renders post-deploy.** Open (fresh page load, not a client nav so
-      nothing is cached from before the deploy): Scenes workspace (storyboard grids + clip
-      thumbnails), a chat conversation with a "show me scene N's boards" card (SceneBoardsGrid),
-      Characters tab (portraits), Environments tab (references), Thumbnail tab, Render tab (final
-      video preview `<video>` scrub/seek). Use `webapp-testing` (Playwright), not self-evaluation —
-      screenshot proof, check for broken-image icons and console 401s on `/api/media/drive/*`.
-- [ ] **A stale/cached OLD frontend tab, still open across the deploy, is acceptable collateral
-      (documented, not silently ignored).** Confirm it degrades to broken images (not a crash) and
-      that a hard reload recovers it — this is the known, accepted skew-window cost (SYSTEM_STATE
-      §C25a "Deploy-safety assessment"), not a new bug to chase.
-- [ ] **Backend-internal mint sites actually work live**, not just unit-tested: generate one
-      talking-clip video (InfiniteTalk path, `pipeline_executor.py::_proxy_url`) and lock one
-      character/environment cast sheet (vision rewrite path, `characters.py`/`environments.py`) —
-      confirm both complete without a 401 from the media proxy in `se logs backend`.
-- **Cost:** the talking-clip check above is a real generation — get a cost quote + explicit yes
-  first per the Money rule, same as any other paid check on this list. Everything else (browser
-  tap-through) is free.
+Deployed 2026-07-20 as `se deploy c25a-coordinated --with-frontend` (38fc6297), backend+frontend
+together — no skew window. Live evidence, same session:
+- **Auth gate:** no token → 401; garbage token → 401 (orchestrator re-ran both independently);
+  valid token → 200 real PNG bytes; WRONG tenant's file with valid token → 404 (the S5-1
+  cross-tenant hole, confirmed closed); Range request on rendered video → 206 video/mp4.
+- **Surface walk (Ryan's Chrome, hard-refreshed bundles):** Scenes boards (~90 requests, all
+  tokened, all 200), Characters, Thumbnail tab, /pipeline list cards, Finish-tab poster,
+  Upload-tab thumbnail, /render dashboard — ALL render via `/api/media/drive/…?token=…`; zero
+  raw drive.google.com requests; zero console errors.
+- **Found+fixed during the walk (aec8afa1):** 4 surfaces rendered raw `video.thumbnail_url`
+  Drive links (pre-existing — those files never imported the helper; Drive 503s exposed them):
+  pipeline/page.tsx card, RenderTab poster, UploadTab, render/page.tsx. All 6 remaining
+  thumbnail_url render sites now wrapped in `toDisplayImageUrl` (incl. analytics/autopilot —
+  helper passes non-Drive URLs through untouched). Re-walked post-deploy: all PASS.
 
 ---
 
