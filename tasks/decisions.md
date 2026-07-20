@@ -600,3 +600,23 @@ Locked (supersedes the proposal doc's open items 1/3/5):
   wire into the C57 seam in create_token).
 Still open (small): trial length (14d proposed), Agency-full-auto-requires-cap (code already
 enforces via C54b regardless).
+
+## 2026-07-20 — Feature board (Ryan): Reddit-like "suggest a feature" + upvotes = product self-improvement loop
+Ryan: "a Reddit like page on the platform that says suggest a feature... upvoted if more people
+want that feature... part of the platform self improvement loop where we take in real customer
+wants and make it a reality as beta features. Like maybe someone who is a YouTuber who does
+talking head videos and explainers... just wants access to the autopilot."
+Rulings/design:
+- Build as C65. Core loop: suggest → upvote (one vote per account per idea) → STATUS LADDER
+  (under_review → planned → building → in_beta → shipped / declined) → beta flag for voters
+  first (reuse the existing per-tenant feature-flag pattern). The ladder is the product; votes
+  are the sensor.
+- FIRST deliberately CROSS-TENANT surface in the platform: the board is shared. Its tables are
+  explicitly non-tenant-scoped (votes/authorship attributed per account) — do NOT copy the
+  tenant-isolation idiom blindly; display of customer text to other customers needs escaping/
+  moderation care.
+- Submission carries an optional "what kind of channel do you run?" archetype field — the board
+  doubles as market-segment discovery (the talking-head/explainer example).
+- Optional MCP tool suggest_feature/list_feature_requests so customers can file from Claude.
+- Also 2026-07-20: C64 ffmpeg render spike PARKED ("we'll cross that bridge as it comes") —
+  stays queued, unbuilt; render capacity plan lives in docs/pricing-proposal-2026-07.md notes.
