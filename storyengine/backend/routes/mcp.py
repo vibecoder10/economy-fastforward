@@ -178,6 +178,31 @@ PROTOCOL_VERSION = "2025-06-18"
 SUPPORTED_PROTOCOL_VERSIONS = {"2025-06-18", "2025-03-26"}
 SERVER_INFO = {"name": "storyengine", "version": "1.0.0"}
 
+# C25a-fix13 (tasks/decisions.md 2026-07-19 "MCP economics"): the initialize
+# result's optional `instructions` field is the one place this server can
+# hand a connected client global operating guidance BEFORE it ever reads a
+# single tool description — set it here so the economics rule survives even
+# if a client only skims tools/list. Per-tool detail still lives on each
+# tool's own description (the "[USES WORKSPACE API KEYS]" marker below); this
+# is the one-paragraph version of the same rule.
+SERVER_INSTRUCTIONS = (
+    "Cost model: this workspace pays for every tool marked \"[USES WORKSPACE "
+    "API KEYS]\" in tools/list out of its own paid API keys (Anthropic/"
+    "kie.ai/ElevenLabs/etc) — that includes the research, script, and seo "
+    "verbs, plus improve_prompt, regenerate_scene_text, suggest_video_"
+    "titles, generate_modeled_ideas, and generate_gap_titles. For that "
+    "pure-text thinking work, you are usually just as good and strictly "
+    "cheaper: do the thinking yourself, in this chat, on your own "
+    "subscription, then hand StoryEngine the RESULT through a free write "
+    "tool — submit_research, submit_script, edit_publish_info, "
+    "edit_scene_text, or edit_shot_image_prompt/edit_shot_motion_prompt — "
+    "instead of calling the paid tool. Treat the paid LLM tools as a "
+    "fallback for when you'd rather StoryEngine's own model do it, not the "
+    "default. Tools that produce an actual media asset (pictures, clips, "
+    "voice, thumbnails, render) are real provider spend either way and have "
+    "no free substitute — call those directly, no special handling needed."
+)
+
 
 def _text_result(payload: Any) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(payload)}], "isError": False}
@@ -584,6 +609,47 @@ def _verb_tool_schema(*, paid: bool) -> dict[str, Any]:
     return {"type": "object", "properties": props, "required": ["video_id"]}
 
 
+# C25a-fix13 (tasks/decisions.md 2026-07-19 "MCP economics" — live evidence
+# tonight: a connected Claude session picked this generic PAID description
+# for `research` with nothing telling it a free path existed, and spent the
+# workspace's Anthropic key). Traced every PAID verb to its own executor to
+# classify honestly, not by guessing from the label:
+#   - "script" -> pipeline_executor.run_script (writer + critic, both
+#     Claude calls on the tenant's own key) -> text only, no media asset.
+#   - "research" -> pipeline_executor.run_research (Claude research pass)
+#     -> text only, no media asset.
+#   - "seo" -> actions._runner_seo -> youtube_publish.generate_and_store_seo
+#     -> ONE Claude call that writes title/description/tags -> text only.
+# Every OTHER paid verb (characters/storyboards/images/voice/animate/
+# draft_pass/finalize/sound/thumbnail/render/upload/build) makes or moves an
+# actual media asset (a drawn picture, a synthesized voice line, a rendered
+# clip, an uploaded video) through a real paid provider (kie.ai/ElevenLabs/
+# grok/YouTube) — that spend is real no matter who does the thinking, so
+# those verbs keep the plain PAID description untouched.
+_LLM_PAID_VERB_STEER: dict[str, str] = {
+    "script": (
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: draft the "
+        "script in this chat, on your own Claude subscription, then call "
+        "submit_script instead (free, runs the SAME quality gates). Use this tool "
+        "only as a fallback, when you want StoryEngine's own writer to do it "
+        "instead.] "
+    ),
+    "research": (
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: research "
+        "the topic in this chat, on your own Claude subscription, then call "
+        "submit_research instead (free, runs the SAME roster/shape validation). "
+        "Use this tool only as a fallback, when you want StoryEngine's own "
+        "researcher to do it instead.] "
+    ),
+    "seo": (
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: write the "
+        "title/description/tags in this chat, then call edit_publish_info instead "
+        "(free, saves them directly, no AI call). Use this tool only as a "
+        "fallback, when you want StoryEngine's own writer to do it instead.] "
+    ),
+}
+
+
 def _verb_tools() -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     for verb in _FREE_VERBS:
@@ -598,6 +664,7 @@ def _verb_tools() -> list[dict[str, Any]]:
         tools.append({
             "name": verb,
             "description": (
+                _LLM_PAID_VERB_STEER.get(verb, "") +
                 f"{cfg['label']} — PAID. Call with no confirm_token first to get a price quote; "
                 "call again with the returned confirm_token to actually run it."
             ),
@@ -1525,15 +1592,19 @@ _FEATURE_BOARD_WRITE_HANDLERS = {
 _SUBMIT_RESEARCH_TOOL: dict[str, Any] = {
     "name": "submit_research",
     "description": (
-        "Submit research YOU did (on your own Claude subscription) for this "
-        "video, instead of paying for StoryEngine's own `research` verb to "
-        "do it. Validated against the same shape run_research itself "
-        "produces and the SAME deterministic roster-completeness gate a "
-        "real research run applies for machine-roster/documentary titles — "
-        "a rejection returns the concrete warnings so you can fix your "
-        "research and resubmit. On acceptance, saved and the video advances "
-        "exactly like a platform-run research pass. Free — no cost to run "
-        "this tool itself."
+        "THE STANDARD WAY to get research onto this video: do the research "
+        "yourself, right here in this chat, on your own Claude subscription "
+        "(zero API-key cost to the workspace), then hand StoryEngine the "
+        "result with this tool. Validated against the exact same shape "
+        "run_research itself produces and the SAME deterministic "
+        "roster-completeness gate a platform research run applies for "
+        "machine-roster/documentary titles — identical quality bar, no "
+        "shortcuts; a rejection returns the concrete warnings so you can fix "
+        "your research and resubmit. On acceptance, saved and the video "
+        "advances exactly like a platform-run research pass. The `research` "
+        "verb tool (which spends the workspace's own Anthropic key) is the "
+        "fallback — use it only when you'd rather StoryEngine's own "
+        "researcher do the thinking."
     ),
     "inputSchema": {
         "type": "object",
@@ -1559,16 +1630,20 @@ _SUBMIT_RESEARCH_TOOL: dict[str, Any] = {
 _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
     "name": "submit_script",
     "description": (
-        "Submit a script YOU wrote (on your own Claude subscription) for "
-        "this video, instead of paying for StoryEngine's own `script` verb "
-        "to write it. Runs through the SAME quality-rules critic a "
-        "platform-generated script faces (verdict-only, no server-side "
-        "edit loop — this is not the creator's own verbatim text, so it "
-        "doesn't get that bypass, but it's also not ours to silently "
-        "rewrite). A hard-gate/universal-gate failure REJECTS with the "
-        "rule-by-rule violations so you can fix your script and resubmit; "
-        "a pass (warnings aside) saves and advances the video exactly like "
-        "a platform-written script. Free — no cost to run this tool itself."
+        "THE STANDARD WAY to get a script onto this video: write it "
+        "yourself, right here in this chat, on your own Claude subscription "
+        "(zero API-key cost to the workspace), then hand StoryEngine the "
+        "result with this tool. Runs through the SAME quality-rules critic a "
+        "platform-generated script faces (verdict-only, no server-side edit "
+        "loop — this is not the creator's own verbatim text, so it doesn't "
+        "get that bypass, but it's also not ours to silently rewrite) — "
+        "identical quality bar, no shortcuts. A hard-gate/universal-gate "
+        "failure REJECTS with the rule-by-rule violations so you can fix "
+        "your script and resubmit; a pass (warnings aside) saves and "
+        "advances the video exactly like a platform-written script. The "
+        "`script` verb tool (which spends the workspace's own Anthropic "
+        "key) is the fallback — use it only when you'd rather StoryEngine's "
+        "own writer do the thinking."
     ),
     "inputSchema": {
         "type": "object",
@@ -1763,12 +1838,17 @@ _SET_SHOT_MODEL_OVERRIDE_TOOL: dict[str, Any] = {
 _IMPROVE_PROMPT_TOOL: dict[str, Any] = {
     "name": "improve_prompt",
     "description": (
-        "Ask the SAME prompt-studio rewriter the UI's \"improve\" button "
-        "uses (POST /api/pipeline/improve-prompt/{id}) for a stronger "
-        "prompt. Returns the proposed text only — nothing is saved; follow "
-        "up with edit_shot_image_prompt/edit_shot_motion_prompt (or "
-        "edit_scene_text for surface=\"script\") to apply it. Free, no cost "
-        "— uses the tenant's own configured Claude/kie.ai key."
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: "
+        "write the stronger prompt directly in this chat, then call "
+        "edit_shot_image_prompt/edit_shot_motion_prompt/edit_scene_text "
+        "with it (free, no tenant-key spend). Use this tool only as a "
+        "fallback, when you want the platform's own rewriter to do it "
+        "instead.] Ask the SAME prompt-studio rewriter the UI's \"improve\" "
+        "button uses (POST /api/pipeline/improve-prompt/{id}) for a "
+        "stronger prompt. Returns the proposed text only — nothing is "
+        "saved; follow up with edit_shot_image_prompt/edit_shot_motion_"
+        "prompt (or edit_scene_text for surface=\"script\") to apply it. No "
+        "confirm_token — uses the tenant's own configured Claude/kie.ai key."
     ),
     "inputSchema": {
         "type": "object",
@@ -1958,12 +2038,17 @@ _EDIT_SCENE_TEXT_TOOL: dict[str, Any] = {
 _REGENERATE_SCENE_TEXT_TOOL: dict[str, Any] = {
     "name": "regenerate_scene_text",
     "description": (
-        "AI-rewrite ONE scene's narration in place (POST /api/videos/{id}/"
-        "scenes/{scene}/rewrite) — dial in a single scene without re-"
-        "rolling the whole script. Clears that scene's voice so the next "
-        "voice run only re-records this scene. Free — uses the tenant's own "
-        "configured Anthropic key directly (not billed by StoryEngine, so "
-        "no confirm_token), same as learn_channel_start."
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: "
+        "rewrite the scene's narration in this chat, then call "
+        "edit_scene_text with it instead (free, no AI call, applied "
+        "verbatim). Use this tool only as a fallback, when you want "
+        "StoryEngine's own rewriter to do it instead.] AI-rewrite ONE "
+        "scene's narration in place (POST /api/videos/{id}/scenes/{scene}/"
+        "rewrite) — dial in a single scene without re-rolling the whole "
+        "script. Clears that scene's voice so the next voice run only "
+        "re-records this scene. No confirm_token — uses the tenant's own "
+        "configured Anthropic key directly (not billed by StoryEngine), "
+        "same as learn_channel_start."
     ),
     "inputSchema": {
         "type": "object",
@@ -2446,11 +2531,17 @@ _SCORE_TITLE_GAP_STRUCTURES_TOOL: dict[str, Any] = {
 _SUGGEST_VIDEO_TITLES_TOOL: dict[str, Any] = {
     "name": "suggest_video_titles",
     "description": (
-        "Generate title options for a topic (POST /api/videos/suggest-"
-        "titles) — the platform-native title generator (curiosity-driven, "
-        "channel-aware). Pair with score_title_gap_structures if you want "
-        "to reason about WHICH curiosity-gap angle to write toward first. "
-        "Free, no cost — uses the tenant's own configured Claude/kie.ai key."
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: "
+        "brainstorm titles in this chat (score_title_gap_structures is a "
+        "free, deterministic scorer you can run yourself to check your "
+        "ideas against the 5 curiosity-gap structures). Use this tool only "
+        "as a fallback, when you want the platform's own generator to do it "
+        "instead.] Generate title options for a topic (POST /api/videos/"
+        "suggest-titles) — the platform-native title generator "
+        "(curiosity-driven, channel-aware). Pair with "
+        "score_title_gap_structures if you want to reason about WHICH "
+        "curiosity-gap angle to write toward first. No confirm_token — "
+        "uses the tenant's own configured Claude/kie.ai key."
     ),
     "inputSchema": {
         "type": "object",
@@ -2466,14 +2557,19 @@ _SUGGEST_VIDEO_TITLES_TOOL: dict[str, Any] = {
 _GENERATE_MODELED_IDEAS_TOOL: dict[str, Any] = {
     "name": "generate_modeled_ideas",
     "description": (
-        "Generate new video title ideas by decomposing proven titles into "
-        "reusable formula patterns, then rebuilding them with your own "
-        "niche variables — title_idea/idea_modeling.py's brain (the same "
-        "engine trending_idea_bot.py's format-library step runs), wired "
-        "here as a thin wrap: decompose_title per seed title -> "
-        "extract_format -> generate_modeled_ideas, no new pipeline logic "
-        "(C59). Free, no cost — uses the tenant's OWN configured Anthropic "
-        "key directly (BYOK, not billed by StoryEngine), same as "
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: "
+        "decompose the seed titles into formula patterns and rebuild them "
+        "with your own niche variables right here in this chat, no tool "
+        "call needed. Use this tool only as a fallback, when you want the "
+        "platform's own engine to do it instead.] Generate new video title "
+        "ideas by decomposing proven titles into reusable formula patterns, "
+        "then rebuilding them with your own niche variables — "
+        "title_idea/idea_modeling.py's brain (the same engine "
+        "trending_idea_bot.py's format-library step runs), wired here as a "
+        "thin wrap: decompose_title per seed title -> extract_format -> "
+        "generate_modeled_ideas, no new pipeline logic (C59). No "
+        "confirm_token — uses the tenant's OWN configured Anthropic key "
+        "directly (BYOK, not billed by StoryEngine), same as "
         "regenerate_scene_text/suggest_video_titles."
     ),
     "inputSchema": {
@@ -2496,13 +2592,18 @@ _GENERATE_MODELED_IDEAS_TOOL: dict[str, Any] = {
 _GENERATE_GAP_TITLES_TOOL: dict[str, Any] = {
     "name": "generate_gap_titles",
     "description": (
-        "Generate full curiosity-gap titles (text + thumbnail text/approach "
-        "+ reasoning) for a story — GapTitleEngine's complete generation "
-        "pass (title_idea/curiosity_gap/gap_title_engine.py), the "
-        "Claude-calling half score_title_gap_structures deliberately "
+        "[USES WORKSPACE API KEYS — prefer doing this thinking yourself: "
+        "score your hook/thesis/facts with the free score_title_gap_"
+        "structures tool, then write the titles + thumbnail text/approach "
+        "+ reasoning yourself in this chat. Use this tool only as a "
+        "fallback, when you want the platform's own engine to do it "
+        "instead.] Generate full curiosity-gap titles (text + thumbnail "
+        "text/approach + reasoning) for a story — GapTitleEngine's complete "
+        "generation pass (title_idea/curiosity_gap/gap_title_engine.py), "
+        "the Claude-calling half score_title_gap_structures deliberately "
         "leaves unwrapped. Pair with score_title_gap_structures if you "
-        "first want the pure scoring read on the same hook/thesis/facts. "
-        "Free, no cost — uses the tenant's OWN configured Anthropic key "
+        "first want the pure scoring read on the same hook/thesis/facts. No "
+        "confirm_token — uses the tenant's OWN configured Anthropic key "
         "directly (BYOK, not billed by StoryEngine), same as "
         "regenerate_scene_text/suggest_video_titles."
     ),
@@ -2856,6 +2957,7 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             "protocolVersion": negotiated,
             "capabilities": {"tools": {}},
             "serverInfo": SERVER_INFO,
+            "instructions": SERVER_INSTRUCTIONS,
         }
     if method == "tools/list":
         return {"tools": TOOLS}

@@ -335,7 +335,12 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     return {
         "title": v.get("video_title") or "Untitled",
         "status": v.get("status") or "unknown",
-        "length_min": v.get("video_length_minutes"),
+        # C25a-fix13: video_length_minutes is NUMERIC in postgres — asyncpg
+        # hands it back as a Decimal, and json.dumps (routes/mcp.py's
+        # _text_result, no default=str) chokes on that raw. Cast explicitly,
+        # same as total_cost/max_spend just below and the SAME pattern
+        # routes/videos.py:689 already uses for this identical column.
+        "length_min": float(v["video_length_minutes"]) if v.get("video_length_minutes") is not None else None,
         "model": model,
         "scenes": int(sc["scenes"] or 0),
         "boards": int(sc["boards"] or 0),
