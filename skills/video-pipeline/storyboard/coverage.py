@@ -318,13 +318,35 @@ def parse_setups_line(directive_text: str) -> str | None:
 
 
 def panels_per_sheet_for(directive_text: str) -> int:
-    """Gate-sheet panel capacity for THIS plan. New-format plans (with an
-    [AXIS | ...] line) draw 9-panel 3x3 sheets — the adherence ceiling image
-    models hold; legacy plans keep their original 12 so the board-anchor math
-    (panel k -> sheet k//cap) still points at the right panel on sheets that
-    were approved before the change. Sheet chunking and board anchoring MUST
-    both call this on the SAME directive."""
-    return 9 if _AXIS_RE.search(directive_text or "") else 12
+    """Gate-sheet panel capacity for THIS plan. Legacy plans (no [AXIS | ...]
+    line) keep their original 12 so the board-anchor math (panel k -> sheet
+    k//cap) still points at the right panel on sheets approved before the
+    change.
+
+    New-format plans TARGET 6 panels per sheet. 9-panel 3x3 sheets reliably
+    trip GPT Image 2's content-density filter (proven on PocoAPoco 'El Mercado'
+    2026-07-20: the 9-panel board 400'd on the primary header while the 7-panel
+    board on the SAME scene drew clean), so a lighter sheet passes on the
+    primary instead of limping through the fallback-header retry. But the
+    preview has only 5 board slots (storyboard_1_url..storyboard_5_url) and an
+    echo/voice_over scene can plan up to COVERAGE_MAX_FRAMES (40) shots, so a
+    FLAT 6 would overflow to 7 boards and silently drop the tail. Instead: 6
+    whenever the scene fits in 5 boards at 6 (<=30 shots), else the smallest cap
+    that still fits every shot in 5 boards (ceil(shots/5), which tops out at 8
+    for a 40-shot scene) — so no shot ever loses its preview panel.
+
+    Sheet chunking and board anchoring MUST both call this on the SAME directive
+    so they agree on the cap; because it is a pure function of the directive
+    text, they always do (a video storyboarded before this change keeps
+    anchoring at whatever cap its own directive yields today — which, for those
+    already-approved sheets, means they should be re-drawn if the count shifts;
+    the ready_for_image_prompts set is small and known)."""
+    if not _AXIS_RE.search(directive_text or ""):
+        return 12
+    shots = sum(1 + len(m.get("angles") or []) for m in parse_coverage(directive_text or ""))
+    if shots <= 0:
+        return 6
+    return max(6, (shots + 4) // 5)  # (shots+4)//5 == ceil(shots/5); floored at 6
 # Tolerant of how the LLM writes the shot line: "- MASTER [WS]:", "- MASTER WS:",
 # or multi-word "- ANGLE INSERT ECU:" (brackets optional, shot type 1+ words, colon required).
 _SHOT_RE = re.compile(
