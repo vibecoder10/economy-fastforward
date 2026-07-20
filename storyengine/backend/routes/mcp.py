@@ -150,10 +150,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Optional
+import secrets
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 import logging
 
@@ -168,6 +169,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 PROTOCOL_VERSION = "2025-06-18"
+# C25a-fix11: versions this server can honestly claim to speak over THIS
+# transport (single-POST JSON-RPC + the notifications/GET-listen additions
+# this chunk adds). 2024-11-05 is deliberately excluded — that revision
+# means the OLD separate HTTP+SSE transport (a different endpoint shape),
+# not this one; claiming it would be a lie the spec's own backwards-
+# compatibility section would catch a client out on.
+SUPPORTED_PROTOCOL_VERSIONS = {"2025-06-18", "2025-03-26"}
 SERVER_INFO = {"name": "storyengine", "version": "1.0.0"}
 
 
@@ -2833,8 +2841,19 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
                      background_tasks: Optional[BackgroundTasks] = None,
                      caller: str = "agent") -> Any:
     if method == "initialize":
+        # Streamable HTTP spec, lifecycle/initialize: the server negotiates
+        # protocolVersion, it doesn't just parrot its own preferred value —
+        # a client that sent an older-but-still-Streamable-HTTP version
+        # (e.g. 2025-03-26) and gets back a version string it's never heard
+        # of ("2025-06-18") is free to treat that as a mismatch and bail.
+        # Echo the client's request when it's one of the versions this
+        # transport can honestly speak; otherwise fall back to our own
+        # default (the spec's own guidance when the requested version isn't
+        # supported: respond with a version the server DOES support).
+        requested = (params or {}).get("protocolVersion")
+        negotiated = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else PROTOCOL_VERSION
         return {
-            "protocolVersion": PROTOCOL_VERSION,
+            "protocolVersion": negotiated,
             "capabilities": {"tools": {}},
             "serverInfo": SERVER_INFO,
         }
@@ -2879,12 +2898,46 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
     raise ValueError(f"Unknown method: {method}")
 
 
+def _new_session_id() -> str:
+    """Streamable HTTP spec, Session Management point 1: 'SHOULD be globally
+    unique and cryptographically secure ... MUST only contain visible ASCII
+    characters (0x21-0x7E)'. `token_urlsafe`'s alphabet (A-Za-z0-9-_) is a
+    strict subset of that range. Stateless by design (module docstring/task
+    brief): this is never stored or looked up server-side — any value we
+    handed out on a prior `initialize` is accepted back verbatim on later
+    requests because nothing here validates it against anything. That's the
+    whole contract: a session id a client can round-trip, not a session the
+    server tracks."""
+    return secrets.token_urlsafe(24)
+
+
 @router.post("")
 async def mcp_rpc(request: Request, background_tasks: BackgroundTasks,
                    tenant_id=Depends(get_agent_tenant_id)):
     """Single JSON-RPC 2.0 endpoint. See module docstring for the protocol
-    shape this implements (initialize / tools/list / tools/call only)."""
+    shape this implements (initialize / tools/list / tools/call only).
+
+    C25a-fix11: also speaks the two other things the Streamable HTTP spec
+    (2025-03-26 "Sending Messages to the Server") requires of THIS half of
+    the transport — everything else (Accept-header tolerance, the GET listen
+    stream, Mcp-Session-Id issuance) is either already true by omission or
+    added below/alongside this handler; see that section of the module
+    docstring... actually see the two additions inline here:
+      1. A JSON-RPC *notification* (no `id` key at all — distinct from a
+         request whose `id` happens to be null) gets HTTP 202 Accepted with
+         NO body, never a JSON-RPC envelope. This was the actual break: the
+         official MCP client sends `notifications/initialized` right after
+         `initialize` succeeds, and this endpoint used to run it through the
+         same `_dispatch` as every request, which doesn't recognize that
+         method and raised -> a 200 carrying a JSON-RPC `-32601` error body
+         where the client expected a bare 202. Confirmed by curl against
+         prod pre-fix (see chunk report) and matches the spec's own point 4
+         verbatim.
+      2. `Mcp-Session-Id` is issued (not required) on `initialize`'s
+         response header, per Session Management point 1.
+    """
     body = await request.json()
+    is_notification = "id" not in body
     rpc_id = body.get("id")
     method = body.get("method")
     params = body.get("params") or {}
@@ -2896,6 +2949,20 @@ async def mcp_rpc(request: Request, background_tasks: BackgroundTasks,
     token = auth_header[len("Bearer "):].strip() if auth_header.startswith("Bearer ") else ""
     agent_name = await agent_tokens.name_for_token(token)
     caller = f"agent:{agent_name}" if agent_name else "agent"
+
+    if is_notification:
+        # Best-effort dispatch, result discarded either way — a notification
+        # never gets a JSON-RPC response of any shape (success OR error).
+        # notifications/initialized (the only one a tool-calling client
+        # sends today) has nothing for this stateless server to do; any
+        # other/unknown notification method is equally a no-op here, not a
+        # -32601 — the whole point of a notification is the sender doesn't
+        # want a reply.
+        try:
+            await _dispatch(method, params, tenant_id, background_tasks, caller)
+        except Exception:
+            pass
+        return Response(status_code=202)
 
     try:
         result = await _dispatch(method, params, tenant_id, background_tasks, caller)
@@ -2909,4 +2976,33 @@ async def mcp_rpc(request: Request, background_tasks: BackgroundTasks,
             "jsonrpc": "2.0", "id": rpc_id,
             "error": {"code": -32000, "message": str(e)},
         })
-    return {"jsonrpc": "2.0", "id": rpc_id, "result": result}
+
+    response = JSONResponse({"jsonrpc": "2.0", "id": rpc_id, "result": result})
+    if method == "initialize":
+        response.headers["Mcp-Session-Id"] = _new_session_id()
+    return response
+
+
+@router.get("")
+async def mcp_listen(tenant_id=Depends(get_agent_tenant_id)) -> StreamingResponse:
+    """Streamable HTTP spec, "Listening for Messages from the Server": a
+    client MAY GET the MCP endpoint to open a standalone SSE stream for
+    server-initiated messages. The bare single-POST endpoint this chunk
+    started from had no GET route at all, so FastAPI's own routing 405'd it
+    — spec-legal (point 3: "MUST either return text/event-stream ... or
+    else 405"), but the official MCP TypeScript SDK (what Claude Code's
+    client is built on) opens this GET listen stream unconditionally right
+    after `initialize`/`notifications/initialized` succeed, as a normal part
+    of connecting — not an optional probe it shrugs off. A real SSE stream
+    here, even an empty one, is the honest v1: `get_agent_tenant_id` still
+    gates it (same 401 as POST for a missing/invalid/revoked token — the
+    dependency runs, and 401s, before a single byte of the stream body is
+    written), and since this server has no server-initiated JSON-RPC
+    messages to push (no sampling, no server-initiated notifications), the
+    stream opens and closes cleanly rather than holding the connection open
+    forever for pushes that will never come — spec point "The server MAY
+    close the SSE stream at any time" covers exactly this."""
+    async def _stream() -> AsyncIterator[bytes]:
+        yield b": storyengine mcp - no server-initiated messages\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
