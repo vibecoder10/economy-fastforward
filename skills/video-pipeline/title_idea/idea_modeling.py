@@ -43,25 +43,28 @@ Respond in JSON only. No markdown, no explanation. Example format:
 async def decompose_title(title: str, anthropic_client) -> Optional[dict]:
     """
     Decompose a video title into typed variables using Claude Sonnet.
-    
+
     Args:
         title: The video title to analyze
-        anthropic_client: Anthropic client instance
-        
+        anthropic_client: shared.clients.anthropic_client.AnthropicClient
+            instance (or any object exposing the same async .generate()
+            method) — every real caller (TrendingIdeaBot, pipeline.py's
+            --more-ideas path, and the tenant-scoped MCP path added in C59)
+            passes the wrapper class, not a raw anthropic.AsyncAnthropic.
+
     Returns:
         Dict with original_title, variables, formula, psychological_triggers
         None on error
     """
     try:
-        response = await anthropic_client.messages.create(
+        content = await anthropic_client.generate(
+            prompt=title,
+            system_prompt=DECOMPOSE_SYSTEM_PROMPT,
             model=Models.CLAUDE_SONNET,
             max_tokens=1024,
-            system=DECOMPOSE_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": title}]
         )
-        
-        # Extract text content
-        content = response.content[0].text.strip()
+
+        content = content.strip()
         data = parse_json_response(content, default=None)
         if data is None:
             raise json.JSONDecodeError("Failed to parse decomposition", content, 0)
@@ -160,9 +163,11 @@ async def generate_modeled_ideas(
     Args:
         formats: List of format dicts from extract_format()
         config: Config dict with niche_variables
-        anthropic_client: Anthropic client instance
+        anthropic_client: shared.clients.anthropic_client.AnthropicClient
+            instance (or any object exposing the same async .generate()
+            method) — see decompose_title's docstring for why this matters.
         num_ideas: Number of ideas to generate
-        
+
     Returns:
         List of idea dicts with viral_title, based_on_format, etc.
         Empty list on error
@@ -170,7 +175,7 @@ async def generate_modeled_ideas(
     if not formats:
         logger.warning("No formats provided for idea generation")
         return []
-    
+
     try:
         # Build prompt
         prompt = GENERATE_PROMPT_TEMPLATE.format(
@@ -178,15 +183,14 @@ async def generate_modeled_ideas(
             niche_variables=json.dumps(config.get("niche_variables", {}), indent=2),
             num_ideas=num_ideas
         )
-        
-        response = await anthropic_client.messages.create(
+
+        content = await anthropic_client.generate(
+            prompt=prompt,
             model=Models.CLAUDE_SONNET,
             max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}]
         )
-        
-        # Extract text content
-        content = response.content[0].text.strip()
+
+        content = content.strip()
         ideas = parse_json_response(content, default=None)
         if ideas is None:
             raise json.JSONDecodeError("Failed to parse generated ideas", content, 0)

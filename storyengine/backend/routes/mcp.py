@@ -2245,14 +2245,104 @@ _SUGGEST_VIDEO_TITLES_TOOL: dict[str, Any] = {
     },
 }
 
+_GENERATE_MODELED_IDEAS_TOOL: dict[str, Any] = {
+    "name": "generate_modeled_ideas",
+    "description": (
+        "Generate new video title ideas by decomposing proven titles into "
+        "reusable formula patterns, then rebuilding them with your own "
+        "niche variables — title_idea/idea_modeling.py's brain (the same "
+        "engine trending_idea_bot.py's format-library step runs), wired "
+        "here as a thin wrap: decompose_title per seed title -> "
+        "extract_format -> generate_modeled_ideas, no new pipeline logic "
+        "(C59). Free, no cost — uses the tenant's OWN configured Anthropic "
+        "key directly (BYOK, not billed by StoryEngine), same as "
+        "regenerate_scene_text/suggest_video_titles."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "seed_titles": {
+                "type": "array", "items": {"type": "string"},
+                "description": "2+ proven/high-performing titles to decompose into reusable formula patterns.",
+            },
+            "niche_variables": {
+                "type": "object",
+                "description": "Key -> list of niche variables to rebuild formats with, e.g. {\"topics\": [...], \"entities\": [...]}.",
+            },
+            "num_ideas": {"type": "integer", "description": "How many ideas to generate (default 5)."},
+        },
+        "required": ["seed_titles", "niche_variables"],
+    },
+}
+
+_GENERATE_GAP_TITLES_TOOL: dict[str, Any] = {
+    "name": "generate_gap_titles",
+    "description": (
+        "Generate full curiosity-gap titles (text + thumbnail text/approach "
+        "+ reasoning) for a story — GapTitleEngine's complete generation "
+        "pass (title_idea/curiosity_gap/gap_title_engine.py), the "
+        "Claude-calling half score_title_gap_structures deliberately "
+        "leaves unwrapped. Pair with score_title_gap_structures if you "
+        "first want the pure scoring read on the same hook/thesis/facts. "
+        "Free, no cost — uses the tenant's OWN configured Anthropic key "
+        "directly (BYOK, not billed by StoryEngine), same as "
+        "regenerate_scene_text/suggest_video_titles."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "hook": {"type": "string", "description": "The story's hook/cold-open line."},
+            "thesis": {"type": "string", "description": "The story's core thesis/claim."},
+            "facts": {"type": "array", "items": {"type": "string"}, "description": "Key supporting facts."},
+            "target_count": {"type": "integer", "description": "How many titles to generate (default 3)."},
+        },
+        "required": ["hook", "thesis"],
+    },
+}
+
 _REFERENCE_MODELING_TOOLS: list[dict[str, Any]] = [
     _PULL_REFERENCE_VIDEO_TOOL, _GET_CHANNEL_TOP_PERFORMERS_TOOL,
     _SCORE_TITLE_GAP_STRUCTURES_TOOL, _SUGGEST_VIDEO_TITLES_TOOL,
+    _GENERATE_MODELED_IDEAS_TOOL, _GENERATE_GAP_TITLES_TOOL,
 ]
 
 
 def _looks_like_youtube_id(s: str) -> bool:
     return len(s) == 11 and all(c.isalnum() or c in "_-" for c in s)
+
+
+def _ensure_pipeline_on_path() -> None:
+    """Put skills/video-pipeline on sys.path so the legacy title-modeling
+    modules (title_idea.*) are importable from this SaaS-backend route.
+    Idempotent — same insertion _call_score_title_gap_structures already
+    did inline; factored out here since C59 needs it in two more places."""
+    import sys as _sys
+    from pathlib import Path as _Path
+    pipeline_root = _Path(__file__).resolve().parent.parent.parent.parent / "skills" / "video-pipeline"
+    if str(pipeline_root) not in _sys.path:
+        _sys.path.insert(0, str(pipeline_root))
+
+
+async def _resolve_tenant_anthropic_client(tenant_id):
+    """Tenant-scoped BYOK Anthropic client for the two C59 tools below,
+    whose underlying skills/video-pipeline functions (idea_modeling's
+    decompose_title/generate_modeled_ideas, GapTitleEngine) take a raw
+    client OBJECT — not an api_key string — as their injection point. Same
+    vault-key resolution routes/videos.py::rewrite_scene_text uses for
+    regenerate_scene_text (get_secret("anthropic_api_key", tenant_id)).
+    Returns None if the tenant has no key configured; callers turn that
+    into the same error wording rewrite_scene_text raises.
+    """
+    from vault import get_secret
+    api_key = await get_secret("anthropic_api_key", tenant_id)
+    if not api_key:
+        return None
+    _ensure_pipeline_on_path()
+    from shared.clients.anthropic_client import AnthropicClient
+    return AnthropicClient(api_key=api_key)
+
+
+_NO_ANTHROPIC_KEY_ERROR = "Anthropic API key required. Configure it in Settings > API Keys."
 
 
 async def _call_pull_reference_video_metadata(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -2300,11 +2390,7 @@ async def _call_get_channel_top_performers(tenant_id, arguments: dict[str, Any])
 
 
 async def _call_score_title_gap_structures(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
-    import sys as _sys
-    from pathlib import Path as _Path
-    _pipeline_root = _Path(__file__).resolve().parent.parent.parent.parent / "skills" / "video-pipeline"
-    if str(_pipeline_root) not in _sys.path:
-        _sys.path.insert(0, str(_pipeline_root))
+    _ensure_pipeline_on_path()
     from title_idea.curiosity_gap.gap_title_engine import score_structures
     story_context = {
         "hook": arguments.get("hook") or "", "thesis": arguments.get("thesis") or "",
@@ -2331,6 +2417,70 @@ async def _call_suggest_video_titles(tenant_id, arguments: dict[str, Any], calle
         return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't generate title ideas")
     _log_setup_write("suggest_video_titles", tenant_id, caller, detail=topic)
     return _text_result(result)
+
+
+async def _call_generate_modeled_ideas(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    seed_titles = arguments.get("seed_titles") or []
+    niche_variables = arguments.get("niche_variables") or {}
+    if not isinstance(seed_titles, list) or not seed_titles:
+        return _error_result("generate_modeled_ideas requires a seed_titles array (2+ proven titles)")
+    if not isinstance(niche_variables, dict) or not niche_variables:
+        return _error_result("generate_modeled_ideas requires a niche_variables object")
+    try:
+        num_ideas = max(1, min(int(arguments.get("num_ideas") or 5), 20))
+    except (TypeError, ValueError):
+        num_ideas = 5
+
+    client = await _resolve_tenant_anthropic_client(tenant_id)
+    if client is None:
+        return _error_result(_NO_ANTHROPIC_KEY_ERROR)
+
+    from title_idea.idea_modeling import decompose_title, extract_format, generate_modeled_ideas
+
+    decomposed = []
+    for title in seed_titles:
+        d = await decompose_title(str(title), client)
+        if d:
+            decomposed.append(d)
+    if not decomposed:
+        return _error_result("Couldn't decompose any of the given seed_titles into a formula pattern — try clearer, more concrete titles")
+
+    formats = extract_format(decomposed)
+    ideas = await generate_modeled_ideas(formats, {"niche_variables": niche_variables}, client, num_ideas=num_ideas)
+    _log_setup_write("generate_modeled_ideas", tenant_id, caller, detail=f"{len(seed_titles)} seeds -> {len(ideas)} ideas")
+    return _text_result({"formats_extracted": len(formats), "ideas": ideas})
+
+
+async def _call_generate_gap_titles(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    hook = (arguments.get("hook") or "").strip()
+    thesis = (arguments.get("thesis") or "").strip()
+    if not hook or not thesis:
+        return _error_result("generate_gap_titles requires hook and thesis")
+    try:
+        target_count = max(1, min(int(arguments.get("target_count") or 3), 10))
+    except (TypeError, ValueError):
+        target_count = 3
+
+    client = await _resolve_tenant_anthropic_client(tenant_id)
+    if client is None:
+        return _error_result(_NO_ANTHROPIC_KEY_ERROR)
+
+    from title_idea.curiosity_gap.gap_title_engine import GapTitleEngine
+
+    story_context = {"hook": hook, "thesis": thesis, "facts": arguments.get("facts") or []}
+    engine = GapTitleEngine(client)
+    titles = await engine.generate_titles(story_context, target_count=target_count)
+    _log_setup_write("generate_gap_titles", tenant_id, caller, detail=f"{len(titles)} titles")
+    return _text_result({
+        "titles": [
+            {
+                "text": t.text, "structure": t.structure.value, "confidence": t.structure_confidence,
+                "thumbnail_text": t.thumbnail_text, "thumbnail_approach": t.thumbnail_approach,
+                "reasoning": t.reasoning,
+            }
+            for t in titles
+        ],
+    })
 
 
 _ATOMIC_TOOLS: list[dict[str, Any]] = (
@@ -2363,6 +2513,8 @@ _ATOMIC_FREE_HANDLERS = {
     "set_narrator_voice": _call_set_narrator_voice,
     "edit_publish_info": _call_edit_publish_info,
     "suggest_video_titles": _call_suggest_video_titles,
+    "generate_modeled_ideas": _call_generate_modeled_ideas,
+    "generate_gap_titles": _call_generate_gap_titles,
 }
 
 # Paid tools needing (tenant_id, arguments, background_tasks, caller).

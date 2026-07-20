@@ -3092,6 +3092,53 @@ to the VPS, so no real sync has ever actually populated `early_signal`. What's d
   temporarily lowering `early_warning.WATCH_THRESHOLD_PCT`/`UNDERPERFORMING_THRESHOLD_PCT` in a scratch
   session (never in a live commit) to force a band change through for the walkthrough.
 
+## C59 — tenant-scoped BYOK title-modeling MCP tools · needs a real tenant with a configured Anthropic key + `MCP_ENABLED=true`
+
+Everything is proven at unit level in the sandbox (SYSTEM_STATE.md §C59 — 18 new tests across the
+pipeline + backend suites, both non-vacuous via `git stash`) with `vault.get_secret` and the underlying
+`idea_modeling`/`GapTitleEngine` functions patched — no real Claude call has ever actually run through
+either new tool. What's deferred:
+
+- [ ] **`generate_modeled_ideas` runs a real modeled-ideas call via MCP with a real tenant key.** Pick a
+      tenant with an Anthropic key already saved (Settings → API Keys), `MCP_ENABLED=true`, and an agent
+      token. Call the tool:
+      ```json
+      {"method": "tools/call", "params": {"name": "generate_modeled_ideas", "arguments": {
+        "seed_titles": ["Why Saudi Arabia Can't Retaliate", "How China Can't Stop the Dollar"],
+        "niche_variables": {"topics": ["tariffs", "shipping lanes"], "entities": ["Panama", "EU"]},
+        "num_ideas": 3
+      }}}
+      ```
+      Confirm: `isError: false`, `formats_extracted >= 1`, `ideas` is a non-empty list of
+      `{viral_title, based_on_format, ...}` dicts whose titles plausibly rebuild the seed formula with
+      the given niche variables (not a copy of a seed title). Check the tenant's own Anthropic dashboard/
+      usage for the 3 calls (2 `decompose_title` + 1 `generate_modeled_ideas`) landing on THEIR account,
+      not Ryan's `.env` key.
+- [ ] **`generate_gap_titles` runs a real call.** Same tenant/key:
+      ```json
+      {"method": "tools/call", "params": {"name": "generate_gap_titles", "arguments": {
+        "hook": "A $100B pipeline sits empty.", "thesis": "The kingdom bet on the wrong energy future.",
+        "facts": ["$100 billion spent", "Built in 2015", "Now 90% idle"], "target_count": 2
+      }}}
+      ```
+      Confirm: `isError: false`, `titles` has up to 2 entries with `text`/`structure`/`confidence`/
+      `thumbnail_text`/`thumbnail_approach`/`reasoning` populated (not empty strings) and `structure`
+      values are valid `CuriosityStructure` names.
+- [ ] **Missing-key path fires for real.** Same tenant, but temporarily point at one with NO Anthropic
+      key configured (or a fresh test tenant) — confirm both tools return `isError: true` with EXACTLY
+      `"Anthropic API key required. Configure it in Settings > API Keys."` and no partial/hung state.
+- [ ] **Cross-tenant isolation, live.** Two tenants, each with their OWN Anthropic key. Call
+      `generate_modeled_ideas` for both back-to-back — confirm each tenant's Anthropic usage dashboard
+      shows only ITS OWN calls (proves the tenant-scoped `AnthropicClient(api_key=...)` never leaks
+      across tenants at the real-network level, not just in the patched unit tests).
+- **Cost:** real, tenant-billed — `generate_modeled_ideas` makes `len(seed_titles) + 1` Claude Sonnet
+  calls (2-3 seed titles is the sane test range); `generate_gap_titles` makes 1 call. BYOK — NOT billed
+  by StoryEngine's own ledger, but IS real spend on the tenant's own Anthropic account (a few cents).
+  Get the tenant's go-ahead (or use your own test-tenant key) before running.
+- **Safety net:** these tools are dark by default (`MCP_ENABLED` unset/false in prod) — this check
+  requires deliberately enabling it in a test environment, per the module's own dark-by-default design
+  (module docstring, `routes/mcp.py` lines 5-10).
+
 ---
 
 ## Running these from a VPS session (the intended runner)

@@ -10108,3 +10108,125 @@ analytics videos response all gain fields with default `None` — any existing f
 ignores unrecognized/null fields identically; no existing field's shape or meaning changed. No spend path
 touched (design constraint 1 — read-only signal, confirmed: no write to `total_cost`/`generation_ledger`/
 kill-switch/pause anywhere in `early_warning.py`).
+
+## C59 — Tenant-scoped BYOK adapter for the title-modeling brains + the two skipped MCP tools (Follow-up queue, added 2026-07-20)
+
+**What C49 actually found, re-verified:** `title_idea/idea_modeling.py`'s `decompose_title`/
+`generate_modeled_ideas` already took `anthropic_client` as a REQUIRED parameter — never constructed
+one internally — so the "hardcodes a global-env `AnthropicClient()`" framing was slightly imprecise.
+The real defect: both functions called `anthropic_client.messages.create(model=..., max_tokens=...,
+messages=[...])` — the raw `anthropic.AsyncAnthropic` SDK shape — but EVERY real caller in this repo
+(`TrendingIdeaBot.self.anthropic`, `orchestrator/pipeline.py`'s `--more-ideas` path,
+`pipeline_control.py`) passes a `shared.clients.anthropic_client.AnthropicClient` WRAPPER instance,
+which exposes only `.generate()` and has no `.messages` attribute at all (confirmed via AST attribute
+scan of the class body). So every real invocation silently failed — the broad `except Exception` in
+both functions caught the `AttributeError` and returned `None`/`[]` — with NO existing test ever
+catching it (no test file for `idea_modeling.py` existed before this chunk). The wiring (client passed
+as a parameter) was already correct; the CONTRACT on the receiving end was wrong. `GapTitleEngine`
+(`title_idea/curiosity_gap/gap_title_engine.py`), by contrast, was already correctly built: `__init__(self,
+anthropic_client=None)` with a lazy `@property` that only constructs a global-env `AnthropicClient()`
+when `None` is passed — already additive/optional, and its Claude call site already uses `.generate()`.
+
+**Threading shape:** NO new parameter was added to either function — the pre-existing `anthropic_client`
+parameter (required, no default) was already the injection point once its contract matched what callers
+actually pass. Fixed `decompose_title` (`title_idea/idea_modeling.py:59-65`) and `generate_modeled_ideas`
+(`title_idea/idea_modeling.py:187-191`) to call `anthropic_client.generate(prompt=..., system_prompt=...,
+model=Models.CLAUDE_SONNET, max_tokens=...)` instead of `.messages.create(...)` — the SAME interface
+`GapTitleEngine._call_claude_for_titles` already used successfully. `Models.CLAUDE_SONNET` (this
+package's own single source, `orchestrator/pipeline_constants.py`, itself env-overridable) is UNCHANGED
+— same model id for both the legacy default path and the new tenant-scoped MCP path, since neither
+function accepts a model override.
+
+**Proof legacy default is unaffected:** `GapTitleEngine.__init__`/its lazy `anthropic_client` property are
+untouched by this chunk (grep-verifiable — no diff touches those lines); the legacy call sites
+(`pipeline.anthropic = AnthropicClient()`, `TrendingIdeaBot(anthropic_client=pipeline.anthropic, ...)`)
+are untouched too — same construction as before. What changed is strictly the internal METHOD called on
+whatever client object is handed in, which is required to make the function actually run (a genuine bug
+fix) rather than a behavior change to preserve — there was no working legacy behavior at the
+implementation level to preserve, since the bug fired for every real caller identically (see non-vacuity
+below: 5 of 6 new pipeline-side tests fail against pre-fix code with the EXACT `'FakeAnthropicClient'
+object has no attribute 'messages'` error).
+
+**Key resolution reused from:** `routes/videos.py::rewrite_scene_text` (regenerate_scene_text's
+underlying route) — `api_key = await get_secret("anthropic_api_key", tenant_id)`; missing-key error
+matched VERBATIM: `"Anthropic API key required. Configure it in Settings > API Keys."` (pinned as
+`mcp.py`'s `_NO_ANTHROPIC_KEY_ERROR` constant and asserted equal to a grep of the exact string still
+present in `routes/videos.py` — the "match the exact existing wording" constraint, proven not just
+duplicated by feel). New `routes/mcp.py::_resolve_tenant_anthropic_client(tenant_id)` helper: resolves
+the vault key, returns `None` on miss, else `_ensure_pipeline_on_path()` (factored out of
+`_call_score_title_gap_structures`'s inline sys.path snippet — now shared by 3 call sites, not
+duplicated) + constructs `shared.clients.anthropic_client.AnthropicClient(api_key=api_key)` — the SAME
+wrapper class every legacy caller uses, just tenant-keyed instead of env-keyed.
+
+**MCP tools + classification:** `generate_modeled_ideas` (thin wrap: `decompose_title` per seed title →
+`extract_format` → `generate_modeled_ideas`, all pre-existing `idea_modeling.py` functions, zero new
+pipeline logic) and `generate_gap_titles` (thin wrap over `GapTitleEngine.generate_titles` — the
+Claude-calling half `score_title_gap_structures` deliberately left unwrapped per C49's own "no existing
+seam" note). Both registered FREE-BYOK in `_ATOMIC_FREE_HANDLERS` (no `confirm_token`), matching C49's
+classification precedent for `regenerate_scene_text`/`suggest_video_titles` — re-verified from C49's own
+tool descriptions: "Free — uses the tenant's own configured Anthropic key directly (not billed by
+StoryEngine, so no confirm_token), same as `learn_channel_start`." Both attributed via
+`_log_setup_write`. Tenant-scoped inputs only (`seed_titles`/`niche_variables`/`hook`/`thesis`/`facts` —
+no video_id, no media URL in any input or output field name — checked programmatically in the test
+file). `_REFERENCE_MODELING_TOOLS` grows from 4 to 6 tools.
+
+**Model-id findings:** NO stale hardcoded literal Claude model ids found in either touched file — both
+already reference `orchestrator.pipeline_constants.Models.CLAUDE_SONNET` (the legacy `skills/
+video-pipeline` package's OWN single source, itself `CLAUDE_SONNET_MODEL` env-overridable), not a raw
+pinned string like the C35 pattern (`claude-sonnet-4-20250514`, confirmed 404ing). This is a DIFFERENT
+single source than `shared/channel_profile.py`'s `CLAUDE_MODELS` (the StoryEngine SaaS backend's own
+source, used by `routes/videos.py::rewrite_scene_text` and other backend-native Claude calls) — by
+design, per `storyengine/CLAUDE.md`: "StoryEngine SaaS (`storyengine/backend`) is canonical;
+`skills/video-pipeline/` is the legacy Airtable side." Forcing these two shared legacy functions onto
+`channel_profile.py`'s model id would fork the legacy package's OWN model convention for only these two
+call sites while leaving every other `Models.CLAUDE_SONNET` use in that package alone — a sweep-adjacent
+change explicitly out of scope, and would break "byte-identical legacy default." Left as-is; both the
+legacy path and the new tenant-scoped MCP path resolve the SAME model via the SAME constant, since neither
+function accepts a model override — no divergence, nothing to fix here.
+
+**Tests:** pipeline-side `title_idea/tests/test_idea_modeling.py` (NEW directory+file, 6 tests) uses a
+minimal hand-rolled `FakeAnthropicClient` (only `.generate()`, no `.messages` — matching the real wrapper
+exactly) rather than importing the real `AnthropicClient`, to stay hermetic against this sandbox's broken
+system-python `cryptography`/`_cffi_backend` (a pre-existing, already-baselined environment issue — see
+`title_idea/curiosity_gap/tests/test_integration.py`'s 1 pre-existing failure — unrelated to this chunk,
+NOT fixed here). Backend-side `storyengine/backend/tests/functional/test_c59_title_modeling_byok.py` (NEW,
+12 tests): tool surface + FREE classification, no-media-url schema check, missing-key clean-error (both
+tools + wording-match grep against `routes/videos.py`), vault resolver call-shape proof
+(`("anthropic_api_key", tenant_id)`), tenant-isolation proof (the client object reaching the REAL
+`idea_modeling`/`GapTitleEngine` functions carries the tenant's key, patched-in per test), same-callable
+proof (patches the real `idea_modeling` module functions, not a parallel reimplementation), bad-input
+short-circuits BEFORE any vault lookup (both tools), and a re-proof of C49's `score_title_gap_structures`
+never-constructs-`GapTitleEngine` invariant (guards against this chunk accidentally wiring the scoring-only
+tool to the engine). NON-VACUOUS via `git stash` on both changed source files independently: pipeline-side
+5/6 new tests fail (exact `AttributeError: 'FakeAnthropicClient' object has no attribute 'messages'`);
+backend-side 11/12 new tests fail (`AttributeError: module 'routes.mcp' has no attribute
+'_call_generate_gap_titles'` etc.) — both restored via `git stash pop`, full re-pass.
+
+**Suite counts:** pipeline suite (`title_idea/curiosity_gap/tests/` + new `title_idea/tests/`): baseline
+**56P/1F** (the 1 pre-existing failure is the same `_cffi_backend`/cryptography panic noted above) →
+after **62P/1F**, same failure by name, +6. Backend full suite: baseline **1910P/15F/1E** (re-confirmed
+live via stash, same 15 failures/1 error by name as this session's starting point) → after **1922P/15F/1E**
+= baseline + 12, SAME 15 failures + SAME 1 error by name, zero new. `py_compile` clean on both touched
+`.py` files + both new test files. No frontend touched — `npx tsc` not run this chunk (backend/pipeline-
+only change).
+
+### Modified/New Files (C59)
+
+| Path | Change |
+|------|--------|
+| `skills/video-pipeline/title_idea/idea_modeling.py` | `decompose_title`/`generate_modeled_ideas` fixed to call `anthropic_client.generate(...)` instead of the incompatible `.messages.create(...)` |
+| `skills/video-pipeline/title_idea/tests/test_idea_modeling.py` | NEW (new `tests/` dir under `title_idea/`) — 6 tests |
+| `storyengine/backend/routes/mcp.py` | NEW `_GENERATE_MODELED_IDEAS_TOOL`/`_GENERATE_GAP_TITLES_TOOL` tool defs (added to `_REFERENCE_MODELING_TOOLS`); NEW `_ensure_pipeline_on_path()` helper (factored out of `_call_score_title_gap_structures`'s inline snippet, now shared); NEW `_resolve_tenant_anthropic_client()` + `_NO_ANTHROPIC_KEY_ERROR`; NEW `_call_generate_modeled_ideas`/`_call_generate_gap_titles` handlers, registered in `_ATOMIC_FREE_HANDLERS` |
+| `storyengine/backend/tests/functional/test_c59_title_modeling_byok.py` | NEW — 12 tests |
+
+### Deploy-safety assessment
+
+**ff-merge candidate.** Purely additive: 2 new MCP tool names (dark by default — `MCP_ENABLED` off in
+prod, same as every other MCP chunk), no migration, no schema change, no existing route/model/frontend
+field touched. The `idea_modeling.py` fix changes an internal call site inside two functions that had NO
+working legacy call path to regress (every real caller already hit the `AttributeError`, silently
+swallowed) — so there is no observable behavior change for existing callers to worry about; if anything
+this fixes previously-silent failures for `TrendingIdeaBot`'s trending-idea-generation flow and the
+`--more-ideas` CLI debug path. No spend path touched by StoryEngine's own ledger — both new tools are
+BYOK (tenant's own key, never StoryEngine-billed), same non-billing shape as `regenerate_scene_text`/
+`suggest_video_titles`/`learn_channel_start`.
