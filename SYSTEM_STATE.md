@@ -10616,3 +10616,68 @@ ratified pricing decision, not an accidental regression, and the operator exempt
 protects the one account (Ryan's) whose own workflow could otherwise break. No paid-generation path
 touched; every new gate fails the SAME way (402, upgrade-url) existing gates already use, so frontend
 error handling doesn't need new cases to render sanely. Recommend ff-merge.
+
+## C63 — Pricing on the UI: ratified ladder copy update (added 2026-07-20)
+
+Frontend-only chunk: updates the customer-facing plan cards to the ladder ratified in
+tasks/decisions.md's 2026-07-20 "PRICING RATIFIED" entry (Starter $29/mo, Pro $79/mo,
+Agency $199/mo, ~20% annual discount) and to the feature copy C62 actually enforces
+(Starter: videos up to 10 minutes + 12 generations/month; Pro/Agency: unlimited video
+generation & uploads; MCP access = Pro+). No backend change — Stripe price objects are
+Ryan's dashboard config, flagged in `tasks/live-verification-queue.md` §C63.
+
+### Files touched
+
+- `storyengine/frontend/src/app/pricing/page.tsx` — `PLANS` array rebuilt from 2 tiers
+  (Basic $50 / Pro $100 — stale, predates the ratification) to 3 tiers (Starter $29 / Pro
+  $79 / Agency $199), each with an `annualPrice` field rendered as a small "or $X/mo billed
+  annually" line under the monthly price (display-only — no annual Stripe price object
+  exists, checkout still only wires the monthly price IDs). Feature bullets rewritten to
+  match the ratified table (1 channel workspace, videos up to 10 min, 12 gens/mo for
+  Starter; unlimited generation & uploads, Channel DNA, MCP, autopilot dial for Pro/Agency).
+- `storyengine/frontend/src/app/billing/page.tsx` — matching 3-tier `PLANS` array. Added a
+  `videosLabel` field (`"12 videos/mo"` / `"Unlimited videos"`) since Pro/Agency's video
+  count is no longer a fixed number to render (`plan.videos` alone read poorly once it's
+  the 1,000,000 sentinel — the label field is what the JSX now renders instead).
+  `renderMin` values (60/180/500) were already correct against
+  `backend/routes/billing.py::PLAN_LIMITS` and are unchanged.
+- `storyengine/frontend/src/app/page.tsx` (the logged-out landing page) — had its OWN
+  separate, previously-unmentioned `PRICING_TIERS` array with the same stale Basic
+  $50/Pro $100 copy (found via the mandated grep sweep, not named in the original chunk
+  spec). Updated to the same 3-tier ladder; added the `Shield` icon import for the new
+  Agency tier's icon.
+- `storyengine/frontend/src/components/auth/AuthenticatedShell.tsx` — the `UpgradePrompt`
+  component (shown when a Starter account hits a Pro-gated route like `/autopilot`)
+  hardcoded `"Starting at $40/month"` — a THIRD stale number that matched neither the old
+  ($50/$100) nor new ($29/$79/$199) ladder. Corrected to `"$79/month"` (Pro's real price,
+  since this prompt is specifically an upsell-to-Pro CTA).
+
+### Deliberately left untouched (checked, not price/plan copy)
+
+- `storyengine/frontend/src/app/docs/page.tsx` FAQ: `"$11-19 per video"` — BYOK raw
+  generation cost, matches docs/cost-awareness.md, not a subscription price.
+- `storyengine/frontend/src/components/onboarding/ApiKeysStep.tsx`: `"~$15-30/mo"` — same
+  category, BYOK weekly-cadence cost estimate, not plan pricing.
+- `storyengine/frontend/src/app/settings/page.tsx`: `` `${subscription.plan} Plan` `` — reads
+  the live subscription object, not hardcoded.
+- `storyengine/frontend/src/components/auth/AuthenticatedShell.tsx`'s `isPlanAtLeast` tier
+  ranking (`free:0, starter:1, pro:2, agency:3, unlimited:99`) — already correct, no
+  "Basic" key anywhere in code (only the display `name` field said "Basic"; the `key` was
+  always `"starter"`), so no gating logic needed touching.
+
+### Verification
+
+- `cd storyengine/frontend && rm -rf .next && npx tsc --noEmit` — clean, zero errors.
+- `npm run build` — succeeds, all 33 routes generated (`/pricing`, `/billing`, `/` included).
+- Backend suite (proves no accidental damage from a frontend-only chunk):
+  `1946 passed / 15 failed / 1 error` — identical to the pre-chunk baseline (same 15
+  failures by name), as expected since no backend file was touched.
+
+### Deploy-safety assessment
+
+**Deploy-safe, ff-merge candidate.** Pure copy/display change on three already-public pages;
+no data flow, no new component behavior, no schema/backend touched. The only functional
+risk is a MISMATCH between the new UI numbers and Ryan's actual Stripe dashboard prices —
+that's a config problem for Ryan to fix in Stripe, not a code risk, and is called out
+explicitly in `tasks/live-verification-queue.md` §C63 as the first thing to check before
+relying on real checkout.

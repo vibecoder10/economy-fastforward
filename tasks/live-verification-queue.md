@@ -18,6 +18,39 @@
 
 ---
 
+## C63 — Pricing UI (ratified ladder) · Stripe dashboard prices must match
+
+C63 updated the customer-facing copy on `/pricing`, `/billing`, and the landing page (`/`) to
+the ratified ladder (tasks/decisions.md 2026-07-20 "PRICING RATIFIED"): **Starter $29/mo, Pro
+$79/mo, Agency $199/mo**, ~20%-off annual figures shown for display only (**$24 / $64 / $159**).
+Frontend-only change (`tsc`/`build` clean, backend suite unchanged at 1946P/15F/1E) — nothing
+here is live-verifiable in the sandbox because Stripe checkout itself needs real price objects.
+Deferred to Ryan:
+
+1. **Stripe dashboard price objects must match the UI numbers exactly.** `STRIPE_PRICE_STARTER`
+   / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_AGENCY` (env vars read by
+   `backend/routes/billing.py::PLAN_PRICE_MAP`) must point at Stripe Price objects of **$29 /
+   $79 / $199 per month** respectively — if Ryan's dashboard still has the old $50/$100 prices
+   (or no `agency` price object at all — check it exists), checkout will charge the WRONG amount
+   or 500 on `plan="agency"`. This is a config-only fix in the Stripe dashboard + VPS env, no
+   code change.
+2. **Annual billing is display-only, not wired.** The $24/$64/$159 annual figures on the pricing
+   page are informational (docs/pricing-proposal-2026-07.md's ratified ~20%-off numbers) — there
+   is no annual Stripe Price object and no billing-interval toggle in checkout yet. If/when Ryan
+   wants annual billing sold, that's a separate chunk: new Stripe Price objects (interval=year),
+   an interval toggle in the UI, and `create_checkout` passing the right price ID.
+3. **Extra-channel seat price ($49/mo)** is mentioned in the new copy (Pro/Agency cards) but, per
+   the proposal doc's still-open item 2, has no Stripe Price object or code gate yet — it's
+   currently just a promise in the marketing copy, not a chargeable line item. Same true before
+   this chunk; not a regression, just don't forget it needs its own Stripe object before anyone
+   is actually billed $49/extra channel.
+4. **Quick tap-through once Stripe is configured:** load `/pricing` (logged out) and `/billing`
+   (logged in) on prod, confirm all three cards render, click Subscribe on each and confirm the
+   Stripe Checkout page shows the matching price before completing (don't complete a real charge
+   during this check unless intentionally testing end-to-end).
+
+---
+
 ## C52 — autopilot proposals surface (P4.2-c) · needs a real tenant with a live DB + running app
 
 Everything is proven at the unit/code-trace level in the sandbox (27 new tests,

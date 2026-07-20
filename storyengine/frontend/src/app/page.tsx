@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   Clock,
   Video,
+  Shield,
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -87,23 +88,34 @@ const STATS = [
   { value: "24/7", label: "CTR Monitoring", icon: TrendingUp },
 ];
 
+// Ratified 2026-07-20 (tasks/decisions.md "PRICING RATIFIED" +
+// docs/pricing-proposal-2026-07.md) — keep in sync with
+// frontend/src/app/pricing/page.tsx and frontend/src/app/billing/page.tsx.
 const PRICING_TIERS = [
   {
     key: "starter",
-    name: "Basic",
-    price: 50,
+    name: "Starter",
+    price: 29,
     icon: Zap,
     tagline: "Everything you need to make videos",
-    features: ["Full 18-stage pipeline", "12 videos/month", "All visual styles", "Review & edit every stage"],
+    features: ["Full 18-stage pipeline", "Videos up to 10 minutes", "12 video generations/month", "All visual styles"],
   },
   {
     key: "pro",
     name: "Pro",
-    price: 100,
+    price: 79,
     icon: Crown,
     tagline: "The full AI engine, on autopilot",
     popular: true,
-    features: ["Everything in Basic", "30 videos/month", "Autopilot mode", "Analytics & learnings", "Competitor analysis", "Discovery ideas"],
+    features: ["Everything in Starter", "Unlimited video generation & uploads", "Channel DNA + quality engine", "Analytics & early warning", "MCP access — drive it from Claude", "Autopilot: propose → auto-draft"],
+  },
+  {
+    key: "agency",
+    name: "Agency",
+    price: 199,
+    icon: Shield,
+    tagline: "Run it like a channel manager would",
+    features: ["Everything in Pro", "3 channel workspaces included", "Full autopilot with a weekly budget you set", "Priority support"],
   },
 ];
 

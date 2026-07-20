@@ -30,43 +30,72 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
-// Two plans. Keys map to Stripe prices via the backend (STRIPE_PRICE_STARTER =
-// $50, STRIPE_PRICE_PRO = $100) and to tiers in AuthenticatedShell: "pro"
-// unlocks the Pro-only routes (Autopilot, Learnings, Competitors, Discovery);
-// "starter" gets video generation and sees an upgrade prompt on those.
+// Three plans (ratified 2026-07-20, tasks/decisions.md "PRICING RATIFIED" +
+// docs/pricing-proposal-2026-07.md). Keys map to Stripe prices via the
+// backend (STRIPE_PRICE_STARTER / STRIPE_PRICE_PRO / STRIPE_PRICE_AGENCY,
+// set in the Stripe dashboard — must match the numbers below) and to tiers
+// in AuthenticatedShell: "pro"+ unlocks the Pro-only routes (Autopilot,
+// Learnings, Competitors, Discovery); "starter" gets video generation
+// (capped at 10-min length / 12 gens per month, enforced server-side in
+// routes/billing.py::enforce_video_length_cap + PLAN_LIMITS) and sees an
+// upgrade prompt on those routes.
+//
+// Annual prices below are the ratified ~20%-off figures for display only —
+// checkout still only wires the monthly Stripe price IDs (no annual Stripe
+// price objects exist yet); see tasks/live-verification-queue.md §Pricing.
 const PLANS = [
   {
     key: "starter",
-    name: "Basic",
-    price: 50,
+    name: "Starter",
+    price: 29,
+    annualPrice: 24,
     icon: Zap,
     tagline: "Everything you need to make videos",
     features: [
-      { text: "Full video pipeline (18 stages)", included: true },
-      { text: "12 videos per month", included: true },
+      { text: "1 channel workspace", included: true },
+      { text: "Full video pipeline (18 stages) + chat director", included: true },
+      { text: "Videos up to 10 minutes long", included: true },
+      { text: "12 video generations per month", included: true },
+      { text: "BYOK generation — pay raw cost on your own keys", included: true },
       { text: "All visual styles", included: true },
       { text: "Review & edit every stage", included: true },
-      { text: "Autopilot mode", included: false },
-      { text: "Analytics & learnings", included: false },
-      { text: "Competitor analysis", included: false },
-      { text: "Discovery ideas", included: false },
+      { text: "Channel DNA", included: false },
+      { text: "Analytics & early warning", included: false },
+      { text: "MCP access (drive it from Claude)", included: false },
+      { text: "Autopilot", included: false },
     ],
   },
   {
     key: "pro",
     name: "Pro",
-    price: 100,
+    price: 79,
+    annualPrice: 64,
     icon: Crown,
     tagline: "The full AI engine, on autopilot",
     popular: true,
     features: [
-      { text: "Everything in Basic", included: true },
-      { text: "30 videos per month", included: true },
-      { text: "Autopilot mode", included: true },
-      { text: "Analytics dashboard", included: true },
-      { text: "Learnings & patterns", included: true },
-      { text: "Competitor analysis", included: true },
-      { text: "Discovery ideas", included: true },
+      { text: "Everything in Starter", included: true },
+      { text: "1 channel workspace (+$49/mo per extra channel)", included: true },
+      { text: "Unlimited video generation & uploads", included: true },
+      { text: "Channel DNA — learns your channel's voice", included: true },
+      { text: "Quality engine + channel patterns", included: true },
+      { text: "Analytics flywheel + early warning", included: true },
+      { text: "Drive it from Claude on your phone (MCP)", included: true },
+      { text: "Autopilot: propose → auto-draft", included: true },
+    ],
+  },
+  {
+    key: "agency",
+    name: "Agency",
+    price: 199,
+    annualPrice: 159,
+    icon: Shield,
+    tagline: "Run it like a channel manager would",
+    features: [
+      { text: "Everything in Pro", included: true },
+      { text: "3 channel workspaces included (+$49/mo per extra)", included: true },
+      { text: "Full autopilot with a weekly budget you set", included: true },
+      { text: "Priority support", included: true },
     ],
   },
 ] as const;
@@ -220,13 +249,18 @@ export default function PricingPage() {
                 {plan.tagline}
               </p>
 
-              <div className="flex items-baseline gap-1 mb-6">
-                <span className="text-4xl font-display font-bold" style={{ color: "var(--text-primary)" }}>
-                  ${plan.price}
-                </span>
-                <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>
-                  /month
-                </span>
+              <div className="mb-6">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-display font-bold" style={{ color: "var(--text-primary)" }}>
+                    ${plan.price}
+                  </span>
+                  <span className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+                    /month
+                  </span>
+                </div>
+                <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
+                  or ${plan.annualPrice}/mo billed annually
+                </p>
               </div>
 
               <ul className="space-y-2.5 mb-8 flex-1">

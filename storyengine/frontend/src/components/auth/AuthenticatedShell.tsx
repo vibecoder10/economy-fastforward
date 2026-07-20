@@ -235,7 +235,7 @@ function UpgradePrompt() {
         Upgrade to Pro
       </Link>
       <p className="text-xs mt-4" style={{ color: "var(--text-tertiary)" }}>
-        Starting at $40/month
+        Starting at $79/month
       </p>
     </div>
   );

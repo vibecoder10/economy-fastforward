@@ -36,42 +36,69 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
+// Ratified 2026-07-20 (tasks/decisions.md "PRICING RATIFIED" +
+// docs/pricing-proposal-2026-07.md). videos/renderMin mirror
+// backend/routes/billing.py::PLAN_LIMITS exactly (starter: 12 videos-mo /
+// 60 render-min; pro: unlimited gens / 180 render-min; agency: unlimited
+// gens / 500 render-min). Starter is also capped at 10-minute video length
+// (enforce_video_length_cap) — surfaced below since it's a real ceiling.
 const PLANS = [
   {
     key: "starter",
-    name: "Basic",
-    price: 50,
+    name: "Starter",
+    price: 29,
     icon: Zap,
     color: "var(--turquoise)",
     videos: 12,
+    videosLabel: "12 videos/mo",
     renderMin: 60,
     features: [
+      { text: "1 channel workspace", included: true },
       { text: "Full production pipeline", included: true },
-      { text: "12 videos/month", included: true },
+      { text: "Videos up to 10 minutes", included: true },
+      { text: "12 video generations/month", included: true },
       { text: "All visual styles", included: true },
       { text: "Review & edit every stage", included: true },
+      { text: "Channel DNA", included: false },
+      { text: "Analytics & early warning", included: false },
+      { text: "MCP access", included: false },
       { text: "Autopilot", included: false },
-      { text: "Analytics & Learnings", included: false },
-      { text: "Competitor scraping", included: false },
-      { text: "Discovery ideas", included: false },
     ],
   },
   {
     key: "pro",
     name: "Pro",
-    price: 100,
+    price: 79,
     icon: Crown,
     color: "var(--gold)",
     popular: true,
-    videos: 30,
+    videos: 1_000_000,
+    videosLabel: "Unlimited videos",
     renderMin: 180,
     features: [
-      { text: "Everything in Basic", included: true },
-      { text: "30 videos/month", included: true },
-      { text: "Autopilot mode", included: true },
-      { text: "Analytics & Learnings", included: true },
-      { text: "Competitor scraping", included: true },
-      { text: "Discovery ideas", included: true },
+      { text: "Everything in Starter", included: true },
+      { text: "1 channel workspace (+$49/mo per extra)", included: true },
+      { text: "Unlimited video generation & uploads", included: true },
+      { text: "Channel DNA + quality engine", included: true },
+      { text: "Analytics flywheel + early warning", included: true },
+      { text: "MCP access (drive it from Claude)", included: true },
+      { text: "Autopilot: propose → auto-draft", included: true },
+    ],
+  },
+  {
+    key: "agency",
+    name: "Agency",
+    price: 199,
+    icon: Shield,
+    color: "var(--gold)",
+    videos: 1_000_000,
+    videosLabel: "Unlimited videos",
+    renderMin: 500,
+    features: [
+      { text: "Everything in Pro", included: true },
+      { text: "3 channel workspaces (+$49/mo per extra)", included: true },
+      { text: "Full autopilot with a weekly budget you set", included: true },
+      { text: "Priority support", included: true },
     ],
   },
 ];
@@ -288,7 +315,7 @@ export default function BillingPage() {
                   ${plan.price}<span className="text-xs font-body font-normal" style={{ color: "var(--text-tertiary)" }}>/mo</span>
                 </p>
                 <p className="text-[10px] mb-4" style={{ color: "var(--text-tertiary)" }}>
-                  {plan.videos} videos · {plan.renderMin} render min
+                  {plan.videosLabel} · {plan.renderMin} render min
                 </p>
                 <ul className="space-y-2 mb-5">
                   {plan.features.map((f) => (
