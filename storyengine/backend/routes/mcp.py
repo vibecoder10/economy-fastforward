@@ -265,6 +265,19 @@ _READ_TOOLS: list[dict[str, Any]] = [
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "get_workspace_info",
+        "description": (
+            "Whoami for this connector: which channel workspace it speaks for (per the "
+            "C61 ruling, one workspace = one channel = one tenant), its niche/style summary, "
+            "autopilot dial level + kill-switch state, and the account's plan. Call this "
+            "when you're not sure which channel you're acting on — with several StoryEngine "
+            "connectors configured (one per channel workspace), this is how Claude always "
+            "disambiguates which channel a given connector's tool calls apply to. Read-only, "
+            "no cost, no media URLs, no secrets (never OAuth tokens or key material)."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 _CREATE_VIDEO_TOOL: dict[str, Any] = {
@@ -422,6 +435,55 @@ async def _call_list_models(tenant_id, arguments: dict[str, Any]) -> dict[str, A
     return _text_result(result.model_dump())
 
 
+async def _call_get_workspace_info(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Whoami (C61b). Deliberately builds the response as an explicit named-field
+    dict rather than ever spreading a DB row — that's the no-secrets guard: even if
+    the underlying query or table gained a token/key column tomorrow, this handler
+    physically can't leak it because it only ever reads the four fields it names
+    below, never `dict(row)`. No media URLs (nothing here has one to leak).
+
+    Field sources:
+      - workspace/channel name: channel_profiles.channel_name, falling back to
+        tenants.name — the SAME "name or channel_name" precedence
+        routes/workspaces.py's list_workspaces uses for the UI switcher, so this
+        tool reports the identical label a human sees there.
+      - niche/style summary: channel_profiles.niche / .style_description — the
+        cheap plain columns, not the full channel_identity DNA blob (that JSONB
+        is get_channel_dna's job; duplicating it here would be redundant and
+        heavier than a whoami call should be).
+      - autopilot: dial_level + kill-switch state via autopilot_dial.
+        get_autopilot_dial (the one shared accessor every other autopilot
+        reader/writer in this file already uses).
+      - plan: routes.billing._get_tenant_plan (the same tenant->account plan
+        resolution require_plan()/check_plan_limits() use).
+    """
+    from autopilot_dial import get_autopilot_dial
+    from routes.billing import _get_tenant_plan
+
+    row = await fetch_one(
+        """SELECT t.name AS tenant_name, cp.channel_name, cp.niche, cp.style_description
+           FROM tenants t
+           LEFT JOIN channel_profiles cp ON cp.tenant_id = t.id
+           WHERE t.id = $1""",
+        tenant_id,
+    )
+    row = row or {}
+    dial = await get_autopilot_dial(tenant_id)
+    plan = await _get_tenant_plan(tenant_id)
+
+    return _text_result({
+        "workspace_name": row.get("channel_name") or row.get("tenant_name") or "Workspace",
+        "niche": row.get("niche") or None,
+        "style_summary": row.get("style_description") or None,
+        "autopilot": {
+            "dial_level": dial.dial_level,
+            "kill_switch_tripped": dial.kill_switch_tripped_at is not None,
+            "kill_switch_reason": dial.kill_switch_reason,
+        },
+        "plan": plan,
+    })
+
+
 _READ_HANDLERS = {
     "list_videos": _call_list_videos,
     "get_video": _call_get_video,
@@ -430,6 +492,7 @@ _READ_HANDLERS = {
     "get_ledger": _call_get_ledger,
     "list_style_presets": _call_list_style_presets,
     "list_models": _call_list_models,
+    "get_workspace_info": _call_get_workspace_info,
 }
 
 

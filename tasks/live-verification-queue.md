@@ -246,6 +246,29 @@ negotiation. Point a real client at it and watch what happens:
 - **Rollback:** disconnect the client / delete the `.mcp.json` entry — no server-side state changes
   from merely connecting (only `tools/call` mutates anything, and every paid one is quote-gated).
 
+### Managing multiple channels (one connector per workspace)
+
+Per decisions.md 2026-07-20's C61 ruling ("Option A — ONE WORKSPACE = ONE CHANNEL"): a channel IS a
+tenant/workspace — everything already per-tenant (DNA, quality rules, patterns, autopilot dial/
+budget/kill-switch) is already per-channel, so running several channels from Claude needs no new
+scoping layer, just one connector per workspace:
+
+- **One MCP server entry per channel workspace**, each pointed at the SAME `/api/mcp` URL but with
+  its OWN `se_agent_...` token (mint one token per workspace in that workspace's Settings → Agent
+  Access — see Step 3 above; switch the active workspace with the Channel Manager switcher, or log in
+  as that workspace's own user, before minting each one). Repeat Step 3+4 once per channel.
+- **Naming convention:** name each config entry `storyengine-<channel>` (e.g. `storyengine-power-
+  doctrine`, `storyengine-designed-used`) so the client's connector list itself tells channels apart
+  — don't rely on remembering which token went where.
+- **The disambiguation check:** call **`get_workspace_info`** (a free read tool, no arguments) right
+  after connecting a new entry, and any time it's unclear which channel a chat is currently talking
+  to. It returns the workspace/channel name, niche/style summary, autopilot dial level + kill-switch
+  state, and plan — enough to confirm at a glance which connector answered. With several connectors
+  configured this is the ONE call that answers "which channel am I acting on right now."
+- **Pricing note:** each channel workspace is its own subscription seat (the ruling's stated pricing
+  lever) — see §C61b's trace below for the honest caveat that Stripe/plan is wired per-ACCOUNT today,
+  not per-workspace, so this lever isn't charging separately per workspace yet.
+
 ### Step 5 — Run the §7 example session live, ON A DISPOSABLE TEST VIDEO
 
 Mirrors `tasks/storyengine-copilot-ux-map.md` §7's example conversation and C29's sandbox dry-run's
@@ -333,7 +356,10 @@ and reuses the SAME disposable test video from Step 5, or a fresh one — either
 **Why this rides the same runbook:** C49's 21 new tools are dark behind the SAME `MCP_ENABLED` flag
 and the SAME token — nothing new to deploy/flip/mint. Reuses the disposable test video from Step 5
 (or a fresh 2-scene one). Total expected spend: **~$0.10** (one `redraw_shot` OR one
-`redo_character_sheet`, whichever you pick — don't run both on a smoke test).
+`redo_character_sheet`, whichever you pick — don't run both on a smoke test). If you're running this
+against more than one connected channel workspace in the same sitting, call `get_workspace_info`
+first each time you switch connectors (see "Managing multiple channels" under Step 4) so a redraw or
+edit never lands on the wrong client's video.
 
 1. **Shot-level** (on a video that already has pictures — e.g. the Step 5 video after `draft_pass`):
    `get_shots` → note one `asset_id`. `edit_shot_image_prompt` with a small text tweak → confirm the

@@ -360,3 +360,93 @@ human" gates are trivially identical: whatever runs here runs for every caller).
 
 Same chunk also fixed the §C52-documented double-launch race (`launch_candidate` claim column,
 migration 109) — see SYSTEM_STATE.md §C53 for the mechanism.
+
+---
+
+## C61b — Second-workspace trace (2026-07-20): can a user create a SECOND channel workspace today?
+
+Per decisions.md 2026-07-20's C61 ruling ("Option A — ONE WORKSPACE = ONE CHANNEL", multi-channel =
+one MCP connector per workspace). This is the TRACE part of C61b — report only, nothing built.
+
+### Tenant-creation seam
+
+Every signup path funnels through **one function**: `routes/google_auth.py::_create_tenant_for_
+account(account_id, name, email)` — called exactly once per NEW account, from `POST /register`
+(password signup, line 262), and from each of the three Google OAuth branches (existing-account
+login does NOT call it again; only first-ever login/registration does, lines 315/367/401/424). It
+does four inserts: `users` (memberships' FK target — not `accounts`), `tenants` (name = `"<display
+name>'s Workspace"`), `memberships` (role='owner'), `autopilot_config` (enabled=false). One account →
+one tenant → one membership, always, for every self-serve signup path. No password-reset, profile, or
+login route ever calls it a second time for an existing account.
+
+### accounts ↔ tenants ↔ memberships ↔ Stripe shape
+
+- `accounts` = the human login identity. Stripe attaches HERE: `stripe_customer_id`, `stripe_
+  subscription_id`, `stripe_plan`, `stripe_status`, `plan`, `trial_ends_at` are ALL columns on
+  `accounts` (schema.sql lines 716-737), written by `routes/billing.py`'s checkout/webhook handlers
+  keyed on `account_id` (`create_checkout` line 60-72, `_handle_checkout_completed` etc.).
+- `tenants` = the workspace/channel container (`id`, `name`, `slug`, `plan` — this `plan` column is
+  VESTIGIAL/unused; every real plan read goes through `accounts.plan` via the join below, never
+  `tenants.plan`).
+- `memberships` = the join table (`user_id` → `users.id`, `tenant_id` → `tenants.id`, `role`),
+  many-to-many capable by schema.
+- **Plan/billing resolution is per-ACCOUNT, not per-tenant**: `routes/billing.py::_get_tenant_plan`
+  (line 387) does `SELECT a.plan, a.trial_ends_at FROM accounts a JOIN memberships m ON m.user_id =
+  a.id WHERE m.tenant_id = $1 LIMIT 1` — i.e. "find `tenant_id`'s membership, read ITS account's
+  plan." If one account belongs to two tenants, BOTH tenants resolve to the SAME plan/subscription —
+  there is no per-tenant Stripe subscription today. Same pattern in `is_account_in_good_standing`
+  (line 466) and `rate_limit.py`'s own mirror of `_get_tenant_plan` (line 118).
+- So: **account is 1:1 with a self-serve tenant at signup**, but the schema and the plan-resolution
+  join both already tolerate 1 account : N tenants — they just have no self-serve path to GET to N
+  today, and billing doesn't distinguish which of the N tenants is "paying" (it's the account that
+  pays, once, covering every tenant it's a member of).
+
+### Is there ANY UI path to create a second workspace / invite a manager?
+
+**Yes to a second workspace, but operator-gated, not self-serve.** `routes/workspaces.py` (`POST /api/
+workspaces`, `Workspace` model) does exactly this: inserts a fresh `users` row (if missing), a new
+`tenants` row, a `memberships` row (role='owner', SAME account as the new membership's user_id), and
+an `autopilot_config` row — i.e. it calls the identical 4-insert shape `_create_tenant_for_account`
+uses (its own docstring says so: "Mirrors the signup tenant-creation"). The gate: `_is_operator`
+(`SELECT is_operator FROM accounts WHERE id = $1`) — `is_operator` is a manually-set boolean
+(migration `069_operator_flag.sql`), true only for Ryan's own account today. A non-operator calling
+`POST /api/workspaces` gets a flat 403. The frontend switcher
+(`frontend/src/components/nav/workspace-switcher.tsx`) renders NOTHING for a user with `is_operator:
+false` and exactly one workspace (`if (!data || (!data.is_operator && data.workspaces.length <= 1))
+return null`) — so this is Ryan's own "Channel Manager command center" for running client channels
+himself, not a customer-facing "add a channel" feature.
+
+**No to invite-a-manager: there is no invite flow at all.** Grepped every route file for "invite"/
+"Invite" — zero hits (the only backend match anywhere is an unrelated string in
+`producer_prompt.py`). `memberships` supports many users per tenant by schema, but nothing ever
+WRITES a second membership row for an EXISTING tenant — `workspaces.py::create_workspace` always
+creates a brand-new tenant AND a brand-new membership together, for the SAME calling user; it never
+adds a second user to an existing tenant. So "invite a team member into my existing channel" and
+"add a second channel as a paying customer" are BOTH entirely missing — not partially built, not
+gated behind a flag, just absent.
+
+### What exists vs. what's missing, for "add a second channel workspace" + invite-a-manager
+
+| Piece | Status |
+|---|---|
+| Schema support for N tenants per account | Exists (`memberships` many-to-many) |
+| Schema support for N users per tenant | Exists (`memberships` many-to-many, unused in that direction) |
+| Self-serve "create a second channel workspace" | Missing — `POST /api/workspaces` is operator-only |
+| Self-serve UI to see/switch multiple workspaces | Exists, but gated: only renders for `is_operator` or an account somehow already in >1 tenant |
+| Per-workspace billing (the C61 ruling's "each channel = its own subscription seat") | Missing — plan/Stripe is per-ACCOUNT; N tenants under one account currently share ONE subscription for free |
+| Invite another user into an existing tenant | Missing entirely — no invite route, no email-invite flow, no pending-membership state |
+| "Which workspace is this MCP connector talking to" disambiguation | Shipped this chunk — `get_workspace_info` (routes/mcp.py) |
+
+### Recommended build shape (not built this chunk)
+
+The self-serve version of `POST /api/workspaces` is the smallest real gap: drop the `_is_operator`
+gate, replace it with the SAME plan/billing check `agent_access.py`'s token mint already uses
+(`is_account_in_good_standing` — no new workspace for a lapsed account), and — the part that actually
+makes "each workspace is its own subscription seat" true rather than aspirational — require a NEW
+Stripe checkout scoped to the new tenant_id before the tenant/membership rows are written, rather
+than silently letting the new tenant ride the account's existing subscription for free. That
+checkout-first ordering is the one piece of new logic; the INSERT shape it wraps is unchanged from
+today's `create_workspace`. Invite-a-manager is a separate, larger feature (pending-invite table,
+email delivery, an accept-invite route creating the SECOND membership on an EXISTING tenant) and
+should stay a separate chunk — it has no code to reuse here, unlike the second-workspace flow which
+is 90% built and gated shut.

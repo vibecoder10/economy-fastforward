@@ -10375,3 +10375,98 @@ trace pass.
 
 **Docs-only, ff-merge freely.** No code, schema, route, or frontend file touched — `decisions.md`,
 the checklist bullet, this entry, and `tasks/todo.md`'s handoff are the only changes.
+
+---
+
+## C61b — Workspace-as-channel: `get_workspace_info` whoami tool + multi-channel runbook + second-workspace trace (added 2026-07-20)
+
+Follows decisions.md 2026-07-20's C61 RULING ("Option A — ONE WORKSPACE = ONE CHANNEL"). Three parts,
+no restructuring (the ruling already settled that a channel IS a tenant — everything per-tenant was
+already per-channel).
+
+### (a) New MCP read tool: `get_workspace_info` (`storyengine/backend/routes/mcp.py`)
+
+Added to `_READ_TOOLS`/`_READ_HANDLERS` alongside `list_videos`/`get_video`/etc — no new file, no new
+route (rides the existing `/api/mcp` `tools/list`/`tools/call` dispatch). No arguments. Returns:
+
+- `workspace_name` — `channel_profiles.channel_name`, falling back to `tenants.name`, falling back to
+  `"Workspace"` — the SAME precedence `routes/workspaces.py::list_workspaces` uses for the UI switcher
+  label, so this tool reports the identical name a human sees there.
+- `niche` / `style_summary` — the plain `channel_profiles.niche` / `.style_description` columns (NOT
+  the heavy `channel_identity` DNA JSONB blob — that's `get_channel_dna`'s job; duplicating it here
+  would be redundant and heavier than a whoami call should be).
+- `autopilot` — `dial_level`, `kill_switch_tripped` (bool), `kill_switch_reason`, sourced from
+  `autopilot_dial.get_autopilot_dial` (the one shared accessor every other autopilot MCP tool already
+  uses).
+- `plan` — `routes.billing._get_tenant_plan(tenant_id)` (the same account→plan resolution
+  `require_plan`/`check_plan_limits` use).
+
+No-secrets guard: the handler builds its response from explicitly named fields — it never spreads a
+DB row — so even a poisoned/future row (an accidental `SELECT *` picking up
+`youtube_refresh_token`/`google_drive_refresh_token`/an API key column) cannot leak through. Proven in
+`tests/functional/test_c61b_workspace_info.py` by feeding the handler a deliberately poisoned row and
+asserting no secret-shaped key survives, plus a negative-control test showing a naive `dict(row)`
+passthrough WOULD fail that same assertion (non-vacuity without a stash dance for that specific test).
+
+### (b) Runbook: `tasks/live-verification-queue.md` §C29
+
+Added a "Managing multiple channels (one connector per workspace)" subsection after Step 4 (client
+connection) — one MCP server entry per channel workspace, its own `se_agent_...` token, naming
+convention `storyengine-<channel>`, `get_workspace_info` as the disambiguation check, and the honest
+pricing-lever caveat (see (c) below — Stripe/plan is per-account today, not per-workspace, so "each
+workspace is its own seat" isn't charging separately yet). Also added a one-line pointer to
+`get_workspace_info` in Step 5c's intro (the C49 atomic-surface session), since testing several
+connected channel workspaces in one sitting is exactly where landing an edit on the wrong client's
+video becomes a real risk.
+
+### (c) Second-workspace trace (report only, no build) — `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` §C61b
+
+Traced the full signup→tenant→membership→Stripe chain. Findings:
+- Every signup path (password `POST /register`, Google OAuth first-login) funnels through ONE
+  function, `routes/google_auth.py::_create_tenant_for_account`, called exactly once per new account —
+  one account, one tenant, one membership, always.
+- Stripe/plan lives on `accounts` (`stripe_customer_id`/`stripe_subscription_id`/`plan`/
+  `trial_ends_at`), NOT on `tenants` (`tenants.plan` is vestigial/unread). `routes/billing.py::_get_
+  tenant_plan` resolves a tenant's plan via `memberships → accounts` — so N tenants under the same
+  account currently share ONE subscription.
+- A second-workspace UI path DOES exist — `routes/workspaces.py` (`POST /api/workspaces`) mirrors
+  `_create_tenant_for_account`'s exact 4-insert shape — but it's gated to `accounts.is_operator`
+  (true only for Ryan's own account, migration `069_operator_flag.sql`); the frontend switcher
+  (`workspace-switcher.tsx`) renders nothing for anyone else. It's Ryan's own client-channel command
+  center, not a self-serve customer feature.
+- No invite-a-manager flow exists anywhere (zero "invite" hits across every route file) — `memberships`
+  supports many users per tenant by schema, but nothing ever writes a second membership onto an
+  EXISTING tenant.
+- Recommended build shape (not built): drop the operator gate on `POST /api/workspaces`, gate it on
+  `is_account_in_good_standing` instead, and require a NEW Stripe checkout scoped to the new tenant_id
+  BEFORE the insert (so "own subscription seat" becomes real, not just schema-possible). Invite-a-
+  manager is a separate, larger feature (pending-invite table + email + accept-invite route) — no
+  code to reuse, should stay its own chunk.
+
+### Verification (C61b)
+
+- New file `storyengine/backend/tests/functional/test_c61b_workspace_info.py`, 7 tests, all passing.
+- Non-vacuity via `git stash push -- routes/mcp.py` (test file untracked, stashed separately): 6/7
+  fail with `AttributeError: module 'routes.mcp' has no attribute '_call_get_workspace_info'` without
+  the change; `git stash pop` restores, 7/7 pass.
+- Full suite (`storyengine/backend`, `./venv/bin/python -m pytest -q`): **1929 passed / 15 failed / 1
+  error** — same 15F/1E set as the 1922P/15F/1E baseline, +7 new passing tests, zero new failures.
+- `python -m py_compile routes/mcp.py` — clean.
+
+### Modified/New Files (C61b)
+
+- `storyengine/backend/routes/mcp.py` — `get_workspace_info` tool schema + `_call_get_workspace_info`
+  handler + `_READ_HANDLERS` entry.
+- `storyengine/backend/tests/functional/test_c61b_workspace_info.py` — new.
+- `tasks/live-verification-queue.md` — §C29 "Managing multiple channels" subsection + §5c intro note.
+- `docs/reports/2026-07-17-storyengine-agent-audit-findings.md` — new §C61b trace section.
+- `tasks/storyengine-wiring-fix-checklist.md` — C61 bullet ticked with rescope note (see that file).
+- This entry.
+
+### Deploy-safety assessment
+
+**Deploy-safe, ff-merge freely.** `get_workspace_info` is additive (a new read-only tool name in an
+existing dark-by-default router — `MCP_ENABLED` is still unset in prod, so this doesn't change any
+live behavior until that flag flips and C25a's held branch lands, per §C29's own deploy sequencing).
+No schema change, no existing tool's behavior touched, no frontend change. The runbook and audit-report
+edits are docs-only.
