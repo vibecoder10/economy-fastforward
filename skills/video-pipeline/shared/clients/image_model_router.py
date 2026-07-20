@@ -45,13 +45,21 @@ def _url_of(res) -> Optional[str]:
     return res or None
 
 
-async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out=None):
+async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out=None,
+                        fail_info_out=None):
     """The pre-existing default path, byte-for-byte: GPT Image 2 (image-to-image
     via generate_thumbnail_gpt2 when refs exist, else generate_scene_image_gpt's
-    own text-to-image + content-policy-aware nano-banana-2 fallback)."""
+    own text-to-image + content-policy-aware nano-banana-2 fallback).
+
+    fail_info_out (C25a-fix8): threaded ONLY into the refs branch
+    (generate_thumbnail_gpt2) — the one storyboard sheets actually take, and
+    the one with the documented OpenAI-filter rejection signature. The
+    no-refs branch (generate_scene_image_gpt) already has its own internal
+    content-policy-aware nano fallback and is out of scope for this fix."""
     if refs:
         res = await image_client.generate_thumbnail_gpt2(
-            prompt, refs, aspect_ratio, resolution=resolution, task_id_out=task_id_out)
+            prompt, refs, aspect_ratio, resolution=resolution, task_id_out=task_id_out,
+            fail_info_out=fail_info_out)
         url = _url_of(res)
         return (url, "gpt-image-2") if url else (None, None)
     res = await image_client.generate_scene_image_gpt(
@@ -73,6 +81,7 @@ async def generate_scene_image_for_model(
     aspect_ratio: str = "16:9",
     resolution: str = "2K",
     task_id_out: Optional[list] = None,
+    fail_info_out: Optional[list] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Draw ONE image honoring `model_override`. Returns (url, model_used) — the
     model actually reflected in `model_used` is what generated the pixels, which
@@ -99,6 +108,15 @@ async def generate_scene_image_for_model(
     images from many calls into a single ledger row should NOT pass this —
     a single task id can't honestly represent a batch (see migration 093's
     header for the full call-site audit).
+
+    fail_info_out: optional list the caller passes in to receive Kie's raw
+    failure detail dict ({"failCode", "failMsg", "creditsConsumed"}) when
+    every attempt fails (append, don't assign — same convention as
+    task_id_out). Only populated by the GPT-with-refs path (generate_
+    thumbnail_gpt2, the storyboard-sheet call shape) — C25a-fix8 (2026-07-20),
+    lets a caller detect the specific OpenAI content-filter rejection
+    signature (failCode 400, 0 credits) and retry with different prompt
+    wording instead of guessing from a bare None.
     """
     refs = _urls(reference_urls)
     model = (model_override or "").strip()
@@ -109,7 +127,8 @@ async def generate_scene_image_for_model(
         url = _url_of(res)
         if url:
             return url, Models.IMAGE_ZIMAGE
-        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out)
+        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out,
+                                   fail_info_out)
 
     if model == "nano-banana-2":
         if refs:
@@ -122,7 +141,9 @@ async def generate_scene_image_for_model(
         url = _url_of(res)
         if url:
             return url, "nano-banana-2"
-        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out)
+        return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out,
+                                   fail_info_out)
 
     # default / 'gpt-image-2' / unrecognized override
-    return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out)
+    return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out,
+                               fail_info_out)

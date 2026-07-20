@@ -25,6 +25,7 @@ import sys
 import urllib.request
 import uuid
 from io import BytesIO
+from typing import Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BACKEND = os.path.dirname(_HERE)
@@ -66,26 +67,15 @@ from shared.channel_profile import (  # noqa: E402
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
-# C25a-fix7 (2026-07-20): storyboard SHEET draws to gpt-image-2-image-to-image
-# started 400ing ("The current content could not be processed", failCode 400,
-# creditsConsumed 0.0, ~30-100ms turnaround — Kie/OpenAI reject before real
-# generation starts) the moment the LOCKED LOCATION env reference was added as
-# a THIRD input_urls entry alongside the 2 cast sheets. Kie's own docs
-# (docs.kie.ai/market/gpt/gpt-image-2-image-to-image) document input_urls
-# maxItems: 16 — the failure is NOT a documented count limit — but prod
-# evidence on video cd5d2883-427e-4bfb-854d-8849d025d444 is conclusive that 3
-# is the working boundary here regardless: EVERY 3-ref sheet call failed (both
-# before AND after C25a-fix5's URL-extension fix landed and the backend
-# restarted at 16:10 UTC — ruling fix5's own bug out), while a same-day 2-ref
-# call (a content-policy safe-redraw mid clip generation, cast sheets only,
-# `redraw_asset_image` below never adds an env ref) succeeded, and June sheets
-# on video f32ed182 (2 refs, no environments designed yet) drew clean at
-# 11,335-12,950 chars — LONGER than today's 6,481-6,908-char failing prompts,
-# which rules out prompt length as the cause too (a separate, unmerged
-# C25a-fix6 guessed length; parked — this ref-count evidence is what actually
-# lines up). Net: this is an empirical Kie/OpenAI-side quirk, not a documented
-# API limit — cap sheet reference images at the last confirmed-working count.
-SHEET_REF_CAP = 2
+# C25a-fix7 (2026-07-20) capped storyboard sheet reference images at 2
+# (SHEET_REF_CAP), blaming a 3rd input_urls entry for 400s on video
+# cd5d2883. C25a-fix8 (2026-07-20) re-derived that against the real filter
+# and found it confounded: the ALL-CAPS "PRODUCTION STORYBOARD SHEET" header
+# 400s on its own regardless of ref count, and a 3-ref probe (2 cast + env)
+# on a clean body SUCCEEDED once that header was fixed (taskId
+# 829cfea1f9c95b4f27935375ea5a95a5). SHEET_REF_CAP removed — see
+# _sheet_header()'s docstring below for the full evidence trail and the
+# header rewrite that actually fixed it.
 # D1 shot budget: the per-scene MOMENT ceiling for dialogue scenes (see
 # _coverage_shape). Raised 12 → 18 with angles back on (Ryan 2026-07-02:
 # quantity guardrails off — 9 shots on a 2:19 scene was a slideshow); this is
@@ -758,9 +748,88 @@ def _expected_coverage_frame_count(directive_text: str, max_moments: int, angles
     return sum(1 + len(m.get("angles") or []) for m in moments)
 
 
+def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_line: str,
+                   variant: str = "primary") -> str:
+    """The fixed instruction paragraph opening one storyboard sheet prompt —
+    kept SEPARATE from _plan_sheet_prompts's panel-body construction so a
+    failed sheet draw can retry with a DIFFERENT header on the SAME body (see
+    the fallback-header retry in generate_storyboard_sheet_for_scene).
+
+    C25a-fix8 (2026-07-20): the old ALL-CAPS "Professional animation
+    PRODUCTION STORYBOARD SHEET" header started 400ing on
+    gpt-image-2-image-to-image ("Sorry, but the image we created may violate
+    OpenAI's content policies" / "The current content could not be
+    processed...", failCode 400, creditsConsumed 0.0) on real prod prompts
+    (video cd5d2883-427e-4bfb-854d-8849d025d444). Pre-flight bisection against
+    the REAL Kie/OpenAI filter (not a guess) proved the OLD header ALONE
+    reproduced the 400 (taskId cdb23fdc2df9c230fb0acb481b5d5c4c), and this
+    plain-sentence rewrite — modeled on the June-era sheet prompt's phrasing
+    (scripts.storyboard_prompts, video f32ed182, pre-dates this all-caps
+    "PRODUCTION STORYBOARD SHEET" structure and never tripped the filter) —
+    reproducibly PASSES standalone at the same ref count (taskId
+    bcc59eacc1b858543d101fe89b402fb7).
+
+    Known gap, found by the SAME bisection: the SET+AXIS+SETUPS+panel-briefs
+    BODY can independently trip the filter on some scenes regardless of
+    header wording at all (an empty-header + full-body probe still 400'd,
+    taskId 6fae54729526675a18d7d6855248f687) — a body-composition issue this
+    header fix does not and structurally cannot reach. The 'fallback' variant
+    below and the retry in generate_storyboard_sheet_for_scene exist for the
+    header-driven failures; a body-driven failure will still 400 on both
+    variants, and that is expected, not a bug in this fix.
+
+    'fallback': a second, sparser phrasing tried ONCE if 'primary' still
+    400s with the documented signature. Built on the same plain-sentence,
+    minimal-caps principle as 'primary' but not independently pre-flight-
+    tested to the same depth — best-effort (a 400 on this variant costs
+    nothing to attempt, so it is safe to try even unproven)."""
+    if variant == "fallback":
+        return (
+            f"Storyboard sheet {chunk_index} of {total_chunks}: {panel_count} panels in a "
+            "3-column grid on a light grey page, each panel a wide 16:9 frame. Style: "
+            f"{style_line}. Match each character's appearance to the attached reference "
+            "images throughout. A caption strip below each panel shows its number and "
+            "caption; a silent panel's strip shows just the number and shot type. No "
+            "lettering inside the panels."
+        )
+    return (
+        f"This is storyboard sheet {chunk_index} of {total_chunks} for an animated scene: a "
+        f"grid of {panel_count} panels arranged in 3 columns on a plain light grey page. Each "
+        "panel is a wide 16:9 cinematic frame, never square or tall. Every panel uses the "
+        f"same art style, {style_line}, with matching lighting and color grading throughout. "
+        "Draw every character consistently across every panel, matching their appearance to "
+        "the attached reference images. A plain white strip sits below each panel showing "
+        "its number and its caption, spelled correctly; a silent panel's strip shows just "
+        "the number and shot type. The panel artwork itself carries no lettering, signs or "
+        "speech bubbles; text only appears in the caption strips below."
+    )
+
+
+def _sheet_filter_reject(fail_info: Optional[dict]) -> bool:
+    """True if fail_info matches the KNOWN OpenAI-content-filter rejection
+    signature C25a-fix8 targets: failCode 400, ~0 credits consumed (Kie/
+    OpenAI reject before real generation starts, so nothing is spent), and
+    one of the two known failMsg strings seen in prod bisection (2026-07-20,
+    video cd5d2883) — "The current content could not be processed..." and
+    "...may violate OpenAI's content policies." Used to gate the ONE free
+    fallback-header retry so it fires only on this specific, deterministic,
+    zero-cost rejection — never on a real (credit-consuming) failure, where
+    retrying would just burn money on the same doomed prompt."""
+    if not fail_info:
+        return False
+    code = str(fail_info.get("failCode") or "").strip()
+    if code != "400":
+        return False
+    credits = fail_info.get("creditsConsumed")
+    if credits not in (0, 0.0, None):
+        return False
+    msg = (fail_info.get("failMsg") or "").lower()
+    return ("could not be processed" in msg) or ("content polic" in msg) or ("violat" in msg)
+
+
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
                         set_line: str = "", axis_line: str = "",
-                        setups_line: str = "") -> list[str]:
+                        setups_line: str = "", header_variant: str = "primary") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     ≤panels_per_sheet per sheet (9 = the adherence ceiling; pass
@@ -815,16 +884,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     for ci, chunk in enumerate(chunks, start=1):
         listed = "\n".join(chunk)
         prompts.append(
-            f"Professional animation PRODUCTION STORYBOARD SHEET (sheet {ci} of {len(chunks)}): "
-            f"a clean grid of {len(chunk)} numbered panels, 3 columns, on a light grey page; "
-            "each panel a WIDE 16:9 widescreen cinematic frame (never square or tall). "
-            f"Art style, identical in every panel: {style_line}. Consistent lighting and grade. "
-            "Every character's face, hair and wardrobe come from the attached cast reference — "
-            "the same people in every panel; never invent a person or change their look. "
-            "Under EVERY panel a white caption bar with its bold panel number and its CAPTION "
-            "text, large and correctly spelled; a (silent) panel's bar shows just the number "
-            "and shot type. INSIDE the panels draw NO text of any kind — no speech bubbles, "
-            f"no signs, no lettering.{set_block}{axis_block}{setups_block}"
+            _sheet_header(ci, len(chunks), len(chunk), style_line, variant=header_variant)
+            + f"{set_block}{axis_block}{setups_block}"
             "Draw these panels IN ORDER:\n"
             + listed +
             "\nCONSTRAINTS: never swap which side of the frame a character occupies; never "
@@ -925,11 +986,19 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
 
-        prompts = _plan_sheet_prompts(moments, style_dir,
-                                      panels_per_sheet=panels_per_sheet_for(directive or ""),
-                                      set_line=parse_set_dressing(directive or "") or "",
-                                      axis_line=parse_axis_line(directive or "") or "",
-                                      setups_line=parse_setups_line(directive or "") or "")[:5]
+        _sheet_kwargs = dict(
+            panels_per_sheet=panels_per_sheet_for(directive or ""),
+            set_line=parse_set_dressing(directive or "") or "",
+            axis_line=parse_axis_line(directive or "") or "",
+            setups_line=parse_setups_line(directive or "") or "")
+        prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
+        # C25a-fix8: the same panels, header-swapped — held ready so a board
+        # that trips OpenAI's content filter on the primary header can retry
+        # ONCE against the identical body with a sparser fallback header (see
+        # _sheet_header's docstring). Cheap (pure string formatting, no LLM),
+        # computed once here rather than per-failure.
+        prompts_fallback = _plan_sheet_prompts(
+            moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
         if beat is not None and not (1 <= beat <= len(prompts)):
             return {"status": "failed",
                     "error": f"Scene {sc} has {len(prompts)} board(s) — board {beat} doesn't exist."}
@@ -957,20 +1026,16 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         env_block = ""
-        # C25a-fix7 (see SHEET_REF_CAP's module-level comment): cap total sheet
-        # reference images at the last confirmed-working count. Cast sheets keep
-        # priority — character identity is product law — so they fill the cap
-        # first; the env ref is appended last and is the first thing dropped when
-        # the cap is hit. The LOCKED LOCATION text block below is added to the
-        # prompt regardless of whether its image ref made the cut, so a dropped
-        # env ref degrades location lock gracefully (prompt-only), not silently.
+        # C25a-fix7 capped sheet reference images at 2 (SHEET_REF_CAP), blaming
+        # a 3rd input_urls entry for the 400s seen on video cd5d2883. C25a-fix8
+        # (2026-07-20) re-derived that conviction against the REAL filter: the
+        # exact failing prompt's header spliced onto a body proven clean at 2
+        # refs was re-probed at 3 refs (2 cast + the env ref) and SUCCEEDED
+        # (taskId 829cfea1f9c95b4f27935375ea5a95a5) — the ref count was never
+        # the cause; fix7's evidence was confounded by the convicted header
+        # riding along on every 3-ref call in prod that day. Cap REVERTED —
+        # every cast ref plus the env ref goes in, same as pre-fix7.
         sheet_refs = list(cast_refs)
-        if len(sheet_refs) > SHEET_REF_CAP:
-            dropped_cast = len(sheet_refs) - SHEET_REF_CAP
-            sheet_refs = sheet_refs[:SHEET_REF_CAP]
-            print(f"      ⚠️ Storyboard sheet: dropping {dropped_cast} cast sheet ref(s) past the "
-                  f"{SHEET_REF_CAP}-image cap (Kie 400s sheet draws past this count) — character "
-                  "identity may drift for the dropped cast member(s).")
         if env:
             env_block = (
                 f"\nLOCKED LOCATION — {env['name']}: every panel's background is this EXACT "
@@ -978,13 +1043,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 f"{(env.get('description') or '')[:220]}. Keep the location's layout, colors and "
                 "props IDENTICAL across all panels; never invent a different room or set."
             )
-            if len(sheet_refs) < SHEET_REF_CAP:
-                sheet_refs.append(env["reference_url"])
-            else:
-                print(f"      ⚠️ Storyboard sheet: dropping the '{env['name']}' location reference "
-                      f"image — {len(cast_refs)} cast sheet ref(s) already fill the {SHEET_REF_CAP}-"
-                      "image cap. LOCKED LOCATION text stays in the prompt; only the image anchor "
-                      "is lost.")
+            sheet_refs.append(env["reference_url"])
         lock_note = f", locked to {env['name']}" if env else ""
         todo = [(beat, prompts[beat - 1])] if beat is not None else list(enumerate(prompts, start=1))
         ok = 0
@@ -997,8 +1056,30 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             _p(f"Scene {sc}: drawing {'ONLY board' if beat is not None else 'board'} "
                f"{bi} of {len(prompts)} — one sheet, {on_sheet} panels{lock_note}…")
             # Storyboard SHEETS are a preview, not an asset row — no image_model to persist here.
+            fail_box: list = []
             url, _model_used = await generate_scene_image_for_model(
-                ic, model_override, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect)
+                ic, model_override, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
+                fail_info_out=fail_box)
+            # C25a-fix8: ONE free retry with the sparser fallback header when the
+            # primary header trips OpenAI's content filter (the exact, zero-cost,
+            # deterministic signature — see _sheet_filter_reject's docstring).
+            # Never retries a real (credit-consuming) failure — that would just
+            # burn money re-drawing the same doomed prompt.
+            if not url and _sheet_filter_reject(fail_box[-1] if fail_box else None) \
+                    and bi - 1 < len(prompts_fallback):
+                info = fail_box[-1]
+                print(f"      ⚠️ Storyboard sheet: board {bi} tripped OpenAI's content filter "
+                      f"(failCode={info.get('failCode')}, creditsConsumed={info.get('creditsConsumed')}) "
+                      "— retrying ONCE with the sparser fallback header (C25a-fix8)…")
+                retry_box: list = []
+                url, _model_used = await generate_scene_image_for_model(
+                    ic, model_override, prompts_fallback[bi - 1] + env_block,
+                    reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box)
+                if url:
+                    print(f"      ✅ Storyboard sheet: board {bi} succeeded on the fallback-header retry.")
+                else:
+                    print(f"      ❌ Storyboard sheet: board {bi} failed again on the fallback header "
+                          f"({(retry_box[-1] if retry_box else {}).get('failMsg') or 'no fail info'}).")
             if url:
                 stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
                 # bi is 1-5 by construction (prompts capped, beat validated).

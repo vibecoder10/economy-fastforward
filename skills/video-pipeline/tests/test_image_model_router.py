@@ -64,12 +64,23 @@ class FakeImageClient:
         return urls
 
     async def generate_thumbnail_gpt2(self, prompt, reference_image_url, aspect_ratio="16:9",
-                                       resolution="2K", task_id_out=None):
+                                       resolution="2K", task_id_out=None, fail_info_out=None):
         self.calls.append(("generate_thumbnail_gpt2", (prompt, reference_image_url),
                             {"aspect_ratio": aspect_ratio, "resolution": resolution}))
         if task_id_out is not None:
             task_id_out.append("task-thumbnail-gpt2")
-        return self._consume("generate_thumbnail_gpt2")
+        result = self._consume("generate_thumbnail_gpt2")
+        # C25a-fix8: mirrors the real poll_for_completion contract — fail_info_out
+        # gets populated on a FAILED call, same as task_id_out gets populated on
+        # a successful one. `plan["generate_thumbnail_gpt2_fail_info"]` is an
+        # opt-in test fixture key (a dict, or a list of dicts consumed in the
+        # same order as the method's own return values) for tests that need to
+        # assert what the caller does with a specific failure signature.
+        if result is None and fail_info_out is not None:
+            info = self._consume("generate_thumbnail_gpt2_fail_info")
+            if info is not None:
+                fail_info_out.append(info)
+        return result
 
     async def generate_scene_image_gpt(self, prompt, reference_image_url, aspect_ratio="16:9",
                                         resolution="2K", task_id_out=None):
@@ -262,3 +273,44 @@ def test_task_id_out_is_none_safe_when_caller_does_not_pass_it():
     ic = FakeImageClient({"generate_scene_image_gpt": {"url": "https://img/x.png", "model": "gpt-image-2"}})
     url, model = _run(generate_scene_image_for_model(ic, "", "p", aspect_ratio="16:9"))
     assert (url, model) == ("https://img/x.png", "gpt-image-2")
+
+
+# --- C25a-fix8: fail_info_out threading (storyboard sheet dispatch needs the
+# raw failCode/failMsg/creditsConsumed to detect the specific OpenAI content-
+# filter rejection signature and retry with a different header). -----------
+
+def test_fail_info_out_reaches_default_gpt_thumbnail_path_on_failure():
+    ic = FakeImageClient({
+        "generate_thumbnail_gpt2": None,
+        "generate_thumbnail_gpt2_fail_info": {
+            "failCode": "400", "failMsg": "The current content could not be processed.",
+            "creditsConsumed": 0.0,
+        },
+    })
+    box: list = []
+    url, model = _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9", fail_info_out=box))
+    assert (url, model) == (None, None)
+    assert box == [{"failCode": "400", "failMsg": "The current content could not be processed.",
+                     "creditsConsumed": 0.0}]
+
+
+def test_fail_info_out_untouched_on_success():
+    ic = FakeImageClient({"generate_thumbnail_gpt2": {"url": "https://img/gpt.png", "model": "gpt-image-2"}})
+    box: list = []
+    _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9", fail_info_out=box))
+    assert box == []
+
+
+def test_fail_info_out_is_none_safe_when_caller_does_not_pass_it():
+    """Existing callers (coverage_to_app's store_scene batch path, redraw_
+    asset_image, etc.) that never pass fail_info_out must be completely
+    unaffected — no TypeError, no behavior change, on success OR failure."""
+    ic = FakeImageClient({
+        "generate_thumbnail_gpt2": None,
+        "generate_thumbnail_gpt2_fail_info": {"failCode": "400", "failMsg": "x", "creditsConsumed": 0.0},
+    })
+    url, model = _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9"))
+    assert (url, model) == (None, None)

@@ -415,14 +415,27 @@ class ImageClient:
         task_id: str,
         max_attempts: int = 30,
         poll_interval: float = 2.0,
+        fail_info_out: Optional[list] = None,
     ) -> Optional[list[str]]:
         """Poll for image generation completion.
-        
+
         Args:
             task_id: Task ID to poll
             max_attempts: Maximum polling attempts
             poll_interval: Seconds between polls
-            
+            fail_info_out: optional list the caller passes in to receive Kie's
+                raw failure details ({"failCode", "failMsg", "creditsConsumed"})
+                on a FAILED task (append, don't assign — same fresh-box-per-call
+                convention as task_id_out). Populated on every failure path
+                below, including the ones that raise a marked RuntimeError
+                (mutation happens before the raise, so callers that catch and
+                swallow that exception — e.g. generate_thumbnail_gpt2 — still
+                get the detail). C25a-fix8 (2026-07-20): lets a caller detect
+                the specific zero-credit "content could not be processed" /
+                "may violate OpenAI's content policies" rejection and retry
+                with different prompt wording, instead of guessing from a bare
+                None return.
+
         Returns:
             List of image URLs when complete, or None if failed
         """
@@ -480,6 +493,11 @@ class ImageClient:
                     print(f"         Error code: {error_code}")
                 # Log the full response data for debugging hard-to-diagnose failures
                 print(f"         Full response data: {data}")
+                if fail_info_out is not None:
+                    fail_info_out.append({
+                        "failCode": error_code, "failMsg": error_msg,
+                        "creditsConsumed": data.get("creditsConsumed"),
+                    })
                 # A banned / out-of-credit account is terminal — raise a marked
                 # error so the stage stops and the user gets an actionable
                 # "fix your Kie key" message, instead of a silent None that the
@@ -886,6 +904,7 @@ class ImageClient:
         aspect_ratio: str = "16:9",
         resolution: str = "2K",
         task_id_out: Optional[list] = None,
+        fail_info_out: Optional[list] = None,
     ) -> Optional[dict]:
         """Generate a thumbnail with OpenAI GPT Image 2 via kie.ai
         (gpt-image-2-image-to-image). Same shape as generate_with_reference but
@@ -896,7 +915,13 @@ class ImageClient:
         task_id_out: optional list the caller passes in to receive the Kie
         taskId once the create-task call succeeds (append, don't assign —
         see generate_video's task_id_out docstring). Used for
-        generation_ledger traceability (checklist C16c)."""
+        generation_ledger traceability (checklist C16c).
+
+        fail_info_out: optional list the caller passes in to receive Kie's
+        raw failure detail dict on a FAILED poll (see poll_for_completion's
+        docstring) — C25a-fix8, lets a caller (the storyboard sheet dispatch)
+        detect the specific OpenAI content-filter rejection signature and
+        retry with different prompt wording instead of guessing from None."""
         prompt = scrub_minor_terms(prompt)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -933,7 +958,8 @@ class ImageClient:
                 if task_id_out is not None:
                     task_id_out.append(task_id)
                 await asyncio.sleep(5)
-                result_urls = await self.poll_for_completion(task_id, max_attempts=120, poll_interval=5.0)
+                result_urls = await self.poll_for_completion(
+                    task_id, max_attempts=120, poll_interval=5.0, fail_info_out=fail_info_out)
                 if result_urls:
                     return {"url": result_urls[0]}
                 print("      ❌ Generation failed (poll timeout)")

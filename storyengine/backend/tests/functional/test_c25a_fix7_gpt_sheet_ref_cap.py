@@ -1,55 +1,28 @@
-"""Tests for C25a-fix7 Part B (2026-07-20): storyboard SHEET draws to
-gpt-image-2-image-to-image were 400ing ("The current content could not be
-processed", 0 credits consumed) on video cd5d2883-427e-4bfb-854d-8849d025d444
-the moment the LOCKED LOCATION environment reference became a THIRD
-`input_urls` entry alongside 2 cast sheets.
+"""SUPERSEDED by C25a-fix8 (2026-07-20). This file originally pinned
+C25a-fix7 Part B's SHEET_REF_CAP=2 (storyboard sheet reference images capped
+at 2, dropping the LOCKED LOCATION env ref past that count) as the fix for
+gpt-image-2-image-to-image 400s ("The current content could not be
+processed", 0 credits) on video cd5d2883-427e-4bfb-854d-8849d025d444.
 
-Evidence trail (see scripts/coverage_to_app.py's SHEET_REF_CAP comment for the
-full writeup):
-  - Today's 3-ref sheet calls (2 cast + 1 env) failed 100% of the time, both
-    before and after C25a-fix5's unrelated URL-extension fix landed.
-  - A same-day 2-ref call (`redraw_asset_image`, cast sheets only — that path
-    never adds an env ref, confirmed by reading its source below) succeeded.
-  - June sheets (video f32ed182, before the environments feature existed —
-    confirmed via `git log -S "sheet_refs.append(env"`, commit aa51d2d3) drew
-    clean at 2 refs, 11-13k chars — LONGER than today's failing ~6.5-6.9k char
-    prompts, ruling out prompt length as the cause.
-  - Kie's own docs (docs.kie.ai/market/gpt/gpt-image-2-image-to-image) document
-    `input_urls` as `maxItems: 16` — there is NO documented 2-image limit, so
-    this is an empirical Kie/OpenAI-side quirk, not a documented API cap. The
-    fix caps at the last CONFIRMED-WORKING count (2) regardless of the
-    documented ceiling.
+C25a-fix8 re-derived that conviction against the REAL Kie/OpenAI filter (not
+a guess) and found it confounded:
+  - The convicted prompt's ALL-CAPS "Professional animation PRODUCTION
+    STORYBOARD SHEET" header 400s completely on its own, with ZERO refs
+    beyond the trivial control set, regardless of how many input_urls ride
+    along (taskId cdb23fdc2df9c230fb0acb481b5d5c4c).
+  - Once that header was rewritten (see scripts/coverage_to_app.py's
+    _sheet_header), a fresh probe at 3 refs (2 cast + the env ref — the
+    EXACT shape fix7 blamed) SUCCEEDED (taskId
+    829cfea1f9c95b4f27935375ea5a95a5).
+  - Every 3-ref failure fix7's evidence cited was ALSO carrying the
+    convicted header — the header rode along on every real prod call that
+    day, so the ref-count correlation was real but not causal.
 
-Call-shape ref counts (quoted from the actual call sites, all in this repo):
-  - generate_storyboard_sheet_for_scene (this file, ~L958-985, BEFORE this fix):
-    `sheet_refs = list(cast_refs)` then unconditionally
-    `sheet_refs.append(env["reference_url"])` when an env matches — 3 refs
-    whenever the video has 2 cast members AND a locked environment.
-  - redraw_asset_image (~L1060-1062): `reference_urls=cast_refs` — cast sheets
-    only, env never added — this is the 2-ref path that kept working.
-  - generate_thumbnail_gpt2 (skills/video-pipeline/shared/clients/
-    image_client.py ~L905-906): sends `input_urls: refs` = EXACTLY whatever
-    list its caller passed, capped only at `[:16]` — no cap of its own, so the
-    caller (generate_storyboard_sheet_for_scene) is the only place that can
-    enforce a smaller cap.
-
-Fix: `SHEET_REF_CAP = 2`, applied only in the sheet-draw path, cast sheets
-first (character identity is product law), env ref appended only if a slot
-remains, with a loud print() when either a cast ref or the env ref gets
-dropped. The LOCKED LOCATION text block is added to the prompt regardless of
-whether its image ref survived the cap, so a dropped env ref degrades
-location lock gracefully (text-only), not silently.
-
-No network, no real DB — same module-stub-at-import-time + per-test patch
-pattern as test_c16b_coverage_skip_if_done.py. `generate_coverage_directive`
-is patched to return a fixed, real-format directive so the REAL
-parse_coverage / enforce_shot_budget / _plan_sheet_prompts / _match_scene_env
-run unmocked — only network- and DB-touching calls are patched.
-
-Stash-proof: `git stash` scripts/coverage_to_app.py's SHEET_REF_CAP change and
-every "_capped" test below fails (3 refs reach generate_scene_image_for_model
-instead of 2); the "_under_cap" and "_no_env" tests still pass either way,
-which is why the capped tests are the ones that actually pin the fix.
+SHEET_REF_CAP is REMOVED. generate_storyboard_sheet_for_scene reverts to
+pre-fix7 behavior: every cast ref plus the env ref (when one matches) goes
+into input_urls unconditionally, same as before fix7 ever landed. These
+tests now pin THAT (the revert), not the cap — same FakeDB harness as
+before, so the "no cap" behavior stays regression-guarded going forward.
 
 Run:
     cd storyengine/backend && ./venv/bin/python -m pytest tests/functional/test_c25a_fix7_gpt_sheet_ref_cap.py -q
@@ -85,7 +58,7 @@ _stub("vault", get_secret=_boom)
 _stub("kie_unified", get_text_client_for_tenant=_boom)
 
 from scripts.coverage_to_app import (  # noqa: E402
-    generate_storyboard_sheet_for_scene, _scene_text_hash, SHEET_REF_CAP,
+    generate_storyboard_sheet_for_scene, _scene_text_hash,
 )
 
 VIDEO_ID = "cd5d2883-427e-4bfb-854d-8849d025d444"
@@ -149,7 +122,8 @@ def _run(cast_refs, envs):
     captured_calls = []
 
     async def _fake_generate_scene_image_for_model(ic, model_override, prompt,
-                                                     reference_urls=None, aspect_ratio="16:9"):
+                                                     reference_urls=None, aspect_ratio="16:9",
+                                                     **kwargs):
         captured_calls.append({"prompt": prompt, "reference_urls": list(reference_urls or [])})
         return "https://fake-storage.example/board.png", "gpt-image-2"
 
@@ -181,42 +155,28 @@ def _run(cast_refs, envs):
 
 
 # ---------------------------------------------------------------------------
-# The cap: 2 cast + 1 env (the exact prod failure shape) must NOT reach Kie
-# as 3 refs — env is dropped, cast sheets both survive.
+# The revert: 2 cast + 1 env — the exact prod failure shape fix7 blamed on ref
+# count — now reaches Kie as all 3 refs, uncapped, env ref last.
 # ---------------------------------------------------------------------------
 
-def test_two_cast_refs_plus_env_caps_at_two_env_dropped():
+def test_two_cast_refs_plus_env_sends_all_three_uncapped():
     calls = _run(cast_refs=["https://fake/cast-a.png", "https://fake/cast-b.png"], envs=[ENV])
     refs = calls[0]["reference_urls"]
-    assert len(refs) == SHEET_REF_CAP == 2, refs
-    assert refs == ["https://fake/cast-a.png", "https://fake/cast-b.png"], (
-        "cast sheets must win the slots over the env ref")
-    assert ENV["reference_url"] not in refs, "env ref must be the one dropped, not a cast ref"
+    assert refs == ["https://fake/cast-a.png", "https://fake/cast-b.png", ENV["reference_url"]], refs
 
 
-def test_env_locked_location_text_survives_even_when_its_ref_is_dropped():
-    """Location lock degrades gracefully (prompt text stays) not silently
-    (the whole env is not just forgotten) when the cap drops its image ref."""
+def test_env_locked_location_text_and_ref_both_present():
     calls = _run(cast_refs=["https://fake/cast-a.png", "https://fake/cast-b.png"], envs=[ENV])
     assert "LOCKED LOCATION" in calls[0]["prompt"]
     assert ENV["name"] in calls[0]["prompt"]
+    assert ENV["reference_url"] in calls[0]["reference_urls"]
 
 
-# ---------------------------------------------------------------------------
-# Under the cap: 1 cast + 1 env fits in 2 slots — both must be sent.
-# ---------------------------------------------------------------------------
-
-def test_one_cast_ref_plus_env_both_sent_under_cap():
+def test_one_cast_ref_plus_env_both_sent():
     calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[ENV])
     refs = calls[0]["reference_urls"]
     assert refs == ["https://fake/cast-a.png", ENV["reference_url"]], refs
-    assert len(refs) <= SHEET_REF_CAP
 
-
-# ---------------------------------------------------------------------------
-# No env at all: cast-only behavior is unaffected by the cap logic when it
-# already fits (regression guard against the fix breaking the common case).
-# ---------------------------------------------------------------------------
 
 def test_no_env_two_cast_refs_unaffected():
     calls = _run(cast_refs=["https://fake/cast-a.png", "https://fake/cast-b.png"], envs=[])
@@ -225,27 +185,21 @@ def test_no_env_two_cast_refs_unaffected():
     assert "LOCKED LOCATION" not in calls[0]["prompt"]
 
 
-# ---------------------------------------------------------------------------
-# Cast alone can also exceed the cap (3+ characters, no env at all) — the cap
-# is a total-refs cap, not just an env-vs-cast tiebreak. Priority order still
-# keeps the FIRST cast refs (cast rows are ORDER BY sort, i.e. the creator's
-# own ordering) and drops the rest.
-# ---------------------------------------------------------------------------
-
-def test_three_cast_refs_no_env_still_caps_at_two():
+def test_three_cast_refs_no_env_all_sent_uncapped():
+    """Cast alone can exceed the old cap of 2 (3+ characters, no env at all) —
+    fix8 proved the cap was never the real fix, so all cast refs now go
+    through, same as pre-fix7."""
     calls = _run(
         cast_refs=["https://fake/cast-a.png", "https://fake/cast-b.png", "https://fake/cast-c.png"],
         envs=[])
     refs = calls[0]["reference_urls"]
-    assert len(refs) == SHEET_REF_CAP == 2, refs
-    assert refs == ["https://fake/cast-a.png", "https://fake/cast-b.png"], (
-        "the cap must keep the first N cast refs in their existing sort order")
+    assert refs == ["https://fake/cast-a.png", "https://fake/cast-b.png", "https://fake/cast-c.png"]
 
 
 if __name__ == "__main__":
-    test_two_cast_refs_plus_env_caps_at_two_env_dropped()
-    test_env_locked_location_text_survives_even_when_its_ref_is_dropped()
-    test_one_cast_ref_plus_env_both_sent_under_cap()
+    test_two_cast_refs_plus_env_sends_all_three_uncapped()
+    test_env_locked_location_text_and_ref_both_present()
+    test_one_cast_ref_plus_env_both_sent()
     test_no_env_two_cast_refs_unaffected()
-    test_three_cast_refs_no_env_still_caps_at_two()
-    print("\nAll C25a-fix7 Part B (GPT sheet ref cap) tests passed.")
+    test_three_cast_refs_no_env_all_sent_uncapped()
+    print("\nAll C25a-fix7-Part-B-revert (C25a-fix8) tests passed.")
