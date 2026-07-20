@@ -530,6 +530,7 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
             # actual approved image (vision pass), best-effort per environment.
             try:
                 from routes.model_video import _resolve_claude_creds
+                from routes.media import mint_media_token
                 from shared.clients.vision_client import vision_call, _looks_like_refusal
                 creds = await _resolve_claude_creds(tenant_id)
                 if creds:
@@ -541,7 +542,10 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
                             tenant_id=tenant_id, task_type=TASK_TYPE,
                         )
                         fid = _drive_file_id(env.get("reference_url") or "")
-                        img_url = f"{base}/api/media/drive/{fid}" if fid else env.get("reference_url")
+                        img_url = (
+                            f"{base}/api/media/drive/{fid}?token={mint_media_token(tenant_id)}"
+                            if fid else env.get("reference_url")
+                        )
                         try:
                             desc = await vision_call(
                                 "Describe this location/setting EXACTLY so an image generator can redraw the SAME place: "

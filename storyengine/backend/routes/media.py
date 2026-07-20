@@ -5,21 +5,45 @@ into HTML interstitials, breaking <img> tags and Kie image ingestion. The
 AUTHORIZED Drive API never does — so this endpoint streams the file bytes
 through the backend, like the existing audio proxy does for voice tracks.
 
-Security: the proxy only serves file ids that appear in OUR database columns
-(asset images, character portraits, storyboard grids, thumbnails). Without
-that allowlist, a public proxy over an OAuth'd Drive would expose the entire
-account. Allowed ids are cached in memory; responses carry a content-checksum
-ETag so browsers revalidate cheaply (304) instead of re-streaming 74 images
-per visit — and immediately see new pixels when a file is replaced in place.
+Security (C25a, tasks/storyengine-wiring-fix-checklist.md §S5-1 BLOCKER):
+the proxy requires a tenant-scoped token AND the file id must appear in OUR
+database columns *for that tenant* (asset images, character portraits,
+storyboard grids, thumbnails). Before C25a the allowlist checked file ids
+across the WHOLE database with no tenant clause and the route had no auth
+dependency at all — a leaked/guessed 33-44 char Drive id served ANY tenant's
+file to ANYONE. `<img>`/`<video>` tags can't send an Authorization header, so
+auth travels the same way this codebase already trusts it to for SSE
+(`auth.verify_token`'s own docstring: "Also accepts token via query_params
+?token=") and for audio playback (`routes/videos.py::create_audio_token` /
+`_audio_token_tenant`): a JWT in `?token=`, decoded with SESSION_SECRET,
+carrying (or resolving to) a `tenant_id` claim. Two token shapes are valid:
+  1. The user's own full session JWT (30 days) — what the browser already
+     holds in localStorage for every fetch() call; the frontend reuses it
+     unchanged for `<img src>`/`<video src>` (see frontend/src/lib/utils.ts
+     `withMediaAuth`).
+  2. A short-lived (`purpose: "media"`) token this module mints for backend
+     code that fetches its OWN proxy over plain HTTP (routes/characters.py
+     cast-sheet vision, routes/environments.py vision rewrite,
+     pipeline_executor.py's talking-clip path) — those call sites already
+     have `tenant_id` in scope and have no live user JWT to forward.
+Allowed ids are cached in memory PER TENANT (never leaked across tenants);
+responses carry a content-checksum ETag so browsers revalidate cheaply (304)
+instead of re-streaming 74 images per visit — and immediately see new pixels
+when a file is replaced in place.
 """
 
 import asyncio
 import io
 import logging
+import os
 import re
 import threading
 import time
+import uuid as _uuid
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
+import jwt as pyjwt
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from database import fetch_one
@@ -30,50 +54,110 @@ router = APIRouter(prefix="/api/media", tags=["media"])
 
 _FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,80}$")
 
-# file_id -> (allowed: bool, checked_at)
-_allow_cache: dict[str, tuple[bool, float]] = {}
+# (file_id, tenant_id) -> (allowed: bool, checked_at)
+_allow_cache: dict[tuple[str, str], tuple[bool, float]] = {}
 _ALLOW_TTL = 3600.0
 
 _ALLOWLIST_SQL = """
 SELECT 1 WHERE EXISTS (
     SELECT 1 FROM assets
-    WHERE image_url LIKE $1 OR drive_image_url LIKE $1 OR video_clip_url LIKE $1
+    WHERE tenant_id = $2 AND (image_url LIKE $1 OR drive_image_url LIKE $1 OR video_clip_url LIKE $1)
 ) OR EXISTS (
-    SELECT 1 FROM video_characters WHERE reference_url LIKE $1
+    SELECT 1 FROM video_characters WHERE tenant_id = $2 AND reference_url LIKE $1
 ) OR EXISTS (
     SELECT 1 FROM scripts
-    WHERE storyboard_1_url LIKE $1 OR storyboard_2_url LIKE $1
+    WHERE tenant_id = $2 AND (
+       storyboard_1_url LIKE $1 OR storyboard_2_url LIKE $1
        OR storyboard_3_url LIKE $1 OR storyboard_4_url LIKE $1
        OR storyboard_5_url LIKE $1 OR voice_over_url LIKE $1
        OR scene_video_url LIKE $1   -- per-scene stitched preview (Drive → proxy)
        -- per-segment dialogue voices live inside the jsonb timeline;
        -- audio-driven lip-sync models fetch them through the proxy
        OR dialogue_segments::text LIKE $1
+    )
 ) OR EXISTS (
     SELECT 1 FROM videos
-    WHERE thumbnail_url LIKE $1 OR character_reference_url LIKE $1
+    WHERE tenant_id = $2 AND (
+       thumbnail_url LIKE $1 OR character_reference_url LIKE $1
        OR final_video_url LIKE $1
+    )
 ) OR EXISTS (
-    SELECT 1 FROM video_environments WHERE reference_url LIKE $1
+    SELECT 1 FROM video_environments WHERE tenant_id = $2 AND reference_url LIKE $1
 ) OR EXISTS (
     -- files dropped into the chat (character sheets need vision + cast-sheet
     -- fetches BEFORE any video_characters row exists)
-    SELECT 1 FROM chat_assets WHERE storage_url LIKE $1
+    SELECT 1 FROM chat_assets WHERE tenant_id = $2 AND storage_url LIKE $1
 ) OR EXISTS (
     -- the locked channel cast on the project (referenced by every new video)
-    SELECT 1 FROM projects WHERE character_references::text LIKE $1
+    SELECT 1 FROM projects WHERE tenant_id = $2 AND character_references::text LIKE $1
 )
 """
 
 
-async def _is_allowed(file_id: str) -> bool:
-    cached = _allow_cache.get(file_id)
+async def _is_allowed(file_id: str, tenant_id: _uuid.UUID) -> bool:
+    cache_key = (file_id, str(tenant_id))
+    cached = _allow_cache.get(cache_key)
     if cached and time.time() - cached[1] < _ALLOW_TTL:
         return cached[0]
-    row = await fetch_one(_ALLOWLIST_SQL, f"%{file_id}%")
+    row = await fetch_one(_ALLOWLIST_SQL, f"%{file_id}%", tenant_id)
     allowed = bool(row)
-    _allow_cache[file_id] = (allowed, time.time())
+    _allow_cache[cache_key] = (allowed, time.time())
     return allowed
+
+
+def mint_media_token(tenant_id, minutes: int = 60) -> str:
+    """Short-lived token for backend code that fetches the media proxy over
+    plain HTTP for a KNOWN tenant (no live user session to forward — e.g. cast
+    sheet vision, environment vision rewrite, talking-clip generation). 60
+    minutes covers the slowest caller (talking-video generation, whose own
+    deadline env var TALKING_CLIP_DEADLINE defaults to 1200s) with margin.
+    Never persist a URL carrying this token — mint fresh at the call site."""
+    secret = os.getenv("SESSION_SECRET")
+    if not secret:
+        raise RuntimeError("SESSION_SECRET not configured")
+    return pyjwt.encode(
+        {
+            "purpose": "media",
+            "tenant_id": str(tenant_id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=minutes),
+            "iss": "storyengine",
+        },
+        secret,
+        algorithm="HS256",
+    )
+
+
+def _media_token_tenant(token: Optional[str]) -> _uuid.UUID:
+    """Resolve the tenant behind a browser/backend media token (?token= —
+    `<img>`/`<video>` can't send headers). Accepts either a short-lived
+    `purpose: media` token from `mint_media_token()` or a full session JWT
+    (same one the browser already uses for every other request — same
+    precedent as `auth.verify_token`'s SSE query-param path). Dev token only
+    when DEV_MODE=true. Raises 401 like a FastAPI auth dependency would."""
+    if not token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    dev_token = os.getenv("DEV_TOKEN")
+    if dev_token and token == dev_token and os.getenv("DEV_MODE") == "true":
+        return _uuid.UUID(os.getenv("DEV_TENANT_ID") or "00000000-0000-0000-0000-000000000000")
+
+    secret = os.getenv("SESSION_SECRET")
+    if not secret:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        payload = pyjwt.decode(token, secret, algorithms=["HS256"])
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    tenant_id = payload.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Invalid token: no tenant")
+    try:
+        return _uuid.UUID(str(tenant_id))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token: bad tenant")
 
 
 _google_client = None
@@ -135,7 +219,7 @@ def _download_range(file_id: str, start: int, end: int) -> bytes:
 
 
 @router.get("/drive/{file_id}")
-async def serve_drive_file(file_id: str, request: Request):
+async def serve_drive_file(file_id: str, request: Request, token: Optional[str] = None):
     # Optional extension suffix (…/drive/<id>.png): some Kie model validators
     # (InfiniteTalk) reject URLs without a recognizable file type — the suffix
     # is cosmetic, the id alone addresses the file.
@@ -143,7 +227,8 @@ async def serve_drive_file(file_id: str, request: Request):
     file_id = _re.sub(r"\.(png|jpe?g|webp|gif|mp3|mp4|wav|m4a)$", "", file_id, flags=_re.I)
     if not _FILE_ID_RE.match(file_id):
         raise HTTPException(status_code=400, detail="Invalid file id")
-    if not await _is_allowed(file_id):
+    tenant_id = _media_token_tenant(token)
+    if not await _is_allowed(file_id, tenant_id):
         raise HTTPException(status_code=404, detail="Not found")
 
     # Drive files are REPLACED IN PLACE on regeneration (same file id, new

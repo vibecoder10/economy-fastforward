@@ -465,7 +465,7 @@ def _drive_file_id(url: str):
     return m.group(1) if m else None
 
 
-async def _fetch_image_bytes(url: str) -> bytes:
+async def _fetch_image_bytes(url: str, tenant_id) -> bytes:
     """Portrait bytes for cast-sheet composition.
 
     Drive files are fetched through the PUBLIC media proxy (plain HTTP), not the
@@ -475,12 +475,17 @@ async def _fetch_image_bytes(url: str) -> bytes:
     reference (the first portrait), so only one character locked and the rest
     drifted (live: a white cast rendered as a different family). The proxy is the
     same URL Kie fetches for generation, so it is known-good and needs no creds.
+
+    C25a: the proxy now requires a tenant-scoped token (?token=) — this is a
+    backend-to-backend fetch with no live user session to forward, so it
+    mints its own short-lived one for the known `tenant_id`.
     """
     fid = _drive_file_id(url)
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
         if fid and "drive.google.com" in url:
+            from routes.media import mint_media_token
             base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
-            r = await client.get(f"{base}/api/media/drive/{fid}")
+            r = await client.get(f"{base}/api/media/drive/{fid}?token={mint_media_token(tenant_id)}")
         else:
             r = await client.get(url)
         r.raise_for_status()
@@ -496,7 +501,7 @@ async def _build_cast_sheet(tenant_id, video_id: str, cast: list[dict]) -> Optio
         from PIL import Image, ImageDraw, ImageFont
         tiles = []
         for ch in cast[:8]:
-            raw = await _fetch_image_bytes(ch["reference_url"])
+            raw = await _fetch_image_bytes(ch["reference_url"], tenant_id)
             img = Image.open(io.BytesIO(raw)).convert("RGB")
             img.thumbnail((512, 512))
             tile = Image.new("RGB", (512, 572), (245, 245, 245))
@@ -609,6 +614,7 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
             # best-effort per character.
             try:
                 from routes.model_video import _resolve_claude_creds
+                from routes.media import mint_media_token
                 from shared.clients.vision_client import vision_call, _looks_like_refusal
                 creds = await _resolve_claude_creds(tenant_id)
                 if creds:
@@ -620,7 +626,10 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
                             tenant_id=tenant_id, task_type=TASK_TYPE,
                         )
                         fid = _drive_file_id(ch.get("reference_url") or "")
-                        img_url = f"{base}/api/media/drive/{fid}" if fid else ch.get("reference_url")
+                        img_url = (
+                            f"{base}/api/media/drive/{fid}?token={mint_media_token(tenant_id)}"
+                            if fid else ch.get("reference_url")
+                        )
                         try:
                             desc = await vision_call(
                                 f"Describe EXACTLY how this character looks so an image generator can redraw the SAME character: "
@@ -873,9 +882,10 @@ async def lock_project_cast(tenant_id, images: list[dict]) -> list[dict]:
         desc = ""
         if creds:
             try:
+                from routes.media import mint_media_token
                 from shared.clients.vision_client import vision_call, _looks_like_refusal
                 fid = _drive_file_id(url)
-                img_url = f"{base}/api/media/drive/{fid}" if fid else url
+                img_url = f"{base}/api/media/drive/{fid}?token={mint_media_token(tenant_id)}" if fid else url
                 raw = await vision_call(
                     "This is a character design sheet for an animated series. Reply in EXACTLY "
                     "this format, nothing else:\nNAME: <a short name for the character — use any "
