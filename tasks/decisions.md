@@ -631,3 +631,16 @@ present-but-null `.get("data", {})` crash (C25a-fix4 hardened every Kie client p
 (b) GPT i2i rejected the media-proxy input_urls because they lack a file extension — Kie model
 validators want a recognizable file type (same family as the InfiniteTalk fix 10d232e5;
 C25a-fix5 adds the .png suffix in _kie_fetchable_url).
+
+## 2026-07-20 — THE THREE MODELS (Ryan, direct): Grok cheap clips, Seedance premium clips, GPT Image 2 all images
+Ryan: "forget all the others right now besides our 3 main models. Grok Imagine, GPT image 2, and
+seed dance. I wont use anything else, seed dance for expensive, grok for cheap, gpt image 2 always."
+Consequences: Veo (Fast worked/$0.30 confirmed; Quality can't take reference images at all) and
+Z-Image (1,000-char documented prompt cap) are OUT of the working set — deprioritize their fixes,
+gate them out of pickers in a future chunk rather than fixing their edge cases. The build effort
+goes to: (1) Seedance payload fix (Kie: reference image and first/last frames are mutually
+exclusive — our client sends both; also requested 9:16 on a 16:9 video), (2) GPT Image 2 sheet
+draws must work (the 2026-07-20 400s are NOT prompt length — June sheets at 11-13k chars drew
+fine, docs allow 20k; leading suspect is the 3rd reference image added by the LOCKED LOCATION
+env-ref feature), (3) ledger/pricing stays exactly as proven today ($0.09 Grok / $0.05 GPT i2i
+confirmed against Kie credit billing).
