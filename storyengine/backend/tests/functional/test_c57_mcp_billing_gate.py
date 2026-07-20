@@ -329,6 +329,171 @@ def test_authenticate_with_standing_operator_flag_surfaced():
 
 
 # =============================================================================
+# 3c. C25a-fix10 (2026-07-20): deterministic member resolution. Prod-
+#     reproduced — tenant 44ecc95a (PocoAPoco) has 2 members (an operator
+#     workspace + its client, routes/workspaces.py::create_workspace) and
+#     the old bare `LIMIT 1` with no ORDER BY resolved whichever row
+#     Postgres happened to return first, denying MCP for a workspace whose
+#     OWNER is a pro operator. See authenticate_with_standing's docstring
+#     for the full ORDER BY rationale.
+# =============================================================================
+
+_PLAN_RANK_FOR_TEST = {"free": 0, "starter": 1, "pro": 2, "agency": 3, "studio": 3, "unlimited": 4}
+
+
+class _FakeMultiMemberStore:
+    """Models the JOIN fanning out to >1 candidate row for one tenant, and
+    proves authenticate_with_standing's SQL resolves the SAME winner no
+    matter what order Postgres happens to return candidate rows in."""
+
+    def __init__(self):
+        self.tokens: dict[str, uuid.UUID] = {}  # token_hash -> tenant_id
+        self.members: dict[uuid.UUID, list[dict]] = {}
+
+    def add_token(self, tenant_id, token_hash):
+        self.tokens[token_hash] = tenant_id
+
+    def add_member(self, tenant_id, *, role="owner", is_operator=False, plan="free",
+                    stripe_subscription_id=None, stripe_status=None):
+        self.members.setdefault(tenant_id, []).append({
+            "role": role, "is_operator": is_operator, "plan": plan,
+            "trial_ends_at": None,
+            "stripe_subscription_id": stripe_subscription_id,
+            "stripe_status": stripe_status,
+        })
+
+
+def _resolve_winner(candidates: list[dict]) -> dict:
+    """Independently re-derives the SAME priority the production ORDER BY
+    documents (role='owner' DESC, is_operator DESC, plan rank DESC) — used
+    to prove the winner is order-independent, not to duplicate the SQL."""
+    return sorted(
+        candidates,
+        key=lambda c: (
+            c["role"] == "owner",
+            bool(c["is_operator"]),
+            _PLAN_RANK_FOR_TEST.get(c["plan"], 0),
+        ),
+        reverse=True,
+    )[0]
+
+
+def _patch_agent_tokens_multi_member(store: _FakeMultiMemberStore):
+    async def _fetch_one(query, *args):
+        if "JOIN memberships m ON m.tenant_id = t.tenant_id" in query:
+            # Pin the ORDER BY clause itself — this is what makes these
+            # tests stash-proof: revert the production SQL and this
+            # assertion fails immediately, regardless of what the rest of
+            # the fake does.
+            assert "ORDER BY (m.role = 'owner') DESC" in query, (
+                "C25a-fix10 regression — the deterministic-member ORDER BY "
+                "is gone from authenticate_with_standing's query; a "
+                "workspace can resolve an arbitrary member again."
+            )
+            assert "a.is_operator DESC" in query
+            assert "LIMIT 1" in query
+            (token_hash,) = args
+            tenant_id = store.tokens.get(token_hash)
+            if tenant_id is None:
+                return None
+            candidates = store.members.get(tenant_id, [])
+            if not candidates:
+                return None
+            winner = _resolve_winner(candidates)
+            return {
+                "token_id": uuid.uuid4(), "tenant_id": tenant_id,
+                "trial_ends_at": winner["trial_ends_at"],
+                "stripe_subscription_id": winner["stripe_subscription_id"],
+                "stripe_status": winner["stripe_status"],
+                "plan": winner["plan"],
+                "is_operator": winner["is_operator"],
+            }
+        raise AssertionError(f"unexpected query: {query!r}")
+
+    async def _execute(query, *args):
+        if "SET last_used_at = now()" in query:
+            return "UPDATE 1"
+        raise AssertionError(f"unexpected query: {query!r}")
+
+    return patch.object(agent_tokens, "fetch_one", _fetch_one), \
+        patch.object(agent_tokens, "execute", _execute)
+
+
+def test_authenticate_with_standing_owner_operator_wins_regardless_of_insertion_order():
+    """The exact prod incident, tried both insertion orders: a free
+    non-operator member and a pro operator member share a tenant; the pro
+    operator must win either way."""
+    token_hash = agent_tokens._hash_token("se_agent_two_member")
+    for reversed_order in (False, True):
+        store = _FakeMultiMemberStore()
+        tenant = uuid.uuid4()
+        store.add_token(tenant, token_hash)
+        free_member = dict(role="owner", is_operator=False, plan="free",
+                            stripe_status=None, stripe_subscription_id=None)
+        pro_operator = dict(role="owner", is_operator=True, plan="pro",
+                             stripe_status="active", stripe_subscription_id="sub_1")
+        order = [pro_operator, free_member] if reversed_order else [free_member, pro_operator]
+        for m in order:
+            store.add_member(tenant, **m)
+        p1, p2 = _patch_agent_tokens_multi_member(store)
+        with p1, p2:
+            tenant_id, ok, reason, plan, is_operator = _run(
+                agent_tokens.authenticate_with_standing("se_agent_two_member")
+            )
+        assert tenant_id == tenant
+        assert plan == "pro", f"insertion order {order} should not change the resolved member"
+        assert is_operator is True
+    print("✅ test_authenticate_with_standing_owner_operator_wins_regardless_of_insertion_order")
+
+
+def test_authenticate_with_standing_single_member_unchanged():
+    """A tenant with exactly one membership resolves to that member's
+    standing exactly as before this fix — the ORDER BY only matters when
+    there's more than one candidate row."""
+    store = _FakeMultiMemberStore()
+    tenant = uuid.uuid4()
+    token_hash = agent_tokens._hash_token("se_agent_single")
+    store.add_token(tenant, token_hash)
+    store.add_member(tenant, role="owner", is_operator=False, plan="pro",
+                      stripe_status="active", stripe_subscription_id="sub_1")
+    p1, p2 = _patch_agent_tokens_multi_member(store)
+    with p1, p2:
+        tenant_id, ok, reason, plan, is_operator = _run(
+            agent_tokens.authenticate_with_standing("se_agent_single")
+        )
+    assert tenant_id == tenant
+    assert ok is True
+    assert plan == "pro"
+    assert is_operator is False
+    print("✅ test_authenticate_with_standing_single_member_unchanged")
+
+
+def test_authenticate_with_standing_no_owner_role_falls_back_to_operator_and_plan_rank():
+    """If no membership row has role='owner' (the schema permits other
+    values even though nothing inserts them today), the ORDER BY doesn't
+    filter on role — it's a sort key, not a WHERE clause — so resolution
+    falls through to is_operator, then plan rank, instead of matching zero
+    rows."""
+    store = _FakeMultiMemberStore()
+    tenant = uuid.uuid4()
+    token_hash = agent_tokens._hash_token("se_agent_no_owner")
+    store.add_token(tenant, token_hash)
+    store.add_member(tenant, role="member", is_operator=False, plan="starter",
+                      stripe_status="active", stripe_subscription_id="sub_2")
+    store.add_member(tenant, role="member", is_operator=True, plan="free",
+                      stripe_status=None, stripe_subscription_id=None)
+    p1, p2 = _patch_agent_tokens_multi_member(store)
+    with p1, p2:
+        tenant_id, ok, reason, plan, is_operator = _run(
+            agent_tokens.authenticate_with_standing("se_agent_no_owner")
+        )
+    assert tenant_id == tenant
+    assert is_operator is True, "no owner row present — the operator member should still win the tie"
+    assert plan == "free"
+    print("✅ test_authenticate_with_standing_no_owner_role_falls_back_to_operator_and_plan_rank")
+
+
+# =============================================================================
 # 4. auth_agent.get_agent_tenant_id — the per-request MCP gate
 # =============================================================================
 
@@ -613,6 +778,9 @@ TESTS = [
     test_authenticate_with_standing_wrong_prefix_short_circuits,
     test_authenticate_with_standing_starter_plan_surfaced,
     test_authenticate_with_standing_operator_flag_surfaced,
+    test_authenticate_with_standing_owner_operator_wins_regardless_of_insertion_order,
+    test_authenticate_with_standing_single_member_unchanged,
+    test_authenticate_with_standing_no_owner_role_falls_back_to_operator_and_plan_rank,
     test_get_agent_tenant_id_402_when_lapsed,
     test_get_agent_tenant_id_passes_through_when_good_standing,
     test_get_agent_tenant_id_still_401_on_bad_token_not_402,

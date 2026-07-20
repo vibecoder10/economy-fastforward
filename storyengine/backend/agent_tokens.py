@@ -178,6 +178,38 @@ async def authenticate_with_standing(token: str) -> tuple:
         routes.billing._good_standing_from_fields (the ONE place that
         decision is made), and (plan, is_operator) are the raw account
         columns for routes.billing._mcp_tier_ok to judge.
+
+    ORDER BY / deterministic-member fix (2026-07-20, MCP go-live incident):
+    a tenant can have >1 membership row (an operator workspace + its
+    client, e.g. tasks/decisions.md's operator-services model in
+    routes/workspaces.py::create_workspace), so this JOIN can fan out to
+    more than one candidate row before the old bare `LIMIT 1` picked
+    whichever one Postgres happened to return first — undefined, and it
+    flipped on every deploy/plan/vacuum. Prod-reproduced: tenant 44ecc95a
+    (PocoAPoco) has 2 members — ryan@nativestates.ai (plan=pro,
+    is_operator=true) and easyspanish92@gmail.com (plan=free at the time) —
+    and the gate resolved the free/non-operator row, denying MCP for a
+    workspace whose OWNER is a pro operator. The workspace's standing
+    should be its OWNER's standing, so the ORDER BY prefers, in order:
+    (1) `role = 'owner'` — NOTE: as of this incident every membership row
+    is inserted with role='owner' hardcoded (routes/google_auth.py:124,
+    routes/workspaces.py:95 — there is no 'member' insert path yet), so
+    this term is a no-op today and (2)/(3) below do the actual
+    disambiguating; it's kept so this query is already correct the day a
+    real member/owner distinction ships, with zero further change here.
+    (2) `is_operator` — the operator's own account is exempt from every
+    plan gate (migration 069), so an operator member should win a tie.
+    (3) plan rank (mirrors routes.billing._PLAN_RANK: unlimited > agency/
+    studio > pro > starter > free) — prefers the most-generous member's
+    standing over the least, i.e. fails OPEN toward the workspace's actual
+    payer rather than closed toward whichever row Postgres listed first.
+    No WHERE-side filtering on role/is_operator/plan: every candidate row
+    is still eligible, so a workspace with no owner row at all (or, today,
+    no operator/paid member) still resolves — just to its highest-ranked
+    member instead of an arbitrary one. The fuller fix (queued, not built
+    here — needs a migration) is an additive `agent_tokens.created_by`
+    column so a token's standing follows the account that actually minted
+    it, not a re-derived guess at "the workspace owner" on every request.
     """
     if not token or not token.startswith(TOKEN_PREFIX):
         return None, False, "", "free", False
@@ -193,6 +225,16 @@ async def authenticate_with_standing(token: str) -> tuple:
            JOIN memberships m ON m.tenant_id = t.tenant_id
            JOIN accounts a ON a.id = m.user_id
            WHERE t.token_hash = $1 AND t.revoked_at IS NULL
+           ORDER BY (m.role = 'owner') DESC,
+                    a.is_operator DESC,
+                    CASE a.plan
+                        WHEN 'unlimited' THEN 4
+                        WHEN 'agency' THEN 3
+                        WHEN 'studio' THEN 3
+                        WHEN 'pro' THEN 2
+                        WHEN 'starter' THEN 1
+                        ELSE 0
+                    END DESC
            LIMIT 1""",
         token_hash,
     )

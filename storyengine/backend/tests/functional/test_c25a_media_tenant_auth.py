@@ -131,6 +131,85 @@ def test_is_allowed_cache_is_keyed_per_tenant(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 1b. C25a-fix10 (2026-07-20 MCP go-live incident): a NEGATIVE verdict must
+#     expire fast and re-query, not ride the full 3600s TTL — a browser
+#     asked for a freshly-drawn storyboard file milliseconds before its DB
+#     row landed, the "not allowed" verdict got cached, and every retry
+#     404'd from memory for what would have been an hour while the DB
+#     plainly allowed the file moments later.
+# ---------------------------------------------------------------------------
+
+def test_is_allowed_negative_verdict_expires_after_short_ttl_and_requeries(monkeypatch):
+    hits = {"n": 0}
+    clock = {"t": 1_000_000.0}
+
+    async def fake_fetch_one(sql, like_pattern, tenant_id):
+        hits["n"] += 1
+        # Always "not found" — models the race: the DB write hasn't landed
+        # yet, or the file genuinely doesn't belong to this tenant.
+        return None
+
+    monkeypatch.setattr(media, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(media.time, "time", lambda: clock["t"])
+    media._allow_cache.clear()
+
+    allowed_1 = asyncio.run(media._is_allowed(FILE_ID, uuid.UUID(TENANT_A)))
+    assert allowed_1 is False
+    assert hits["n"] == 1
+
+    # Still well inside the short negative TTL — served from cache, no re-hit.
+    clock["t"] += media._NEGATIVE_ALLOW_TTL - 1
+    allowed_2 = asyncio.run(media._is_allowed(FILE_ID, uuid.UUID(TENANT_A)))
+    assert allowed_2 is False
+    assert hits["n"] == 1, "still inside the negative TTL — must not re-query yet"
+
+    # Past the short negative TTL (but nowhere near the old 3600s positive
+    # TTL) — must re-query, proving the negative verdict doesn't ride the
+    # long TTL the old code gave it.
+    clock["t"] += 2
+    allowed_3 = asyncio.run(media._is_allowed(FILE_ID, uuid.UUID(TENANT_A)))
+    assert allowed_3 is False
+    assert hits["n"] == 2, "negative verdict must expire and re-query well before 3600s"
+    assert media._NEGATIVE_ALLOW_TTL <= 10.0, (
+        "negative TTL crept back up — the incident was a full-hour outage "
+        "from exactly this"
+    )
+
+
+def test_is_allowed_positive_verdict_still_honors_long_ttl(monkeypatch):
+    """The fix must not weaken the POSITIVE cache — that's what protects
+    the DB from 404-hammering on legitimately-denied ids, and there's no
+    reason a real, already-confirmed file needs to be re-checked every 10s."""
+    hits = {"n": 0}
+    clock = {"t": 2_000_000.0}
+
+    async def fake_fetch_one(sql, like_pattern, tenant_id):
+        hits["n"] += 1
+        return {"?column?": 1}
+
+    monkeypatch.setattr(media, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(media.time, "time", lambda: clock["t"])
+    media._allow_cache.clear()
+
+    allowed_1 = asyncio.run(media._is_allowed(FILE_ID, uuid.UUID(TENANT_A)))
+    assert allowed_1 is True
+    assert hits["n"] == 1
+
+    # Well past the (short) negative TTL but still inside the long positive
+    # TTL — a positive verdict must still be served from cache here.
+    clock["t"] += media._NEGATIVE_ALLOW_TTL + 30
+    allowed_2 = asyncio.run(media._is_allowed(FILE_ID, uuid.UUID(TENANT_A)))
+    assert allowed_2 is True
+    assert hits["n"] == 1, "positive verdicts must keep the full long TTL, unaffected by this fix"
+
+    # Past the long TTL too — now it re-queries.
+    clock["t"] += media._ALLOW_TTL
+    allowed_3 = asyncio.run(media._is_allowed(FILE_ID, uuid.UUID(TENANT_A)))
+    assert allowed_3 is True
+    assert hits["n"] == 2
+
+
+# ---------------------------------------------------------------------------
 # 2. serve_drive_file requires a valid, tenant-resolving token.
 # ---------------------------------------------------------------------------
 

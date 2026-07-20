@@ -58,6 +58,18 @@ _FILE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,80}$")
 _allow_cache: dict[tuple[str, str], tuple[bool, float]] = {}
 _ALLOW_TTL = 3600.0
 
+# 2026-07-20 MCP go-live incident: the browser requested a freshly-drawn
+# storyboard file milliseconds BEFORE its DB row landed (the write and the
+# <img> request raced). The first lookup correctly missed and cached a
+# NEGATIVE verdict for the full _ALLOW_TTL (1 hour) — every retry then
+# 404'd straight out of memory (3-4ms) instead of re-querying a DB that, a
+# moment later, plainly allowed the file. A negative result is a "not yet"
+# far more often than a real attack, so it gets a much shorter TTL: still
+# long enough to blunt a 404-hammering retry loop, short enough that a
+# same-second write shows up almost immediately. Positive verdicts keep the
+# long TTL — a file that's allowed today stays allowed.
+_NEGATIVE_ALLOW_TTL = 10.0
+
 _ALLOWLIST_SQL = """
 SELECT 1 WHERE EXISTS (
     SELECT 1 FROM assets
@@ -97,8 +109,11 @@ SELECT 1 WHERE EXISTS (
 async def _is_allowed(file_id: str, tenant_id: _uuid.UUID) -> bool:
     cache_key = (file_id, str(tenant_id))
     cached = _allow_cache.get(cache_key)
-    if cached and time.time() - cached[1] < _ALLOW_TTL:
-        return cached[0]
+    if cached:
+        was_allowed, checked_at = cached
+        ttl = _ALLOW_TTL if was_allowed else _NEGATIVE_ALLOW_TTL
+        if time.time() - checked_at < ttl:
+            return was_allowed
     row = await fetch_one(_ALLOWLIST_SQL, f"%{file_id}%", tenant_id)
     allowed = bool(row)
     _allow_cache[cache_key] = (allowed, time.time())
