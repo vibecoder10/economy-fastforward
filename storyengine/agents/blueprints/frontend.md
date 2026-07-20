@@ -37,7 +37,6 @@ Aliases: `--accent` = turquoise, `--success` = green, `--error` = red, `--warnin
 | `/dashboard` | `app/dashboard/page.tsx` | Dashboard — stats, pipeline distribution, approval queue, recent videos |
 | `/pipeline` | `app/pipeline/page.tsx` | Video list with filters + create video modal + discovery ideas panel |
 | `/pipeline/[videoId]` | `app/pipeline/[videoId]/page.tsx` | Video detail — 8-tab production view (Research, Script, Storyboard, Clips, Thumbnail, Render, Upload, Performance) |
-| `/pipeline/[videoId]/storyboards` | `app/pipeline/[videoId]/storyboards/page.tsx` | Full-page storyboard review — scene grids, panel detail modal, extract all |
 | `/review` | `app/review/page.tsx` | Pending review queue — scripts, storyboards, thumbnails, images |
 | `/activity` | `app/activity/page.tsx` | Activity feed with filters (all/running/errors/completed) + bot stats |
 | `/analytics` | `app/analytics/page.tsx` | Performance analytics — CTR/views charts (Recharts), video table, learnings, YouTube sync |

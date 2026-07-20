@@ -9805,3 +9805,56 @@ behavior.
 session) and a new "Composition recipes" subsection with 6 worked examples (ideation batch,
 data-directed fix, A/B takes, remote QC, one-off demo, and the "model this video" flagship recipe —
 runnable end-to-end today except its media-bearing board-review steps, which stay on C48/C25a).
+
+---
+
+## C39 — delete the orphaned /storyboards standalone page (MICRO, added 2026-07-20)
+
+One of C37's 5 open items ("orphaned /storyboards route"), answered and queued. Structural change:
+one file deleted.
+
+**Fresh grep-proof of orphanhood (per C19b discipline — re-proved, not trusted from the old audit):**
+`storyengine/frontend/src/app/pipeline/[videoId]/storyboards/page.tsx` had zero inbound references —
+grepped the whole frontend for `href=.*storyboards`, `router.push(.*storyboards`, template-literal
+route strings (`` videoId}/storyboards ``, `` .id}/storyboards `` ), and any `Link` to the path.
+The only `storyboards` hits in `lib/api.ts` are backend API endpoint calls (`/api/videos/{id}/
+storyboards...` — DELETE/PATCH calls used by `ScenesWorkspaceTab`), not frontend routes. The
+video-detail page's tab system (`app/pipeline/[videoId]/page.tsx`) has no `storyboards` tab id at
+all — its tabs are `research/script-voice/characters/environments/scenes/sound/thumbnail/render/
+upload/performance`, and the in-page storyboard functionality lives entirely inside the `scenes` tab
+(`ScenesWorkspaceTab`). Confirmed orphaned — deleted.
+
+**SACRED boundary (untouched, verified via `git show --stat` on the deletion commit):**
+- Storyboard CREATION stage (pipeline): `storyengine/backend/pipeline_executor.py`
+  `run_storyboard_prompts`/`run_storyboard_images`/`run_storyboard_extract`/`run_storyboard_sheet`,
+  wired in `storyengine/backend/worker.py`'s `arq_run_storyboards` — not in this commit's diff.
+- In-page Storyboard tab: `storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx`
+  (the `scenes` tab's storyboard generate/clear/approve UI) — not in this commit's diff.
+
+**Also left alone (judgment call, in scope for a future chunk if ever needed, not this MICRO one):**
+`storyengine/frontend/src/components/storyboard/` (`SceneGrid`, `PanelDetail`,
+`StoryboardProgressBar`, barrel `index.ts`) — grepped and found imported ONLY by the now-deleted
+page, so it's dead code too, but the task scope was explicitly "deletes only the unreachable route."
+Left in place rather than guessing at a wider cleanup.
+
+**Deleted:** `storyengine/frontend/src/app/pipeline/[videoId]/storyboards/page.tsx` (`git rm -r` on
+the directory).
+
+**Docs fixed (stale entries about this page, not a full rewrite of either doc):**
+- `storyengine/agents/blueprints/frontend.md` — removed the route-table row for
+  `/pipeline/[videoId]/storyboards`.
+- `docs/reports/WIRING_STATUS.md` — route-table row (was `WIRED`) now reads `DELETED (C39,
+  2026-07-20)` with the reason; bug-log item 6 ("Storyboard approve is a mock" — FIXED) annotated
+  with the follow-up deletion. Pre-existing staleness elsewhere in that 2026-03-31 audit doc (e.g.
+  `/storyboard` singular, `StoryboardVisualsTab`, both already renamed/removed before this chunk) is
+  untouched — out of scope for this MICRO chunk.
+
+**Verification:** `.next` cache had to be cleared first — it held a stale generated-types reference
+to the deleted page (`'.next/types/app/pipeline/[videoId]/storyboards/page.ts'`) that broke `tsc`
+until removed; not a real regression, just build-cache staleness. After `rm -rf .next`:
+`npx tsc --noEmit` clean; `NEXT_PUBLIC_API_URL=... npm run build` succeeds, route table in the build
+output no longer lists `/pipeline/[videoId]/storyboards`. Backend untouched by this chunk but the
+full suite was re-run anyway to prove no accidental damage: **1871P/15F/1E**, exact match to
+baseline (same 15 named failures/1 error, zero new/missing).
+
+**No migration, no backend change, no deploy-skew** — frontend-only route deletion + two doc edits.

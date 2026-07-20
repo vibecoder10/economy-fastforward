@@ -42,7 +42,7 @@
 | `/dashboard` | WIRED | Reads dashboard summary, videos, pending review. All navigation buttons. |
 | `/pipeline` | WIRED | Lists videos. Create modal → `POST /api/videos`. |
 | `/pipeline/[videoId]` | WIRED | Full video detail with 7 tab components. Run Next, Skip, Reset all wired. |
-| `/pipeline/[videoId]/storyboards` | WIRED | Real storyboard data from scripts API. Approve → advanceVideo. Regenerate → clearSceneStoryboard + storyboard-images. Extract All → storyboard-extract pipeline stage. |
+| `/pipeline/[videoId]/storyboards` | **DELETED (C39, 2026-07-20)** | Orphaned standalone page — nothing linked to it (no `<Link>`/`router.push` anywhere in the frontend); the in-page Storyboard functionality lives in `ScenesWorkspaceTab` under the video detail "scenes" tab. Route directory removed; `components/storyboard/` (SceneGrid, PanelDetail, StoryboardProgressBar) left in place, out of scope for this chunk. |
 | `/create` | WIRED | "Generate Story" → `POST /api/pipeline/create-idea`. Note: backend handler is BROKEN (see bugs). |
 | `/analytics` | WIRED | Reads videos list, computes stats client-side. Read-only. |
 | `/autopilot` | WIRED | Reads summary, toggle ON/OFF, update target. Error handling: console.error only (no user feedback). |
@@ -170,8 +170,8 @@ sys.path += [script/, voice/, image_prompts/, images/, video_motion/,
 5. **Autopilot launch is a stub**
    - `routes/autopilot.py`: `POST /api/autopilot/launch/{candidate_id}` marks candidate as `modeled=true` but has a `# TODO: Trigger actual pipeline execution` comment. No pipeline work is triggered.
 
-6. **~~Storyboard approve is a mock~~** (FIXED)
-   - `/pipeline/[videoId]/storyboards` page: Approve now calls `advanceVideo()`. Extract All calls `storyboard-extract` pipeline stage. Regenerate clears scene + re-runs storyboard-images.
+6. **~~Storyboard approve is a mock~~** (FIXED, then page DELETED — C39, 2026-07-20)
+   - `/pipeline/[videoId]/storyboards` page: Approve now calls `advanceVideo()`. Extract All calls `storyboard-extract` pipeline stage. Regenerate clears scene + re-runs storyboard-images. — This page was later found orphaned (no links anywhere in the frontend) and deleted in C39. The storyboard CREATION stage and the in-page Storyboard tab (`ScenesWorkspaceTab`) are unaffected.
 
 7. **Review page "Reject" storyboard button is dead**
    - `/review` page: Storyboard "Reject" button has no onClick handler. It renders but does nothing.
