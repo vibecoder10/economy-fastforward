@@ -185,6 +185,23 @@ CREATE TABLE videos (
   ctr_48h NUMERIC,
   retention_48h NUMERIC,
   last_analytics_sync TIMESTAMPTZ,
+  -- Per-launch pattern flywheel write-once marker (migration 110, C56):
+  -- when this video's analytics (ctr populated + impressions >= 1000, the
+  -- SAME bar routes/learning_extraction.py::extract_learnings() uses)
+  -- first mature, this stamps so the channel-wide outlier scan only ever
+  -- runs once for this video, not on every sync.
+  launch_pattern_analyzed_at TIMESTAMPTZ,
+  -- Early-warning launch classifier (migration 111, C58): 'ok' | 'watch' |
+  -- 'underperforming', comparing this video's ctr_48h write-once snapshot
+  -- against the channel's OWN historical ctr_48h distribution at the SAME
+  -- 48h milestone. early_signal_at is a write-once marker (NULL = not yet
+  -- classified, either too early or too little channel history to trust a
+  -- median -- both retry on a later sync, never guessed). Read-only signal
+  -- -- never trips the kill switch, never touches spend. See
+  -- backend/early_warning.py.
+  early_signal TEXT,
+  early_signal_evidence JSONB,
+  early_signal_at TIMESTAMPTZ,
 
   -- Post-mortem
   post_mortem_48h TEXT,

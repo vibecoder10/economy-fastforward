@@ -35,6 +35,12 @@ class VideoSummary(BaseModel):
     total_cost: float = 0
     views: int = 0
     ctr: Optional[float] = None
+    # Early-warning launch classifier (checklist C58): 'ok' | 'watch' |
+    # 'underperforming', NULL until the video's ctr_48h milestone lands and
+    # the channel has enough history to classify it. On VideoSummary (not
+    # just VideoDetail) so a list-view badge can slot in without a second
+    # fetch. See backend/early_warning.py.
+    early_signal: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -112,6 +118,10 @@ class VideoDetail(VideoSummary):
     ctr_24h: Optional[float] = None
     ctr_48h: Optional[float] = None
     retention_48h: Optional[float] = None
+    # C58: the evidence + timestamp behind `early_signal` (declared on
+    # VideoSummary above). Evidence only needed on the detail view.
+    early_signal_evidence: Optional[dict] = None
+    early_signal_at: Optional[str] = None
     post_mortem_48h: Optional[str] = None
     post_mortem_7d: Optional[str] = None
     agent_paper_trail: Optional[dict] = None

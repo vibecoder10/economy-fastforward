@@ -3044,6 +3044,56 @@ real `accounts` row. What's deferred:
 
 ---
 
+## C58 — early-warning launch classifier · needs a real tenant, a real synced video, and a real sync
+
+Everything is proven at unit level in the sandbox (SYSTEM_STATE.md §C58 — 31 new tests, non-vacuous via
+`git stash`: collection fails outright with `ModuleNotFoundError` against the pre-C58 tree; full suite
+1910P/15F/1E, zero new vs. the 1879P/15F/1E baseline) — the sandbox has no `DATABASE_URL` and no route
+to the VPS, so no real sync has ever actually populated `early_signal`. What's deferred:
+
+- [ ] **A freshly-matured video actually gets classified.** Pick a tenant with a YouTube-connected
+      channel that already has AT LEAST 5 OTHER videos with `videos.ctr_48h IS NOT NULL` (the min-cohort
+      bar), plus one video whose `channel_videos` counterpart is at least 48h past `published_at` and
+      whose `videos.ctr_48h`/`early_signal_at` are both still NULL. Trigger a sync (`POST
+      /api/youtube/sync` or wait for `main.py`'s daily auto-sync) and confirm:
+      - `se db "SELECT ctr_48h, early_signal, early_signal_evidence, early_signal_at FROM videos WHERE
+        id='<uuid>'"` → `ctr_48h` now populated (or already was), `early_signal` is one of
+        `ok`/`watch`/`underperforming`, `early_signal_evidence` carries `video_ctr_48h`/
+        `channel_median_ctr_48h`/`delta_pct`/`cohort_size`/the two threshold values, `early_signal_at`
+        stamped (write-once).
+      - If the video landed in `underperforming`: `se db "SELECT bot_name, status, message, video_id
+        FROM bot_activity WHERE tenant_id='<uuid>' AND bot_name='early_warning' ORDER BY created_at
+        DESC LIMIT 3"` → exactly one row, `video_id` set to the real internal video id.
+- [ ] **Re-sync doesn't re-classify.** Sync again immediately for the same tenant/video — confirm
+      `early_signal_at` is unchanged (not a newer timestamp) and no second `bot_activity` "early_warning"
+      row lands, even if the video is still `underperforming`.
+- [ ] **Too-thin cohort genuinely retries, not gives up.** Pick (or temporarily simulate via a scratch
+      session — never a live commit) a tenant with FEWER than 5 other videos carrying `ctr_48h`. Confirm
+      a matured video's `early_signal`/`early_signal_at` stay NULL after a sync (no classification, no
+      guess) — then, once the channel accumulates a 5th comparable video's own `ctr_48h`, confirm the
+      NEXT sync classifies the originally-thin video (proving the retry-until-enough-data behavior, not
+      a permanent skip).
+- [ ] **`GET /api/videos` (list) and `GET /api/videos/{id}` (detail) surface it.** Confirm the list
+      response's row for that video carries `"early_signal"` and the detail response additionally
+      carries `early_signal_evidence`/`early_signal_at` matching the DB row above.
+- [ ] **Analytics page's channel-videos list carries it too.** `GET /api/analytics/videos` for that
+      tenant — confirm the matching row's `"early_signal"` key matches the DB value (proves the new
+      `LEFT JOIN videos` in `routes/analytics.py::get_channel_videos` resolves correctly, and that a
+      `channel_videos` row with NO matching `internal_video_id` — an off-platform/unlinked video — comes
+      back with `early_signal: null` rather than erroring).
+- **Cost:** free — `run_early_signal_classification` is one extra `videos` SELECT (tenant-scoped, no new
+  Claude/Kie calls) plus in-process median scoring per sync; `bot_activity`/`videos` writes are free DB
+  rows.
+- **Safety net:** a live check that finds `early_signal="ok"` for every video is not a failure by itself
+  — it just means nothing in this channel's early history has dipped 15%+ below its own ctr_48h median
+  yet. Confirm the classifier CAN reach `watch`/`underperforming` by hand-checking one video's ctr_48h
+  against `se db "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY ctr_48h) FROM videos WHERE
+  tenant_id='<uuid>' AND ctr_48h IS NOT NULL"` (the same median the classifier computes), or by
+  temporarily lowering `early_warning.WATCH_THRESHOLD_PCT`/`UNDERPERFORMING_THRESHOLD_PCT` in a scratch
+  session (never in a live commit) to force a band change through for the walkthrough.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

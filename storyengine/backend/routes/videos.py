@@ -256,7 +256,7 @@ async def list_videos(
     if status:
         rows = await fetch_all(
             """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
-                      created_at::text, updated_at::text
+                      early_signal, created_at::text, updated_at::text
                FROM videos WHERE tenant_id = $1 AND status = $2 AND deleted_at IS NULL
                ORDER BY updated_at DESC LIMIT $3 OFFSET $4""",
             tenant_id, status, limit, offset,
@@ -264,7 +264,7 @@ async def list_videos(
     else:
         rows = await fetch_all(
             """SELECT id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
-                      created_at::text, updated_at::text
+                      early_signal, created_at::text, updated_at::text
                FROM videos WHERE tenant_id = $1 AND deleted_at IS NULL
                ORDER BY updated_at DESC LIMIT $2 OFFSET $3""",
             tenant_id, limit, offset,
@@ -280,6 +280,7 @@ async def list_videos(
             total_cost=float(r.get("total_cost") or 0),
             views=r.get("views") or 0,
             ctr=float(r["ctr"]) if r.get("ctr") else None,
+            early_signal=r.get("early_signal"),
             characters_approved_at=r.get("characters_approved_at"),
             story_locked_at=r.get("story_locked_at"),
             created_at=r.get("created_at"),
@@ -626,6 +627,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   source_views, source_channel, source_urls,
                   views_24h, views_48h, views_7d, views_30d,
                   ctr_12h, ctr_24h, ctr_48h, retention_48h,
+                  early_signal, early_signal_evidence, early_signal_at::text,
                   post_mortem_48h, post_mortem_7d,
                   agent_paper_trail, agent_hook_score, agent_body_score, agent_tier, agent_cost,
                   suggested_thumbnail_prompt, suggested_thumbnail_urls,
@@ -705,6 +707,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         ctr_24h=float(r["ctr_24h"]) if r.get("ctr_24h") else None,
         ctr_48h=float(r["ctr_48h"]) if r.get("ctr_48h") else None,
         retention_48h=float(r["retention_48h"]) if r.get("retention_48h") else None,
+        early_signal=r.get("early_signal"),
+        early_signal_evidence=_parse_json_field(r.get("early_signal_evidence")),
+        early_signal_at=r.get("early_signal_at"),
         post_mortem_48h=r.get("post_mortem_48h"),
         post_mortem_7d=r.get("post_mortem_7d"),
         agent_paper_trail=_parse_json_field(r.get("agent_paper_trail")),

@@ -115,13 +115,15 @@ async def get_channel_videos(
 ):
     """Videos actually on the channel, newest first (YouTube Studio style)."""
     rows = await fetch_all(
-        """SELECT id, video_id, internal_video_id, title, thumbnail_url, published_at,
-                  duration_seconds, privacy_status, view_count, like_count, comment_count,
-                  impressions, ctr_percent, avg_view_duration_seconds, avg_retention,
-                  last_synced_at
-           FROM channel_videos
-           WHERE tenant_id = $1
-           ORDER BY published_at DESC NULLS LAST
+        """SELECT cv.id, cv.video_id, cv.internal_video_id, cv.title, cv.thumbnail_url,
+                  cv.published_at, cv.duration_seconds, cv.privacy_status, cv.view_count,
+                  cv.like_count, cv.comment_count, cv.impressions, cv.ctr_percent,
+                  cv.avg_view_duration_seconds, cv.avg_retention, cv.last_synced_at,
+                  v.early_signal
+           FROM channel_videos cv
+           LEFT JOIN videos v ON v.id = cv.internal_video_id
+           WHERE cv.tenant_id = $1
+           ORDER BY cv.published_at DESC NULLS LAST
            LIMIT $2""",
         tenant_id,
         limit,
@@ -146,6 +148,12 @@ async def get_channel_videos(
             # C33: views-per-hour, derived at read time (own_vph.compute_own_vph),
             # the same math the competitor side already uses — see checklist §3.4.
             "vph": compute_own_vph(r["view_count"], r["published_at"]),
+            # C58: 'ok' | 'watch' | 'underperforming' | None — the early-warning
+            # launch classifier's verdict, read straight off the linked
+            # `videos` row (NULL for channel videos with no internal_video_id
+            # match, or not yet classified). A badge would slot next to the
+            # title using this field; no frontend change this chunk.
+            "early_signal": r.get("early_signal"),
             "watch_url": f"https://youtu.be/{r['video_id']}",
             "last_synced_at": str(r["last_synced_at"]) if r["last_synced_at"] else None,
         }

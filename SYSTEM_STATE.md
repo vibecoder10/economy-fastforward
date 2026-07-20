@@ -9977,3 +9977,134 @@ existing caller's request shape becomes invalid) — safe for the routine hourly
 auto-deploy with no `--with-frontend` coordination needed.
 
 **No migration, no backend change, no deploy-skew** — frontend-only route deletion + two doc edits.
+
+## C58 — early-warning launch classifier (Follow-up queue, the last P4.2 scout gap, added 2026-07-20)
+
+SaaS-side port of the CONCEPT in `skills/video-pipeline/autopilot/monitoring/early_warning.py` (legacy
+`EarlyWarning.classify()`: fixed absolute CTR% bands, e.g. "CTR < 2.5% = CRITICAL"). The legacy
+thresholds are hardcoded percentages that mean something different on every channel — this port keeps
+the SHAPE (a small number of tiers, cheap, evidence-backed) but replaces the absolute numbers with the
+SAME data-derived, per-channel, evidence-attached law `channel_patterns.py` (C46e/C56) already
+established: a video's early trajectory is judged ONLY against its OWN channel's history.
+
+**Classifier** (NEW `storyengine/backend/early_warning.py`): `classify_early_signal(video_ctr_48h,
+channel_ctr_48h_values)` is pure — compares one video's `ctr_48h` (the write-once 48h-post-publish
+snapshot `routes/youtube_sync.py::_calculate_snapshots` already locks for EVERY video at the identical
+milestone) against the median of this SAME tenant's OTHER videos' `ctr_48h` values. Because every
+video's `ctr_48h` is captured at the exact same maturity point, this comparison is maturity-matched BY
+CONSTRUCTION — never a same-day CTR mashing a brand-new video against a channel veteran's lifetime
+average (design constraint 2's honesty requirement). Reuses `channel_patterns.MIN_COHORT` (5, need at
+least this many comparable videos to trust a median) and `channel_patterns.OUTLIER_THRESHOLD_PCT` (30%,
+directly as the `underperforming` cutoff — this channel's OWN existing definition of an outlier, not a
+new number); `watch` is half that (15%). Bands: `delta_pct <= -30%` → `underperforming`; `-30% < delta_pct
+<= -15%` → `watch`; else → `ok` (a warning system has no separate "doing great" tier — beating the median
+is just `ok`). Returns `None` (never guesses) when `video_ctr_48h` is missing or fewer than 5 comparable
+videos exist — see "young" below for what happens next in that case.
+
+**"Young" definition — self-bounding, no time-window constant needed:** a video is classified EXACTLY
+ONCE, the first sync where its `ctr_48h` is available (in the DB already, OR landing THIS sync via
+`_calculate_snapshots`) AND it has never been classified (`early_signal_at IS NULL`). Because `ctr_48h`
+is itself a write-once 48h milestone, this window opens at most once per video (whichever sync first has
+`ctr_48h` populated — for a video whose `ctr_48h` predates this feature, that's simply the first sync run
+with this code deployed, a natural backfill with no special-cased catch-up path) and closes forever once
+`run_early_signal_classification` successfully classifies it (`early_signal_at` stamped). **Exception:**
+when the channel's cohort is too thin (`classify_early_signal` returns `None` for that reason, not a
+missing `ctr_48h`), `early_signal_at` is deliberately left `NULL` so the SAME video is retried on a later
+sync once the channel accumulates enough sibling launches — "too little history" self-heals instead of
+silently guessing or giving up forever (the checklist's "never guess without data" requirement, pinned by
+`test_leaves_marker_untouched_when_cohort_too_thin`).
+
+**Storage** (migration 111, `ADD COLUMN IF NOT EXISTS`, applied LIVE via Supabase MCP against
+`wrromlupsmyzrrcqlucn`, confirmed via `information_schema.columns`): `videos.early_signal TEXT` ('ok' |
+'watch' | 'underperforming' | NULL, CHECK-constrained), `videos.early_signal_evidence JSONB` (the raw
+numbers/N/thresholds behind the call — same evidence-jsonb discipline as `channel_patterns.evidence`),
+`videos.early_signal_at TIMESTAMPTZ` (the write-once marker). Columns added to the existing per-video row
+(no new table) per design constraint 5. `schema.sql` updated to match — and, while there, also picked up
+the pre-existing gap where C56's `launch_pattern_analyzed_at` (migration 110) had never been added to
+`schema.sql`'s `videos` table definition (found during this chunk, fixed alongside).
+
+**Seam**: `routes/youtube_sync.py::_writeback_matched_videos` (the SAME per-video analytics writeback
+C56 hooked) gains a second batched, fail-soft trigger alongside the existing launch-pattern-flywheel one
+— independent of it (a video can clear BOTH the C56 impressions>=1000 bar and the C58 ctr_48h-present
+bar in the same sync and queue for both; `test_both_flywheels_fire_independently_for_the_same_video`
+pins this). `pending_early_signal` collects `{"internal_video_id", "ctr_48h"}` for every young video this
+sync (using the effective post-update `ctr_48h`: `r["ctr_48h"] if r["ctr_48h"] is not None else
+update_fields.get("ctr_48h")`, so a freshly-landing-this-sync snapshot is picked up in the SAME sync it
+lands, not one sync later), then makes ONE batched call to `early_warning.run_early_signal_classification`
+after the per-row UPDATE loop, wrapped in try/except (fail-soft — a classifier/DB hiccup never breaks the
+sync; unlike C56's marker, `early_signal_at` is written OR deliberately left NULL entirely inside
+`run_early_signal_classification` itself, so a failure here just means next-sync retry, never a
+half-written state).
+
+**Notify**: `early_warning._notify_underperforming` drops ONE `bot_activity` row (`bot_name=
+"early_warning"`) ONLY when the level is `underperforming` — never for `ok`/`watch` — and, because
+`early_signal_at` is write-once, this can only ever fire once per video, never on a repeat sync (design
+constraint 1). Mirrors `channel_patterns._notify_launch_pattern_proposed` (C52's notify precedent) —
+best-effort, never raises, never undoes the already-persisted classification write on failure.
+
+**Surface** (design constraint 6 — additive, no frontend work required this chunk):
+- `models.py`'s `VideoSummary` (not just `VideoDetail`, so it flows to the list endpoint too) gains
+  `early_signal: Optional[str]`; `VideoDetail` additionally gains `early_signal_evidence: Optional[dict]`
+  and `early_signal_at: Optional[str]`.
+- `routes/videos.py`: `GET /api/videos` (list) and `GET /api/videos/{id}` (detail) both select and return
+  the new field(s) — the exact same response shapes the frontend's video list and detail pages already
+  fetch.
+- `routes/analytics.py::GET /api/analytics/videos` (the Analytics page's "videos actually on the channel"
+  list) gains a `LEFT JOIN videos v ON v.id = cv.internal_video_id` and an `early_signal` key in the
+  per-row dict — the most natural badge slot (a small pill next to the title/thumbnail on that list row);
+  no frontend change made this chunk.
+- **MCP decision: no new tool.** The existing `get_video`/`list_videos` MCP tools dispatch through
+  `actions.video_summary` (a compact PRODUCTION-status dict — title/status/scene counts/spend), not
+  through `VideoDetail`/`VideoSummary`, so they don't pick up `early_signal` for free, and adding
+  analytics fields to a "production status" tool would be scope creep on an unrelated surface. A
+  dedicated new read tool for one narrow field was judged not worth the MCP tool-surface bloat this
+  chunk — the HTTP surfaces above are the reader today; revisit if/when an MCP consumer actually needs
+  it (analogous to `get_style_performance`/`get_channel_top_performers`'s existing analytics-tool
+  pattern, which this could join later).
+
+### Verification (C58)
+
+31 new tests, NEW `tests/test_c58_early_signal.py`: 13 pure `classify_early_signal` cases (ok/watch/
+underperforming bands incl. exact boundary values, no-ctr/thin-cohort/non-positive-median → None,
+evidence shape, None-filtering in history, and a lock that `UNDERPERFORMING_THRESHOLD_PCT ==
+channel_patterns.OUTLIER_THRESHOLD_PCT` — reuse, not a parallel constant); 11
+`run_early_signal_classification` cases (persist-when-classifiable, marker-left-untouched-when-cohort-
+too-thin, self-exclusion from its own history, notify-only-on-underperforming, notify-failure-doesn't-
+undo-the-write, one-video's-failure-doesn't-abort-the-batch, non-numeric-ctr-never-raises, history-
+fetch-fails-soft, empty-input-never-queries, tenant-scoping, cross-tenant-isolation-across-two-calls); 7
+`_writeback_matched_videos` wiring cases (already-matured-unclassified queued, freshly-matured-this-sync
+queued using the just-written snapshot, already-classified NEVER requeued, not-yet-matured never queued,
+classifier-exception never breaks the per-row UPDATE, no-pending never invokes the classifier,
+both-flywheels-fire-independently-for-the-same-video). NON-VACUOUS via `git stash` (stashed
+`early_warning.py`, the migration, `schema.sql`, `models.py`, and the 3 touched route files, keeping the
+new test file): collection fails outright (`ModuleNotFoundError: No module named 'early_warning'`)
+against the pre-C58 tree — the strongest possible non-vacuity proof. Restored via `git stash pop`, all 31
+re-pass. Full backend suite: **1910P/15F/1E** = baseline (1879P/15F/1E) + 31, SAME 15 pre-existing
+failures (verified by name) + same 1 error, zero new. `py_compile` clean on all 6 touched/new `.py` files.
+No frontend touched (per design constraint 6) — `npx tsc` not run this chunk.
+
+### Modified/New Files (C58)
+
+| Path | Change |
+|------|--------|
+| `storyengine/backend/migrations/111_early_signal.sql` | NEW — `videos.early_signal`/`early_signal_evidence`/`early_signal_at`, applied live + confirmed via `information_schema` |
+| `storyengine/schema.sql` | `videos` table gains the 3 new columns AND the pre-existing (C56) `launch_pattern_analyzed_at` column that schema.sql had never picked up |
+| `storyengine/backend/early_warning.py` | NEW — `classify_early_signal` (pure), `_channel_ctr48_history`, `_notify_underperforming`, `run_early_signal_classification` |
+| `storyengine/backend/routes/youtube_sync.py` | `_writeback_matched_videos` gains `pending_early_signal` collection (independent of C56's `pending_launch_analysis`) + a fail-soft batched call to `early_warning.run_early_signal_classification`; SELECT gains `v.early_signal_at` |
+| `storyengine/backend/models.py` | `VideoSummary` gains `early_signal`; `VideoDetail` gains `early_signal_evidence`/`early_signal_at` |
+| `storyengine/backend/routes/videos.py` | `list_videos`/`get_video` SELECT + response construction gain the new field(s) |
+| `storyengine/backend/routes/analytics.py` | `get_channel_videos` gains a `LEFT JOIN videos` + `early_signal` in the response dict |
+| `storyengine/backend/tests/test_c58_early_signal.py` | NEW — 31 tests |
+
+### Deploy-safety assessment
+
+**ff-merge candidate.** Purely additive: 3 new nullable columns (default NULL, no backfill — every
+existing video simply queues for early-signal classification exactly once on its next sync, same as a
+brand-new video would), a new module nothing else calls yet except the one new call site, wrapped in its
+own try/except so a classifier bug can't break the analytics sync that already runs today. The per-row
+`UPDATE videos` statement's existing columns/values are unchanged when a video doesn't qualify (the new
+trigger only ever ADDS a queue entry, never alters `update_fields`). `VideoSummary`/`VideoDetail`/the
+analytics videos response all gain fields with default `None` — any existing frontend build (old or new)
+ignores unrecognized/null fields identically; no existing field's shape or meaning changed. No spend path
+touched (design constraint 1 — read-only signal, confirmed: no write to `total_cost`/`generation_ledger`/
+kill-switch/pause anywhere in `early_warning.py`).

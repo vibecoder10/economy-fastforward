@@ -397,9 +397,11 @@ async def _match_internal_videos(tenant_id: str) -> int:
 
 async def _writeback_matched_videos(tenant_id: str):
     """Copy synced channel metrics onto linked `videos` rows, fill the
-    write-once 24h/48h/7d/30d snapshot columns the learning loop reads, and
+    write-once 24h/48h/7d/30d snapshot columns the learning loop reads,
     (checklist C56, P4.2-g) trigger the per-launch pattern flywheel for any
-    video whose analytics just matured this sync pass."""
+    video whose analytics just matured this sync pass, and (checklist
+    follow-up queue C58) classify any "young" video's early trajectory via
+    the early-warning launch classifier."""
     rows = await fetch_all(
         """SELECT cv.internal_video_id AS internal_id, cv.published_at,
                   cv.view_count, cv.like_count, cv.comment_count,
@@ -407,13 +409,20 @@ async def _writeback_matched_videos(tenant_id: str):
                   cv.avg_retention AS cv_retention, cv.watch_time_hours, cv.subscribers_gained,
                   cv.video_id AS cv_video_id,
                   v.upload_date, v.views_24h, v.views_48h, v.views_7d, v.views_30d,
-                  v.ctr_48h, v.retention_48h, v.launch_pattern_analyzed_at
+                  v.ctr_48h, v.retention_48h, v.launch_pattern_analyzed_at,
+                  v.early_signal_at
            FROM channel_videos cv
            JOIN videos v ON v.id = cv.internal_video_id
            WHERE cv.tenant_id = $1""",
         tenant_id,
     )
     pending_launch_analysis: list[dict] = []
+    # C58: videos that are "young" this sync — ctr_48h available (either
+    # already set from a prior sync, or just landing in this sync's
+    # `snapshots` below) and never classified yet (early_signal_at IS
+    # NULL). See early_warning.py's module docstring for why this window
+    # only ever opens once per video and closes forever once classified.
+    pending_early_signal: list[dict] = []
     for r in rows:
         upload_date = r["upload_date"] or r["published_at"]
         update_fields: dict = {
@@ -459,6 +468,23 @@ async def _writeback_matched_videos(tenant_id: str):
                 "internal_video_id": r["internal_id"],
             })
 
+        # C58 early-warning trigger: the effective ctr_48h AFTER this
+        # UPDATE is either already in the DB (r["ctr_48h"]) or landing
+        # THIS sync (update_fields["ctr_48h"], written by _calculate_
+        # snapshots above once hours_since >= 48). If either is present
+        # and this video has never been classified (early_signal_at IS
+        # NULL), queue it — classification itself decides whether the
+        # channel has enough history to actually score it (early_warning.
+        # run_early_signal_classification leaves the marker unstamped, and
+        # so this video queued again next sync, when the cohort's too thin
+        # — never guessed).
+        effective_ctr_48h = r["ctr_48h"] if r["ctr_48h"] is not None else update_fields.get("ctr_48h")
+        if effective_ctr_48h is not None and r.get("early_signal_at") is None:
+            pending_early_signal.append({
+                "internal_video_id": r["internal_id"],
+                "ctr_48h": effective_ctr_48h,
+            })
+
         set_parts = []
         values = []
         for key, val in update_fields.items():
@@ -482,6 +508,20 @@ async def _writeback_matched_videos(tenant_id: str):
             # (unconditionally, before this call), so a permanent failure
             # here doesn't retry forever either.
             print(f"[YouTubeSync] Launch pattern analysis failed for tenant {tenant_id}: {e}")
+
+    if pending_early_signal:
+        try:
+            from early_warning import run_early_signal_classification
+            await run_early_signal_classification(tenant_id, pending_early_signal)
+        except Exception as e:
+            # Fail-soft (checklist C58 requirement): a classifier/DB hiccup
+            # must never break the analytics sync that triggers it. Unlike
+            # the launch-pattern marker above, early_signal_at is written
+            # (or deliberately left NULL) INSIDE run_early_signal_
+            # classification itself, so a failure here just means this
+            # video's classification is retried next sync — never a stuck
+            # half-written state.
+            print(f"[YouTubeSync] Early-signal classification failed for tenant {tenant_id}: {e}")
 
 
 async def _fetch_bulk_video_analytics(client, access_token: str) -> dict[str, dict]:
