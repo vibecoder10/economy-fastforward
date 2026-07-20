@@ -476,3 +476,19 @@ REVISED build order (supersedes "(a) entitlement seam / (b) Stripe later"):
   via Claude. Whatever's found, the fix is calling the SAME gate.
 - Ryan's remaining decisions shrink to: which tier gets MCP (recommend pro+agency), and whether
   plan-limit numbers change. Checkout/portal/webhooks need nothing new.
+
+## 2026-07-20 — MCP channel-manager direction (Ryan): multi-channel drivable from one Claude chat; signup stays in browser; UI = confirmation surface
+Ryan: "Can I sign up via the MCP and have access via a channel manager?... have Claude set everything
+up via the MCP but I have the user interface for double triple confirmation. Many people will want to
+use the system to run multiple channels."
+Rulings/facts:
+- Signup + Stripe checkout stay BROWSER-ONLY by design — that flow IS the paywall (C57: agent tokens
+  mint only from a paid, logged-in account). One-time minutes; everything after is MCP-drivable.
+- UI-as-confirmation is already structural: every MCP setup tool writes the same DB the UI reads.
+  Keep it that way — never add MCP-only state invisible to the UI.
+- Economics clarified for the record: chat-Claude intelligence = user's Claude subscription;
+  backend-internal Claude calls (script/research stages, BYOK tools) = tenant's API key;
+  submit_research/submit_script let power users keep thinking-work on subscription.
+- GAP (verified in code): `projects` table = one row per channel, many per account — but the MCP
+  surface is single-channel-implicit (no list/create/select channel tools, no channel scope param).
+  → C61 queued: channel-manager MCP surface, additive scoping.
