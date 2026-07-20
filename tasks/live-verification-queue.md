@@ -13,7 +13,7 @@
 1. **💰 Confirm the Veo 3.1 price (the one real money unknown).** Public pages conflict: Veo 3.1 Fast = **$0.40 or $0.30**, Veo 3.1 Quality = **$2.00 or $1.25** per 8s clip — and Veo Quality is by far the priciest model, so getting it right matters most. Generate ONE Veo clip on a test video, then read the Kie dashboard's credit-consumption log for that task (credits × $0.005 = the true price). Update `CLIP_PRICE_BY_MODEL`/`MODEL_REGISTRY.cost_per_clip` for veo-3.1-fast/quality in `skills/video-pipeline/shared/channel_profile.py`. Same one-clip-and-read for **Grok Imagine**, **Kling 3.0 Pro**, **Runway Gen-4 Turbo** if you wire them (details in §C09 below).
 2. **🎙️ Confirm the ElevenLabs voice rate.** The ledger meters voice by REAL character count (accurate) but at an UNCONFIRMED **$0.30/1,000 chars** — ElevenLabs bills by a monthly character allowance tied to your plan, doesn't return a per-call cost, and it's your own (BYOK) key, so the true effective rate is per-account. Generate one voiceover, note the character count the ledger recorded (`se db "SELECT units, actual_cost FROM generation_ledger WHERE stage='voice' ORDER BY created_at DESC LIMIT 1"`), then check your ElevenLabs dashboard/usage for that account's real $/1,000-chars (or overage rate) and update `VOICE_PRICE_PER_1K_CHARS` in `skills/video-pipeline/shared/channel_profile.py` if it differs.
 3. **🧾 One cheap picture-gen tests the WHOLE cost chain at once.** Generating a single scene's pictures (~$0.05–0.30) lights up C07-style ledger writes AND C08 image pricing AND C10's Est→Actual chip/drawer in one shot — do it on a test video and walk §C07/§C08/§C10 together instead of separately.
-4. **🤖 MCP go-live (§C29 below).** Once C25a's held branch is folded into a coordinated deploy anyway (item 1/2/3 above are also good excuses to do that deploy), flip `MCP_ENABLED=true` and run the full external-client loop — see **§C29** for the exact ordered recipe. This is the ONE runbook for C26/C27/C28/C29/C47's combined live checks; don't chase them as five separate to-dos.
+4. **🤖 MCP go-live (§C29 below).** Once C25a's held branch is folded into a coordinated deploy anyway (item 1/2/3 above are also good excuses to do that deploy), flip `MCP_ENABLED=true` and run the full external-client loop — see **§C29** for the exact ordered recipe. This is the ONE runbook for C26/C27/C28/C29/C47/C49's combined live checks; don't chase them as six separate to-dos.
 5. Everything else below is read-only or a light tap-through — knock them out while the account is already being spent.
 
 ---
@@ -328,6 +328,50 @@ and reuses the SAME disposable test video from Step 5, or a fresh one — either
   free). **Rollback:** delete the test video/rule row if you don't want them cluttering the dashboard;
   no migration or flag to revert (same dark/on-flag posture as the rest of §C29).
 
+### Step 5c — C49 atomic-surface session, same connected client, same token
+
+**Why this rides the same runbook:** C49's 21 new tools are dark behind the SAME `MCP_ENABLED` flag
+and the SAME token — nothing new to deploy/flip/mint. Reuses the disposable test video from Step 5
+(or a fresh 2-scene one). Total expected spend: **~$0.10** (one `redraw_shot` OR one
+`redo_character_sheet`, whichever you pick — don't run both on a smoke test).
+
+1. **Shot-level** (on a video that already has pictures — e.g. the Step 5 video after `draft_pass`):
+   `get_shots` → note one `asset_id`. `edit_shot_image_prompt` with a small text tweak → confirm the
+   web UI's Scenes tab shows the edited prompt. `improve_prompt` with `surface: "image"` → expect a
+   proposed rewrite back (nothing saved). `redraw_shot` with no `confirm_token` → expect a ~$0.05
+   quote; confirm it → expect the web UI to show the redraw running, then the new picture. `set_shot_
+   model_override` with a wired model id from `list_models` → confirm the Scenes chip shows the
+   override.
+2. **Script surgery:** `get_scene_script` for scene 1 → `edit_scene_text` with different words →
+   confirm the Script/Voice tab shows it and that scene's voice status cleared. `regenerate_scene_
+   text` (needs the tenant's OWN Anthropic key configured — Settings → API Keys) → expect a rewritten
+   paragraph back, free (no confirm_token).
+3. **Character granularity** (needs a video with a designed cast): `get_characters` → note a
+   `char_id`. `edit_character` with a tweaked description → confirm in the Characters tab.
+   `redo_character_sheet` with no `confirm_token` → expect a ~$0.05 quote; confirm it → expect the
+   web UI to show the redesign running.
+4. **Voice control:** `set_narrator_voice` with any ElevenLabs voice id → confirm Settings → API Keys
+   shows the new `elevenlabs_voice_id`. (`redo_dialogue_scene_voice` only applies to a dialogue-mode
+   video — skip if the test video is narration-only; the existing `voice` tool with a `scene`
+   argument already covers narration-mode scene redo, nothing new to check there.)
+5. **Pre-publish:** `get_publish_info` → `edit_publish_info` with `{"category": "howto"}` → confirm
+   via `se db "SELECT seo_category_id FROM videos WHERE id = '<id>'"` shows `"26"` (the real
+   `_CATEGORY_IDS["howto"]` value, proving the friendly-name resolution ran server-side).
+6. **Analytics reads** (only meaningful once the tenant has a connected+synced YouTube channel):
+   `get_style_performance` and `get_top_channel_videos` → expect real aggregates, no `thumbnail_url`/
+   `watch_url` in the JSON (grep the raw response for "http" — should only ever appear inside
+   `youtube_video_id`-adjacent text if at all, never as a fetchable image/video URL).
+7. **Reference-modeling reads:** `pull_reference_video_metadata` with any public YouTube URL → the
+   FIRST live proof this actually works past the bot-check (the sandbox has no network to yt-dlp at
+   all) — if it fails with the bot-check message, that's the known `YTDLP_COOKIES_FILE`/`YTDLP_PROXY`
+   gap (docs/env-vars.md), not a C49 bug. `get_channel_top_performers` with a channel name already in
+   `list_channels` → expect the top 3 by views, no thumbnail/url fields. `score_title_gap_structures`
+   with a real hook/thesis → expect 5 ranked structures, no API latency (pure function — should
+   return near-instantly, proving it never touched Claude). `suggest_video_titles` with a topic →
+   expect 5 titles back.
+- **Rollback:** none needed beyond Step 5/5b's own (delete the test video/rule if unwanted); revoking
+  the token in Step 6 below covers all of C49's tools too, same as everything else in this runbook.
+
 ### Step 6 — Revoke the token, confirm 401
 
 1. Profile → Agent Access → Revoke the token minted in step 3 (confirm modal).
@@ -339,6 +383,69 @@ and reuses the SAME disposable test video from Step 5, or a fresh one — either
    it's accepted).
 - **Rollback:** none needed — revocation is the terminal, intended state. Mint a fresh token if you
   want to keep testing.
+
+### Composition recipes — worked examples (C49)
+
+The atomic tools (C26/C27/C47/C49) are meant to be COMBINED inside one connected Claude session, not
+called one at a time off a checklist. Six worked recipes, each naming the exact tool calls in order
+— use these as the script for whichever ones apply during Step 4/5/5b/5c above, and as the reference
+a real user session should be able to reproduce unassisted.
+
+**1. Ideation batch** — "give me 5 title options for a video about X, scored by curiosity-gap angle":
+`suggest_video_titles({topic})` → `score_title_gap_structures({hook, thesis, facts})` per candidate
+angle → the agent picks/ranks in its own reasoning (no tool call — this is exactly the "intelligence
+layer is the connected Claude session itself" design law from decisions.md 2026-07-19) →
+`create_video({title})` on the winner. Free until `create_video`; `create_video` itself is also free.
+
+**2. Data-directed fix** — "our animated-style videos are underperforming, dial in a fix":
+`get_style_performance()` → agent spots the weak `by_render_style`/`by_clip_model` bucket →
+`get_top_channel_videos({top_n: 5})` to see what IS working → `get_scenes`/`get_shots` on a
+currently-in-progress video to find the specific scenes using the weak style → `set_shot_model_
+override` or `set_render_style` (existing verb tool) to correct course on that video going forward.
+All free/read except whatever paid verb the creator explicitly chooses next.
+
+**3. A/B takes** — "give me two different takes on scene 4's picture": `get_shots({video_id, scene:
+4})` → note the asset_id → `edit_shot_image_prompt` with take A's direction → `redraw_shot` (quote →
+confirm, ~$0.05) → review the result → `edit_shot_image_prompt` again with take B's direction →
+`redraw_shot` again (a SECOND quote — tokens are single-use, this is by design, not a bug) → compare.
+~$0.10 total for two takes on one shot.
+
+**4. Remote QC** — "check scene 7's dialogue line before I approve the batch": `get_scene_script
+({video_id, scene: 7})` to read the line → `get_shots({video_id, scene: 7})` to check image_prompt/
+model_override are what was intended → if the line itself is wrong, `edit_scene_text` (free, exact
+words) or `regenerate_scene_text` (free, BYOK, AI rewrite) → re-check with `get_scene_script`. No
+paid step unless the creator also wants a redraw.
+
+**5. One-off demo** — "make me a quick 2-scene test video end to end, cheapest possible": `create_
+video({title, video_length_minutes: 2})` → `draft_pass` (quote → confirm, draft-tier clip model,
+~$0.20-0.80 for 2 scenes per Step 5's own breakdown) → `get_ledger` to show the real spend → done.
+This is literally Step 5 above, restated as a recipe an end user (not just this runbook) can follow.
+
+**6. "Model this video" (the flagship recipe — decisions.md 2026-07-19, Ryan: "give it a video and
+ask it to model this video where it will give me new title ideas based on looking at a channel's top
+3 videos... clone the video style but with my own twist"):**
+   1. `pull_reference_video_metadata({video_url})` — read the reference video's title/description/
+      transcript excerpt (text only, no thumbnail — media-bearing steps wait on C48/C25a).
+   2. `get_channel_top_performers({channel, top_n: 3})` — the channel's own top 3 by views, for
+      pattern-grounding (decisions.md's literal ask).
+   3. `score_title_gap_structures({hook, thesis, facts})` drawn from step 1+2's data → agent reasons
+      about which curiosity-gap angle fits → `suggest_video_titles({topic, context})` to actually
+      draft title text grounded in that reasoning.
+   4. `get_channel_dna()` (C47) — the tenant's own learned voice/format, so the "clone with a twist"
+      stays recognizably THIS channel, not a copy of the reference.
+   5. The "twist" is plain English at this point — the agent proposes a style/script-profile pairing
+      (`list_style_presets`, `list_script_profiles`, both C27/C47 reads) and the creator picks or
+      redirects; no tool call for the twist itself, same "intelligence layer is the session" law.
+   6. `create_video({title, visual_style, script_profile, writer_guidance})` — writer_guidance carries
+      the twist direction into the script step.
+   7. Normal walkthrough creation from here: `script` → `characters` → `storyboards`/`images` →
+      `animate` → ... — every paid step still quote+confirm gated, any wired model, any length (the
+      creator's "as long as I am willing to pay for it" — decisions.md), exactly per Step 5's model.
+   - **What's still missing for a FULLY hands-off run of this recipe (flag, don't build — C48's
+     scope):** a single "walkthrough" convenience tool that chains steps 1-6 with one call instead of
+     six, and the media-bearing board-review steps (`get_scene_boards`/`get_thumbnail` with signed
+     URLs) — both explicitly deferred to C48, itself blocked on the C25a coordinated deploy. Today
+     this recipe is fully RUNNABLE (every step above has a live tool), just not yet a one-liner.
 
 ### Fold-ins — what this replaces
 
@@ -353,12 +460,18 @@ and reuses the SAME disposable test video from Step 5, or a fresh one — either
   submitted script through the real quality gate, not just the sandbox's mocked critic") — answered
   by **Step 5b** above (learn_channel_start/status, a quality rule round-trip, render_style/
   style_preset live in the web UI, submit_research + submit_script's accept AND reject paths).
+- **§C49's deferred check** ("do the 21 atomic-surface tools actually reach the same route functions
+  live, does `pull_reference_video_metadata` survive real yt-dlp/bot-check conditions the sandbox
+  can't simulate, does the friendly-name category resolution actually land the right YouTube
+  videoCategory id") — answered by **Step 5c** above, with the composition recipes section giving
+  the combined-session worked examples (including the "model this video" flagship) the checklist
+  entry asked for.
 
-### §C26 / §C27 / §C28 / §C47 — see §C29 above
+### §C26 / §C27 / §C28 / §C47 / §C49 — see §C29 above
 
 Each of these chunks' own deferred live-verification note (in `SYSTEM_STATE.md` and the checklist)
-points here — this is the one runbook, not four separate fragments. Nothing below these headers;
-this is a redirect, not a duplicate.
+points here — this is the one runbook, not four/five separate fragments. Nothing below these
+headers; this is a redirect, not a duplicate.
 
 ---
 

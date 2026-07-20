@@ -148,6 +148,7 @@ dependency (S5-4), never auth.verify_token/get_tenant_id.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Optional
 
@@ -1408,9 +1409,974 @@ _INGEST_HANDLERS = {
 }
 
 
+# =============================================================================
+# ATOMIC-SURFACE TOOLS (C49 — checklist "MCP atomic-surface completion",
+# decisions.md 2026-07-19's "model this video" extension): thin wrappers over
+# EXISTING endpoints/functions for the shot-level, script-surgery, character-
+# granularity, voice-control, pre-publish, analytics-read, and reference-
+# modeling-read atomic operations C26/C27/C47 didn't already cover. Same
+# registry discipline as every earlier surface:
+#   - PAID (redraw_shot, redo_character_sheet, redo_dialogue_scene_voice)
+#     reuses the EXACT SAME confirm_tokens.py gate every other paid tool
+#     uses (create/redeem/params_hash, same mcp_confirm_tokens table) via
+#     `_paid_gate` below — just keyed by this tool's own name instead of an
+#     actions.ACTIONS verb (these ops have no verb of their own), and by a
+#     subject id (asset_id/char_id) instead of a scene number. No new money
+#     mechanism, no new pipeline logic — every PAID tool below dispatches
+#     through the SAME route function the HTTP door already calls.
+#   - FREE writes are attributed via `caller` (routes/mcp.py's `_log_setup_
+#     write`, same as C47) and call the SAME route/module function the
+#     existing HTTP endpoint or verb calls — no parallel UPDATE statements.
+#   - READS never carry a media/asset URL (C25a hold) — see each read
+#     tool's docstring for exactly which existing field was stripped/
+#     replaced and why.
+# =============================================================================
+
+async def _paid_gate(tenant_id, video_id: str, tool: str, subject: Optional[str],
+                      quote_cost: float, quote_label: str,
+                      confirm_token: Optional[str]) -> tuple[bool, dict[str, Any]]:
+    """Generic confirm_token quote/redeem cycle for a C49 atomic paid tool
+    that has no actions.ACTIONS verb of its own. Reuses confirm_tokens.py's
+    EXACT create()/redeem()/params_hash() — the identical single-use,
+    10-minute, params-bound token every ACTIONS-verb paid tool mints via
+    `_call_verb` above — just keyed by this tool's name (in the `verb`
+    column) and by `subject` (in the `change` column) instead of a scene
+    number, so a token minted for "redraw asset A" cannot be replayed
+    against asset B, a different tool, video, or tenant.
+
+    Returns (ready, result): ready=True means the caller should proceed with
+    the actual paid work; ready=False means `result` IS the tool's final
+    return value (a quote or a confirm-token error) and the caller must
+    return it unchanged.
+    """
+    phash = confirm_tokens.params_hash(tool, None, subject, None, None)
+    if not confirm_token:
+        token = await confirm_tokens.create(tenant_id, video_id, tool, phash)
+        return False, _text_result({
+            "status": "quote", "tool": tool, "cost": quote_cost, "cost_text": quote_label,
+            "confirm_token": token, "expires_in_seconds": confirm_tokens.TTL_SECONDS,
+            "note": "Call this same tool again with these SAME arguments plus confirm_token to run it.",
+        })
+    ok = await confirm_tokens.redeem(tenant_id, video_id, tool, phash, confirm_token)
+    if not ok:
+        return False, _error_result(
+            "confirm_token is invalid, expired, already used, or doesn't match these exact "
+            "arguments — call this tool again WITHOUT confirm_token to get a fresh quote."
+        )
+    return True, {}
+
+
+# --- Shot-level -------------------------------------------------------------
+
+_GET_SHOTS_TOOL: dict[str, Any] = {
+    "name": "get_shots",
+    "description": (
+        "Shot-level (per-asset) detail for a video: each asset's id, scene, "
+        "index, current image_prompt/video_prompt text, manual model_override "
+        "and camera_preset_id, routed_model, shot_type, and status. This is "
+        "where the asset_id every shot-level write tool needs (edit_shot_"
+        "image_prompt, edit_shot_motion_prompt, set_shot_model_override, "
+        "redraw_shot) comes from. Wraps the SAME query GET /api/videos/"
+        "{id}/assets uses (routes.videos.get_video_assets) — image_url/"
+        "video_clip_url stripped (C25a hold). Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scene": {"type": "integer", "description": "Only this scene's shots, optional."},
+        },
+        "required": ["video_id"],
+    },
+}
+
+_EDIT_SHOT_IMAGE_PROMPT_TOOL: dict[str, Any] = {
+    "name": "edit_shot_image_prompt",
+    "description": (
+        "Edit one shot's image prompt (the box under each picture in the "
+        "Scenes workspace). Free, no cost — redraw_shot is what actually "
+        "spends money against this prompt."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "asset_id": {"type": "string", "description": "Asset UUID (from get_shots)."},
+            "image_prompt": {"type": "string", "description": "The new image prompt text."},
+        },
+        "required": ["asset_id", "image_prompt"],
+    },
+}
+
+_EDIT_SHOT_MOTION_PROMPT_TOOL: dict[str, Any] = {
+    "name": "edit_shot_motion_prompt",
+    "description": (
+        "Edit one shot's motion (clip) prompt. Free, no cost — the next "
+        "animate/clip regen on this shot is what actually spends money."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "asset_id": {"type": "string", "description": "Asset UUID (from get_shots)."},
+            "video_prompt": {"type": "string", "description": "The new motion prompt text."},
+        },
+        "required": ["asset_id", "video_prompt"],
+    },
+}
+
+_SET_SHOT_MODEL_OVERRIDE_TOOL: dict[str, Any] = {
+    "name": "set_shot_model_override",
+    "description": (
+        "Set or clear one shot's manual clip-model override (checklist "
+        "§1.2/C14's endpoint — PATCH /api/assets/{id}/model-override) — the "
+        "next animate/quote for this shot honors this pick over the "
+        "router's own recommendation. Pass \"\" or omit model_override to "
+        "clear it back to the router's pick. Free, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "asset_id": {"type": "string", "description": "Asset UUID (from get_shots)."},
+            "model_override": {"type": "string", "description": "A wired MODEL_REGISTRY id (see list_models), or omit/\"\" to clear."},
+        },
+        "required": ["asset_id"],
+    },
+}
+
+_IMPROVE_PROMPT_TOOL: dict[str, Any] = {
+    "name": "improve_prompt",
+    "description": (
+        "Ask the SAME prompt-studio rewriter the UI's \"improve\" button "
+        "uses (POST /api/pipeline/improve-prompt/{id}) for a stronger "
+        "prompt. Returns the proposed text only — nothing is saved; follow "
+        "up with edit_shot_image_prompt/edit_shot_motion_prompt (or "
+        "edit_scene_text for surface=\"script\") to apply it. Free, no cost "
+        "— uses the tenant's own configured Claude/kie.ai key."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "surface": {"type": "string", "description": "image | motion | thumbnail | script."},
+            "current": {"type": "string", "description": "The current prompt/text, if any."},
+            "direction": {"type": "string", "description": "Free-text direction for the rewrite, e.g. \"make it more ominous\"."},
+        },
+        "required": ["video_id", "surface"],
+    },
+}
+
+_REDRAW_SHOT_TOOL: dict[str, Any] = {
+    "name": "redraw_shot",
+    "description": (
+        "Redraw ONE picture from its (edited) image_prompt, anchored on the "
+        "locked cast sheets — the SAME background job POST /api/pipeline/"
+        "redraw-image/{id} runs. PAID (one image, GPT Image 2 tier). Call "
+        "with no confirm_token first to get a price quote; call again with "
+        "the returned confirm_token to actually run it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "asset_id": {"type": "string", "description": "Asset UUID (from get_shots)."},
+            "confirm_token": {"type": "string", "description": "Omit on the first call to get a quote; pass it back to run."},
+        },
+        "required": ["video_id", "asset_id"],
+    },
+}
+
+_SHOT_TOOLS: list[dict[str, Any]] = [
+    _GET_SHOTS_TOOL, _EDIT_SHOT_IMAGE_PROMPT_TOOL, _EDIT_SHOT_MOTION_PROMPT_TOOL,
+    _SET_SHOT_MODEL_OVERRIDE_TOOL, _IMPROVE_PROMPT_TOOL, _REDRAW_SHOT_TOOL,
+]
+
+
+async def _call_get_shots(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_shots requires a video_id argument")
+    from routes.videos import get_video_assets as _get_video_assets_route
+    try:
+        rows = await _get_video_assets_route(str(video_id), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Video not found")
+    scene = _coerce_scene(arguments.get("scene"))
+    shots = []
+    for r in (rows or []):
+        row = dict(r)
+        row.pop("image_url", None)
+        row.pop("video_clip_url", None)  # C25a hold
+        if scene is not None and row.get("scene") != scene:
+            continue
+        row["id"] = str(row["id"])
+        row["video_id"] = str(row["video_id"])
+        shots.append(row)
+    return _text_result({"video_id": video_id, "shots": shots})
+
+
+async def _call_edit_shot_image_prompt(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    asset_id = arguments.get("asset_id")
+    text = arguments.get("image_prompt")
+    if not asset_id or not text:
+        return _error_result("edit_shot_image_prompt requires asset_id and image_prompt")
+    from routes.assets import ImagePromptUpdate, update_image_prompt as _update_image_prompt_route
+    try:
+        result = await _update_image_prompt_route(str(asset_id), ImagePromptUpdate(image_prompt=text), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Asset not found")
+    _log_setup_write("edit_shot_image_prompt", tenant_id, caller, detail=str(asset_id))
+    return _text_result(result)
+
+
+async def _call_edit_shot_motion_prompt(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    asset_id = arguments.get("asset_id")
+    text = arguments.get("video_prompt")
+    if not asset_id or not text:
+        return _error_result("edit_shot_motion_prompt requires asset_id and video_prompt")
+    from routes.assets import VideoPromptUpdate, update_video_prompt as _update_video_prompt_route
+    try:
+        result = await _update_video_prompt_route(str(asset_id), VideoPromptUpdate(video_prompt=text), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Asset not found")
+    _log_setup_write("edit_shot_motion_prompt", tenant_id, caller, detail=str(asset_id))
+    return _text_result(result)
+
+
+async def _call_set_shot_model_override(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    asset_id = arguments.get("asset_id")
+    if not asset_id:
+        return _error_result("set_shot_model_override requires an asset_id")
+    from routes.assets import ModelOverrideUpdate, update_model_override as _update_model_override_route
+    try:
+        result = await _update_model_override_route(
+            str(asset_id), ModelOverrideUpdate(model_override=arguments.get("model_override")), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Asset not found")
+    _log_setup_write("set_shot_model_override", tenant_id, caller, detail=str(asset_id))
+    return _text_result(result)
+
+
+async def _call_improve_prompt(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    surface = arguments.get("surface")
+    if not video_id or not surface:
+        return _error_result("improve_prompt requires video_id and surface")
+    from routes.pipeline import ImprovePromptRequest, improve_prompt as _improve_prompt_route
+    try:
+        body = ImprovePromptRequest(surface=surface, current=arguments.get("current"), direction=arguments.get("direction"))
+    except Exception as e:  # noqa: BLE001 — bad tool-input shape, not a 500
+        return _error_result(f"Bad arguments for improve_prompt: {e}")
+    try:
+        result = await _improve_prompt_route(str(video_id), body, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't improve that prompt")
+    _log_setup_write("improve_prompt", tenant_id, caller, detail=surface)
+    return _text_result(result)
+
+
+async def _call_redraw_shot(tenant_id, arguments: dict[str, Any],
+                             background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    asset_id = arguments.get("asset_id")
+    if not video_id or not asset_id:
+        return _error_result("redraw_shot requires video_id and asset_id")
+    video_id = str(video_id)
+    asset = await fetch_one(
+        "SELECT id FROM assets WHERE id = $1 AND video_id = $2 AND tenant_id = $3",
+        str(asset_id), video_id, tenant_id,
+    )
+    if not asset:
+        return _error_result(f"No asset {asset_id} found on video {video_id} for this tenant")
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    ready, result = await _paid_gate(
+        tenant_id, video_id, "redraw_shot", str(asset_id),
+        actions.PICTURE_COST, f"${actions.PICTURE_COST:.2f} (one GPT Image 2 picture)",
+        arguments.get("confirm_token"),
+    )
+    if not ready:
+        return result
+    from routes.pipeline import run_redraw_image as _run_redraw_image_route
+    try:
+        resp = await _run_redraw_image_route(video_id, background_tasks, str(asset_id), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start the redraw")
+    _log_setup_write("redraw_shot", tenant_id, caller, detail=str(asset_id))
+    return _text_result({"status": "started", "video_id": video_id, "asset_id": asset_id, "message": resp.message})
+
+
+# --- Script surgery ----------------------------------------------------------
+
+_GET_SCENE_SCRIPT_TOOL: dict[str, Any] = {
+    "name": "get_scene_script",
+    "description": "ONE scene's narration text/status from get_script, filtered server-side. Read-only, no cost.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scene": {"type": "integer", "description": "Scene number."},
+        },
+        "required": ["video_id", "scene"],
+    },
+}
+
+_EDIT_SCENE_TEXT_TOOL: dict[str, Any] = {
+    "name": "edit_scene_text",
+    "description": (
+        "Directly overwrite ONE scene's narration text (no AI rewrite — "
+        "for when you already have the exact words). Wraps PATCH /api/"
+        "videos/{id}/scenes/{scene}/text. Free, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scene": {"type": "integer", "description": "Scene number."},
+            "text": {"type": "string", "description": "The full replacement narration text for this scene."},
+        },
+        "required": ["video_id", "scene", "text"],
+    },
+}
+
+_REGENERATE_SCENE_TEXT_TOOL: dict[str, Any] = {
+    "name": "regenerate_scene_text",
+    "description": (
+        "AI-rewrite ONE scene's narration in place (POST /api/videos/{id}/"
+        "scenes/{scene}/rewrite) — dial in a single scene without re-"
+        "rolling the whole script. Clears that scene's voice so the next "
+        "voice run only re-records this scene. Free — uses the tenant's own "
+        "configured Anthropic key directly (not billed by StoryEngine, so "
+        "no confirm_token), same as learn_channel_start."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scene": {"type": "integer", "description": "Scene number."},
+        },
+        "required": ["video_id", "scene"],
+    },
+}
+
+_SCRIPT_SURGERY_TOOLS: list[dict[str, Any]] = [
+    _GET_SCENE_SCRIPT_TOOL, _EDIT_SCENE_TEXT_TOOL, _REGENERATE_SCENE_TEXT_TOOL,
+]
+
+
+async def _call_get_scene_script(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    scene = _coerce_scene(arguments.get("scene"))
+    if not video_id or scene is None:
+        return _error_result("get_scene_script requires video_id and scene")
+    full = await _call_get_script(tenant_id, {"video_id": video_id})
+    if full.get("isError"):
+        return full
+    payload = json.loads(full["content"][0]["text"])
+    match = next((s for s in payload.get("scenes", []) if s.get("scene") == scene), None)
+    if match is None:
+        return _error_result(f"No scene {scene} found for video {video_id}")
+    return _text_result({"video_id": video_id, "scene": match})
+
+
+async def _call_edit_scene_text(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    scene = _coerce_scene(arguments.get("scene"))
+    text = arguments.get("text")
+    if not video_id or scene is None or not text:
+        return _error_result("edit_scene_text requires video_id, scene, and text")
+    from models import SceneTextUpdate
+    from routes.videos import update_scene_text as _update_scene_text_route
+    try:
+        result = await _update_scene_text_route(str(video_id), scene, SceneTextUpdate(text=text), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Scene not found")
+    _log_setup_write("edit_scene_text", tenant_id, caller, detail=f"scene {scene}")
+    return _text_result(result)
+
+
+async def _call_regenerate_scene_text(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    scene = _coerce_scene(arguments.get("scene"))
+    if not video_id or scene is None:
+        return _error_result("regenerate_scene_text requires video_id and scene")
+    from routes.videos import rewrite_scene_text as _rewrite_scene_text_route
+    try:
+        result = await _rewrite_scene_text_route(str(video_id), scene, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't rewrite that scene")
+    _log_setup_write("regenerate_scene_text", tenant_id, caller, detail=f"scene {scene}")
+    return _text_result(result)
+
+
+# --- Character granularity ---------------------------------------------------
+
+_GET_CHARACTERS_TOOL: dict[str, Any] = {
+    "name": "get_characters",
+    "description": (
+        "This video's cast: each character's id, name, description, status, "
+        "source, and whether the cast is approved. Wraps GET /api/videos/"
+        "{id}/characters — reference_url stripped (C25a hold). Read-only, "
+        "no cost."
+    ),
+    "inputSchema": _VIDEO_ID_SCHEMA,
+}
+
+_EDIT_CHARACTER_TOOL: dict[str, Any] = {
+    "name": "edit_character",
+    "description": "Edit a character's name and/or description. Free, no cost.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "char_id": {"type": "string", "description": "Character UUID (from get_characters)."},
+            "name": {"type": "string", "description": "New name, optional."},
+            "description": {"type": "string", "description": "New description, optional."},
+        },
+        "required": ["video_id", "char_id"],
+    },
+}
+
+_REDO_CHARACTER_SHEET_TOOL: dict[str, Any] = {
+    "name": "redo_character_sheet",
+    "description": (
+        "Redesign one character's model-sheet portrait from its current "
+        "description (POST /api/videos/{id}/characters/{char_id}/"
+        "regenerate). PAID (one GPT Image 2 tier image). Call with no "
+        "confirm_token first to get a price quote; call again with the "
+        "returned confirm_token to actually run it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "char_id": {"type": "string", "description": "Character UUID (from get_characters)."},
+            "confirm_token": {"type": "string", "description": "Omit on the first call to get a quote; pass it back to run."},
+        },
+        "required": ["video_id", "char_id"],
+    },
+}
+
+_CHARACTER_TOOLS: list[dict[str, Any]] = [
+    _GET_CHARACTERS_TOOL, _EDIT_CHARACTER_TOOL, _REDO_CHARACTER_SHEET_TOOL,
+]
+
+
+async def _call_get_characters(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_characters requires a video_id argument")
+    from routes.characters import list_characters as _list_characters_route
+    try:
+        result = await _list_characters_route(str(video_id), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Video not found")
+    characters = []
+    for c in (result.get("characters") or []):
+        c = dict(c)
+        c.pop("reference_url", None)  # C25a hold
+        characters.append(c)
+    return _text_result({"video_id": video_id, "characters": characters, "approved_at": result.get("approved_at")})
+
+
+async def _call_edit_character(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    char_id = arguments.get("char_id")
+    if not video_id or not char_id:
+        return _error_result("edit_character requires video_id and char_id")
+    from routes.characters import CharacterUpdate, update_character as _update_character_route
+    try:
+        result = await _update_character_route(
+            str(video_id), str(char_id),
+            CharacterUpdate(name=arguments.get("name"), description=arguments.get("description")),
+            tenant_id=tenant_id,
+        )
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Character not found")
+    _log_setup_write("edit_character", tenant_id, caller, detail=str(char_id))
+    return _text_result(result)
+
+
+async def _call_redo_character_sheet(tenant_id, arguments: dict[str, Any],
+                                      background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    char_id = arguments.get("char_id")
+    if not video_id or not char_id:
+        return _error_result("redo_character_sheet requires video_id and char_id")
+    video_id = str(video_id)
+    char = await fetch_one(
+        "SELECT id FROM video_characters WHERE id = $1 AND video_id = $2 AND tenant_id = $3",
+        str(char_id), video_id, tenant_id,
+    )
+    if not char:
+        return _error_result(f"No character {char_id} found on video {video_id} for this tenant")
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    ready, result = await _paid_gate(
+        tenant_id, video_id, "redo_character_sheet", str(char_id),
+        actions.PICTURE_COST, f"${actions.PICTURE_COST:.2f} (one GPT Image 2 tier portrait)",
+        arguments.get("confirm_token"),
+    )
+    if not ready:
+        return result
+    from routes.characters import regenerate_character as _regenerate_character_route
+    try:
+        resp = await _regenerate_character_route(video_id, str(char_id), background_tasks, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start the redesign")
+    _log_setup_write("redo_character_sheet", tenant_id, caller, detail=str(char_id))
+    return _text_result({"status": "started", "video_id": video_id, "char_id": char_id, "message": resp.get("message")})
+
+
+# --- Voice control ------------------------------------------------------------
+
+_SET_NARRATOR_VOICE_TOOL: dict[str, Any] = {
+    "name": "set_narrator_voice",
+    "description": (
+        "Set this tenant's ElevenLabs narrator voice id (Settings → API "
+        "Keys' elevenlabs_voice_id — docs/env-vars.md). Wraps the SAME "
+        "vault write POST /api/settings/keys/elevenlabs_voice_id uses, "
+        "restricted to only this one key (not a general secret-setter). "
+        "Free, no cost — takes effect on the next voice run."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {"voice_id": {"type": "string", "description": "An ElevenLabs voice id."}},
+        "required": ["voice_id"],
+    },
+}
+
+_REDO_DIALOGUE_SCENE_VOICE_TOOL: dict[str, Any] = {
+    "name": "redo_dialogue_scene_voice",
+    "description": (
+        "Re-synthesize ONE scene's dialogue-mode voice segments (narrator + "
+        "cast lines) — POST /api/pipeline/dialogue-voice/{id}?scene=N. For "
+        "narration-only videos, use the existing `voice` tool with a scene "
+        "argument instead (this tool is specifically the dialogue_segments "
+        "path). Resume-safe — already-voiced segments are skipped. PAID. "
+        "Call with no confirm_token first to get a price quote; call again "
+        "with the returned confirm_token to actually run it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scene": {"type": "integer", "description": "Scene number."},
+            "confirm_token": {"type": "string", "description": "Omit on the first call to get a quote; pass it back to run."},
+        },
+        "required": ["video_id", "scene"],
+    },
+}
+
+_VOICE_TOOLS: list[dict[str, Any]] = [_SET_NARRATOR_VOICE_TOOL, _REDO_DIALOGUE_SCENE_VOICE_TOOL]
+
+
+async def _call_set_narrator_voice(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    voice_id = (arguments.get("voice_id") or "").strip()
+    if not voice_id:
+        return _error_result("set_narrator_voice requires a voice_id argument")
+    from routes.settings import SetKeyRequest, set_api_key as _set_api_key_route
+    try:
+        result = await _set_api_key_route("elevenlabs_voice_id", SetKeyRequest(value=voice_id), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't save that voice id")
+    _log_setup_write("set_narrator_voice", tenant_id, caller)
+    return _text_result(result)
+
+
+async def _call_redo_dialogue_scene_voice(tenant_id, arguments: dict[str, Any],
+                                           background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    scene = _coerce_scene(arguments.get("scene"))
+    if not video_id or scene is None:
+        return _error_result("redo_dialogue_scene_voice requires video_id and scene")
+    video_id = str(video_id)
+    summary = await actions.video_summary(tenant_id, video_id)
+    if summary is None:
+        return _error_result(f"No video {video_id} found for this tenant")
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    # Reuses actions.estimate_cost's OWN "voice" pricing (real per-character
+    # ElevenLabs estimate when the script exists, flat fallback otherwise) —
+    # the same honest quote math the `voice` ACTIONS verb already gives,
+    # just for the dialogue-voice endpoint instead of run_voice.
+    cost, cost_text = await actions.estimate_cost(tenant_id, video_id, "voice", scene, summary)
+    ready, result = await _paid_gate(
+        tenant_id, video_id, "redo_dialogue_scene_voice", str(scene), cost, cost_text,
+        arguments.get("confirm_token"),
+    )
+    if not ready:
+        return result
+    from routes.pipeline import run_dialogue_voice as _run_dialogue_voice_route
+    try:
+        resp = await _run_dialogue_voice_route(video_id, background_tasks, scene=scene, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start the voice run")
+    _log_setup_write("redo_dialogue_scene_voice", tenant_id, caller, detail=f"scene {scene}")
+    return _text_result({"status": "started", "video_id": video_id, "scene": scene, "message": resp.message})
+
+
+# --- Pre-publish ---------------------------------------------------------------
+
+_GET_PUBLISH_INFO_TOOL: dict[str, Any] = {
+    "name": "get_publish_info",
+    "description": (
+        "This video's publish-facing fields: title, seo_description, "
+        "seo_tags, seo_hashtags, seo_category_id. No media URLs. "
+        "Read-only, no cost."
+    ),
+    "inputSchema": _VIDEO_ID_SCHEMA,
+}
+
+_EDIT_PUBLISH_INFO_TOOL: dict[str, Any] = {
+    "name": "edit_publish_info",
+    "description": (
+        "Edit title/SEO description/tags/category before upload — wraps "
+        "PATCH /api/videos/{id}/seo (title/description/tags) plus the "
+        "category_id field this chunk added to youtube_publish.save_seo "
+        "(previously write-only from generate_and_store_seo's own Claude "
+        "call, no manual edit path existed). category accepts a friendly "
+        "name (education/entertainment/howto/people/news/science/film/"
+        "music/gaming) or a raw YouTube videoCategory id. Free, no cost — "
+        "does not upload anything."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "title": {"type": "string", "description": "New title, optional."},
+            "description": {"type": "string", "description": "New SEO description, optional."},
+            "tags": {"type": "array", "items": {"type": "string"}, "description": "New tag list, optional."},
+            "category": {"type": "string", "description": "A friendly category name or raw YouTube category id, optional."},
+        },
+        "required": ["video_id"],
+    },
+}
+
+_PUBLISH_TOOLS: list[dict[str, Any]] = [_GET_PUBLISH_INFO_TOOL, _EDIT_PUBLISH_INFO_TOOL]
+
+
+async def _call_get_publish_info(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_publish_info requires a video_id argument")
+    row = await fetch_one(
+        "SELECT video_title, seo_description, seo_tags, seo_hashtags, seo_category_id "
+        "FROM videos WHERE id = $1 AND tenant_id = $2",
+        str(video_id), tenant_id,
+    )
+    if not row:
+        return _error_result(f"No video {video_id} found for this tenant")
+    return _text_result({
+        "video_id": video_id, "title": row.get("video_title"),
+        "seo_description": row.get("seo_description"), "seo_tags": row.get("seo_tags"),
+        "seo_hashtags": row.get("seo_hashtags"), "seo_category_id": row.get("seo_category_id"),
+    })
+
+
+async def _call_edit_publish_info(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("edit_publish_info requires a video_id argument")
+    from youtube_publish import save_seo as _save_seo
+    body: dict[str, Any] = {}
+    if arguments.get("title") is not None:
+        body["title"] = arguments["title"]
+    if arguments.get("description") is not None:
+        body["description"] = arguments["description"]
+    if arguments.get("tags") is not None:
+        body["tags"] = arguments["tags"]
+    if arguments.get("category") is not None:
+        body["category_id"] = arguments["category"]
+    if not body:
+        return _error_result("edit_publish_info needs at least one of title/description/tags/category")
+    video = await fetch_one("SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", str(video_id), tenant_id)
+    if not video:
+        return _error_result(f"No video {video_id} found for this tenant")
+    result = await _save_seo(str(video_id), tenant_id, **body)
+    _log_setup_write("edit_publish_info", tenant_id, caller, detail=",".join(body.keys()))
+    return _text_result(result)
+
+
+# --- Analytics reads -----------------------------------------------------------
+
+_GET_STYLE_PERFORMANCE_TOOL: dict[str, Any] = {
+    "name": "get_style_performance",
+    "description": (
+        "Performance grouped by the creative choice that produced it — "
+        "visual style preset, render look, script voice, and dominant clip "
+        "model (GET /api/analytics/by-style, same aggregation the copilot's "
+        "channel_data tool reads). Read-only, no cost."
+    ),
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
+_GET_TOP_CHANNEL_VIDEOS_TOOL: dict[str, Any] = {
+    "name": "get_top_channel_videos",
+    "description": (
+        "This tenant's OWN top-performing published videos, ranked by view "
+        "count, each with views-per-hour (VPH, own_vph.compute_own_vph — "
+        "the SAME math the competitor side uses) and CTR/retention — the "
+        "'model this video' recipe's own-channel data feed (decisions.md "
+        "2026-07-19). Wraps GET /api/analytics/videos. No media URLs — "
+        "thumbnail_url dropped, watch_url replaced with youtube_video_id. "
+        "Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {"top_n": {"type": "integer", "description": "How many, ranked by views (default 10, max 50)."}},
+    },
+}
+
+_ANALYTICS_TOOLS: list[dict[str, Any]] = [_GET_STYLE_PERFORMANCE_TOOL, _GET_TOP_CHANNEL_VIDEOS_TOOL]
+
+
+async def _call_get_style_performance(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    from routes.analytics import get_by_style_performance as _get_by_style_performance_route
+    result = await _get_by_style_performance_route(tenant_id=tenant_id)
+    return _text_result(result.model_dump())
+
+
+async def _call_get_top_channel_videos(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    from routes.analytics import get_channel_videos as _get_channel_videos_route
+    raw_n = arguments.get("top_n") or 10
+    try:
+        top_n = max(1, min(int(raw_n), 50))
+    except (TypeError, ValueError):
+        top_n = 10
+    rows = await _get_channel_videos_route(limit=200, tenant_id=tenant_id)
+    ranked = sorted(rows, key=lambda r: r.get("views") or 0, reverse=True)[:top_n]
+    videos = []
+    for r in ranked:
+        row = dict(r)
+        row.pop("thumbnail_url", None)  # C25a hold
+        row.pop("watch_url", None)      # C25a hold — youtube_video_id is the reference, not a media link
+        videos.append(row)
+    return _text_result({"videos": videos, "total_on_channel": len(rows)})
+
+
+# --- Reference-modeling reads ("model this video" ingredients) ----------------
+
+_PULL_REFERENCE_VIDEO_TOOL: dict[str, Any] = {
+    "name": "pull_reference_video_metadata",
+    "description": (
+        "Pull a YouTube video's metadata + transcript via yt-dlp — the SAME "
+        "extraction Model-A-Video's own reference-video ingestion uses "
+        "(routes.niche._extract_video_info), exposed as a plain read so an "
+        "agent can look at a reference video BEFORE committing to the full "
+        "paid POST /api/model-video flow. Runs synchronously (a single-"
+        "video pull is seconds, not the multi-minute learn_channel_start "
+        "case — kept a plain read rather than a start/poll shape; if a live "
+        "run shows this actually stalls the request, that decision should "
+        "flip). No thumbnail image (C25a hold) — title, channel, "
+        "description, view/like counts, upload date, duration, and a "
+        "transcript excerpt (first 4000 chars) only. Read-only, no cost "
+        "(yt-dlp, not a paid API)."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {"video_url": {"type": "string", "description": "A YouTube video URL or bare 11-character video id."}},
+        "required": ["video_url"],
+    },
+}
+
+_GET_CHANNEL_TOP_PERFORMERS_TOOL: dict[str, Any] = {
+    "name": "get_channel_top_performers",
+    "description": (
+        "Top-performing scraped videos for ONE tracked competitor/reference "
+        "channel, ranked by views — the 'model this video' recipe's "
+        "top-performer-analysis step (decisions.md 2026-07-19: 'title ideas "
+        "based on looking at a channel's top 3 videos'). Wraps GET /api/"
+        "niche/videos with sort=views_desc, filtered to `channel`. No media "
+        "URLs — thumbnail_url/url/channel_url dropped, video_id kept as the "
+        "reference. Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "channel": {"type": "string", "description": "A tracked channel name (see list_channels' GET /api/niche/channels for the catalog)."},
+            "top_n": {"type": "integer", "description": "How many, ranked by views (default 3, max 25)."},
+        },
+        "required": ["channel"],
+    },
+}
+
+_SCORE_TITLE_GAP_STRUCTURES_TOOL: dict[str, Any] = {
+    "name": "score_title_gap_structures",
+    "description": (
+        "Score a story (hook/thesis/facts) against the 5 curiosity-gap "
+        "title structures (hidden_flaw, asymmetric_dg, time_bomb, "
+        "paradigm_shift, illusion_control) — the SAME deterministic scorer "
+        "title_idea/curiosity_gap/gap_title_engine.score_structures uses "
+        "before it ever calls Claude, exposed here as a pure, free, no-cost "
+        "step you can reason over yourself (writing the actual title text "
+        "is suggest_video_titles or your own judgment) — the engine's "
+        "Claude-calling half needs a tenant-scoped key it doesn't have in "
+        "this codebase (see the C49 report's 'no existing seam' note), so "
+        "only the scoring half is wrapped. Free, no cost — pure scoring, no "
+        "API call."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "hook": {"type": "string", "description": "The story's hook/cold-open line."},
+            "thesis": {"type": "string", "description": "The story's core thesis/claim."},
+            "facts": {"type": "array", "items": {"type": "string"}, "description": "Key supporting facts."},
+        },
+        "required": ["hook", "thesis"],
+    },
+}
+
+_SUGGEST_VIDEO_TITLES_TOOL: dict[str, Any] = {
+    "name": "suggest_video_titles",
+    "description": (
+        "Generate title options for a topic (POST /api/videos/suggest-"
+        "titles) — the platform-native title generator (curiosity-driven, "
+        "channel-aware). Pair with score_title_gap_structures if you want "
+        "to reason about WHICH curiosity-gap angle to write toward first. "
+        "Free, no cost — uses the tenant's own configured Claude/kie.ai key."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "topic": {"type": "string", "description": "The video topic."},
+            "context": {"type": "string", "description": "Extra context/angle, optional."},
+            "count": {"type": "integer", "description": "How many titles (default 5)."},
+        },
+        "required": ["topic"],
+    },
+}
+
+_REFERENCE_MODELING_TOOLS: list[dict[str, Any]] = [
+    _PULL_REFERENCE_VIDEO_TOOL, _GET_CHANNEL_TOP_PERFORMERS_TOOL,
+    _SCORE_TITLE_GAP_STRUCTURES_TOOL, _SUGGEST_VIDEO_TITLES_TOOL,
+]
+
+
+def _looks_like_youtube_id(s: str) -> bool:
+    return len(s) == 11 and all(c.isalnum() or c in "_-" for c in s)
+
+
+async def _call_pull_reference_video_metadata(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    raw = (arguments.get("video_url") or "").strip()
+    if not raw:
+        return _error_result("pull_reference_video_metadata requires a video_url argument")
+    from routes.model_video import _parse_youtube_id
+    from routes.niche import _extract_video_info
+    video_id = _parse_youtube_id(raw) or (raw if _looks_like_youtube_id(raw) else None)
+    if not video_id:
+        return _error_result("Couldn't parse a YouTube video id from that URL")
+    info = await asyncio.to_thread(_extract_video_info, video_id)
+    if not info:
+        return _error_result(
+            "Couldn't fetch that video — it may be private/deleted, or this server's egress IP is "
+            "bot-blocked by YouTube (see YTDLP_COOKIES_FILE/YTDLP_PROXY in docs/env-vars.md)."
+        )
+    return _text_result({
+        "video_id": info.get("video_id"), "title": info.get("title"), "channel": info.get("channel"),
+        "description": info.get("description"), "views": info.get("views"), "likes": info.get("likes"),
+        "comment_count": info.get("comment_count"), "published_at": info.get("published_at"),
+        "duration_seconds": info.get("duration_seconds"), "transcript_excerpt": (info.get("transcript") or "")[:4000],
+    })
+
+
+async def _call_get_channel_top_performers(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    channel = (arguments.get("channel") or "").strip()
+    if not channel:
+        return _error_result("get_channel_top_performers requires a channel argument")
+    raw_n = arguments.get("top_n") or 3
+    try:
+        top_n = max(1, min(int(raw_n), 25))
+    except (TypeError, ValueError):
+        top_n = 3
+    from routes.niche import list_videos as _list_videos_route
+    result = await _list_videos_route(limit=top_n, offset=0, channel=channel, sort="views_desc", tenant_id=tenant_id)
+    videos = []
+    for r in (result.get("videos") or []):
+        row = dict(r)
+        row.pop("thumbnail_url", None)  # C25a hold
+        row.pop("url", None)
+        row.pop("channel_url", None)
+        videos.append(row)
+    return _text_result({"channel": channel, "videos": videos, "total_for_channel": result.get("total")})
+
+
+async def _call_score_title_gap_structures(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _pipeline_root = _Path(__file__).resolve().parent.parent.parent.parent / "skills" / "video-pipeline"
+    if str(_pipeline_root) not in _sys.path:
+        _sys.path.insert(0, str(_pipeline_root))
+    from title_idea.curiosity_gap.gap_title_engine import score_structures
+    story_context = {
+        "hook": arguments.get("hook") or "", "thesis": arguments.get("thesis") or "",
+        "facts": arguments.get("facts") or [],
+    }
+    scored = score_structures(story_context)
+    return _text_result({
+        "structures": [
+            {"structure": s.structure.value, "confidence": s.confidence, "reasoning": s.reasoning}
+            for s in scored
+        ],
+    })
+
+
+async def _call_suggest_video_titles(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    topic = (arguments.get("topic") or "").strip()
+    if not topic:
+        return _error_result("suggest_video_titles requires a topic argument")
+    from routes.videos import SuggestTitlesRequest, suggest_titles as _suggest_titles_route
+    body = SuggestTitlesRequest(topic=topic, context=arguments.get("context"), count=int(arguments.get("count") or 5))
+    try:
+        result = await _suggest_titles_route(body, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't generate title ideas")
+    _log_setup_write("suggest_video_titles", tenant_id, caller, detail=topic)
+    return _text_result(result)
+
+
+_ATOMIC_TOOLS: list[dict[str, Any]] = (
+    _SHOT_TOOLS + _SCRIPT_SURGERY_TOOLS + _CHARACTER_TOOLS + _VOICE_TOOLS
+    + _PUBLISH_TOOLS + _ANALYTICS_TOOLS + _REFERENCE_MODELING_TOOLS
+)
+
+# Reads (no tenant-scoped extra args beyond video_id, or none at all).
+_ATOMIC_READ_HANDLERS = {
+    "get_shots": _call_get_shots,
+    "get_scene_script": _call_get_scene_script,
+    "get_characters": _call_get_characters,
+    "get_publish_info": _call_get_publish_info,
+    "get_style_performance": _call_get_style_performance,
+    "get_top_channel_videos": _call_get_top_channel_videos,
+    "pull_reference_video_metadata": _call_pull_reference_video_metadata,
+    "get_channel_top_performers": _call_get_channel_top_performers,
+    "score_title_gap_structures": _call_score_title_gap_structures,
+}
+
+# Free writes needing (tenant_id, arguments, caller).
+_ATOMIC_FREE_HANDLERS = {
+    "edit_shot_image_prompt": _call_edit_shot_image_prompt,
+    "edit_shot_motion_prompt": _call_edit_shot_motion_prompt,
+    "set_shot_model_override": _call_set_shot_model_override,
+    "improve_prompt": _call_improve_prompt,
+    "edit_scene_text": _call_edit_scene_text,
+    "regenerate_scene_text": _call_regenerate_scene_text,
+    "edit_character": _call_edit_character,
+    "set_narrator_voice": _call_set_narrator_voice,
+    "edit_publish_info": _call_edit_publish_info,
+    "suggest_video_titles": _call_suggest_video_titles,
+}
+
+# Paid tools needing (tenant_id, arguments, background_tasks, caller).
+_ATOMIC_PAID_HANDLERS = {
+    "redraw_shot": _call_redraw_shot,
+    "redo_character_sheet": _call_redo_character_sheet,
+    "redo_dialogue_scene_voice": _call_redo_dialogue_scene_voice,
+}
+
+
 TOOLS: list[dict[str, Any]] = (
     _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
     + _AUTOPILOT_PROPOSAL_TOOLS + _AUTOPILOT_DIAL_TOOLS + _INGEST_TOOLS
+    + _ATOMIC_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -1537,6 +2503,12 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _AUTOPILOT_DIAL_WRITE_HANDLERS[name](tenant_id, arguments, caller)
         if name in _INGEST_HANDLERS:
             return await _INGEST_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _ATOMIC_READ_HANDLERS:
+            return await _ATOMIC_READ_HANDLERS[name](tenant_id, arguments)
+        if name in _ATOMIC_FREE_HANDLERS:
+            return await _ATOMIC_FREE_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _ATOMIC_PAID_HANDLERS:
+            return await _ATOMIC_PAID_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
         return _error_result(f"Unknown tool: {name}")
     raise ValueError(f"Unknown method: {method}")
 

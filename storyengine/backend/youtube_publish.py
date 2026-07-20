@@ -125,8 +125,19 @@ async def generate_and_store_seo(video_id: str, tenant_id: str) -> dict:
 
 
 async def save_seo(video_id: str, tenant_id: str, *, title: Optional[str] = None,
-                   description: Optional[str] = None, tags: Optional[list] = None) -> dict:
-    """Persist creator-edited SEO so the upload uses exactly what they see on screen."""
+                   description: Optional[str] = None, tags: Optional[list] = None,
+                   category_id: Optional[str] = None) -> dict:
+    """Persist creator-edited SEO so the upload uses exactly what they see on screen.
+
+    category_id (C49, checklist "pre-publish: read/edit ... category" — this
+    field previously had NO post-generate write path at all, only
+    generate_and_store_seo()'s own computed value; same "extend the existing
+    allowlist" precedent as C47's style_preset_id on update_video). Accepts
+    either a raw YouTube videoCategory id ("27") or one of the same friendly
+    names generate_and_store_seo() itself resolves via _CATEGORY_IDS
+    ("education", "howto", ...) so a creator/agent doesn't need to know the
+    numeric ids YouTube uses internally.
+    """
     sets, vals = [], []
     if title is not None:
         vals.append(title[:100]); sets.append(f"video_title=${len(vals)}")
@@ -135,6 +146,9 @@ async def save_seo(video_id: str, tenant_id: str, *, title: Optional[str] = None
     if tags is not None:
         clean = ",".join(str(t).strip().lower() for t in tags if str(t).strip())
         vals.append(clean); sets.append(f"seo_tags=${len(vals)}")
+    if category_id is not None:
+        resolved = _CATEGORY_IDS.get(str(category_id).strip().lower(), str(category_id).strip())
+        vals.append(resolved); sets.append(f"seo_category_id=${len(vals)}")
     if not sets:
         return {"status": "noop"}
     vals.extend([video_id, tenant_id])

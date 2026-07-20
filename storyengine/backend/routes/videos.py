@@ -823,7 +823,8 @@ async def save_video_seo(video_id: str, body: dict, tenant_id: str = Depends(get
         tags = [t for t in (x.strip() for x in tags.split(",")) if t]
     return await save_seo(
         video_id, tenant_id,
-        title=body.get("title"), description=body.get("description"), tags=tags)
+        title=body.get("title"), description=body.get("description"), tags=tags,
+        category_id=body.get("category_id"))
 
 
 @router.patch("/{video_id}/advance")

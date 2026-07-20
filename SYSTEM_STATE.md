@@ -9701,3 +9701,107 @@ full-auto loop today; the default (no cap set, or under-cap) behavior is byte-id
 **Parked decision added:** checklist's C37 OPEN list gains item 6, "which tier gets MCP" (recommend
 pro+agency) — was only in decisions.md's correction entry before, not the tracked parked-decisions
 list.
+
+## C49 — MCP atomic-surface completion (added 2026-07-20)
+
+Checklist "MCP atomic-surface completion" + decisions.md 2026-07-19's "model this video" extension:
+21 new MCP tools in `storyengine/backend/routes/mcp.py`, ALL thin wrappers over existing route/module
+functions — no new pipeline logic, same registry discipline as C26/C27/C47 (PAID = confirm_token
+money gate, FREE = attributed write, READ = no media URL). Same file, no new module (kept the
+single-registry convention every earlier MCP chunk used).
+
+**New generic paid-gate helper (`_paid_gate`, routes/mcp.py):** the 3 new PAID tools below have no
+`actions.ACTIONS` verb of their own, so `_call_verb`'s gate doesn't apply to them. `_paid_gate` reuses
+`confirm_tokens.py`'s EXACT `create()`/`redeem()`/`params_hash()` — same `mcp_confirm_tokens` table,
+same single-use/10-minute/params-bound token — keyed by the tool's own name (in the `verb` column)
+and a subject id like `asset_id`/`char_id` (in the `change` column) instead of a scene number. No new
+money mechanism.
+
+**Shot-level (6 tools):** `get_shots` (wraps `routes.videos.get_video_assets`, strips `image_url`/
+`video_clip_url`), `edit_shot_image_prompt`/`edit_shot_motion_prompt`/`set_shot_model_override` (wrap
+`routes.assets.update_image_prompt`/`update_video_prompt`/`update_model_override` — the last is the
+checklist's named "C14 endpoint"), `improve_prompt` (wraps `routes.pipeline.improve_prompt`),
+`redraw_shot` (PAID, wraps `routes.pipeline.run_redraw_image`, quoted at `actions.PICTURE_COST`).
+
+**Script surgery (3 tools):** `get_scene_script` (filters `_call_get_script`'s own result to one
+scene — zero new SQL), `edit_scene_text` (wraps `routes.videos.update_scene_text`),
+`regenerate_scene_text` (wraps `routes.videos.rewrite_scene_text` — FREE, uses the tenant's OWN
+Anthropic key directly, same BYOK classification as `learn_channel_start`, not billed by
+StoryEngine).
+
+**Character granularity (3 tools):** `get_characters` (wraps `routes.characters.list_characters`,
+strips `reference_url`), `edit_character` (wraps `update_character`), `redo_character_sheet` (PAID,
+wraps `regenerate_character`, quoted at `actions.PICTURE_COST`).
+
+**Voice control (2 tools):** `set_narrator_voice` (wraps `routes.settings.set_api_key` HARDCODED to
+`key_name="elevenlabs_voice_id"` only — not a general secret-setter), `redo_dialogue_scene_voice`
+(PAID, wraps `routes.pipeline.run_dialogue_voice`, quote reuses `actions.estimate_cost`'s real
+"voice" pricing — no parallel cost math). Narration-mode single-scene voice redo needed NO new tool —
+the existing `voice` ACTIONS-verb tool already accepts a `scene` argument.
+
+**Pre-publish (2 tools + one real gap fixed):** `get_publish_info` (reads `seo_description`/
+`seo_tags`/`seo_hashtags`/`seo_category_id`), `edit_publish_info` (wraps `youtube_publish.save_seo`).
+**Real gap found+fixed:** `seo_category_id` had NO edit path at all — only `generate_and_store_seo`'s
+own Claude-computed write. Added an optional `category_id` param to `youtube_publish.save_seo()`
+(resolves a friendly name via the SAME `_CATEGORY_IDS` map `generate_and_store_seo` already uses, or
+passes a raw id through) and wired `routes.videos.save_video_seo`'s PATCH body to it too — so the
+existing HTTP door gained the same capability as the new MCP tool, not a second implementation.
+
+**Analytics reads (2 tools):** `get_style_performance` (wraps `routes.analytics.get_by_style_
+performance`), `get_top_channel_videos` (wraps `get_channel_videos`, ranks by views, strips
+`thumbnail_url`/`watch_url` — own-channel VPH + top-N in one tool, per decisions.md's "model this
+video" data-feed ask).
+
+**Reference-modeling reads (4 tools):** `pull_reference_video_metadata` (wraps `routes.niche.
+_extract_video_info` via `asyncio.to_thread`, KEPT SYNCHRONOUS — judgment call, see below),
+`get_channel_top_performers` (wraps `routes.niche.list_videos` with `sort=views_desc`, strips
+`thumbnail_url`/`url`/`channel_url`, keeps `video_id` as the reference), `score_title_gap_structures`
+(wraps `title_idea/curiosity_gap/gap_title_engine.score_structures` — the pure, deterministic,
+Claude-FREE half of that engine), `suggest_video_titles` (wraps the existing `routes.videos.
+suggest_titles` — the platform-native, tenant-scoped BYOK title generator).
+
+**Judgment call — yt-dlp shape kept synchronous, not start/poll:** `_extract_video_info` has no
+existing HTTP endpoint of its own (only called internally by `niche.py`'s scrape task and
+`model_video.py`'s multi-stage pipeline); C47's `learn_channel_start` needed the start/poll shape
+because it runs 1-2 MINUTES — a single-video yt-dlp pull is normally seconds, so `pull_reference_
+video_metadata` awaits it directly in the request/response cycle instead of inventing a second
+task-polling mechanism for one read tool. Flagged (not proven) — the sandbox has no network to
+yt-dlp; if a live run shows this stalls the request past a client's timeout (bot-check retries can
+be slow), that decision should flip to start/poll. See `tasks/live-verification-queue.md` §C29 Step
+5c.
+
+**Explicitly SKIPPED — "no existing seam" (per the checklist's own house rule, don't build new
+pipeline capability to fill a gap):**
+- `title_idea/idea_modeling.py::generate_modeled_ideas` and `GapTitleEngine`'s Claude-calling half
+  (`_call_claude_for_titles`) both hardcode `shared.clients.anthropic_client.AnthropicClient()` — a
+  GLOBAL env-var-keyed client (this repo-root `.env`'s `ANTHROPIC_API_KEY`), not tenant-scoped BYOK.
+  Wrapping either directly in the multi-tenant SaaS backend would either charge Ryan's own key for
+  every tenant's MCP call or require inventing a tenant-scoping adapter — real new logic, not a thin
+  wrap. Only `score_structures` (the pure scoring half, no client at all) is wrapped;
+  `suggest_video_titles` (existing, tenant-scoped) is the practical "generate the actual title text"
+  tool instead.
+- A per-dialogue-SEGMENT (as opposed to per-scene) voice redo has no existing endpoint at any
+  granularity finer than `run_dialogue_voice(scene=...)` — not wrapped.
+
+**Tests:** new `tests/functional/test_c49_mcp_atomic_surface.py`, 29 tests — tool-surface presence +
+confirm_token classification, same-callable proofs (patches the REAL underlying route/module
+function for every FREE/READ tool), a full real (non-mocked `confirm_tokens`) quote→confirm round
+trip for `redraw_shot` proving it dispatches through the SAME `routes.pipeline.run_redraw_image` the
+HTTP door calls, ownership/bait-and-switch refusals before any quote is minted, `redo_character_
+sheet`/`redo_dialogue_scene_voice` dispatch proofs (the latter reusing `actions.estimate_cost`'s real
+pricing), the no-media-URL invariant on every read that could carry one, and a proof
+`score_title_gap_structures` never constructs `GapTitleEngine` (patched to raise if touched). Non-
+vacuous via `git stash` (28 of 29 fail without the implementation — the 1 that doesn't,
+`test_s5_2_memory_tools_still_excluded`, is a pre-existing invariant this chunk didn't change). Full
+suite **1871P/15F/1E** = baseline(1842P) + 29, same 15 failures/1 error by name, zero new.
+
+**No migration, no frontend.** **Deploy-skew:** none — MCP surface stays dark (`MCP_ENABLED` off in
+prod); the one non-MCP change (`youtube_publish.save_seo`'s new optional `category_id` param) is
+additive and backward-compatible (default `None`, no behavior change for existing callers) —
+`routes.videos.save_video_seo`'s existing callers that never send `category_id` see byte-identical
+behavior.
+
+**Composition recipes added:** `tasks/live-verification-queue.md` §C29 gains Step 5c (C49's live
+session) and a new "Composition recipes" subsection with 6 worked examples (ideation batch,
+data-directed fix, A/B takes, remote QC, one-off demo, and the "model this video" flagship recipe —
+runnable end-to-end today except its media-bearing board-review steps, which stay on C48/C25a).
