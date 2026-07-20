@@ -9,7 +9,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advanceVideo } from "@/lib/api";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
-import { toDisplayVideoUrl } from "@/lib/utils";
+import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
 import type { VideoDetail, Asset } from "@/lib/api";
 
 interface RenderTabProps {
@@ -202,7 +202,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
             {video.final_video_url && !renderActive && !videoError ? (
               <video
                 src={toDisplayVideoUrl(video.final_video_url)}
-                poster={video.thumbnail_url || undefined}
+                poster={toDisplayImageUrl(video.thumbnail_url)}
                 controls
                 className="absolute inset-0 w-full h-full object-contain"
                 style={{ background: "black" }}

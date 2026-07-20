@@ -7,6 +7,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { runPipelineStage, advanceVideo, generateVideoSeo, saveVideoSeo, getYouTubeStatus } from "@/lib/api";
 import type { VideoDetail } from "@/lib/api";
+import { toDisplayImageUrl } from "@/lib/utils";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/toast";
 
@@ -229,7 +230,7 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
             >
               {video.thumbnail_url || vid.thumbnailUrl ? (
                 <img
-                  src={(video.thumbnail_url || vid.thumbnailUrl) as string}
+                  src={toDisplayImageUrl(video.thumbnail_url || vid.thumbnailUrl)}
                   alt="Thumbnail"
                   className="w-full h-full object-cover"
                 />

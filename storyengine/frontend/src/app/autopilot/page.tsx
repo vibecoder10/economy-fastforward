@@ -52,7 +52,7 @@ import {
   type VideoScorecard,
   type AutopilotProposal,
 } from "@/lib/api";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, toDisplayImageUrl } from "@/lib/utils";
 
 const DIAL_OPTIONS: { value: "propose_only" | "auto_draft" | "full_auto"; label: string; description: string }[] = [
   { value: "propose_only", label: "Propose Only", description: "Autopilot scores candidates and waits for you to launch." },
@@ -1580,7 +1580,7 @@ function ScorecardCard({ sc }: { sc: VideoScorecard }) {
     >
       {sc.thumbnail_url ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={sc.thumbnail_url} alt="" className="w-full aspect-video object-cover" />
+        <img src={toDisplayImageUrl(sc.thumbnail_url)} alt="" className="w-full aspect-video object-cover" />
       ) : (
         <div
           className="w-full aspect-video flex items-center justify-center text-[10px]"

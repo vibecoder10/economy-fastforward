@@ -48,7 +48,7 @@ import {
   getStylePerformance,
   type StylePerformanceResponse,
 } from "@/lib/api";
-import { formatNumber, timeAgo } from "@/lib/utils";
+import { formatNumber, timeAgo, toDisplayImageUrl } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -720,7 +720,7 @@ export default function AnalyticsPage() {
                           {v.thumbnail_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={v.thumbnail_url}
+                              src={toDisplayImageUrl(v.thumbnail_url)}
                               alt=""
                               className="w-16 h-9 rounded object-cover shrink-0"
                               style={{ background: "var(--bg-elevated)" }}

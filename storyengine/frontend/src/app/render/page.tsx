@@ -29,7 +29,7 @@ import {
 import { getStageLabel } from "@/lib/constants";
 import { useTaskPoller } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, toDisplayImageUrl } from "@/lib/utils";
 
 const container = {
   hidden: { opacity: 0 },
@@ -131,7 +131,7 @@ function RenderCard({ video }: RenderCardProps) {
         >
           {video.thumbnail_url && !thumbError ? (
             <img
-              src={video.thumbnail_url}
+              src={toDisplayImageUrl(video.thumbnail_url)}
               alt={video.video_title || ""}
               className="w-full h-full object-cover"
               onError={() => setThumbError(true)}

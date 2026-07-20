@@ -3,6 +3,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useStyleDescriptions, styleDescriptionIcon } from "@/hooks/use-style-descriptions";
 import { useScriptProfiles } from "@/hooks/use-script-profiles";
 import type { StyleDescription } from "@/lib/api";
+import { toDisplayImageUrl } from "@/lib/utils";
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
@@ -1016,7 +1017,7 @@ export default function VideosPage() {
                           {video.thumbnail_url && (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={video.thumbnail_url}
+                              src={toDisplayImageUrl(video.thumbnail_url)}
                               alt={title}
                               className="absolute inset-0 w-full h-full object-cover"
                               onError={(e) => {
