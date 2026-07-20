@@ -10230,3 +10230,99 @@ this fixes previously-silent failures for `TrendingIdeaBot`'s trending-idea-gene
 `--more-ideas` CLI debug path. No spend path touched by StoryEngine's own ledger — both new tools are
 BYOK (tenant's own key, never StoryEngine-billed), same non-billing shape as `regenerate_scene_text`/
 `suggest_video_titles`/`learn_channel_start`.
+
+---
+
+## C60 — MICRO maintenance pair: dead-component deletion + rate-limit dedup finding (added 2026-07-20)
+
+Follow-up queue item. Two independent halves — (a) shipped (structural deletion), (b) stopped short of
+a merge because the two implementations are NOT behaviorally identical (see below); reported, not forced.
+
+### (a) Deleted `storyengine/frontend/src/components/storyboard/` (DONE)
+
+C39 left this folder in place, noting it was already dead but out of that chunk's scope (see C39 entry
+above — "grepped and found imported ONLY by the now-deleted page"). This chunk re-proved orphanhood
+fresh (per C19b discipline) rather than trusting C39's note, then deleted it.
+
+**Fresh grep-proof:** grepped the whole frontend (`src/`) for every export name (`SceneGrid`,
+`PanelDetail`, `StoryboardProgressBar`) and every plausible import path (`components/storyboard`,
+`storyboard/index`, `scene-grid`, `panel-detail`, `storyboard/progress-bar`, `from ".../storyboard"`).
+The only hits were internal cross-references within the folder itself (`panel-detail.tsx` importing
+the `StoryboardPanel` type from `./scene-grid`, and the barrel `index.ts` re-exporting from both) — zero
+external consumers. `ScenesWorkspaceTab.tsx`'s `handleGenerateSceneGrids` is an unrelated function name
+(triggers the backend storyboard-sheet generation call), not an import of this folder.
+
+**SACRED boundary confirmed untouched:** the in-page storyboard UI inside
+`storyengine/frontend/src/components/production/ScenesWorkspaceTab.tsx` and the backend storyboard
+pipeline stages (`storyengine/backend/pipeline_executor.py` `run_storyboard_*`, `skills/video-pipeline/
+storyboard/`) do not import anything from the deleted folder — confirmed by the grep above (no hits
+outside the deleted folder) and by inspection of `ScenesWorkspaceTab.tsx`'s import block.
+
+**Deleted (`git rm`):** `storyengine/frontend/src/components/storyboard/{index.ts, scene-grid.tsx,
+panel-detail.tsx, progress-bar.tsx}`.
+
+**Verified:** `rm -rf .next && npx tsc --noEmit` clean (no output). `NEXT_PUBLIC_API_URL=... npm run
+build` succeeded, all 33 routes generated, no errors.
+
+### (b) `rate_limit.py` vs `routes/billing.py` `_get_tenant_plan` — STOPPED, not merged
+
+Read both implementations in full before touching anything, per the chunk's own instruction to STOP if
+semantics differ in any way. They differ in two real ways, not just style:
+
+1. **Legacy-tenant fallback.** `rate_limit.py`'s version (lines ~139-154), when the
+   `accounts JOIN memberships` lookup finds no row, falls back to `SELECT plan FROM tenants WHERE
+   id = $1` (the pre-`accounts`-table legacy plan column, still live in `schema.sql`'s `tenants` table)
+   before defaulting to `"free"`. `routes/billing.py`'s version has no such fallback — it returns
+   `"free"` immediately on no membership row. For any tenant that predates the `accounts`/`memberships`
+   split (no membership row) but still carries a non-free legacy `tenants.plan`, the two functions
+   return different answers for the identical input.
+2. **60s TTL cache.** `rate_limit.py` caches the resolved plan per `tenant_id` for 60 seconds
+   (`_plan_cache`); `routes/billing.py` re-queries every call. Documented/intentional in `rate_limit.py`
+   (added to fix a prior 429-storm bug — see `tasks/lessons.md` "rate limiter and billing resolved
+   plans differently"), but it means a plan change is visible to billing checks immediately and to rate
+   limiting up to 60s later.
+
+Per the chunk's explicit branch ("match the canonical one only if rate_limit's behavior stays identical
+for every input; otherwise STOP and report"): behavior is NOT identical for every input (divergence #1
+is a real output difference, not just latency), so no merge was performed. Forcing rate_limit.py onto
+billing.py's version verbatim would silently drop the legacy-tenant fallback for any tenant lacking a
+membership row — a regression, not a cleanup.
+
+**Import-cycle check (answered for whichever chunk picks this back up):** no cycle today. `rate_limit.py`
+already does deferred (function-body) imports for `database` and `agent_tokens` rather than module-level
+imports; `routes/billing.py` imports only `os`/`uuid`/`stripe`/`fastapi`/`pydantic`/`typing`/`auth`/
+`database`/`email_service` — none of which import `rate_limit` or `main`. `main.py` imports `rate_limit`
+(line 17) before it imports `routes` (line 18), but since nothing `routes/billing.py` pulls in reaches
+back to `rate_limit`, a deferred `from routes.billing import _get_tenant_plan` inside
+`rate_limit.py`'s function body would not cycle.
+
+**No code changed for (b).** No lock-test added (would need to assert something true — "one definition
+remains" is false; two intentionally-different definitions exist). Flagged in `tasks/todo.md` for a
+follow-up chunk that first resolves the product question: are there still tenants with no membership
+row relying on the legacy `tenants.plan` fallback? If not, delete the fallback from rate_limit.py first
+(as a separate, reviewable change with its own line in this log), THEN dedup onto one shared helper. If
+so, the fallback needs to move to billing.py's version too before anything can be deduped.
+
+### Full-suite verification
+
+Backend: `./venv/bin/python -m pytest -q` from `storyengine/backend` → **1922 passed, 15 failed, 1
+error** — identical to the session baseline (1922P/15F/1E), same failures by name, zero new (expected:
+(a) only touched frontend files, (b) made no code changes). Frontend: `rm -rf .next && npx tsc --noEmit`
+clean; `npm run build` succeeded (33 routes).
+
+### Modified/Deleted Files (C60)
+
+| Path | Change |
+|------|--------|
+| `storyengine/frontend/src/components/storyboard/index.ts` | DELETED |
+| `storyengine/frontend/src/components/storyboard/scene-grid.tsx` | DELETED |
+| `storyengine/frontend/src/components/storyboard/panel-detail.tsx` | DELETED |
+| `storyengine/frontend/src/components/storyboard/progress-bar.tsx` | DELETED |
+| `storyengine/backend/rate_limit.py` | Unchanged — read only, finding reported above |
+| `storyengine/backend/routes/billing.py` | Unchanged — read only, finding reported above |
+
+### Deploy-safety assessment
+
+**ff-merge candidate.** (a) removes dead frontend code with zero live consumers, proven by full-repo
+grep and a clean `tsc`/`build`. (b) made no functional changes at all — pure investigation, nothing to
+regress.
