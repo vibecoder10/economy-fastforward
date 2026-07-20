@@ -1865,3 +1865,56 @@ CREATE INDEX IF NOT EXISTS autopilot_proposals_tenant_candidate_idx
 ALTER TABLE autopilot_proposals ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+-- =============================================================================
+-- FEATURE_REQUESTS / FEATURE_REQUEST_VOTES (migration 112 — checklist C65,
+-- tasks/decisions.md 2026-07-20 "Feature board" entry).
+-- =============================================================================
+-- The platform's FIRST deliberately CROSS-TENANT surface: every customer
+-- sees the SAME board, regardless of tenant. These two tables carry NO
+-- tenant_id at all, on purpose — reads are global, writes are attributed per
+-- ACCOUNT (accounts.id, the same UUID space auth users live in — see
+-- routes/workspaces.py's `_is_operator` for the precedent of keying straight
+-- off accounts.id rather than a tenant/membership join). Core loop: suggest
+-- -> upvote (one per account per idea, enforced by the composite PRIMARY KEY
+-- below, not application code) -> a status ladder (under_review -> planned
+-- -> building -> in_beta -> shipped / declined) that only an operator
+-- account can advance. Full rationale in migrations/112_feature_board.sql's
+-- header (read it before touching these tables) and implemented in
+-- backend/routes/feature_board.py.
+CREATE TABLE IF NOT EXISTS feature_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  title TEXT NOT NULL CHECK (char_length(title) <= 120),
+  body TEXT CHECK (body IS NULL OR char_length(body) <= 2000),
+  channel_archetype TEXT,
+  status TEXT NOT NULL DEFAULT 'under_review'
+    CHECK (status IN ('under_review', 'planned', 'building', 'in_beta', 'shipped', 'declined')),
+  declined_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS feature_requests_status_idx
+  ON feature_requests (status);
+
+CREATE INDEX IF NOT EXISTS feature_requests_account_created_idx
+  ON feature_requests (account_id, created_at);
+
+ALTER TABLE feature_requests ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+CREATE TABLE IF NOT EXISTS feature_request_votes (
+  request_id UUID NOT NULL REFERENCES feature_requests(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (request_id, account_id)
+);
+
+CREATE INDEX IF NOT EXISTS feature_request_votes_request_idx
+  ON feature_request_votes (request_id);
+
+ALTER TABLE feature_request_votes ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).

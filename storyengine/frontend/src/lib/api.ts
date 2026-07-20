@@ -2968,6 +2968,54 @@ export const createWorkspace = (name: string) =>
 export const removeWorkspace = (tenantId: string) =>
   fetchApi<{ status: string }>(`/api/workspaces/${tenantId}`, { method: "DELETE" });
 
+// --- Feature board (C65) ---
+// The platform's FIRST deliberately cross-tenant surface — every customer
+// sees the SAME board, regardless of workspace/tenant.
+export const FEATURE_BOARD_STATUSES = [
+  "under_review", "planned", "building", "in_beta", "shipped", "declined",
+] as const;
+export type FeatureBoardStatus = (typeof FEATURE_BOARD_STATUSES)[number];
+
+export interface FeatureRequest {
+  id: string;
+  account_id: string;
+  title: string;
+  body?: string | null;
+  channel_archetype?: string | null;
+  status: FeatureBoardStatus;
+  declined_reason?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  vote_count: number;
+  voted_by_me: boolean;
+  is_mine: boolean;
+}
+export interface FeatureBoardResponse {
+  requests: FeatureRequest[];
+}
+export const getFeatureBoard = (status?: string) =>
+  fetchApi<FeatureBoardResponse>(
+    `/api/feature-board${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+  );
+export const createFeatureRequest = (body: { title: string; body?: string; channel_archetype?: string }) =>
+  fetchApi<FeatureRequest>("/api/feature-board", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const voteFeatureRequest = (id: string) =>
+  fetchApi<FeatureRequest>(`/api/feature-board/${id}/vote`, { method: "POST" });
+export const unvoteFeatureRequest = (id: string) =>
+  fetchApi<FeatureRequest>(`/api/feature-board/${id}/vote`, { method: "DELETE" });
+export const updateFeatureRequestStatus = (
+  id: string,
+  status: FeatureBoardStatus,
+  declined_reason?: string,
+) =>
+  fetchApi<FeatureRequest>(`/api/feature-board/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, declined_reason }),
+  });
+
 // One prior message of a video's co-pilot conversation, flattened for the dock.
 export interface ChatHistoryMessage {
   role: "user" | "assistant";

@@ -25,6 +25,7 @@ import {
   X,
   BookOpen,
   MessageSquare,
+  Lightbulb,
 } from "lucide-react";
 import { isPlanAtLeast, PRO_PATHS } from "@/components/auth/AuthenticatedShell";
 import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
@@ -48,6 +49,7 @@ const advancedNav = [
   { href: "/system-prompts", icon: ScrollText, label: "System Prompts" },
   { href: "/settings", icon: Settings, label: "Profile", match: ["/settings/keys", "/billing", "/profile"] },
   { href: "/docs", icon: BookOpen, label: "Getting Started" },
+  { href: "/ideas", icon: Lightbulb, label: "Ideas" },
 ];
 
 export function Sidebar() {

@@ -3200,6 +3200,56 @@ either new tool. What's deferred:
 
 ---
 
+## C65 — Feature board · live seed + operator ladder walkthrough
+
+C65 shipped the "suggest a feature" board (SYSTEM_STATE.md §C65 — migration 112 live-applied,
+`/api/feature-board` routes, 3 MCP tools, `/ideas` frontend page). Everything is proven at
+route/unit level in the sandbox (22 new tests, non-vacuous via toggled-constant proofs) plus two
+LIVE-DB proofs already run against the real `wrromlupsmyzrrcqlucn` project during this chunk (a
+bad status value raises `check_violation`; a raw duplicate vote raises `23505` on the composite
+PK) — both temp rows created and cleaned up, no residue left in the table. What's still deferred
+to a real browser/account session:
+
+- [ ] **Ryan seeds 4-5 real candidates from the flagged backlog** so the board isn't empty on
+      first live view. Suggested seeds (from the session's own flagged product backlog):
+      1. "Invite a manager" — a second human (non-owner) invited into a workspace with a scoped
+         role, distinct from the operator's own multi-workspace switcher (C61b's trace found
+         zero invite-a-manager flow exists anywhere yet).
+      2. "In-chat storyboard review" — approve/redraw a scene's storyboard frames from inside the
+         chat surface instead of only the dedicated review page.
+      3. "Talking-head format" — a non-illustrated, presenter-on-camera video format (distinct
+         from the current AI-illustrated pipeline), the exact example Ryan gave when framing this
+         chunk ("someone who is a YouTuber who does talking head videos and explainers").
+      4. "Per-scene voice casting" — pick a different ElevenLabs voice per scene/character instead
+         of one narrator voice for the whole video.
+      5. (Optional 5th) anything else live from `tasks/roadmap.md`'s SaaS journal or a real
+         customer ask, so the seed set reads as genuinely customer-shaped, not just
+         engineering-backlog items relabeled.
+      Post these via the real `/ideas` page (or `POST /api/feature-board`) under Ryan's own
+      operator account so they're attributed correctly and visible to every customer.
+- [ ] **Walk the ladder for real, as the operator.** On one seeded item: `under_review` →
+      `planned` → `building` → `in_beta` → `shipped`, confirming the status pill/color updates
+      live and the `<select>` only appears because `GET /api/workspaces` returned
+      `is_operator: true` for Ryan's own account (not a hardcoded allowlist).
+- [ ] **Confirm the non-operator experience** by checking the board from a second (non-operator)
+      account or an incognito session logged in as a test customer: the vote button works, the
+      "Suggest a feature" form works, but no status `<select>` renders anywhere on the page (and a
+      manually-crafted `PATCH .../status` call from that account's own token gets a real 403, not
+      just a hidden control).
+- [ ] **Vote from 2+ real accounts on the same idea** and confirm the vote count and sort order
+      (status-group then votes desc) update correctly for everyone — the true end-to-end version
+      of the sandbox's mocked cross-account visibility test.
+- [ ] **MCP walkthrough** (once `MCP_ENABLED=true` per the C29 runbook): call `suggest_feature`,
+      `vote_feature_request`, and `list_feature_requests` from a real connected agent session,
+      confirm the resulting row shows up on the real `/ideas` page attributed to the connector's
+      workspace's owner account (via `account_id_for_tenant`'s owner-preferred membership lookup).
+- **Cost:** zero — every feature-board write is free (no paid generation path touched).
+- **Safety net:** both tables are additive (RLS-enabled-no-policies, same house pattern already
+  proven safe), no existing route/table modified — nothing here can regress existing behavior
+  even if the live walkthrough is skipped or delayed.
+
+---
+
 ## Running these from a VPS session (the intended runner)
 
 A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — everything the build sandbox lacked. Before running any C02 check, make sure the VPS is on the code that contains the fix:

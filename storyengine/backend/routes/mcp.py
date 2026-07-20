@@ -1353,6 +1353,153 @@ _AUTOPILOT_DIAL_WRITE_HANDLERS = {
 
 
 # =============================================================================
+# FEATURE BOARD TOOLS (checklist C65, tasks/decisions.md 2026-07-20 "Feature
+# board" entry): the platform's FIRST deliberately CROSS-TENANT surface — the
+# same suggest/upvote board every StoryEngine customer sees, not scoped to
+# this connector's own tenant. Both writes are attributed per ACCOUNT
+# (accounts.id), same as the HTTP door — but an MCP agent token only carries
+# a tenant identity, not a user one, so these three handlers resolve a
+# representative account via routes.feature_board.account_id_for_tenant()
+# (owner preferred, else any member) and construct a synthetic AuthUser to
+# call the SAME route functions (list_feature_board/create_feature_request/
+# vote_feature_request) the HTTP door uses — no parallel logic, no separate
+# rate-limit/validation path. No status-change tool here on purpose (the
+# checklist's explicit call): status changes are operator-UI-only.
+# =============================================================================
+
+_LIST_FEATURE_REQUESTS_TOOL: dict[str, Any] = {
+    "name": "list_feature_requests",
+    "description": (
+        "List the platform feature board: every customer's suggestions, vote "
+        "counts, whether you voted, and status (under_review, planned, "
+        "building, in_beta, shipped, declined). CROSS-TENANT by design — this "
+        "is the SAME board every StoryEngine customer sees, not scoped to "
+        "your workspace. Read-only, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "status": {
+                "type": "string",
+                "description": "Filter: one of under_review, planned, building, in_beta, shipped, declined.",
+            },
+        },
+    },
+}
+
+_SUGGEST_FEATURE_TOOL: dict[str, Any] = {
+    "name": "suggest_feature",
+    "description": (
+        "Suggest a new platform feature — free, no cost. Posted to the SAME "
+        "cross-tenant feature board every customer sees, attributed to your "
+        "account. Limited to 5 suggestions per day."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Short title (max 120 characters)."},
+            "body": {"type": "string", "description": "Details, optional (max 2000 characters)."},
+            "channel_archetype": {
+                "type": "string",
+                "description": "What kind of channel you run, optional (e.g. \"talking-head explainer\").",
+            },
+        },
+        "required": ["title"],
+    },
+}
+
+_VOTE_FEATURE_REQUEST_TOOL: dict[str, Any] = {
+    "name": "vote_feature_request",
+    "description": (
+        "Upvote a feature-board suggestion — free, no cost, idempotent "
+        "(voting twice has no extra effect; one vote per account per idea)."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "request_id": {
+                "type": "string",
+                "description": "feature_requests row id (from list_feature_requests).",
+            },
+        },
+        "required": ["request_id"],
+    },
+}
+
+_FEATURE_BOARD_TOOLS: list[dict[str, Any]] = [
+    _LIST_FEATURE_REQUESTS_TOOL, _SUGGEST_FEATURE_TOOL, _VOTE_FEATURE_REQUEST_TOOL,
+]
+
+
+async def _call_list_feature_requests(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    from auth import AuthUser
+    from routes.feature_board import account_id_for_tenant, list_feature_board
+
+    account_id = await account_id_for_tenant(tenant_id)
+    if not account_id:
+        return _error_result("Couldn't resolve an account for this connector's tenant")
+    user = AuthUser(id=account_id, email="mcp")
+    try:
+        result = await list_feature_board(status=arguments.get("status"), user=user)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't list the feature board")
+    return _text_result(result.model_dump())
+
+
+async def _call_suggest_feature(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from auth import AuthUser
+    from routes.feature_board import CreateFeatureRequestBody, account_id_for_tenant, create_feature_request
+
+    account_id = await account_id_for_tenant(tenant_id)
+    if not account_id:
+        return _error_result("Couldn't resolve an account for this connector's tenant")
+    try:
+        body = CreateFeatureRequestBody(
+            title=arguments.get("title") or "",
+            body=arguments.get("body"),
+            channel_archetype=arguments.get("channel_archetype"),
+        )
+    except Exception as e:  # noqa: BLE001 — a bad argument shape is a tool-input error, not a 500
+        return _error_result(f"Couldn't submit that suggestion — invalid arguments: {e}")
+    user = AuthUser(id=account_id, email=caller)
+    _log_setup_write("suggest_feature", tenant_id, caller, detail=(body.title or "")[:40])
+    try:
+        result = await create_feature_request(body, user=user)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't submit that suggestion")
+    return _text_result(result.model_dump())
+
+
+async def _call_vote_feature_request(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from auth import AuthUser
+    from routes.feature_board import account_id_for_tenant, vote_feature_request
+
+    request_id = arguments.get("request_id")
+    if not request_id:
+        return _error_result("vote_feature_request requires a request_id argument")
+    account_id = await account_id_for_tenant(tenant_id)
+    if not account_id:
+        return _error_result("Couldn't resolve an account for this connector's tenant")
+    user = AuthUser(id=account_id, email=caller)
+    _log_setup_write("vote_feature_request", tenant_id, caller, detail=str(request_id))
+    try:
+        result = await vote_feature_request(str(request_id), user=user)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't vote for that suggestion")
+    return _text_result(result.model_dump())
+
+
+_FEATURE_BOARD_READ_HANDLERS = {
+    "list_feature_requests": _call_list_feature_requests,
+}
+
+_FEATURE_BOARD_WRITE_HANDLERS = {
+    "suggest_feature": _call_suggest_feature,
+    "vote_feature_request": _call_vote_feature_request,
+}
+
+
+# =============================================================================
 # INGEST TOOLS (checklist C47 — decisions.md 2026-07-19 "MCP economics"
 # entry): the connected agent does research/scripting on the user's OWN
 # Claude subscription and hands StoryEngine the RESULT through the SAME
@@ -2591,7 +2738,7 @@ _ATOMIC_PAID_HANDLERS = {
 TOOLS: list[dict[str, Any]] = (
     _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
     + _AUTOPILOT_PROPOSAL_TOOLS + _AUTOPILOT_DIAL_TOOLS + _INGEST_TOOLS
-    + _ATOMIC_TOOLS
+    + _ATOMIC_TOOLS + _FEATURE_BOARD_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -2724,6 +2871,10 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _ATOMIC_FREE_HANDLERS[name](tenant_id, arguments, caller)
         if name in _ATOMIC_PAID_HANDLERS:
             return await _ATOMIC_PAID_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
+        if name in _FEATURE_BOARD_READ_HANDLERS:
+            return await _FEATURE_BOARD_READ_HANDLERS[name](tenant_id, arguments)
+        if name in _FEATURE_BOARD_WRITE_HANDLERS:
+            return await _FEATURE_BOARD_WRITE_HANDLERS[name](tenant_id, arguments, caller)
         return _error_result(f"Unknown tool: {name}")
     raise ValueError(f"Unknown method: {method}")
 

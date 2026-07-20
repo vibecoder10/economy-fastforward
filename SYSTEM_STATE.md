@@ -10681,3 +10681,128 @@ risk is a MISMATCH between the new UI numbers and Ryan's actual Stripe dashboard
 that's a config problem for Ryan to fix in Stripe, not a code risk, and is called out
 explicitly in `tasks/live-verification-queue.md` §C63 as the first thing to check before
 relying on real checkout.
+
+## C65 — Feature board: "suggest a feature" + upvotes + status ladder (added 2026-07-20)
+
+Ryan's "Reddit-like page… part of the platform self improvement loop" ask
+(tasks/decisions.md 2026-07-20 "Feature board" entry). Core loop: suggest → upvote (ONE
+vote per account per idea) → status ladder (under_review → planned → building → in_beta →
+shipped / declined). **The platform's FIRST deliberately CROSS-TENANT surface** — every
+customer sees the SAME board; the tenant-isolation idiom was deliberately NOT applied to
+reads here (writes stay attributed per ACCOUNT).
+
+### Database (migration 112, live-applied + orchestrator-reconfirmed via information_schema)
+
+- `feature_requests` — `id`, `account_id` (FK `accounts`, the author), `title` (CHECK
+  ≤120 chars), `body` (CHECK ≤2000 chars, nullable), `channel_archetype` (free-text,
+  nullable — the "what kind of channel do you run?" market-segment field), `status`
+  (CHECK IN the 6 ladder values, default `under_review`), `declined_reason`, `created_at`,
+  `updated_at`. Indexes on `status` and `(account_id, created_at)`.
+- `feature_request_votes` — `request_id` + `account_id` composite PRIMARY KEY (this IS the
+  "one vote per account per idea" rule, enforced by Postgres — proven live: a raw second
+  insert of the same (request_id, account_id) pair raises `23505 duplicate key value
+  violates unique constraint "feature_request_votes_pkey"`; the app's
+  `ON CONFLICT (request_id, account_id) DO NOTHING` pattern against the SAME constraint
+  stays idempotent, also proven live).
+- Both tables carry NO `tenant_id` column at all — on purpose (see module docstrings).
+  RLS enabled, no policies (house pattern — backend bypasses via `BYPASSRLS`).
+- `accounts.id` IS the same UUID space as `AuthUser.id`/auth `user_id` (confirmed via
+  `routes/workspaces.py`'s pre-existing `_is_operator(user_id)` — no membership join
+  needed for HTTP routes).
+
+### Backend — `storyengine/backend/routes/feature_board.py` (registered in `main.py`)
+
+- `GET /api/feature-board` — `Depends(auth.verify_token)` (USER-scoped, NOT
+  `get_tenant_id` — this is the deliberate non-isolation). One query, one LEFT JOIN
+  computes `vote_count` + `voted_by_me` per row; optional `status` filter; sort =
+  ladder-order groups then votes desc then created_at asc; cap 100.
+- `POST /api/feature-board` — create. Length caps enforced twice (Pydantic
+  `Field(max_length=...)` → FastAPI 422, AND the DB CHECK as the real backstop). Rate
+  limit: a plain persisted `COUNT(*) ... created_at > now() - interval '1 day'` query
+  (max 5/account/day) — NOT `rate_limit.py`'s in-memory per-minute bucket, which resets
+  on restart and is the wrong tool for a per-day product policy (see the route's module
+  docstring for the full reasoning).
+- `POST /api/feature-board/{id}/vote` + `DELETE .../vote` — idempotent via the composite
+  PK's `ON CONFLICT DO NOTHING` (vote) / plain `DELETE` (unvote, already idempotent).
+- `PATCH /api/feature-board/{id}/status` — operator-only. Reuses
+  `routes/workspaces.py::_is_operator` VERBATIM (imported, not re-implemented) — the same
+  `accounts.is_operator` idiom `routes/billing.py::_get_tenant_plan_and_operator` and the
+  workspace-switcher's create/remove-workspace routes already gate on. 403 for a
+  non-operator; bad status value rejected (400) even for an operator.
+- Raw-text pin: title/body/channel_archetype are returned VERBATIM (stored and returned
+  as-is, no server-side HTML rendering) — React escapes client-side. Tested directly
+  (`<script>`/`<b>`/quote payloads round-trip byte-identical, never HTML-entity-encoded).
+
+### MCP tools (`routes/mcp.py`) — `list_feature_requests`, `suggest_feature`,
+`vote_feature_request`
+
+Free (no `confirm_token`), same rate limit as the HTTP door (they dispatch through the
+SAME route functions — `list_feature_board`/`create_feature_request`/
+`vote_feature_request` — not parallel logic). No status-change MCP tool (operator UI
+action only, per the checklist's explicit call). Attribution problem: an MCP agent token
+authenticates by TENANT (not user), but feature-board writes need an ACCOUNT — solved by
+`routes/feature_board.py::account_id_for_tenant()` (owner-preferred membership lookup,
+MCP-only — HTTP routes always use the real caller's `user.id`), then a synthetic
+`AuthUser(id=account_id, ...)` is threaded into the SAME route functions.
+
+### Frontend — `storyengine/frontend/src/app/ideas/page.tsx`
+
+New `/ideas` page: status filter tabs, upvote button (toggle, filled when voted), vote
+count, a status pill per ladder stage (color-coded via the existing `StatusPill` idiom —
+gold/turquoise/purple/orange/green/red), a "Suggest a feature" form (title/body/
+archetype), loading/error/empty states (`Spinner`/`ErrorCard`/`EmptyState`, all reused,
+no new primitives). React Query with `invalidateQueries(["feature-board"])` on every
+mutation. Nav entry added to `components/nav/sidebar.tsx`'s `advancedNav` (Lightbulb
+icon, "Ideas").
+
+**Operator UI detection** mirrors the workspace switcher (`components/nav/
+workspace-switcher.tsx`): both read `useQuery({ queryKey: ["workspaces"], queryFn:
+getWorkspaces })` and check `.is_operator` off the SAME `GET /api/workspaces` response
+(React Query dedupes the two callers into one network fetch) — no new operator-detection
+mechanism invented. The per-suggestion status `<select>` only renders when
+`workspaces?.is_operator` is true; the PATCH route itself is the real auth boundary
+(403 otherwise), so a non-operator manually POSTing still can't change status even if the
+control were somehow shown.
+
+### Verification
+
+- 22 new tests (`storyengine/backend/tests/test_c65_feature_board.py`) — create/length
+  caps/rate limit (incl. a toggle-the-constant non-vacuity proof), one-vote-no-op +
+  unvote, cross-ACCOUNT visibility (two different accounts, no shared tenant, see the
+  SAME board — the explicit cross-tenant pin), operator-only status change (incl. a
+  toggle-the-flag non-vacuity proof), bad-status rejection, raw-text round-trip, and MCP
+  tool registration + "calls the real route function" attribution proofs.
+- LIVE DB proofs (via Supabase MCP `execute_sql`, temp rows created+cleaned up): (1) a bad
+  status value raises a `check_violation` and 0 rows land; (2) a raw duplicate vote insert
+  (no `ON CONFLICT`) raises `23505 duplicate key value violates unique constraint
+  "feature_request_votes_pkey"` — the composite PK genuinely enforces one-vote-per-account
+  at the database level, not just in application code.
+- Full suite: **1968 passed / 15 failed / 1 error** = baseline (1946P/15F/1E) + 22, same 15
+  pre-existing failures by name, zero new failures/errors.
+- Frontend: `rm -rf .next && npx tsc --noEmit` clean; `npm run build` succeeds, `/ideas`
+  in the generated route list.
+
+### Modified/New Files (C65)
+
+- `storyengine/backend/migrations/112_feature_board.sql` — new, live-applied.
+- `storyengine/schema.sql` — new `feature_requests`/`feature_request_votes` section.
+- `storyengine/backend/routes/feature_board.py` — new.
+- `storyengine/backend/main.py` — import + `app.include_router(feature_board.router)`.
+- `storyengine/backend/routes/mcp.py` — 3 new tools + handlers + dispatch wiring.
+- `storyengine/backend/tests/test_c65_feature_board.py` — new, 22 tests.
+- `storyengine/frontend/src/app/ideas/page.tsx` — new.
+- `storyengine/frontend/src/lib/api.ts` — `FeatureRequest`/`FeatureBoardResponse` types +
+  `getFeatureBoard`/`createFeatureRequest`/`voteFeatureRequest`/`unvoteFeatureRequest`/
+  `updateFeatureRequestStatus`.
+- `storyengine/frontend/src/components/nav/sidebar.tsx` — "Ideas" nav entry.
+
+### Deploy-safety assessment
+
+**Deploy-safe, ff-merge candidate.** Purely additive: 2 new tables (no existing table
+touched), 1 new route file (no existing route modified), 3 new MCP tools (existing tool
+dispatch unchanged), 1 new frontend page + one nav-array entry (no existing page/component
+behavior changed). No money path touched (feature-board writes cost nothing). Backend
+leads frontend correctly (new API ships same commit as the page that reads it, per house
+convention, since this is one worker chunk — no `--with-frontend`-only skew risk here
+since both ship together). RLS-enabled-no-policies on both new tables, same house pattern
+already proven safe (migration 083 precedent).
