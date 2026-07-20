@@ -585,3 +585,18 @@ Consequences (append-only law):
   `get_workspace_info`/whoami MCP read so Claude always knows WHICH channel a connector speaks
   for; (c) TRACE (report, decide later): can a user create a SECOND workspace today (UI/signup
   flow, account/tenant/Stripe relationship), or is that the one missing build?
+
+## 2026-07-20 — PRICING RATIFIED (Ryan): ladder + Starter caps locked
+Ryan: "I like those metrics you came up with I think they are fair. For the starter I think we
+should cap the video length at 10 min with a max video generation at 12? The other tiers get full
+unlock unlimited video generation qty and unlimited uploads."
+Locked (supersedes the proposal doc's open items 1/3/5):
+- Ladder ratified: Starter $29 / Pro $79 / Agency $199 (+$49/mo per extra channel workspace),
+  ~20% annual discount, per docs/pricing-proposal-2026-07.md.
+- STARTER caps: max VIDEO LENGTH 10 minutes; max 12 video generations per month.
+- PRO + AGENCY: unlimited video generation quantity, unlimited uploads (fair-use language on
+  the pricing page; no hard meter).
+- MCP access = Pro + Agency (ratified with the table; fills the parked C37 OPEN item 6 —
+  wire into the C57 seam in create_token).
+Still open (small): trial length (14d proposed), Agency-full-auto-requires-cap (code already
+enforces via C54b regardless).
