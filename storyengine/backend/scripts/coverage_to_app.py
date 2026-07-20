@@ -66,6 +66,26 @@ from shared.channel_profile import (  # noqa: E402
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
+# C25a-fix7 (2026-07-20): storyboard SHEET draws to gpt-image-2-image-to-image
+# started 400ing ("The current content could not be processed", failCode 400,
+# creditsConsumed 0.0, ~30-100ms turnaround — Kie/OpenAI reject before real
+# generation starts) the moment the LOCKED LOCATION env reference was added as
+# a THIRD input_urls entry alongside the 2 cast sheets. Kie's own docs
+# (docs.kie.ai/market/gpt/gpt-image-2-image-to-image) document input_urls
+# maxItems: 16 — the failure is NOT a documented count limit — but prod
+# evidence on video cd5d2883-427e-4bfb-854d-8849d025d444 is conclusive that 3
+# is the working boundary here regardless: EVERY 3-ref sheet call failed (both
+# before AND after C25a-fix5's URL-extension fix landed and the backend
+# restarted at 16:10 UTC — ruling fix5's own bug out), while a same-day 2-ref
+# call (a content-policy safe-redraw mid clip generation, cast sheets only,
+# `redraw_asset_image` below never adds an env ref) succeeded, and June sheets
+# on video f32ed182 (2 refs, no environments designed yet) drew clean at
+# 11,335-12,950 chars — LONGER than today's 6,481-6,908-char failing prompts,
+# which rules out prompt length as the cause too (a separate, unmerged
+# C25a-fix6 guessed length; parked — this ref-count evidence is what actually
+# lines up). Net: this is an empirical Kie/OpenAI-side quirk, not a documented
+# API limit — cap sheet reference images at the last confirmed-working count.
+SHEET_REF_CAP = 2
 # D1 shot budget: the per-scene MOMENT ceiling for dialogue scenes (see
 # _coverage_shape). Raised 12 → 18 with angles back on (Ryan 2026-07-02:
 # quantity guardrails off — 9 shots on a 2:19 scene was a slideshow); this is
@@ -937,7 +957,20 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         env_block = ""
+        # C25a-fix7 (see SHEET_REF_CAP's module-level comment): cap total sheet
+        # reference images at the last confirmed-working count. Cast sheets keep
+        # priority — character identity is product law — so they fill the cap
+        # first; the env ref is appended last and is the first thing dropped when
+        # the cap is hit. The LOCKED LOCATION text block below is added to the
+        # prompt regardless of whether its image ref made the cut, so a dropped
+        # env ref degrades location lock gracefully (prompt-only), not silently.
         sheet_refs = list(cast_refs)
+        if len(sheet_refs) > SHEET_REF_CAP:
+            dropped_cast = len(sheet_refs) - SHEET_REF_CAP
+            sheet_refs = sheet_refs[:SHEET_REF_CAP]
+            print(f"      ⚠️ Storyboard sheet: dropping {dropped_cast} cast sheet ref(s) past the "
+                  f"{SHEET_REF_CAP}-image cap (Kie 400s sheet draws past this count) — character "
+                  "identity may drift for the dropped cast member(s).")
         if env:
             env_block = (
                 f"\nLOCKED LOCATION — {env['name']}: every panel's background is this EXACT "
@@ -945,7 +978,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 f"{(env.get('description') or '')[:220]}. Keep the location's layout, colors and "
                 "props IDENTICAL across all panels; never invent a different room or set."
             )
-            sheet_refs.append(env["reference_url"])
+            if len(sheet_refs) < SHEET_REF_CAP:
+                sheet_refs.append(env["reference_url"])
+            else:
+                print(f"      ⚠️ Storyboard sheet: dropping the '{env['name']}' location reference "
+                      f"image — {len(cast_refs)} cast sheet ref(s) already fill the {SHEET_REF_CAP}-"
+                      "image cap. LOCKED LOCATION text stays in the prompt; only the image anchor "
+                      "is lost.")
         lock_note = f", locked to {env['name']}" if env else ""
         todo = [(beat, prompts[beat - 1])] if beat is not None else list(enumerate(prompts, start=1))
         ok = 0

@@ -1215,15 +1215,30 @@ class ImageClient:
     ) -> Optional[str]:
         """Animate one keyframe with Seedance 2.0 Fast — the pricier, smoother tier.
         Same call shape as generate_video so the executor can swap them. image_url is
-        the first frame; extra_image_urls (the cast sheet) are references for
-        character consistency. Reuses the same createTask + poll path as Grok."""
-        refs = [u for u in (extra_image_urls or []) if u][:9]
+        the first frame. Reuses the same createTask + poll path as Grok.
+
+        C25a-fix7: Kie's Seedance docs (docs.kie.ai/market/bytedance/seedance-2-fast)
+        state "Image-to-Video (First Frame), Image-to-Video (First & Last Frames),
+        and Multimodal Reference-to-Video are three mutually exclusive scenarios and
+        cannot be used simultaneously" — sending both first_frame_url AND
+        reference_image_urls in one call (as this used to) is exactly the combo Kie
+        rejects with "The reference image and the first and last frames are mutually
+        exclusive, and only one scene can be selected" (100% createTask failure,
+        prod 2026-07-20 16:46). Animating one storyboard panel needs the frame to be
+        EXACTLY that panel (see the "Animate @image1 exactly as shown" prompt
+        contract in pipeline_executor's _decorate) — First-Frame mode is the only one
+        of the three that guarantees literal frame fidelity; the docs note
+        Multimodal Reference-to-Video can only "indirectly achieve" a first-frame
+        match "through prompt specification", not a strict one. So: first_frame_url
+        only. extra_image_urls (the cast sheet) is accepted for call-shape parity
+        with generate_video/the executor's animate_fn signature but intentionally
+        NOT sent — Seedance has no slot for it once first_frame_url is in play."""
+        dropped_refs = len([u for u in (extra_image_urls or []) if u])
         payload = {
             "model": Models.ANIMATION_SEEDANCE,
             "input": {
                 "prompt": prompt,
                 "first_frame_url": image_url,
-                "reference_image_urls": refs,
                 "aspect_ratio": aspect_ratio,
                 "resolution": "720p",  # ponytail: 720p tier; bump to 1080p if needed
                 "duration": int(duration),
@@ -1234,7 +1249,10 @@ class ImageClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        print(f"      🎬 Seedance 2.0 ({duration}s, {aspect_ratio}, refs {len(refs)})...")
+        if dropped_refs:
+            print(f"      ⚠️ Seedance: dropping {dropped_refs} cast-sheet ref(s) — "
+                  f"first_frame_url and reference_image_urls are mutually exclusive on Kie.")
+        print(f"      🎬 Seedance 2.0 ({duration}s, {aspect_ratio}, first-frame only)...")
         for attempt in range(3):
             try:
                 async with httpx.AsyncClient() as client:
