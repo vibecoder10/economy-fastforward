@@ -644,3 +644,13 @@ draws must work (the 2026-07-20 400s are NOT prompt length — June sheets at 11
 fine, docs allow 20k; leading suspect is the 3rd reference image added by the LOCKED LOCATION
 env-ref feature), (3) ledger/pricing stays exactly as proven today ($0.09 Grok / $0.05 GPT i2i
 confirmed against Kie credit billing).
+
+## 2026-07-20 — NO nano-banana fallback for storyboard sheets (Ryan, direct): fix the PROMPT STRUCTURE
+Ryan: "i dont want nano bannana at all... fix the damn prompting structure, stop putting bandaids on
+everything." Ruling: sheets are GPT Image 2 only; filter rejections are fixed by restructuring the
+sheet-prompt builder, never by silently swapping the model. Root cause of body-level rejections:
+the builder repeats blade-nouns (knife/chef's knife/chopping/cortar) across FIXED SET + CAMERA KIT +
+every panel brief — accumulated density trips OpenAI's filter (sheet 1 passed at lower density with
+identical caption content). Structural fix: name risky props ONCE in the set block, neutral references
+elsewhere, deterministic neutral-phrasing pass over builder-authored text only — CAPTIONS (the spoken
+script) stay verbatim, always. Every wording change pre-flighted against the real filter before deploy.
