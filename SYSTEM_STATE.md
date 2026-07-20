@@ -10470,3 +10470,149 @@ existing dark-by-default router — `MCP_ENABLED` is still unset in prod, so thi
 live behavior until that flag flips and C25a's held branch lands, per §C29's own deploy sequencing).
 No schema change, no existing tool's behavior touched, no frontend change. The runbook and audit-report
 edits are docs-only.
+
+## C62 — Plan-limits wiring for the ratified pricing (Follow-up queue, added 2026-07-20)
+
+Wires tasks/decisions.md's 2026-07-20 "PRICING RATIFIED" entry into real gates: Starter = max video
+LENGTH 10 minutes + max 12 video generations/month; Pro/Agency = unlimited video-generation quantity +
+unlimited uploads; MCP access = Pro + Agency only.
+
+### Before/after limits map
+
+`routes/billing.py::PLAN_LIMITS` before this chunk: `free` 2/mo, `starter` 12/mo (ALREADY 12 —
+pre-set speculatively by C57, not new this chunk), `pro` 30/mo, `agency` 50/mo, `unlimited` (comped)
+1,000,000/mo. No video-LENGTH axis existed anywhere. After: `pro`/`agency` `videos_per_month` raised
+to the same 1,000,000 sentinel `unlimited` already used (ratified "unlimited quantity"); `starter`
+unchanged at 12 (already matched); `render_minutes` per plan is UNCHANGED for all — a separate
+compute-capacity axis the ratification didn't mention, left as-is per the chunk's own instruction.
+New `enforce_video_length_cap(tenant_id, minutes)`: no-ops unless `plan == "starter"`, then 402s past
+10 minutes. **Trial** resolves to `"pro"` limits via `_get_tenant_plan`'s existing override (unchanged
+by this chunk) — so an active trial is correctly exempt from the new length cap too (pro is exempt).
+**Operator** (`accounts.is_operator`, migration 069 — TRUE only for Ryan): the DB default for
+`accounts.plan` is `'free'` and no migration ever set Ryan's own `plan` column — so absent this
+chunk's new MCP tier gate, Ryan's account would resolve to plan `'free'` there. This does NOT affect
+the video-count/length caps (both are `starter`-plan-specific or apply identically regardless of
+operator status, and `free`'s pre-existing 2/mo count cap is unchanged by this chunk — no new
+tightening), but it WOULD have locked Ryan out of minting/using MCP agent tokens the moment the new
+Pro+ tier gate shipped. Fixed by exempting `is_operator` accounts from the MCP tier check specifically
+(see below) — the ONE place this chunk's changes could have broken Ryan's own live workflow.
+
+### Length-cap enforcement points
+
+New `routes/billing.py::enforce_video_length_cap(tenant_id, video_length_minutes)` (single source of
+the decision) is called from all three real doors that accept a caller-supplied length:
+- `routes/videos.py::create_video` (~line 419, right after the existing `check_plan_limits` call) —
+  the C38 canonical create door; field is `CreateVideoRequest.video_length_minutes`
+  (`storyengine/backend/models.py:230`, default 10).
+- `routes/discovery.py::launch_idea` (~line 267) — a SEPARATE, pre-existing `INSERT INTO videos` that
+  the C38 create-surface-convergence audit did not cover (confirmed: `test_c38_create_convergence.py`
+  never mentions it). `LaunchIdeaRequest.video_length_minutes` defaults to **15** — above the new
+  10-minute cap — so leaving this door ungated would have been a full, silent bypass for every
+  "Launch from Discovery Idea" click on a Starter plan. Closed as part of this chunk (surprise, not in
+  the original brief — reported here rather than left as a gap).
+- `actions.py::apply_followup_edit` (the chat/MCP copilot's "redo the script at N minutes" post-create
+  seam, `pending["length_min"]` from `routes/chat.py::_run_pending_action`) — the one seam that can
+  change `video_length_minutes` AFTER create-time gating already ran. Gated the same way; raises
+  `HTTPException(402)` which FastAPI surfaces as a real 402 response (this function has no
+  conversational-reply wrapper of its own, unlike `create_video`'s callers in chat.py which DO catch
+  402→friendly text — noted as a minor UX rough edge, not a security gap, in the live-queue item
+  below). `routes/videos.py::update_video`'s generic PATCH (`~line 754`) does NOT include
+  `video_length_minutes` in its `allowed_fields` allowlist — confirmed NOT a bypass seam.
+- `routes/autopilot.py::launch_candidate` creates videos with no `video_length_minutes` column in its
+  INSERT at all (always NULL, filled in later by pacing defaults) — no caller-requested length exists
+  on this path, so nothing to gate; confirmed by reading the INSERT column list.
+- `routes/model_video.py::model_video` → `_persist_pack`'s `COALESCE(video_length_minutes, $14)`
+  only fires when the column is still NULL; since `model_video` always creates via
+  `CreateVideoRequest(reference_url=url)` (no length given → Pydantic default 10), the column is
+  never NULL by the time `_persist_pack` runs — confirmed not a bypass.
+
+### MCP tier gate (Pro + Agency only)
+
+- **Mint**: `routes/agent_access.py::create_token` — the commented C57 seam is now `billing.
+  _get_tenant_plan_and_operator(tenant_id)` + `billing._mcp_tier_ok(plan, is_operator)`, right after
+  the existing good-standing check. 402 `{"error": "plan_required", ...}` for starter/free,
+  non-operator.
+- **Per-request** (decided: YES, implemented, no extra round trip): `auth_agent.get_agent_tenant_id`
+  now also checks tier. `agent_tokens.authenticate_with_standing`'s existing single JOIN query
+  (token → memberships → accounts) was extended to also SELECT `a.plan`/`a.is_operator` — the SAME
+  query that already fetched `trial_ends_at`/`stripe_subscription_id`/`stripe_status` for the C57
+  good-standing check, so this piggybacks with zero added DB round trips per MCP call. Return arity
+  changed from a 3-tuple `(tenant_id, ok, reason)` to a 5-tuple `(tenant_id, ok, reason, plan,
+  is_operator)` — all callers (`auth_agent.py` and the test suite's mocks) updated accordingly. A
+  live token now dies same-day on a Pro→Starter downgrade, mirroring how a lapsed subscription
+  already dies same-day (same piggyback pattern, same file).
+- **Operator exemption**: `billing._mcp_tier_ok(plan, is_operator)` returns `True` whenever
+  `is_operator` is set, regardless of `plan` — applied identically at mint and per-request. This is
+  the fix for the "operator would be locked out" risk found in the trace above.
+
+### Day-one deploy skew
+
+On the next hourly `git pull --ff-only` deploy, every EXISTING `agent_tokens` row whose owning
+tenant's `accounts.plan` is `'free'` or `'starter'` (i.e. never subscribed, or subscribed at the
+Starter tier) will start getting 402s on every MCP call — this is the intended, ratified behavior
+(MCP = Pro+), not a bug, but it is a real behavior change for any such token minted before this
+ships. Per the trace above, this does NOT affect Ryan's operator account (exempt via `is_operator`).
+It also does not affect the length cap (Starter-only, and no Starter videos exist yet pre-launch per
+`tasks/todo.md`'s "first 10 paying customers" goal) or the pro/agency count-unlimited change (strictly
+loosens, never tightens, an existing cap).
+
+### Verification (C62)
+
+- `tests/functional/test_c62_plan_length_and_count_caps.py` (NEW, 9 tests): behavioral, DB-faked
+  coverage of `check_plan_limits`'s starter 12-cap (12th allowed, 13th rejected) and pro/agency
+  unlimited count, plus `enforce_video_length_cap`'s starter 10-min cap (10 allowed, 11 rejected with
+  the exact upgrade message), pro/agency/free never capped, and a `None` length short-circuiting
+  before any DB query. Non-vacuous via `git stash -- routes/billing.py`: 7/9 fail without the change
+  (the 2 that still pass are the pre-existing starter 12-cap behavior, unchanged by this chunk).
+- `tests/functional/test_c57_mcp_billing_gate.py` extended (+8 net new tests: tier-surfaced-on-
+  authenticate_with_standing ×2, per-request tier-gate ×3, mint tier-gate ×3; one pre-C62 test
+  renamed+re-asserted — `test_mint_allowed_for_free_tier_never_subscribed` →
+  `test_mint_refused_for_free_tier_never_subscribed` — since C62 supersedes that test's "deliberately
+  NOT tier-gated yet" premise). Non-vacuous via `git stash -- <7 touched .py files>` (test file kept):
+  14/32 fail without the change (arity mismatch + missing tier gate).
+- `test_c26_mcp_agent_tokens.py` and `test_c29_mcp_full_session_dry_run.py` (both pre-existing,
+  untouched-by-brief files) broke when the `authenticate_with_standing` return arity changed —
+  their fake DB rows didn't carry `plan`/`is_operator`, defaulting to `plan="free"` and tripping the
+  NEW tier gate. Fixed by adding `"plan": "pro", "is_operator": False` to both files' fake rows
+  (isolating them to what they actually test — token plumbing / full-session mechanics, not billing
+  tiers) and mocking `billing._get_tenant_plan_and_operator` directly in the C29 dry run (it patches
+  `is_account_in_good_standing` the same way already, for the same reason: `database.fetch_one`
+  patched there doesn't reach `routes.billing`'s own already-bound `fetch_one` import).
+- Full suite (`storyengine/backend`, `./venv/bin/python -m pytest -q`): **1946 passed / 15 failed / 1
+  error** — same 15F/1E set as the 1929P/15F/1E baseline (verified by name, not just count), +17 new
+  passing tests, zero new failures.
+- `python -m py_compile` clean on every touched `.py` file.
+
+### Modified/New Files (C62)
+
+- `storyengine/backend/routes/billing.py` — `PLAN_LIMITS` pro/agency unlimited count;
+  `STARTER_MAX_VIDEO_LENGTH_MINUTES`; `enforce_video_length_cap`; `_get_tenant_plan_and_operator`;
+  `_mcp_tier_ok`.
+- `storyengine/backend/routes/videos.py` — `create_video` calls `enforce_video_length_cap`.
+- `storyengine/backend/routes/discovery.py` — `launch_idea` calls `enforce_video_length_cap`.
+- `storyengine/backend/actions.py` — `apply_followup_edit` calls `enforce_video_length_cap` before
+  the length UPDATE.
+- `storyengine/backend/routes/agent_access.py` — `create_token`'s MCP tier gate.
+- `storyengine/backend/agent_tokens.py` — `authenticate_with_standing` piggybacks plan/is_operator,
+  5-tuple return.
+- `storyengine/backend/auth_agent.py` — `get_agent_tenant_id`'s per-request tier gate.
+- `storyengine/backend/tests/functional/test_c62_plan_length_and_count_caps.py` — new.
+- `storyengine/backend/tests/functional/test_c57_mcp_billing_gate.py` — extended + one test renamed.
+- `storyengine/backend/tests/functional/test_c26_mcp_agent_tokens.py`,
+  `storyengine/backend/tests/functional/test_c29_mcp_full_session_dry_run.py` — fake-row fixes for
+  the new tuple arity (see Verification above).
+- `docs/pricing-proposal-2026-07.md` — decision list items 1/3/5 marked LOCKED (and item 3/5
+  annotated WIRED) with this chunk's implementation notes.
+- `tasks/storyengine-wiring-fix-checklist.md` — C29's "OPEN ITEM 6" (which tier gets MCP) marked
+  RESOLVED, pointing here.
+- This entry.
+
+### Deploy-safety assessment
+
+**Deploy-safe, ff-merge candidate — with one explicit call-out.** No schema/migration, no frontend
+change. The count/length/MCP-tier changes are real behavior changes for LIVE accounts on the very
+next hourly deploy (see "Day-one deploy skew" above) — this is the INTENDED effect of shipping a
+ratified pricing decision, not an accidental regression, and the operator exemption specifically
+protects the one account (Ryan's) whose own workflow could otherwise break. No paid-generation path
+touched; every new gate fails the SAME way (402, upgrade-url) existing gates already use, so frontend
+error handling doesn't need new cases to render sanely. Recommend ff-merge.

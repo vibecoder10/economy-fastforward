@@ -263,8 +263,9 @@ async def launch_idea(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """One-click launch: create video from idea and start pipeline."""
-    from routes.billing import check_plan_limits, increment_usage
+    from routes.billing import check_plan_limits, enforce_video_length_cap, increment_usage
     await check_plan_limits(tenant_id, "video")
+    await enforce_video_length_cap(tenant_id, body.video_length_minutes)
 
     # Fetch the idea
     idea = await fetch_one(

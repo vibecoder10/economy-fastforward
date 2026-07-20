@@ -347,18 +347,30 @@ async def create_portal(
 # Plan Limits & Usage Tracking
 # =============================================
 
+# Ladder ratified 2026-07-20 (tasks/decisions.md "PRICING RATIFIED"):
+# Starter $29 / Pro $79 / Agency $199, per docs/pricing-proposal-2026-07.md.
+#   - Starter: capped at 12 video generations/month (videos_per_month below)
+#     AND (a SEPARATE axis, enforced at create time, not here — see
+#     `enforce_video_length_cap` + routes/videos.py::create_video /
+#     routes/discovery.py::launch_idea) a max 10-minute video LENGTH.
+#   - Pro + Agency: UNLIMITED video generation quantity and unlimited uploads
+#     (fair-use language on the pricing page, no hard meter) — videos_per_month
+#     uses the same 1_000_000 sentinel the comped "unlimited" tier below uses.
+#     No video LENGTH cap either (enforce_video_length_cap only ever fires for
+#     plan == "starter"). render_minutes is a SEPARATE compute-capacity axis
+#     the ratification didn't touch — left as-is, not "unlimited".
 PLAN_LIMITS = {
     "free": {"videos_per_month": 2, "render_minutes": 10, "concurrent_jobs": 1},
-    # $50 Basic — video generation, no Autopilot/Analytics/Competitor (gated by
-    # PRO_PATHS in the frontend; starter is below the 'pro' tier).
     "starter": {"videos_per_month": 12, "render_minutes": 60, "concurrent_jobs": 1},
-    # $100 Pro — everything, including Autopilot.
-    "pro": {"videos_per_month": 30, "render_minutes": 180, "concurrent_jobs": 3},
-    "agency": {"videos_per_month": 50, "render_minutes": 500, "concurrent_jobs": 5},
+    "pro": {"videos_per_month": 1_000_000, "render_minutes": 180, "concurrent_jobs": 3},
+    "agency": {"videos_per_month": 1_000_000, "render_minutes": 500, "concurrent_jobs": 5},
     # Comped / owner tier — effectively no caps. Set an account here with
     # accounts.plan='unlimited' (see also rate_limit.py's PLAN_* maps).
     "unlimited": {"videos_per_month": 1_000_000, "render_minutes": 1_000_000, "concurrent_jobs": 50},
 }
+
+# Starter's video-LENGTH cap (distinct from the per-month COUNT cap above).
+STARTER_MAX_VIDEO_LENGTH_MINUTES = 10
 
 
 async def _get_or_create_usage(tenant_id: _uuid.UUID) -> dict:
@@ -403,6 +415,47 @@ async def _get_tenant_plan(tenant_id: _uuid.UUID) -> str:
         if row["trial_ends_at"] > datetime.now(timezone.utc):
             return "pro"  # Active trial gets pro limits
     return plan
+
+
+async def enforce_video_length_cap(tenant_id, video_length_minutes) -> None:
+    """Starter's video-LENGTH cap (ratified 2026-07-20, see PLAN_LIMITS'
+    header comment above) — a per-video property checked at CREATE time,
+    distinct from `check_plan_limits`'s per-month COUNT cap. Only "starter"
+    is capped; free/pro/agency/unlimited are all untouched (free was never
+    part of this ratification; pro/agency are explicitly unlimited).
+
+    Called from every real video-create door that accepts a caller-supplied
+    length: routes/videos.py::create_video (the canonical C38 door) AND
+    routes/discovery.py::launch_idea (a separate, pre-existing parallel
+    INSERT that C38's convergence audit didn't cover — traced during C62;
+    left ungated it would have been a full bypass of this cap for every
+    "Launch from Discovery Idea" click, since LaunchIdeaRequest's own
+    default (15 min) already exceeds the 10-minute cap).
+    """
+    if video_length_minutes is None:
+        return
+    plan = await _get_tenant_plan(tenant_id)
+    if plan != "starter":
+        return
+    try:
+        minutes = float(video_length_minutes)
+    except (TypeError, ValueError):
+        return
+    if minutes > STARTER_MAX_VIDEO_LENGTH_MINUTES:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "plan_limit_reached",
+                "message": (
+                    f"Starter plans create videos up to {STARTER_MAX_VIDEO_LENGTH_MINUTES} "
+                    "minutes — upgrade for longer videos."
+                ),
+                "plan": plan,
+                "limit_minutes": STARTER_MAX_VIDEO_LENGTH_MINUTES,
+                "requested_minutes": minutes,
+                "upgrade_url": "/pricing",
+            },
+        )
 
 
 # =============================================
@@ -502,6 +555,44 @@ async def increment_usage(tenant_id, field: str, amount: int = 1):
 # Tier ladder for feature gating. Higher rank = more access. Trial users resolve
 # to 'pro' via _get_tenant_plan, so an active trial passes a require_plan("pro") gate.
 _PLAN_RANK = {"free": 0, "starter": 1, "pro": 2, "agency": 3, "studio": 3, "unlimited": 4}
+
+# MCP access = Pro + Agency (ratified 2026-07-20, tasks/decisions.md "PRICING
+# RATIFIED" — fills the C57 item 5 seam left in routes/agent_access.py::
+# create_token). `_get_tenant_plan_and_operator` mirrors `_get_tenant_plan`'s
+# membership->account join, extended with `accounts.is_operator` (migration
+# 069 — TRUE only for ryan.ayler@gmail.com, the sole operator account) so the
+# mint gate can exempt it in the SAME query rather than a second lookup.
+async def _get_tenant_plan_and_operator(tenant_id) -> tuple:
+    """Returns (plan, is_operator) for tenant_id. Same trial->'pro' override
+    as `_get_tenant_plan`. A lookup miss (no account row) returns
+    ("free", False) — fails to the MOST restrictive tier, never open."""
+    row = await fetch_one(
+        """SELECT a.plan, a.trial_ends_at, a.is_operator FROM accounts a
+           JOIN memberships m ON m.user_id = a.id
+           WHERE m.tenant_id = $1 LIMIT 1""",
+        tenant_id,
+    )
+    if not row:
+        return "free", False
+    plan = row.get("plan") or "free"
+    if plan == "free" and row.get("trial_ends_at"):
+        from datetime import datetime, timezone
+        if row["trial_ends_at"] > datetime.now(timezone.utc):
+            plan = "pro"
+    return plan, bool(row.get("is_operator"))
+
+
+def _mcp_tier_ok(plan: str, is_operator: bool) -> bool:
+    """The one MCP-tier decision, shared by the mint gate
+    (routes/agent_access.py::create_token) and the per-request verify gate
+    (auth_agent.get_agent_tenant_id, via agent_tokens.authenticate_with_
+    standing's piggybacked plan/is_operator columns). `is_operator` (Ryan's
+    own account, migration 069) is EXEMPT from every plan-gated feature —
+    without this, the operator account (which defaults to plan='free' unless
+    someone manually sets accounts.plan, per PLAN_LIMITS' "unlimited" comment)
+    would be locked out of the MCP tools it dogfoods daily the moment this
+    tier gate ships."""
+    return is_operator or _PLAN_RANK.get(plan, 0) >= _PLAN_RANK.get("pro", 99)
 
 
 def require_plan(min_tier: str):

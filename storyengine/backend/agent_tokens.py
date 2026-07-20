@@ -159,23 +159,36 @@ async def authenticate_with_standing(token: str) -> tuple:
     C26/C27 tests) are UNCHANGED — this is a new, additive function, not a
     replacement; only auth_agent.get_agent_tenant_id calls it.
 
-    Returns (tenant_id, ok, reason):
+    C62 (ratified 2026-07-20 pricing decision, MCP = Pro+): `plan` and
+    `is_operator` ride along on the SAME query too — the plan-tier check for
+    a live token (a Pro->Starter downgrade shouldn't leave an old token
+    working indefinitely, mirroring how this function already makes a
+    lapsed subscription die same-day) piggybacks here rather than adding a
+    second round trip, per the same reasoning as the good-standing fields.
+
+    Returns (tenant_id, ok, reason, plan, is_operator):
       - tenant_id is None on any auth failure (bad/malformed/unknown/
         revoked token) — same as authenticate()'s None-on-failure contract.
-        ok/reason are meaningless in that case (caller must check
-        tenant_id first).
-      - Otherwise tenant_id is the owning tenant, and (ok, reason) come
-        from routes.billing._good_standing_from_fields — the ONE place
-        that decision is made (see that function's docstring).
+        ok/reason/plan/is_operator are meaningless in that case (caller
+        must check tenant_id first). plan defaults to "free" and
+        is_operator to False in that case, never None, so a caller that
+        skips the tenant_id check still gets sane (maximally-restrictive)
+        values rather than a type error.
+      - Otherwise tenant_id is the owning tenant, (ok, reason) come from
+        routes.billing._good_standing_from_fields (the ONE place that
+        decision is made), and (plan, is_operator) are the raw account
+        columns for routes.billing._mcp_tier_ok to judge.
     """
     if not token or not token.startswith(TOKEN_PREFIX):
-        return None, False, ""
+        return None, False, "", "free", False
     token_hash = _hash_token(token)
     row = await fetch_one(
         """SELECT t.id AS token_id, t.tenant_id AS tenant_id,
                   a.trial_ends_at AS trial_ends_at,
                   a.stripe_subscription_id AS stripe_subscription_id,
-                  a.stripe_status AS stripe_status
+                  a.stripe_status AS stripe_status,
+                  a.plan AS plan,
+                  a.is_operator AS is_operator
            FROM agent_tokens t
            JOIN memberships m ON m.tenant_id = t.tenant_id
            JOIN accounts a ON a.id = m.user_id
@@ -184,7 +197,7 @@ async def authenticate_with_standing(token: str) -> tuple:
         token_hash,
     )
     if not row:
-        return None, False, ""
+        return None, False, "", "free", False
     # Fail-soft: last_used_at is telemetry only, never allowed to block auth.
     try:
         await execute(
@@ -201,4 +214,12 @@ async def authenticate_with_standing(token: str) -> tuple:
         stripe_subscription_id=row.get("stripe_subscription_id"),
         stripe_status=row.get("stripe_status"),
     )
-    return tenant_id, ok, reason
+    # Same active-trial override _get_tenant_plan/_get_tenant_plan_and_operator
+    # apply: a free-plan tenant mid-trial reads as "pro" for tier purposes.
+    plan = row.get("plan") or "free"
+    if plan == "free" and row.get("trial_ends_at"):
+        from datetime import datetime, timezone
+        if row["trial_ends_at"] > datetime.now(timezone.utc):
+            plan = "pro"
+    is_operator = bool(row.get("is_operator"))
+    return tenant_id, ok, reason, plan, is_operator

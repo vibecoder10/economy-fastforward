@@ -105,6 +105,12 @@ def _patched(store: _FakeStore):
                         "token_id": row["id"], "tenant_id": row["tenant_id"],
                         "trial_ends_at": None, "stripe_subscription_id": None,
                         "stripe_status": None,
+                        # C62: the SAME query now also carries plan/is_operator
+                        # for the MCP Pro+ tier gate. plan="pro" isolates this
+                        # file to the C26 token-plumbing question it's actually
+                        # testing — the tier gate itself is pinned in
+                        # test_c57_mcp_billing_gate.py, not here.
+                        "plan": "pro", "is_operator": False,
                     }
             return None
         raise AssertionError(f"unexpected fetch_one query: {query!r}")

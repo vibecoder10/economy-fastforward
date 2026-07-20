@@ -53,13 +53,22 @@ async def get_agent_tenant_id(
     existing tokens "die same-day" on a lapsed subscription with no
     separate revocation step: every call re-checks live, never a cached
     claim.
+
+    C62 (ratified 2026-07-20 pricing decision, MCP = Pro+): same same-day
+    principle applied to PLAN TIER, not just standing — a live token minted
+    while on Pro must stop working the moment the account drops to Starter/
+    free, same as it already stops working the moment a subscription lapses.
+    Piggybacked onto the SAME query (no extra round trip) via
+    authenticate_with_standing's plan/is_operator columns; operator accounts
+    (Ryan's own) are exempt via billing._mcp_tier_ok, the same decision
+    routes/agent_access.py::create_token's mint gate uses.
     """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing agent token")
     token = authorization[len("Bearer "):].strip()
     if not token.startswith(agent_tokens.TOKEN_PREFIX):
         raise HTTPException(status_code=401, detail="Not a valid agent token")
-    tenant_id, ok, reason = await agent_tokens.authenticate_with_standing(token)
+    tenant_id, ok, reason, plan, is_operator = await agent_tokens.authenticate_with_standing(token)
     if tenant_id is None:
         raise HTTPException(status_code=401, detail="Invalid or revoked agent token")
     if not ok:
@@ -71,6 +80,21 @@ async def get_agent_tenant_id(
                     f"Your StoryEngine subscription has lapsed ({reason}) — "
                     "renew at /billing to keep using the MCP agent."
                 ),
+                "upgrade_url": "/billing",
+            },
+        )
+    from routes.billing import _mcp_tier_ok
+    if not _mcp_tier_ok(plan, is_operator):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "plan_required",
+                "message": (
+                    "MCP access requires the Pro plan or higher — upgrade at "
+                    "/billing to keep using the MCP agent."
+                ),
+                "plan": plan,
+                "required": "pro",
                 "upgrade_url": "/billing",
             },
         )

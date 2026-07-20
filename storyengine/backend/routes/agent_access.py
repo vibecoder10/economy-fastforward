@@ -58,13 +58,29 @@ async def create_token(
                 "upgrade_url": "/billing",
             },
         )
-    # SEAM (C57 item 5, NOT implemented): if/when Ryan decides MCP access is
-    # a tier-gated feature (recommended: pro+agency — decisions.md's parked
-    # "which tier gets MCP" question, tasks/live-verification-queue.md), a
-    # `require_plan("pro")`-style check slots in right here, alongside the
-    # good-standing check above. Today ANY plan in good standing (including
-    # free) can mint a token — this function only answers "has a
-    # subscription lapsed", not "is the plan high enough".
+    # MCP access = Pro + Agency (C62: ratified 2026-07-20, tasks/decisions.md
+    # "PRICING RATIFIED" — fills the seam this comment used to describe as
+    # "NOT implemented"). Operator accounts (accounts.is_operator — migration
+    # 069, Ryan's own account) are EXEMPT: without this, Ryan's own account
+    # (which defaults to plan='free' unless someone has manually set
+    # accounts.plan) would be locked out of minting the tokens he dogfoods
+    # daily the moment this ships.
+    from routes.billing import _get_tenant_plan_and_operator, _mcp_tier_ok
+    plan, is_operator = await _get_tenant_plan_and_operator(tenant_id)
+    if not _mcp_tier_ok(plan, is_operator):
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "plan_required",
+                "message": (
+                    "MCP access (agent tokens for Claude/agent clients) requires the "
+                    "Pro plan or higher — upgrade at /billing to connect."
+                ),
+                "plan": plan,
+                "required": "pro",
+                "upgrade_url": "/billing",
+            },
+        )
 
     plaintext, row = await agent_tokens.create_agent_token(tenant_id, name)
     return {

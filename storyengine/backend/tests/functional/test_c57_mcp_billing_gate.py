@@ -204,11 +204,14 @@ class _FakeAccountStore:
         }
         return row_id
 
-    def set_account(self, tenant_id, *, trial_ends_at=None, stripe_subscription_id=None, stripe_status=None):
+    def set_account(self, tenant_id, *, trial_ends_at=None, stripe_subscription_id=None, stripe_status=None,
+                     plan=None, is_operator=False):
         self.accounts[tenant_id] = {
             "trial_ends_at": trial_ends_at,
             "stripe_subscription_id": stripe_subscription_id,
             "stripe_status": stripe_status,
+            "plan": plan,
+            "is_operator": is_operator,
         }
 
 
@@ -224,6 +227,8 @@ def _patch_agent_tokens_with_standing(store: _FakeAccountStore):
                         "trial_ends_at": acct.get("trial_ends_at"),
                         "stripe_subscription_id": acct.get("stripe_subscription_id"),
                         "stripe_status": acct.get("stripe_status"),
+                        "plan": acct.get("plan"),
+                        "is_operator": acct.get("is_operator", False),
                     }
             return None
         raise AssertionError(f"unexpected query: {query!r}")
@@ -242,12 +247,16 @@ def test_authenticate_with_standing_good_account():
     tenant = uuid.uuid4()
     token_hash = agent_tokens._hash_token("se_agent_good")
     store.add_token(tenant, token_hash)
-    store.set_account(tenant, stripe_status="active", stripe_subscription_id="sub_1")
+    # plan="pro" isolates this test to the standing dimension only — see the
+    # C62 tier-gate tests below for plan-dependent behavior.
+    store.set_account(tenant, stripe_status="active", stripe_subscription_id="sub_1", plan="pro")
     p1, p2 = _patch_agent_tokens_with_standing(store)
     with p1, p2:
-        tenant_id, ok, reason = _run(agent_tokens.authenticate_with_standing("se_agent_good"))
+        tenant_id, ok, reason, plan, is_operator = _run(agent_tokens.authenticate_with_standing("se_agent_good"))
     assert tenant_id == tenant
     assert ok is True
+    assert plan == "pro"
+    assert is_operator is False
     print("✅ test_authenticate_with_standing_good_account")
 
 
@@ -256,10 +265,10 @@ def test_authenticate_with_standing_lapsed_account():
     tenant = uuid.uuid4()
     token_hash = agent_tokens._hash_token("se_agent_lapsed")
     store.add_token(tenant, token_hash)
-    store.set_account(tenant, stripe_status="past_due", stripe_subscription_id="sub_1")
+    store.set_account(tenant, stripe_status="past_due", stripe_subscription_id="sub_1", plan="pro")
     p1, p2 = _patch_agent_tokens_with_standing(store)
     with p1, p2:
-        tenant_id, ok, reason = _run(agent_tokens.authenticate_with_standing("se_agent_lapsed"))
+        tenant_id, ok, reason, plan, is_operator = _run(agent_tokens.authenticate_with_standing("se_agent_lapsed"))
     assert tenant_id == tenant, "the token is still valid — only the standing check should fail"
     assert ok is False
     assert "past_due" in reason
@@ -271,18 +280,52 @@ def test_authenticate_with_standing_revoked_token_returns_none_tenant():
     tenant = uuid.uuid4()
     token_hash = agent_tokens._hash_token("se_agent_revoked")
     store.add_token(tenant, token_hash, revoked=True)
-    store.set_account(tenant, stripe_status="active", stripe_subscription_id="sub_1")
+    store.set_account(tenant, stripe_status="active", stripe_subscription_id="sub_1", plan="pro")
     p1, p2 = _patch_agent_tokens_with_standing(store)
     with p1, p2:
-        tenant_id, ok, reason = _run(agent_tokens.authenticate_with_standing("se_agent_revoked"))
+        tenant_id, ok, reason, plan, is_operator = _run(agent_tokens.authenticate_with_standing("se_agent_revoked"))
     assert tenant_id is None, "a revoked token must not resolve a tenant, regardless of standing"
     print("✅ test_authenticate_with_standing_revoked_token_returns_none_tenant")
 
 
 def test_authenticate_with_standing_wrong_prefix_short_circuits():
-    tenant_id, ok, reason = _run(agent_tokens.authenticate_with_standing("not-a-real-token"))
+    tenant_id, ok, reason, plan, is_operator = _run(agent_tokens.authenticate_with_standing("not-a-real-token"))
     assert tenant_id is None
     print("✅ test_authenticate_with_standing_wrong_prefix_short_circuits")
+
+
+# =============================================================================
+# 3b. C62: MCP tier gate (plan/is_operator piggybacked onto the same query)
+# =============================================================================
+
+def test_authenticate_with_standing_starter_plan_surfaced():
+    store = _FakeAccountStore()
+    tenant = uuid.uuid4()
+    token_hash = agent_tokens._hash_token("se_agent_starter")
+    store.add_token(tenant, token_hash)
+    store.set_account(tenant, stripe_status="active", stripe_subscription_id="sub_1", plan="starter")
+    p1, p2 = _patch_agent_tokens_with_standing(store)
+    with p1, p2:
+        tenant_id, ok, reason, plan, is_operator = _run(agent_tokens.authenticate_with_standing("se_agent_starter"))
+    assert ok is True, "standing is fine — starter is a tier problem, not a standing problem"
+    assert plan == "starter"
+    assert is_operator is False
+    print("✅ test_authenticate_with_standing_starter_plan_surfaced")
+
+
+def test_authenticate_with_standing_operator_flag_surfaced():
+    store = _FakeAccountStore()
+    tenant = uuid.uuid4()
+    token_hash = agent_tokens._hash_token("se_agent_operator")
+    store.add_token(tenant, token_hash)
+    store.set_account(tenant, stripe_status=None, stripe_subscription_id=None, plan="free", is_operator=True)
+    p1, p2 = _patch_agent_tokens_with_standing(store)
+    with p1, p2:
+        tenant_id, ok, reason, plan, is_operator = _run(agent_tokens.authenticate_with_standing("se_agent_operator"))
+    assert ok is True, "no stripe_status at all (free tier) is good standing"
+    assert plan == "free"
+    assert is_operator is True
+    print("✅ test_authenticate_with_standing_operator_flag_surfaced")
 
 
 # =============================================================================
@@ -292,7 +335,8 @@ def test_authenticate_with_standing_wrong_prefix_short_circuits():
 def test_get_agent_tenant_id_402_when_lapsed():
     tenant = uuid.uuid4()
     with patch.object(agent_tokens, "authenticate_with_standing",
-                       AsyncMock(return_value=(tenant, False, "your StoryEngine subscription status is 'canceled'"))):
+                       AsyncMock(return_value=(tenant, False, "your StoryEngine subscription status is 'canceled'",
+                                                "pro", False))):
         try:
             _run(auth_agent.get_agent_tenant_id(authorization="Bearer se_agent_whatever"))
             raised = None
@@ -306,8 +350,10 @@ def test_get_agent_tenant_id_402_when_lapsed():
 
 def test_get_agent_tenant_id_passes_through_when_good_standing():
     tenant = uuid.uuid4()
+    # plan="pro" isolates this test to the standing dimension — see the
+    # C62 tier-gate tests below for plan-dependent behavior.
     with patch.object(agent_tokens, "authenticate_with_standing",
-                       AsyncMock(return_value=(tenant, True, "active subscription"))):
+                       AsyncMock(return_value=(tenant, True, "active subscription", "pro", False))):
         result = _run(auth_agent.get_agent_tenant_id(authorization="Bearer se_agent_whatever"))
     assert result == tenant
     print("✅ test_get_agent_tenant_id_passes_through_when_good_standing")
@@ -318,7 +364,7 @@ def test_get_agent_tenant_id_still_401_on_bad_token_not_402():
     the NEW 402 branch only fires for a token that resolved to a real
     tenant whose standing then failed."""
     with patch.object(agent_tokens, "authenticate_with_standing",
-                       AsyncMock(return_value=(None, False, ""))):
+                       AsyncMock(return_value=(None, False, "", "free", False))):
         try:
             _run(auth_agent.get_agent_tenant_id(authorization="Bearer se_agent_bad"))
             raised = None
@@ -326,6 +372,47 @@ def test_get_agent_tenant_id_still_401_on_bad_token_not_402():
             raised = e
     assert raised is not None and raised.status_code == 401
     print("✅ test_get_agent_tenant_id_still_401_on_bad_token_not_402")
+
+
+# =============================================================================
+# 4b. C62: get_agent_tenant_id's per-request MCP tier gate
+# =============================================================================
+
+def test_get_agent_tenant_id_402_when_starter_plan():
+    """A live token whose account is in good standing but has downgraded to
+    Starter must die same-day, mirroring the lapsed-subscription 402 above —
+    not stay valid until someone thinks to revoke it."""
+    tenant = uuid.uuid4()
+    with patch.object(agent_tokens, "authenticate_with_standing",
+                       AsyncMock(return_value=(tenant, True, "active subscription", "starter", False))):
+        try:
+            _run(auth_agent.get_agent_tenant_id(authorization="Bearer se_agent_whatever"))
+            raised = None
+        except HTTPException as e:
+            raised = e
+    assert raised is not None and raised.status_code == 402
+    assert raised.detail["error"] == "plan_required"
+    print("✅ test_get_agent_tenant_id_402_when_starter_plan")
+
+
+def test_get_agent_tenant_id_allowed_for_agency_plan():
+    tenant = uuid.uuid4()
+    with patch.object(agent_tokens, "authenticate_with_standing",
+                       AsyncMock(return_value=(tenant, True, "active subscription", "agency", False))):
+        result = _run(auth_agent.get_agent_tenant_id(authorization="Bearer se_agent_whatever"))
+    assert result == tenant
+    print("✅ test_get_agent_tenant_id_allowed_for_agency_plan")
+
+
+def test_get_agent_tenant_id_operator_exempt_from_tier_gate():
+    """The operator account (accounts.is_operator, migration 069) must never
+    be locked out of MCP by the tier gate, even on plan='free'."""
+    tenant = uuid.uuid4()
+    with patch.object(agent_tokens, "authenticate_with_standing",
+                       AsyncMock(return_value=(tenant, True, "no subscription on file (free tier)", "free", True))):
+        result = _run(auth_agent.get_agent_tenant_id(authorization="Bearer se_agent_whatever"))
+    assert result == tenant
+    print("✅ test_get_agent_tenant_id_operator_exempt_from_tier_gate")
 
 
 # =============================================================================
@@ -353,8 +440,15 @@ def test_mint_refused_when_lapsed():
 
 def test_mint_allowed_when_good_standing():
     tenant = uuid.uuid4()
+    # plan="pro" in the piggybacked fetch_one row: is_account_in_good_standing
+    # is mocked directly (so it never touches fetch_one itself), but the C62
+    # tier check that now runs right after it does its OWN fetch_one — must
+    # be satisfied too or this test would hit a real (unconfigured) DB call.
+    row = {"trial_ends_at": None, "stripe_subscription_id": "sub_1", "stripe_status": "active",
+           "plan": "pro", "is_operator": False}
     with patch.object(billing, "is_account_in_good_standing",
                        AsyncMock(return_value=(True, "active subscription"))), \
+         _patch_billing_fetch_one(row), \
          patch.object(agent_tokens, "create_agent_token",
                       AsyncMock(return_value=("se_agent_plaintext", {
                           "id": uuid.uuid4(), "name": "Test Agent",
@@ -367,23 +461,86 @@ def test_mint_allowed_when_good_standing():
     print("✅ test_mint_allowed_when_good_standing")
 
 
-def test_mint_allowed_for_free_tier_never_subscribed():
-    """C57 item 5 (deliberately NOT tier-gated yet): a free-tier tenant that
-    never subscribed at all is good standing (not "lapsed") — the mint gate
-    only refuses a subscription that WAS active and dropped."""
+def test_mint_refused_for_free_tier_never_subscribed():
+    """SUPERSEDES the old C57-item-5 expectation ("deliberately NOT
+    tier-gated yet") — C62 ratified MCP = Pro+, so a free-tier tenant is now
+    good STANDING (not "lapsed": billing.is_account_in_good_standing still
+    passes) but fails the SEPARATE tier check, refused with 'plan_required'
+    rather than 'subscription_lapsed'."""
     tenant = uuid.uuid4()
-    row = {"trial_ends_at": None, "stripe_subscription_id": None, "stripe_status": None}
+    row = {"trial_ends_at": None, "stripe_subscription_id": None, "stripe_status": None,
+           "plan": None, "is_operator": False}
+    with _patch_billing_fetch_one(row):
+        try:
+            _run(agent_access.create_token(
+                agent_access.CreateAgentTokenRequest(name="Free Tenant"), tenant_id=tenant,
+            ))
+            raised = None
+        except HTTPException as e:
+            raised = e
+    assert raised is not None and raised.status_code == 402
+    assert raised.detail["error"] == "plan_required"
+    print("✅ test_mint_refused_for_free_tier_never_subscribed")
+
+
+# =============================================================================
+# 5b. C62: create_token's MCP tier gate (plan/is_operator)
+# =============================================================================
+
+def test_mint_refused_for_starter_plan():
+    tenant = uuid.uuid4()
+    row = {"trial_ends_at": None, "stripe_subscription_id": "sub_1", "stripe_status": "active",
+           "plan": "starter", "is_operator": False}
+    with _patch_billing_fetch_one(row):
+        try:
+            _run(agent_access.create_token(
+                agent_access.CreateAgentTokenRequest(name="Starter Tenant"), tenant_id=tenant,
+            ))
+            raised = None
+        except HTTPException as e:
+            raised = e
+    assert raised is not None and raised.status_code == 402
+    assert raised.detail["error"] == "plan_required"
+    print("✅ test_mint_refused_for_starter_plan")
+
+
+def test_mint_allowed_for_pro_and_agency_plans():
+    for plan in ("pro", "agency"):
+        tenant = uuid.uuid4()
+        row = {"trial_ends_at": None, "stripe_subscription_id": "sub_1", "stripe_status": "active",
+               "plan": plan, "is_operator": False}
+        with _patch_billing_fetch_one(row), \
+             patch.object(agent_tokens, "create_agent_token",
+                          AsyncMock(return_value=("se_agent_plaintext", {
+                              "id": uuid.uuid4(), "name": f"{plan.title()} Tenant",
+                              "created_at": "2026-07-19T00:00:00Z",
+                          }))):
+            result = _run(agent_access.create_token(
+                agent_access.CreateAgentTokenRequest(name=f"{plan.title()} Tenant"), tenant_id=tenant,
+            ))
+        assert result["token"] == "se_agent_plaintext", f"plan={plan} should mint"
+    print("✅ test_mint_allowed_for_pro_and_agency_plans")
+
+
+def test_mint_allowed_for_operator_even_on_free_plan():
+    """The operator account (accounts.is_operator — migration 069, Ryan's
+    own account) must be exempt from the MCP tier gate even if its `plan`
+    column is 'free' (the day-one default, per PLAN_LIMITS' comment) —
+    otherwise the tier gate locks Ryan out of the MCP tools he dogfoods."""
+    tenant = uuid.uuid4()
+    row = {"trial_ends_at": None, "stripe_subscription_id": None, "stripe_status": None,
+           "plan": "free", "is_operator": True}
     with _patch_billing_fetch_one(row), \
          patch.object(agent_tokens, "create_agent_token",
                       AsyncMock(return_value=("se_agent_plaintext", {
-                          "id": uuid.uuid4(), "name": "Free Tenant",
+                          "id": uuid.uuid4(), "name": "Operator",
                           "created_at": "2026-07-19T00:00:00Z",
                       }))):
         result = _run(agent_access.create_token(
-            agent_access.CreateAgentTokenRequest(name="Free Tenant"), tenant_id=tenant,
+            agent_access.CreateAgentTokenRequest(name="Operator"), tenant_id=tenant,
         ))
     assert result["token"] == "se_agent_plaintext"
-    print("✅ test_mint_allowed_for_free_tier_never_subscribed")
+    print("✅ test_mint_allowed_for_operator_even_on_free_plan")
 
 
 # =============================================================================
@@ -454,12 +611,20 @@ TESTS = [
     test_authenticate_with_standing_lapsed_account,
     test_authenticate_with_standing_revoked_token_returns_none_tenant,
     test_authenticate_with_standing_wrong_prefix_short_circuits,
+    test_authenticate_with_standing_starter_plan_surfaced,
+    test_authenticate_with_standing_operator_flag_surfaced,
     test_get_agent_tenant_id_402_when_lapsed,
     test_get_agent_tenant_id_passes_through_when_good_standing,
     test_get_agent_tenant_id_still_401_on_bad_token_not_402,
+    test_get_agent_tenant_id_402_when_starter_plan,
+    test_get_agent_tenant_id_allowed_for_agency_plan,
+    test_get_agent_tenant_id_operator_exempt_from_tier_gate,
     test_mint_refused_when_lapsed,
     test_mint_allowed_when_good_standing,
-    test_mint_allowed_for_free_tier_never_subscribed,
+    test_mint_refused_for_free_tier_never_subscribed,
+    test_mint_refused_for_starter_plan,
+    test_mint_allowed_for_pro_and_agency_plans,
+    test_mint_allowed_for_operator_even_on_free_plan,
     test_good_standing_decision_defined_exactly_once,
     test_authenticate_with_standing_calls_the_shared_decision_function,
     test_mint_route_calls_shared_good_standing_helper,

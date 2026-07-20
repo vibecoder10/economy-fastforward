@@ -148,6 +148,12 @@ def _patch_agent_tokens(store: _FakeAgentTokenStore):
                         "token_id": row["id"], "tenant_id": row["tenant_id"],
                         "trial_ends_at": None, "stripe_subscription_id": None,
                         "stripe_status": None,
+                        # C62: plan/is_operator now ride the same query for the
+                        # MCP Pro+ tier gate. plan="pro" keeps this dry run's
+                        # focus on the MCP session mechanics it's actually
+                        # testing — the tier gate itself is pinned in
+                        # test_c57_mcp_billing_gate.py.
+                        "plan": "pro", "is_operator": False,
                     }
             return None
         raise AssertionError(f"unexpected agent_tokens fetch_one query: {query!r}")
@@ -291,6 +297,8 @@ def test_full_external_client_mcp_session_dry_run():
          patch.object(database, "fetch_one", _fake_plan_fetch_one), \
          patch.object(billing, "is_account_in_good_standing",
                       AsyncMock(return_value=(True, "no subscription on file (free tier)"))), \
+         patch.object(billing, "_get_tenant_plan_and_operator",
+                      AsyncMock(return_value=("pro", False))), \
          patch.object(actions, "video_summary", _fake_video_summary), \
          patch.object(actions, "blocked_reason", lambda verb, summary: None), \
          patch.object(actions, "estimate_cost", AsyncMock(return_value=(1.50, "~$1.50"))), \

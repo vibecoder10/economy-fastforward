@@ -236,6 +236,16 @@ async def apply_followup_edit(tenant_id, video_id, stage: str, edit: dict) -> No
         return
     mins = edit.get("video_length_minutes")
     if stage == "script" and isinstance(mins, (int, float)) and int(mins) > 0:
+        # C62: this is the one post-create seam that can change a video's
+        # length after the create-time gate (routes/videos.py::create_video)
+        # already ran — a Starter creator saying "make it 20 minutes" via the
+        # copilot's script-redo verb would otherwise bypass the 10-minute cap
+        # entirely. Same shared check, same 402 shape; raises here (not
+        # caught into a friendly chat line — see routes/chat.py's separate
+        # try/except around create_video for that treatment) since this
+        # function has no conversational-reply context of its own.
+        from routes.billing import enforce_video_length_cap
+        await enforce_video_length_cap(tenant_id, mins)
         await execute(
             "UPDATE videos SET video_length_minutes = $1, updated_at = now() "
             "WHERE id = $2 AND tenant_id = $3",
