@@ -78,7 +78,9 @@ DRIVE_URL = "https://drive.google.com/uc?export=download&id=1UbJtjJP9emPWRil6pqX
 
 def test_kie_fetchable_url_signs_with_tenant_token():
     url = _kie_fetchable_url(DRIVE_URL, TENANT_A)
-    assert url.startswith("https://storyengine.dev/api/media/drive/1UbJtjJP9emPWRil6pqXlkEIrUGEKLRmw?token=")
+    # C25a-fix5: the path carries a cosmetic ".png" suffix (Kie input
+    # validators reject extension-less URLs); it lands BEFORE ?token=.
+    assert url.startswith("https://storyengine.dev/api/media/drive/1UbJtjJP9emPWRil6pqXlkEIrUGEKLRmw.png?token=")
     token = url.split("?token=", 1)[1]
     payload = pyjwt.decode(token, SECRET, algorithms=["HS256"])
     assert payload["tenant_id"] == TENANT_A
@@ -100,7 +102,7 @@ def test_kie_fetchable_url_token_is_tenant_scoped_not_shared():
 
 def test_kie_fetchable_url_no_tenant_stays_unsigned():
     url = _kie_fetchable_url(DRIVE_URL, None)
-    assert url == "https://storyengine.dev/api/media/drive/1UbJtjJP9emPWRil6pqXlkEIrUGEKLRmw"
+    assert url == "https://storyengine.dev/api/media/drive/1UbJtjJP9emPWRil6pqXlkEIrUGEKLRmw.png"
     assert "token=" not in url
 
 

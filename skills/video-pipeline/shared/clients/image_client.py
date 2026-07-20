@@ -148,7 +148,20 @@ def _kie_fetchable_url(url: str, tenant_id=None) -> str:
     `tenant_id=None` (legacy non-tenant callers, e.g. the standalone
     skills/video-pipeline Slack-bot scripts that construct ImageClient with
     no tenant) keeps the pre-C25a unsigned URL — those never went through
-    the tenant-scoped SaaS proxy in the first place."""
+    the tenant-scoped SaaS proxy in the first place.
+
+    C25a-fix5: the path carries a cosmetic ".png" suffix. Some Kie model
+    input validators reject URLs without a recognizable file extension —
+    the exact failure InfiniteTalk hit (fixed for the clip path by commit
+    10d232e5 + pipeline_executor.py's _with_ext), and the prime suspect in
+    gpt-image-2-image-to-image's failCode-400 "could not be processed"
+    rejections of extension-less proxy URLs (2026-07-20, video cd5d2883):
+    Kie failed those tasks WITHOUT ever fetching the URLs, i.e. at input
+    validation. Every URL this helper builds is an image reference, so
+    ".png" is always an appropriate cosmetic type hint. The suffix goes on
+    the PATH, before any ?token= query (appending after the query would
+    corrupt the JWT — see _with_ext's docstring), and the proxy route
+    (routes/media.py::serve_drive_file) strips it before resolving the id."""
     import re as _re
     if not url or "drive.google.com" not in url:
         return url
@@ -156,7 +169,7 @@ def _kie_fetchable_url(url: str, tenant_id=None) -> str:
     if not m:
         return url
     base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
-    proxy_url = f"{base}/api/media/drive/{m.group(1)}"
+    proxy_url = f"{base}/api/media/drive/{m.group(1)}.png"
     if tenant_id:
         from routes.media import mint_media_token
         proxy_url = f"{proxy_url}?token={mint_media_token(tenant_id)}"
