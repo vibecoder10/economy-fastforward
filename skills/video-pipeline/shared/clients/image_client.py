@@ -292,7 +292,7 @@ class ImageClient:
                     
                 response.raise_for_status()
                 task_data = response.json()
-                task_id = task_data.get("data", {}).get("taskId")
+                task_id = (task_data.get("data") or {}).get("taskId")
                 
                 if task_id:
                     print(f"    🎬 Video task started: {task_id}")
@@ -428,8 +428,19 @@ class ImageClient:
                 await asyncio.sleep(poll_interval)
                 continue
 
-            data = status.get("data", {})
-            
+            # Kie can return HTTP 200 with a present-but-null "data" key on an
+            # in-body failure (code != 200) — `.get("data", {})` does NOT apply
+            # the default for a null value, only a missing key, so the next
+            # `.get()` on None used to raise AttributeError and swallow Kie's
+            # real error message (tasks/lessons.md: present-but-NULL trap).
+            data = status.get("data") or {}
+            if not data:
+                print(f"      ❌ Poll response has no usable data (code={status.get('code')}): "
+                      f"{status.get('msg') or status.get('message')}")
+                print(f"         Full response: {status}")
+                await asyncio.sleep(poll_interval)
+                continue
+
             # Check explicit status or state
             # 0: Queue, 1: Running, 2: Success, 3: Failed (Common Kie.ai pattern)
             task_status = data.get("status")
@@ -522,7 +533,7 @@ class ImageClient:
             print(f"         Prompt: {prompt_preview}")
             return None
 
-        task_id = result.get("data", {}).get("taskId")
+        task_id = (result.get("data") or {}).get("taskId")
         if not task_id:
             api_msg = result.get("msg") or result.get("message") or "unknown"
             api_code = result.get("code", "unknown")
@@ -603,7 +614,7 @@ class ImageClient:
                     return None
 
                 task_data = response.json()
-                task_id = task_data.get("data", {}).get("taskId")
+                task_id = (task_data.get("data") or {}).get("taskId")
 
                 if not task_id:
                     print(f"      ❌ No task ID returned")
@@ -711,7 +722,7 @@ class ImageClient:
                     return None
 
                 task_data = response.json()
-                task_id = task_data.get("data", {}).get("taskId")
+                task_id = (task_data.get("data") or {}).get("taskId")
 
                 if not task_id:
                     print(f"      ❌ No task ID returned")
@@ -832,7 +843,7 @@ class ImageClient:
                     print(f"      ❌ API error: {task_data.get('msg')}")
                     return None
 
-                task_id = task_data.get("data", {}).get("taskId")
+                task_id = (task_data.get("data") or {}).get("taskId")
                 if not task_id:
                     print(f"      ❌ No task ID returned")
                     return None
@@ -902,7 +913,7 @@ class ImageClient:
                 if task_data.get("code") != 200:
                     print(f"      ❌ API error: {task_data.get('msg')}")
                     return None
-                task_id = task_data.get("data", {}).get("taskId")
+                task_id = (task_data.get("data") or {}).get("taskId")
                 if not task_id:
                     print("      ❌ No task ID returned")
                     return None
@@ -960,7 +971,7 @@ class ImageClient:
                     if task_data.get("code") != 200:
                         print(f"      ❌ {label} API error: {task_data.get('msg')}")
                         return ("fail", None)
-                    task_id = task_data.get("data", {}).get("taskId")
+                    task_id = (task_data.get("data") or {}).get("taskId")
                     if not task_id:
                         print(f"      ❌ {label}: no task ID returned")
                         return ("fail", None)
@@ -1332,7 +1343,7 @@ class ImageClient:
                     response.raise_for_status()
                     task_data = response.json()
 
-                    task_id = task_data.get("data", {}).get("taskId")
+                    task_id = (task_data.get("data") or {}).get("taskId")
                     if not task_id:
                         print(f"      ❌ No task ID returned: {task_data}")
                         continue
@@ -1387,14 +1398,24 @@ class ImageClient:
                         timeout=30.0,
                     )
                     response.raise_for_status()
-                    data = response.json().get("data", {})
+                    body = response.json()
+                    # Present-but-null "data" (Kie in-body failure with HTTP 200)
+                    # used to crash `.get("data", {}).get(...)` with an
+                    # AttributeError that ate Kie's real msg (tasks/lessons.md).
+                    data = body.get("data") or {}
+                    if not data:
+                        print(f"      ❌ Veo poll has no usable data (code={body.get('code')}): "
+                              f"{body.get('msg') or body.get('message')}")
+                        print(f"         Full response: {body}")
+                        await asyncio.sleep(poll_interval)
+                        continue
 
                     success_flag = data.get("successFlag")
 
                     # successFlag: 0=generating, 1=success, 2=failed, 3=generation error
                     if success_flag == 1:
                         # Success - extract video URL
-                        response_data = data.get("response", {})
+                        response_data = data.get("response") or {}
                         result_urls = response_data.get("resultUrls", [])
 
                         if result_urls:
@@ -1452,7 +1473,17 @@ class ImageClient:
                     return None
 
                 response.raise_for_status()
-                data = response.json().get("data", {})
+                body = response.json()
+                # Present-but-null "data" trap (tasks/lessons.md) — a bare
+                # `.get("data", {})` doesn't apply the default when the key
+                # exists with a null value, so a chained `.get("hdUrl")`
+                # would crash and eat Kie's real code/msg.
+                data = body.get("data") or {}
+                if not data:
+                    print(f"      ❌ 1080p upgrade has no usable data (code={body.get('code')}): "
+                          f"{body.get('msg') or body.get('message')}")
+                    print(f"         Full response: {body}")
+                    return None
                 hd_url = data.get("hdUrl")
 
                 if hd_url:

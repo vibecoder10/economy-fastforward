@@ -103,11 +103,19 @@ class SoundClient:
                         return None
 
                     task_data = response.json()
-                    task_id = task_data.get("data", {}).get("taskId")
+                    # Kie can return HTTP 200 with a present-but-null "data" key
+                    # on an in-body failure — `.get("data", {})` does not apply
+                    # the default for a null value, only a missing key, so the
+                    # chained `.get("taskId")` used to raise AttributeError and
+                    # swallow Kie's real msg (tasks/lessons.md present-but-NULL
+                    # trap).
+                    task_id = (task_data.get("data") or {}).get("taskId")
 
                     if not task_id:
                         api_msg = task_data.get("msg") or task_data.get("message") or "unknown"
-                        print(f"    No task ID in response: {api_msg}")
+                        api_code = task_data.get("code", "unknown")
+                        print(f"    No task ID in response (code={api_code}): {api_msg}")
+                        print(f"    Full response: {task_data}")
                         return None
 
                     print(f"    SFX task created: {task_id}")
@@ -169,7 +177,14 @@ class SoundClient:
                         timeout=30.0,
                     )
                     response.raise_for_status()
-                    data = response.json().get("data", {})
+                    body = response.json()
+                    data = body.get("data") or {}
+                    if not data:
+                        print(f"    Poll response has no usable data (code={body.get('code')}): "
+                              f"{body.get('msg') or body.get('message')}")
+                        print(f"    Full response: {body}")
+                        await asyncio.sleep(poll_interval)
+                        continue
 
                 task_state = data.get("state", "")
                 task_status = data.get("status")
