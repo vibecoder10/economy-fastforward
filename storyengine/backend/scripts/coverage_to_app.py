@@ -827,6 +827,90 @@ def _sheet_filter_reject(fail_info: Optional[dict]) -> bool:
     return ("could not be processed" in msg) or ("content polic" in msg) or ("violat" in msg)
 
 
+# =============================================================================
+# Filter-safety: single-naming pass for builder-authored sheet-prompt text
+# =============================================================================
+# C25a-fix9b (2026-07-20, Ryan's ruling: "fix the damn prompting structure,
+# stop putting bandaids on everything" — tasks/decisions.md 2026-07-20 "NO
+# nano-banana fallback"): OpenAI's content filter scores ACCUMULATED risky-
+# prop density across the whole sheet prompt, not any single mention. Live
+# bisection on video cd5d2883 proved it: sheet 1 passed naming the chef's
+# knife ONCE (in FIXED SET); sheet 2 400'd on both fix8 header variants
+# because the SAME prop got renamed again in CAMERA KIT's insert setup
+# ("cutting board, knife") and again in nearly every panel brief ("knife",
+# "chopping motion", "cutting board") — our own boilerplate repetition, not
+# the creator's spoken lines, is what tipped the density over the filter's
+# line.
+#
+# THE BOUNDARY (do not blur this — it is the whole point of the fix):
+#   - FIXED SET (set_line / set_block) is the ONE place a risky prop may be
+#     named plainly. It is the single canonical naming slot and this pass is
+#     NEVER applied to it.
+#   - CAPTION text (m["speaker"] / m["line"], the verbatim spoken script —
+#     product law) is NEVER passed through this pass. In _plan_sheet_prompts
+#     below, the neutralizer runs on a panel's DESCRIPTION only, before the
+#     caption string is concatenated onto it — captions never touch this
+#     function.
+#   - AXIS/SCREEN-DIRECTION lines, panel numbering/order, SETUP letters, and
+#     character names/wardrobe are never touched (they don't carry prop
+#     nouns and are excluded from every call site of this pass).
+#   - Every OTHER builder-authored segment — CAMERA KIT (setups_line) and
+#     every panel brief's shot description (master + angles) — IS run
+#     through this pass, so a risky prop is referred to neutrally there.
+#
+# Add new risky terms to _RISKY_PROP_PATTERNS below, nowhere else. Longer,
+# more specific phrases must sort before their substrings (checked in
+# list order — a compiled regex list, not a dict) or the shorter pattern
+# would eat the longer one first (e.g. "knife" matching inside "chef's
+# knife" before the multi-word pattern gets a chance).
+#
+# NOUN-PHRASE replacements ("the utensils", "the prep board") swallow an
+# optional leading article ("the "/"a "/"an ") in the PATTERN itself so the
+# replacement's own "the" is never doubled ("the knife" -> "the utensils",
+# never "the the utensils"). Verb-form replacements (prep/prepping/prepped/
+# preps) carry no article and need no such prefix.
+_ART = r"(?:the\s+|a\s+|an\s+)?"
+_RISKY_PROP_PATTERNS: list[tuple] = [
+    (re.compile(rf"\b{_ART}chef'?s?\s+knives\b", re.IGNORECASE), "the utensils"),
+    (re.compile(rf"\b{_ART}chef'?s?\s+knife\b", re.IGNORECASE), "the utensils"),
+    (re.compile(rf"\b{_ART}kitchen\s+knives\b", re.IGNORECASE), "the utensils"),
+    (re.compile(rf"\b{_ART}kitchen\s+knife\b", re.IGNORECASE), "the utensils"),
+    (re.compile(rf"\b{_ART}cutting\s+boards?\b", re.IGNORECASE), "the prep board"),
+    (re.compile(rf"\b{_ART}chopping\s+boards?\b", re.IGNORECASE), "the prep board"),
+    # Descriptions commonly wrap the noun in an adjective ("a slow chopping
+    # motion" — seen verbatim in prod, video cd5d2883 scene 2); swallow up to
+    # one adjective between the article and the noun so the replacement's own
+    # "a" is never doubled ("a slow chopping motion" -> "a slicing-prep
+    # gesture", not "a slow a slicing-prep gesture").
+    (re.compile(rf"\b{_ART}(?:slow\s+|quick\s+|brief\s+|gentle\s+|small\s+)?"
+                r"cutting\s+motions?\b", re.IGNORECASE), "a slicing-prep gesture"),
+    (re.compile(rf"\b{_ART}(?:slow\s+|quick\s+|brief\s+|gentle\s+|small\s+)?"
+                r"chopping\s+motions?\b", re.IGNORECASE), "a slicing-prep gesture"),
+    (re.compile(rf"\b{_ART}knives\b", re.IGNORECASE), "the utensils"),
+    (re.compile(rf"\b{_ART}knife\b", re.IGNORECASE), "the utensils"),
+    (re.compile(rf"\b{_ART}blades?\b", re.IGNORECASE), "the utensils"),
+    (re.compile(r"\bchopped\b", re.IGNORECASE), "prepped"),
+    (re.compile(r"\bchopping\b", re.IGNORECASE), "prepping"),
+    (re.compile(r"\bchops\b", re.IGNORECASE), "preps"),
+    (re.compile(r"\bchop\b", re.IGNORECASE), "prep"),
+]
+
+
+def _neutralize_risky_props(text: Optional[str]) -> Optional[str]:
+    """Single-naming rule enforcement (C25a-fix9b): swaps risky/sharp-prop
+    language for neutral culinary phrasing in ONE builder-authored segment.
+    Callers must NEVER hand this FIXED SET text (the canonical single
+    naming slot) or CAPTION text (the verbatim spoken script) — see the
+    boundary docstring above _RISKY_PROP_PATTERNS. None/empty input passes
+    through unchanged."""
+    if not text:
+        return text
+    out = text
+    for pattern, replacement in _RISKY_PROP_PATTERNS:
+        out = pattern.sub(replacement, out)
+    return out
+
+
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
                         set_line: str = "", axis_line: str = "",
                         setups_line: str = "", header_variant: str = "primary") -> list[str]:
@@ -856,24 +940,40 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     panels: list[str] = []
     for m in moments:
         n = m.get("moment_number")
+        # CAPTION is the verbatim spoken script (product law) — built straight
+        # from m["line"], NEVER routed through _neutralize_risky_props.
         cap = (f' CAPTION: {m["speaker"]}: "{_trunc(m["line"], 90)}"'
                if m.get("speaker") and m.get("line") else " CAPTION: (silent)")
         master = m.get("master") or {}
+        # Panel-brief visual description IS builder-authored text (C25a-fix9b):
+        # neutralize risky-prop density BEFORE truncating, then concatenate the
+        # untouched caption after.
+        master_desc = _neutralize_risky_props(master.get("description"))
         panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
-                      f"{_trunc(master.get('description'), 300)}{cap}")
+                      f"{_trunc(master_desc, 300)}{cap}")
         for a in (m.get("angles") or []):
+            angle_desc = _neutralize_risky_props(a.get("description"))
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
-                          f"{_trunc(a.get('description'), 300)} CAPTION: (silent)")
+                          f"{_trunc(angle_desc, 300)} CAPTION: (silent)")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
+    # FIXED SET is the ONE canonical slot a risky prop may be named plainly
+    # (C25a-fix9b single-naming rule) — set_line is NEVER passed through
+    # _neutralize_risky_props.
     set_block = (f"\nFIXED SET — identical in EVERY panel that shows the location: {set_line}\n"
                  if (set_line or "").strip() else "")
+    # AXIS/SCREEN-DIRECTION lines never carry prop nouns and must never be
+    # touched (explicit product rule) — axis_line is NEVER neutralized.
     axis_block = (f"\nSCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: {axis_line} "
                   "Each character stays on their own side of the frame looking their fixed "
                   "direction in every panel, even when they are only a soft foreground "
                   "shoulder.\n"
                   if (axis_line or "").strip() else "")
+    # CAMERA KIT is builder-authored text that historically re-named the same
+    # risky prop set_line already named once (C25a-fix9b root cause) —
+    # neutralized here, every time.
     setups_block = (f"\nCAMERA KIT — the actors are PLANTED on the set and never move; the "
-                    f"whole scene is covered by these repeated setups: {setups_line} Panels "
+                    f"whole scene is covered by these repeated setups: "
+                    f"{_neutralize_risky_props(setups_line)} Panels "
                     "whose brief carries the same SETUP letter are the SAME camera position "
                     "and the SAME frozen staging repeated EXACTLY — copy the framing, body "
                     "positions, distance and orientation from the first panel with that "
