@@ -10326,3 +10326,52 @@ clean; `npm run build` succeeded (33 routes).
 **ff-merge candidate.** (a) removes dead frontend code with zero live consumers, proven by full-repo
 grep and a clean `tsc`/`build`. (b) made no functional changes at all — pure investigation, nothing to
 regress.
+
+## C61 — MCP channel-manager surface: STOPPED AT TRACE, no code changed (added 2026-07-20)
+
+Follow-up queue item (decisions.md 2026-07-20 channel-manager entry). No files/tables/routes moved,
+renamed, created, or deleted this chunk — this entry exists for continuity, not a structural-change log.
+
+Per the chunk's own STOP clause, the trace found "channel identity" split across three incompatible
+scoping tiers, not just the `projects`/`channel_profiles` duality the queuing entry named:
+
+1. **`projects`** — schema allows many rows per tenant (`videos.project_id` FK live), but every code
+   path (backend and frontend) is `_get_or_create_project()` / `SELECT ... LIMIT 1`; the frontend only
+   calls `/api/projects/current`, no switcher/list/create UI exists. `routes/projects.py`'s own
+   docstring: "The UI currently shows only the first project." No seam exists to wrap for
+   `create_channel`/`list_channels` without inventing MCP-only state the UI can't reveal.
+2. **`channel_profiles`** — `tenant_id UUID ... UNIQUE NOT NULL` (DB-enforced single row per tenant).
+   Live store for `channel_identity` (DNA), YouTube OAuth (`youtube_refresh_token`/`youtube_channel_id`),
+   Google Drive OAuth, onboarding state, creator brief, channel_intel — read/written by ~20 backend
+   files (`channel_dna.py`, `channel_format.py`, `identity.py`, `identity_builder.py`,
+   `routes/chat.py`, `routes/onboarding.py`, `routes/google_auth.py`, `routes/youtube_channel.py`,
+   `routes/youtube_sync.py`, `routes/dashboard.py`, `routes/system_prompts.py`, `routes/analytics.py`,
+   `pipeline_executor.py`, `youtube_publish.py`, `static_docu.py`, `main.py`, others). NOT dead legacy.
+3. **Tenant-only, no `project_id` anywhere** (schema.sql + Python scope args both checked):
+   `autopilot_config` (also `UNIQUE(tenant_id)`), `quality_rules`, `channel_patterns`,
+   `autopilot_proposals`, `learnings`, `content_intelligence`, `discovery_ideas`,
+   `competitor_channels`/`competitor_videos`. `channel_dna.py`, `quality_rules.py`, `autopilot_dial.py`
+   all take `tenant_id` as their only scope parameter.
+
+Only `create_video` has a real, already-wired per-channel column (`videos.project_id`) to attach an
+optional scope arg to today. Building `list_channels`/`create_channel`/`get_channel` over `projects`
+alone — with DNA, quality rules, patterns, and autopilot dial/proposals staying tenant-scoped — would
+make "channels" cosmetic containers (name/niche/visual style/cast only) while the DNA/OAuth/rules/
+patterns/autopilot silently keep applying tenant-wide to whichever project happens to be the implicit
+first row. The "run multiple channels" product promise would not actually hold, and the UI (which only
+ever shows the first project) has no way to surface that gap. That's a product/architecture ruling, not
+an additive-scoping build.
+
+Full scope table, both candidate product directions (promote `channel_profiles`'s columns onto
+`projects` via a real migration + data move + ~20 files repointed, vs. "multiple channels" meaning
+multiple `project_id` sub-brands under one shared DNA/OAuth/autopilot identity), and the literal
+DB-constraint blockers (`channel_profiles`/`autopilot_config` both `UNIQUE(tenant_id)`) are recorded in
+`tasks/decisions.md`'s 2026-07-20 "C61 STOPPED at trace" entry. Checklist bullet (`tasks/
+storyengine-wiring-fix-checklist.md`) left unchecked with a summary note. `tasks/todo.md`'s handoff
+updated to point the next orchestrator session at Ryan's ruling as the actual next step, not another
+trace pass.
+
+### Deploy-safety assessment
+
+**Docs-only, ff-merge freely.** No code, schema, route, or frontend file touched — `decisions.md`,
+the checklist bullet, this entry, and `tasks/todo.md`'s handoff are the only changes.

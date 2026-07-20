@@ -492,3 +492,79 @@ Rulings/facts:
 - GAP (verified in code): `projects` table = one row per channel, many per account — but the MCP
   surface is single-channel-implicit (no list/create/select channel tools, no channel scope param).
   → C61 queued: channel-manager MCP surface, additive scoping.
+
+## 2026-07-20 — C61 STOPPED at trace: "channel identity" is fragmented across 3 incompatible layers, not just `projects` vs `channel_profiles` — needs Ryan's ruling before any MCP scoping is built
+Per the chunk's own STOP clause ("if the trace shows projects/channel_profiles duality is
+genuinely unresolved... STOP after the trace"). The trace found the duality is real AND worse
+than the entry above assumed — it's not two tables, it's three tiers of scoping that don't line up:
+
+1. **`projects`** (schema allows many-per-tenant, `videos.project_id` FK exists) — but ZERO code
+   path anywhere (backend or frontend) ever creates or selects a second row. Every single read site
+   is `_get_or_create_project()` / `SELECT ... FROM projects WHERE tenant_id = $1 LIMIT 1`
+   (`routes/projects.py`, `routes/characters.py`, `routes/discovery.py`, `routes/videos.py`,
+   `identity.py`, `pipeline_executor.py`, `channel_profile_documents.py`). The frontend only ever
+   calls `/api/projects/current` (`frontend/src/lib/api.ts` — no switcher, no list view, no create
+   button). `routes/projects.py`'s own docstring: "The UI currently shows only the first project."
+   So `projects` is schema-multi, practice-singular — there is no existing "create a second channel"
+   seam to wrap for `create_channel`, and a `list_channels` MCP tool would enumerate rows the UI has
+   no way to view/select, which is exactly the "MCP-only state invisible to the UI" the governing
+   decision above rules out.
+2. **`channel_profiles`** — DB-enforced single row per tenant (`tenant_id UUID ... UNIQUE NOT NULL`).
+   This is NOT dead legacy: it's the LIVE store for channel identity DNA (`channel_identity` —
+   `channel_dna.py`, `channel_format.py`, `identity.py`, `identity_builder.py`), creator brief,
+   channel_intel, onboarding state, style_description, and BOTH OAuth connections (YouTube
+   `youtube_refresh_token`/`youtube_channel_id`, Google Drive `google_drive_refresh_token`) —
+   touched by ~20 backend files (`routes/chat.py`, `routes/onboarding.py`, `routes/google_auth.py`,
+   `routes/youtube_channel.py`, `routes/youtube_sync.py`, `routes/dashboard.py`,
+   `routes/system_prompts.py`, `routes/analytics.py`, `pipeline_executor.py`, `youtube_publish.py`,
+   `static_docu.py`, `main.py`, ...). It has NO `project_id` column and its UNIQUE constraint makes
+   a second row per tenant impossible without a migration + a real decision about which existing
+   column set (name/niche/target_audience overlaps `projects`; OAuth tokens/DNA/onboarding do not)
+   moves where.
+3. **Tenant-only, no project_id at all, ever** (checked schema.sql directly): `autopilot_config`
+   (`tenant_id UNIQUE NOT NULL` — hard single-row, same as channel_profiles), `quality_rules`,
+   `channel_patterns`, `autopilot_proposals`, `learnings`, `content_intelligence`,
+   `discovery_ideas`, `competitor_channels`/`competitor_videos`. Confirmed at the Python layer too —
+   `channel_dna.py`, `quality_rules.py`, `autopilot_dial.py` all take `tenant_id` as their only scope
+   arg, no `project_id`/`channel_id` parameter exists to thread through.
+
+Net: of the chunk's named tool families, only `create_video` has a real, live, already-wired
+per-channel column (`videos.project_id`) to attach an optional scope arg to. DNA/learn_channel,
+quality rules, channel patterns, and autopilot dial/proposals are ALL genuinely tenant-level today
+— adding a `channel_id` param to those MCP tools would either be silently ignored (no-op) or require
+restructuring tenant-scoped tables into channel-scoped ones, which the chunk explicitly forbids
+("do NOT restructure... report the boundary honestly"). Analytics reads split: `channel_videos`
+(→ `routes/analytics.py::get_channel_videos`) is tenant-only like the above; nothing there is
+project-scoped either.
+
+**Why this blocks tool-building, not just "ship what's scopable":** `list_channels`/`create_channel`
+need a real multi-project UI seam to wrap (there isn't one) and a place for a second project's DNA/
+OAuth/quality-rules/patterns to live (there isn't one — they're pinned to the tenant, not the
+project). Building `list_channels`/`create_channel`/`get_channel` over `projects` alone, with every
+other tool family staying tenant-scoped, would produce a channel manager where "channels" are cosmetic
+containers (name/niche/visual style/cast only) while the DNA, YouTube connection, Drive connection,
+quality rules, patterns, and autopilot dial all keep silently applying to whichever channel happens
+to be the tenant's implicit first `projects` row — i.e. the "run multiple channels" product promise
+would not actually hold, and the UI (which only ever shows the first project) would have no way to
+reveal that gap to the user. That is a product/architecture ruling, not an additive-scoping exercise.
+
+**Parked for Ryan (no code changed this chunk):**
+- Does "multiple channels" require promoting `channel_profiles`'s columns (DNA, OAuth, onboarding)
+  onto `projects` (a real migration + data move + every one of those ~20 files repointed), or is
+  "multiple channels" instead meant as multiple `videos.project_id` buckets under ONE shared
+  DNA/OAuth/autopilot identity (i.e. sub-brands of one channel, not independent channels)? These are
+  different products and change which tables the MCP tools should even target.
+- If the former: `autopilot_config`/`quality_rules`/`channel_patterns` need `project_id` columns +
+  migrations + every reader/writer updated (`autopilot_dial.py`, `quality_rules.py`,
+  `channel_dna.py`, the autopilot loop in `main.py`) — a multi-chunk build, not C61-sized.
+- If the latter: C61 shrinks to just `create_video`'s optional `project_id` (already wired end to
+  end) plus a real "create a second project" UI seam (currently missing) before any MCP
+  `create_channel` tool can wrap it — still needs the UI seam built first, since "no MCP-only state"
+  forbids shipping the MCP tool ahead of it.
+- Either way: `channel_profiles`'s UNIQUE(tenant_id) constraint and `autopilot_config`'s
+  UNIQUE(tenant_id) constraint are the literal DB-level blockers — no tool-layer scoping can route
+  around a UNIQUE index.
+
+C61 checklist bullet left UNCHECKED. Next step is Ryan's ruling, not another trace pass — the code
+was read closely enough this session to be confident the gap is structural, not a search-harder
+problem.
