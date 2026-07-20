@@ -620,3 +620,14 @@ Rulings/design:
 - Optional MCP tool suggest_feature/list_feature_requests so customers can file from Claude.
 - Also 2026-07-20: C64 ffmpeg render spike PARKED ("we'll cross that bridge as it comes") —
   stays queued, unbuilt; render capacity plan lives in docs/pricing-proposal-2026-07.md notes.
+
+## 2026-07-20 — Z-Image → GPT Image 2 fallback for reference-based draws is CORRECT (Ryan, direct)
+Ryan: "z image doesnt have an image to image and falls back to gpt2 image which is fine and is
+correct." Z-Image is text-to-image only; any draw that needs reference images (storyboard sheets
+with cast/location refs, image-to-image redraws) legitimately routes to GPT Image 2 image-to-image
+even when the tenant's PICTURES override is z-image. Do NOT "fix" this fallback. The 2026-07-20
+storyboard failures were NOT the routing: (a) the z-image createTask error was eaten by the
+present-but-null `.get("data", {})` crash (C25a-fix4 hardened every Kie client parse site), and
+(b) GPT i2i rejected the media-proxy input_urls because they lack a file extension — Kie model
+validators want a recognizable file type (same family as the InfiniteTalk fix 10d232e5;
+C25a-fix5 adds the .png suffix in _kie_fetchable_url).
