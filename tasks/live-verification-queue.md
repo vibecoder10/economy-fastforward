@@ -3061,6 +3061,53 @@ A session ON the VPS has the Kie key + `scripts/se.sh` tooling + prod DB — eve
 - When every box for a chunk is ticked, note the date + who ran it and leave it (don't delete — it's the audit trail that the deferred `[V]` was actually closed).
 - Referenced from the loop handoff in `tasks/todo.md` and the doc inventory in `tasks/storyengine-knowledge-map.md` §4.
 
+## §C38 · Create-surface convergence — click through all five entry points live
+
+Everything is proven at the test + code-trace level in the sandbox (new `tests/functional/
+test_c38_create_convergence.py`, 8 tests, non-vacuous via `git stash`; full suite 1879P/15F/1E, zero
+new failures vs. the 1871P/15F/1E baseline) — but no browser/live-DB run happened here. The trace
+found 4 of the 5 doors were ALREADY converged on `routes.videos.create_video` before this chunk
+touched anything; only Model A Video's endpoint changed behavior (it now calls `create_video`
+in-process instead of doing its own INSERT). What to confirm live, in this order:
+
+1. **New Video form** (`/pipeline`, "+ New Video" button): create a video with just a title. Confirm
+   it lands at `idea_logged` (or the first stage of whatever plan you pick) exactly as before —
+   this door's code path is untouched, but it's the cheapest sanity check that nothing else broke.
+2. **FirstVideoFlow** (the "create your first video" 2-step modal shown to brand-new tenants, or
+   reachable via `?firstVideo=1`-style entry if the app still gates it that way): type a topic,
+   optionally hit "Suggest Titles", pick a title, set length/angle, hit "Create Video & Start
+   Pipeline". Confirm a video appears with that title — this is the SAME `createMutation` as (1), so
+   a pass here plus a pass on (1) is strong evidence they haven't drifted apart.
+3. **Producer chat** (home chat, describe a video idea through to the production-plan approval card):
+   approve a plan. Confirm the video created matches the chat's stated title/length/style — this
+   already called `create_video` before C38; included for completeness of the "all 5 doors" ask.
+4. **Onboarding** (`/onboarding`, a fresh tenant or `?manual=1` if the multi-step form path is
+   preferred): complete channel setup through to the proposed idea cards / competitor-derived ideas
+   step, launch one. Confirm it creates a video the same way (3) does — onboarding has no create
+   logic of its own, so this should be indistinguishable from a chat-created video.
+5. **Model A Video** (dashboard "Model a video" modal — the ONE surface this chunk actually rewired):
+   paste a real YouTube link, submit. Confirm:
+   - the video row appears immediately (poll works, phase flips to "running") — same UX as before.
+   - `se db "SELECT id, video_title, status, source, reference_url FROM videos WHERE id='<id>'"`
+     shows `source='modeled'`, `status='idea_logged'` right after creation (was previously identical),
+     then after the background job completes: `status='ready_for_scripting'`, `video_title` replaced
+     with the derived idea's real title (NOT the "Modeling a reference video…" placeholder).
+   - the task-status poll (`/api/pipeline/task/{video_id}`) shows the SAME stage messages as before
+     ("Fetching the reference video…" → "Analyzing…" → "Creating your modeled idea…" → completed) —
+     `_run_modeling` itself is byte-unchanged by this chunk, only what calls it changed.
+   - `se db "SELECT check_plan_limits-relevant usage row"` — i.e. confirm a free-plan tenant near
+     their video cap gets the SAME 402 on Model A Video as on the New Video form now (this is the
+     one behavior IMPROVEMENT: Model A Video was previously ungated by its own separate, unlocked
+     check — now it shares the locked gate). Test with a tenant at/over the plan's video limit.
+   - retry (`POST /api/model-video/{id}/retry`) still works unchanged (that endpoint wasn't touched).
+
+If any of 1-4 show a discrepancy, it's a genuine regression (nothing in this chunk should have
+touched them) — check `git log -p` on `routes/videos.py`/`models.py` for this chunk's diff first.
+If (5) shows the OLD placeholder title surviving after "completed", check whether
+`apply_default_template`/`apply_format_defaults`/`apply_locked_cast` (now also running for Model A
+Video, previously skipped — see SYSTEM_STATE.md §C38) somehow interfered with the later persist step;
+traced as safe in-sandbox but this is exactly the kind of interaction only a live DB proves.
+
 ## §C46a-watch · First real builds after deploy: needs_review rate
 The generic critic now HOLDS a script at needs_review (violations attached to
 script_validation.quality_critic) instead of silently advancing when it still fails after 2 targeted

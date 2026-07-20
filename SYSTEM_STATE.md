@@ -9857,4 +9857,123 @@ output no longer lists `/pipeline/[videoId]/storyboards`. Backend untouched by t
 full suite was re-run anyway to prove no accidental damage: **1871P/15F/1E**, exact match to
 baseline (same 15 named failures/1 error, zero new/missing).
 
+---
+
+## C38 — create-surface convergence, chat-primary (added 2026-07-20)
+
+Ryan's C37 ruling: the producer chat plan is THE create door, the New Video form is the power-user
+door; Model A Video / onboarding's create step / FirstVideoFlow must stop being independent
+implementations — thin wrappers into those two, no parallel create logic, UX entry points unchanged.
+
+**TRACE (all 5 surfaces, before any code) — 4 of 5 were ALREADY converged:**
+
+| Surface | Endpoint | INSERT site (pre-C38) |
+|---|---|---|
+| Producer chat plan | internal (chat.py's `_handle_approve`) | none of its own — imports and calls `routes.videos.create_video` directly (`routes/chat.py`'s own module docstring: "REUSES create_video ... does not reinvent video creation") |
+| New Video form | `POST /api/videos` | `routes/videos.py::create_video` (the canonical function) |
+| FirstVideoFlow | same `POST /api/videos` | none of its own — `frontend/src/app/pipeline/page.tsx`'s `handleFirstVideoCreate` calls the SAME `createMutation.mutate` (`mutationFn: createVideo`) the New Video form's submit handler calls; it was already a thin wrapper before this chunk |
+| Onboarding create step | n/a | none of its own — `routes/onboarding.py`'s docstring: its steps are driven by `routes/chat.py`'s `_handle_onboarding` step machine (proposed idea cards funnel through the same chat → create_video path); zero `INSERT INTO videos` in onboarding.py |
+| **Model A Video** | `POST /api/model-video` | **`routes/model_video.py::model_video` had its own `INSERT INTO videos` + its own `check_plan_limits`/`increment_usage` calls — the one genuine holdout** |
+
+Also present (unrelated to the 5 UX doors, left alone): `pipeline_executor.py::create_idea` (the
+lightweight topic-only idea logger behind `POST /api/pipeline/create-idea`), `routes/discovery.py::
+launch_idea`, `routes/autopilot.py::launch_candidate`, `routes/queue.py` — these are separate
+programmatic/autopilot entry points, not one of C37's 5 named UX doors, and each already has its own
+locked plan-limit gate coverage (see below) — out of scope for this convergence.
+
+**Canonical function: `routes/videos.py::create_video`.** Chosen because it already had the most
+complete gating/setup (plan-limit gate, project resolution, static-docu/render-mode detection, house
+script template, locked channel format defaults, locked cast, Drive workspace sync, and — critically —
+an existing `reference_url`/`is_modeled` branch built for the New Video form's "copy this video's
+style" clone path). That branch only supported ONE shape before this chunk though: a real title +
+reference_url, always hardcoding `preserve_topic=True` into the background `_run_modeling` call. Model
+A Video's shape — a reference link with NO topic yet, deriving a brand-new modeled idea — needed
+`preserve_topic=False`, which the function could produce internally (`_run_modeling`'s own docstring
+already documented both modes) but no caller could reach.
+
+**The fix — extend create_video's title handling to make both shapes reachable, not fork it:**
+- `models.py`: `CreateVideoRequest.title` is now `Optional[str] = None` (was required `str`). Every
+  existing caller (New Video form, chat, MCP's `create_video` tool) always sends a real title, so this
+  is additive — MCP's tool still 400s its own way if title is blank (`routes/mcp.py::_call_create_video`
+  does its own `if not title: return _error_result(...)` before ever building the Pydantic model, so
+  its behavior is unchanged; it was never derived from the Pydantic schema).
+- `routes/videos.py::create_video`: computes `title = (body.title or "").strip()`; if there's no title
+  and no `reference_url` → `400 "Title is required."` (unchanged refusal shape, just moved after
+  `reference_url` is parsed so both required-ness rules — title-required, valid-YouTube-link — can be
+  checked in one pass). `preserve_topic = is_modeled and bool(title)` — title present = copy style onto
+  it (old behavior, unchanged); title absent = derive a new idea (Model A Video's shape, newly
+  reachable). `preserve_topic` (not a literal `True`) is now forwarded into the
+  `background_tasks.add_task(_run_modeling, ...)` call; the task-status message shown while polling
+  also branches on it ("Copying the video's style…" vs "Queued for modeling…", matching each shape's
+  old copy).
+- `routes/model_video.py::model_video`: no longer touches the `videos` table. Builds
+  `CreateVideoRequest(reference_url=url)` (title omitted) and calls `routes.videos.create_video`
+  directly (same in-process call pattern chat.py and MCP's tool already use — not an HTTP round trip).
+  Its own `check_plan_limits`/`increment_usage`/`_get_or_create_project`/raw INSERT are all deleted;
+  the canonical function's gate now covers this path (it was never one of the 4 AST-locked entry
+  points `test_plan_limits_enforcement_lock.py` names, so removing its OWN separate gate call doesn't
+  touch that lock's coverage — it just stops being a second, unlocked gate). `retry_model_video` (the
+  `/retry` endpoint) is untouched — it re-triggers `_run_modeling` on an existing row, no INSERT
+  involved. `_run_modeling` itself (the background extraction/analysis/persist stages) is UNCHANGED —
+  `tests/functional/test_model_video.py`'s 8 tests (2 pre-existingly failing, unrelated — see below)
+  still exercise it directly and pass/fail identically before and after.
+- Endpoint path unchanged (`POST /api/model-video`, same request/response shape) — zero frontend
+  changes needed; `frontend/src/lib/api.ts::modelVideo()` and `model-video-modal.tsx` are untouched.
+  Confirmed the frontend never reads the response's `status` field (it unconditionally sets
+  `phase = "running"` after any successful call), so `create_video`'s DB status
+  (`"idea_logged"`) replacing the old synthetic `"running"` string is invisible to the UI.
+
+**A pre-existing side-effect widening, checked and judged safe, not fixed further:** Model A Video
+videos now ALSO get `apply_default_template`/`apply_format_defaults`/`apply_locked_cast` (they run for
+every `create_video` call, is_modeled or not) — previously Model A Video's own INSERT skipped all
+three. Traced each: `apply_format_defaults` only touches `visual_style`/`render_style` (never
+`image_style_override`), so it can't collide with `_persist_style_overrides`'s
+`COALESCE(NULLIF(image_style_override,''), ...)` precedence rule — this exact interaction already
+ships today for the New Video form's existing `reference_url` clone path (`preserve_topic=True`), so
+extending it to `preserve_topic=False` adds no new risk class. `apply_default_template` prepends the
+house script template to `script_system_prompt`, which the background modeling job later over
+writes with a straight `=` (not a COALESCE) whenever it computes its own `script_dna` override — this
+was ALREADY the case for the shipped clone path before C38; this chunk didn't introduce it and it's
+out of scope to fix here (a template-vs-modeling precedence question, not a create-surface one).
+
+**Remaining `INSERT INTO videos` sites (grepped, each justified):** `pipeline_executor.py`
+(`PipelineExecutor.create_idea` — the lightweight `/api/pipeline/create-idea` topic logger, a distinct
+programmatic entry point, not one of the 5 UX doors), `supabase_adapter.py` (legacy Airtable-parity
+adapter, not part of the StoryEngine SaaS create surface), `routes/discovery.py::launch_idea`,
+`routes/queue.py`, `routes/autopilot.py::launch_candidate` — all pre-existing, all outside C37's 5
+named doors, all independently plan-limit-gated already (autopilot's via C53). `routes/videos.py`'s
+own INSERT is the canonical one. No new INSERT sites added.
+
+**Plan-limit lock status: unaffected, verified by direct re-run.** `tests/functional/
+test_plan_limits_enforcement_lock.py` (AST-based, pins `check_plan_limits`/`increment_usage` calls in
+`create_video`/`pipeline.py::create_idea`/`discovery.py::launch_idea`/`autopilot.py::launch_candidate`)
+and `tests/test_c53_launch_candidate_gates.py` — both re-run clean, unchanged. Model A Video was never
+one of the 4 locked names (confirmed by reading the lock test's own entry-points list), so this
+convergence doesn't touch that lock's scope — it just stops running its own separate, unlocked gate.
+
+**Tests:** new `tests/functional/test_c38_create_convergence.py` (8 tests) — behavioral proof the
+Model A Video endpoint calls the real `routes.videos.create_video` with `title` empty + the right
+`reference_url` (not a fake/mock double), a bad-URL-before-any-create-video-call guard, source-level
+pins that `preserve_topic` is derived from title presence (not hardcoded), the title-required 400
+still exists, a grep-proof that `model_video.py` has no `INSERT INTO videos` left, and 3 already-
+converged-surface locks (FirstVideoFlow/New-Video-form share one mutation in `page.tsx`; chat.py still
+imports/uses `create_video`; onboarding.py has no INSERT of its own). Non-vacuous via `git stash`: 4 of
+8 fail against the pre-C38 code (the other 4 pin already-shipped, unchanged behavior — chat/onboarding/
+FirstVideoFlow convergence predates this chunk). Full suite **1879P/15F/1E** = baseline(1871P) + 8,
+same 15 named failures/1 error, zero new/missing (independently confirmed via `git stash` on the 3
+touched .py files: reverts to 1871P/15F/1E identically). `tests/functional/test_model_video.py`'s 2
+pre-existing failures (`test_happy_path_persists_everything`, `test_bot_blocked_extraction_uses_
+oembed_fallback`) are UNCHANGED by this chunk — confirmed via the same stash: both fail identically
+before and after, they exercise `_run_modeling` directly and this chunk never touched it.
+
+**No migration, no new tables/columns.** Frontend: `npx tsc --noEmit` clean, zero files touched
+(endpoint path/shape held stable on purpose — "converge behind the door, not through it").
+
+**Deploy-skew:** none in either direction. Old frontend + new backend: `POST /api/model-video` request/
+response shape is byte-identical, so an old frontend build still works against the new backend
+unattended. New frontend + old backend: N/A, no frontend changed. Backend-only, additive-shaped
+(`CreateVideoRequest.title` widened from required to optional — a strictly larger accepted set, no
+existing caller's request shape becomes invalid) — safe for the routine hourly `git pull --ff-only`
+auto-deploy with no `--with-frontend` coordination needed.
+
 **No migration, no backend change, no deploy-skew** — frontend-only route deletion + two doc edits.

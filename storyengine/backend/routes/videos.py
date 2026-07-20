@@ -463,11 +463,19 @@ async def create_video(
             "(the Army, Congress, GAO, the program office) — otherwise let the "
             "research-verified figure stand on its own.")).strip()
 
-    # Optional "copy this video's style" reference (Create-form modeling path).
-    # When a valid YouTube link is given, the video is created in "modeled" mode:
-    # the creator's own topic/title is kept and the reference's style is copied
-    # onto it (scoped to the switched-on stages) by a background task. The video
-    # holds at 'idea_logged' until that copy finishes.
+    # Optional reference (a YouTube link) puts the video in "modeled" mode.
+    # Two shapes share this one INSERT (checklist C38 — create-surface
+    # convergence, killed model_video.py's own parallel INSERT):
+    #   - title + reference_url ("copy this video's style" — the New Video
+    #     form / chat's clone path): the creator's own topic/title is kept,
+    #     the reference's style is copied onto it (scoped to the switched-on
+    #     stages) by a background task. preserve_topic=True.
+    #   - reference_url ALONE, no title (Model A Video — the creator hasn't
+    #     picked a topic yet): a placeholder title holds the row until the
+    #     background task derives a brand-new modeled idea (title, research,
+    #     full style) from the reference. preserve_topic=False.
+    # Either way the video holds at 'idea_logged' until that background task
+    # lands.
     reference_url = (body.reference_url or "").strip() or None
     reference_youtube_id = None
     if reference_url:
@@ -479,6 +487,13 @@ async def create_video(
                 detail="That doesn't look like a YouTube link. Paste a youtube.com or youtu.be URL to copy a video's style.",
             )
     is_modeled = reference_youtube_id is not None
+
+    title = (body.title or "").strip()
+    if not title and not is_modeled:
+        raise HTTPException(status_code=400, detail="Title is required.")
+    preserve_topic = is_modeled and bool(title)
+    if is_modeled and not title:
+        title = "Modeling a reference video…"
 
     # Where to start: the first enabled stage's status (so a thumbnail-only
     # video begins at 'ready_for_thumbnail', a script-only at 'ready_for_scripting',
@@ -516,7 +531,7 @@ async def create_video(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
-        tenant_id, project_id, body.title.strip(), initial_status, source_val, _strip_md(body.framework_angle),
+        tenant_id, project_id, title, initial_status, source_val, _strip_md(body.framework_angle),
         body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
         body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
         render_mode, render_style, style_preset_id, script_profile,
@@ -563,15 +578,21 @@ async def create_video(
             import logging
             logging.getLogger(__name__).warning("lock-in visual style failed: %s", e)
 
-    # Kick off the style copy in the background (scoped to the chosen stages).
+    # Kick off the modeling in the background: preserve_topic=True scopes it
+    # to a style copy onto the creator's own topic (the chosen stages only);
+    # preserve_topic=False (Model A Video — see is_modeled/title block above)
+    # derives a brand-new idea from the reference instead.
     if is_modeled:
         from routes.pipeline import _set_task_status
         from routes.model_video import _run_modeling, TASK_TYPE
-        _set_task_status(str(row["id"]), "running", "Copying the video's style…",
-                         tenant_id=tenant_id, task_type=TASK_TYPE)
+        _set_task_status(
+            str(row["id"]), "running",
+            "Copying the video's style…" if preserve_topic else "Queued for modeling…",
+            tenant_id=tenant_id, task_type=TASK_TYPE,
+        )
         background_tasks.add_task(
             _run_modeling, tenant_id, str(row["id"]), reference_youtube_id,
-            reference_url, plan, True,
+            reference_url, plan, preserve_topic,
             body.lock_in_identity,
         )
 

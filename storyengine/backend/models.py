@@ -208,7 +208,13 @@ class StoryboardModeUpdate(BaseModel):
 
 
 class CreateVideoRequest(BaseModel):
-    title: str
+    # Optional ONLY when reference_url is set (checklist C38 — create-surface
+    # convergence): an omitted/blank title + a reference_url is Model A Video's
+    # "I have no topic yet, derive one from this reference" shape. Every other
+    # caller (New Video form, chat producer, MCP) always sends a real title;
+    # routes.videos.create_video 400s if both title and reference_url are
+    # missing.
+    title: Optional[str] = None
     source_url: Optional[str] = None
     framework_angle: Optional[str] = None
     video_length_minutes: Optional[int] = 10

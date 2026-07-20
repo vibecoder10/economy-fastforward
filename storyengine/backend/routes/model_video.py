@@ -1171,8 +1171,14 @@ async def model_video(
 ):
     """Create a new modeled video idea from a reference YouTube URL.
 
-    Creates the video row immediately (so the UI has an id to poll), then
-    extracts/analyzes/generates in the background.
+    Thin wrapper (checklist C38 — create-surface convergence): hands off to
+    the canonical routes.videos.create_video with reference_url set and NO
+    title. An omitted title + a reference_url is exactly the "derive a
+    brand-new idea from this reference" shape create_video already branches
+    on (preserve_topic=False) — the same INSERT, the same
+    check_plan_limits/increment_usage gate, the same background
+    _run_modeling call this file owns. No second INSERT path; this endpoint
+    no longer touches the videos table directly.
     """
     url = (request.video_url or "").strip()
     youtube_id = _parse_youtube_id(url)
@@ -1182,27 +1188,16 @@ async def model_video(
             detail="That doesn't look like a YouTube video link. Paste a youtube.com or youtu.be URL.",
         )
 
-    from routes.billing import check_plan_limits, increment_usage
-    await check_plan_limits(tenant_id, "video")
+    from models import CreateVideoRequest
+    from routes.videos import create_video as _create_video_route
 
-    from routes.pipeline import _set_task_status
-    from routes.projects import _get_or_create_project
-    project = await _get_or_create_project(tenant_id)
-
-    row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, headline, source, reference_url)
-           VALUES ($1, $2, $3, 'idea_logged', $3, 'modeled', $4)
-           RETURNING id""",
-        tenant_id, str(project["id"]), "Modeling a reference video…", url,
+    summary = await _create_video_route(
+        body=CreateVideoRequest(reference_url=url),
+        background_tasks=background_tasks,
+        tenant_id=tenant_id,
     )
-    video_id = str(row["id"])
-    await increment_usage(tenant_id, "videos_created")
 
-    _set_task_status(video_id, "running", "Queued for modeling…",
-                     tenant_id=tenant_id, task_type=TASK_TYPE)
-    background_tasks.add_task(_run_modeling, tenant_id, video_id, youtube_id, url)
-
-    return ModelVideoResponse(video_id=video_id, status="running",
+    return ModelVideoResponse(video_id=summary.id, status=summary.status or "running",
                               message="Modeling started — this takes a minute or two.")
 
 

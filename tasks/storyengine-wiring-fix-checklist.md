@@ -291,7 +291,7 @@ sweep fires before C17 only if draft-pass verify shows render turnaround is the 
 
 
 **Post-C37 decided chunks (Ryan's answers, 2026-07-19 — see decisions.md):**
-- [ ] C38 · Create-surface convergence (chat-primary): producer chat plan = THE create door, New Video form = power-user door; Model A Video / onboarding create step / FirstVideoFlow become thin wrappers routing into those two (no parallel create logic). Two doors stay two doors — this kills the other three as independent implementations, not as UX entry points.
+- [x] C38 · Create-surface convergence (chat-primary): producer chat plan = THE create door, New Video form = power-user door; Model A Video / onboarding create step / FirstVideoFlow become thin wrappers routing into those two (no parallel create logic). Two doors stay two doors — this kills the other three as independent implementations, not as UX entry points. DONE 2026-07-20 — 4 of 5 surfaces were ALREADY converged (chat/FirstVideoFlow/New-Video-form/onboarding); Model A Video (`routes/model_video.py`) was the one holdout with its own INSERT, now rewired to call `routes.videos.create_video` (title omitted = derive-new-idea shape, newly reachable via a `preserve_topic` flag that used to be hardcoded True). See SYSTEM_STATE.md §C38.
 - [x] C39 · MICRO: delete the orphaned /storyboards standalone page + its stale entries in agents/blueprints/frontend.md and docs/reports/WIRING_STATUS.md. ⚠ SACRED per Ryan: the storyboard CREATION stage and the in-page Storyboard tab are untouched — this deletes only the unreachable route. Fresh grep-proofs per C19b discipline. DONE 2026-07-20 — see SYSTEM_STATE.md §C39.
 
 **Phase 4 · P4.1 chunk queue (scout-derived 2026-07-19 — inventory in audit report §P4.1):**
