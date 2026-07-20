@@ -856,7 +856,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     claude = await get_text_client_for_tenant(tenant)
     claude_model = claude_model_for_direct_client(claude)
     kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
-    ic = ImageClient(api_key=kie_key)
+    ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Scene-aware bible so each scene's storyboard names ONLY its characters + the
     # locked environments (per-scene character lock + the prose background lock).
     bible = await scene_aware_bible(vid, tenant, scenes, claude, claude_model)
@@ -1025,7 +1025,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         prompt = SAFE_REFRAME_PREFIX + prompt
 
     kie_key = await get_secret("kie_ai_api_key", tenant_id) or os.getenv("KIE_AI_API_KEY")
-    ic = ImageClient(api_key=kie_key)
+    ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     crows = await fetch_all(
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
@@ -1466,7 +1466,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     claude = await get_text_client_for_tenant(tenant)
     claude_model = claude_model_for_direct_client(claude)
     kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
-    ic = ImageClient(api_key=kie_key)
+    ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
     # whole video renders in that style — not the realistic default.
     profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
@@ -1675,7 +1675,7 @@ async def main():
         claude = await get_text_client_for_tenant(tenant)
         claude_model = claude_model_for_direct_client(claude)
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
-        ic = ImageClient(api_key=kie_key)
+        ic = ImageClient(api_key=kie_key, tenant_id=tenant)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
         nchar = await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script,
                                           style=style_dir)
@@ -1694,7 +1694,7 @@ async def main():
         claude = await get_text_client_for_tenant(tenant)
         claude_model = claude_model_for_direct_client(claude)
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
-        ic = ImageClient(api_key=kie_key)
+        ic = ImageClient(api_key=kie_key, tenant_id=tenant)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
         n = await redo_characters(vid, tenant, claude, claude_model, ic, full_script, only=args.character)
         print(f"\nDONE — rebuilt {n} character 4-view reference sheet(s) for '{title}'. "
@@ -1710,7 +1710,7 @@ async def main():
         # on it); pass a current one. The Kie-routed client uses its own market model (None).
         claude_model = claude_model_for_direct_client(claude)
         kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
-        ic = ImageClient(api_key=kie_key)
+        ic = ImageClient(api_key=kie_key, tenant_id=tenant)
         profile, _ = _resolve_style(v["image_style_override"], v["visual_style"])
         # ONE cast for the whole video so characters match ACROSS scenes: reuse the on-disk cast
         # sheet a prior run made; only build it once. (A fresh cast per scene would drift the look.)

@@ -6566,7 +6566,8 @@ class PipelineExecutor:
 
         try:
             from shared.clients.image_client import ImageClient
-            self._pipeline.image_client = ImageClient(google_client=self._pipeline.google)
+            self._pipeline.image_client = ImageClient(
+                google_client=self._pipeline.google, tenant_id=self.tenant_id)
             print("[INIT] ImageClient OK", flush=True)
         except Exception as e:
             print(f"[INIT] ImageClient skipped: {e}", flush=True)

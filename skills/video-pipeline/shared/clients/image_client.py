@@ -136,9 +136,19 @@ def _valid_scene_models_from_profile() -> dict:
     return models
 
 
-def _kie_fetchable_url(url: str) -> str:
+def _kie_fetchable_url(url: str, tenant_id=None) -> str:
     """Drive links -> backend media proxy URL (Kie can't ingest Drive's
-    interstitial-prone public links). Other hosts pass through."""
+    interstitial-prone public links). Other hosts pass through.
+
+    C25a-fix2: the proxy (routes/media.py::serve_drive_file) now requires a
+    tenant-scoped `?token=` — Kie fetches this URL over plain HTTP with no
+    user session to forward, so mint one here for the KNOWN tenant, same
+    mint_media_token() pattern pipeline_executor.py's clip dispatch
+    (_proxy_url) and routes/characters.py's `_fetch_image_bytes` already use.
+    `tenant_id=None` (legacy non-tenant callers, e.g. the standalone
+    skills/video-pipeline Slack-bot scripts that construct ImageClient with
+    no tenant) keeps the pre-C25a unsigned URL — those never went through
+    the tenant-scoped SaaS proxy in the first place."""
     import re as _re
     if not url or "drive.google.com" not in url:
         return url
@@ -146,7 +156,11 @@ def _kie_fetchable_url(url: str) -> str:
     if not m:
         return url
     base = os.getenv("PUBLIC_MEDIA_BASE", "https://storyengine.dev").rstrip("/")
-    return f"{base}/api/media/drive/{m.group(1)}"
+    proxy_url = f"{base}/api/media/drive/{m.group(1)}"
+    if tenant_id:
+        from routes.media import mint_media_token
+        proxy_url = f"{proxy_url}?token={mint_media_token(tenant_id)}"
+    return proxy_url
 
 
 class ImageClient:
@@ -180,7 +194,13 @@ class ImageClient:
     DEFAULT_MODEL = "google/nano-banana"  # Uses image_size parameter
     PRO_MODEL = Models.IMAGE_THUMBNAIL  # Alias for THUMBNAIL_MODEL
     
-    def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None):
+    def __init__(self, api_key: Optional[str] = None, google_client: Optional[object] = None,
+                 tenant_id: Optional[object] = None):
+        # C25a-fix2: threaded through to _kie_fetchable_url() so every
+        # reference-image URL this client hands to Kie carries a valid
+        # tenant-scoped media-proxy token. None (the default) preserves
+        # pre-C25a behavior for the non-tenant standalone callers.
+        self.tenant_id = tenant_id
         self.api_key = api_key or os.getenv("KIE_AI_API_KEY")
         if not self.api_key:
             raise ValueError("KIE_AI_API_KEY not found in environment")
@@ -557,7 +577,7 @@ class ImageClient:
             "model": self.SCENE_MODEL,
             "input": {
                 "prompt": prompt,
-                "image_input": [_kie_fetchable_url(reference_image_url)],
+                "image_input": [_kie_fetchable_url(reference_image_url, self.tenant_id)],
                 "aspect_ratio": "16:9",
                 "resolution": "1K",
                 "output_format": "png",
@@ -780,7 +800,7 @@ class ImageClient:
         # and Drive's public links degrade into HTML interstitials ('file
         # type not supported' rejections seen live).
         refs = reference_image_url if isinstance(reference_image_url, list) else [reference_image_url]
-        refs = [_kie_fetchable_url(r) for r in refs if r][:6]
+        refs = [_kie_fetchable_url(r, self.tenant_id) for r in refs if r][:6]
 
         payload = {
             "model": self.THUMBNAIL_MODEL,  # nano-banana-pro
@@ -859,7 +879,7 @@ class ImageClient:
             "Content-Type": "application/json",
         }
         refs = reference_image_url if isinstance(reference_image_url, list) else [reference_image_url]
-        refs = [_kie_fetchable_url(r) for r in refs if r][:16]
+        refs = [_kie_fetchable_url(r, self.tenant_id) for r in refs if r][:16]
         payload = {
             "model": "gpt-image-2-image-to-image",
             "input": {

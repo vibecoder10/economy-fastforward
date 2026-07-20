@@ -594,7 +594,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     kie_key = await get_secret("kie_ai_api_key", tenant_id) or _os.getenv("KIE_AI_API_KEY")
     if not kie_key:
         return {"status": "failed", "error": "no image key on this workspace"}
-    ic = ImageClient(api_key=kie_key)
+    ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     await _ensure_ref_cache_schema()
 
     done, failed = 0, []
