@@ -24,6 +24,7 @@ import subprocess
 import sys
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 from io import BytesIO
 from typing import Optional
 
@@ -925,6 +926,59 @@ def _sheet_transient_kie_error(fail_info: Optional[dict]) -> bool:
     return "internal error" in (fail_info.get("failMsg") or "").lower()
 
 
+# Human labels for scripts.storyboard_errors[<beat>]["class"] (migration 113)
+# — reused by the scene-summary _p() line below AND documented in the
+# migration header, so the wording a creator sees never drifts from what the
+# column actually stores. The frontend chip (ScenesWorkspaceTab.tsx) keeps
+# its OWN capitalized copies for the badge UI — that's a presentation choice
+# for a different surface, not a second source of truth for the class enum
+# itself (still exactly these 4 strings).
+_SHEET_FAIL_LABELS = {
+    "moderation": "blocked by OpenAI moderation",
+    "sensitive": "flagged as sensitive",
+    "kie_transient": "Kie server error (transient)",
+    "unknown": "failed",
+}
+
+
+def _sheet_fail_class(fail_info: Optional[dict]) -> str:
+    """Classify a board's LAST failure for scripts.storyboard_errors, reusing
+    the SAME two predicates the retry/re-roll ladder above already gates on
+    (never a second, divergent read of fail_info) so the persisted class can
+    never disagree with what the ladder actually did with this failure:
+      - _sheet_filter_reject (OpenAI's zero-cost content filter) — split by
+        the failCode it already inspects: "400" is generic moderation,
+        "422" is Kie's distinct "flagged as sensitive" signature (see that
+        function's docstring for both live signatures).
+      - _sheet_transient_kie_error (Kie's own infra falling over — 500
+        "Internal Error") — nothing to do with prompt content.
+      - Anything else — a real, credit-consuming failure, or no fail_info at
+        all (every attempt died before Kie ever reported a code) — is
+        "unknown" rather than guessed at."""
+    if _sheet_filter_reject(fail_info):
+        code = str((fail_info or {}).get("failCode") or "").strip()
+        return "sensitive" if code == "422" else "moderation"
+    if _sheet_transient_kie_error(fail_info):
+        return "kie_transient"
+    return "unknown"
+
+
+def _sheet_fail_entry(fail_info: Optional[dict], attempts: int) -> dict:
+    """Build ONE scripts.storyboard_errors[<beat>] entry (shape documented in
+    migration 113's header) for a board that exhausted the full retry/re-roll
+    ladder without landing. `attempts` is the count of real
+    generate_scene_image_for_model calls made for this board — primary +
+    the fallback-header retry (if it fired) + re-rolls — NOT a credit or Kie
+    task count."""
+    return {
+        "code": str((fail_info or {}).get("failCode") or "").strip() or None,
+        "class": _sheet_fail_class(fail_info),
+        "msg": (str((fail_info or {}).get("failMsg") or "").strip()[:200]) or None,
+        "attempts": attempts,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # =============================================================================
 # Filter-safety: single-naming pass for builder-authored sheet-prompt text
 # =============================================================================
@@ -1231,13 +1285,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # board COUNT the moment planning finishes — the UI shows one
             # placeholder slot per coming board immediately, and each board
             # drops into its slot the moment it lands (per-slot UPDATE below),
-            # not in one batch at the end.
+            # not in one batch at the end. storyboard_errors=NULL (migration
+            # 113) resets alongside the URLs — a full replan can shrink the
+            # board count, and without this a stale failure entry for a beat
+            # PAST the new plan's count would survive invisibly and could
+            # resurface if the plan later grows back to that beat number.
             blocks = "\n\n".join(f"--- BEAT {i} ---\n{p}" for i, p in enumerate(prompts, start=1))
             await execute(
                 "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
                 "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
                 "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
-                "storyboard_5_url=NULL, updated_at=now() WHERE id=$5",
+                "storyboard_5_url=NULL, storyboard_errors=NULL, updated_at=now() WHERE id=$5",
                 directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
             if plan_only:
                 # PLAN GATE (Ryan, 2026-07-07): stop here — the creator reads
@@ -1280,6 +1338,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         lock_note = f", locked to {env['name']}" if env else ""
         todo = [(beat, prompts[beat - 1])] if beat is not None else list(enumerate(prompts, start=1))
         ok = 0
+        # Beats that exhausted the whole retry ladder this pass, as (bi,
+        # class) — feeds BOTH the storyboard_errors write below and the
+        # scene-summary _p() line after the loop, so the two can never
+        # disagree about which boards failed or why.
+        scene_failures: list = []
         for bi, sp in todo:
             # Panels ON THIS SHEET, not the scene's total — "(27 shots)" on a
             # single-board draw read as "everything is generating" (Ryan hit
@@ -1301,8 +1364,10 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # Never retries a real (credit-consuming) failure — that would just
             # burn money re-drawing the same doomed prompt.
             retry_box: list = []
+            fallback_attempted = False
             if not url and _sheet_filter_reject(fail_box[-1] if fail_box else None) \
                     and bi - 1 < len(prompts_fallback):
+                fallback_attempted = True
                 info = fail_box[-1]
                 print(f"      ⚠️ Storyboard sheet: board {bi} tripped OpenAI's content filter "
                       f"(failCode={info.get('failCode')}, creditsConsumed={info.get('creditsConsumed')}) "
@@ -1351,20 +1416,55 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             if url:
                 stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
                 # bi is 1-5 by construction (prompts capped, beat validated).
+                # Clear any PRIOR failure entry for this beat in the SAME
+                # statement (migration 113's jsonb minus) — a board that
+                # lands after previously exhausting the ladder (a manual
+                # per-board redo, most often) must not leave a stale error
+                # chip on a slot that now has an image. storyboard_errors
+                # starts NULL and `NULL - text` is a safe no-op, so this is
+                # fine even on a scene that never had a failure.
                 await execute(
-                    f"UPDATE scripts SET storyboard_{bi}_url=$1, updated_at=now() WHERE id=$2",
-                    stable, srow["id"])
+                    f"UPDATE scripts SET storyboard_{bi}_url=$1, "
+                    "storyboard_errors = storyboard_errors - $2, updated_at=now() WHERE id=$3",
+                    stable, str(bi), srow["id"])
                 ok += 1
                 _p(f"Scene {sc}: board {bi} is up")
+            else:
+                # Ladder fully exhausted for this board — classify the LAST
+                # failure it hit (same predicates the ladder itself gated
+                # retries on, via _sheet_fail_class) and persist it so the
+                # creator can see WHY, not just an empty slot (migration 113).
+                attempts = 1 + (1 if fallback_attempted else 0) + reroll
+                entry = _sheet_fail_entry(last_fail, attempts)
+                await execute(
+                    "UPDATE scripts SET storyboard_errors = "
+                    "COALESCE(storyboard_errors, '{}'::jsonb) || $1::jsonb, updated_at=now() "
+                    "WHERE id=$2",
+                    json.dumps({str(bi): entry}), srow["id"])
+                scene_failures.append((bi, entry["class"]))
+                print(f"      ❌ Storyboard sheet: board {bi} exhausted the retry ladder after "
+                      f"{attempts} attempt(s) — {entry['class']}: {entry['msg'] or 'no message'}")
+        fail_note = ""
+        if scene_failures:
+            fail_note = " — " + "; ".join(
+                f"b{fbi}: {_SHEET_FAIL_LABELS.get(cls, 'failed')}" for fbi, cls in scene_failures)
         if not ok:
-            _p(f"Scene {sc}: storyboard image failed"); continue
+            _p(f"Scene {sc}: 0 of {len(todo)} board(s) drawn{fail_note}" if scene_failures
+               else f"Scene {sc}: storyboard image failed")
+            continue
         done += 1
         total_shots += shot_count
-        # Same truncation honesty as the plan-only message above: a scene over
-        # 5 boards' worth of panels only ever got a SHEET PREVIEW for its
-        # first sum(_sizes[:5]) shots — say so, never imply every shot got a
-        # preview.
-        if shot_count > _previewed:
+        # Failures present: switch to the "N of M board(s) drawn" shape so a
+        # partial scene never reads as fully ready — enumerate every failed
+        # board's class right in the same line (Ryan's ask: surface WHY, not
+        # just an empty slot). No failures: unchanged from before this
+        # migration, same truncation honesty as the plan-only message above
+        # (a scene over 5 boards' worth of panels only ever got a SHEET
+        # PREVIEW for its first sum(_sizes[:5]) shots — say so, never imply
+        # every shot got a preview).
+        if scene_failures:
+            _p(f"Scene {sc}: {ok} of {len(todo)} board(s) drawn{fail_note}")
+        elif shot_count > _previewed:
             _p(f"Scene {sc}: storyboard ready — {shot_count} shots — previewed the "
                f"first {_previewed} on {ok} board(s)")
         else:

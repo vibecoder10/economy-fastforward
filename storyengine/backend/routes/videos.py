@@ -1040,7 +1040,7 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
                   storyboard_1_url, storyboard_2_url, storyboard_3_url,
                   storyboard_4_url, storyboard_5_url, scene_video_url,
                   storyboard_prompts, storyboard_beat_count, storyboard_status,
-                  coverage_directive,
+                  storyboard_errors, coverage_directive,
                   created_at::text, updated_at::text
            FROM scripts WHERE video_id = $1 AND tenant_id = $2
            ORDER BY scene NULLS FIRST, created_at""",
@@ -1050,6 +1050,19 @@ async def get_video_script(video_id: str, tenant_id: str = Depends(get_tenant_id
     for i, row in enumerate(rows):
         if row.get("scene") is None:
             row["scene"] = i + 1
+        # storyboard_errors (migration 113) is JSONB — asyncpg hands it back
+        # as raw JSON text, not a parsed dict (same trap _coerce_evidence
+        # guards against in channel_patterns.py). Parse it here so the
+        # frontend's ScriptScene.storyboard_errors gets a real object, not a
+        # double-encoded string.
+        se = row.get("storyboard_errors")
+        if isinstance(se, str) and se.strip():
+            try:
+                row["storyboard_errors"] = json.loads(se)
+            except (json.JSONDecodeError, ValueError):
+                row["storyboard_errors"] = None
+        elif not isinstance(se, dict):
+            row["storyboard_errors"] = None
     return rows
 
 

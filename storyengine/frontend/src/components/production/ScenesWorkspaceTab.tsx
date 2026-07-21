@@ -36,7 +36,7 @@ import {
   getModels, getVideoActions, updateAssetModelOverride, approveScene,
   getCameraPresets, updateAssetCameraPreset,
 } from "@/lib/api";
-import type { VideoModelInfo, CameraPresetInfo } from "@/lib/api";
+import type { VideoModelInfo, CameraPresetInfo, StoryboardBoardError } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useClipTrustLadder } from "@/hooks/use-clip-trust-ladder";
@@ -67,6 +67,18 @@ const IMAGE_MODEL_BADGE: Record<string, string> = {
   "gpt-image-2": "GPT",
   "nano-banana-2": "Nano",
   "z-image": "Z",
+};
+
+/** Human labels for a failed board slot's chip — mirrors the backend's OWN
+ * copy in scripts/coverage_to_app.py's _SHEET_FAIL_LABELS (that one feeds
+ * the scene-summary progress line; this one feeds the badge on the empty
+ * slot itself). Same 4 class strings from ScriptScene.storyboard_errors
+ * (migration 113), capitalized for UI display. */
+const SHEET_FAIL_LABELS: Record<StoryboardBoardError["class"], string> = {
+  moderation: "Blocked by OpenAI moderation",
+  sensitive: "Flagged as sensitive",
+  kie_transient: "Kie server error (transient)",
+  unknown: "Failed",
 };
 
 /** Loose containment match for the 💬 badge — mirrors backend match_lines. */
@@ -128,7 +140,10 @@ interface SceneGroup {
   duration: string;
   voiceOverUrl: string | null;
   sceneVideoUrl: string | null;
-  storyboardBeats: Array<{ beatNumber: number; prompt: string; gridUrl: string | null }>;
+  storyboardBeats: Array<{
+    beatNumber: number; prompt: string; gridUrl: string | null;
+    errorEntry: StoryboardBoardError | null;
+  }>;
   coverageDirective: string | null;
   storyboardPromptsRaw: string | null;
   storyboardStatus: string | null;
@@ -498,19 +513,31 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         scene.storyboard_4_url || null,
         scene.storyboard_5_url || null,
       ];
+      // storyboard_errors is keyed by beat number as a STRING (JSON object
+      // keys). Only relevant for a slot with no image — the backend clears
+      // a beat's entry the moment it lands, and the render below re-gates
+      // on `!beat.gridUrl` too, so a stale entry can never show alongside
+      // a real picture either way.
+      const errorsByBeat = scene.storyboard_errors || {};
+      const errorFor = (beatNumber: number): StoryboardBoardError | null =>
+        errorsByBeat[String(beatNumber)] || null;
       const parsedBeats = parseStoryboardPromptBlocks(scene.storyboard_prompts).map((beat) => ({
         ...beat,
         gridUrl: gridUrls[beat.beatNumber - 1] || null,
+        errorEntry: errorFor(beat.beatNumber),
       }));
       // The cheap one-image storyboard writes only storyboard_N_url (no prompts → no
       // parsed beats). Synthesize a board per filled slot so the sheet stays visible.
       // Real-picture burger boards can also fill MORE slots than the gate had prompt
       // blocks — append those so every filled slot displays.
       const extraBoards = gridUrls.flatMap((url, i) =>
-        (url && i >= parsedBeats.length ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
+        (url && i >= parsedBeats.length
+          ? [{ beatNumber: i + 1, prompt: "", gridUrl: url, errorEntry: errorFor(i + 1) }]
+          : []));
       let storyboardBeats = parsedBeats.length > 0
         ? [...parsedBeats, ...extraBoards]
-        : gridUrls.flatMap((url, i) => (url ? [{ beatNumber: i + 1, prompt: "", gridUrl: url }] : []));
+        : gridUrls.flatMap((url, i) =>
+          (url ? [{ beatNumber: i + 1, prompt: "", gridUrl: url, errorEntry: errorFor(i + 1) }] : []));
       // A saved shot plan ALWAYS shows its board slots — even with zero boards
       // drawn yet (the plan gate) and even for plans saved before the gate
       // persisted prompts/beat_count. One placeholder per coming board, each
@@ -521,6 +548,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           ?? (plan ? Math.min(5, Math.ceil(plan.shots.length / 12)) : 0);
         storyboardBeats = Array.from({ length: expected }, (_, i) => ({
           beatNumber: i + 1, prompt: "(planned)", gridUrl: gridUrls[i] || null,
+          errorEntry: errorFor(i + 1),
         }));
       }
       return {
@@ -1757,9 +1785,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                           }}
                           title={beat.gridUrl
                             ? "Click to view full-screen · drop an image here to replace it"
-                            : beat.prompt.trim()
-                              ? "Click to draw just this board from the saved plan · or drag & drop an image"
-                              : "Click to plan + draw this scene's boards · or drag & drop an image"}
+                            : beat.errorEntry
+                              ? `${SHEET_FAIL_LABELS[beat.errorEntry.class]} (${beat.errorEntry.attempts} attempt${beat.errorEntry.attempts === 1 ? "" : "s"}) — ${beat.errorEntry.msg || "no details"} · click to try again`
+                              : beat.prompt.trim()
+                                ? "Click to draw just this board from the saved plan · or drag & drop an image"
+                                : "Click to plan + draw this scene's boards · or drag & drop an image"}
                         >
                           {beat.gridUrl ? (
                             <>
@@ -1829,6 +1859,22 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                             style={{ background: "rgba(0,0,0,0.75)", color: "rgba(239, 68, 68, 0.95)" }}>
                             <X size={14} />
                           </button>
+                        )}
+                        {/* Failed-board chip (migration 113 / storyboard_errors) — only
+                            an empty slot with a known failure gets this; a landed image
+                            always wins, and the backend clears the entry the moment a
+                            board lands so this can't go stale on a slot that redrew fine. */}
+                        {!beat.gridUrl && beat.errorEntry && (
+                          <span
+                            className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold"
+                            style={{
+                              background: "rgba(239, 68, 68, 0.15)", color: "rgb(255,110,110)",
+                              border: "1px solid rgba(239, 68, 68, 0.35)",
+                            }}
+                            title={`${beat.errorEntry.msg || "No details"} (attempt${beat.errorEntry.attempts === 1 ? "" : "s"}: ${beat.errorEntry.attempts})`}>
+                            <AlertTriangle size={10} />
+                            {SHEET_FAIL_LABELS[beat.errorEntry.class]} · {beat.errorEntry.attempts}×
+                          </span>
                         )}
                         <p className="text-center mt-1.5 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                           Board S{scene.sceneNumber}.{beat.beatNumber}

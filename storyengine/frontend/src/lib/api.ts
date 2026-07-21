@@ -1919,6 +1919,19 @@ export interface ImageVariant {
   created_at: string | null;
 }
 
+// Per-board storyboard failure detail (migration 113, backend/scripts/
+// coverage_to_app.py's _sheet_fail_entry) — keyed by beat number (as a
+// STRING key, since it lives inside a JSON object) on ScriptScene.
+// storyboard_errors. Written when a board exhausts the full retry/re-roll
+// ladder without landing; cleared the moment that beat's board lands.
+export interface StoryboardBoardError {
+  code: string | null;
+  class: "moderation" | "sensitive" | "kie_transient" | "unknown";
+  msg: string | null;
+  attempts: number;
+  at: string;
+}
+
 export interface ScriptScene {
   id: string;
   video_id: string | null;
@@ -1939,6 +1952,7 @@ export interface ScriptScene {
   storyboard_prompts: string | null;
   storyboard_beat_count: number | null;
   storyboard_status: string | null;
+  storyboard_errors: Record<string, StoryboardBoardError> | null;
   coverage_directive: string | null; // the saved shot plan the boards + pictures draw from
   tone: string | null; // serious | conversational | urgent | concise
   updated_at?: string | null; // bumps when a board is (re)generated — used to cache-bust grid images

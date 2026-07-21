@@ -1,0 +1,42 @@
+-- Per-board storyboard failure surfacing. When a storyboard sheet board
+-- exhausts generate_storyboard_sheet_for_scene's full retry ladder (primary
+-- draw -> fallback-header retry -> free re-roll loop, gated on
+-- _sheet_filter_reject / _sheet_transient_kie_error — see
+-- scripts/coverage_to_app.py) without landing an image, the failCode/
+-- failMsg used to only ever hit stdout: the UI just showed an empty slot
+-- and a generic "storyboard image failed" line, with no way for the
+-- creator to tell an OpenAI moderation 400 apart from a transient Kie 500.
+--
+-- storyboard_errors persists that classification per scene row, keyed by
+-- BEAT NUMBER (the same 1-5 "board" index storyboard_{N}_url uses — see
+-- generate_storyboard_sheet_for_scene's `bi` loop variable). Shape:
+--
+--   {
+--     "<beat>": {
+--       "code": "400" | "422" | "500" | null,   -- Kie's raw failCode, or null when no fail_info was ever captured
+--       "class": "moderation" | "sensitive" | "kie_transient" | "unknown",
+--       "msg": "<failMsg, truncated to ~200 chars>",
+--       "attempts": <int>,                       -- total generate_scene_image_for_model calls made for this board
+--       "at": "<ISO 8601 UTC timestamp>"
+--     },
+--     ...
+--   }
+--
+-- Written via a jsonb merge (COALESCE(storyboard_errors, '{}'::jsonb) ||
+-- jsonb_build_object(...)) so writing one beat's entry never clobbers
+-- another beat's — every board in a scene shares this ONE column. Cleared
+-- per-beat via jsonb subtraction (storyboard_errors - '<beat>') the moment
+-- that beat's board lands (whether on the initial run or a later per-board
+-- redo), so a stale error chip never lingers on a slot that now has an
+-- image.
+--
+-- Read by GET /api/videos/{id}/script (routes/videos.py) alongside the
+-- existing storyboard_1_url..storyboard_5_url / storyboard_beat_count
+-- columns, and rendered as a small failure chip per empty board slot in
+-- ScenesWorkspaceTab.tsx (frontend). Nullable, no default — NULL and '{}'
+-- both mean "no known failures for this scene's boards", byte-identical to
+-- every scene row before this migration.
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS).
+
+ALTER TABLE scripts ADD COLUMN IF NOT EXISTS storyboard_errors JSONB;
