@@ -66,8 +66,9 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 |---|------|------|-----------|------|
 | — | seed DV-0 / MCP probes / 5-agent map / 20-machine script workflow | $0.00 | $0.00 | all my-subscription / DB only |
 | 1 | submit_script critique (tenant Anthropic key, 1 call) | ~$0.02 | ~$0.02 | verdict=pass, 23 scenes, 0 violations |
+| 2 | voice (23 ElevenLabs clips, Nathaniel C) | $5.47 | ~$5.49 | quote accurate (18,273 chars); started async — polling |
 
-**Cumulative spend: ~$0.02 / $10.00**
+**Cumulative spend: ~$5.49 / $10.00** (remaining budget ~$4.51; images~$0.70 + render~$0.05 + thumb~$0.05 to go)
 
 ### SCRIPTS DONE ✅ (2026-07-21)
 23 paragraphs submitted via submit_script → **verdict: pass, 0 violations, 0 warnings** under
