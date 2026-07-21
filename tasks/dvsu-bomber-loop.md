@@ -66,9 +66,12 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 |---|------|------|-----------|------|
 | — | seed DV-0 / MCP probes / 5-agent map / 20-machine script workflow | $0.00 | $0.00 | all my-subscription / DB only |
 | 1 | submit_script critique (tenant Anthropic key, 1 call) | ~$0.02 | ~$0.02 | verdict=pass, 23 scenes, 0 violations |
-| 2 | voice (23 ElevenLabs clips, Nathaniel C) | $5.47 | ~$5.49 | quote accurate (18,273 chars); started async — polling |
+| 2 | voice (23 ElevenLabs clips, Nathaniel C) | $5.47 | ~$5.49 | ✅ DONE — ledger confirms $5.470, all 23 voice_over_url set |
+| 3 | images (23 static_docu, GPT Image 2 @1K) | ~$0.69 est | ~$6.18 | build started; quote showed $6.90 (inflated) but code-verified 23×$0.03; billed on usage. Polling. |
 
-**Cumulative spend: ~$5.49 / $10.00** (remaining budget ~$4.51; images~$0.70 + render~$0.05 + thumb~$0.05 to go)
+**Cumulative spend: ~$6.18 / $10.00** (remaining ~$3.82; render~$0.05 + thumb~$0.05 to go)
+Voice cost VERIFIED via generation_ledger = $5.470 (matches quote exactly). Image real cost
+verified in code (static_docu.py:697 res=1K; channel_profile.py:502 gpt-image-2 1K=$0.03).
 
 ### SCRIPTS DONE ✅ (2026-07-21)
 23 paragraphs submitted via submit_script → **verdict: pass, 0 violations, 0 warnings** under
