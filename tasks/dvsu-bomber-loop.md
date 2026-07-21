@@ -72,7 +72,17 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## ✅ FIX LIVE — images generating (2026-07-21 14:20)
+## ⏳ PARALLEL+TIMEOUT FIX — awaiting 2nd deploy (2026-07-21 15:22)
+Serial image gen HUNG 61 min on scene 10 (B-45, no-ref; Kie render poll never returned — serial
+loop blocked all 23). Ryan: "images are supposed to be parallel, not serial... for this channel."
+FIXED on **main (5b7c25c)**: (1) generate_static_images_for_video now runs scenes via
+asyncio.gather with Semaphore(6) — bounded parallel, ~4-6x faster; (2) per-scene
+asyncio.wait_for(300s) so a hung provider call fails ONE scene, not the batch. py_compile OK.
+NEEDS `se deploy` (restart clears the hung zombie task + loads the fix). Then re-run `build` →
+23 images parallel (~5-8 min) → render → thumbnail. Prior 9 images get regenerated (DELETE-per-
+scene on re-run; ~$0.69 total, negligible). Spend still $5.47.
+
+## (historical) FIX LIVE — images generating (2026-07-21 14:20)
 Ryan deployed (`se deploy`) → prod restarted with the fix. Re-ran `build`: scene 1 got its
 image (PAST the old vision-confirm crash), now rendering scene 2/23. Images generating for real.
 Poll to 23 → render (build finish) → thumbnail → verify. Spend $5.47 so far (+~$0.69 images).
