@@ -1926,7 +1926,7 @@ export interface ImageVariant {
 // ladder without landing; cleared the moment that beat's board lands.
 export interface StoryboardBoardError {
   code: string | null;
-  class: "moderation" | "sensitive" | "kie_transient" | "unknown";
+  class: "moderation" | "sensitive" | "kie_transient" | "ref_fetch" | "unknown";
   msg: string | null;
   attempts: number;
   at: string;

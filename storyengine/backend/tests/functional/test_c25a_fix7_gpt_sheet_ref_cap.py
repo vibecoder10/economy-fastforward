@@ -60,7 +60,8 @@ _stub("kie_unified", get_text_client_for_tenant=_boom)
 
 from scripts.coverage_to_app import (  # noqa: E402
     generate_storyboard_sheet_for_scene, _scene_text_hash, _sheet_filter_reject,
-    _sheet_transient_kie_error, _sheet_fail_class, _sheet_fail_entry,
+    _sheet_transient_kie_error, _sheet_ref_fetch_error, _sheet_fail_class,
+    _sheet_fail_entry,
 )
 
 VIDEO_ID = "cd5d2883-427e-4bfb-854d-8849d025d444"
@@ -418,6 +419,64 @@ def test_transient_none_and_wrong_msg_rejected():
 
 
 # ---------------------------------------------------------------------------
+# _sheet_ref_fetch_error: Kie couldn't DOWNLOAD a reference image (2026-07-21,
+# video cd5d2883 scene 1 beat 1, ~16:59Z — failCode "400", failMsg "image
+# fetch failed. Check access settings or use our File Upload API instead.",
+# creditsConsumed 0, attempts 1, previously surfaced as class "unknown").
+# Transient infra under parallel load (the media proxy shares the backend
+# process with rendering), NOT moderation, NOT prompt-related — so it joins
+# the free re-roll ladder (with the 15s pause) and never the fallback-header
+# retry. Shares failCode "400" with moderation, but the message sets are
+# disjoint: the two predicates must never both claim one failure.
+# ---------------------------------------------------------------------------
+
+_REF_FETCH_MSG = "image fetch failed. Check access settings or use our File Upload API instead."
+
+
+def test_ref_fetch_prod_signature_is_retryable_and_classed_ref_fetch():
+    info = {"failCode": "400", "failMsg": _REF_FETCH_MSG, "creditsConsumed": 0}
+    assert _sheet_ref_fetch_error(info) is True
+    assert _sheet_filter_reject(info) is False  # NOT moderation, despite the 400
+    assert _sheet_fail_class(info) == "ref_fetch"
+
+
+def test_ref_fetch_none_credits_counts_as_zero():
+    assert _sheet_ref_fetch_error({
+        "failCode": "400", "failMsg": _REF_FETCH_MSG, "creditsConsumed": None,
+    }) is True
+
+
+def test_ref_fetch_with_credits_consumed_is_neither():
+    """The mandatory ~0-credit guard: a fetch-worded 400 that actually spent
+    money qualifies for NO free retry and stays class 'unknown'."""
+    info = {"failCode": "400", "failMsg": _REF_FETCH_MSG, "creditsConsumed": 0.5}
+    assert _sheet_ref_fetch_error(info) is False
+    assert _sheet_filter_reject(info) is False
+    assert _sheet_fail_class(info) == "unknown"
+
+
+def test_moderation_400_unaffected_by_ref_fetch_predicate():
+    """A content-policy 400 stays the filter's (class 'moderation') — the new
+    predicate never claims it."""
+    info = {
+        "failCode": "400", "failMsg": "The current content could not be processed",
+        "creditsConsumed": 0.0,
+    }
+    assert _sheet_filter_reject(info) is True
+    assert _sheet_ref_fetch_error(info) is False
+    assert _sheet_fail_class(info) == "moderation"
+
+
+def test_ref_fetch_none_and_wrong_code_rejected():
+    assert _sheet_ref_fetch_error(None) is False
+    # Same message on a non-400 code stays unclaimed — the signature is the
+    # (code, message, 0-credit) triple, never the message alone.
+    assert _sheet_ref_fetch_error({
+        "failCode": "500", "failMsg": _REF_FETCH_MSG, "creditsConsumed": 0,
+    }) is False
+
+
+# ---------------------------------------------------------------------------
 # _sheet_fail_class / _sheet_fail_entry (migration 113): the per-board
 # storyboard_errors classifier. Pure-function pins first, then the
 # end-to-end FakeDB tests below prove the SAME classification lands in the
@@ -611,4 +670,9 @@ if __name__ == "__main__":
     test_500_with_credits_consumed_is_neither()
     test_400_policy_is_filter_not_transient()
     test_transient_none_and_wrong_msg_rejected()
+    test_ref_fetch_prod_signature_is_retryable_and_classed_ref_fetch()
+    test_ref_fetch_none_credits_counts_as_zero()
+    test_ref_fetch_with_credits_consumed_is_neither()
+    test_moderation_400_unaffected_by_ref_fetch_predicate()
+    test_ref_fetch_none_and_wrong_code_rejected()
     print("\nAll C25a-fix7-Part-B-revert (C25a-fix8) tests passed.")

@@ -926,17 +926,48 @@ def _sheet_transient_kie_error(fail_info: Optional[dict]) -> bool:
     return "internal error" in (fail_info.get("failMsg") or "").lower()
 
 
+def _sheet_ref_fetch_error(fail_info: Optional[dict]) -> bool:
+    """True for Kie failing to DOWNLOAD one of our reference images — failCode
+    "400" with "image fetch failed" in the failMsg and the same mandatory
+    ~0-credit guard (None counts as 0). Live signature: failCode "400",
+    failMsg "image fetch failed. Check access settings or use our File Upload
+    API instead.", creditsConsumed 0, attempts 1 — video cd5d2883 scene 1
+    beat 1, ~16:59Z 2026-07-21, surfaced by storyboard_errors as class
+    "unknown" before this predicate existed.
+
+    Discovered 2026-07-21 under parallel load: our media proxy (the thing
+    serving those reference URLs) runs inside the SAME backend process that
+    was rendering another channel's segments at the time, so Kie's fetch of a
+    ref intermittently times out when the box is busy. Transient infra, free
+    to retry — NOT moderation and NOT prompt-related, so it joins the free
+    RE-ROLL ladder only (with the same 15s pause as the transient-500 class,
+    to give the proxy a beat to breathe) and the fallback-header retry must
+    NEVER fire for it: prompt wording is irrelevant to a fetch failure.
+    Despite sharing failCode "400" with the moderation class, the message
+    sets are disjoint — _sheet_filter_reject never claims this signature.
+    The ~0-credit guard is as mandatory here as everywhere else in the
+    ladder and must never be loosened."""
+    if not fail_info:
+        return False
+    if str(fail_info.get("failCode") or "").strip() != "400":
+        return False
+    if fail_info.get("creditsConsumed") not in (0, 0.0, None):
+        return False
+    return "image fetch failed" in (fail_info.get("failMsg") or "").lower()
+
+
 # Human labels for scripts.storyboard_errors[<beat>]["class"] (migration 113)
 # — reused by the scene-summary _p() line below AND documented in the
 # migration header, so the wording a creator sees never drifts from what the
 # column actually stores. The frontend chip (ScenesWorkspaceTab.tsx) keeps
 # its OWN capitalized copies for the badge UI — that's a presentation choice
 # for a different surface, not a second source of truth for the class enum
-# itself (still exactly these 4 strings).
+# itself (still exactly these 5 strings).
 _SHEET_FAIL_LABELS = {
     "moderation": "blocked by OpenAI moderation",
     "sensitive": "flagged as sensitive",
     "kie_transient": "Kie server error (transient)",
+    "ref_fetch": "Reference image fetch failed (transient)",
     "unknown": "failed",
 }
 
@@ -952,6 +983,9 @@ def _sheet_fail_class(fail_info: Optional[dict]) -> str:
         function's docstring for both live signatures).
       - _sheet_transient_kie_error (Kie's own infra falling over — 500
         "Internal Error") — nothing to do with prompt content.
+      - _sheet_ref_fetch_error (Kie couldn't download a reference image —
+        400 "image fetch failed", our media proxy busy under parallel load,
+        2026-07-21) — also transient infra, also nothing to do with content.
       - Anything else — a real, credit-consuming failure, or no fail_info at
         all (every attempt died before Kie ever reported a code) — is
         "unknown" rather than guessed at."""
@@ -960,6 +994,8 @@ def _sheet_fail_class(fail_info: Optional[dict]) -> str:
         return "sensitive" if code == "422" else "moderation"
     if _sheet_transient_kie_error(fail_info):
         return "kie_transient"
+    if _sheet_ref_fetch_error(fail_info):
+        return "ref_fetch"
     return "unknown"
 
 
@@ -1394,12 +1430,22 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # the fallback-header retry above (a 500 has nothing to do with
             # prompt wording). Those get a 15s pause first so Kie's infra has a
             # beat to recover; filter re-rolls fire immediately, as before.
+            # Same day, same rule for reference-fetch failures
+            # (_sheet_ref_fetch_error — Kie couldn't download a ref image, our
+            # media proxy busy under parallel load): re-roll ladder only, same
+            # 15s pause so the proxy gets a beat to breathe, never the
+            # fallback-header retry (prompt wording is irrelevant to a fetch).
             last_fail = retry_box[-1] if retry_box else (fail_box[-1] if fail_box else None)
             reroll = 0
             while not url and (_sheet_filter_reject(last_fail)
-                               or _sheet_transient_kie_error(last_fail)) and reroll < 3:
+                               or _sheet_transient_kie_error(last_fail)
+                               or _sheet_ref_fetch_error(last_fail)) and reroll < 3:
                 reroll += 1
-                if _sheet_transient_kie_error(last_fail):
+                if _sheet_ref_fetch_error(last_fail):
+                    print(f"      ⟳ Storyboard sheet: board {bi} retrying after reference fetch "
+                          f"failure (free attempt {reroll}/3)…")
+                    await asyncio.sleep(15)
+                elif _sheet_transient_kie_error(last_fail):
                     print(f"      ⟳ Storyboard sheet: board {bi} retrying transient Kie 500 "
                           f"(free attempt {reroll}/3)…")
                     await asyncio.sleep(15)

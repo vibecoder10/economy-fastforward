@@ -72,12 +72,13 @@ const IMAGE_MODEL_BADGE: Record<string, string> = {
 /** Human labels for a failed board slot's chip — mirrors the backend's OWN
  * copy in scripts/coverage_to_app.py's _SHEET_FAIL_LABELS (that one feeds
  * the scene-summary progress line; this one feeds the badge on the empty
- * slot itself). Same 4 class strings from ScriptScene.storyboard_errors
+ * slot itself). Same 5 class strings from ScriptScene.storyboard_errors
  * (migration 113), capitalized for UI display. */
 const SHEET_FAIL_LABELS: Record<StoryboardBoardError["class"], string> = {
   moderation: "Blocked by OpenAI moderation",
   sensitive: "Flagged as sensitive",
   kie_transient: "Kie server error (transient)",
+  ref_fetch: "Reference image fetch failed (transient)",
   unknown: "Failed",
 };
 
