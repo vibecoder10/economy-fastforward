@@ -58,7 +58,7 @@ from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_coverage, enforce_shot_budget, parse_set_dressing,
     parse_axis_line, parse_setups_line, panels_per_sheet_for,
-    sheet_chunk_sizes,
+    sheet_chunk_sizes, _STYLE_LOCK,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
@@ -1856,7 +1856,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
 
     a = await fetch_one(
         "SELECT a.id, a.scene, a.image_index, a.image_prompt, "
-        "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override "
+        "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
+        "v.image_style_override, v.visual_style "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
         "WHERE a.id=$1 AND a.video_id=$2 AND a.tenant_id=$3", asset_id, video_id, tenant_id)
     if not a:
@@ -1866,6 +1867,19 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         return {"status": "failed", "error": "this picture has no image prompt to redraw from"}
     if safe_reframe:
         prompt = SAFE_REFRAME_PREFIX + prompt
+
+    # SAME TREATMENT AS THE BATCH DRAW (Ryan, 2026-07-21: "the redraw should
+    # get the same treatment as the draw... telling it the style upfront so
+    # its weighted accordingly"). assets.image_prompt stores only the shot's
+    # COMPOSITION text — the batch path wraps it at draw time in the channel
+    # style (prefix) and _STYLE_LOCK (suffix), so a redraw from the bare
+    # stored prompt carried NO style pressure at all beyond the small cast
+    # refs, and drifted semi-realistic (proven live on cd5d2883's scene-1
+    # redraws, 2026-07-21). Style goes FIRST so it outweighs everything after.
+    _profile, _style_dir = _resolve_style(a.get("image_style_override"), a.get("visual_style"))
+    style_prefix = (
+        f"ART STYLE — the single most important instruction, every element of this frame is "
+        f"rendered in it: {_style_dir} " if _style_dir else "")
 
     kie_key = await get_secret("kie_ai_api_key", tenant_id) or os.getenv("KIE_AI_API_KEY")
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
@@ -1905,7 +1919,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # into record_ledger_entry's dedup key below.
     task_id_box: list = []
     url, model_used = await generate_scene_image_for_model(
-        ic, model_override, prompt + env_note, reference_urls=cast_refs + env_refs,
+        ic, model_override, style_prefix + prompt + _STYLE_LOCK + env_note,
+        reference_urls=cast_refs + env_refs,
         aspect_ratio=a["aspect"], task_id_out=task_id_box)
     if not url:
         return {"status": "failed", "error": "image generation failed"}
