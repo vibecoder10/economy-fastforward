@@ -129,12 +129,15 @@ if [ -n "$BACKEND_CHANGES" ]; then
         $BACKEND_PYTHON -m pip install -r "$BACKEND_DIR/requirements.txt" >> "$LOG_FILE" 2>&1
     fi
 
-    # Graceful shutdown
-    pkill -f "uvicorn main:app" 2>/dev/null || true
+    # Graceful shutdown — port-scoped so this NEVER matches a sibling
+    # service that also happens to run `uvicorn main:app` (e.g. the
+    # systemd-managed prod backend, or any future app on this box).
+    # This script starts its uvicorn with `--port 8001`, so 8001 is in argv.
+    pkill -f "uvicorn main:app.*8001" 2>/dev/null || true
 
     # Wait up to 5 seconds for graceful stop
     for i in 1 2 3 4 5; do
-        if ! pgrep -f "uvicorn main:app" > /dev/null 2>&1; then
+        if ! pgrep -f "uvicorn main:app.*8001" > /dev/null 2>&1; then
             log "Backend stopped gracefully after ${i}s"
             break
         fi
@@ -142,7 +145,7 @@ if [ -n "$BACKEND_CHANGES" ]; then
     done
 
     # Force kill if still alive
-    pkill -9 -f "uvicorn main:app" 2>/dev/null || true
+    pkill -9 -f "uvicorn main:app.*8001" 2>/dev/null || true
     sleep 1
 
     # Release port 8001
