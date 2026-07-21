@@ -6,7 +6,7 @@ can have multiple projects. The UI currently shows only the first project.
 
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from auth import get_tenant_id
@@ -361,6 +361,55 @@ async def generate_channel_cast_member(
         "description": desc[:1000],
         "reference_url": url,
         "always": bool(body.always),
+    })
+    await _save_cast_refs(tenant_id, project_id, refs)
+    return {"status": "added", "characters": refs}
+
+
+@router.post("/current/cast/upload")
+async def upload_channel_cast_member(
+    file: UploadFile = File(...),
+    name: str = Form("New Character"),
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Add a saved cast member from the creator's own image (drag-and-drop or
+    click-to-pick in the Settings channel cast card) — no generation, no
+    vision call, just an upload straight into the saved cast."""
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image.")
+
+    content = await file.read()
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 15 MB).")
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    clean_name = (name or "").strip()[:120] or "New Character"
+
+    project = await _get_or_create_project(tenant_id)
+    project_id = str(project["id"])
+
+    from storage import upload_bytes
+    ext = (file.filename or "image.png").rsplit(".", 1)[-1].lower()
+    if ext not in ("png", "jpg", "jpeg", "webp"):
+        ext = "png"
+    import uuid as _uuid
+    url = await upload_bytes(
+        content, f"{project_id}/cast/{_uuid.uuid4().hex}.{ext}",
+        file.content_type or "image/png", str(tenant_id),
+    )
+
+    full = await fetch_one(
+        "SELECT character_references FROM projects WHERE id = $1 AND tenant_id = $2",
+        project_id, tenant_id,
+    )
+    refs = _cast_refs(full)
+    refs = [c for c in refs if c.get("name") != clean_name]
+    refs.append({
+        "name": clean_name,
+        "description": "",
+        "reference_url": url,
+        "always": True,
     })
     await _save_cast_refs(tenant_id, project_id, refs)
     return {"status": "added", "characters": refs}

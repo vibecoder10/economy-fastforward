@@ -44,6 +44,7 @@ import {
   generateChannelCastMember,
   updateChannelCastMember,
   deleteChannelCastMember,
+  uploadChannelCastMember,
   type VisualStyle,
   type StyleCharacter,
 } from "@/lib/api";
@@ -1065,6 +1066,7 @@ function ScriptFormatCard() {
 // (Save to project).
 function ChannelCastCard() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data } = useQuery({
     queryKey: ["channel-cast"],
     queryFn: getChannelCast,
@@ -1094,6 +1096,29 @@ function ChannelCastCard() {
     },
     onError: (e: Error) => setGenError(e.message || "Generation failed — try again."),
   });
+
+  // --- Upload a cast member from the creator's own image (drag-and-drop or click-to-pick) ---
+  const uploadFileRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadName, setUploadName] = useState("");
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadChannelCastMember(file, uploadName.trim() || "New Character"),
+    onSuccess: () => {
+      setUploadName("");
+      refresh();
+    },
+    onError: (err: Error) =>
+      toast.error(`Upload failed: ${humanizeError(err, "We couldn't add that character. Try again.")}`),
+  });
+  const handleUploadFile = (file: File | undefined | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please drop an image file.");
+      return;
+    }
+    uploadMutation.mutate(file);
+  };
+
   const cast = data?.characters ?? [];
   const locked = data?.cast_locked ?? false;
   const busy = lockMutation.isPending || unlockMutation.isPending;
@@ -1116,58 +1141,109 @@ function ChannelCastCard() {
       </div>
       <GlassCard className="p-6">
         <div className="space-y-4">
-          {cast.length === 0 ? (
+          {cast.length === 0 && (
             <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-              No saved cast yet. Generate a character below, drop your character sheets into the
-              chat and say &ldquo;lock these in as our channel&rsquo;s identity&rdquo; — or save a
-              video&rsquo;s approved cast to the project from its Characters tab.
+              No saved cast yet. Drop a character image below, generate one, drop your character
+              sheets into the chat and say &ldquo;lock these in as our channel&rsquo;s
+              identity&rdquo; — or save a video&rsquo;s approved cast to the project from its
+              Characters tab.
             </p>
-          ) : (
-            <div className="flex flex-wrap gap-3">
-              {cast.map((c) => {
-                const always = c.always !== false;
-                return (
-                  <div key={c.name} className="w-32 text-center relative group">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(`Remove ${c.name} from the channel cast? Existing videos keep their characters.`)) {
-                          removeMutation.mutate(c.name);
-                        }
-                      }}
-                      className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full items-center justify-center hidden group-hover:flex"
-                      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-tertiary)" }}
-                      title="Remove from channel cast"
-                    >
-                      <X size={10} />
-                    </button>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={toDisplayImageUrl(c.reference_url)}
-                      alt={c.name}
-                      className="w-32 h-32 object-cover rounded-xl"
-                      style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}
-                    />
-                    <p className="text-xs mt-1 truncate" style={{ color: "var(--text-primary)" }}>{c.name}</p>
-                    <button
-                      type="button"
-                      onClick={() => toggleMutation.mutate({ name: c.name, always: !always })}
-                      disabled={toggleMutation.isPending}
-                      className="text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5 disabled:opacity-50"
-                      style={
-                        always
-                          ? { background: "var(--turquoise-dim)", color: "var(--turquoise)" }
-                          : { background: "var(--bg-elevated)", color: "var(--text-tertiary)", border: "1px solid var(--border)" }
-                      }
-                      title={always ? "In every video — click to make optional" : "Optional — imported per video from Use Saved Cast. Click to include in every video."}
-                    >
-                      {always ? "Every video" : "Optional"}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
           )}
+          <div className="flex flex-wrap gap-3">
+            {cast.map((c) => {
+              const always = c.always !== false;
+              return (
+                <div key={c.name} className="w-32 text-center relative group">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Remove ${c.name} from the channel cast? Existing videos keep their characters.`)) {
+                        removeMutation.mutate(c.name);
+                      }
+                    }}
+                    className="absolute -top-1.5 -right-1.5 z-10 w-5 h-5 rounded-full items-center justify-center hidden group-hover:flex"
+                    style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-tertiary)" }}
+                    title="Remove from channel cast"
+                  >
+                    <X size={10} />
+                  </button>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={toDisplayImageUrl(c.reference_url)}
+                    alt={c.name}
+                    className="w-32 h-32 object-cover rounded-xl"
+                    style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}
+                  />
+                  <p className="text-xs mt-1 truncate" style={{ color: "var(--text-primary)" }}>{c.name}</p>
+                  <button
+                    type="button"
+                    onClick={() => toggleMutation.mutate({ name: c.name, always: !always })}
+                    disabled={toggleMutation.isPending}
+                    className="text-[9px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full mt-0.5 disabled:opacity-50"
+                    style={
+                      always
+                        ? { background: "var(--turquoise-dim)", color: "var(--turquoise)" }
+                        : { background: "var(--bg-elevated)", color: "var(--text-tertiary)", border: "1px solid var(--border)" }
+                    }
+                    title={always ? "In every video — click to make optional" : "Optional — imported per video from Use Saved Cast. Click to include in every video."}
+                  >
+                    {always ? "Every video" : "Optional"}
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* Add a character by dropping or picking an image */}
+            <div className="w-32 text-center">
+              <input
+                type="file"
+                ref={uploadFileRef}
+                onChange={(e) => {
+                  handleUploadFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+                accept="image/*"
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => uploadFileRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  handleUploadFile(e.dataTransfer.files?.[0]);
+                }}
+                disabled={uploadMutation.isPending}
+                className="w-32 h-32 rounded-xl flex flex-col items-center justify-center gap-1.5 px-2 transition-all hover:brightness-110 disabled:opacity-60"
+                style={{
+                  background: "var(--bg-surface)",
+                  border: `2px dashed ${isDragging ? "var(--turquoise)" : "var(--border)"}`,
+                }}
+              >
+                {uploadMutation.isPending ? (
+                  <Loader2 size={18} className="animate-spin" style={{ color: "var(--turquoise)" }} />
+                ) : (
+                  <>
+                    <Upload size={18} style={{ color: "var(--text-tertiary)" }} />
+                    <span className="text-[10px] leading-tight" style={{ color: "var(--text-tertiary)" }}>
+                      Drop a character image here or click to upload
+                    </span>
+                  </>
+                )}
+              </button>
+              <input
+                type="text"
+                value={uploadName}
+                onChange={(e) => setUploadName(e.target.value)}
+                placeholder="New Character"
+                disabled={uploadMutation.isPending}
+                className="w-full mt-1 px-2 py-1 rounded-lg text-[11px] text-center outline-none"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+              />
+            </div>
+          </div>
 
           {/* Generate a new cast member in the channel's style */}
           {showGenerate ? (

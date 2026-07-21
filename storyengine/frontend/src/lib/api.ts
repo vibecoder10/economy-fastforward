@@ -288,6 +288,21 @@ export const deleteChannelCastMember = (name: string) =>
     `/api/projects/current/cast/${encodeURIComponent(name)}`,
     { method: "DELETE" }
   );
+export const uploadChannelCastMember = async (
+  file: File,
+  name: string,
+): Promise<{ status: string; characters: ChannelCastMember[] }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("name", name);
+  const res = await fetch(`${API_URL}/api/projects/current/cast/upload`, {
+    method: "POST",
+    headers: uploadHeaders(),
+    body: formData,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+};
 
 // --- House script format (one template per channel) ---
 export interface ScriptTemplate {
