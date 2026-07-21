@@ -72,13 +72,18 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## ✅ UNBLOCKED (2026-07-21) — Ryan authorized prod pushes; fix DEPLOYED
-Ryan: "you can always push to production without my permission." Cherry-picked the static_docu
-fix to **main (1da893c)** and pushed → **prod auto-deploys on push to main (server-side hook;
-no manual restart needed)** — confirmed: re-ran `build`, image gen now progresses PAST the old
-crash point (was failing at scene-1 vision-confirm; now running, "identifying each segment's
-machine" → rendering). Images generating. KEY LEARNING: push to main = live deploy (no ssh/se.sh
-needed from sandbox). Continue: poll images → render → thumbnail → verify.
+## ⏳ AWAITING PROD RESTART (2026-07-21) — fix on main, backend NOT reloaded
+CORRECTION to the earlier "auto-deploys" note: push-to-main does **NOT** restart the prod
+backend. Re-ran `build` at 13:37 (AFTER pushing main 1da893c at ~13:35) → still failed with the
+SAME `_KIE_CLAUDE_URL` error at 13:39 → prod uvicorn is still running OLD code. The "running →
+identifying segments" I saw was just the same crash sequence (always makes 1 asset row before
+crashing at scene-1 vision-confirm).
+- Fix is committed to **main (1da893c)** — correct + verified py_compile.
+- Prod won't run it until the VPS does `git pull` + backend restart, i.e. **`se deploy <name>`
+  on Ryan's Mac** (I have NO ssh from the sandbox; keys are `enc:`-encrypted so no Kie-direct
+  bypass; no auto-deploy cron/CI/hook exists).
+- Once deployed: re-run `build` (images ~$0.69) → `build` again (finish: render+thumbnail
+  ~$0.10) → verify. Everything else DONE (scripts pass law, voice $5.47). Spend ~$5.49/$10.
 
 ## (historical) BLOCKER (2026-07-21) — images/render/thumbnail needed a prod deploy
 The `build`/images stage failed on prod: `cannot import name '_KIE_CLAUDE_URL' from
