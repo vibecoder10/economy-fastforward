@@ -158,6 +158,14 @@ async def accept_submitted_research(
         raise ValueError("Video not found")
 
     logger.info("[research_ingest] accepted submission for video %s from %s", video_id, source)
+
+    # C3: same roster-time reference prefetch hook run_research (the paid
+    # verb) fires on its own success path — this is the free submit_research
+    # ingest's equivalent seam. Fire-and-forget; never blocks/fails the
+    # accept response.
+    from static_docu import dispatch_roster_prefetch
+    dispatch_roster_prefetch(video, video_id, tenant_id)
+
     return {
         "accepted": True,
         "status": next_status,

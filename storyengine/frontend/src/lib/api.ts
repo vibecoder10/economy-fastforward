@@ -883,6 +883,11 @@ export type RosterDashboard = {
     warnings: string[];
     suggested_action?: { verb: string; excerpt_id?: string; kind?: string; field?: string; focus?: string; reason?: string } | null;
     preview?: { passed: boolean; word_count?: number } | null;
+    // C3: roster-time reference-photo prefetch status (static_reference_cache,
+    // read live — no new table). "verified" carries the self-hosted URL and
+    // its Wikimedia source; "missing" means generation will fail-closed for
+    // this machine unless the reference is seeded or prefetch reruns.
+    reference?: { status: "verified" | "missing"; hosted_url?: string; source_url?: string };
   }>;
 };
 

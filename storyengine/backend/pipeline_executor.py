@@ -8015,6 +8015,12 @@ class PipelineExecutor:
             await self._log_transition(video_id, current_status, "ready_for_scripting", "api")
             await self._log_activity(bot_name, video_id, "completed", "Research complete")
 
+            # C3: the instant a static-docu video's machine roster is locked,
+            # prefetch+verify+self-host+cache a reference photo for every
+            # roster machine — fire-and-forget, never blocks/fails research.
+            from static_docu import dispatch_roster_prefetch
+            dispatch_roster_prefetch(video, video_id, self.tenant_id)
+
             return {
                 "status": "ready_for_scripting",
                 "video_id": video_id,
@@ -9021,6 +9027,24 @@ class PipelineExecutor:
             _logger.warning("[orchestrator] dashboard verdict read unavailable: %s", str(exc)[:150])
         previews = payload.get("machine_script_previews")
         previews = previews if isinstance(previews, dict) else {}
+        # C3: per-machine reference-photo readiness (static_reference_cache),
+        # read live — no new table, computed the same way generate_static_
+        # images_for_video itself checks the cache. Best-effort: a read
+        # failure (e.g. the cache table not created yet on a tenant that has
+        # never run static_docu generation or prefetch) degrades every
+        # machine to "missing" rather than failing the whole dashboard.
+        ref_cache_by_key: dict[str, dict] = {}
+        from static_docu import _machine_key as _static_machine_key
+        try:
+            ref_rows = await fetch_all(
+                "SELECT machine_key, hosted_url, source_url FROM static_reference_cache "
+                "WHERE tenant_id = $1", self.tenant_id,
+            )
+            ref_cache_by_key = {
+                row.get("machine_key"): row for row in (ref_rows or []) if isinstance(row, dict)
+            }
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[orchestrator] dashboard reference read unavailable: %s", str(exc)[:150])
         units: list[dict] = []
         ready_count = 0
         for machine in roster:
@@ -9040,6 +9064,15 @@ class PipelineExecutor:
                 if plan:
                     suggestion = {k: plan[0].get(k) for k in ("verb", "excerpt_id", "kind", "field", "focus", "reason") if plan[0].get(k)}
             preview = previews.get(code) if isinstance(previews.get(code), dict) else None
+            ref_row = ref_cache_by_key.get(_static_machine_key(machine))
+            reference = (
+                {
+                    "status": "verified",
+                    "hosted_url": ref_row.get("hosted_url"),
+                    "source_url": ref_row.get("source_url"),
+                }
+                if ref_row else {"status": "missing"}
+            )
             units.append({
                 "machine": machine,
                 "state": state,
@@ -9051,6 +9084,7 @@ class PipelineExecutor:
                         "word_count": preview.get("word_count"),
                     } if preview else None
                 ),
+                "reference": reference,
             })
         report = payload.get("roster_orchestrator_report")
         report = report if isinstance(report, dict) else {}

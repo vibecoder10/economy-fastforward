@@ -14,6 +14,7 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
 """
 
 import json
+import logging
 import re
 import sys
 import uuid
@@ -31,6 +32,8 @@ if str(_PIPELINE_PATH) not in sys.path:
 
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
 from shared.channel_profile import CLAUDE_MODELS, claude_model_for_direct_client  # noqa: E402
+
+_logger = logging.getLogger(__name__)
 
 STATIC_RENDER_MODE = "static_docu"
 
@@ -176,6 +179,157 @@ _WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
 _THUMB_WIDTH_LADDER = (1600, 1280, 1024, 800, 640)
 
 
+def _file_title_to_key(title: str) -> str:
+    """Canonical match key for a Commons/Wikipedia File: title — strips the
+    namespace prefix and normalizes spaces/underscores (MediaWiki treats them
+    as equivalent and its API responses commonly echo titles back with
+    spaces even when the request used underscores), so a batched imageinfo
+    response's ``page['title']`` reliably maps back to the filename a caller
+    asked about. Best-effort normalization, not full MediaWiki title-
+    normalization (no case-folding beyond what callers already do)."""
+    t = title or ""
+    if t.lower().startswith("file:"):
+        t = t[5:]
+    return t.replace(" ", "_")
+
+
+async def _api_issued_thumbs_batch(c: httpx.AsyncClient, raw_urls: list) -> dict:
+    """Batched sibling of _api_issued_thumb (C3b): resolve MANY raw
+    upload.wikimedia URLs to API-issued /thumb/ URLs in a handful of calls
+    instead of one call per file per width rung. A burst of per-file
+    Wikimedia calls mid-generation is exactly what triggered live rate-limit
+    cooldowns on the VPS.
+
+    MediaWiki's imageinfo query accepts up to 50 File: titles per request.
+    Walks the SAME descending width ladder as the single-file path
+    (_THUMB_WIDTH_LADDER), one batched call per rung, but at each rung only
+    re-queries the titles STILL unresolved (raw-echoed) at the previous rung
+    — so a whole candidate set typically resolves in ladder-length-many
+    calls total, not ladder-length * file-count.
+
+    LAST RUNG (dynamic, per file — see _api_issued_thumb's docstring for
+    why): the true-size lookup (iiprop=size) is ALSO batched (50 titles per
+    call), then files sharing the same computed target width are re-queried
+    together.
+
+    Returns ``{raw_url: thumb_url_or_None}``, one entry per input url."""
+    from urllib.parse import unquote
+
+    out: dict = {}
+    fname_to_urls: dict = {}  # canonical key -> [raw_url, ...]
+    for u in raw_urls:
+        out.setdefault(u, None)
+        try:
+            fname = unquote(u.rsplit("/", 1)[1])
+        except Exception:  # noqa: BLE001
+            continue
+        key = _file_title_to_key(fname)
+        fname_to_urls.setdefault(key, []).append((u, fname))
+
+    if not fname_to_urls:
+        return out
+
+    async def _query_at(keys: list, params_extra: dict) -> dict:
+        """One or more batched imageinfo calls (chunks of 50 titles) for
+        `keys`. Returns {key: imageinfo_dict} for whichever keys the API
+        actually answered.
+
+        DEMUX: a multi-title response's page titles are MediaWiki-NORMALIZED
+        (e.g. first-letter capitalization: "File:xb-35_test.jpg" comes back
+        as "File:Xb-35 test.jpg"), so matching them back to what WE asked
+        for uses the API's own answer key first — every query response
+        carries ``query.normalized`` ([{from, to}, ...]) describing exactly
+        how each requested title was rewritten, and ``query.redirects``
+        the same way when a File: title redirects. Only a page title absent
+        from both maps (echoed verbatim) falls back to the
+        _file_title_to_key heuristic."""
+        resolved: dict = {}
+        key_list = list(keys)
+        for start in range(0, len(key_list), 50):
+            chunk = key_list[start:start + 50]
+            req_title_to_key = {
+                f"File:{fname_to_urls[k][0][1]}": k for k in chunk}
+            titles = "|".join(req_title_to_key.keys())
+            r = await _wm_get(c, _COMMONS_API, params={
+                "action": "query", "titles": titles,
+                "prop": "imageinfo", "format": "json", **params_extra})
+            query = (r.json().get("query") or {})
+            # MediaWiki's own answer key: requested title -> response title.
+            final_title_to_key: dict = {}
+            for n in query.get("normalized") or []:
+                frm, to = n.get("from"), n.get("to")
+                if to and frm in req_title_to_key:
+                    final_title_to_key[to] = req_title_to_key[frm]
+            for rd in query.get("redirects") or []:
+                frm, to = rd.get("from"), rd.get("to")
+                if not to:
+                    continue
+                # A redirect's "from" is either an already-normalized title
+                # or (if no normalization applied) the verbatim request.
+                if frm in final_title_to_key:
+                    final_title_to_key[to] = final_title_to_key[frm]
+                elif frm in req_title_to_key:
+                    final_title_to_key[to] = req_title_to_key[frm]
+            pages = (query.get("pages") or {}).values()
+            for p in pages:
+                infos = p.get("imageinfo") or []
+                if not infos:
+                    continue
+                # A single-title request always maps unambiguously to that
+                # one key, title or no title (some MediaWiki-shaped
+                # responses omit "title" on a page object) — this also
+                # keeps the single-file caller (_api_issued_thumb) working
+                # unchanged. A multi-title request demuxes by title:
+                # normalized/redirect map first, verbatim-echo heuristic
+                # only as the fallback.
+                if len(chunk) == 1:
+                    resolved[chunk[0]] = infos[0]
+                    continue
+                ptitle = p.get("title") or ""
+                key = final_title_to_key.get(ptitle)
+                if key is None:
+                    key = _file_title_to_key(ptitle)
+                    if key not in fname_to_urls:
+                        continue
+                resolved[key] = infos[0]
+        return resolved
+
+    pending = set(fname_to_urls.keys())
+    for width in _THUMB_WIDTH_LADDER:
+        if not pending:
+            break
+        answers = await _query_at(pending, {"iiprop": "url", "iiurlwidth": width})
+        for key, ii in answers.items():
+            t = ii.get("thumburl") or ""
+            if t and "/thumb/" in t:
+                pending.discard(key)
+                for u, _fname in fname_to_urls[key]:
+                    out[u] = t
+
+    if pending:
+        # Every static rung landed in the dead zone for these — batch the
+        # true-size lookup, then group by the resulting dynamic target width
+        # so files that share a width still resolve together.
+        sizes = await _query_at(pending, {"iiprop": "size"})
+        by_width: dict = {}
+        for key in list(pending):
+            w0 = (sizes.get(key) or {}).get("width") or 0
+            if w0 <= 0:
+                continue
+            target = max(320, int(w0 * 0.6))
+            by_width.setdefault(target, []).append(key)
+        for target, keys in by_width.items():
+            answers = await _query_at(keys, {"iiprop": "url", "iiurlwidth": target})
+            for key, ii in answers.items():
+                t = ii.get("thumburl") or ""
+                if t and "/thumb/" in t:
+                    pending.discard(key)
+                    for u, _fname in fname_to_urls[key]:
+                        out[u] = t
+
+    return out
+
+
 async def _api_issued_thumb(c: httpx.AsyncClient, raw_url: str) -> Optional[str]:
     """Turn a RAW upload.wikimedia URL into an API-ISSUED /thumb/ URL.
 
@@ -193,41 +347,14 @@ async def _api_issued_thumb(c: httpx.AsyncClient, raw_url: str) -> Optional[str]
     photos come small — can sit in the dead zone at EVERY static rung. If
     the whole ladder fails, ask the API for the file's true size and try
     ONE final width at 60% of the original (floor 320), comfortably below
-    the refuse-to-thumb threshold for any original size."""
+    the refuse-to-thumb threshold for any original size.
+
+    Single-file convenience wrapper: delegates to _api_issued_thumbs_batch
+    (C3b) with a 1-element list so the ladder-walking logic exists in
+    exactly one place."""
     try:
-        from urllib.parse import unquote
-        fname = unquote(raw_url.rsplit("/", 1)[1])
-
-        async def _thumb_at(width: int) -> Optional[str]:
-            r = await _wm_get(c, _COMMONS_API, params={
-                "action": "query", "titles": f"File:{fname}",
-                "prop": "imageinfo", "iiprop": "url",
-                "iiurlwidth": width, "format": "json"})
-            pages = ((r.json().get("query") or {}).get("pages") or {}).values()
-            for p in pages:
-                for ii in p.get("imageinfo") or []:
-                    t = ii.get("thumburl") or ""
-                    if t and "/thumb/" in t:
-                        return t
-            return None
-
-        for width in _THUMB_WIDTH_LADDER:
-            t = await _thumb_at(width)
-            if t:
-                return t
-        # Every static rung landed in the dead zone — small original. Get
-        # the true width and try one dynamic rung well below it.
-        r0 = await _wm_get(c, _COMMONS_API, params={
-            "action": "query", "titles": f"File:{fname}",
-            "prop": "imageinfo", "iiprop": "size", "format": "json"})
-        pages0 = ((r0.json().get("query") or {}).get("pages") or {}).values()
-        w0 = 0
-        for p0 in pages0:
-            for ii0 in p0.get("imageinfo") or []:
-                w0 = ii0.get("width") or 0
-        if w0 <= 0:
-            return None
-        return await _thumb_at(max(320, int(w0 * 0.6)))
+        result = await _api_issued_thumbs_batch(c, [raw_url])
+        return result.get(raw_url)
     except Exception:  # noqa: BLE001
         return None
 
@@ -348,6 +475,13 @@ async def find_article_images(names: list, limit: int = 5) -> list[dict]:
                 "prop": "imageinfo", "iiprop": "url|size", "format": "json"})
             r.raise_for_status()
             pages = ((r.json().get("query") or {}).get("pages") or {}).values()
+            # First pass: collect every eligible (raw_url, file_title)
+            # candidate with the SAME filters as before, but don't resolve
+            # thumbs yet — resolving them ALL in one batched call (C3b)
+            # instead of one call per file per width rung is the whole
+            # point; up to 40 candidates here would otherwise cost up to
+            # 40 * len(_THUMB_WIDTH_LADDER) individual requests.
+            candidates: list[tuple] = []  # (raw_url, file_title)
             for p in pages:
                 ftitle = p.get("title") or ""
                 low = ftitle.lower()
@@ -362,13 +496,14 @@ async def find_article_images(names: list, limit: int = 5) -> list[dict]:
                     raw = ii.get("url") or ""
                     if not raw or raw in seen:
                         continue
-                    thumb = await _api_issued_thumb(c, raw)
-                    if not thumb:
-                        continue
                     seen.add(raw)
-                    out.append({"url": thumb, "page": title, "file_title": ftitle})
-                    if len(out) >= limit:
-                        break
+                    candidates.append((raw, ftitle))
+            thumbs = await _api_issued_thumbs_batch(c, [raw for raw, _ in candidates])
+            for raw, ftitle in candidates:
+                thumb = thumbs.get(raw)
+                if not thumb:
+                    continue
+                out.append({"url": thumb, "page": title, "file_title": ftitle})
                 if len(out) >= limit:
                     break
     except Exception:  # noqa: BLE001
@@ -403,7 +538,8 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[dict]:
                 "iiurlwidth": 1600, "format": "json"})
             r2.raise_for_status()
             pages = ((r2.json().get("query") or {}).get("pages") or {}).values()
-            out: list[dict] = []
+            entries: list[dict] = []
+            needs_batch: list[str] = []
             for p in pages:
                 ptitle = p.get("title") or ""
                 for ii in p.get("imageinfo") or []:
@@ -412,26 +548,40 @@ async def find_commons_photos(query: str, limit: int = 3) -> list[dict]:
                         continue  # thumbnails/icons — too small to reference
                     url = ii.get("url") or ""
                     thumb = ii.get("thumburl") or ""
+                    entries.append({"ptitle": ptitle, "url": url, "thumb": thumb})
                     # ONLY API-issued /thumb/ URLs are servable: the raw-file
                     # layer 403s cloud IPs, and hand-built thumb URLs for
                     # never-rendered sizes 403 too (the API request is what
                     # warms the CDN — proven live). For originals the width
-                    # ladder doesn't clear, fall back to _api_issued_thumb.
-                    if (not thumb or thumb == url) and ptitle:
-                        thumb = await _api_issued_thumb(c, url) or thumb
-                    if thumb and thumb != url and "/thumb/" in thumb:
-                        out.append({"url": thumb, "title": ptitle})
+                    # ladder doesn't clear, fall back to the batched resolver
+                    # (C3b) — one call for every file still needing this
+                    # instead of one call per file.
+                    if (not thumb or thumb == url) and ptitle and url:
+                        needs_batch.append(url)
+            resolved = await _api_issued_thumbs_batch(c, needs_batch) if needs_batch else {}
+            out: list[dict] = []
+            for entry in entries:
+                url, thumb = entry["url"], entry["thumb"]
+                if (not thumb or thumb == url) and url:
+                    thumb = resolved.get(url) or thumb
+                if thumb and thumb != url and "/thumb/" in thumb:
+                    out.append({"url": thumb, "title": entry["ptitle"]})
             return out[:limit]
     except Exception:  # noqa: BLE001 — reference lookup is best-effort
         return []
 
 
 async def _host_reference(url: str, video_id: str, tenant_id: str,
-                          scene: int, idx: int) -> Optional[str]:
+                          tag: str) -> Optional[str]:
     """Fetch the Commons photo OURSELVES (proper User-Agent — Wikimedia 403s
     Kie's fetcher on raw file URLs) and re-host it on our storage. The image
     client rewrites the stored Drive URL to the media proxy, so Kie always
     fetches references from US, never from Wikimedia.
+
+    `tag` is an opaque, storage-path-safe label the caller picks to keep
+    candidates distinct (e.g. "S03_1" for scene 3's second candidate at
+    generation time, or "roster05_0" for the sixth roster machine's first
+    candidate at prefetch time — see prefetch_roster_references).
 
     Wikimedia rate-limits bursts (429, seen live on the DvsU micro-test) —
     retry with backoff before giving up, because losing the reference is what
@@ -452,12 +602,59 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
                 return None
             ext = "png" if url.lower().endswith(".png") else "jpg"
             return await upload_bytes(
-                data, f"{video_id}/static/ref_S{scene:02d}_{idx}.{ext}",
+                data, f"{video_id}/static/ref_{tag}.{ext}",
                 "image/png" if ext == "png" else "image/jpeg", tenant_id)
         except Exception:  # noqa: BLE001
             if attempt < 2:
                 await _asyncio.sleep(4 * (attempt + 1))
     return None
+
+
+async def _gather_reference_candidates(machine: str, aliases: Optional[list],
+                                       search_query: Optional[str]) -> list:
+    """The SAME layered candidate chain _one_scene has always used, factored
+    out so prefetch_roster_references (C3, roster-time prefetch) can run the
+    identical lookup without duplicating it: LAYER 1 (find_wikipedia_lead_
+    images), LAYER 1.5 (find_article_images — other real photos on that same
+    article), LAYER 2 (find_commons_photos, trust-promoted by a designation
+    token in the file title). Returns ``[(url, trusted), ...]``, best-first,
+    de-duplicated by url. Exactly mirrors the original inline block that used
+    to live in _one_scene — no behavior change, just a shared home."""
+    names = [machine] + list(aliases or [])
+    wiki = await find_wikipedia_lead_images(names)
+    # 'trusted' provenance only holds when the article title names OUR
+    # machine — a fuzzy search that landed on a lookalike's article gets
+    # demoted to the strict vision check instead of a free pass.
+    candidates = [
+        (w["url"], w["trusted"] and _page_matches(machine, aliases, w.get("page", "")))
+        for w in wiki
+    ]
+    have = {u for u, _ in candidates}
+    # LAYER 1.5: other real photos on that same article — trusted for the
+    # same reason as the lead image (it's on the machine's own page).
+    article_imgs = [a for a in await find_article_images(names) if a["url"] not in have]
+    candidates += [(a["url"], True) for a in article_imgs]
+    have |= {a["url"] for a in article_imgs}
+    # LAYER 2: Commons search. A hit whose FILE TITLE itself carries the
+    # machine's designation token (e.g. "xb35" in "Northrop_XB-35_11-300.jpg")
+    # is promoted to trusted — the filename ties it to the machine
+    # independent of the vision model's ability to name an obscure prototype
+    # by sight.
+    if search_query:
+        for cp in await find_commons_photos(search_query):
+            if cp["url"] in have:
+                continue
+            trusted = _commons_title_matches(machine, aliases, cp.get("title") or "")
+            candidates.append((cp["url"], trusted))
+            have.add(cp["url"])
+    if not candidates and machine:
+        for cp in await find_commons_photos(machine):
+            if cp["url"] in have:
+                continue
+            trusted = _commons_title_matches(machine, aliases, cp.get("title") or "")
+            candidates.append((cp["url"], trusted))
+            have.add(cp["url"])
+    return candidates
 
 
 def _machine_key(machine: str) -> str:
@@ -777,46 +974,10 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             _p(f"Segment {sc}: using the cached verified photo of the {machine}")
         if not ref_url:
             _p(f"Segment {sc}: finding a real photo of the {machine}…")
-            names = [machine] + list(sub.get("aliases") or [])
-            wiki = await find_wikipedia_lead_images(names)
-            # 'trusted' provenance only holds when the article title names OUR
-            # machine — a fuzzy search that landed on a lookalike's article gets
-            # demoted to the strict vision check instead of a free pass.
-            candidates = [
-                (w["url"],
-                 w["trusted"] and _page_matches(machine, sub.get("aliases"), w.get("page", "")))
-                for w in wiki
-            ]
-            have = {u for u, _ in candidates}
-            # LAYER 1.5: other real photos on that same article — trusted for
-            # the same reason as the lead image (it's on the machine's own page).
-            article_imgs = [a for a in await find_article_images(names)
-                            if a["url"] not in have]
-            candidates += [(a["url"], True) for a in article_imgs]
-            have |= {a["url"] for a in article_imgs}
-            # LAYER 2: Commons search. A hit whose FILE TITLE itself carries
-            # the machine's designation token (e.g. "xb35" in
-            # "Northrop_XB-35_11-300.jpg") is promoted to trusted — the
-            # filename ties it to the machine independent of the vision
-            # model's ability to name an obscure prototype by sight.
-            if sub.get("search_query"):
-                for cp in await find_commons_photos(sub["search_query"]):
-                    if cp["url"] in have:
-                        continue
-                    trusted = _commons_title_matches(
-                        machine, sub.get("aliases"), cp.get("title") or "")
-                    candidates.append((cp["url"], trusted))
-                    have.add(cp["url"])
-            if not candidates and machine:
-                for cp in await find_commons_photos(machine):
-                    if cp["url"] in have:
-                        continue
-                    trusted = _commons_title_matches(
-                        machine, sub.get("aliases"), cp.get("title") or "")
-                    candidates.append((cp["url"], trusted))
-                    have.add(cp["url"])
+            candidates = await _gather_reference_candidates(
+                machine, sub.get("aliases"), sub.get("search_query"))
             for idx, (cand, trusted) in enumerate(candidates):
-                hosted = await _host_reference(cand, video_id, tenant_id, sc, idx)
+                hosted = await _host_reference(cand, video_id, tenant_id, f"S{sc:02d}_{idx}")
                 if not hosted:
                     continue
                 await execute(
@@ -937,3 +1098,140 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     if failed:
         msg += f" (failed: {', '.join(failed)})"
     return {"status": "completed", "message": msg}
+
+
+# --- roster-time reference prefetch (C3) --------------------------------------
+#
+# Problem: generate_static_images_for_video above discovers a machine's
+# reference photo (or the lack of one) at IMAGE GENERATION time — after
+# script and voice money is already spent — and a burst of per-machine
+# Wikimedia lookups mid-generation is exactly what triggered live rate-limit
+# cooldowns on the VPS. Fix: the instant a static-docu video's machine roster
+# is LOCKED (research completion — see dispatch_roster_prefetch), prefetch,
+# verify, self-host and cache a reference for EVERY roster machine, so
+# generation later always hits a warm static_reference_cache row and the
+# fail-closed gate in _one_scene becomes a backstop, not the discovery
+# mechanism.
+
+
+async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
+                                roster_index: int) -> bool:
+    """Verify + self-host + cache ONE roster machine's reference photo, using
+    the SAME candidate chain _one_scene uses (_gather_reference_candidates).
+    Returns True once a verified candidate is cached, False if the whole
+    chain exhausts with nothing passing (a miss — not an exception; the
+    caller records it and moves on to the next machine). No aliases are
+    available this early (the roster is a flat list of designation strings
+    — see pipeline_executor._machine_documentary_hold_roster), so the
+    machine's own name doubles as the Commons search query, exactly like
+    _one_scene's own fallback branch does when no explicit search_query is
+    supplied."""
+    candidates = await _gather_reference_candidates(machine, None, machine)
+    mkey = _machine_key(machine)
+    for idx, (cand, trusted) in enumerate(candidates):
+        hosted = await _host_reference(cand, video_id, tenant_id, f"roster{roster_index:02d}_{idx}")
+        if not hosted:
+            continue
+        if await _vision_confirms(tenant_id, hosted, machine, None, trusted_source=trusted):
+            await execute(
+                """INSERT INTO static_reference_cache
+                       (tenant_id, machine_key, machine, hosted_url, source_url)
+                   VALUES ($1,$2,$3,$4,$5)
+                   ON CONFLICT (tenant_id, machine_key)
+                   DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
+                                 verified_at=now()""",
+                tenant_id, mkey, machine[:200], hosted, cand)
+            return True
+    return False
+
+
+async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
+    """Roster-time reference prefetch (C3). Reads the video's LOCKED machine
+    roster (pipeline_executor._machine_documentary_hold_roster — the same
+    roster the orchestrator/dashboard/repair endpoints already use) and, for
+    every machine not already in static_reference_cache, runs the full
+    lookup+verify+host+cache chain. Serial per machine, on purpose: _wm_get's
+    politeness throttle is a single process-global gate regardless of how
+    many machines call it concurrently, so parallelizing here would only
+    interleave log lines, not buy real concurrency. One machine's exception
+    is caught and logged here — it can never abort the sweep for the rest
+    of the roster. Never raises; every outcome is reported in the return
+    dict for the caller (or a future roster-dashboard reference-status read)
+    to inspect."""
+    # Lazy import: static_docu <-> pipeline_executor is a two-way relationship
+    # (pipeline_executor already imports static_docu lazily, e.g. at its own
+    # generate_static_images_for_video call site) — importing at module top
+    # either direction would risk a circular import given pipeline_executor's
+    # size and reach.
+    from pipeline_executor import _machine_documentary_hold_roster
+
+    video = await fetch_one(
+        "SELECT id, render_mode, research_payload FROM videos "
+        "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+    if not video:
+        return {"status": "failed", "error": "video not found"}
+    roster = _machine_documentary_hold_roster(video)
+    if not roster:
+        return {"status": "skipped", "message": "no locked static-docu machine roster"}
+
+    await _ensure_ref_cache_schema()
+
+    verified, missed = 0, 0
+    for i, machine in enumerate(roster):
+        mkey = _machine_key(machine)
+        try:
+            cached = await fetch_one(
+                "SELECT hosted_url FROM static_reference_cache "
+                "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, mkey)
+            if cached:
+                verified += 1
+                continue
+            if await _prefetch_one_machine(tenant_id, video_id, machine, i):
+                verified += 1
+            else:
+                missed += 1
+                _logger.info(
+                    "[prefetch-roster-ref] video=%s machine=%r no verified "
+                    "reference found (will fail-closed at generation time "
+                    "unless seeded manually)", video_id, machine)
+        except Exception:  # noqa: BLE001 — one machine's failure must never kill the sweep
+            missed += 1
+            _logger.warning(
+                "[prefetch-roster-ref] video=%s machine=%r prefetch failed",
+                video_id, machine, exc_info=True)
+
+    _logger.info(
+        "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d",
+        video_id, len(roster), verified, missed)
+    return {"status": "completed", "roster_count": len(roster),
+            "verified": verified, "missed": missed}
+
+
+def dispatch_roster_prefetch(video: Optional[dict], video_id: str, tenant_id: str) -> bool:
+    """Fire-and-forget hook: schedule prefetch_roster_references as a
+    background task the instant research lands for a static-docu video.
+    Called from BOTH research-completion seams — the paid `research` verb
+    (pipeline_executor.PipelineExecutor.run_research) and the free
+    `submit_research` MCP ingest (research_ingest.accept_submitted_research)
+    — right before their own success return, so a single line at each call
+    site is all either seam needs.
+
+    Uses the repo's existing fire-and-forget pattern (asyncio.create_task —
+    see autopilot_launch.py, routes/queue.py, main.py's startup tasks) rather
+    than FastAPI's BackgroundTasks, since neither call site is guaranteed to
+    be inside a request handler that owns a BackgroundTasks instance.
+
+    Never blocks or fails the research flow that calls it: dispatch itself
+    is wrapped so even a scheduling failure only logs a warning. Returns
+    True if a prefetch task was actually scheduled (render_mode ==
+    'static_docu'), False otherwise (nothing to prefetch for this video)."""
+    if (video or {}).get("render_mode") != "static_docu":
+        return False
+    try:
+        import asyncio
+        asyncio.create_task(prefetch_roster_references(video_id, tenant_id))
+        return True
+    except Exception:  # noqa: BLE001 — a dispatch failure must never fail research
+        _logger.warning(
+            "[prefetch-roster-ref] dispatch failed for video=%s", video_id, exc_info=True)
+        return False
