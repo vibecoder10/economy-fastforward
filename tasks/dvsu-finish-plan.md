@@ -22,6 +22,19 @@ NOT replace the loop files (`tasks/todo.md` handoff, `tasks/storyengine-wiring-f
 
 ---
 
+## ⟳ 2026-07-21 STATUS (live run — see tasks/dvsu-bomber-loop.md for full detail)
+**The scripting problem is effectively SOLVED for the bomber video.** DV-0 seeded the 76 laws
+live; then 23 worker-authored, individually-fact-checked, Anton-voice paragraphs were submitted
+via `submit_script` and **passed the seeded-law critique with 0 violations** (verified: 23
+`scripts` rows, correct roster order). Voice generated ($5.47, correct Nathaniel-C narrator).
+**ONE blocker to a finished MP4:** a prod bug (`static_docu.py` dead-imported `_KIE_CLAUDE_URL`,
+removed by C43) crashed every static-docu image run — likely why no DvsU video ever rendered
+end-to-end. **Fixed on branch `claude/dvsu-channel-story-engine-hzyts1`, needs deploy** (I did
+not push to main / deploy to live prod unprompted). After deploy: re-run `build` twice (images,
+then finish→render+thumbnail), ~$0.8 of the $10 budget remains. Resume recipe in the loop file.
+Key method finding: worker-write + `submit_script` (prose critic, not the brutal claim-map gate)
+is the reliable path — no fragile research injection needed; static images self-source photos.
+
 ## Definition of Complete (extracted from GOAL.md Phase G + Ryan's 2026-07-15 rulings)
 
 1. **Quality law live:** the 74+2 DvsU quality rules are seeded into `quality_rules` for
