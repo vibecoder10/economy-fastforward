@@ -59,6 +59,7 @@ _stub("kie_unified", get_text_client_for_tenant=_boom)
 
 from scripts.coverage_to_app import (  # noqa: E402
     generate_storyboard_sheet_for_scene, _scene_text_hash, _sheet_filter_reject,
+    _sheet_transient_kie_error,
 )
 
 VIDEO_ID = "cd5d2883-427e-4bfb-854d-8849d025d444"
@@ -257,6 +258,64 @@ def test_none_fail_info_rejected():
     assert _sheet_filter_reject(None) is False
 
 
+# ---------------------------------------------------------------------------
+# _sheet_transient_kie_error: Kie's transient infra 500 (2026-07-21, taskId
+# a6136814f87ff94972011a80dc1e2ce8 — failCode "500", failMsg "Internal Error,
+# Please try again later.", creditsConsumed 0.0, costTime 0; Kie's
+# Seedance-launch-day instability, 4 of the last 7 sheet failures). Distinct
+# from content moderation: it joins the free re-roll ladder (with a pause),
+# never the fallback-header retry, and the two predicates must never both
+# claim the same failure.
+# ---------------------------------------------------------------------------
+
+def test_transient_500_zero_credits_is_transient_not_filter():
+    info = {
+        "failCode": "500", "failMsg": "Internal Error, Please try again later.",
+        "creditsConsumed": 0.0, "costTime": 0,
+    }
+    assert _sheet_transient_kie_error(info) is True
+    assert _sheet_filter_reject(info) is False
+
+
+def test_transient_500_none_credits_counts_as_zero():
+    """None creditsConsumed counts as 0, same as _sheet_filter_reject."""
+    assert _sheet_transient_kie_error({
+        "failCode": "500", "failMsg": "Internal Error, Please try again later.",
+        "creditsConsumed": None,
+    }) is True
+
+
+def test_500_with_credits_consumed_is_neither():
+    """The mandatory ~0-credit guard: a 500 that actually spent money must
+    never qualify for ANY free retry, transient or filter."""
+    info = {
+        "failCode": "500", "failMsg": "Internal Error, Please try again later.",
+        "creditsConsumed": 0.5,
+    }
+    assert _sheet_transient_kie_error(info) is False
+    assert _sheet_filter_reject(info) is False
+
+
+def test_400_policy_is_filter_not_transient():
+    """The two predicates never both claim a failure: a content-policy 400 is
+    the filter's, not the transient predicate's."""
+    info = {
+        "failCode": "400", "failMsg": "The current content could not be processed",
+        "creditsConsumed": 0.0,
+    }
+    assert _sheet_filter_reject(info) is True
+    assert _sheet_transient_kie_error(info) is False
+
+
+def test_transient_none_and_wrong_msg_rejected():
+    assert _sheet_transient_kie_error(None) is False
+    # A 500 whose message is NOT the internal-error signature stays unclaimed
+    # (e.g. the moderation-worded 500 test_unknown_failcode_rejected pins).
+    assert _sheet_transient_kie_error({
+        "failCode": "500", "failMsg": "flagged as sensitive", "creditsConsumed": 0.0,
+    }) is False
+
+
 if __name__ == "__main__":
     test_two_cast_refs_plus_env_sends_all_three_uncapped()
     test_env_locked_location_text_and_ref_both_present()
@@ -270,4 +329,9 @@ if __name__ == "__main__":
     test_400_with_credits_consumed_still_rejected()
     test_unknown_failcode_rejected()
     test_none_fail_info_rejected()
+    test_transient_500_zero_credits_is_transient_not_filter()
+    test_transient_500_none_credits_counts_as_zero()
+    test_500_with_credits_consumed_is_neither()
+    test_400_policy_is_filter_not_transient()
+    test_transient_none_and_wrong_msg_rejected()
     print("\nAll C25a-fix7-Part-B-revert (C25a-fix8) tests passed.")

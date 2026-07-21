@@ -899,6 +899,32 @@ def _sheet_filter_reject(fail_info: Optional[dict]) -> bool:
     )
 
 
+def _sheet_transient_kie_error(fail_info: Optional[dict]) -> bool:
+    """True for Kie's TRANSIENT infra-failure signature — failCode "500" with
+    "internal error" in the failMsg and ~0 credits consumed (None counts as
+    0, exactly as in _sheet_filter_reject). Live example: failCode "500",
+    failMsg "Internal Error, Please try again later.", creditsConsumed 0.0,
+    costTime 0 — taskId a6136814f87ff94972011a80dc1e2ce8, 2026-07-21 (Kie's
+    Seedance-launch-day instability; 4 of the last 7 sheet-draw failures that
+    day carried this exact signature).
+
+    This is Kie's own server falling over, NOT content moderation — the
+    prompt is fine and the identical call typically succeeds moments later.
+    So it joins the free RE-ROLL ladder (with a short pause first, to give
+    Kie's infra a beat) but NEVER the fallback-header retry: a 500 has
+    nothing to do with prompt wording, so swapping headers for it would be
+    noise. The ~0-credit guard is as mandatory here as in
+    _sheet_filter_reject and must never be loosened — retrying is only free
+    because Kie charged nothing for the failure."""
+    if not fail_info:
+        return False
+    if str(fail_info.get("failCode") or "").strip() != "500":
+        return False
+    if fail_info.get("creditsConsumed") not in (0, 0.0, None):
+        return False
+    return "internal error" in (fail_info.get("failMsg") or "").lower()
+
+
 # =============================================================================
 # Filter-safety: single-naming pass for builder-authored sheet-prompt text
 # =============================================================================
@@ -1298,12 +1324,23 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # FREE and usually lands within a couple tries. Gated on the same
             # _sheet_filter_reject signature, so it NEVER re-rolls a real,
             # credit-consuming failure (that would burn money on a doomed prompt).
+            # 2026-07-21: transient Kie 500s (_sheet_transient_kie_error — infra
+            # flake, not moderation, also zero-cost) join THIS ladder only, never
+            # the fallback-header retry above (a 500 has nothing to do with
+            # prompt wording). Those get a 15s pause first so Kie's infra has a
+            # beat to recover; filter re-rolls fire immediately, as before.
             last_fail = retry_box[-1] if retry_box else (fail_box[-1] if fail_box else None)
             reroll = 0
-            while not url and _sheet_filter_reject(last_fail) and reroll < 3:
+            while not url and (_sheet_filter_reject(last_fail)
+                               or _sheet_transient_kie_error(last_fail)) and reroll < 3:
                 reroll += 1
-                print(f"      ⟳ Storyboard sheet: board {bi} re-rolling the flaky content "
-                      f"filter (free attempt {reroll}/3)…")
+                if _sheet_transient_kie_error(last_fail):
+                    print(f"      ⟳ Storyboard sheet: board {bi} retrying transient Kie 500 "
+                          f"(free attempt {reroll}/3)…")
+                    await asyncio.sleep(15)
+                else:
+                    print(f"      ⟳ Storyboard sheet: board {bi} re-rolling the flaky content "
+                          f"filter (free attempt {reroll}/3)…")
                 rr_box: list = []
                 url, _model_used = await generate_scene_image_for_model(
                     ic, model_override, sp + env_block, reference_urls=sheet_refs,
