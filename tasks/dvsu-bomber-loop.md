@@ -64,10 +64,21 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 ## Budget ledger (running)
 | # | What | Cost | Cumulative | Note |
 |---|------|------|-----------|------|
-| — | (seed DV-0) | $0.00 | $0.00 | DB writes only |
-| — | MCP handshake/probes | $0.00 | $0.00 | free reads |
+| — | seed DV-0 / MCP probes / 5-agent map / 20-machine script workflow | $0.00 | $0.00 | all my-subscription / DB only |
+| 1 | submit_script critique (tenant Anthropic key, 1 call) | ~$0.02 | ~$0.02 | verdict=pass, 23 scenes, 0 violations |
 
-**Cumulative spend: $0.00 / $10.00**
+**Cumulative spend: ~$0.02 / $10.00**
+
+### SCRIPTS DONE ✅ (2026-07-21)
+23 paragraphs submitted via submit_script → **verdict: pass, 0 violations, 0 warnings** under
+the seeded 76-law critique. Verified in DB: 23 script rows (scenes 1-23, correct roster order),
+script_source=agent_submitted, 18KB. 20 machines worker-written+fact-checked (Anton voice, real
+sourced specs, verifier caught+fixed real errors); 3 gold-standard (XB-15/B-17/B-52) Anton
+verbatim (numbers→words). Engine-designation + ampersand normalization applied. Final draft:
+scratchpad/final_23.json.
+**Plan fix:** video was pipeline_stages=["research","script"] (script-only) → jumped to "done"
+after submit. Expanded to ["research","script","voice","images","thumbnail","render"], status
+reset to ready_for_voice (DB write, additive/reversible).
 
 ## ✅ DECISIVE EXECUTION PLAN (from the 5-agent map, 2026-07-21)
 **No research injection needed.** submit_script gates on the `critique_script` prose judge
