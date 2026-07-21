@@ -491,6 +491,46 @@ _BOARD_ANCHOR = (
     "cinematic image. Do NOT draw the sheet itself: no grid, no panel borders, no panel numbers, "
     "no caption strips, no text.")
 
+# Same anchor, position-free wording — used when the SETUP ANCHOR frame is
+# attached AFTER the board (the setup anchor then owns the "LAST attached"
+# slot, so the board is called out by its unmistakable look instead: it is
+# the only attached image that is a grid of small numbered panels).
+_BOARD_ANCHOR_MID = (
+    " One attached reference image is the APPROVED STORYBOARD SHEET — the image made of a GRID of "
+    "small numbered panels. This shot is that sheet's panel numbered {panel}: recreate that "
+    "panel's exact composition — same camera framing, same character positions and blocking, "
+    "everyone on the same side of the frame — as ONE full-frame cinematic image. Do NOT draw the "
+    "sheet itself: no grid, no panel borders, no panel numbers, no caption strips, no text.")
+
+# SETUP ANCHOR (Ryan, 2026-07-21: "the background changes slightly with every
+# image... maybe we need to serialize... feed in the last image to reference
+# off of"): repeats of the SAME camera setup are where a viewer notices set
+# dressing wandering (the pots and pans differ between two SETUP C shots; cuts
+# between DIFFERENT angles naturally hide small prop drift). So the first-
+# planned shot of each setup letter draws normally and becomes that setup's
+# ANCHOR; every later shot of the same setup attaches it LAST and copies its
+# room. One canonical frame per setup — deliberately NOT a rolling last-frame
+# chain, which would compound each frame's mutations into the next and let one
+# bad frame poison everything after it (the realistic-board failure mode).
+_SETUP_ANCHOR = (
+    " The LAST attached reference image is the ANCHOR FRAME already drawn from this EXACT camera "
+    "setup in this scene — the same camera position looking at the same part of the set. Match its "
+    "background, set dressing, prop placement, lighting and color grade EXACTLY; the room and "
+    "everything in it are identical between the two frames. Only the characters' poses, "
+    "expressions, gestures and the action described above may differ — do NOT copy the anchor's "
+    "poses; follow this shot's description for the action.")
+
+# A shot description's leading setup tag, e.g. "(SETUP C)" or "(SETUP D-B)"
+# (rule 5e makes the planner start every description with one).
+_SETUP_TAG_RE = re.compile(r"^\s*\(SETUP\s+([A-Z0-9]+(?:-[A-Z0-9]+)?)\)", re.IGNORECASE)
+
+
+def _setup_id(shot) -> str | None:
+    """The shot's camera-setup letter from its description tag, or None for
+    legacy plans / NEUTRAL inserts without one."""
+    m = _SETUP_TAG_RE.match(shot.get("description") or "")
+    return m.group(1).upper() if m else None
+
 # Panels per gate sheet now depends on the plan's format — see
 # panels_per_sheet_for(). Sheet chunking (coverage_to_app._plan_sheet_prompts
 # caller) and the board-anchor math below must both derive their boundaries
@@ -624,7 +664,7 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
 
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
                                    env_url=None, aspect="16:9", resolution="1K", sem=None,
-                                   model_override=None) -> list[dict] | None:
+                                   model_override=None, setup_anchors=None) -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
     Returns frames [{role, shot_type, description, url, image_model}] or None if the master
     fails. The master MUST be drawn first (angles reference it), but the angles only depend on
@@ -633,29 +673,79 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
     model_override honors videos.image_model_override end to end (see
     shared.clients.image_model_router) — GPT Image 2 stays the default and the
     content-policy/failure fallback; each frame records WHICH model actually drew it in
-    image_model, so store_scene can persist the truth onto the asset row."""
+    image_model, so store_scene can persist the truth onto the asset row.
+
+    setup_anchors: optional {setup_id: asyncio.Future} shared across the whole
+    scene (built by run_coverage). The first-planned shot of each camera setup
+    carries shot["setup_anchor_owner"]=True: it draws WITHOUT a setup ref and
+    resolves its future with its landed url (or None on failure — resolution
+    is guaranteed in `finally`-style paths below so a failed owner can NEVER
+    hang the setup's other shots). Every non-owner shot of that setup awaits
+    the future and, when it holds a url, attaches it LAST with _SETUP_ANCHOR —
+    so repeats of one camera position share one canonical room. Ownership is
+    assigned in plan order, so an owner's own waits (its master, that master's
+    setup owner...) always point at strictly earlier-planned shots — the wait
+    graph is acyclic by construction. A 10-minute wait_for is belt and
+    suspenders on top of that."""
     # cast_url may be one URL or a LIST (e.g. the locked per-character 4-view sheets).
     cast_refs = list(cast_url) if isinstance(cast_url, list) else [cast_url]
     base = cast_refs + ([env_url] if env_url else [])
     sem = sem or asyncio.Semaphore(1)  # no semaphore passed => serial fallback
+    setup_anchors = setup_anchors if setup_anchors is not None else {}
 
     async def _gen(prompt, refs):
         async with sem:
             return await _gen_ref(image_client, prompt, refs, aspect, resolution,
                                   model_override=model_override)
 
-    def _board(shot):
+    def _resolve_owned(shot, url):
+        """Resolve the setup future this shot owns (idempotent, never raises)."""
+        if not shot.get("setup_anchor_owner"):
+            return
+        fut = setup_anchors.get(shot.get("setup_id"))
+        if fut is not None and not fut.done():
+            fut.set_result(url)
+
+    async def _setup_ref(shot):
+        """(anchor_text, extra_ref) for a non-owner shot whose setup already has
+        an anchor frame. Empty for owners, unknown setups, and failed anchors."""
+        sid = shot.get("setup_id")
+        if not sid or shot.get("setup_anchor_owner"):
+            return "", []
+        fut = setup_anchors.get(sid)
+        if fut is None:
+            return "", []
+        try:
+            anchor_url = await asyncio.wait_for(asyncio.shield(fut), timeout=600)
+        except (asyncio.TimeoutError, Exception):  # noqa: BLE001 — anchor is best-effort
+            return "", []
+        return (_SETUP_ANCHOR, [anchor_url]) if anchor_url else ("", [])
+
+    def _board(shot, board_is_last=True):
         """(anchor_text, extra_ref) when this shot is pinned to an approved board panel.
-        The board ref goes LAST so the anchor's 'LAST attached reference' holds."""
+        The board ref goes LAST so _BOARD_ANCHOR's 'LAST attached reference' holds —
+        unless a setup anchor follows it (board_is_last=False), which takes the LAST
+        slot and the board switches to the position-free _BOARD_ANCHOR_MID wording."""
         if shot.get("board_url") and shot.get("board_panel"):
-            return _BOARD_ANCHOR.format(panel=shot["board_panel"]), [shot["board_url"]]
+            tmpl = _BOARD_ANCHOR if board_is_last else _BOARD_ANCHOR_MID
+            return tmpl.format(panel=shot["board_panel"]), [shot["board_url"]]
         return "", []
 
     m = moment["master"]
-    m_anchor, m_ref = _board(m)
-    master_prompt = (build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
-                     + _STYLE_LOCK + m_anchor)
-    master_url, master_model = await _gen(master_prompt, base + m_ref)  # master first — angles anchor on it
+    master_url, master_model = None, None
+    try:
+        s_anchor, s_ref = await _setup_ref(m)
+        m_anchor, m_ref = _board(m, board_is_last=not s_ref)
+        master_prompt = (build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
+                         + _STYLE_LOCK + m_anchor + s_anchor)
+        master_url, master_model = await _gen(master_prompt, base + m_ref + s_ref)  # master first — angles anchor on it
+    finally:
+        _resolve_owned(m, master_url)
+        if not master_url:
+            # Master failed → this moment's angles never draw. Any future THEY
+            # own must still resolve (None) or their setup's other shots hang.
+            for a in (moment.get("angles") or []):
+                _resolve_owned(a, None)
     if not master_url:
         return None
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"],
@@ -665,10 +755,15 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
-        a_anchor, a_ref = _board(a)
-        ap = (build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
-              + _SAME_SUBJECT + _STYLE_LOCK + a_anchor)
-        url, model_used = await _gen(ap, angle_base + a_ref)
+        url = None
+        try:
+            s_anchor, s_ref = await _setup_ref(a)
+            a_anchor, a_ref = _board(a, board_is_last=not s_ref)
+            ap = (build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
+                  + _SAME_SUBJECT + _STYLE_LOCK + a_anchor + s_anchor)
+            url, model_used = await _gen(ap, angle_base + a_ref + s_ref)
+        finally:
+            _resolve_owned(a, url)
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
                 "camera_move": a.get("camera_move"), "routed_model": a.get("routed_model"),
                 "routing_reason": a.get("routing_reason"), "url": url,
@@ -893,6 +988,29 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if planned:
         print(f"  🎥 camera engine: {planned} shots planned with a move", flush=True)
 
+    # SETUP ANCHORS (Ryan, 2026-07-21): tag every shot with its camera-setup id
+    # and make the FIRST-planned shot of each setup that setup's anchor owner —
+    # its landed frame becomes the canonical room every later same-setup shot
+    # copies (see _SETUP_ANCHOR / generate_coverage_frames's docstring). Plan
+    # order makes the wait graph acyclic; concurrency below is unchanged (an
+    # owner never waits on a setup future, so the gather still fans out).
+    setup_anchors: dict = {}
+    anchored_shots = 0
+    for moment in moments:
+        for shot in [moment["master"], *(moment.get("angles") or [])]:
+            sid = _setup_id(shot)
+            if not sid:
+                continue
+            shot["setup_id"] = sid
+            if sid not in setup_anchors:
+                setup_anchors[sid] = asyncio.get_running_loop().create_future()
+                shot["setup_anchor_owner"] = True
+            else:
+                anchored_shots += 1
+    if anchored_shots:
+        print(f"  🔗 setup anchors: {len(setup_anchors)} camera setups, "
+              f"{anchored_shots} repeat shots will copy their setup's anchor frame", flush=True)
+
     # Draw all moments CONCURRENTLY (each: master first, then its angles in parallel),
     # with one shared semaphore capping total in-flight Kie image gens. Collapses ~12
     # strictly-serial frames into ~2 sequential steps — scene coverage goes from ~20 min
@@ -903,7 +1021,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     moment_results = await asyncio.gather(*[
         generate_coverage_frames(moment, cast_url, image_client, profile,
                                  env_url=env_url, aspect=aspect, resolution=resolution, sem=sem,
-                                 model_override=model_override)
+                                 model_override=model_override, setup_anchors=setup_anchors)
         for moment in moments
     ], return_exceptions=True)
 

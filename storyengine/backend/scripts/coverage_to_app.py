@@ -1874,6 +1874,30 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         "AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
     cast_refs = [r["reference_url"] for r in crows]
 
+    # LOCKED LOCATION on redraws too (2026-07-21): the batch pictures run
+    # conditions every frame on the scene's approved environment ref, but this
+    # path used to attach ONLY cast refs — so a redrawn frame re-invented its
+    # background and visibly drifted from its still-original neighbors (seen
+    # live on cd5d2883's scene-1 redraws). Same matcher as the batch path;
+    # fail-soft, a redraw without an env match just draws like before.
+    env_refs, env_note = [], ""
+    try:
+        srow = await fetch_one(
+            "SELECT coverage_directive, scene_text FROM scripts "
+            "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", video_id, tenant_id, a["scene"])
+        envs = await _approved_envs(video_id, tenant_id)
+        env = _match_scene_env(((srow or {}).get("coverage_directive") or "") + " " +
+                               ((srow or {}).get("scene_text") or ""), envs) if envs else None
+        if env and env.get("reference_url"):
+            env_refs = [env["reference_url"]]
+            env_note = (
+                f" The LAST attached reference image is the LOCKED LOCATION — {env['name']}: "
+                "this frame's background is this EXACT location; keep its layout, colors and "
+                "props IDENTICAL to that reference."
+            )
+    except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this
+        _p(f"  (no location lock for this redraw: {str(env_err)[:80]})")
+
     model_override = a.get("image_model_override")
     _p(f"Redrawing S{a['scene']}.{a['image_index']} ({model_override or 'GPT Image 2'})…")
     # Fresh box per call (checklist C16c) — this is a single-image redraw,
@@ -1881,8 +1905,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # into record_ledger_entry's dedup key below.
     task_id_box: list = []
     url, model_used = await generate_scene_image_for_model(
-        ic, model_override, prompt, reference_urls=cast_refs, aspect_ratio=a["aspect"],
-        task_id_out=task_id_box)
+        ic, model_override, prompt + env_note, reference_urls=cast_refs + env_refs,
+        aspect_ratio=a["aspect"], task_id_out=task_id_box)
     if not url:
         return {"status": "failed", "error": "image generation failed"}
     stable = await _stable_url(url, f"{video_id}/coverage/S{a['scene']}_i{a['image_index']}.png", tenant_id)
