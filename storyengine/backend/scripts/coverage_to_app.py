@@ -1355,18 +1355,25 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
-        "image_style_override, visual_style, image_model_override, render_style, video_model, "
+        "image_style_override, visual_style, render_style, video_model, "
         "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
-    model_override = v["image_model_override"]
+    # NOTE: videos.image_model_override is deliberately NOT selected here.
+    # C25a-fix-nano-sheets (Ryan's ruling, 2026-07-21 — "previews move OFF
+    # the filtered endpoint entirely"): every sheet board below draws on the
+    # LITERAL model "nano-banana-2", unconditionally — the video's own image
+    # model choice no longer has any say over sheet previews (it still fully
+    # governs the real per-shot PICTURES path: run_coverage / redraw_asset_
+    # image / run_image_variants). See _draw_board's docstring below.
+    #
     # C13b: the channel-style routing guardrail's two inputs, threaded down
     # through run_coverage -> plan_camera_moves -> route_shot_model. Distinct
-    # from model_override above (that's the IMAGE model; this is the video's
-    # declared LOOK + its own clip model).
+    # from the IMAGE model discussion above — this is the video's declared
+    # LOOK + its own clip model, unrelated to which model paints a preview.
     render_style = v["render_style"]
     video_model_id = v["video_model"]
     profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
@@ -1393,6 +1400,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # engine supported env refs; this caller never passed them).
     envs = await _approved_envs(vid, tenant)
 
+    # C25a-fix-nano-sheets (Ryan's ruling, 2026-07-21): EVERY sheet board draw
+    # below uses this LITERAL model, never `model_override` (the video's own
+    # image-model choice — that still governs the real per-shot PICTURES
+    # path only). Storyboard sheets are a disposable 6-panel composite
+    # PREVIEW judged output-stage by OpenAI's random content filter on the
+    # whole composite at once — one borderline panel poisons the board,
+    # grinding cooking/prop-heavy scenes through the retry ladder forever.
+    # nano-banana-2 has no OpenAI moderation stage, so previews move
+    # UNCONDITIONALLY onto it.
+    SHEET_DRAW_MODEL = "nano-banana-2"
+
     async def _draw_board(sc, srow, bi, sp, prompts_fallback_list, env_block, sheet_refs):
         """Draw ONE storyboard-sheet board through the full retry/re-roll ladder
         (primary draw -> C25a-fix8's fallback-header retry on a zero-cost
@@ -1400,7 +1418,20 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         transient-Kie/ref-fetch failure), persist the result (the board's URL
         on success, a classified storyboard_errors entry on exhaustion —
         migration 113), and return (landed, entry). Closes over vid, tenant,
-        ic, model_override, aspect — constant for the whole video, set above.
+        ic, aspect, SHEET_DRAW_MODEL — constant for the whole video, set above.
+
+        Every draw below passes model=SHEET_DRAW_MODEL ("nano-banana-2",
+        literal — see the constant's comment) and no_gpt_fallback=True. The
+        router's nano branch normally falls back to _gpt_default when nano
+        fails (shared.clients.image_model_router.generate_scene_image_for_
+        model's docstring) — for sheets that would silently walk right back
+        onto GPT Image 2's OpenAI-filtered endpoint, the exact thing this
+        whole change exists to avoid. no_gpt_fallback=True keeps a failed
+        nano attempt failed, so THIS ladder (unchanged below) is what handles
+        it — it now guards nano's own Kie-infra failures (500s, ref-fetch)
+        rather than OpenAI's moderation (which nano doesn't have), so
+        moderation/sensitive-class entries should become rare while the
+        transient classes stay exactly as load-bearing as before.
 
         Shared by the scene's normal per-board pass AND the BUILD 2 sweep
         passes (2026-07-21) so a swept board draws through the IDENTICAL
@@ -1408,8 +1439,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         re-attempt."""
         fail_box: list = []
         url, _model_used = await generate_scene_image_for_model(
-            ic, model_override, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
-            fail_info_out=fail_box)
+            ic, SHEET_DRAW_MODEL, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
+            fail_info_out=fail_box, no_gpt_fallback=True)
         # C25a-fix8: ONE free retry with the sparser fallback header when the
         # primary header trips OpenAI's content filter (the exact, zero-cost,
         # deterministic signature — see _sheet_filter_reject's docstring).
@@ -1425,8 +1456,9 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                   f"(failCode={info.get('failCode')}, creditsConsumed={info.get('creditsConsumed')}) "
                   "— retrying ONCE with the sparser fallback header (C25a-fix8)…")
             url, _model_used = await generate_scene_image_for_model(
-                ic, model_override, prompts_fallback_list[bi - 1] + env_block,
-                reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box)
+                ic, SHEET_DRAW_MODEL, prompts_fallback_list[bi - 1] + env_block,
+                reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box,
+                no_gpt_fallback=True)
             if url:
                 print(f"      ✅ Storyboard sheet: board {bi} succeeded on the fallback-header retry.")
             else:
@@ -1458,8 +1490,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                       f"filter (free attempt {reroll}/3)…")
             rr_box: list = []
             url, _model_used = await generate_scene_image_for_model(
-                ic, model_override, sp + env_block, reference_urls=sheet_refs,
-                aspect_ratio=aspect, fail_info_out=rr_box)
+                ic, SHEET_DRAW_MODEL, sp + env_block, reference_urls=sheet_refs,
+                aspect_ratio=aspect, fail_info_out=rr_box, no_gpt_fallback=True)
             last_fail = rr_box[-1] if rr_box else None
             if url:
                 print(f"      ✅ Storyboard sheet: board {bi} landed on re-roll {reroll}.")

@@ -534,6 +534,7 @@ class ImageClient:
         aspect_ratio: str = "16:9",
         model: str = None,
         task_id_out: Optional[list] = None,
+        fail_info_out: Optional[list] = None,
     ) -> Optional[list[str]]:
         """Generate an image and wait for completion.
 
@@ -545,6 +546,16 @@ class ImageClient:
                 Kie taskId once create_image succeeds (append, don't assign
                 — see generate_video's task_id_out docstring). Used for
                 generation_ledger traceability (checklist C16c).
+            fail_info_out: optional list the caller passes in to receive
+                Kie's raw failure detail dict on a FAILED poll (see
+                poll_for_completion's docstring) — threaded through
+                (2026-07-21) so the nano-banana-2 branch of
+                image_model_router.generate_scene_image_for_model can
+                classify a REFS-LESS nano failure the same way
+                generate_thumbnail_gpt2 already lets callers classify a GPT
+                one (storyboard sheets, since C25a-fix-nano-sheets, now draw
+                on this model and need Kie's real failCode/creditsConsumed to
+                drive their existing retry ladder).
 
         Returns:
             List of image URLs when complete, or None if failed
@@ -581,7 +592,8 @@ class ImageClient:
         await asyncio.sleep(5)
 
         # Use higher max_attempts for thumbnail generation (can take 60+ seconds)
-        result_urls = await self.poll_for_completion(task_id, max_attempts=45, poll_interval=2.0)
+        result_urls = await self.poll_for_completion(
+            task_id, max_attempts=45, poll_interval=2.0, fail_info_out=fail_info_out)
 
         if not result_urls:
             print(f"      ❌ Generation failed for task {task_id} (model: {use_model})")
@@ -808,6 +820,7 @@ class ImageClient:
         aspect_ratio: str = "16:9",
         resolution: str = "1K",
         task_id_out: Optional[list] = None,
+        fail_info_out: Optional[list] = None,
     ) -> Optional[dict]:
         """Generate an image using a reference for character consistency.
 
@@ -826,6 +839,17 @@ class ImageClient:
                 Kie taskId once the create-task call succeeds (append, don't
                 assign — see generate_video's task_id_out docstring). Used
                 for generation_ledger traceability (checklist C16c).
+            fail_info_out: optional list the caller passes in to receive
+                Kie's raw failure detail dict on a FAILED poll (see
+                poll_for_completion's docstring) — threaded through
+                (2026-07-21) so image_model_router's nano-banana-2 branch can
+                classify a failure the same way generate_thumbnail_gpt2
+                already lets callers classify a GPT one. Storyboard sheets
+                (C25a-fix-nano-sheets) now draw on THIS path and rely on it to
+                keep their existing moderation/transient-Kie/ref-fetch retry
+                ladder working — nano goes through the same Kie infra, so its
+                own 500s and ref-fetch failures carry the identical
+                failCode/creditsConsumed shape the ladder already classifies.
 
         Returns:
             Dict with 'url' key, or None if failed
@@ -885,7 +909,8 @@ class ImageClient:
                 # routinely take 2-4 minutes; the old 120s budget timed out on
                 # real grids and read as silent failures.
                 await asyncio.sleep(5)
-                result_urls = await self.poll_for_completion(task_id, max_attempts=90, poll_interval=5.0)
+                result_urls = await self.poll_for_completion(
+                    task_id, max_attempts=90, poll_interval=5.0, fail_info_out=fail_info_out)
 
                 if result_urls:
                     return {"url": result_urls[0]}

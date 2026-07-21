@@ -49,18 +49,31 @@ class FakeImageClient:
         return self._consume("generate_scene_image_zimage")
 
     async def generate_with_reference(self, prompt, reference_image_url, aspect_ratio="16:9",
-                                       resolution="1K", task_id_out=None):
+                                       resolution="1K", task_id_out=None, fail_info_out=None):
         self.calls.append(("generate_with_reference", (prompt, reference_image_url),
                             {"aspect_ratio": aspect_ratio}))
         if task_id_out is not None:
             task_id_out.append("task-with-reference")
-        return self._consume("generate_with_reference")
+        result = self._consume("generate_with_reference")
+        # C25a-fix-nano-sheets: mirrors generate_thumbnail_gpt2's fail_info_out
+        # fixture convention below — 'generate_with_reference_fail_info' is the
+        # opt-in key for tests asserting on a nano-path failure signature.
+        if result is None and fail_info_out is not None:
+            info = self._consume("generate_with_reference_fail_info")
+            if info is not None:
+                fail_info_out.append(info)
+        return result
 
-    async def generate_and_wait(self, prompt, aspect_ratio="16:9", model=None, task_id_out=None):
+    async def generate_and_wait(self, prompt, aspect_ratio="16:9", model=None, task_id_out=None,
+                                 fail_info_out=None):
         self.calls.append(("generate_and_wait", (prompt,), {"aspect_ratio": aspect_ratio, "model": model}))
         if task_id_out is not None:
             task_id_out.append("task-and-wait")
         urls = self._consume("generate_and_wait")
+        if urls is None and fail_info_out is not None:
+            info = self._consume("generate_and_wait_fail_info")
+            if info is not None:
+                fail_info_out.append(info)
         return urls
 
     async def generate_thumbnail_gpt2(self, prompt, reference_image_url, aspect_ratio="16:9",
@@ -280,19 +293,27 @@ def test_task_id_out_is_none_safe_when_caller_does_not_pass_it():
 # filter rejection signature and retry with a different header). -----------
 
 def test_fail_info_out_reaches_default_gpt_thumbnail_path_on_failure():
+    """A REAL (credit-consuming) failure — not the zero-cost filter class —
+    never re-rolls (see the Change-2 re-roll section below for that), so this
+    stays the original single-attempt shape: exactly 1 generate_thumbnail_gpt2
+    call, its failure detail lands in fail_info_out once. C25a-fix-gpt-reroll
+    (2026-07-21) also means a real failure now falls back to nano-banana-2
+    immediately (see test_credit_consuming_failure_falls_back_to_nano_
+    immediately below for that in isolation) — this fixture leaves
+    generate_with_reference unplanned (returns None), so the end result stays
+    (None, None), same as before that change landed."""
     ic = FakeImageClient({
         "generate_thumbnail_gpt2": None,
         "generate_thumbnail_gpt2_fail_info": {
-            "failCode": "400", "failMsg": "The current content could not be processed.",
-            "creditsConsumed": 0.0,
+            "failCode": "500", "failMsg": "some real production error", "creditsConsumed": 1.2,
         },
     })
     box: list = []
     url, model = _run(generate_scene_image_for_model(
         ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9", fail_info_out=box))
     assert (url, model) == (None, None)
-    assert box == [{"failCode": "400", "failMsg": "The current content could not be processed.",
-                     "creditsConsumed": 0.0}]
+    assert box == [{"failCode": "500", "failMsg": "some real production error", "creditsConsumed": 1.2}]
+    assert [c[0] for c in ic.calls] == ["generate_thumbnail_gpt2", "generate_with_reference"]
 
 
 def test_fail_info_out_untouched_on_success():
@@ -314,3 +335,169 @@ def test_fail_info_out_is_none_safe_when_caller_does_not_pass_it():
     url, model = _run(generate_scene_image_for_model(
         ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9"))
     assert (url, model) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# C25a-fix-nano-sheets (2026-07-21): no_gpt_fallback — the ONLY caller-facing
+# change to the nano-banana-2 branch. When True, a failed nano attempt
+# returns (None, None) directly instead of walking into _gpt_default — the
+# mechanism storyboard sheets (coverage_to_app.py's _draw_board) rely on to
+# stay off GPT Image 2's OpenAI-filtered endpoint entirely. The end-to-end
+# proof (real router + real coverage_to_app.py call sites) lives in
+# storyengine/backend/tests/functional/test_c25a_fix7_gpt_sheet_ref_cap.py —
+# these are the router-level unit pins for the flag itself.
+# ---------------------------------------------------------------------------
+
+def test_no_gpt_fallback_keeps_failed_nano_from_reaching_gpt():
+    ic = FakeImageClient({"generate_with_reference": None})  # nano fails, nothing else planned
+    url, model = _run(generate_scene_image_for_model(
+        ic, "nano-banana-2", "p", reference_urls=["ref1"], aspect_ratio="16:9",
+        no_gpt_fallback=True))
+    assert (url, model) == (None, None)
+    assert [c[0] for c in ic.calls] == ["generate_with_reference"]  # never touched a GPT method
+
+
+def test_no_gpt_fallback_false_by_default_unchanged_behavior():
+    """Every OTHER caller (PICTURES via an explicit nano-banana-2 override)
+    never passes no_gpt_fallback and keeps the pre-existing GPT-fallback
+    behavior — same assertion as test_nano_override_falls_back_to_gpt_on_
+    failure above, pinned again here explicitly against the default value."""
+    ic = FakeImageClient({
+        "generate_with_reference": None,
+        "generate_thumbnail_gpt2": {"url": "https://img/fallback.png", "model": "gpt-image-2"},
+    })
+    url, model = _run(generate_scene_image_for_model(
+        ic, "nano-banana-2", "p", reference_urls=["ref1"], aspect_ratio="16:9"))
+    assert (url, model) == ("https://img/fallback.png", "gpt-image-2")
+    assert [c[0] for c in ic.calls] == ["generate_with_reference", "generate_thumbnail_gpt2"]
+
+
+def test_no_gpt_fallback_irrelevant_on_nano_success():
+    """no_gpt_fallback only matters on FAILURE — a successful nano draw
+    returns normally whether the flag is set or not."""
+    ic = FakeImageClient({"generate_with_reference": {"url": "https://img/nano.png"}})
+    url, model = _run(generate_scene_image_for_model(
+        ic, "nano-banana-2", "p", reference_urls=["ref1"], aspect_ratio="16:9",
+        no_gpt_fallback=True))
+    assert (url, model) == ("https://img/nano.png", "nano-banana-2")
+
+
+def test_fail_info_out_reaches_nano_with_reference_path_on_failure():
+    """C25a-fix-nano-sheets: fail_info_out now also threads through the nano
+    path (generate_with_reference), not just the GPT one — the sheet ladder
+    needs Kie's real failCode/creditsConsumed to classify a nano failure the
+    same way it already classified GPT ones."""
+    ic = FakeImageClient({
+        "generate_with_reference": None,
+        "generate_with_reference_fail_info": {
+            "failCode": "500", "failMsg": "Internal Error, Please try again later.",
+            "creditsConsumed": 0.0,
+        },
+    })
+    box: list = []
+    url, model = _run(generate_scene_image_for_model(
+        ic, "nano-banana-2", "p", reference_urls=["ref1"], aspect_ratio="16:9",
+        no_gpt_fallback=True, fail_info_out=box))
+    assert (url, model) == (None, None)
+    assert box == [{"failCode": "500", "failMsg": "Internal Error, Please try again later.",
+                     "creditsConsumed": 0.0}]
+
+
+def test_fail_info_out_reaches_nano_generate_and_wait_path_on_failure():
+    ic = FakeImageClient({
+        "generate_and_wait": None,
+        "generate_and_wait_fail_info": {
+            "failCode": "400", "failMsg": "image fetch failed.", "creditsConsumed": 0,
+        },
+    })
+    box: list = []
+    url, model = _run(generate_scene_image_for_model(
+        ic, "nano-banana-2", "p", aspect_ratio="16:9", no_gpt_fallback=True, fail_info_out=box))
+    assert (url, model) == (None, None)
+    assert box == [{"failCode": "400", "failMsg": "image fetch failed.", "creditsConsumed": 0}]
+
+
+# ---------------------------------------------------------------------------
+# C25a-fix-gpt-reroll (2026-07-21): _gpt_default's refs branch (the real
+# per-shot PICTURES path) now re-rolls GPT up to 2 FREE extra times when a
+# failure is the deterministic, zero-cost content-filter rejection, before
+# falling back to nano-banana-2 — mirrors the sheet ladder's own free-re-roll
+# reasoning (OpenAI's filter is a coin flip near its threshold) without any
+# sleep (single-image cadence). A REAL (credit-consuming) failure skips
+# straight to nano on the first attempt, same immediacy as before this
+# change (see test_fail_info_out_reaches_default_gpt_thumbnail_path_on_
+# failure above for that case in the fail_info_out context).
+# ---------------------------------------------------------------------------
+
+_FILTER_400 = {
+    "failCode": "400", "failMsg": "The current content could not be processed.",
+    "creditsConsumed": 0.0,
+}
+_REAL_FAILURE = {"failCode": "500", "failMsg": "some real production error", "creditsConsumed": 1.0}
+
+
+def test_gpt_reroll_twice_then_success_on_third_roll_never_calls_nano():
+    ic = FakeImageClient({
+        "generate_thumbnail_gpt2": [None, None, {"url": "https://img/gpt-roll3.png", "model": "gpt-image-2"}],
+        "generate_thumbnail_gpt2_fail_info": [_FILTER_400, _FILTER_400],
+    })
+    url, model = _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9"))
+    assert (url, model) == ("https://img/gpt-roll3.png", "gpt-image-2")
+    assert [c[0] for c in ic.calls] == ["generate_thumbnail_gpt2"] * 3
+    assert "generate_with_reference" not in [c[0] for c in ic.calls]
+
+
+def test_gpt_three_filter_rejections_falls_back_to_nano_exactly_once():
+    ic = FakeImageClient({
+        "generate_thumbnail_gpt2": [None, None, None],
+        "generate_thumbnail_gpt2_fail_info": [_FILTER_400, _FILTER_400, _FILTER_400],
+        "generate_with_reference": {"url": "https://img/nano-after-3.png"},
+    })
+    url, model = _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9"))
+    assert (url, model) == ("https://img/nano-after-3.png", "nano-banana-2")
+    assert [c[0] for c in ic.calls] == (
+        ["generate_thumbnail_gpt2"] * 3 + ["generate_with_reference"])
+
+
+def test_credit_consuming_failure_falls_back_to_nano_immediately():
+    """Today's behavior preserved: a REAL (credit-consuming) GPT failure
+    never re-rolls — it falls back to nano on the very first attempt, exactly
+    1 GPT call + 1 nano call, same immediacy the no-refs branch
+    (generate_scene_image_gpt) already had."""
+    ic = FakeImageClient({
+        "generate_thumbnail_gpt2": None,
+        "generate_thumbnail_gpt2_fail_info": _REAL_FAILURE,
+        "generate_with_reference": {"url": "https://img/nano-immediate.png"},
+    })
+    url, model = _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9"))
+    assert (url, model) == ("https://img/nano-immediate.png", "nano-banana-2")
+    assert [c[0] for c in ic.calls] == ["generate_thumbnail_gpt2", "generate_with_reference"]
+
+
+def test_gpt_reroll_fail_info_out_accumulates_one_entry_per_attempt():
+    """fail_info_out is append-only across every GPT attempt (same convention
+    as task_id_out) — 2 failed re-rolls before the 3rd succeeds means 2
+    entries land in the caller's box, not 0 and not 3."""
+    ic = FakeImageClient({
+        "generate_thumbnail_gpt2": [None, None, {"url": "https://img/ok.png", "model": "gpt-image-2"}],
+        "generate_thumbnail_gpt2_fail_info": [_FILTER_400, _FILTER_400],
+    })
+    box: list = []
+    _run(generate_scene_image_for_model(
+        ic, None, "p", reference_urls=["ref1"], aspect_ratio="16:9", fail_info_out=box))
+    assert box == [_FILTER_400, _FILTER_400]
+
+
+def test_gpt_reroll_never_fires_for_no_refs_branch():
+    """The re-roll is scoped to the refs branch only — generate_scene_image_gpt
+    (no refs) already owns its own separate internal ladder and must stay
+    completely untouched by this change."""
+    ic = FakeImageClient({
+        "generate_scene_image_gpt": {"url": "https://img/text-to-image.png", "model": "gpt-image-2"},
+    })
+    url, model = _run(generate_scene_image_for_model(ic, None, "p", aspect_ratio="16:9"))
+    assert (url, model) == ("https://img/text-to-image.png", "gpt-image-2")
+    assert [c[0] for c in ic.calls] == ["generate_scene_image_gpt"]

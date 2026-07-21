@@ -86,18 +86,28 @@ ENV = {
 }
 
 
-def _video_row():
+def _video_row(image_model_override=None):
+    # image_model_override is kept in this fixture even though C25a-fix-nano-
+    # sheets (2026-07-21) removed the column from generate_storyboard_sheet_
+    # for_scene's own SELECT (sheets no longer read it at all) — FakeDB.
+    # fetch_one doesn't parse SQL, it just returns this whole row, and other
+    # code paths (redo_characters, redraw_asset_image, autobuild) that share
+    # this test module's conventions still expect the key to exist. The
+    # parameter lets test_sheet_draw_ignores_video_image_model_override
+    # below prove sheets ignore it now, whatever it's set to.
     return {
         "id": VIDEO_ID, "tenant_id": TENANT_ID, "video_title": "Test Video",
         "aspect": "16:9", "image_style_override": None, "visual_style": None,
-        "image_model_override": None, "render_style": None, "video_model": "grok-imagine",
-        "dialogue_audio": "voice_over",
+        "image_model_override": image_model_override, "render_style": None,
+        "video_model": "grok-imagine", "dialogue_audio": "voice_over",
     }
 
 
 class FakeDB:
-    def __init__(self, cast_refs, coverage_directive=None, coverage_directive_hash=None):
+    def __init__(self, cast_refs, coverage_directive=None, coverage_directive_hash=None,
+                 image_model_override=None):
         self.cast_refs = cast_refs
+        self.image_model_override = image_model_override
         # Simulates scripts.storyboard_errors (migration 113) for script-1 —
         # a plain dict keyed by beat NUMBER AS STRING, mirroring the jsonb
         # merge (COALESCE(...) || $1::jsonb) and subtract (col - $1) the real
@@ -118,7 +128,7 @@ class FakeDB:
 
     async def fetch_one(self, query, *args):
         if "FROM videos WHERE id=$1" in query:
-            return _video_row()
+            return _video_row(self.image_model_override)
         if "coverage_directive, coverage_directive_hash FROM scripts" in query:
             return {"id": "script-1", "coverage_directive": self.coverage_directive,
                     "coverage_directive_hash": self.coverage_directive_hash}
@@ -158,18 +168,25 @@ class FakeDB:
         return "OK"
 
 
-def _run(cast_refs, envs):
+def _run(cast_refs, envs, image_model_override=None):
     """Runs generate_storyboard_sheet_for_scene end to end (real parse_coverage /
     enforce_shot_budget / _plan_sheet_prompts / _match_scene_env), capturing every
     call made to generate_scene_image_for_model — the ONE call site that actually
-    ships reference_urls to Kie as input_urls."""
-    fakedb = FakeDB(cast_refs)
+    ships reference_urls to Kie as input_urls.
+
+    image_model_override: the VIDEO's own stored image_model_override
+    (default None, matching every pre-existing test in this module) — C25a-
+    fix-nano-sheets (2026-07-21) proves sheets ignore this entirely (see
+    test_sheet_draw_ignores_video_image_model_override below), so this
+    param exists to let that one test set it to something else."""
+    fakedb = FakeDB(cast_refs, image_model_override=image_model_override)
     captured_calls = []
 
     async def _fake_generate_scene_image_for_model(ic, model_override, prompt,
                                                      reference_urls=None, aspect_ratio="16:9",
                                                      **kwargs):
-        captured_calls.append({"prompt": prompt, "reference_urls": list(reference_urls or [])})
+        captured_calls.append({"model_override": model_override, "prompt": prompt,
+                                "reference_urls": list(reference_urls or [])})
         return "https://fake-storage.example/board.png", "gpt-image-2"
 
     patches = [
@@ -213,7 +230,8 @@ def _run_with_directive(directive_text, envs=(), cast_refs=("https://fake/cast-a
     async def _fake_generate_scene_image_for_model(ic, model_override, prompt,
                                                      reference_urls=None, aspect_ratio="16:9",
                                                      **kwargs):
-        captured_calls.append({"prompt": prompt, "reference_urls": list(reference_urls or [])})
+        captured_calls.append({"model_override": model_override, "prompt": prompt,
+                                "reference_urls": list(reference_urls or [])})
         return "https://fake-storage.example/board.png", "gpt-image-2"
 
     run_coverage_boom = AsyncMock(side_effect=AssertionError(
@@ -259,7 +277,8 @@ def _scripted_image_fn(fail_sequence, success_url="https://fake-storage.example/
 
     async def _fn(ic, model_override, prompt, reference_urls=None, aspect_ratio="16:9",
                   fail_info_out=None, **kwargs):
-        calls.append({"prompt": prompt, "reference_urls": list(reference_urls or [])})
+        calls.append({"model_override": model_override, "prompt": prompt,
+                       "reference_urls": list(reference_urls or [])})
         idx = len(calls) - 1
         if idx < len(fail_sequence):
             info = fail_sequence[idx]
@@ -372,6 +391,33 @@ def test_three_cast_refs_no_env_all_sent_uncapped():
         envs=[])
     refs = calls[0]["reference_urls"]
     assert refs == ["https://fake/cast-a.png", "https://fake/cast-b.png", "https://fake/cast-c.png"]
+
+
+# ---------------------------------------------------------------------------
+# C25a-fix-nano-sheets (2026-07-21, Ryan's ruling: "previews move OFF the
+# filtered endpoint entirely"): every sheet draw now passes the LITERAL model
+# "nano-banana-2" to generate_scene_image_for_model — never the video's own
+# image_model_override, which continues to govern PICTURES only.
+# ---------------------------------------------------------------------------
+
+def test_primary_sheet_draw_uses_nano_banana_2_literal():
+    calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[])
+    assert calls[0]["model_override"] == "nano-banana-2"
+
+
+def test_sheet_draw_ignores_video_image_model_override():
+    """Even when the VIDEO's own stored image_model_override says otherwise
+    (here 'gpt-image-2', the exact filtered endpoint this change moves sheets
+    OFF of), the sheet draw call site still passes the literal 'nano-banana-2'
+    — proving the override is fully ignored for sheets, not just usually
+    None in practice."""
+    calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[], image_model_override="gpt-image-2")
+    assert calls[0]["model_override"] == "nano-banana-2"
+
+
+def test_sheet_draw_ignores_video_image_model_override_zimage():
+    calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[], image_model_override="z-image")
+    assert calls[0]["model_override"] == "nano-banana-2"
 
 
 # ---------------------------------------------------------------------------
@@ -655,12 +701,19 @@ def test_exhausted_ladder_writes_moderation_entry_with_attempts():
     primary + the fallback-header retry + 3 free re-rolls = 5 calls — for
     the normal pass AND both BUILD 2 sweeps (15 calls total) before, never
     landing, persisting a 'moderation' entry with attempts=5 (the LAST
-    pass's count — each pass's persisted entry overwrites the last)."""
+    pass's count — each pass's persisted entry overwrites the last).
+
+    C25a-fix-nano-sheets: also the "primary + retry + sweep paths" proof
+    that EVERY one of these 15 calls (spanning all 3 call sites inside
+    _draw_board, across the normal pass AND both sweeps) passes the literal
+    model 'nano-banana-2' — never the video's own image_model_override
+    (None here, same as every other test in this module)."""
     fn = _scripted_image_fn([_MODERATION_400] * 15)
     messages = []
     fakedb, result = _run_with_image_fn(fn, progress=messages.append)
     assert result["status"] == "completed", result
     assert len(fn.calls) == 15, len(fn.calls)
+    assert all(c["model_override"] == "nano-banana-2" for c in fn.calls), fn.calls
     assert sum(1 for m in messages if m.startswith("Scene 1: Sweep ")) == 2, messages
     entry = fakedb.storyboard_errors.get("1")
     assert entry, fakedb.storyboard_errors
@@ -964,6 +1017,106 @@ def test_per_beat_redo_never_sweeps():
     assert not any("Sweep" in m for m in messages), messages
     entry = fakedb.storyboard_errors.get("1")
     assert entry and entry["class"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# C25a-fix-nano-sheets (2026-07-21): no-GPT-fallback mechanism, proven
+# END TO END against the REAL router. Every test above replaces
+# scripts.coverage_to_app.generate_scene_image_for_model wholesale (a fake
+# stand-in that never touches shared.clients.image_model_router at all), so
+# none of them can prove the no_gpt_fallback kwarg coverage_to_app.py now
+# passes actually reaches and is honored by the router. This one instead
+# patches scripts.coverage_to_app.ImageClient with a controllable fake and
+# leaves generate_scene_image_for_model UNPATCHED — the real router logic
+# runs for real, calling the fake ImageClient's nano methods (always
+# failing) and asserting its GPT methods are NEVER reached.
+# ---------------------------------------------------------------------------
+
+class _NanoOnlyFakeImageClient:
+    """Stand-in for shared.clients.image_client.ImageClient: nano ALWAYS
+    fails (a real, credit-consuming signature — 'unknown' class, so the
+    inner retry ladder never re-rolls and each of the 3 passes — normal +
+    sweep 1 + sweep 2 — makes exactly 1 nano attempt); any GPT-path method
+    call fails the test outright via AssertionError."""
+
+    SCENE_MODEL = "nano-banana-2"
+
+    def __init__(self, api_key=None, tenant_id=None):
+        self.nano_calls = 0
+        self.gpt_calls = 0
+
+    async def generate_with_reference(self, prompt, reference_image_url, aspect_ratio="16:9",
+                                       resolution="1K", task_id_out=None, fail_info_out=None):
+        self.nano_calls += 1
+        if task_id_out is not None:
+            task_id_out.append(f"nano-task-{self.nano_calls}")
+        if fail_info_out is not None:
+            fail_info_out.append(dict(_REAL_FAIL))
+        return None
+
+    async def generate_and_wait(self, prompt, aspect_ratio="16:9", model=None, task_id_out=None,
+                                 fail_info_out=None):
+        self.nano_calls += 1
+        if fail_info_out is not None:
+            fail_info_out.append(dict(_REAL_FAIL))
+        return None
+
+    async def generate_thumbnail_gpt2(self, *a, **k):
+        self.gpt_calls += 1
+        raise AssertionError(
+            "no_gpt_fallback=True: a sheet draw must never reach generate_thumbnail_gpt2")
+
+    async def generate_scene_image_gpt(self, *a, **k):
+        self.gpt_calls += 1
+        raise AssertionError(
+            "no_gpt_fallback=True: a sheet draw must never reach generate_scene_image_gpt")
+
+    async def generate_scene_image_zimage(self, *a, **k):
+        raise AssertionError("sheets never use z-image")
+
+
+def test_nano_failure_never_falls_back_to_gpt_default_real_router():
+    """End-to-end proof of the no_gpt_fallback mechanism: with the REAL
+    shared.clients.image_model_router.generate_scene_image_for_model running
+    (not the FakeDB harness's usual stand-in) against an ImageClient whose
+    nano path always fails, every one of the 3 passes (normal + 2 sweeps)
+    makes exactly 1 nano attempt and 0 GPT attempts — a failed nano draw
+    stays failed instead of quietly reaching generate_thumbnail_gpt2 /
+    generate_scene_image_gpt, the exact OpenAI-filtered endpoint Ryan's
+    2026-07-21 ruling moved sheets off of."""
+    fake_ic = _NanoOnlyFakeImageClient()
+    fakedb = FakeDB(["https://fake/cast-a.png"])
+    patches = [
+        patch("scripts.coverage_to_app.fetch_one", fakedb.fetch_one),
+        patch("scripts.coverage_to_app.fetch_all", fakedb.fetch_all),
+        patch("scripts.coverage_to_app.execute", fakedb.execute),
+        patch("scripts.coverage_to_app.get_secret", AsyncMock(return_value="fake-kie-key")),
+        patch("scripts.coverage_to_app.get_text_client_for_tenant", AsyncMock(return_value=object())),
+        patch("scripts.coverage_to_app.claude_model_for_direct_client", lambda c: "fake-model"),
+        patch("scripts.coverage_to_app.scene_aware_bible", AsyncMock(return_value=None)),
+        patch("scripts.coverage_to_app._approved_envs", AsyncMock(return_value=[])),
+        patch("scripts.coverage_to_app.generate_coverage_directive", AsyncMock(return_value=DIRECTIVE)),
+        patch("scripts.coverage_to_app._stable_url", AsyncMock(return_value="https://stable/final.png")),
+        patch("scripts.coverage_to_app.ImageClient", lambda **kw: fake_ic),
+        # BUILD 2's sweeps pause 90s for real infra — irrelevant to a fake
+        # that never lands, same patch _run_with_image_fn applies above.
+        patch("scripts.coverage_to_app.asyncio.sleep", AsyncMock(return_value=None)),
+        # generate_scene_image_for_model is deliberately NOT patched here —
+        # the REAL router must run for this test to mean anything.
+    ]
+    for p in patches:
+        p.start()
+    try:
+        result = asyncio.run(
+            generate_storyboard_sheet_for_scene(VIDEO_ID, TENANT_ID, scene=1, plan_only=False))
+    finally:
+        for p in patches:
+            p.stop()
+    assert result["status"] == "completed", result
+    assert fake_ic.gpt_calls == 0, "a GPT-path method was called — no_gpt_fallback was not honored"
+    assert fake_ic.nano_calls == 3, fake_ic.nano_calls  # normal pass + sweep 1 + sweep 2
+    entry = fakedb.storyboard_errors.get("1")
+    assert entry and entry["class"] == "unknown", entry
 
 
 if __name__ == "__main__":
