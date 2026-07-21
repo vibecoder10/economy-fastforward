@@ -13556,17 +13556,32 @@ separate scenes."""
     # a FINISH/autopilot test and is a follow-up (see HANDOFF-REPORT).
     async def run_coverage_images(self, video_id: str, scene: int = None) -> dict:
         """Draw the real per-shot, multi-angle pictures for a scene (or all scenes)
-        via coverage — the live image path. Replaces the old grid run_prompts+run_images."""
+        via coverage — the live image path. Replaces the old grid run_prompts+run_images.
+        STATIC-DOCU videos take one archival image per segment instead, so route them
+        to the static path (scene-scoped when a scene is given — lets a review-gate
+        re-roll fix ONE segment without re-rolling the others)."""
+        video = await self._get_video(video_id)
+        if video and (video.get("render_mode") or "") == "static_docu":
+            return await self.run_coverage_stage(
+                video_id, only_scenes={scene} if scene else None)
         from scripts.coverage_to_app import generate_coverage_for_video
         return await generate_coverage_for_video(video_id, self.tenant_id, scene=scene)
 
     async def run_storyboard_sheet(self, video_id: str, scene: int = None) -> dict:
         """Draw the cheap single-image storyboard SHEET preview for a scene via
-        coverage. Replaces the old grid run_storyboard_prompts+run_storyboard_images."""
+        coverage. Replaces the old grid run_storyboard_prompts+run_storyboard_images.
+        Static-documentary videos have no storyboard stage (one archival image per
+        segment, no multi-angle coverage), so refuse cleanly instead of running the
+        wrong generic-coverage path."""
+        video = await self._get_video(video_id)
+        if video and (video.get("render_mode") or "") == "static_docu":
+            return {"status": "skipped",
+                    "message": "This is a static-documentary channel — it uses one "
+                               "archival image per segment, not multi-angle storyboards."}
         from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
         return await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
 
-    async def run_coverage_stage(self, video_id: str) -> dict:
+    async def run_coverage_stage(self, video_id: str, only_scenes: set = None) -> dict:
         """Unified image STAGE (GOAL v2 Phase 0): draw the real per-shot, multi-angle
         pictures via coverage — the single live image path — mirroring the proven chat
         auto-build image phase (routes/chat.py). This is what the autopilot status map
@@ -13586,7 +13601,8 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "started",
                                      "Creating one image per segment (static documentary)")
             from static_docu import generate_static_images_for_video
-            st = await generate_static_images_for_video(video_id, self.tenant_id) or {}
+            st = await generate_static_images_for_video(
+                video_id, self.tenant_id, only_scenes=only_scenes) or {}
             if st.get("status") == "completed":
                 await execute(
                     "UPDATE videos SET status = 'ready_for_images', updated_at = now() "
