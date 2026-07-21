@@ -193,6 +193,7 @@ import logging
 import actions
 import agent_tokens
 import confirm_tokens
+import production_guide
 from auth_agent import get_agent_tenant_id
 from database import fetch_all, fetch_one
 
@@ -385,6 +386,30 @@ _READ_TOOLS: list[dict[str, Any]] = [
             "no cost, no media URLs, no secrets (never OAuth tokens or key material)."
         ),
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_production_guide",
+        "description": (
+            "THE process brain (checklist C66) — call this BEFORE acting on any video "
+            "and again after each stage completes, so a silent step (environment design, "
+            "a character-presence check) never gets skipped. Returns the canonical stage "
+            "checklist for THIS video — research -> script -> voice -> characters -> "
+            "environments -> storyboards -> images -> sound -> video -> thumbnail -> "
+            "render -> upload — derived from status_map.py's real status machine plus "
+            "pipeline_executor.py's character/environment gates, honoring this video's "
+            "actual format/stage plan (a stage the creator or a static-documentary format "
+            "skipped reads skipped_by_format, never a fake done). Each stage carries a "
+            "state (done / in_progress / not_started / skipped_by_format), a one-line "
+            "detail, and — where cheaply computable from already-stored data — concrete "
+            "gaps (character/location names in the Story Bible with no design yet, "
+            "designed characters/environments with no portrait, unapproved environments "
+            "which HARD-BLOCK storyboard generation, scenes with no storyboard grid). "
+            "Ends with next_step, the same 'what's the one next thing' the app's own "
+            "guided-next-step banner answers. No media URLs in this tool — use "
+            "get_scene_boards / get_character_sheets / get_environment_images / "
+            "get_thumbnail_image for those. Read-only, no cost."
+        ),
+        "inputSchema": _VIDEO_ID_SCHEMA,
     },
 ]
 
@@ -592,6 +617,18 @@ async def _call_get_workspace_info(tenant_id, arguments: dict[str, Any]) -> dict
     })
 
 
+async def _call_get_production_guide(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    """C66: thin wrapper over production_guide.get_production_guide — the
+    ONE place this query lives (no parallel stage logic here)."""
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_production_guide requires a video_id argument")
+    guide = await production_guide.get_production_guide(tenant_id, str(video_id))
+    if guide is None:
+        return _error_result(f"No video {video_id} found for this tenant")
+    return _text_result(guide)
+
+
 _READ_HANDLERS = {
     "list_videos": _call_list_videos,
     "get_video": _call_get_video,
@@ -601,6 +638,7 @@ _READ_HANDLERS = {
     "list_style_presets": _call_list_style_presets,
     "list_models": _call_list_models,
     "get_workspace_info": _call_get_workspace_info,
+    "get_production_guide": _call_get_production_guide,
 }
 
 
@@ -2581,6 +2619,213 @@ async def _call_quick_demo_video(tenant_id, arguments: dict[str, Any],
     return result
 
 
+# =============================================================================
+# ENVIRONMENTS TOOLS (C66 — checklist "MCP process brain", tasks/decisions.md
+# 2026-07-21 "MCP co-pilot must be PROCESS-AWARE": environment design was the
+# NAMED skipped step in Ryan's live-driving session — it had no confirm-
+# tokened MCP door at all (unlike "characters", which is a paid actions.
+# ACTIONS verb already; environment DESIGN never got that verb, only
+# approve_environments/skip_environments did). Every tool below wraps the
+# EXISTING routes/environments.py endpoint of the same shape — no new
+# generation logic, no parallel DB writes. get_environment_images (C48) is
+# the read side and already covers this family's non-image metadata; it is
+# NOT duplicated here.
+# =============================================================================
+
+_DESIGN_ENVIRONMENTS_TOOL: dict[str, Any] = {
+    "name": "design_environments",
+    "description": (
+        "Design one reference image per Story Bible/script location for "
+        "this video (routes/environments.py's POST /{id}/environments/"
+        "design) — background job, poll get_video / get_environment_images "
+        "for progress. Storyboard generation is HARD-BLOCKED "
+        "(pipeline_executor._environments_ready_gate) until every video "
+        "either does this (then approve_environments) or explicitly calls "
+        "skip_environments. PAID — one GPT Image 2 tier picture per "
+        "location. Call with no confirm_token first for a price quote; "
+        "call again with the returned confirm_token to actually run it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "confirm_token": {"type": "string", "description": "Omit on the first call to get a quote; pass it back to run."},
+        },
+        "required": ["video_id"],
+    },
+}
+
+_REDO_ENVIRONMENT_TOOL: dict[str, Any] = {
+    "name": "redo_environment",
+    "description": (
+        "Regenerate ONE environment's reference image (routes/"
+        "environments.py's POST /{id}/environments/{env_id}/regenerate) — "
+        "the same redo an Environments tab card runs. PAID (one GPT Image "
+        "2 tier picture). Call with no confirm_token first for a price "
+        "quote; call again with the returned confirm_token to actually "
+        "run it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "env_id": {"type": "string", "description": "Environment UUID (from get_environment_images)."},
+            "confirm_token": {"type": "string", "description": "Omit on the first call to get a quote; pass it back to run."},
+        },
+        "required": ["video_id", "env_id"],
+    },
+}
+
+_EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
+    "name": "edit_environment",
+    "description": (
+        "Edit one environment's name/description (routes/environments.py's "
+        "PATCH /{id}/environments/{env_id}). Free, no cost — redo_"
+        "environment is what actually spends money against the new "
+        "description."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "env_id": {"type": "string", "description": "Environment UUID (from get_environment_images)."},
+            "name": {"type": "string", "description": "New name, if changing."},
+            "description": {"type": "string", "description": "New description, if changing."},
+        },
+        "required": ["video_id", "env_id"],
+    },
+}
+
+_DELETE_ENVIRONMENT_TOOL: dict[str, Any] = {
+    "name": "delete_environment",
+    "description": (
+        "Delete one environment (routes/environments.py's DELETE /{id}/"
+        "environments/{env_id}) — e.g. a duplicate location design made in "
+        "error. Free, no cost, not reversible."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "env_id": {"type": "string", "description": "Environment UUID (from get_environment_images)."},
+        },
+        "required": ["video_id", "env_id"],
+    },
+}
+
+_ENVIRONMENT_TOOLS: list[dict[str, Any]] = [
+    _DESIGN_ENVIRONMENTS_TOOL, _REDO_ENVIRONMENT_TOOL,
+    _EDIT_ENVIRONMENT_TOOL, _DELETE_ENVIRONMENT_TOOL,
+]
+
+
+async def _call_design_environments(tenant_id, arguments: dict[str, Any],
+                                     background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("design_environments requires a video_id argument")
+    video_id = str(video_id)
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    # Quote scales with the CURRENT designed-environment count — the SAME
+    # "real count, or a small default guess" pattern actions.estimate_cost's
+    # own "characters" branch uses (actions.py ~L729-734), at the SAME
+    # PICTURE_COST every other picture-generating tool quotes.
+    row = await fetch_one(
+        "SELECT count(*) AS n FROM video_environments WHERE video_id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    n = int((row or {}).get("n") or 0) or 4
+    quote_cost = round(n * actions.PICTURE_COST, 2)
+    ready, result = await _paid_gate(
+        tenant_id, video_id, "design_environments", None,
+        quote_cost, f"~${quote_cost:.2f} ({n} location(s) x ${actions.PICTURE_COST:.2f})",
+        arguments.get("confirm_token"),
+    )
+    if not ready:
+        return result
+    from routes.environments import design_environments as _design_environments_route
+    try:
+        resp = await _design_environments_route(video_id, background_tasks, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start environment design")
+    _log_setup_write("design_environments", tenant_id, caller, detail=video_id)
+    return _text_result({"status": "started", "video_id": video_id, "message": resp.get("message")})
+
+
+async def _call_redo_environment(tenant_id, arguments: dict[str, Any],
+                                  background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    env_id = arguments.get("env_id")
+    if not video_id or not env_id:
+        return _error_result("redo_environment requires video_id and env_id")
+    video_id = str(video_id)
+    env = await fetch_one(
+        "SELECT id FROM video_environments WHERE id = $1 AND video_id = $2 AND tenant_id = $3",
+        str(env_id), video_id, tenant_id,
+    )
+    if not env:
+        return _error_result(f"No environment {env_id} found on video {video_id} for this tenant")
+    if background_tasks is None:
+        return _error_result("Internal error: no task runner available for this call")
+    ready, result = await _paid_gate(
+        tenant_id, video_id, "redo_environment", str(env_id),
+        actions.PICTURE_COST, f"${actions.PICTURE_COST:.2f} (one GPT Image 2 tier reference)",
+        arguments.get("confirm_token"),
+    )
+    if not ready:
+        return result
+    from routes.environments import regenerate_environment as _regenerate_environment_route
+    try:
+        resp = await _regenerate_environment_route(video_id, str(env_id), background_tasks, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Couldn't start the redesign")
+    _log_setup_write("redo_environment", tenant_id, caller, detail=str(env_id))
+    return _text_result({"status": "started", "video_id": video_id, "env_id": env_id, "message": resp.get("message")})
+
+
+async def _call_edit_environment(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    env_id = arguments.get("env_id")
+    if not video_id or not env_id:
+        return _error_result("edit_environment requires video_id and env_id")
+    from routes.environments import EnvironmentUpdate, update_environment as _update_environment_route
+    try:
+        result = await _update_environment_route(
+            str(video_id), str(env_id),
+            EnvironmentUpdate(name=arguments.get("name"), description=arguments.get("description")),
+            tenant_id=tenant_id,
+        )
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Environment not found")
+    _log_setup_write("edit_environment", tenant_id, caller, detail=str(env_id))
+    return _text_result(result)
+
+
+async def _call_delete_environment(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    env_id = arguments.get("env_id")
+    if not video_id or not env_id:
+        return _error_result("delete_environment requires video_id and env_id")
+    from routes.environments import delete_environment as _delete_environment_route
+    try:
+        result = await _delete_environment_route(str(video_id), str(env_id), tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Environment not found")
+    _log_setup_write("delete_environment", tenant_id, caller, detail=str(env_id))
+    return _text_result(result)
+
+
+_ENVIRONMENT_FREE_HANDLERS = {
+    "edit_environment": _call_edit_environment,
+    "delete_environment": _call_delete_environment,
+}
+_ENVIRONMENT_PAID_HANDLERS = {
+    "design_environments": _call_design_environments,
+    "redo_environment": _call_redo_environment,
+}
+
+
 # --- Voice control ------------------------------------------------------------
 
 _SET_NARRATOR_VOICE_TOOL: dict[str, Any] = {
@@ -3214,7 +3459,7 @@ _MEDIA_STAGED_HANDLERS = {
 TOOLS: list[dict[str, Any]] = (
     _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
     + _AUTOPILOT_PROPOSAL_TOOLS + _AUTOPILOT_DIAL_TOOLS + _INGEST_TOOLS
-    + _ATOMIC_TOOLS + _FEATURE_BOARD_TOOLS + _MEDIA_TOOLS
+    + _ATOMIC_TOOLS + _FEATURE_BOARD_TOOLS + _MEDIA_TOOLS + _ENVIRONMENT_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -3324,7 +3569,13 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             "protocolVersion": negotiated,
             "capabilities": {"tools": {}},
             "serverInfo": SERVER_INFO,
-            "instructions": SERVER_INSTRUCTIONS,
+            # C66: the process paragraph is built LIVE from production_guide.
+            # GUIDE_STAGES on every initialize call (never baked into a module
+            # constant) — the single source the get_production_guide tool
+            # itself reads. A test that monkeypatches GUIDE_STAGES and
+            # re-dispatches "initialize" proves this stays one source, not a
+            # hand-typed copy that can drift from the tool's real behavior.
+            "instructions": SERVER_INSTRUCTIONS + "\n\n" + production_guide.build_process_instructions(),
         }
     if method == "tools/list":
         return {"tools": TOOLS}
@@ -3363,6 +3614,10 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _MEDIA_READ_HANDLERS[name](tenant_id, arguments)
         if name in _MEDIA_STAGED_HANDLERS:
             return await _MEDIA_STAGED_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
+        if name in _ENVIRONMENT_FREE_HANDLERS:
+            return await _ENVIRONMENT_FREE_HANDLERS[name](tenant_id, arguments, caller)
+        if name in _ENVIRONMENT_PAID_HANDLERS:
+            return await _ENVIRONMENT_PAID_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
         if name in _FEATURE_BOARD_READ_HANDLERS:
             return await _FEATURE_BOARD_READ_HANDLERS[name](tenant_id, arguments)
         if name in _FEATURE_BOARD_WRITE_HANDLERS:

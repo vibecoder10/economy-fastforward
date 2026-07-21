@@ -280,7 +280,10 @@ def test_tools_list_with_echoed_session_id_returns_full_toolset():
         )
     assert list_resp.status_code == 200, list_resp.text
     tools = list_resp.json()["result"]["tools"]
-    assert len(tools) == len(mcp_mod.TOOLS) == 91, (
+    # C66: +5 (get_production_guide, design_environments, redo_environment,
+    # edit_environment, delete_environment) — 91 -> 96. Legitimate surface
+    # growth, not a regression; see tasks/decisions.md 2026-07-21.
+    assert len(tools) == len(mcp_mod.TOOLS) == 96, (
         f"expected the full {len(mcp_mod.TOOLS)}-tool surface, got {len(tools)}"
     )
     print(f"✅ test_tools_list_with_echoed_session_id_returns_full_toolset ({len(tools)} tools)")

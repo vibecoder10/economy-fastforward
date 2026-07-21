@@ -3250,6 +3250,57 @@ either new tool. What's deferred:
 
 ---
 
+## C66 — MCP process brain · live co-pilot session recipe
+
+C66 shipped (SYSTEM_STATE.md §C66): the MCP `initialize` response now teaches the canonical
+production stage order + house rules via `instructions` (built live from `production_guide.
+GUIDE_STAGES`, never cached), a new `get_production_guide(video_id)` tool giving the full ordered
+stage checklist for one video (done/in_progress/not_started/skipped_by_format + concrete gaps +
+`next_step`), and the environments MCP tool family (`design_environments`, `redo_environment`,
+`edit_environment`, `delete_environment`) — closing the one step (environment design) that
+previously had no MCP verb at all. Everything is proven at the route/unit level in the sandbox (28
+new tests, non-vacuous via `git stash` + moving `production_guide.py` aside). What's still deferred
+to a real connected session:
+
+- [ ] **Connect and read the instructions.** From a fresh `claude mcp` connection (or any MCP
+      client), confirm the `initialize` response's `instructions` field names the canonical stage
+      order (research → script → voice → characters → environments → storyboards → images →
+      sound → video → thumbnail → render → upload) and the "call get_production_guide before
+      acting on any video" rule — this is the FIRST thing a connecting session ever sees, so
+      confirm it actually renders/gets read by the client, not just present in the raw JSON-RPC
+      response.
+- [ ] **Run `get_production_guide` on a real HALF-BUILT video** — ideally one mid-pipeline with a
+      script but no cast/environments designed yet (the exact gap class the ruling named). Confirm
+      it surfaces the REAL gaps: `characters` reads `not_started` (or `in_progress` with an
+      approval gap if a cast already exists), `environments` reads `not_started` with the
+      HARD-gate warning naming `_environments_ready_gate`, and `next_step` recommends the correct
+      one — NOT a stage further down the chain that the video's status string might suggest is
+      "next" if read naively.
+- [ ] **Run it again on a video that already has designed-but-unapproved environments** and
+      confirm the gap text changes to the approval warning, and once more after approving them (via
+      the existing `approve_environments` verb or the Environments tab) to confirm the stage flips
+      to `done`.
+- [ ] **The full co-pilot walkthrough Ryan actually wants**: in one live chat session, connect,
+      let `get_production_guide` drive the conversation — design environments via the new
+      `design_environments` tool (quote → confirm, ~$0.05-0.20 depending on location count),
+      review via `get_environment_images`, approve, then re-call `get_production_guide` and confirm
+      it now recommends `storyboards`. This is the scenario the whole chunk exists to prevent
+      regressing: the agent staying on the rails without Ryan having to say "wait, you skipped
+      environments."
+- [ ] **`design_environments`/`redo_environment` live money check** (real Kie key, tiny cost): one
+      quote → confirm round trip against a real video, confirm the returned reference image
+      actually lands in `video_environments.reference_url` and shows up via
+      `get_environment_images`.
+- **Cost:** the `get_production_guide` reads are free (no generation). `design_environments`/
+  `redo_environment` are real Kie spend (~$0.05/location at `actions.PICTURE_COST`, or ~$0.20 for a
+  4-location default quote) — quote first, confirm explicitly, per the money rule.
+- **Safety net:** `get_production_guide` is read-only (no writes at all); the environments tools
+  are thin wrappers over already-shipped, already-tested `routes/environments.py` endpoints behind
+  the SAME confirm_token gate every other paid MCP tool uses — nothing new to regress if the live
+  walkthrough is skipped or delayed.
+
+---
+
 ## C65 — Feature board · live seed + operator ladder walkthrough
 
 C65 shipped the "suggest a feature" board (SYSTEM_STATE.md §C65 — migration 112 live-applied,

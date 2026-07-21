@@ -10950,3 +10950,162 @@ pass-through to two already-shipped, already-tested dispatchers
 tool-count-86→91 bump in an existing lock test, which is a test-only
 change tracking a real (intended) count increase, not a behavior change.
 No frontend touched.
+
+## C66 — MCP process brain: `get_production_guide` + environments tool family + live instructions (added 2026-07-21)
+
+Checklist "MCP process brain" (tasks/decisions.md 2026-07-21 "MCP co-pilot
+must be PROCESS-AWARE"): Ryan's live-driving pain — the connected agent
+skipped environment design and a character-presence check because nothing
+taught it the canonical stage order or the current video's gaps. Three
+parts, all wrapping existing state; no new pipeline logic, no parallel
+status machine.
+
+### The single source: `storyengine/backend/production_guide.py` (new)
+
+`GUIDE_STAGES` is ONE ordered list — research, script, voice, characters,
+environments, storyboards, images, sound, video, thumbnail, render,
+upload — each tagged with the `status_map.STAGE_ORDER` "bucket" it belongs
+to for format/plan skip purposes. Two consumers read this SAME list, never
+a hand-typed duplicate:
+
+- `build_process_instructions()` — called LIVE from `routes/mcp.py`'s
+  `_dispatch("initialize", ...)` on every call (`SERVER_INSTRUCTIONS + "\n\n"
+  + production_guide.build_process_instructions()`), not baked into a
+  module constant. A monkeypatch-and-redispatch lock test
+  (`test_initialize_instructions_are_built_live_from_guide_stages_not_a_copy`)
+  proves this: mutating `GUIDE_STAGES` changes the very next `initialize`
+  response.
+- `get_production_guide(tenant_id, video_id)` — the tool's real query logic.
+
+Order + format-driven skip are NOT invented here — they're read off:
+
+- `status_map.py` (already existed): `STAGE_ORDER`/`STATUS_STAGE` (the
+  creator-facing stage chain + which `videos.status` values belong to
+  which stage), `static_stage_plan` (render_mode='static_docu' drops
+  video+sound, always returns an explicit list), `parse_stage_plan` (a
+  creator's own `pipeline_stages` toggle, or `None` = full pipeline) — the
+  SAME functions `routes/videos.py`/`pipeline_executor.py` call to decide
+  what actually runs for a given video.
+- `pipeline_executor.py`'s REAL character/environment enforcement, traced
+  (not guessed): `_load_character_refs` (~L7614) — a video with ZERO
+  designed characters skips the check entirely; once a cast exists, it
+  blocks until `characters_approved_at` is set. `_load_environment_refs`
+  (~L7645) + `_environments_ready_gate` (~L7671, called by every bulk AND
+  per-scene storyboard/coverage generation path) — a HARD gate: storyboard
+  generation is blocked until environments are either designed-and-approved
+  or explicitly skipped (`routes/environments.py`'s `POST /skip`). This
+  ordering (characters before storyboards, environments hard-gating them)
+  independently matches `frontend/src/lib/next-action.ts`'s own step order
+  (step 4 characters before step 6 storyboards) — the two sources agree.
+
+`"characters"`/`"environments"`/`"storyboards"`/`"images"` all map to
+STAGE_ORDER's single `"images"` bucket for skip purposes — a format/plan
+that disables `"images"` disables all four together (they only exist to
+feed it); a static-documentary video keeps them (it still needs pictures)
+but drops `"video"`/`"sound"`.
+
+### Gap detection (real data only, no new API calls)
+
+Per stage, `_stage_snapshot` computes `state` (done / in_progress /
+not_started — `skipped_by_format` is decided one level up, before any
+per-video query even runs) plus a `detail` line and, where cheap,
+concrete `gaps`:
+
+- **characters**: cast rows with no `reference_url` (portrait missing);
+  cast designed but `characters_approved_at` unset (blocks visual gen);
+  cross-checked against `story_bible.characters[].name` when the bible
+  exists — names a specific missing character by name. Bible not yet
+  generated (built at the images stage) → gap reported as
+  **"unavailable"**, never guessed.
+- **environments**: same shape, cross-checked against
+  `story_bible.locations[].id`, plus the HARD-gate wording naming
+  `_environments_ready_gate` explicitly when nothing's designed yet.
+- **storyboards**: scenes with no `storyboard_1/2/3_url` named by number
+  (query on `scripts`).
+- **research/voice/sound/thumbnail**: `background_tasks` (task_type,
+  status IN pending/running) gives a real in_progress signal instead of a
+  binary done/not_started guess.
+
+`next_step` (`_recommend_next_step`) walks the SAME stages list
+top-to-bottom and returns the first non-done, non-skipped stage — the
+"what's the one next thing" question `next-action.ts` answers for the UI
+banner, derived from data this tool already computed (not a second,
+independently guessed answer).
+
+### New MCP tool: `get_production_guide` (read, tenant-scoped, no cost)
+
+Added to `_READ_TOOLS`/`_READ_HANDLERS` (`routes/mcp.py`). Thin wrapper:
+`_call_get_production_guide` → `production_guide.get_production_guide`.
+Returns `None` (tool error) for a video that doesn't belong to the tenant.
+
+### Environments MCP tool family (the NAMED skipped step)
+
+`routes/environments.py` already exposed `list_environments` (read —
+already covered by C48's `get_environment_images`, not duplicated),
+`design_environments`, `regenerate_environment`, `update_environment`,
+`upload_environment_image` (file upload — skipped, same posture as
+characters' upload endpoint never getting an MCP tool), `delete_environment`,
+plus `approve_environments`/`skip_environments` (already wired as free
+`actions.ACTIONS` verbs long before this chunk). The ONE genuinely missing
+piece — **environment DESIGN had no verb/tool at all**, unlike characters
+(`"characters"` is a paid `actions.ACTIONS` verb) — is now closed:
+
+| Tool | Wraps | Money |
+|---|---|---|
+| `design_environments` | `routes.environments.design_environments` | PAID (new) — quote scales with the CURRENT `video_environments` row count (mirrors `actions.estimate_cost`'s `"characters"` branch: real count, or a small default guess of 4), at `actions.PICTURE_COST` each |
+| `redo_environment` | `routes.environments.regenerate_environment` | PAID — one `actions.PICTURE_COST` |
+| `edit_environment` | `routes.environments.update_environment` | Free |
+| `delete_environment` | `routes.environments.delete_environment` | Free, not reversible |
+
+Both paid tools use the SAME `_paid_gate` confirm_token cycle (C49) every
+other atomic paid tool uses — no new money mechanism. `redo_environment`
+refuses before minting any quote when the `env_id` doesn't belong to the
+video/tenant (same posture as `redo_character_sheet`).
+
+Tool surface: 91 → 96 (5 new tools). `test_c25a_fix11_streamable_http_
+compliance.py`'s pinned tool count updated with a comment explaining the
+bump.
+
+### Tests
+
+28 new tests (`tests/functional/test_c66_production_guide.py`): tool
+surface + confirm_token placement; the live-instructions lock test;
+`get_production_guide` scenarios (video-not-found, fresh video → research
+next, scripted-but-no-cast → characters next — the exact skipped-step
+scenario from the ruling, cast-designed-not-approved → in_progress +
+approval gap, environments hard-gate blocking storyboards, environments
+explicitly skipped reads done, missing storyboard scenes named, Story
+Bible cross-check finding an undesigned character, Story Bible absent →
+"unavailable" not computed, active background task → in_progress,
+static_docu → video/sound `skipped_by_format`, a reduced
+`pipeline_stages` plan → everything outside it `skipped_by_format`, fully
+done video → celebrate); the `get_production_guide` MCP tool wrapper
+(requires video_id, tenant-scoped, wraps the real function); the four
+environments tools (quote-scales-with-count, defaults to 4, tenant/subject
+refusal before any quote, quote→confirm dispatches the real route
+function, confirm bound to the exact quoted env only, edit/delete call the
+real route).
+
+Non-vacuous via `git stash -- routes/mcp.py` + moving `production_guide.py`
+aside: the test module fails to even collect (`ModuleNotFoundError`)
+without the implementation — restored and re-passed clean.
+
+Full suite: 2126P/15F/1E = baseline (2098P/15F/1E, post-C48) + 28, same 15
+pre-existing failures by name, same 1 pre-existing error.
+
+### Runbook (`tasks/live-verification-queue.md` §C66)
+
+Added a "co-pilot session" live recipe: connect, confirm `initialize`'s
+instructions carry the canonical stage order, call `get_production_guide`
+on a real half-built video and confirm it surfaces the real gaps (missing
+character sheets, unapproved environments) instead of skipping past them.
+
+### Deploy-safety assessment
+
+**Deploy-safe, ff-merge candidate.** Purely additive: 1 new read tool + 4
+new environments tools (no existing tool's dispatch/schema changed), no
+new DB column/table, no migration. `initialize`'s instructions grow (a
+behavior change, but additive/informational only — no client relies on
+the CURRENT instructions text being frozen). The only non-additive edit is
+the tool-count 91→96 bump in an existing lock test, tracking a real
+(intended) count increase. No frontend touched.

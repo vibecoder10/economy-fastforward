@@ -354,6 +354,40 @@ sweep fires before C17 only if draft-pass verify shows render turnaround is the 
   `npm run build` succeeds. Backend suite unchanged 1946P/15F/1E (frontend-only change, run anyway
   per protocol). See SYSTEM_STATE.md §C63.
 - [x] C60 · MICRO maintenance pair: (a) delete now-dead `frontend/src/components/storyboard/` (SceneGrid/PanelDetail/StoryboardProgressBar — only consumer was the page C39 deleted; fresh grep-proof first, sacred in-page storyboard UI untouched); (b) dedupe `rate_limit.py`'s private `_get_tenant_plan` copy onto `routes/billing.py`'s canonical helper (C57 finding) — pure consolidation, lock-test that one definition remains. DONE 2026-07-20 — (a) shipped: fresh grep-proof found zero external consumers (only internal cross-refs within the folder), `git rm` all 4 files, `tsc`/`build` clean. (b) STOPPED, not merged: re-reading both implementations found they are NOT behaviorally identical — `rate_limit.py`'s version falls back to the legacy `tenants.plan` column when no `accounts`/`memberships` row exists (billing.py's has no such fallback, returns `"free"` immediately) and caches for 60s (billing.py doesn't). Per the chunk's own "otherwise STOP and report" branch, no merge was performed — forcing rate_limit onto billing's version would silently drop the legacy-tenant fallback for any pre-`accounts`-split tenant. No cycle exists (checked: `routes/billing.py`'s import chain never reaches `rate_limit`/`main`), so a future chunk CAN dedupe via a deferred import once the product question ("do no-membership legacy tenants still exist?") is resolved — left as a todo.md follow-up, not force-closed. No lock-test added (nothing true to pin — two definitions intentionally differ today). Full suite 1922P/15F/1E, unchanged (zero new — (a) frontend-only, (b) no code changed). See SYSTEM_STATE.md §C60.
+- [x] C66 · MCP process brain — the co-pilot that keeps Ryan on track (tasks/decisions.md 2026-07-21
+  "MCP co-pilot must be PROCESS-AWARE": Ryan's live-driving pain — the connected agent skipped
+  environment design and a character-presence check because nothing taught it the canonical stage
+  order or the current video's gaps). Three parts, all wrapping existing state (no new pipeline
+  logic, no parallel status machine): (a) MCP `initialize` response `instructions` teaching the
+  canonical stage order + house rules; (b) `get_production_guide(video_id)` tool — full ordered
+  stage checklist for THAT video with per-stage done/in-progress/not-started/skipped-by-format,
+  concrete gaps, next_step; (c) environments MCP tool family (the named skipped step) wrapping
+  `routes/environments.py`. DONE 2026-07-21 — new `storyengine/backend/production_guide.py`: ONE
+  `GUIDE_STAGES` list is the single source for BOTH the instructions text
+  (`build_process_instructions()`, called LIVE on every `initialize` dispatch — not baked into a
+  module constant, so it can never drift) and the guide tool. Order + format-driven skip derive
+  from `status_map.py`'s real status machine (`STAGE_ORDER`/`STATUS_STAGE`/`static_stage_plan`/
+  `parse_stage_plan` — the SAME functions `routes/videos.py`/`pipeline_executor.py` use to decide
+  what actually runs for a video) plus `pipeline_executor.py`'s REAL character/environment
+  enforcement (`_load_character_refs` ~L7614, `_load_environment_refs` ~L7645,
+  `_environments_ready_gate` ~L7671 — confirmed environments is a HARD gate on storyboard
+  generation, characters a softer one, matching `frontend/src/lib/next-action.ts`'s independently
+  derived step order). Gap detection reads only already-stored data (video_characters/video_
+  environments rows, story_bible characters[]/locations[], scripts.storyboard_*_url,
+  background_tasks) — a missing Story Bible (not yet generated) reports the cross-check as
+  "unavailable", never guesses. New `get_production_guide` MCP tool (read, tenant-scoped) added to
+  `_READ_TOOLS`/`_READ_HANDLERS`. Environments tool family — `design_environments` (NEW paid verb;
+  environment design never had one before this chunk, only approve/skip did) + `redo_environment`
+  (paid) via the SAME `_paid_gate` confirm_token cycle every other atomic paid tool uses, quote
+  scaling with the current designed-environment count (mirrors `actions.estimate_cost`'s
+  "characters" branch) at `actions.PICTURE_COST`; `edit_environment`/`delete_environment` (free) —
+  all four thin wrappers over the existing `routes/environments.py` endpoints, nothing invented.
+  `get_environment_images` (C48) already covered the read side, not duplicated. Tool surface
+  91→96 (streamable-HTTP compliance test's pinned count updated with a comment). 28 new tests
+  (`tests/functional/test_c66_production_guide.py`), non-vacuous via `git stash` +
+  `production_guide.py` moved aside (collection fails outright without the implementation — proven,
+  then restored and re-passed). Full suite 2126P/15F/1E = baseline(2098)+28, same 15 failures by
+  name, zero new. See SYSTEM_STATE.md §C66, `tasks/live-verification-queue.md` §C66.
 - [x] C65 · Feature board — "suggest a feature" with upvotes + status ladder (tasks/decisions.md 2026-07-20 "Feature board" entry, Ryan: "a Reddit like page… part of the platform self improvement loop"). Core loop: suggest → upvote (ONE vote per account per idea) → status ladder (under_review → planned → building → in_beta → shipped / declined). The platform's FIRST deliberately CROSS-TENANT surface — every customer sees the same board (no tenant_id filter on reads), writes attributed per ACCOUNT. DONE 2026-07-20 — migration 112 (`feature_requests`/`feature_request_votes`, live-applied; the votes table's composite PRIMARY KEY *is* the one-vote-per-account rule, proven live via a raw duplicate insert raising `23505`); new `routes/feature_board.py` (list/create/vote/unvote/PATCH status, registered in `main.py`) — reads via `Depends(verify_token)` (USER-scoped, not `get_tenant_id`, the deliberate non-isolation), status-change reuses `routes/workspaces.py::_is_operator` verbatim (403 for non-operators), create rate-limited via a plain per-day `COUNT(*)` query (not `rate_limit.py`'s in-memory per-minute bucket — wrong tool for a per-day product cap). 3 new MCP tools (`list_feature_requests`, `suggest_feature`, `vote_feature_request` — free, no status-change tool) dispatch through the SAME route functions via a new `account_id_for_tenant()` resolver (MCP tokens are tenant-scoped, feature-board attribution is account-scoped). New `/ideas` frontend page (nav entry added), operator status control gated on the SAME `GET /api/workspaces.is_operator` the workspace switcher already reads (no new operator-detection mechanism). 22 new tests + 2 live-DB proofs (bad status CHECK-rejected, duplicate vote PK-rejected), non-vacuous via toggled-constant proofs (rate limit cap, operator flag). Full suite 1968P/15F/1E = baseline(1946)+22, zero new. `tsc`/`build` clean, `/ideas` in the route list. See SYSTEM_STATE.md §C65.
 
 **Monetization (decisions.md 2026-07-19 MCP-monetization entry — the token IS the paywall):**
