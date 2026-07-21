@@ -72,7 +72,21 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## REVIEW-GATE (17:55): 22/23 images done, scene 15 (YB-60) failed; fixes bundled → need deploy
+## 🛑 IMAGE ACCURACY PROBLEM (18:20) — DO NOT RENDER YET
+Visually audited (finally) — reference-backed common aircraft (XB-15/B-17/B-52/B-24/B-29…) render
+CORRECTLY (clean white-studio side profiles). BUT the **no-reference obscure prototypes are the
+WRONG AIRCRAFT**: confirmed scene 8 (Northrop XB-35 flying wing) → rendered as a conventional
+tailed bomber; scene 13 (Northrop YB-49 flying wing) → conventional 4-tail aircraft. Root cause:
+auto reference-sourcing found/verified no photo → text-to-image hallucinated a generic bomber, and
+vision-QA can't verify a machine it has no reference for → ships flagged. This is the DvsU accuracy
+failure ("knows every rivet"). Also minor: facing direction + dimensions inconsistent across scenes.
+Scene 15 (YB-60) regen SPUN 7 min, no result → killed (background_task marked failed via DB; in-proc
+coroutine may linger till restart). LOOP STOPPED. Ryan asked for a full 23-image visual audit +
+targeted re-render of the wrong ones with correct references. NOT rendering until images are right.
+My process misses this session (owned to Ryan): didn't visually verify images per the rule; assumed
+deploys landed twice when they hadn't.
+
+## (superseded) REVIEW-GATE (17:55): 22/23 images done, scene 15 (YB-60) failed; fixes bundled → need deploy
 Images stage COMPLETED (serial): 22/23 done, video at ready_for_images. Scene 15 (Convair YB-60)
 render returned no URL (transient) → no asset row. Ryan review-gate feedback also: storyboards
 shouldn't be offered for static_docu. FIXES on main (2d54d6f, atop parallel/timeout 5b7c25c):
