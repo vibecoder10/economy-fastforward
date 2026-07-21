@@ -30,6 +30,22 @@ if [ -f "$LOCK" ] && [[ "$ARGS" != *--force* ]]; then
   echo "Wait for it to finish, or rerun with --force ONLY if the lock is stale (>2h old)."
   exit 1
 fi
+
+# Active-generation guard (docs/SHEET-MODERATION-LAW.md, Operations rules):
+# the backend restart below is a kill -9 — it takes every in-process
+# background task down with it, including a paid picture/video run
+# mid-flight. That happened for real on 2026-07-21. Refuse to deploy while
+# the backend reports active work, unless --force.
+HEALTH=$(curl -s --max-time 5 http://localhost:8001/api/health 2>/dev/null || true)
+ACTIVE=$(printf '%s' "$HEALTH" | grep -o '"active_tasks":[0-9-]*' | sed 's/[^0-9-]*//g' || true)
+if [ -n "$ACTIVE" ] && [ "$ACTIVE" -gt 0 ] && [[ "$ARGS" != *--force* ]]; then
+  echo "DEPLOY BLOCKED — active-generation guard: $ACTIVE task(s) running on this box right now."
+  echo "$HEALTH"
+  echo "A deploy kill -9's the backend and strands any in-flight run (paid work included)."
+  echo "Wait for it to finish, or rerun with --force ONLY if you accept killing active work."
+  exit 1
+fi
+
 printf '%s deploying, started %s\n' "$WHO" "$(date -u +%FT%TZ)" > "$LOCK"
 trap 'rm -f "$LOCK"' EXIT
 

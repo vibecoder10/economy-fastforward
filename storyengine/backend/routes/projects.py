@@ -374,7 +374,12 @@ async def upload_channel_cast_member(
 ):
     """Add a saved cast member from the creator's own image (drag-and-drop or
     click-to-pick in the Settings channel cast card) — no generation, no
-    vision call, just an upload straight into the saved cast."""
+    vision call, just an upload straight into the saved cast.
+
+    Uploaded sheets should be text-free too (no name, labels or captions
+    drawn on the image) per docs/SHEET-MODERATION-LAW.md — this reference
+    flows into the same later generation calls as a generated portrait, and
+    the moderation filter reads text inside reference images."""
     if file.content_type and not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image.")
 

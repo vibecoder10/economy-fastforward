@@ -1031,9 +1031,21 @@ def _sheet_fail_entry(fail_info: Optional[dict], attempts: int) -> dict:
 # line.
 #
 # THE BOUNDARY (do not blur this — it is the whole point of the fix):
-#   - FIXED SET (set_line / set_block) is the ONE place a risky prop may be
-#     named plainly. It is the single canonical naming slot and this pass is
-#     NEVER applied to it.
+#   - FIXED SET (set_line / set_block): originally the ONE place a risky prop
+#     was left named plainly (the "single canonical naming slot"), reasoned
+#     for the PICTURES path's philosophy — name the real prop once, draw it
+#     once. UPDATED 2026-07-21: for SHEET PREVIEWS ONLY (this file's
+#     _plan_sheet_prompts — a cheap, throwaway preview that never feeds final
+#     art) that exemption is gone. Staging a risky prop in FIXED SET means the
+#     drawer paints it into EVERY panel that shows the location, not once —
+#     proven live the same night: a staged kitchen knife in FIXED SET got
+#     drawn into 30+ panels and the output-stage filter ground the whole scene
+#     down (15 "knife" mentions across the plan). set_line (and the sheet's
+#     LOCKED LOCATION env description, generate_storyboard_sheet_for_scene's
+#     env_block) now run through this pass like everything else below. The
+#     PICTURES path (run_coverage, storyboard/coverage.py) is UNTOUCHED — the
+#     real set keeps its true, single-named props; only the sheet preview's
+#     copy of that text is neutralized.
 #   - CAPTION text (the verbatim spoken script) never reaches this pass — and
 #     as of C25a-fix14 (Ryan, 2026-07-20) it is no longer rendered into the
 #     sheet image at ALL. fix9b removed 100% of the BUILDER's density, but a
@@ -1090,9 +1102,13 @@ _RISKY_PROP_PATTERNS: list[tuple] = [
 def _neutralize_risky_props(text: Optional[str]) -> Optional[str]:
     """Single-naming rule enforcement (C25a-fix9b): swaps risky/sharp-prop
     language for neutral culinary phrasing in ONE builder-authored segment.
-    Callers must NEVER hand this FIXED SET text (the canonical single
-    naming slot) or CAPTION text (the verbatim spoken script) — see the
-    boundary docstring above _RISKY_PROP_PATTERNS. None/empty input passes
+    Callers must NEVER hand this CAPTION text (the verbatim spoken script) —
+    see the boundary docstring above _RISKY_PROP_PATTERNS. FIXED SET text
+    (set_line) and the sheet's LOCKED LOCATION env description ARE now
+    passed through this function (2026-07-21, sheet-preview callers only —
+    see the boundary docstring's FIXED SET bullet); the PICTURES path's own
+    set/env text is a different call site (storyboard/coverage.py's
+    run_coverage) and is never routed through here. None/empty input passes
     through unchanged."""
     if not text:
         return text
@@ -1100,6 +1116,121 @@ def _neutralize_risky_props(text: Optional[str]) -> Optional[str]:
     for pattern, replacement in _RISKY_PROP_PATTERNS:
         out = pattern.sub(replacement, out)
     return out
+
+
+# =============================================================================
+# Filter-safety: gesture neutralization (BUILD 2's sweep-2 escalation only)
+# =============================================================================
+# 2026-07-21 (same night as the knife-scene sheet-preview fix above, proven
+# twice live on PocoAPoco 'El Mercado'): the SAME accumulated-density
+# mechanism fix9b fixed for risky PROPS also fires on risky GESTURES — a
+# haggling market scene kept staging pointed fingers, thumbs up/down,
+# handshakes and fist pumps across nearly every panel brief, and the manual
+# playbook that fixed it reworded that gesture language the same way fix9b
+# reworded props.
+#
+# Kept as its OWN list, never merged into _RISKY_PROP_PATTERNS, so a caller
+# can choose props-only (the unconditional sheet-build pass above) or
+# props+gestures together (the sweep-2 escalation ladder in
+# generate_storyboard_sheet_for_scene, via _escalate_panel_briefs) —
+# independently and on purpose. Gesture neutralization is NEVER applied at
+# build time: creative wording stays by default; this dictionary exists
+# solely for that escalation, the last rung of the auto-sweeper.
+#
+# Same house rules as _RISKY_PROP_PATTERNS: longer/more-specific phrases
+# before their substrings, and every noun-phrase pattern swallows its own
+# optional leading article via _ART so the replacement is never doubled.
+# Every replacement reuses ONE of the five neutral open-hand phrases proven
+# on El Mercado — no new wording invented here.
+_RISKY_GESTURE_PATTERNS: list[tuple] = [
+    # Pointed finger(s) — "fingers pointed", "a pointed finger", "pointing a finger"
+    (re.compile(rf"\bpointing\s+(?:the\s+|a\s+|an\s+|his\s+|her\s+|their\s+)?finger[s]?\b",
+                re.IGNORECASE), "an open palm gestured"),
+    (re.compile(rf"\b{_ART}finger[s]?\s+point(?:ed|ing)\b", re.IGNORECASE), "an open palm gestured"),
+    (re.compile(rf"\b{_ART}pointed\s+finger[s]?\b", re.IGNORECASE), "an open palm gestured"),
+    # Raised finger(s)
+    (re.compile(rf"\b{_ART}finger[s]?\s+raised\b", re.IGNORECASE),
+     "hand raised in a friendly open wave"),
+    (re.compile(rf"\b{_ART}raised\s+finger[s]?\b", re.IGNORECASE),
+     "hand raised in a friendly open wave"),
+    # Tapping finger(s)
+    (re.compile(rf"\b{_ART}finger[s]?\s+tapping\b", re.IGNORECASE), "a confident open-hand gesture"),
+    (re.compile(rf"\b{_ART}tapping\s+finger[s]?\b", re.IGNORECASE), "a confident open-hand gesture"),
+    # Thumbs up / down
+    (re.compile(rf"\b{_ART}thumbs?\s+up\b", re.IGNORECASE), "a confident open-hand gesture"),
+    (re.compile(rf"\b{_ART}thumbs?\s+down\b", re.IGNORECASE), "an open palm gestured"),
+    # Pinched fingers
+    (re.compile(rf"\b{_ART}pinched\s+finger[s]?\b", re.IGNORECASE), "an open palm gestured"),
+    (re.compile(rf"\b{_ART}finger[s]?\s+pinched\b", re.IGNORECASE), "an open palm gestured"),
+    # Handshake
+    (re.compile(rf"\b{_ART}handshake[s]?\b", re.IGNORECASE), "extending an open hand warmly"),
+    (re.compile(r"\bshaking\s+hands\b", re.IGNORECASE), "extending an open hand warmly"),
+    # Fist(s): pump / raised / clenched
+    (re.compile(rf"\b{_ART}fist[s]?\s+pump(?:ed|ing)?\b", re.IGNORECASE),
+     "both hands raised in easy celebration"),
+    (re.compile(rf"\b{_ART}raised\s+fist[s]?\b", re.IGNORECASE),
+     "hand raised in a friendly open wave"),
+    (re.compile(rf"\b{_ART}fist[s]?\s+raised\b", re.IGNORECASE),
+     "hand raised in a friendly open wave"),
+    (re.compile(rf"\b{_ART}clenched\s+fist[s]?\b", re.IGNORECASE), "an open palm gestured"),
+    (re.compile(rf"\b{_ART}fist[s]?\s+clenched\b", re.IGNORECASE), "an open palm gestured"),
+]
+
+
+def _neutralize_risky_gestures(text: Optional[str]) -> Optional[str]:
+    """Same shape as _neutralize_risky_props, over _RISKY_GESTURE_PATTERNS.
+    Only ever called from the sweep-2 escalation path (_escalate_panel_briefs)
+    — never at build time. None/empty input passes through unchanged."""
+    if not text:
+        return text
+    out = text
+    for pattern, replacement in _RISKY_GESTURE_PATTERNS:
+        out = pattern.sub(replacement, out)
+    return out
+
+
+# A raw coverage_directive's `LINE: <Speaker> | "<exact words>"` row (the
+# verbatim spoken script, storyboard.coverage's own _LINE_RE shape) and its
+# `[AXIS | ...]` screen-direction contract — the two things sweep-2
+# escalation must NEVER reword, matched line-by-line on the raw stored text.
+_DIRECTIVE_LINE_ROW_RE = re.compile(r"^\s*\*{0,2}\s*LINE\s*:", re.IGNORECASE)
+_DIRECTIVE_AXIS_ROW_RE = re.compile(r"^\s*\[AXIS\b", re.IGNORECASE)
+
+
+def _escalate_panel_briefs(directive_text: str) -> tuple[str, list[tuple[str, str]]]:
+    """BUILD 2's sweep-2 escalation (2026-07-21): apply BOTH
+    _RISKY_PROP_PATTERNS and _RISKY_GESTURE_PATTERNS to a scene's saved
+    coverage_directive — the [SET|]/[SETUPS|] lines and every MASTER/ANGLE
+    panel brief — for a scene that keeps landing on OpenAI's moderation
+    filter after a plain re-roll already had a fair shot (sweep 1). Mirrors
+    the manual playbook proven twice tonight on live scenes.
+
+    Applied line-by-line so the two protected rows are never touched: a
+    `LINE: <Speaker> | "..."` row (the verbatim spoken script — protected
+    dialogue this fix must never reword, same law as the build-time pass)
+    and the `[AXIS | ...]` screen-direction contract (never carries prop/
+    gesture nouns; touching it is an explicit product rule). Every other
+    line — [SET|], [SETUPS|], MOMENT headers, MASTER/ANGLE briefs — passes
+    through both dictionaries.
+
+    Returns (rewritten_directive_text, reworded) where `reworded` is every
+    (old, new) phrase actually swapped, in order — the sweep log prints
+    each pair. Empty `reworded` means neither dictionary matched anything in
+    this directive; callers must treat that as a no-op (nothing to persist
+    or rebuild from)."""
+    reworded: list[tuple[str, str]] = []
+    out_lines = []
+    for line in (directive_text or "").splitlines():
+        if _DIRECTIVE_LINE_ROW_RE.match(line) or _DIRECTIVE_AXIS_ROW_RE.match(line):
+            out_lines.append(line)
+            continue
+        new_line = line
+        for pattern, replacement in _RISKY_PROP_PATTERNS + _RISKY_GESTURE_PATTERNS:
+            for m in pattern.finditer(new_line):
+                reworded.append((m.group(0), replacement))
+            new_line = pattern.sub(replacement, new_line)
+        out_lines.append(new_line)
+    return "\n".join(out_lines), reworded
 
 
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
@@ -1153,10 +1284,16 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
             panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
                           f"{_trunc(angle_desc, 300)}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
-    # FIXED SET is the ONE canonical slot a risky prop may be named plainly
-    # (C25a-fix9b single-naming rule) — set_line is NEVER passed through
-    # _neutralize_risky_props.
-    set_block = (f"\nFIXED SET — identical in EVERY panel that shows the location: {set_line}\n"
+    # SHEET PREVIEWS ONLY (2026-07-21, knife-scene evidence — see the
+    # boundary block above _neutralize_risky_props): set_line now runs
+    # through _neutralize_risky_props before it goes into FIXED SET. A risky
+    # prop staged here gets drawn into EVERY panel that shows the location,
+    # not named once — fix9b's original single-naming exemption for FIXED
+    # SET was reasoned for the PICTURES path, not this throwaway preview.
+    # The PICTURES path (run_coverage) builds its own set text separately
+    # and is NOT touched by this change.
+    set_block = (f"\nFIXED SET — identical in EVERY panel that shows the location: "
+                 f"{_neutralize_risky_props(set_line)}\n"
                  if (set_line or "").strip() else "")
     # AXIS/SCREEN-DIRECTION lines never carry prop nouns and must never be
     # touched (explicit product rule) — axis_line is NEVER neutralized.
@@ -1255,6 +1392,104 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # panel backgrounds match the designed location instead of drifting (the
     # engine supported env refs; this caller never passed them).
     envs = await _approved_envs(vid, tenant)
+
+    async def _draw_board(sc, srow, bi, sp, prompts_fallback_list, env_block, sheet_refs):
+        """Draw ONE storyboard-sheet board through the full retry/re-roll ladder
+        (primary draw -> C25a-fix8's fallback-header retry on a zero-cost
+        content-filter reject -> up to 3 free re-rolls for a moderation/
+        transient-Kie/ref-fetch failure), persist the result (the board's URL
+        on success, a classified storyboard_errors entry on exhaustion —
+        migration 113), and return (landed, entry). Closes over vid, tenant,
+        ic, model_override, aspect — constant for the whole video, set above.
+
+        Shared by the scene's normal per-board pass AND the BUILD 2 sweep
+        passes (2026-07-21) so a swept board draws through the IDENTICAL
+        ladder — never a second, looser retry policy just because it's a
+        re-attempt."""
+        fail_box: list = []
+        url, _model_used = await generate_scene_image_for_model(
+            ic, model_override, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
+            fail_info_out=fail_box)
+        # C25a-fix8: ONE free retry with the sparser fallback header when the
+        # primary header trips OpenAI's content filter (the exact, zero-cost,
+        # deterministic signature — see _sheet_filter_reject's docstring).
+        # Never retries a real (credit-consuming) failure — that would just
+        # burn money re-drawing the same doomed prompt.
+        retry_box: list = []
+        fallback_attempted = False
+        if not url and _sheet_filter_reject(fail_box[-1] if fail_box else None) \
+                and bi - 1 < len(prompts_fallback_list):
+            fallback_attempted = True
+            info = fail_box[-1]
+            print(f"      ⚠️ Storyboard sheet: board {bi} tripped OpenAI's content filter "
+                  f"(failCode={info.get('failCode')}, creditsConsumed={info.get('creditsConsumed')}) "
+                  "— retrying ONCE with the sparser fallback header (C25a-fix8)…")
+            url, _model_used = await generate_scene_image_for_model(
+                ic, model_override, prompts_fallback_list[bi - 1] + env_block,
+                reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box)
+            if url:
+                print(f"      ✅ Storyboard sheet: board {bi} succeeded on the fallback-header retry.")
+            else:
+                print(f"      ❌ Storyboard sheet: board {bi} failed again on the fallback header "
+                      f"({(retry_box[-1] if retry_box else {}).get('failMsg') or 'no fail info'}).")
+        # C25a-fix14: if BOTH header variants still hit the exact zero-cost
+        # filter signature, RE-ROLL the primary a few more times — OpenAI's
+        # image filter is NON-DETERMINISTIC near its threshold and a
+        # rejection costs 0 credits, so re-rolling a coin-flip prompt is
+        # FREE. Transient Kie 500s and reference-fetch failures join this
+        # ladder too (infra flakes, zero-cost, nothing to do with prompt
+        # wording) with a 15s pause first; filter re-rolls fire immediately.
+        last_fail = retry_box[-1] if retry_box else (fail_box[-1] if fail_box else None)
+        reroll = 0
+        while not url and (_sheet_filter_reject(last_fail)
+                           or _sheet_transient_kie_error(last_fail)
+                           or _sheet_ref_fetch_error(last_fail)) and reroll < 3:
+            reroll += 1
+            if _sheet_ref_fetch_error(last_fail):
+                print(f"      ⟳ Storyboard sheet: board {bi} retrying after reference fetch "
+                      f"failure (free attempt {reroll}/3)…")
+                await asyncio.sleep(15)
+            elif _sheet_transient_kie_error(last_fail):
+                print(f"      ⟳ Storyboard sheet: board {bi} retrying transient Kie 500 "
+                      f"(free attempt {reroll}/3)…")
+                await asyncio.sleep(15)
+            else:
+                print(f"      ⟳ Storyboard sheet: board {bi} re-rolling the flaky content "
+                      f"filter (free attempt {reroll}/3)…")
+            rr_box: list = []
+            url, _model_used = await generate_scene_image_for_model(
+                ic, model_override, sp + env_block, reference_urls=sheet_refs,
+                aspect_ratio=aspect, fail_info_out=rr_box)
+            last_fail = rr_box[-1] if rr_box else None
+            if url:
+                print(f"      ✅ Storyboard sheet: board {bi} landed on re-roll {reroll}.")
+        if url:
+            stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
+            # bi is 1-5 by construction (prompts capped, beat validated).
+            # Clear any PRIOR failure entry for this beat in the SAME
+            # statement (migration 113's jsonb minus) — a board that
+            # lands after previously exhausting the ladder (a manual
+            # per-board redo, or a BUILD 2 sweep) must not leave a stale
+            # error chip on a slot that now has an image.
+            await execute(
+                f"UPDATE scripts SET storyboard_{bi}_url=$1, "
+                "storyboard_errors = storyboard_errors - $2, updated_at=now() WHERE id=$3",
+                stable, str(bi), srow["id"])
+            return True, None
+        # Ladder fully exhausted for this board — classify the LAST failure
+        # it hit (same predicates the ladder itself gated retries on, via
+        # _sheet_fail_class) and persist it so the creator can see WHY, not
+        # just an empty slot (migration 113).
+        attempts = 1 + (1 if fallback_attempted else 0) + reroll
+        entry = _sheet_fail_entry(last_fail, attempts)
+        await execute(
+            "UPDATE scripts SET storyboard_errors = "
+            "COALESCE(storyboard_errors, '{}'::jsonb) || $1::jsonb, updated_at=now() "
+            "WHERE id=$2",
+            json.dumps({str(bi): entry}), srow["id"])
+        print(f"      ❌ Storyboard sheet: board {bi} exhausted the retry ladder after "
+              f"{attempts} attempt(s) — {entry['class']}: {entry['msg'] or 'no message'}")
+        return False, entry
 
     done = 0
     total_shots = 0
@@ -1364,10 +1599,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # every cast ref plus the env ref goes in, same as pre-fix7.
         sheet_refs = list(cast_refs)
         if env:
+            # SHEET PREVIEWS ONLY (2026-07-21, same knife-scene evidence as
+            # set_line above): the LOCKED LOCATION description is builder-
+            # authored sheet-prompt text too, so it runs through
+            # _neutralize_risky_props before truncation — a risky prop named
+            # here gets drawn into every panel showing the location, same
+            # failure mode as an unneutralized FIXED SET line.
+            env_desc = _neutralize_risky_props(env.get("description") or "")[:220]
             env_block = (
                 f"\nLOCKED LOCATION — {env['name']}: every panel's background is this EXACT "
                 "location as shown in the FINAL reference image (after the cast sheets): "
-                f"{(env.get('description') or '')[:220]}. Keep the location's layout, colors and "
+                f"{env_desc}. Keep the location's layout, colors and "
                 "props IDENTICAL across all panels; never invent a different room or set."
             )
             sheet_refs.append(env["reference_url"])
@@ -1390,113 +1632,93 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             _p(f"Scene {sc}: drawing {'ONLY board' if beat is not None else 'board'} "
                f"{bi} of {len(prompts)} — one sheet, {on_sheet} panels{lock_note}…")
             # Storyboard SHEETS are a preview, not an asset row — no image_model to persist here.
-            fail_box: list = []
-            url, _model_used = await generate_scene_image_for_model(
-                ic, model_override, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
-                fail_info_out=fail_box)
-            # C25a-fix8: ONE free retry with the sparser fallback header when the
-            # primary header trips OpenAI's content filter (the exact, zero-cost,
-            # deterministic signature — see _sheet_filter_reject's docstring).
-            # Never retries a real (credit-consuming) failure — that would just
-            # burn money re-drawing the same doomed prompt.
-            retry_box: list = []
-            fallback_attempted = False
-            if not url and _sheet_filter_reject(fail_box[-1] if fail_box else None) \
-                    and bi - 1 < len(prompts_fallback):
-                fallback_attempted = True
-                info = fail_box[-1]
-                print(f"      ⚠️ Storyboard sheet: board {bi} tripped OpenAI's content filter "
-                      f"(failCode={info.get('failCode')}, creditsConsumed={info.get('creditsConsumed')}) "
-                      "— retrying ONCE with the sparser fallback header (C25a-fix8)…")
-                url, _model_used = await generate_scene_image_for_model(
-                    ic, model_override, prompts_fallback[bi - 1] + env_block,
-                    reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box)
-                if url:
-                    print(f"      ✅ Storyboard sheet: board {bi} succeeded on the fallback-header retry.")
-                else:
-                    print(f"      ❌ Storyboard sheet: board {bi} failed again on the fallback header "
-                          f"({(retry_box[-1] if retry_box else {}).get('failMsg') or 'no fail info'}).")
-            # C25a-fix14: if BOTH header variants still hit the exact zero-cost
-            # filter signature, RE-ROLL the primary a few more times. OpenAI's
-            # image filter is NON-DETERMINISTIC near its threshold — the same
-            # prompt earns a different verdict run to run (proven on El Mercado
-            # 2026-07-20, a board flipped pass/fail across identical redraws) —
-            # and a rejection costs 0 credits, so re-rolling a coin-flip prompt is
-            # FREE and usually lands within a couple tries. Gated on the same
-            # _sheet_filter_reject signature, so it NEVER re-rolls a real,
-            # credit-consuming failure (that would burn money on a doomed prompt).
-            # 2026-07-21: transient Kie 500s (_sheet_transient_kie_error — infra
-            # flake, not moderation, also zero-cost) join THIS ladder only, never
-            # the fallback-header retry above (a 500 has nothing to do with
-            # prompt wording). Those get a 15s pause first so Kie's infra has a
-            # beat to recover; filter re-rolls fire immediately, as before.
-            # Same day, same rule for reference-fetch failures
-            # (_sheet_ref_fetch_error — Kie couldn't download a ref image, our
-            # media proxy busy under parallel load): re-roll ladder only, same
-            # 15s pause so the proxy gets a beat to breathe, never the
-            # fallback-header retry (prompt wording is irrelevant to a fetch).
-            last_fail = retry_box[-1] if retry_box else (fail_box[-1] if fail_box else None)
-            reroll = 0
-            while not url and (_sheet_filter_reject(last_fail)
-                               or _sheet_transient_kie_error(last_fail)
-                               or _sheet_ref_fetch_error(last_fail)) and reroll < 3:
-                reroll += 1
-                if _sheet_ref_fetch_error(last_fail):
-                    print(f"      ⟳ Storyboard sheet: board {bi} retrying after reference fetch "
-                          f"failure (free attempt {reroll}/3)…")
-                    await asyncio.sleep(15)
-                elif _sheet_transient_kie_error(last_fail):
-                    print(f"      ⟳ Storyboard sheet: board {bi} retrying transient Kie 500 "
-                          f"(free attempt {reroll}/3)…")
-                    await asyncio.sleep(15)
-                else:
-                    print(f"      ⟳ Storyboard sheet: board {bi} re-rolling the flaky content "
-                          f"filter (free attempt {reroll}/3)…")
-                rr_box: list = []
-                url, _model_used = await generate_scene_image_for_model(
-                    ic, model_override, sp + env_block, reference_urls=sheet_refs,
-                    aspect_ratio=aspect, fail_info_out=rr_box)
-                last_fail = rr_box[-1] if rr_box else None
-                if url:
-                    print(f"      ✅ Storyboard sheet: board {bi} landed on re-roll {reroll}.")
-            if url:
-                stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
-                # bi is 1-5 by construction (prompts capped, beat validated).
-                # Clear any PRIOR failure entry for this beat in the SAME
-                # statement (migration 113's jsonb minus) — a board that
-                # lands after previously exhausting the ladder (a manual
-                # per-board redo, most often) must not leave a stale error
-                # chip on a slot that now has an image. storyboard_errors
-                # starts NULL and `NULL - text` is a safe no-op, so this is
-                # fine even on a scene that never had a failure.
-                await execute(
-                    f"UPDATE scripts SET storyboard_{bi}_url=$1, "
-                    "storyboard_errors = storyboard_errors - $2, updated_at=now() WHERE id=$3",
-                    stable, str(bi), srow["id"])
+            landed, entry = await _draw_board(sc, srow, bi, sp, prompts_fallback, env_block, sheet_refs)
+            if landed:
                 ok += 1
                 _p(f"Scene {sc}: board {bi} is up")
             else:
-                # Ladder fully exhausted for this board — classify the LAST
-                # failure it hit (same predicates the ladder itself gated
-                # retries on, via _sheet_fail_class) and persist it so the
-                # creator can see WHY, not just an empty slot (migration 113).
-                attempts = 1 + (1 if fallback_attempted else 0) + reroll
-                entry = _sheet_fail_entry(last_fail, attempts)
-                await execute(
-                    "UPDATE scripts SET storyboard_errors = "
-                    "COALESCE(storyboard_errors, '{}'::jsonb) || $1::jsonb, updated_at=now() "
-                    "WHERE id=$2",
-                    json.dumps({str(bi): entry}), srow["id"])
                 scene_failures.append((bi, entry["class"]))
-                print(f"      ❌ Storyboard sheet: board {bi} exhausted the retry ladder after "
-                      f"{attempts} attempt(s) — {entry['class']}: {entry['msg'] or 'no message'}")
+
+        # =====================================================================
+        # BUILD 2 (2026-07-21): auto-sweeper + escalation. After the scene's
+        # normal pass, redraw ONLY the boards still missing, up to 2 more
+        # in-process passes — mirrors the manual playbook proven twice
+        # tonight (a flaky moderation coin flip often lands clean on a plain
+        # re-roll after a pause). Per-beat redraws (beat is not None) ARE the
+        # manual retry already, so they never sweep; plan_only never reaches
+        # this code at all (it `continue`s above, before the board loop).
+        # Every sweep draw runs through the SAME _draw_board ladder — no new
+        # spend class: a failure is still free, a landed board still costs
+        # the same ~$0.05 a manual retry would.
+        # =====================================================================
+        sweeps_run = 0
+        if beat is None and scene_failures:
+            last_class = {fbi: cls for fbi, cls in scene_failures}
+            while scene_failures and sweeps_run < 2:
+                sweeps_run += 1
+                missing = [fbi for fbi, _cls in scene_failures]
+                _p(f"Scene {sc}: Sweep {sweeps_run}: retrying {len(missing)} missing board(s)…")
+                await asyncio.sleep(90)  # time-decorrelates the moderation coin flip
+                if sweeps_run == 2 and any(last_class.get(fbi) in ("moderation", "sensitive")
+                                           for fbi in missing):
+                    # ESCALATION (sweep 2 only): a board that ALSO failed
+                    # sweep 1 on the moderation class gets the full
+                    # treatment — both dictionaries applied to the scene's
+                    # OWN coverage_directive, persisted, then the whole
+                    # sheet plan rebuilt from the reworded text before
+                    # redrawing. "moderation"/"sensitive" are the SAME
+                    # zero-cost content-filter rejection (_sheet_filter_reject),
+                    # split only by failCode 400 vs 422 (_sheet_fail_class) —
+                    # both qualify, since both are the density-scoring coin
+                    # flip this escalation exists to break. kie_transient/
+                    # ref_fetch/unknown are real infra or unclassified
+                    # failures with nothing to do with wording — never
+                    # escalated. coverage_directive is ONE shared column per
+                    # scene, so this escalates every still-missing board
+                    # together — there is no way to reword only one board's
+                    # share of a single stored text.
+                    new_directive, reworded_pairs = _escalate_panel_briefs(directive)
+                    if reworded_pairs:
+                        directive = new_directive
+                        await execute(
+                            "UPDATE scripts SET coverage_directive=$1, updated_at=now() WHERE id=$2",
+                            directive, srow["id"])
+                        for old, new in reworded_pairs:
+                            print(f"      🔧 Sweep {sweeps_run} escalation: reworded "
+                                  f"'{old}' -> '{new}'")
+                        moments = parse_coverage(directive or "")
+                        moments = enforce_shot_budget(moments, _mm, _amax, max_frames=_mframes)
+                        _reconcile_moment_dialogue(moments, s["scene_text"] or "")
+                        _sheet_kwargs = dict(
+                            panels_per_sheet=panels_per_sheet_for(directive or ""),
+                            set_line=parse_set_dressing(directive or "") or "",
+                            axis_line=parse_axis_line(directive or "") or "",
+                            setups_line=parse_setups_line(directive or "") or "")
+                        prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
+                        prompts_fallback = _plan_sheet_prompts(
+                            moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
+                still_failing = []
+                for fbi in missing:
+                    on_sheet = _sizes[fbi - 1]
+                    _p(f"Scene {sc}: sweep {sweeps_run} — redrawing board {fbi} of "
+                       f"{len(prompts)}, {on_sheet} panels{lock_note}…")
+                    landed, entry = await _draw_board(
+                        sc, srow, fbi, prompts[fbi - 1], prompts_fallback, env_block, sheet_refs)
+                    if landed:
+                        ok += 1
+                    else:
+                        last_class[fbi] = entry["class"]
+                        still_failing.append((fbi, entry["class"]))
+                scene_failures = still_failing
+
+        sweep_note = f" after {sweeps_run} sweep{'s' if sweeps_run != 1 else ''}" if sweeps_run else ""
         fail_note = ""
         if scene_failures:
             fail_note = " — " + "; ".join(
                 f"b{fbi}: {_SHEET_FAIL_LABELS.get(cls, 'failed')}" for fbi, cls in scene_failures)
         if not ok:
-            _p(f"Scene {sc}: 0 of {len(todo)} board(s) drawn{fail_note}" if scene_failures
-               else f"Scene {sc}: storyboard image failed")
+            _p(f"Scene {sc}: 0 of {len(todo)} board(s) drawn{fail_note}{sweep_note}" if scene_failures
+               else f"Scene {sc}: storyboard image failed{sweep_note}")
             continue
         done += 1
         total_shots += shot_count
@@ -1509,12 +1731,12 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # PREVIEW for its first sum(_sizes[:5]) shots — say so, never imply
         # every shot got a preview).
         if scene_failures:
-            _p(f"Scene {sc}: {ok} of {len(todo)} board(s) drawn{fail_note}")
+            _p(f"Scene {sc}: {ok} of {len(todo)} board(s) drawn{fail_note}{sweep_note}")
         elif shot_count > _previewed:
             _p(f"Scene {sc}: storyboard ready — {shot_count} shots — previewed the "
-               f"first {_previewed} on {ok} board(s)")
+               f"first {_previewed} on {ok} board(s){sweep_note}")
         else:
-            _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s)")
+            _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s){sweep_note}")
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "

@@ -42,6 +42,22 @@ Pre-flight proof against the REAL gpt-image-2-image-to-image endpoint
   part this chunk owns); sheet 2 specifically still 400s on caption density
   alone, which is out of scope by explicit product law.
 
+UPDATE (2026-07-21, honest boundary correction): iter2 above proved FIXED
+SET's single mention was never THAT scene's remaining trigger, but a
+DIFFERENT live scene the same night (a staged kitchen knife in FIXED SET)
+got that single mention drawn into 30+ panels — the drawer paints whatever
+FIXED SET stages into every panel showing the location, once is still every
+panel. fix9b's single-naming exemption for FIXED SET was reasoned for the
+PICTURES path's philosophy (name the real prop once, draw it once); a SHEET
+is a throwaway preview that never feeds final art, so that exemption no
+longer applies here. FIXED SET (set_line) and the sheet's LOCKED LOCATION
+env description now ALSO run through _neutralize_risky_props — see
+_plan_sheet_prompts's set_block and generate_storyboard_sheet_for_scene's
+env_block in scripts/coverage_to_app.py. The PICTURES path (run_coverage) is
+UNTOUCHED and keeps naming its real props plainly.
+test_fixed_set_keeps_single_canonical_knife_mention below is renamed/updated
+to pin this new behavior instead of the old exemption.
+
 Run:
     cd storyengine/backend && ./venv/bin/python -m pytest \
         tests/functional/test_c25a_fix9b_sheet_prop_neutralization.py -q
@@ -123,17 +139,17 @@ def _panel_briefs_block(prompt: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 1. Single-naming rule: FIXED SET keeps the ONE canonical mention.
+# 1. UPDATED 2026-07-21: FIXED SET is now ALSO neutralized for sheet
+#    previews (see the module docstring's UPDATE paragraph). This replaces
+#    the original single-naming-exemption pin.
 # ---------------------------------------------------------------------------
 
-def test_fixed_set_keeps_single_canonical_knife_mention():
+def test_fixed_set_is_now_also_neutralized_for_sheet_previews():
     prompt = _build_prompt()
     fixed_set = _fixed_set_block(prompt)
-    assert "chef's knife" in fixed_set, fixed_set
-    # Exactly one risky-noun mention in FIXED SET (the canonical slot) — not
-    # zero (the pass never touches it) and not multiple (the source line
-    # itself only named it once).
-    assert fixed_set.lower().count("knife") == 1, fixed_set
+    assert "knife" not in fixed_set.lower(), fixed_set
+    assert "the utensils" in fixed_set
+    assert "the prep board" in fixed_set
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +282,7 @@ def test_coverage_to_app_compiles():
 
 
 if __name__ == "__main__":
-    test_fixed_set_keeps_single_canonical_knife_mention()
+    test_fixed_set_is_now_also_neutralized_for_sheet_previews()
     test_camera_kit_is_fully_neutralized()
     test_panel_brief_descriptions_are_fully_neutralized()
     test_spoken_line_is_not_baked_into_the_sheet()

@@ -154,10 +154,13 @@ Return ONLY valid JSON:
 async def _generate_portrait(api_key: str, description: str, style_dna: str, name: str = "") -> str:
     """One character MODEL SHEET — GPT Image 2 first, nano-banana-2 fallback (GPT Image 2
     refuses kid reference sheets; see note below). A polished animation-studio
-    reference sheet — TURNAROUND (5 views) + EXPRESSIONS + POSE STUDIES + a left info
-    panel — so every storyboard panel, clip and thumbnail can lock the character's full
-    look, angles and emotions. The art_style leads so the cast and the locations share
-    one medium (no 2D-vs-3D drift). Returns the image URL."""
+    reference sheet — TURNAROUND (5 views) + EXPRESSIONS + POSE STUDIES + a small color
+    swatch row — so every storyboard panel, clip and thumbnail can lock the character's
+    full look, angles and emotions. The art_style leads so the cast and the locations
+    share one medium (no 2D-vs-3D drift). Text-free by law (docs/SHEET-MODERATION-LAW.md
+    rule 2): this sheet becomes a reference image fed into later generation calls, and
+    the moderation filter reads text inside reference images, so no name, label or
+    lettering is drawn anywhere on the sheet. Returns the image URL."""
     style = (style_dna or "").strip()
     art = style or "polished, colorful family-animation style"
     who = (name or "the character").strip()
@@ -166,21 +169,23 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str, nam
         f"original kid-friendly character, rendered in {art}. The character: {description.strip()}. "
         f"Render {who} IDENTICALLY in every view, expression and pose — same face, hair, body "
         "proportions, outfit, colors and accessories. Lay it out like a polished animation studio "
-        "model sheet on a clean light lavender-gray studio background, with bold blue uppercase "
-        "section headers, small readable labels, clean spacing and thin blue divider lines:\n"
-        "• TURNAROUND across the top — a full-body row, five views left-to-right labeled FRONT, "
-        "3/4 FRONT, SIDE, 3/4 BACK, BACK.\n"
-        "• EXPRESSIONS in the middle — head-and-shoulders close-ups labeled SHOCKED, SAD, HAPPY, "
-        "CONFUSED, ANGRY, EXCITED.\n"
-        "• POSE STUDIES at the bottom — dynamic full-body action poses labeled REACHING FORWARD, "
-        "KNEELING, POINTING, HANDS ON CHEEKS.\n"
-        f"• A LEFT INFO PANEL with '{who.upper()}' as a large bold blue title, a one-word role, a few "
-        "short personality keyword tags, and a color-palette swatch row. Keep ALL panel text minimal, "
-        "large and correctly spelled — no long sentences or paragraphs of tiny text.\n"
+        "model sheet on a clean light lavender-gray studio background, with clean spacing and thin "
+        "blue divider lines separating each row. No headers, no titles, no labels anywhere on the "
+        "sheet:\n"
+        "• TURNAROUND across the top — a full-body row, five views left-to-right: front, 3/4 "
+        "front, side, 3/4 back, back.\n"
+        "• EXPRESSIONS in the middle — head-and-shoulders close-ups covering a range of emotions: "
+        "shocked, sad, happy, confused, angry, excited.\n"
+        "• POSE STUDIES at the bottom — dynamic full-body action poses: reaching forward, "
+        "kneeling, pointing, hands on cheeks.\n"
+        "• A small color-palette swatch row in one corner, swatches only, no names or labels.\n"
         "Bright soft studio lighting, expressive faces, rounded clean shapes, sharp and uncluttered, "
-        "consistent design in every cell. Avoid: realistic photography, real brand logos, extra "
-        "unrelated characters, scene backgrounds, watermarks, distorted faces, mismatched outfits or "
-        "proportions, malformed hands, paragraphs of tiny gibberish text, misspelled or blurry labels."
+        "consistent design in every cell. This sheet must be completely text-free: no name, no "
+        "title, no section headers, no labels, no captions, no numbers, no letters or lettering "
+        "anywhere in the image, artwork only, every row identifiable by its pose and framing alone. "
+        "Avoid: realistic photography, real brand logos, extra unrelated characters, scene "
+        "backgrounds, watermarks, distorted faces, mismatched outfits or proportions, malformed "
+        "hands, and any text, writing, labels or lettering of any kind."
     )
     # All character images route through GPT Image 2 first with an automatic nano-banana-2
     # fallback (ImageClient.generate_scene_image_gpt). GPT Image 2 content-policy REFUSES a
