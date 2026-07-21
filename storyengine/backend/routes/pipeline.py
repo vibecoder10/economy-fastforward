@@ -946,6 +946,81 @@ async def get_roster_dashboard(
     return result
 
 
+class SeedReferenceRequest(BaseModel):
+    machine: str
+    url: str
+
+
+@router.post("/roster-seed-reference/{video_id}")
+async def seed_roster_reference(
+    video_id: str,
+    body: SeedReferenceRequest,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """C3c Roster stage panel's "Add photo" control: an operator pastes an
+    image URL for a machine prefetch couldn't find a reference for. Free —
+    no generation spend, just fetch + vision-verify + cache — reusing
+    static_docu.seed_reference_from_url (itself a thin wrapper over the SAME
+    _host_reference/_vision_confirms/static_reference_cache pipeline
+    prefetch_roster_references already uses, so a manually-supplied photo is
+    held to the identical bar as a prefetched one)."""
+    video = await fetch_one(
+        "SELECT id, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    machine = (body.machine or "").strip()
+    url = (body.url or "").strip()
+    if not machine or not url:
+        raise HTTPException(status_code=400, detail="machine and url are required")
+    from static_docu import seed_reference_from_url
+    return await seed_reference_from_url(video_id, tenant_id, machine, url)
+
+
+@router.post("/roster-recheck/{video_id}", response_model=PipelineResponse)
+async def recheck_roster_references(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """C3c Roster stage panel's "Re-check" button: re-run reference prefetch
+    for this video's roster. Free — prefetch_roster_references already skips
+    any machine already in static_reference_cache (see its own docstring),
+    so this only retries the machines still missing a verified reference;
+    it's never a re-verify-everything sweep."""
+    video = await fetch_one(
+        "SELECT id, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if (video.get("render_mode") or "") != "static_docu":
+        raise HTTPException(status_code=400, detail="Reference prefetch only applies to static-documentary videos")
+    if await _is_task_active(video_id, tenant_id):
+        raise HTTPException(status_code=409, detail="Task already running")
+
+    _set_task_status(video_id, "running", "Re-checking machine references", tenant_id=tenant_id)
+
+    async def _run():
+        try:
+            from static_docu import prefetch_roster_references
+            result = await prefetch_roster_references(video_id, tenant_id)
+            if result.get("status") == "completed":
+                msg = f"{result.get('verified', 0)} verified, {result.get('missed', 0)} still missing"
+            else:
+                msg = result.get("error") or result.get("message") or "Re-check finished"
+            _set_task_status(video_id, result.get("status", "completed"), msg, tenant_id=tenant_id)
+        except Exception as e:
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+        finally:
+            await asyncio.sleep(20)
+            _clear_task_status(video_id, tenant_id)
+
+    background_tasks.add_task(_run)
+    return PipelineResponse(video_id=video_id, status="running", message="Re-checking machine references")
+
+
 @router.post("/voice/{video_id}", response_model=PipelineResponse)
 async def run_voice(
     video_id: str,

@@ -1,0 +1,228 @@
+"use client";
+
+import { useState } from "react";
+import { CheckCircle2, XCircle, ImageIcon, RefreshCw, Loader2, Link2 } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { ActionButton } from "@/components/ui/ActionButton";
+import { useToast } from "@/components/ui/toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
+import {
+  recheckRosterReferences,
+  seedRosterReference,
+  type RosterDashboard,
+} from "@/lib/api";
+import { toDisplayImageUrl } from "@/lib/utils";
+
+interface RosterStagePanelProps {
+  videoId: string;
+  rosterDashboard: RosterDashboard | undefined;
+  isLoading: boolean;
+  onRefresh: () => void;
+  taskWatcher: TaskWatcherBridge;
+}
+
+/**
+ * C3c Roster stage panel — static-documentary videos only. Every machine in
+ * the locked roster needs a REAL, vision-verified reference photo before any
+ * downstream script/voice/image spend: this is the entire point of the
+ * static_docu reference pipeline (130a0901's fail-closed law + 6f1200d7's
+ * roster-time prefetch). This panel makes that state visible and gives the
+ * operator two free (no-spend) fixes for a machine prefetch missed:
+ *   - "Add photo": paste a URL, runs the SAME host+vision-verify+cache chain
+ *     prefetch already uses (routes/pipeline.py's roster-seed-reference).
+ *   - "Re-check": re-run prefetch for the machines still missing one.
+ */
+export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefresh, taskWatcher }: RosterStagePanelProps) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [taskRunning, setTaskRunning] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
+  const [pendingUrl, setPendingUrl] = useState<Record<string, string>>({});
+  const [seeding, setSeeding] = useState<string | null>(null);
+  const [seedError, setSeedError] = useState<Record<string, string>>({});
+
+  useSharedTaskWatcher({
+    bridge: taskWatcher,
+    enabled: taskRunning,
+    onComplete: (msg) => {
+      setTaskRunning(false);
+      setRechecking(false);
+      queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
+      onRefresh();
+      if (msg) toast.success(msg);
+    },
+    onFailed: (error) => {
+      setTaskRunning(false);
+      setRechecking(false);
+      toast.error(`Re-check failed: ${error}`);
+    },
+  });
+
+  const handleRecheck = async () => {
+    setRechecking(true);
+    try {
+      await recheckRosterReferences(videoId);
+      setTaskRunning(true);
+    } catch (err) {
+      setRechecking(false);
+      toast.error(`Couldn't start the re-check: ${(err as Error).message}`);
+    }
+  };
+
+  const handleAddPhoto = async (machine: string) => {
+    const url = (pendingUrl[machine] || "").trim();
+    if (!url) return;
+    setSeeding(machine);
+    setSeedError((prev) => ({ ...prev, [machine]: "" }));
+    try {
+      const result = await seedRosterReference(videoId, machine, url);
+      if (result.status === "verified") {
+        toast.success(`${machine}: reference photo verified.`);
+        setPendingUrl((prev) => ({ ...prev, [machine]: "" }));
+        queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
+        onRefresh();
+      } else {
+        setSeedError((prev) => ({ ...prev, [machine]: result.reason || "That photo was rejected." }));
+      }
+    } catch (err) {
+      setSeedError((prev) => ({ ...prev, [machine]: (err as Error).message || "Couldn't check that URL." }));
+    } finally {
+      setSeeding(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <GlassCard className="p-12 text-center">
+        <Loader2 size={28} className="animate-spin mx-auto" style={{ color: "var(--turquoise)" }} />
+      </GlassCard>
+    );
+  }
+
+  const units = rosterDashboard?.units ?? [];
+  const total = rosterDashboard?.total ?? 0;
+  const verifiedCount = units.filter((u) => u.reference?.status === "verified").length;
+  const allVerified = total > 0 && verifiedCount === total;
+
+  if (total === 0) {
+    return (
+      <GlassCard className="p-12 text-center">
+        <ImageIcon size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+        <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+          No Machine Roster Yet
+        </p>
+        <p className="text-sm max-w-md mx-auto" style={{ color: "var(--text-tertiary)" }}>
+          Run Research to discover this video&apos;s machine roster — reference
+          photos are then automatically looked up for every machine on the list.
+        </p>
+      </GlassCard>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <GlassCard className="p-5">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-lg font-display flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+              <ImageIcon size={20} style={{ color: "var(--turquoise)" }} /> Machine Roster & Reference Photos
+            </p>
+            <p className="text-sm mt-1 max-w-xl" style={{ color: "var(--text-tertiary)" }}>
+              Every machine needs a real, verified reference photo before script or
+              voice spend — this is the gate that stops an invented machine from
+              ever reaching the screen.
+            </p>
+            <p
+              className="text-sm mt-2 font-semibold"
+              style={{ color: allVerified ? "var(--green)" : "var(--gold)" }}
+            >
+              {verifiedCount}/{total} verified
+              {allVerified ? " — roster is clear to proceed." : " — fix the missing photos below."}
+            </p>
+          </div>
+          <ActionButton
+            icon={rechecking || taskRunning ? Loader2 : RefreshCw}
+            variant="outline"
+            onClick={handleRecheck}
+            disabled={rechecking || taskRunning}
+          >
+            {rechecking || taskRunning ? "Re-checking…" : "Re-check missing"}
+          </ActionButton>
+        </div>
+      </GlassCard>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {units.map((u) => {
+          const verified = u.reference?.status === "verified";
+          return (
+            <GlassCard key={u.machine} className="p-4 flex flex-col gap-3">
+              <div
+                className="w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center"
+                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+              >
+                {verified && u.reference?.hosted_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={toDisplayImageUrl(u.reference.hosted_url)}
+                    alt={u.machine}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <ImageIcon size={28} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }} title={u.machine}>
+                  {u.machine}
+                </p>
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                  style={{
+                    color: verified ? "var(--green)" : "var(--red)",
+                    border: `1px solid ${verified ? "var(--green)" : "var(--red)"}`,
+                  }}
+                >
+                  {verified ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
+                  {verified ? "verified" : "missing"}
+                </span>
+              </div>
+
+              {!verified && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Link2 size={12} style={{ color: "var(--text-tertiary)" }} className="shrink-0" />
+                    <input
+                      type="url"
+                      placeholder="Paste an image URL…"
+                      value={pendingUrl[u.machine] || ""}
+                      onChange={(e) => setPendingUrl((prev) => ({ ...prev, [u.machine]: e.target.value }))}
+                      disabled={seeding === u.machine}
+                      className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] outline-none disabled:opacity-40"
+                      style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
+                    />
+                  </div>
+                  <button
+                    onClick={() => handleAddPhoto(u.machine)}
+                    disabled={seeding === u.machine || !(pendingUrl[u.machine] || "").trim()}
+                    className="w-full px-2 py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
+                    style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                  >
+                    {seeding === u.machine ? <Loader2 size={12} className="animate-spin" /> : null}
+                    {seeding === u.machine ? "Checking…" : "Add photo"}
+                  </button>
+                  {seedError[u.machine] && (
+                    <p className="text-[10px] leading-snug" style={{ color: "var(--red)" }}>
+                      {seedError[u.machine]}
+                    </p>
+                  )}
+                </div>
+              )}
+            </GlassCard>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

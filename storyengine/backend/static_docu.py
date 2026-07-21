@@ -1145,6 +1145,48 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
     return False
 
 
+async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
+                                  url: str) -> dict:
+    """Operator-supplied reference photo for ONE roster machine (C3c Roster
+    stage panel's "Add photo" control — the fix for a machine prefetch
+    couldn't find anything for). Reuses the SAME _host_reference (self-host
+    so Kie always fetches from us, never a third party) + _vision_confirms
+    (machine-consistency check) + static_reference_cache upsert that
+    _prefetch_one_machine already uses — no separate verification path for a
+    manually-supplied photo just because a human picked it.
+
+    An operator-pasted URL carries no Wikipedia/Commons provenance signal,
+    so it always runs the FULL untrusted vision bar (trusted_source=False) —
+    never a free pass just because a person supplied it.
+
+    Never raises for a bad candidate (unreachable URL, wrong machine): both
+    are reported as {"status": "rejected", "reason": ...} for the route to
+    hand back as a normal response, not an exception. Returns
+    {"status": "verified", "hosted_url", "source_url"} on pass."""
+    await _ensure_ref_cache_schema()
+    mkey = _machine_key(machine)
+    hosted = await _host_reference(url, video_id, tenant_id, f"seed_{mkey}")
+    if not hosted:
+        return {
+            "status": "rejected",
+            "reason": "Couldn't fetch that URL — it may be unreachable, blocked, or too small to be a real photo.",
+        }
+    if not await _vision_confirms(tenant_id, hosted, machine, None, trusted_source=False):
+        return {
+            "status": "rejected",
+            "reason": "That photo doesn't look consistent with this machine — try a clearer or more specific photo.",
+        }
+    await execute(
+        """INSERT INTO static_reference_cache
+               (tenant_id, machine_key, machine, hosted_url, source_url)
+           VALUES ($1,$2,$3,$4,$5)
+           ON CONFLICT (tenant_id, machine_key)
+           DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
+                         verified_at=now()""",
+        tenant_id, mkey, machine[:200], hosted, url)
+    return {"status": "verified", "hosted_url": hosted, "source_url": url}
+
+
 async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
     """Roster-time reference prefetch (C3). Reads the video's LOCKED machine
     roster (pipeline_executor._machine_documentary_hold_roster — the same

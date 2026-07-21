@@ -11,7 +11,7 @@ import {
 import { ChatCore } from "@/components/chat/ChatCore";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, getVideoAssets, getVideoActions, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
+import { getVideo, getVideoAssets, getVideoActions, getRosterDashboard, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useTaskWatcher, useSharedTaskWatcher, type TaskWatcherBridge, type TaskWatcherHandlers } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -30,6 +30,8 @@ import { UploadTab } from "@/components/production/UploadTab";
 import { PerformanceTab } from "@/components/production/PerformanceTab";
 import { SoundTab } from "@/components/production/SoundTab";
 import { CostLedgerChip } from "@/components/video-detail/cost-ledger-chip";
+import { RosterStagePanel } from "@/components/production/RosterStagePanel";
+import { StaticDocuStageRail, type StaticDocuStageKey } from "@/components/production/StaticDocuStageRail";
 
 const container = {
   hidden: { opacity: 0 },
@@ -95,6 +97,43 @@ const LEGACY_TAB_IDS: Record<string, string> = {
   "storyboard-visuals": "scenes",
   clips: "scenes",
 };
+
+/** C3c: static-documentary videos (render_mode === 'static_docu') get a
+ * purpose-built 5-stage flow instead of the general 10-tab production
+ * workspace — no Characters/Environments/Scenes/Sound tabs (static docs
+ * never build a cast, never design environments, and draw ONE archival
+ * image per segment via static_docu.py rather than the multi-angle
+ * coverage flow those tabs assume). "Video" combines Thumbnail + Render —
+ * Ryan's stage 5 ("Video: render+thumbnail") — since static docs have no
+ * separate animate stage between them. */
+const STATIC_DOCU_TABS = [
+  { id: "roster", label: "1 · Roster", icon: ImageIcon },
+  { id: "research", label: "2 · Research", icon: Search },
+  { id: "script-voice", label: "3 · Script & Voice", icon: FileText },
+  { id: "video", label: "4 · Video", icon: Film },
+  { id: "upload", label: "5 · Upload", icon: Upload },
+  { id: "performance", label: "6 · Results", icon: BarChart3 },
+];
+
+/** Maps a StaticDocuStageRail stage key to the tab id that shows its
+ * content — Script and Voice share the ScriptVoiceTab, same as the general
+ * workspace already combines them into one "script-voice" tab. */
+const STATIC_STAGE_TO_TAB: Record<StaticDocuStageKey, string> = {
+  roster: "roster",
+  research: "research",
+  script: "script-voice",
+  voice: "script-voice",
+  video: "video",
+};
+
+function getDefaultTabStatic(status: string): string {
+  const idx = PIPELINE_ORDER.indexOf(status);
+  if (idx <= 2) return "roster";
+  if (idx <= 6) return "script-voice";
+  if (idx <= 19) return "video"; // storyboards..rendered all collapse into the Video tab for this format
+  if (idx <= 20) return "upload";
+  return "performance";
+}
 
 /** Which pipeline-plan stage(s) a tab belongs to. A tab is shown when the
  * video's plan includes ANY of these stages. Videos with no plan (the full
@@ -167,7 +206,30 @@ export default function VideoDetailPage() {
   });
 
   const status = video?.status || "idea_logged";
-  const defaultTab = useMemo(() => getDefaultTab(status), [status]);
+  const isStaticDocu = video?.render_mode === "static_docu";
+  const defaultTab = useMemo(
+    () => (isStaticDocu ? getDefaultTabStatic(status) : getDefaultTab(status)),
+    [status, isStaticDocu],
+  );
+
+  // C3c: roster readiness (machines + reference-photo verification) —
+  // static-documentary videos only. Drives both the stage rail's gating and
+  // the Roster tab's panel; fetched once here so the two never disagree.
+  const { data: rosterDashboard, isLoading: rosterLoading } = useQuery({
+    queryKey: ["roster-dashboard", videoId],
+    // The backend 400s until a locked roster exists (no research run yet) —
+    // that's an expected, common state for a brand-new static_docu video,
+    // not an error the rail/panel should show. Treat it as "no roster yet".
+    queryFn: async () => {
+      try {
+        return await getRosterDashboard(videoId);
+      } catch {
+        return { status: "empty", video_id: videoId, ready: 0, total: 0, est_spend_usd_total: 0, units: [] };
+      }
+    },
+    enabled: isStaticDocu,
+    refetchInterval: () => (isStaticDocu && status && !TERMINAL_STATUSES.has(status) ? 10000 : false),
+  });
 
   // Live generation-cost estimate from what's actually been made (pictures + clips
   // dominate). The backend never rolls up videos.total_cost, so the counter sat at
@@ -218,8 +280,13 @@ export default function VideoDetailPage() {
 
   // Per-video plan: hide the tabs for steps the creator switched off. No plan
   // (full pipeline / every existing video) → all tabs show, unchanged.
+  // C3c: static-documentary videos get their own fixed 6-tab set (5 gated
+  // stages + Results) instead of the plan-filtered general tab row —
+  // static_stage_plan already drops video/sound server-side, and this
+  // format's Characters/Environments/Scenes/Sound tabs don't apply at all
+  // (no cast, no coverage flow, no separate animate stage).
   const planStages = (video?.pipeline_stages as string[] | null) ?? null;
-  const visibleTabs = TABS.filter((t) => tabVisible(t.id, planStages));
+  const visibleTabs = isStaticDocu ? STATIC_DOCU_TABS : TABS.filter((t) => tabVisible(t.id, planStages));
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
 
@@ -685,9 +752,24 @@ export default function VideoDetailPage() {
         </div>
       </motion.div>
 
-      {/* Progress stepper — passive, the banner below is the one place to act */}
+      {/* Progress — static-documentary videos get the C3c 5-stage gated rail
+          (Roster/Research/Script/Voice/Video + Run All) instead of the
+          general stepper; everyone else keeps the passive stepper. */}
       <motion.div variants={item}>
-        <PipelineStepper status={status} liveStatus={liveStatus} planStages={planStages} />
+        {isStaticDocu ? (
+          <StaticDocuStageRail
+            video={videoForTabs}
+            videoActions={videoActions}
+            rosterDashboard={rosterDashboard}
+            activeStage={
+              (Object.entries(STATIC_STAGE_TO_TAB).find(([, tab]) => tab === currentTab)?.[0] as StaticDocuStageKey) || "roster"
+            }
+            onSelectStage={(stage) => setActiveTab(STATIC_STAGE_TO_TAB[stage])}
+            taskWatcher={taskWatcher}
+          />
+        ) : (
+          <PipelineStepper status={status} liveStatus={liveStatus} planStages={planStages} />
+        )}
       </motion.div>
 
       {/* Learnings applied indicator — only on Script tab */}
@@ -744,9 +826,10 @@ export default function VideoDetailPage() {
       })()}
 
       {/* Guided next step — the one big button that always knows what's next.
-          Hidden on the Scenes tab: the workspace's own green command bar (status +
-          "Animate everything") is the single banner there, so they don't stack. */}
-      {currentTab !== "scenes" && !machineResearchIncomplete && (
+          Hidden on the Scenes tab (its own green command bar covers the same
+          ground) and hidden entirely for static-documentary videos — the
+          StaticDocuStageRail above is the one place to act for this format. */}
+      {!isStaticDocu && currentTab !== "scenes" && !machineResearchIncomplete && (
         <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} taskWatcher={taskWatcher} />
       )}
 
@@ -803,8 +886,26 @@ export default function VideoDetailPage() {
 
       {/* Tab content */}
       <motion.div variants={item}>
+        {currentTab === "roster" && (
+          <RosterStagePanel
+            videoId={videoId}
+            rosterDashboard={rosterDashboard}
+            isLoading={rosterLoading}
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ["video-actions", videoId] })}
+            taskWatcher={taskWatcher}
+          />
+        )}
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} taskWatcher={taskWatcher} />}
-        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab("scenes")} taskWatcher={taskWatcher} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab(isStaticDocu ? "video" : "scenes")} taskWatcher={taskWatcher} />}
+        {/* C3c: static-documentary "Video" stage — thumbnail + render stacked
+            (no separate animate stage for this format, so the two existing
+            tabs' own quote->confirm flows just sit one above the other). */}
+        {currentTab === "video" && (
+          <div className="space-y-6">
+            <ThumbnailTab video={videoForTabs} onAdvanced={() => {}} taskWatcher={taskWatcher} />
+            <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} taskWatcher={taskWatcher} />
+          </div>
+        )}
         {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("environments")} taskWatcher={taskWatcher} />}
         {currentTab === "environments" && <EnvironmentsTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} taskWatcher={taskWatcher} />}
         {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onGoToEnvironments={() => setActiveTab("environments")} onGoToCharacters={() => setActiveTab("characters")} onAdvanced={() => setActiveTab("sound")} taskWatcher={taskWatcher} />}

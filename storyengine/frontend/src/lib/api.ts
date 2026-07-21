@@ -894,6 +894,31 @@ export type RosterDashboard = {
 export const getRosterDashboard = (videoId: string) =>
   fetchApi<RosterDashboard>(`/api/pipeline/roster-dashboard/${videoId}`);
 
+// --- C3c: Roster stage panel — seed/re-check reference photos ---
+
+export type SeedReferenceResult = {
+  status: "verified" | "rejected";
+  hosted_url?: string;
+  source_url?: string;
+  reason?: string;
+};
+
+/** Operator pastes an image URL for a machine with no verified reference
+ * (the "Add photo" control). Free — fetch + vision-verify + cache, reusing
+ * the SAME pipeline prefetch already runs. Never throws on a rejection
+ * (bad URL / wrong machine) — check `status` on the result. */
+export const seedRosterReference = (videoId: string, machine: string, url: string) =>
+  fetchApi<SeedReferenceResult>(`/api/pipeline/roster-seed-reference/${videoId}`, {
+    method: "POST",
+    body: JSON.stringify({ machine, url }),
+  });
+
+/** Re-run reference prefetch for this video's roster (the "Re-check"
+ * button). Free, background-task-tracked like every other pipeline stage —
+ * skips machines already verified, only retries ones still missing. */
+export const recheckRosterReferences = (videoId: string) =>
+  fetchApi<PipelineResponse>(`/api/pipeline/roster-recheck/${videoId}`, { method: "POST" });
+
 export const runNextStep = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/run-next/${videoId}`, { method: "POST" });
 
