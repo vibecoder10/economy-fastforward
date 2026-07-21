@@ -4,17 +4,13 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
-## ⚠ Pending Ryan decision — delete stale VPS repo copies? (2026-07-21)
-Two orphaned checkouts on the VPS were neutralized (their `storyengine_deploy.sh`
-overwritten with the fixed, cwd-scoped version @ 72e32914; nothing references
-them — crontab, systemd system+user units, home-dir scripts, and running
-processes all checked clean). Each is ~1.1GB. Deletion is the cleaner end state
-but needs Ryan's yes:
-- `/home/clawd/agent-workspace` — last commit 2026-04-10, tree DIRTY: 193
-  untracked files (old agent-run reports, rubric data). Nothing looks valuable
-  but Ryan should confirm.
-- `/home/clawd/economy-fastforward` — last commit 2026-06-12, tree clean.
-On a yes: `rm -rf` both. On a no: they're already safe as-is.
+## ✅ RESOLVED 2026-07-21 — stale VPS repo copies deleted
+Ryan approved; `/home/clawd/agent-workspace` and `/home/clawd/economy-fastforward`
+(the two orphaned checkouts carrying the old bare `pkill -f "next-server"`) are
+`rm -rf`'d. Audit first confirmed zero references (crontab, systemd system+user
+units, home-dir scripts, running processes). The uvicorn kill in
+`storyengine_deploy.sh` is port-scoped to 8001 on main @ 72e32914; the live
+deploy repo (`~/projects/economy-fastforward`) picks that up on next `se deploy`.
 
 ## ⟳ LOOP PROGRESS (read this first — resume point)
 - **Last done (WORKER, not yet orchestrator-reviewed/merged): C66 · MCP process brain (2026-07-21) — the co-pilot that keeps Ryan on track.** tasks/decisions.md 2026-07-21 "MCP co-pilot must be PROCESS-AWARE": the connected agent skipped environment design + a character-presence check because nothing taught it the canonical stage order or a video's gaps. New `storyengine/backend/production_guide.py`: ONE `GUIDE_STAGES` list (research→script→voice→characters→environments→storyboards→images→sound→video→thumbnail→render→upload) feeds BOTH (a) `build_process_instructions()`, called LIVE on every MCP `initialize` dispatch (never baked into a module constant — lock-tested by monkeypatching the map and re-dispatching), and (b) the new `get_production_guide(video_id)` MCP tool — per-stage done/in_progress/not_started/skipped_by_format for ONE video plus concrete gaps (missing character sheets, unapproved environments — a HARD gate on storyboards per `pipeline_executor._environments_ready_gate`, scenes with no storyboard grid) and a `next_step` recommendation. Order + format-skip derive from `status_map.py`'s real `STAGE_ORDER`/`static_stage_plan`/`parse_stage_plan` (not invented) plus `pipeline_executor.py`'s traced character/environment gates (~L7614-7696) — independently matches `next-action.ts`'s own step order. Gap detection reads only already-stored data (video_characters/video_environments rows, story_bible, scripts.storyboard_*_url, background_tasks); a missing Story Bible reports "unavailable", never guesses. PLUS the environments MCP tool family (the NAMED skipped step — environment DESIGN had no verb/tool at all before this chunk, unlike characters): `design_environments`/`redo_environment` (PAID, same `_paid_gate` confirm_token cycle every atomic paid tool uses, quote scales with existing environment-row count at `actions.PICTURE_COST`) + `edit_environment`/`delete_environment` (free) — all four thin wraps over existing `routes/environments.py` endpoints (`get_environment_images`/C48 already covered the read side). Tool surface 91→96 (pinned test updated with a comment). 28 new tests (`tests/functional/test_c66_production_guide.py`), non-vacuous via `git stash` + moving `production_guide.py` aside (collection fails outright without it). Full suite **2126P/15F/1E** = baseline(2098)+28, zero new failures, same 15/1 by name. `py_compile` clean. No migration, no frontend. See SYSTEM_STATE.md §C66, checklist tick, live-verification-queue §C66. **Deploy-safety assessment (worker's own, pending orchestrator review): ff-merge candidate** — purely additive (5 new MCP tool names, no existing tool's schema/dispatch touched, no DB/migration/frontend change); `initialize`'s instructions text grows (additive/informational only); the only non-additive edit is the pre-existing lock test's count bump.
