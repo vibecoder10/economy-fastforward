@@ -72,7 +72,12 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## ⏳ AWAITING PROD RESTART (2026-07-21) — fix on main, backend NOT reloaded
+## ✅ FIX LIVE — images generating (2026-07-21 14:20)
+Ryan deployed (`se deploy`) → prod restarted with the fix. Re-ran `build`: scene 1 got its
+image (PAST the old vision-confirm crash), now rendering scene 2/23. Images generating for real.
+Poll to 23 → render (build finish) → thumbnail → verify. Spend $5.47 so far (+~$0.69 images).
+
+## (historical) AWAITING PROD RESTART (2026-07-21) — fix on main, backend NOT reloaded
 CORRECTION to the earlier "auto-deploys" note: push-to-main does **NOT** restart the prod
 backend. Re-ran `build` at 13:37 (AFTER pushing main 1da893c at ~13:35) → still failed with the
 SAME `_KIE_CLAUDE_URL` error at 13:39 → prod uvicorn is still running OLD code. The "running →
