@@ -446,7 +446,6 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     refusal is neither yes nor no. We ask what the image shows and match the
     designation in the answer. Fail-open on transport errors only."""
     from vault import get_secret
-    from identity_builder import _KIE_CLAUDE_URL
 
     try:
         from shared.clients.image_client import _kie_fetchable_url
@@ -476,8 +475,12 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                 key = await get_secret("kie_ai_api_key", tenant_id)
                 if not key:
                     return True
+                import os
+                kie_claude_url = os.getenv(
+                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
+                ).rstrip("/") + "/v1/messages"
                 r = await c.post(
-                    _KIE_CLAUDE_URL,
+                    kie_claude_url,
                     headers={"Authorization": f"Bearer {key}",
                              "Content-Type": "application/json"},
                     json={"model": CLAUDE_MODELS["kie"]["fast"], "max_tokens": 80,
