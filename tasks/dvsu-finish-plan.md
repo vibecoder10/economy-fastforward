@@ -5,6 +5,16 @@ code/tests, live-verification queue), on branch `claude/dvsu-channel-story-engin
 Tenant `561b872d`, render mode `static_docu`, active proof row
 `fc73860c-a9af-444f-95a5-7f86d60503e0` (23-machine bomber roster).
 
+**REFRAME (2026-07-21, Ryan):** the goal is NOT the StoryEngine platform backlog (mostly
+finished/outdated) — it is the DvsU channel's own core problem: **locking down its
+scripting so factual information is grounded in proper research.** The core arc is
+DV-0 → DV-1 → DV-2 (seed the law → measure under the seeded law with fresh
+provenance-gated research → close the writer/grounding gaps, iterating to 3/3 then 23/23).
+The factual-grounding validators (D5/D6: QL-18 two-independent-source numeric check,
+QL-19 claim-to-evidence grounding) are first-class DV-2 candidates, not nice-to-haves.
+DV-3 (UI), DV-7 (production), DV-8 (docs) are downstream and deprioritized until the
+scripting bar is met.
+
 This file is the reconciled successor to `storyengine/GOAL.md` Phase G (which is stale —
 last updated 2026-07-15, before the C46a–e quality-rules arc landed 2026-07-19). It does
 NOT replace the loop files (`tasks/todo.md` handoff, `tasks/storyengine-wiring-fix-checklist.md`,

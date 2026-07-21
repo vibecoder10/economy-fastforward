@@ -552,3 +552,12 @@ context — absence from MY context is not absence from the REPO. Rule: before a
 exist / has to be built" claim that shapes a design or a chunk brief, run the 10-second
 `Grep -i <x>` across the repo first. Existence claims are cheap to verify and expensive to get
 wrong (I nearly queued a chunk to build a parallel subscription system beside a live one).
+
+## 2026-07-21 — Skill/harness vs. goal: don't let the repo's dominant backlog hijack the ask (Ryan correction)
+Asked to map "what's left to finish the DvsU channel" via the maestro skill, the session let the
+StoryEngine platform loop's chunk queue (C-series, Stripe, MCP, sheet fixes) frame the answer as
+coequal to the actual goal. Ryan's correction: the skill is only the orchestration harness; the
+GOAL was the DvsU channel's own core problem — locking down scripting so factual information is
+grounded in proper research. Rule: the loudest/most-recent backlog in the repo is context, not the
+goal; center the plan on the problem the user named and demote adjacent platform work to
+"downstream" explicitly. (Re-centered in tasks/dvsu-finish-plan.md REFRAME note.)
