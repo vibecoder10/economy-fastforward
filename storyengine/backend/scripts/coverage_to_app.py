@@ -93,6 +93,55 @@ async def resolve_video(ident: str):
     )
 
 
+# A trademarked studio/brand name in a STYLE prompt reads as an IP/policy
+# reference to image models — GPT Image 2 returns "content could not be
+# processed" (failCode 400, 0 credits) when the style names a studio. Proven on
+# PocoAPoco 'El Mercado' 2026-07-20: a storyboard board that reliably 400'd
+# drew clean on the primary header the moment the studio name came out of the
+# style, nothing else changed. So we describe the LOOK (medium + form + light),
+# never the studio, and scrub any studio name out of style text before it can
+# reach an image prompt — the style stays neutral craft language, always.
+#
+# Scope: only the human-readable style DESCRIPTION is scrubbed. The classifier
+# IDS (channel_format 'pixar_3d' etc.) are the internal keys the whole app maps
+# on and NEVER reach an image model, so they are deliberately untouched.
+# The separator before an optional -style/-like/-esque/-grade/-inspired suffix
+# is bound TO the suffix, so a bare studio name keeps the space that separates
+# it from the next word ("Ghibli watercolor" -> "hand-drawn animated
+# watercolor", not "...animatedwatercolor") while "<studio>-style CG" still
+# collapses to "3D animated CG".
+_BRAND_SUFFIX = r"(?:[\s/-]+(?:style|like|esque|grade|inspired))?"
+_STYLE_BRAND_PATTERNS: list[tuple] = [
+    # 3D / CG studios -> "3D animated"
+    (re.compile(rf"\b(?:walt\s+)?disney(?:[\s/-]*pixar)?{_BRAND_SUFFIX}\b", re.IGNORECASE), "3D animated"),
+    (re.compile(rf"\bpixar(?:[\s/-]*disney)?{_BRAND_SUFFIX}\b", re.IGNORECASE), "3D animated"),
+    (re.compile(rf"\bdreamworks{_BRAND_SUFFIX}\b", re.IGNORECASE), "3D animated"),
+    (re.compile(rf"\billumination{_BRAND_SUFFIX}\b", re.IGNORECASE), "3D animated"),
+    (re.compile(r"\bsony\s+(?:pictures\s+)?animation\b", re.IGNORECASE), "3D animated"),
+    # Stop-motion studios
+    (re.compile(rf"\blaika{_BRAND_SUFFIX}\b", re.IGNORECASE), "stop-motion animated"),
+    (re.compile(rf"\baardman{_BRAND_SUFFIX}\b", re.IGNORECASE), "stop-motion animated"),
+    # 2D / hand-drawn studios
+    (re.compile(rf"\b(?:studio\s+)?ghibli{_BRAND_SUFFIX}\b", re.IGNORECASE), "hand-drawn animated"),
+]
+
+
+def _neutralize_style_brands(text):
+    """Scrub trademarked studio/brand names out of a style DESCRIPTION, leaving
+    neutral craft language (see _STYLE_BRAND_PATTERNS). None/empty pass through
+    unchanged. After the swap, collapse any duplicate adjacent word it can
+    introduce ("3D 3D" -> "3D") and tidy whitespace, so "Soft 3D Pixar-style CG"
+    reads "Soft 3D animated CG", not "Soft 3D 3D animated CG"."""
+    if not text:
+        return text
+    out = text
+    for pattern, replacement in _STYLE_BRAND_PATTERNS:
+        out = pattern.sub(replacement, out)
+    out = re.sub(r"\b(\w+)(?:\s+\1\b)+", r"\1", out, flags=re.IGNORECASE)  # "3D 3D" -> "3D"
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return out
+
+
 def _resolve_style(image_style_override, visual_style):
     """Turn a video's stored style choice into (profile, style_directive).
 
@@ -100,17 +149,22 @@ def _resolve_style(image_style_override, visual_style):
     style. This carries the creator's pick (image_style_override / visual_style) into the
     director, cast-sheet, and storyboard prompts. Without it, load_profile({}) fell back to a
     neutral 'clean, modern, cinematic' default and every video rendered realistic — even when
-    the creator chose 3D Pixar. style_directive is None when no style was picked, so callers
-    keep their own sensible default."""
+    the creator chose a 3D-animated look. style_directive is None when no style was picked, so
+    callers keep their own sensible default.
+
+    Every style string is run through _neutralize_style_brands here — the ONE seam all three
+    image paths (director, cast sheet, storyboard) draw their style from — so a studio name can
+    never reach an image prompt no matter how it got into the stored style (creator entry,
+    producer-LLM elaboration, or a legacy preset)."""
     rec = {}
-    iso = (image_style_override or "").strip()
+    iso = _neutralize_style_brands((image_style_override or "").strip())
     if iso:
         rec["Image Style Override"] = iso
-    vs = (visual_style or "").strip()
+    vs = _neutralize_style_brands((visual_style or "").strip())
     if vs:
         rec["Visual Style"] = vs
     profile = load_profile(rec)
-    return profile, (profile.visual_style_directive if rec else None)
+    return profile, _neutralize_style_brands(profile.visual_style_directive if rec else None)
 
 
 async def build_cast_prompt(claude, script_text: str, model=None, style: str | None = None) -> str:
@@ -1174,13 +1228,13 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # deterministic signature — see _sheet_filter_reject's docstring).
             # Never retries a real (credit-consuming) failure — that would just
             # burn money re-drawing the same doomed prompt.
+            retry_box: list = []
             if not url and _sheet_filter_reject(fail_box[-1] if fail_box else None) \
                     and bi - 1 < len(prompts_fallback):
                 info = fail_box[-1]
                 print(f"      ⚠️ Storyboard sheet: board {bi} tripped OpenAI's content filter "
                       f"(failCode={info.get('failCode')}, creditsConsumed={info.get('creditsConsumed')}) "
                       "— retrying ONCE with the sparser fallback header (C25a-fix8)…")
-                retry_box: list = []
                 url, _model_used = await generate_scene_image_for_model(
                     ic, model_override, prompts_fallback[bi - 1] + env_block,
                     reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box)
@@ -1189,6 +1243,28 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 else:
                     print(f"      ❌ Storyboard sheet: board {bi} failed again on the fallback header "
                           f"({(retry_box[-1] if retry_box else {}).get('failMsg') or 'no fail info'}).")
+            # C25a-fix14: if BOTH header variants still hit the exact zero-cost
+            # filter signature, RE-ROLL the primary a few more times. OpenAI's
+            # image filter is NON-DETERMINISTIC near its threshold — the same
+            # prompt earns a different verdict run to run (proven on El Mercado
+            # 2026-07-20, a board flipped pass/fail across identical redraws) —
+            # and a rejection costs 0 credits, so re-rolling a coin-flip prompt is
+            # FREE and usually lands within a couple tries. Gated on the same
+            # _sheet_filter_reject signature, so it NEVER re-rolls a real,
+            # credit-consuming failure (that would burn money on a doomed prompt).
+            last_fail = retry_box[-1] if retry_box else (fail_box[-1] if fail_box else None)
+            reroll = 0
+            while not url and _sheet_filter_reject(last_fail) and reroll < 3:
+                reroll += 1
+                print(f"      ⟳ Storyboard sheet: board {bi} re-rolling the flaky content "
+                      f"filter (free attempt {reroll}/3)…")
+                rr_box: list = []
+                url, _model_used = await generate_scene_image_for_model(
+                    ic, model_override, sp + env_block, reference_urls=sheet_refs,
+                    aspect_ratio=aspect, fail_info_out=rr_box)
+                last_fail = rr_box[-1] if rr_box else None
+                if url:
+                    print(f"      ✅ Storyboard sheet: board {bi} landed on re-roll {reroll}.")
             if url:
                 stable = await _stable_url(url, f"{vid}/storyboard/S{sc}-B{bi}.png", tenant)
                 # bi is 1-5 by construction (prompts capped, beat validated).

@@ -85,7 +85,7 @@ async def set_channel_format(tenant_id, fields: dict[str, Any]) -> dict:
 #     both frontend doors (New Video's "Style description" grid + the chat
 #     LOOK card) instead of either one hardcoding its own copy.
 STYLE_DESCRIPTIONS: dict[str, dict[str, str]] = {
-    "pixar_3d":   {"label": "Pixar 3D",   "look": "Soft 3D Pixar-style CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field"},
+    "pixar_3d":   {"label": "3D Animated", "look": "Soft 3D animated CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field"},
     "flat_2d":    {"label": "2D flat",    "look": "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading"},
     "realistic":  {"label": "Realistic",  "look": "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field"},
     "anime":      {"label": "Anime",      "look": "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading"},
