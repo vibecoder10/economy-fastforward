@@ -600,8 +600,10 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     await _ensure_ref_cache_schema()
 
-    done, failed = 0, []
-    for s in scenes:
+    import asyncio
+    sem = asyncio.Semaphore(6)
+
+    async def _one_scene(s):
         sc = s["scene"]
         sub = subjects.get(sc) or {}
         machine = sub.get("machine") or (s["scene_text"] or "")[:80]
@@ -704,8 +706,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         if not url:
             _p(f"Segment {sc}: image generation failed — scene marked for re-run")
             await execute("DELETE FROM assets WHERE id=$1", row_id)
-            failed.append(str(sc))
-            continue
+            return str(sc)
 
         # Post-generation accuracy check: does the OUTPUT actually look like
         # the machine? One bounded retry, then FAIL the scene — never ship an
@@ -729,8 +730,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 _p(f"Segment {sc}: could not verify the render shows the real "
                    f"{machine} — scene failed for review (not shipped)")
                 await execute("DELETE FROM assets WHERE id=$1", row_id)
-                failed.append(str(sc))
-                continue
+                return str(sc)
             else:
                 # No reference exists (e.g. never-built prototype) — vision
                 # can't reasonably NAME an obscure machine from a render, so
@@ -751,7 +751,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             row_id, durable,
             (f"[ref: {ref_src}] " if ref_src else "") + prompt[:900],
         )
-        done += 1
+        return None
+
+    async def _bounded(s):
+        async with sem:
+            try:
+                return await _one_scene(s)
+            except Exception:  # noqa: BLE001 — one scene's failure never sinks the batch
+                return str(s["scene"])
+
+    outcomes = await asyncio.gather(*[_bounded(s) for s in scenes])
+    failed = [o for o in outcomes if o]
+    done = len(scenes) - len(failed)
     if not done:
         return {"status": "failed",
                 "error": f"no images generated (scenes failed: {', '.join(failed)})"}
