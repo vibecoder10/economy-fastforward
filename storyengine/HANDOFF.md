@@ -1,42 +1,37 @@
-# HANDOFF - 2026-07-20 - C25a coordinated deploy day: MCP went LIVE, 13 hotfixes, models verified
+# HANDOFF - 2026-07-21 - The filter war ended: nano previews, GPT pictures, doctrine locked in stone
 
 ## State
-- Prod: c8ea9783 deployed (20:17 UTC), healthy. main == origin == local (846c2607 is a docs commit on top).
-- Branch: main, clean (one stash: "partial C25a-fix3 voice edits" - redo as a proper chunk).
-- What shipped this session:
-  - C25a media auth deployed + hardened through fix2-fix13 (internal URL signing, .png suffix, workspace-membership auth, 10s negative cache).
-  - MCP LIVE: MCP_ENABLED=true, Streamable HTTP compliance, 86 tools, paywall verified live, subscription-first tool descriptions. Connected via Claude Code (`claude mcp add`, user scope) - claude.ai Connectors UI needs the OAuth wrapper (not built).
-  - Models verified per Ryan's THREE MODELS ruling: Grok $0.09 OK, GPT i2i $0.05 OK, Veo Fast $0.30 confirmed then retired with Veo Quality (can't take refs) and Z-Image (1k char cap). Seedance payload fixed (first-frame only, aspect threaded) - NOT yet live-tested.
-  - GPT sheet 400s root-caused: OpenAI filter DENSITY scoring. Header reworded (fix8, pre-flight proven), builder text neutralized (fix9b). Caption-dense sheets still trip it.
-  - Ledger proven to the cent vs Kie credits; Est→Actual chip live. Stripe env repointed to the new $29/$79/$199 prices; AGENCY price existed nowhere before today.
-  - El Mercado (467dc9cc, PocoAPoco) created via MCP chat, scripted (5 scenes, ready_for_voice).
+- Prod: 30646ced deployed, healthy. main == origin == local. All work committed and live.
+- BOTH PocoAPoco videos have COMPLETE storyboards:
+  - El Mercado (65a8021e-eafa-4cff-94dc-31982ae7b63d): 16/16 boards. Ryan ruled its sheets stay as-is (drawn pre-balanced-chunking; minor picture-anchor offset accepted).
+  - Spanish Class (cd5d2883-427e-4bfb-854d-8849d025d444): 18/18 boards. b5 was the first-ever nano board (landed first try after 14+ GPT rejections).
+- Night's spend: roughly $2-3 total in landed sheet draws; every rejection cost $0.
 
-## Next action (start here cold)
-Build the sheet AUTO-SPLIT chunk: when a storyboard sheet draw fails with the zero-credit
-filter signature (failCode 400 + creditsConsumed 0, both known failMsg strings - see
-`_sheet_filter_reject()` in storyengine/backend/scripts/coverage_to_app.py), split the sheet
-into two smaller boards (panel counts already vary) and redraw each - halves caption density
-per request, captions stay verbatim. Dispatch one Sonnet worker with trace-first brief; test
-via the VPS probe recipe (failures are free). Then have Ryan draw the Spanish video
-(cd5d2883) sheets that still fail (scene 2).
+## The final architecture (locked, deployed, documented)
+- ALL storyboard sheets draw on nano-banana-2 (SHEET_DRAW_MODEL in coverage_to_app.py, no_gpt_fallback=True - a nano failure can never reroute onto the filtered GPT endpoint). Uniform sketch layer, no OpenAI moderation. NOTE: nano leans photoreal vs the 3D-cartoon channel style - acceptable for previews, tune later if Ryan wants.
+- Real per-shot PICTURES stay GPT Image 2, now with up to 2 FREE re-rolls on zero-cost filter rejections before the nano fallback. Discovery: the GPT-with-refs path (what pictures use) had NO nano fallback at all before 30646ced.
+- Belt-and-suspenders, all deployed: hard 6-panel balanced sheets (sheet_chunk_sizes = one boundary source for chunking AND picture anchoring), caption-free sheets, prop/brand/gesture neutralizers (preview set + LOCKED LOCATION now neutralized too), 4-class free retry ladder (moderation 400 / sensitive 422 / Kie 500 / ref-fetch), auto-sweeper (2 spaced passes over missing boards + dictionary escalation on sweep 2), per-board error surfacing (scripts.storyboard_errors + red chips in Scenes UI), text-free cast-generation prompts, vps-deploy.sh refuses to deploy over active generations without --force.
+- The law: storyengine/docs/SHEET-MODERATION-LAW.md (10 rules + 4 ops rules, commit-level evidence).
+- Both cast references are clean text-free sheets (Ryan drive id 1UpoVF9taFoWBtT7PIkwREHPZYhc-IgOF, Vanessa 1C91qU57ScKkGXmsw_8STsKXN1kC8xNbB), installed in the channel profile (locked) and both videos.
 
-## Open threads
-- Seedance live clip test (~$0.60) - blocked on the Spanish video reaching pictures; payload fix deployed but unproven.
-- billing.py LIMIT-1-no-ORDER-BY x3 (incl. token MINT gate) - same bug fix10 fixed for authenticate_with_standing.
-- Pipeline SSE stream resolves home tenant only (same class as fix12) - needs minted SSE token + frontend change.
-- OAuth wrapper for claude.ai/phone connectors - unlocks the Connectors UI path.
-- MCP paid-verb confirm failure silently re-quotes - agents misread as "started"; return an explicit confirm_failed error.
-- research/script stages write NO generation_ledger rows (thinking spend untracked).
-- agent_tokens.created_by migration (standing should follow minting account).
-- Voice fixes (stash): targeted regen no-ops + full-run status regression (rendered -> ready_for_image_prompts).
-- youtube_quota toordinal bug: guard reads fail, assumes 0 used - quota ceiling unenforced.
-- UX papercuts: model badge lag, retry label quotes wrong price, failed redraw shows no toast, login drops on deploy restart.
-- Ryan owes: rotate the agent token he pasted into chat (Settings -> Agent access); name the $79 Stripe price, archive $50/$100; easyspanish92@gmail.com was comped to plan='pro' (deliberate).
+## Next actions (start here)
+1. Ryan reviews both videos' storyboards in the UI (the gate), then Generate Pictures - El Mercado first. Pictures now have the re-roll + nano net; expect smooth runs.
+2. Restart El Mercado's interrupted pictures run if not already done (skip-if-done keeps drawn frames).
+3. Optional polish: tune nano sheet style adherence (previews lean photoreal vs the 3D-cartoon look).
+4. Optional: frontend already shows error chips; verify visually on a real blocked board when one occurs.
 
-## Gotchas learned this session
-- OpenAI's image filter scores accumulated word density (threshold-y, flips near the line); failed createTasks cost 0 credits so bisection/pre-flight iteration is free.
-- claude.ai/Desktop "Connectors" UI is OAuth-only - bearer-token MCP servers connect via `claude mcp add` only.
-- Claude Code's MCP client requires notifications/initialized -> 202 (bare JSON-RPC "Unknown method" error kills the handshake silently).
-- Kie Seedance: reference image and first/last frame are mutually exclusive scenarios.
-- Media-proxy tokens: browser session JWT resolves the HOME tenant only (pre-fix12); Kie-facing URLs need mint_media_token + .png suffix.
-- se db is read-only by default; writes need `se db --write`. public.videos title column is `video_title` (a youtuber_bak schema shadows `videos` with a `title` column).
+## Open threads (carried from 2026-07-20, still open)
+- Seedance live clip test (~$0.60) - Spanish video now AT pictures-ready; payload fix deployed but unproven.
+- billing.py LIMIT-1-no-ORDER-BY x3; SSE stream home-tenant bug; OAuth wrapper for claude.ai Connectors; MCP confirm_failed error; research/script ledger rows; agent_tokens.created_by; voice fixes stash; youtube_quota toordinal bug (STILL spamming logs); UX papercuts.
+- Ryan owes: rotate the agent token pasted in chat; Stripe price naming; VPS password rotation.
+- Cast upload dropzone (b280fe13) never live-verified end-to-end with a real 200 (backend deployed since - quick UI check someday).
+
+## Gotchas learned this session (full detail in memory: storyengine-storyboard-sheet-moderation)
+- OpenAI two-stage moderation: input blocks deterministic, OUTPUT blocks random per-draw - a composite sheet is judged whole, one borderline panel poisons the board. That asymmetry is WHY previews moved to nano.
+- The filter reads text INSIDE reference images, and i2i is stricter than t2i.
+- A staged prop gets DRAWN into every panel ("a knife on the cutting board" in FIXED SET = knife in 30 panels); wording swaps don't help when the drawn IMAGE is the trigger (utensil close-up still renders as a knife).
+- Kie's failCode in task records is the UPSTREAM OpenAI error; Kie docs list only envelope codes. Kie also throws transient 500s ("Internal Error") and ref-fetch failures under load - all 0-credit, all retried free now.
+- kill -9 restarts strand generation_claims rows AND leave ghost active_tasks counters (only a restart clears the counter). Deploy guard now blocks deploys over active tasks.
+- Two Claude sessions on one box WILL collide (a deploy killed a paid pictures run; a restart killed a board ladder). The deploy guard helps; coordination discipline still required.
+- se token is owner-tenant only; client-tenant API calls need the X-Active-Tenant header.
+- Per-board redo: POST /api/pipeline/storyboard-images/{vid}?scene=S&beat=B - redraws ONE board from the SAVED plan, never re-plans. Scene-level (no beat) RE-PLANS and wipes the scene's boards.
