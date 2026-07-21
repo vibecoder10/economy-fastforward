@@ -73,13 +73,13 @@ Numbered DV-0… (not C66+) to avoid colliding with the parked platform loop's c
 Owner key: **[R]** Ryan-at-computer required · **[A]** agent-buildable in sandbox ·
 **[R$]** paid, needs cost quote + yes (or rides the approved $20/video Osiris cap).
 
-- [ ] **DV-0 · Seed the quality law live** [R, free, ~15 min] — run
-  `scripts/seed_dvsu_quality_rules.py` dry-run → `--apply` → idempotency re-run, per the
-  exact recipes in live-queue §C46c (expect 74 rows: story 49 / research 21 / all 4;
-  hard_gate 53 / warn 14 / guidance 7) and §C46e (76 rows incl. QL-7-MH/QL-9-MH). Post-seed
-  smoke: one real script-hold generation shows `_load_dvsu_rule_overrides` firing and
-  QL-12's full banned-word list active. **Everything below is measured against a seeded
-  tenant; do this first.**
+- [x] **DV-0 · Seed the quality law live** — **DONE 2026-07-21** (Ryan-approved, via Supabase
+  MCP; evidence in live-queue §C46c). All 76 rows live for tenant 561b872d: scope story 49 /
+  research 21 / all 4 / most_hated 2; severity hard_gate 53 / warn 16 / guidance 7; pre-write
+  count was 0; idempotency proven (re-upsert → still 76, `updated_at` advanced). ⚠ Still owed
+  (rides DV-1's first preview run): the post-seed smoke — one real script-hold generation
+  showing `_load_dvsu_rule_overrides` firing, QL-12's full banned-word list active, and
+  D1/D2/D3 behavior unchanged vs pre-seed.
 - [ ] **DV-1 · Re-run the 3-machine proof under the seeded law** [R$ ~$0.50–1] — fresh
   provenance-gated one-machine research for XB-15 (its saved package has 23 legacy excerpts
   without `source_capture_method` — preflight will point at `run_one_machine_research_refresh`),
