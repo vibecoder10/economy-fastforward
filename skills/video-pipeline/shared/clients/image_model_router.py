@@ -97,7 +97,7 @@ def _is_zero_cost_filter_reject(fail_info: Optional[dict]) -> bool:
 
 
 async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out=None,
-                        fail_info_out=None):
+                        fail_info_out=None, no_nano_fallback=False):
     """The default path: GPT Image 2 (image-to-image via generate_thumbnail_gpt2
     when refs exist, else generate_scene_image_gpt's own text-to-image +
     content-policy-aware nano-banana-2 fallback).
@@ -123,7 +123,17 @@ async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, tas
     it comes to that.
 
     No-refs branch: unchanged — generate_scene_image_gpt already owns its own
-    internal content-policy-aware nano fallback and is out of scope here."""
+    internal content-policy-aware nano fallback and is out of scope here.
+
+    no_nano_fallback (Ryan's ruling 2026-07-21 evening, reversing the morning's
+    nano-sheets ruling after seeing the results): when True, GPT exhaustion
+    returns (None, None) instead of falling back to nano-banana-2 — nano's
+    character consistency was ruled unacceptable ("none of them are consistent
+    with their characters"), so a caller that would rather surface a clean
+    failure (storyboard sheets and their error-chip + per-board redo UX) than
+    accept a nano draw sets this. Refs branch only; the no-refs branch's
+    internal fallback lives inside generate_scene_image_gpt and no sheet/
+    picture caller reaches it without refs."""
     if refs:
         last_fail: Optional[dict] = None
         for attempt in range(3):
@@ -142,6 +152,10 @@ async def _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, tas
                       "rejection, retrying free)…")
                 continue
             break
+        if no_nano_fallback:
+            print("      ❌ GPT Image 2 exhausted — no nano fallback for this caller, "
+                  "surfacing the failure.")
+            return None, None
         print("      ↩️  GPT Image 2 exhausted — falling back to nano-banana-2…")
         res = await image_client.generate_with_reference(
             prompt, refs, aspect_ratio=aspect_ratio, resolution=resolution, task_id_out=task_id_out,
@@ -169,6 +183,7 @@ async def generate_scene_image_for_model(
     task_id_out: Optional[list] = None,
     fail_info_out: Optional[list] = None,
     no_gpt_fallback: bool = False,
+    no_nano_fallback: bool = False,
 ) -> tuple[Optional[str], Optional[str]]:
     """Draw ONE image honoring `model_override`. Returns (url, model_used) — the
     model actually reflected in `model_used` is what generated the pixels, which
@@ -222,6 +237,15 @@ async def generate_scene_image_for_model(
     behavior — this is a caller-opt-in, not a change to the nano branch's
     default behavior, so the router stays the single source of truth without
     a second, divergent code path.
+
+    no_nano_fallback (Ryan's ruling 2026-07-21 evening — sheets back on GPT,
+    nano banned from them): when True AND the model resolves to the GPT
+    default path, GPT exhaustion returns (None, None) instead of drawing on
+    nano-banana-2. The mirror of no_gpt_fallback, one flag per fallback
+    direction. Storyboard sheets pass it (their error-chip + per-board-redo
+    UX prefers a clean failure over a nano draw with drifting characters);
+    every other caller keeps the nano safety net (e.g. DvsU cast sheets,
+    where GPT refuses kid characters and nano is the only path that lands).
     """
     refs = _urls(reference_urls)
     model = (model_override or "").strip()
@@ -255,4 +279,4 @@ async def generate_scene_image_for_model(
 
     # default / 'gpt-image-2' / unrecognized override
     return await _gpt_default(image_client, prompt, refs, aspect_ratio, resolution, task_id_out,
-                               fail_info_out)
+                               fail_info_out, no_nano_fallback=no_nano_fallback)

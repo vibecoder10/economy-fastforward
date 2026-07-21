@@ -42,6 +42,28 @@ the evidence, then the operations rules that keep the ladder honest.
    money re-drawing the same doomed prompt.
 10. Every board failure is classified and stored per beat (never a silent
     empty slot) and shown to the creator as a chip in the UI.
+11. Sheets draw on GPT Image 2 ONLY - nano-banana-2 is banned from boards.
+    (Ryan, 2026-07-21 evening, reversing that same morning's nano-sheets
+    ruling after reviewing a full video of nano boards: nano dodges the
+    filter but loses character identity - boards drifted photoreal against
+    the channel style and one board invented an entirely different cast
+    with clean cast refs attached. "I actually really hate all of these
+    nano banana boards... we will stick to gpt image 2.") Every sheet draw
+    passes `no_nano_fallback=True`; a board that exhausts the free ladder
+    fails clean into rule 10's error chip, never onto nano.
+12. Filter risk is handled at the SOURCE, not by switching models: no
+    weapons, knives, scissors, blades, sharp tools, violence or threat
+    anywhere in generated content. Enforced in the script engine template
+    (VISUAL CONTENT SAFETY section), the coverage planner (rule 7 in
+    `_coverage_system_prompt`), the environment generator (exclude slot +
+    location-extraction instruction), and PocoAPoco's tenant script prompt
+    (rule 7). Food appears already prepared; hands hold spoons and wooden
+    utensils; conflict lives in dialogue and reactions. Rule 4's
+    neutralizers remain the backstop for legacy stored text. Root evidence:
+    a knife GPT staged by its own liberty on a kitchen env ref (it was in
+    no description) rode into every Scene 1 shot of video cd5d2883 as a
+    reference image and randomly tripped the output filter all run long -
+    the drawn IMAGE is the trigger, so the object must never exist.
 
 ## Evidence
 

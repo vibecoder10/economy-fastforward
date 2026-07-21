@@ -186,7 +186,8 @@ def _run(cast_refs, envs, image_model_override=None):
                                                      reference_urls=None, aspect_ratio="16:9",
                                                      **kwargs):
         captured_calls.append({"model_override": model_override, "prompt": prompt,
-                                "reference_urls": list(reference_urls or [])})
+                                "reference_urls": list(reference_urls or []),
+                                "no_nano_fallback": kwargs.get("no_nano_fallback", False)})
         return "https://fake-storage.example/board.png", "gpt-image-2"
 
     patches = [
@@ -231,7 +232,8 @@ def _run_with_directive(directive_text, envs=(), cast_refs=("https://fake/cast-a
                                                      reference_urls=None, aspect_ratio="16:9",
                                                      **kwargs):
         captured_calls.append({"model_override": model_override, "prompt": prompt,
-                                "reference_urls": list(reference_urls or [])})
+                                "reference_urls": list(reference_urls or []),
+                                "no_nano_fallback": kwargs.get("no_nano_fallback", False)})
         return "https://fake-storage.example/board.png", "gpt-image-2"
 
     run_coverage_boom = AsyncMock(side_effect=AssertionError(
@@ -394,30 +396,36 @@ def test_three_cast_refs_no_env_all_sent_uncapped():
 
 
 # ---------------------------------------------------------------------------
-# C25a-fix-nano-sheets (2026-07-21, Ryan's ruling: "previews move OFF the
-# filtered endpoint entirely"): every sheet draw now passes the LITERAL model
-# "nano-banana-2" to generate_scene_image_for_model — never the video's own
-# image_model_override, which continues to govern PICTURES only.
+# Sheets on GPT Image 2, nano banned (Ryan's 2026-07-21 EVENING ruling,
+# reversing that morning's nano-sheets ruling: nano boards lost character
+# identity — "none of them are consistent with their characters... we will
+# stick to gpt image 2"). Every sheet draw passes the LITERAL model
+# "gpt-image-2" with no_nano_fallback=True — never the video's own
+# image_model_override, which continues to govern PICTURES only, and never
+# a silent nano fallback (a board that exhausts the ladder fails clean into
+# the rule-10 error chip).
 # ---------------------------------------------------------------------------
 
-def test_primary_sheet_draw_uses_nano_banana_2_literal():
+def test_primary_sheet_draw_uses_gpt_image_2_literal_no_nano():
     calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[])
-    assert calls[0]["model_override"] == "nano-banana-2"
+    assert calls[0]["model_override"] == "gpt-image-2"
+    assert calls[0]["no_nano_fallback"] is True
 
 
 def test_sheet_draw_ignores_video_image_model_override():
     """Even when the VIDEO's own stored image_model_override says otherwise
-    (here 'gpt-image-2', the exact filtered endpoint this change moves sheets
-    OFF of), the sheet draw call site still passes the literal 'nano-banana-2'
-    — proving the override is fully ignored for sheets, not just usually
-    None in practice."""
-    calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[], image_model_override="gpt-image-2")
-    assert calls[0]["model_override"] == "nano-banana-2"
+    (here 'nano-banana-2', the exact model banned from boards), the sheet
+    draw call site still passes the literal 'gpt-image-2' — proving the
+    override is fully ignored for sheets, not just usually None in
+    practice."""
+    calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[], image_model_override="nano-banana-2")
+    assert calls[0]["model_override"] == "gpt-image-2"
+    assert calls[0]["no_nano_fallback"] is True
 
 
 def test_sheet_draw_ignores_video_image_model_override_zimage():
     calls = _run(cast_refs=["https://fake/cast-a.png"], envs=[], image_model_override="z-image")
-    assert calls[0]["model_override"] == "nano-banana-2"
+    assert calls[0]["model_override"] == "gpt-image-2"
 
 
 # ---------------------------------------------------------------------------
@@ -713,7 +721,7 @@ def test_exhausted_ladder_writes_moderation_entry_with_attempts():
     fakedb, result = _run_with_image_fn(fn, progress=messages.append)
     assert result["status"] == "completed", result
     assert len(fn.calls) == 15, len(fn.calls)
-    assert all(c["model_override"] == "nano-banana-2" for c in fn.calls), fn.calls
+    assert all(c["model_override"] == "gpt-image-2" for c in fn.calls), fn.calls
     assert sum(1 for m in messages if m.startswith("Scene 1: Sweep ")) == 2, messages
     entry = fakedb.storyboard_errors.get("1")
     assert entry, fakedb.storyboard_errors
@@ -1020,24 +1028,28 @@ def test_per_beat_redo_never_sweeps():
 
 
 # ---------------------------------------------------------------------------
-# C25a-fix-nano-sheets (2026-07-21): no-GPT-fallback mechanism, proven
-# END TO END against the REAL router. Every test above replaces
-# scripts.coverage_to_app.generate_scene_image_for_model wholesale (a fake
-# stand-in that never touches shared.clients.image_model_router at all), so
-# none of them can prove the no_gpt_fallback kwarg coverage_to_app.py now
-# passes actually reaches and is honored by the router. This one instead
-# patches scripts.coverage_to_app.ImageClient with a controllable fake and
-# leaves generate_scene_image_for_model UNPATCHED — the real router logic
-# runs for real, calling the fake ImageClient's nano methods (always
-# failing) and asserting its GPT methods are NEVER reached.
+# Sheets-on-GPT, nano banned (Ryan's 2026-07-21 evening ruling): the
+# no_nano_fallback mechanism, proven END TO END against the REAL router.
+# Every test above replaces scripts.coverage_to_app.generate_scene_image_
+# for_model wholesale (a fake stand-in that never touches shared.clients.
+# image_model_router at all), so none of them can prove the no_nano_fallback
+# kwarg coverage_to_app.py now passes actually reaches and is honored by the
+# router. This one instead patches scripts.coverage_to_app.ImageClient with
+# a controllable fake and leaves generate_scene_image_for_model UNPATCHED —
+# the real router logic runs for real, calling the fake ImageClient's GPT
+# refs-branch method (always failing with a REAL credit-consuming signature)
+# and asserting its nano methods are NEVER reached.
 # ---------------------------------------------------------------------------
 
-class _NanoOnlyFakeImageClient:
-    """Stand-in for shared.clients.image_client.ImageClient: nano ALWAYS
-    fails (a real, credit-consuming signature — 'unknown' class, so the
-    inner retry ladder never re-rolls and each of the 3 passes — normal +
-    sweep 1 + sweep 2 — makes exactly 1 nano attempt); any GPT-path method
-    call fails the test outright via AssertionError."""
+class _GptOnlyFakeImageClient:
+    """Stand-in for shared.clients.image_client.ImageClient: the GPT
+    refs-branch call (generate_thumbnail_gpt2) ALWAYS fails with a real,
+    credit-consuming signature — 'unknown' class, so neither the router's
+    internal free re-roll (zero-cost rejects only) nor the sheet ladder's
+    fallback-header/re-roll rungs fire, and each of the 3 passes — normal +
+    sweep 1 + sweep 2 — makes exactly 1 GPT attempt. Any nano-path method
+    call fails the test outright via AssertionError: nano is banned from
+    sheets."""
 
     SCENE_MODEL = "nano-banana-2"
 
@@ -1045,46 +1057,44 @@ class _NanoOnlyFakeImageClient:
         self.nano_calls = 0
         self.gpt_calls = 0
 
-    async def generate_with_reference(self, prompt, reference_image_url, aspect_ratio="16:9",
+    async def generate_thumbnail_gpt2(self, prompt, refs, aspect_ratio="16:9",
                                        resolution="1K", task_id_out=None, fail_info_out=None):
-        self.nano_calls += 1
-        if task_id_out is not None:
-            task_id_out.append(f"nano-task-{self.nano_calls}")
-        if fail_info_out is not None:
-            fail_info_out.append(dict(_REAL_FAIL))
-        return None
-
-    async def generate_and_wait(self, prompt, aspect_ratio="16:9", model=None, task_id_out=None,
-                                 fail_info_out=None):
-        self.nano_calls += 1
-        if fail_info_out is not None:
-            fail_info_out.append(dict(_REAL_FAIL))
-        return None
-
-    async def generate_thumbnail_gpt2(self, *a, **k):
         self.gpt_calls += 1
-        raise AssertionError(
-            "no_gpt_fallback=True: a sheet draw must never reach generate_thumbnail_gpt2")
+        if task_id_out is not None:
+            task_id_out.append(f"gpt-task-{self.gpt_calls}")
+        if fail_info_out is not None:
+            fail_info_out.append(dict(_REAL_FAIL))
+        return None
 
     async def generate_scene_image_gpt(self, *a, **k):
         self.gpt_calls += 1
         raise AssertionError(
-            "no_gpt_fallback=True: a sheet draw must never reach generate_scene_image_gpt")
+            "sheets always carry refs — the no-refs GPT branch must never run")
+
+    async def generate_with_reference(self, *a, **k):
+        self.nano_calls += 1
+        raise AssertionError(
+            "no_nano_fallback=True: a sheet draw must never reach generate_with_reference")
+
+    async def generate_and_wait(self, *a, **k):
+        self.nano_calls += 1
+        raise AssertionError(
+            "no_nano_fallback=True: a sheet draw must never reach generate_and_wait")
 
     async def generate_scene_image_zimage(self, *a, **k):
         raise AssertionError("sheets never use z-image")
 
 
-def test_nano_failure_never_falls_back_to_gpt_default_real_router():
-    """End-to-end proof of the no_gpt_fallback mechanism: with the REAL
+def test_gpt_exhaustion_never_falls_back_to_nano_real_router():
+    """End-to-end proof of the no_nano_fallback mechanism: with the REAL
     shared.clients.image_model_router.generate_scene_image_for_model running
     (not the FakeDB harness's usual stand-in) against an ImageClient whose
-    nano path always fails, every one of the 3 passes (normal + 2 sweeps)
-    makes exactly 1 nano attempt and 0 GPT attempts — a failed nano draw
-    stays failed instead of quietly reaching generate_thumbnail_gpt2 /
-    generate_scene_image_gpt, the exact OpenAI-filtered endpoint Ryan's
-    2026-07-21 ruling moved sheets off of."""
-    fake_ic = _NanoOnlyFakeImageClient()
+    GPT refs branch always fails, every one of the 3 passes (normal + 2
+    sweeps) makes exactly 1 GPT attempt and 0 nano attempts — an exhausted
+    GPT draw stays failed instead of quietly reaching generate_with_reference
+    / generate_and_wait, the exact character-drifting model Ryan's 2026-07-21
+    evening ruling banned from boards."""
+    fake_ic = _GptOnlyFakeImageClient()
     fakedb = FakeDB(["https://fake/cast-a.png"])
     patches = [
         patch("scripts.coverage_to_app.fetch_one", fakedb.fetch_one),
@@ -1113,8 +1123,8 @@ def test_nano_failure_never_falls_back_to_gpt_default_real_router():
         for p in patches:
             p.stop()
     assert result["status"] == "completed", result
-    assert fake_ic.gpt_calls == 0, "a GPT-path method was called — no_gpt_fallback was not honored"
-    assert fake_ic.nano_calls == 3, fake_ic.nano_calls  # normal pass + sweep 1 + sweep 2
+    assert fake_ic.nano_calls == 0, "a nano-path method was called — no_nano_fallback was not honored"
+    assert fake_ic.gpt_calls == 3, fake_ic.gpt_calls  # normal pass + sweep 1 + sweep 2
     entry = fakedb.storyboard_errors.get("1")
     assert entry and entry["class"] == "unknown", entry
 

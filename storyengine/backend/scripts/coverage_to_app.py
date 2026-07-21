@@ -1442,16 +1442,21 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # engine supported env refs; this caller never passed them).
     envs = await _approved_envs(vid, tenant)
 
-    # C25a-fix-nano-sheets (Ryan's ruling, 2026-07-21): EVERY sheet board draw
-    # below uses this LITERAL model, never `model_override` (the video's own
-    # image-model choice — that still governs the real per-shot PICTURES
-    # path only). Storyboard sheets are a disposable 6-panel composite
-    # PREVIEW judged output-stage by OpenAI's random content filter on the
-    # whole composite at once — one borderline panel poisons the board,
-    # grinding cooking/prop-heavy scenes through the retry ladder forever.
-    # nano-banana-2 has no OpenAI moderation stage, so previews move
-    # UNCONDITIONALLY onto it.
-    SHEET_DRAW_MODEL = "nano-banana-2"
+    # SHEETS DRAW ON GPT IMAGE 2, NANO BANNED (Ryan's ruling 2026-07-21
+    # evening, REVERSING the same morning's C25a-fix-nano-sheets ruling after
+    # seeing a full video of nano boards: "I actually really hate all of these
+    # nano banana boards... none of them are consistent with their characters.
+    # we will stick to gpt image 2"). Nano dodged OpenAI's filter but lost the
+    # thing boards exist for — character identity (one board invented an
+    # entirely different cast even with clean cast refs attached). GPT holds
+    # identity; its filter risk is handled at the SOURCE instead: coverage.py
+    # rule 7 keeps weapons/blades/violence out of every plan, the env
+    # generator excludes them from location refs, and the free retry ladder
+    # below (fallback header + re-rolls) absorbs the residual random output
+    # blocks. A board that still exhausts the ladder FAILS CLEAN (error chip +
+    # per-board redo) — never a nano draw (no_nano_fallback=True on every
+    # draw call below).
+    SHEET_DRAW_MODEL = "gpt-image-2"
 
     async def _draw_board(sc, srow, bi, sp, prompts_fallback_list, env_block, sheet_refs):
         """Draw ONE storyboard-sheet board through the full retry/re-roll ladder
@@ -1462,18 +1467,18 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         migration 113), and return (landed, entry). Closes over vid, tenant,
         ic, aspect, SHEET_DRAW_MODEL — constant for the whole video, set above.
 
-        Every draw below passes model=SHEET_DRAW_MODEL ("nano-banana-2",
-        literal — see the constant's comment) and no_gpt_fallback=True. The
-        router's nano branch normally falls back to _gpt_default when nano
-        fails (shared.clients.image_model_router.generate_scene_image_for_
-        model's docstring) — for sheets that would silently walk right back
-        onto GPT Image 2's OpenAI-filtered endpoint, the exact thing this
-        whole change exists to avoid. no_gpt_fallback=True keeps a failed
-        nano attempt failed, so THIS ladder (unchanged below) is what handles
-        it — it now guards nano's own Kie-infra failures (500s, ref-fetch)
-        rather than OpenAI's moderation (which nano doesn't have), so
-        moderation/sensitive-class entries should become rare while the
-        transient classes stay exactly as load-bearing as before.
+        Every draw below passes model=SHEET_DRAW_MODEL ("gpt-image-2",
+        literal — see the constant's comment) and no_nano_fallback=True. The
+        router's GPT path normally falls back to nano-banana-2 on exhaustion
+        (shared.clients.image_model_router._gpt_default) — for sheets that
+        would silently hand a board to the model Ryan banned for character
+        drift (his 2026-07-21 evening ruling). no_nano_fallback=True keeps a
+        failed GPT attempt failed, so THIS ladder is what handles it: the
+        fallback-header retry and free re-rolls absorb OpenAI's random
+        output-stage blocks (which are back in scope now that sheets are on
+        GPT again), the transient classes cover Kie 500s/ref-fetch flakes,
+        and true exhaustion lands a classified error chip + per-board redo —
+        never a nano draw.
 
         Shared by the scene's normal per-board pass AND the BUILD 2 sweep
         passes (2026-07-21) so a swept board draws through the IDENTICAL
@@ -1482,7 +1487,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         fail_box: list = []
         url, _model_used = await generate_scene_image_for_model(
             ic, SHEET_DRAW_MODEL, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
-            fail_info_out=fail_box, no_gpt_fallback=True)
+            fail_info_out=fail_box, no_nano_fallback=True)
         # C25a-fix8: ONE free retry with the sparser fallback header when the
         # primary header trips OpenAI's content filter (the exact, zero-cost,
         # deterministic signature — see _sheet_filter_reject's docstring).
@@ -1500,7 +1505,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             url, _model_used = await generate_scene_image_for_model(
                 ic, SHEET_DRAW_MODEL, prompts_fallback_list[bi - 1] + env_block,
                 reference_urls=sheet_refs, aspect_ratio=aspect, fail_info_out=retry_box,
-                no_gpt_fallback=True)
+                no_nano_fallback=True)
             if url:
                 print(f"      ✅ Storyboard sheet: board {bi} succeeded on the fallback-header retry.")
             else:
@@ -1533,7 +1538,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             rr_box: list = []
             url, _model_used = await generate_scene_image_for_model(
                 ic, SHEET_DRAW_MODEL, sp + env_block, reference_urls=sheet_refs,
-                aspect_ratio=aspect, fail_info_out=rr_box, no_gpt_fallback=True)
+                aspect_ratio=aspect, fail_info_out=rr_box, no_nano_fallback=True)
             last_fail = rr_box[-1] if rr_box else None
             if url:
                 print(f"      ✅ Storyboard sheet: board {bi} landed on re-roll {reroll}.")

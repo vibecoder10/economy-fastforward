@@ -138,7 +138,7 @@ SCRIPT:
 {script[:12000]}
 
 Return ONLY valid JSON:
-{{"locations": [{{"name": "short SPECIFIC place name (e.g. 'Kitchen', 'Garage', 'Lake shore' — never a combined 'Home/Garage')", "description": "what the place looks like + its lighting/time of day, written so an image generator draws the SAME place every time (40-80 words)"}}]}}"""
+{{"locations": [{{"name": "short SPECIFIC place name (e.g. 'Kitchen', 'Garage', 'Lake shore' — never a combined 'Home/Garage')", "description": "what the place looks like + its lighting/time of day, written so an image generator draws the SAME place every time (40-80 words). NEVER mention knives, blades, scissors, sharp tools or weapons — describe food as already prepared, utensils as spoons/wooden tools"}}]}}"""
     try:
         text = await _call_claude(prompt, creds, tier="smart", max_tokens=2000)
         text = text.strip()
@@ -182,7 +182,14 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
         "scene": description.strip(),
         "people": "none — empty location, no characters present",
         "lighting": "clear, consistent time of day",
-        "exclude": "no people, no text, no watermarks",
+        # knives/blades joined the exclude list 2026-07-21: a knife the model
+        # staged by its own liberty on a kitchen env ref rode into EVERY shot
+        # of the scene as a reference image and randomly tripped GPT Image 2's
+        # output filter all run long (video cd5d2883). The drawn IMAGE is the
+        # trigger — no shot-prompt wording can fix it — so the object must
+        # never exist in the reference at all.
+        "exclude": ("no people, no text, no watermarks, no knives, blades, scissors, "
+                    "sharp tools or weapons of any kind — food shown already prepared"),
     }
     prompt = json.dumps(spec, ensure_ascii=False)
     # GPT Image 2 first, intelligent nano-banana-2 fallback (shared ImageClient) — locations

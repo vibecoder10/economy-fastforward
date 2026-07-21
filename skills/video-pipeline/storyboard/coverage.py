@@ -159,6 +159,17 @@ expressions, gestures and the spoken line change between them. Bodies never drif
 ends, lean across the set, or change orientation between moments unless the narration \
 explicitly moves someone — and then you re-establish with a new two-shot and restate the \
 setups.{motivated_rule}
+7) CONTENT SAFETY — NOTHING SHARP, NOTHING VIOLENT (Ryan's ruling 2026-07-21: sheets and \
+pictures draw on GPT Image 2, whose content filter randomly rejects any composition it can \
+read as threatening — a knife on a counter near two people is enough, proven repeatedly on \
+prod). NEVER stage a weapon or any sharp or bladed object ANYWHERE in the scene: no knives, \
+scissors, cleavers, skewers, peelers, graters, blades or pointed tools — not in the [SET | ...] \
+line, not in a shot description, not as an off-hand prop detail. Food prep is shown with \
+ALREADY-PREPARED ingredients (things are pre-cut, pre-peeled, in bowls); hands hold spoons, \
+whisks, spatulas or wooden utensils only, and no shot depicts cutting, chopping or slicing. \
+NEVER stage violence, threat, injury, or an aggressive gesture (no fist raised at someone, no \
+grabbing, no cornering). If the narration implies any of these, show the moment BEFORE or \
+AFTER it, or an emotional reaction to it — never the act or the object itself.
 </rules>
 
 <output_format>
