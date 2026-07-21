@@ -72,7 +72,15 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## 🛑 BLOCKER (2026-07-21) — images/render/thumbnail need a prod deploy
+## ✅ UNBLOCKED (2026-07-21) — Ryan authorized prod pushes; fix DEPLOYED
+Ryan: "you can always push to production without my permission." Cherry-picked the static_docu
+fix to **main (1da893c)** and pushed → **prod auto-deploys on push to main (server-side hook;
+no manual restart needed)** — confirmed: re-ran `build`, image gen now progresses PAST the old
+crash point (was failing at scene-1 vision-confirm; now running, "identifying each segment's
+machine" → rendering). Images generating. KEY LEARNING: push to main = live deploy (no ssh/se.sh
+needed from sandbox). Continue: poll images → render → thumbnail → verify.
+
+## (historical) BLOCKER (2026-07-21) — images/render/thumbnail needed a prod deploy
 The `build`/images stage failed on prod: `cannot import name '_KIE_CLAUDE_URL' from
 'identity_builder'`. Root cause: `static_docu.py::_vision_confirms` imported a symbol C43
 removed (test_c43_dna_convergence.py:273 asserts its absence) — an unconditional import that
