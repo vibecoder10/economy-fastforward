@@ -610,6 +610,27 @@ async def _host_reference(url: str, video_id: str, tenant_id: str,
     return None
 
 
+def _url_file_title(url: str) -> str:
+    """Best-effort recovery of the real Commons/Wikipedia File: title from a
+    Wikimedia URL, so a designation-token check can run against the actual
+    filename even for sources (like a Wikipedia lead image) that don't
+    otherwise carry a file title. A /thumb/ URL's true filename is the
+    second-to-last path segment (``.../thumb/a/b/XB-35.jpg/1024px-XB-35.jpg``
+    — the last segment is the WIDTH-prefixed thumb name, not the file); a
+    raw (non-thumb) URL's filename is simply the last segment."""
+    from urllib.parse import unquote
+
+    try:
+        parts = (url or "").rstrip("/").split("/")
+        if not parts:
+            return ""
+        if "/thumb/" in url and len(parts) >= 2:
+            return unquote(parts[-2])
+        return unquote(parts[-1])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 async def _gather_reference_candidates(machine: str, aliases: Optional[list],
                                        search_query: Optional[str]) -> list:
     """The SAME layered candidate chain _one_scene has always used, factored
@@ -617,24 +638,47 @@ async def _gather_reference_candidates(machine: str, aliases: Optional[list],
     identical lookup without duplicating it: LAYER 1 (find_wikipedia_lead_
     images), LAYER 1.5 (find_article_images — other real photos on that same
     article), LAYER 2 (find_commons_photos, trust-promoted by a designation
-    token in the file title). Returns ``[(url, trusted), ...]``, best-first,
-    de-duplicated by url. Exactly mirrors the original inline block that used
-    to live in _one_scene — no behavior change, just a shared home."""
+    token in the file title).
+
+    C2f fix: the designation-token filename check (_commons_title_matches)
+    now applies to EVERY source, not just Commons search hits — a lead image
+    or article image whose own FILENAME carries the machine's designation
+    (e.g. XB-35.jpg found on the generic "Northrop YB-35" article, whose
+    page title alone doesn't name the XB-35 variant) is promoted to trusted
+    even when the page-title check misses. The returned list is then sorted
+    token-matched-first, then remaining-trusted, then untrusted (stable sort
+    — ties keep their original discovery order), so a genuine token match
+    (e.g. "File:Boeing_XB-52_in_flight.jpg" for the XB-52) is always tried
+    BEFORE a same-family lookalike (a modern B-52H photo) that only earned
+    trust from a loose page-title/word overlap.
+
+    Returns ``[(url, trusted), ...]``, de-duplicated by url."""
     names = [machine] + list(aliases or [])
+    entries: list[dict] = []  # {"url", "trusted", "token"}
+    seen: set = set()
+
+    def _add(url: str, trusted: bool, title_hint: Optional[str] = None) -> None:
+        if not url or url in seen:
+            return
+        seen.add(url)
+        token = _commons_title_matches(
+            machine, aliases, title_hint or _url_file_title(url))
+        entries.append({"url": url, "trusted": trusted or token, "token": token})
+
     wiki = await find_wikipedia_lead_images(names)
-    # 'trusted' provenance only holds when the article title names OUR
-    # machine — a fuzzy search that landed on a lookalike's article gets
-    # demoted to the strict vision check instead of a free pass.
-    candidates = [
-        (w["url"], w["trusted"] and _page_matches(machine, aliases, w.get("page", "")))
-        for w in wiki
-    ]
-    have = {u for u, _ in candidates}
+    for w in wiki:
+        # 'trusted' provenance only holds when the article title names OUR
+        # machine — a fuzzy search that landed on a lookalike's article gets
+        # demoted to the strict vision check instead of a free pass (unless
+        # the file's own name carries the designation token — see _add).
+        page_trusted = w["trusted"] and _page_matches(machine, aliases, w.get("page", ""))
+        _add(w["url"], page_trusted)
+
     # LAYER 1.5: other real photos on that same article — trusted for the
     # same reason as the lead image (it's on the machine's own page).
-    article_imgs = [a for a in await find_article_images(names) if a["url"] not in have]
-    candidates += [(a["url"], True) for a in article_imgs]
-    have |= {a["url"] for a in article_imgs}
+    for a in await find_article_images(names):
+        _add(a["url"], True, a.get("file_title"))
+
     # LAYER 2: Commons search. A hit whose FILE TITLE itself carries the
     # machine's designation token (e.g. "xb35" in "Northrop_XB-35_11-300.jpg")
     # is promoted to trusted — the filename ties it to the machine
@@ -642,19 +686,13 @@ async def _gather_reference_candidates(machine: str, aliases: Optional[list],
     # by sight.
     if search_query:
         for cp in await find_commons_photos(search_query):
-            if cp["url"] in have:
-                continue
-            trusted = _commons_title_matches(machine, aliases, cp.get("title") or "")
-            candidates.append((cp["url"], trusted))
-            have.add(cp["url"])
-    if not candidates and machine:
+            _add(cp["url"], False, cp.get("title"))
+    if not entries and machine:
         for cp in await find_commons_photos(machine):
-            if cp["url"] in have:
-                continue
-            trusted = _commons_title_matches(machine, aliases, cp.get("title") or "")
-            candidates.append((cp["url"], trusted))
-            have.add(cp["url"])
-    return candidates
+            _add(cp["url"], False, cp.get("title"))
+
+    entries.sort(key=lambda e: 0 if e["token"] else (1 if e["trusted"] else 2))
+    return [(e["url"], e["trusted"]) for e in entries]
 
 
 def _machine_key(machine: str) -> str:
@@ -738,52 +776,90 @@ def _commons_title_matches(machine: str, aliases: Optional[list], title: str) ->
     return False
 
 
+# Hard-reject signals in the model's reply. Matched as WHOLE WORDS (\b...\b)
+# — a naive substring check false-matched "person" inside "supersonic" live
+# (S19 Convair B-58, which cost S20 XB-70 an extra candidate too), silently
+# rejecting a genuinely correct photo.
+_FLAT_MEDIA_KEYWORDS = ("drawing", "sketch", "diagram", "blueprint",
+                        "scale model", "schematic")
+_WRONG_CONTENT_KEYWORDS = ("interior", "cockpit", "person", "portrait", "map",
+                          "insignia", "document", "text page")
+
+
+def _has_keyword(text: str, keywords: tuple) -> bool:
+    return any(re.search(r"\b" + re.escape(k) + r"\b", text) for k in keywords)
+
+
 async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                            aliases: Optional[list] = None,
                            trusted_source: bool = False) -> bool:
     """Vision sanity check: is this image consistent with being `machine` — a
-    real photograph (or full-scale rendering) of that type/configuration, not
-    a sketch, diagram, blueprint, or scale model?
+    real photograph (or full-scale rendering) of that SPECIFIC designation/
+    variant, not a sketch, diagram, blueprint, scale model, or a different
+    (even closely related) variant of the same family?
 
     SUPPLIES the machine name/aliases and asks a direct YES/NO instead of the
     old bar of the model spontaneously NAMING the machine unprompted — nobody
     can name an obscure never-built prototype by sight, so that old bar
-    rejected every genuine Commons photo of XB-35/YB-49/YB-35/YB-60. Hard
-    rejections (interiors, people/portraits, maps, flat/non-photo media)
-    apply to BOTH trusted and untrusted candidates — trusted provenance (the
-    photo appears on the machine's own Wikipedia article) only excuses not
-    being able to name it by sight, never a wrong or non-photographic image.
-    Fail-open on transport errors only."""
+    rejected every genuine Commons photo of XB-35/YB-49/YB-35/YB-60.
+
+    TRUSTED candidates (provenance: the photo appears on the machine's own
+    Wikipedia article, or its own filename carries the designation token —
+    see _gather_reference_candidates) do NOT need the model to confirm
+    identification at all — provenance outranks a weak model's guess (a
+    haiku-tier vision model misidentified genuine XB-15/B-21 lead-image
+    photos as "a B-17"/"a B-2" live). Hard rejections (interiors, people/
+    portraits, maps, flat/non-photo media) still apply to trusted candidates
+    — provenance only excuses not being able to name it by sight, never a
+    wrong-media or clearly-wrong-content image. UNTRUSTED candidates still
+    require an explicit YES, and the question is deliberately strict about
+    VARIANT — a modern B-52H photo must NOT pass as the prototype XB-52.
+
+    FAILS CLOSED on transport failure: a request that raises or comes back
+    with no usable reply text is retried ONCE, then treated as REJECTED (not
+    verified) — an HTTP-level failure (23/23 URL-source calls 400'd live)
+    must never silently become "verified"."""
     from vault import get_secret
 
     alias_txt = ""
     if aliases:
         alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
     source_hint = (
-        "This photo comes from the machine's own Wikipedia article, so it "
-        "very likely IS that machine or a closely related variant. "
+        "This photo comes from the machine's own Wikipedia article, which is "
+        "strong provenance that it depicts this exact machine. "
         if trusted_source else
         "This photo was found via general keyword search and needs "
         "independent confirmation. "
     )
 
-    try:
-        from shared.clients.image_client import _kie_fetchable_url
-        content = [
-            {"type": "text", "text":
-             f"We believe this image shows the {machine}{alias_txt}. "
-             f"{source_hint}"
-             "Answer on one line: first word YES or NO, then one short "
-             "reason. YES if the image is consistent with being a real "
-             "photograph (or full-scale museum/factory rendering) of that "
-             "machine — that type/configuration of vehicle or aircraft. NO "
-             "if it clearly shows a different, unrelated vehicle, is not a "
-             "real photo (a drawing/sketch/diagram/blueprint/schematic/scale "
-             "model), or primarily shows an interior, cockpit, a person or "
-             "portrait, a map, insignia, or a document/text page."},
-            {"type": "image", "source": {"type": "url",
-             "url": _kie_fetchable_url(image_url)}},
-        ]
+    from shared.clients.image_client import _kie_fetchable_url
+    content = [
+        {"type": "text", "text":
+         f"We believe this image shows the {machine}{alias_txt}. "
+         f"{source_hint}"
+         "Answer on one line: first word YES or NO, then one short "
+         "reason. YES only if the image is consistent with being a real "
+         "photograph (or full-scale museum/factory rendering) of THIS "
+         "SPECIFIC designation/variant. A DIFFERENT variant of the same "
+         "aircraft/vehicle family counts as NO — for example, a later "
+         "production model is NOT the same as an earlier experimental "
+         "prototype designation, unless that variant is explicitly one of "
+         "the aliases listed above. NO if it shows a different variant, an "
+         "unrelated vehicle, is not a real photo (a drawing/sketch/diagram/"
+         "blueprint/schematic/scale model), or primarily shows an interior, "
+         "cockpit, a person or portrait, a map, insignia, or a document/"
+         "text page."},
+        {"type": "image", "source": {"type": "url",
+         "url": _kie_fetchable_url(image_url)}},
+    ]
+
+    async def _ask_once() -> Optional[str]:
+        """One round-trip to the vision model. Returns the lowercased reply
+        text (possibly empty), or None specifically when NO provider key is
+        configured at all — a workspace config gap, not a transport symptom,
+        so the caller treats it differently (unchanged fail-open, since
+        there's no live evidence this ever fires in practice and retrying
+        can't help a missing key)."""
         # DIRECT Anthropic first — the Kie gateway injects tool configuration
         # that derails the reply into meta-talk about tools (seen live).
         akey = await get_secret("anthropic_api_key", tenant_id)
@@ -794,13 +870,13 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                     headers={"x-api-key": akey,
                              "anthropic-version": "2023-06-01",
                              "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["anthropic"]["fast"], "max_tokens": 80,
+                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
                           "messages": [{"role": "user", "content": content}]},
                 )
             else:
                 key = await get_secret("kie_ai_api_key", tenant_id)
                 if not key:
-                    return True
+                    return None
                 import os
                 kie_claude_url = os.getenv(
                     "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
@@ -809,26 +885,48 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                     kie_claude_url,
                     headers={"Authorization": f"Bearer {key}",
                              "Content-Type": "application/json"},
-                    json={"model": CLAUDE_MODELS["kie"]["fast"], "max_tokens": 80,
+                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
                           "messages": [{"role": "user", "content": content}]},
                 )
         body = r.json()
-        txt = " ".join(b.get("text", "") for b in body.get("content", [])
-                       if b.get("type") == "text").strip().lower()
-        if not txt:
-            return True
-        # Hard rejections apply UNIFORMLY to trusted and untrusted candidates
-        # — provenance never excuses a flat/non-photo image or clearly wrong
-        # content, it only excuses not being able to name the machine by sight.
-        is_flat = any(k in txt for k in ("drawing", "sketch", "diagram",
-                                         "blueprint", "scale model", "schematic"))
-        wrong = any(k in txt for k in ("interior", "cockpit", "person",
-                                       "portrait", "map", "insignia",
-                                       "document", "text page"))
-        said_yes = bool(re.match(r"^\W*yes\b", txt))
-        return said_yes and not is_flat and not wrong
-    except Exception:  # noqa: BLE001
-        return True
+        return " ".join(b.get("text", "") for b in body.get("content", [])
+                        if b.get("type") == "text").strip().lower()
+
+    txt: Optional[str] = None
+    no_key = False
+    for attempt in range(2):
+        try:
+            result = await _ask_once()
+        except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
+            result = ""
+        if result is None:
+            no_key = True
+            txt = None
+            break
+        txt = result
+        if txt:
+            break
+        # empty reply — loop again for the one allowed retry
+
+    if no_key:
+        return True  # config gap, not a transport failure — unchanged behavior
+    if not txt:
+        # Every attempt raised or came back empty — FAIL CLOSED: this
+        # candidate is treated as unverified/rejected (the caller tries the
+        # next candidate; worst case the scene blocks, which is visible and
+        # recoverable), never silently promoted to "verified".
+        return False
+
+    # Hard rejections (word-boundary matched) apply UNIFORMLY to trusted and
+    # untrusted candidates — provenance never excuses a flat/non-photo image
+    # or clearly wrong content, it only excuses not being able to name the
+    # machine by sight.
+    is_flat = _has_keyword(txt, _FLAT_MEDIA_KEYWORDS)
+    wrong = _has_keyword(txt, _WRONG_CONTENT_KEYWORDS)
+    if trusted_source:
+        return not is_flat and not wrong
+    said_yes = bool(re.match(r"^\W*yes\b", txt))
+    return said_yes and not is_flat and not wrong
 
 
 async def _scene_subjects(tenant_id: str, scenes: list[dict],
