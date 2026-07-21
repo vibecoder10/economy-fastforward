@@ -756,8 +756,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     async def _bounded(s):
         async with sem:
             try:
-                return await _one_scene(s)
-            except Exception:  # noqa: BLE001 — one scene's failure never sinks the batch
+                # Per-scene ceiling: a hung provider call (seen live — a Kie
+                # render poll stuck 45+ min on a no-reference machine) fails
+                # this ONE scene instead of freezing the whole batch.
+                return await asyncio.wait_for(_one_scene(s), timeout=300)
+            except Exception:  # noqa: BLE001 — timeout or any error: isolate this scene
+                try:
+                    await execute(
+                        "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+                        "AND scene=$3 AND generation_method=$4 AND image_url IS NULL",
+                        video_id, tenant_id, s["scene"], STATIC_RENDER_MODE)
+                except Exception:  # noqa: BLE001
+                    pass
                 return str(s["scene"])
 
     outcomes = await asyncio.gather(*[_bounded(s) for s in scenes])
