@@ -8,6 +8,17 @@ but the no-reference obscure prototypes rendered as the WRONG AIRCRAFT (see belo
 regen). **Immediate next task: visual audit all 23 images → re-render the wrong ones with correct
 reference photos → then render MP4 + thumbnail.** Video #2 uses the grounded pipeline (plan below).
 
+### 🚫 DO NOT use the `images` verb on this static_docu video (money trap, confirmed live)
+The scene-scoped routing fix (main `2d54d6f`) is **NOT deployed** (a push does not restart the
+backend). So `images(video_id, scene=N)` still hits the OLD generic-coverage path, which prompts
+GPT for a **"CHARACTER MODEL SHEET… family-animation style… EXPRESSIONS SHOCKED/SAD/HAPPY… POSE
+STUDIES KNEELING/POINTING"** — i.e. it draws the bomber as a cartoon character. It generated 6 such
+junk images for scene 15 ($0.30, now deleted). **Until `2d54d6f` is deployed (`se deploy`), the
+ONLY correct static image path is the `build` verb** (run_coverage_stage → static_docu branch).
+For a single-scene re-render before that deploy, seed the reference into `static_reference_cache`
+and run `build` (it regenerates via the static path). NEVER call `images`/`storyboards` on a
+static_docu video on the currently-deployed code.
+
 ### ⚠ THE IMAGE ACCURACY PROBLEM (why we stopped)
 Reference-backed common aircraft (XB-15, B-17, B-52, B-24, B-29…) render CORRECTLY — clean
 white-studio side profiles of the right plane. But machines with **no auto-found reference photo**
