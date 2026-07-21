@@ -35,7 +35,9 @@ _stub("storage", upload_bytes=_boom)
 _stub("vault", get_secret=_boom)
 _stub("kie_unified", get_text_client_for_tenant=_boom)
 
-from scripts.coverage_to_app import redraw_asset_image, _STYLE_LOCK  # noqa: E402
+from scripts.coverage_to_app import (  # noqa: E402
+    redraw_asset_image, _STYLE_LOCK, _STYLE_LOCK_HYGIENE,
+)
 
 VID, TENANT, ASSET = "vid-1", "tenant-1", "asset-1"
 STORED_PROMPT = "(SETUP B) MCU OTS onto Ryan, glancing at the prep board"
@@ -95,7 +97,10 @@ def test_style_goes_first_and_style_lock_is_appended():
     assert call["prompt"].startswith("ART STYLE")
     assert "NOT photorealistic" in call["prompt"][:400]     # the channel style, up front
     assert call["prompt"].index("ART STYLE") < call["prompt"].index(STORED_PROMPT)
-    assert _STYLE_LOCK in call["prompt"]                    # same suffix as the batch path
+    # With a stated style leading, the match-the-refs STYLE LOCK would
+    # contradict it — hygiene rules only, same split as the batch path.
+    assert _STYLE_LOCK_HYGIENE in call["prompt"]
+    assert "EXACT same art style and rendering quality as the attached" not in call["prompt"]
 
 
 def test_env_ref_rides_last_with_locked_location_note():
@@ -108,5 +113,5 @@ def test_no_style_no_env_still_draws_with_style_lock():
     call = _run(style=None, envs=[])
     assert not call["prompt"].startswith("ART STYLE")
     assert call["prompt"].startswith(STORED_PROMPT)
-    assert _STYLE_LOCK in call["prompt"]
+    assert _STYLE_LOCK in call["prompt"]                    # no stated style -> classic ref-matching lock
     assert call["refs"] == ["https://fake/cast-a.png"]

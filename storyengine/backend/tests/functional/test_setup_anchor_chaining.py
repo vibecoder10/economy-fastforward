@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.abspath(_PIPELINE_PATH))
 
 from storyboard.coverage import (  # noqa: E402
     generate_coverage_frames, _setup_id, _SETUP_ANCHOR, _BOARD_ANCHOR_MID,
+    _STYLE_LOCK_HYGIENE,
 )
 from shared.channel_profile import load_profile  # noqa: E402
 
@@ -160,3 +161,42 @@ def test_shots_without_setup_tags_draw_exactly_as_before():
     assert results[0] and len(results[0]) == 2
     for c in gen.calls:
         assert "ANCHOR FRAME" not in c["prompt"]
+
+
+def test_stated_style_leads_every_batch_frame_and_replaces_ref_lock():
+    """Ryan 2026-07-21 late: boards stay as-is, so the stated channel style
+    must lead every batch frame and outrank a wrong-style reference."""
+    styled = load_profile({"Image Style Override":
+                           "Fully animated 3D cartoon, NOT photorealistic."})
+    gen = _RecordingGen()
+    moments = [
+        {"moment_number": 1,
+         "master": _shot("(SETUP A) WS two-shot", "A", owner=True,
+                         board="https://fake/board.png"),
+         "angles": [_shot("(SETUP C) MCU OTS", "C", owner=True)]},
+    ]
+    async def _go():
+        anchors = {"A": asyncio.get_running_loop().create_future(),
+                   "C": asyncio.get_running_loop().create_future()}
+        with patch("storyboard.coverage._gen_ref", gen):
+            return await asyncio.wait_for(asyncio.gather(
+                generate_coverage_frames(moments[0], CAST, object(), styled,
+                                         setup_anchors=anchors)), timeout=10)
+    results = asyncio.run(_go())
+    assert results[0], results
+    for c in gen.calls:
+        assert c["prompt"].startswith("ART STYLE")
+        assert "IGNORE its art style" in c["prompt"]
+        assert _STYLE_LOCK_HYGIENE in c["prompt"]
+        assert "EXACT same art style and rendering quality as the attached" not in c["prompt"]
+
+
+def test_default_profile_keeps_classic_ref_matching_lock():
+    gen = _RecordingGen()
+    moments = [{"moment_number": 1, "master": _shot("(SETUP A) WS", "A", owner=True),
+                "angles": []}]
+    results = _run_moments(moments, gen, setups={"A"})
+    assert results[0], results
+    call = gen.calls[0]
+    assert not call["prompt"].startswith("ART STYLE")
+    assert "EXACT same art style and rendering quality as the attached" in call["prompt"]

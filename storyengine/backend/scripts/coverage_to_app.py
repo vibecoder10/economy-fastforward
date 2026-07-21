@@ -58,7 +58,7 @@ from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_coverage, enforce_shot_budget, parse_set_dressing,
     parse_axis_line, parse_setups_line, panels_per_sheet_for,
-    sheet_chunk_sizes, _STYLE_LOCK,
+    sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
@@ -1918,8 +1918,12 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # one ledger row per call, so the real Kie task id can thread straight
     # into record_ledger_entry's dedup key below.
     task_id_box: list = []
+    # With a stated style leading the prompt, the match-the-refs STYLE LOCK
+    # would contradict it — use the hygiene-only block (same split the batch
+    # path uses in storyboard.coverage.generate_coverage_frames).
+    _style_block = _STYLE_LOCK_HYGIENE if style_prefix else _STYLE_LOCK
     url, model_used = await generate_scene_image_for_model(
-        ic, model_override, style_prefix + prompt + _STYLE_LOCK + env_note,
+        ic, model_override, style_prefix + prompt + _style_block + env_note,
         reference_urls=cast_refs + env_refs,
         aspect_ratio=a["aspect"], task_id_out=task_id_box)
     if not url:

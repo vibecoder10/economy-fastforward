@@ -459,15 +459,12 @@ _SAME_SUBJECT = (
 # cartoonish). Mirror the proven STYLE LOCK from the 3x3 grid path (generate_contact_sheet):
 # the cast sheet's rendering style is the single source of truth, so a photoreal cast → photoreal
 # frames; an animated cast → animated frames. Applied to EVERY frame, master and angles.
-_STYLE_LOCK = (
-    " STYLE LOCK: render in the EXACT same art style and rendering quality as the attached "
-    "reference image(s). If the reference is a photoreal / live-action / 3D-CG render, this frame "
-    "MUST be equally photoreal and realistic — never switch to 2D illustration, painting, cartoon "
-    "or anime, and never change the art style or rendering between frames. "
+# The non-style hygiene rules, shared by BOTH style modes below.
+_STYLE_LOCK_HYGIENE = (
     # A speaking moment's description mentions the spoken words — GPT Image 2
     # drew them as an English speech bubble on live frames (2026-07-03). A
     # character can be MOUTHING words; the words themselves never appear.
-    "NEVER draw speech bubbles, dialogue balloons, captions or subtitles; on-screen text or "
+    " NEVER draw speech bubbles, dialogue balloons, captions or subtitles; on-screen text or "
     "lettering only if this shot's description explicitly asks for it. "
     # A description that narrates an ARC ("triumph turning to dread, glances at
     # the clock") made GPT Image 2 render a side-by-side two-panel diptych
@@ -476,6 +473,43 @@ _STYLE_LOCK = (
     "split screen, diptych, side-by-side comparison, before/after, grid, collage, comic panels "
     "or any composition divided into sections. If the description mentions an emotional change, "
     "draw only the LAST beat of it.")
+
+_STYLE_LOCK = (
+    " STYLE LOCK: render in the EXACT same art style and rendering quality as the attached "
+    "reference image(s). If the reference is a photoreal / live-action / 3D-CG render, this frame "
+    "MUST be equally photoreal and realistic — never switch to 2D illustration, painting, cartoon "
+    "or anime, and never change the art style or rendering between frames."
+    + _STYLE_LOCK_HYGIENE)
+
+# STATED-STYLE MODE (Ryan, 2026-07-21 late: "as long as we draw the quality
+# scene images like the ones we just did" — with the boards deliberately left
+# in whatever style they are). When the video carries an explicit channel
+# style, that style leads EVERY frame prompt and explicitly outranks any
+# attached reference drawn differently — so a wrong-style board (or any other
+# stray ref) can steer composition but never the rendering. Proven live on
+# cd5d2883's scene-1 redraws: the style-first prompt held full cartoon where
+# the ref-trusting STYLE LOCK alone had drifted photoreal. Without a stated
+# style, frames keep the old match-the-refs STYLE LOCK unchanged.
+_STATED_STYLE_PREFIX = (
+    "ART STYLE — the single most important instruction; every element of this frame (characters, "
+    "set, props, food) is rendered in it: {style} If any attached reference image is drawn in a "
+    "DIFFERENT rendering style, take only its identity, layout or composition — IGNORE its art "
+    "style and render this frame in the stated art style. ")
+
+
+def _stated_style_prefix(profile) -> str:
+    """The leading ART STYLE block when this video declares a real style —
+    empty for the style-agnostic default profile (its directive is the neutral
+    'render in the channel's defined visual style' boilerplate, not a look)."""
+    try:
+        from shared.channel_profile import DEFAULT_PROFILE
+        directive = (getattr(profile, "visual_style_directive", "") or "").strip()
+        if directive and directive != DEFAULT_PROFILE.visual_style_directive:
+            return _STATED_STYLE_PREFIX.format(style=directive.rstrip() +
+                                               ("" if directive.rstrip().endswith(".") else "."))
+    except Exception:  # noqa: BLE001 — style prefix is best-effort, never fatal
+        pass
+    return ""
 
 # BOARD ANCHOR (Ryan's scene-lock workflow, 2026-07-06): the approved storyboard
 # sheet drives each final frame's COMPOSITION. Text alone lets consecutive shots
@@ -731,13 +765,19 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
             return tmpl.format(panel=shot["board_panel"]), [shot["board_url"]]
         return "", []
 
+    # Stated channel style leads every frame and outranks wrong-style refs;
+    # without one, the classic match-the-refs STYLE LOCK applies unchanged.
+    style_prefix = _stated_style_prefix(profile)
+    style_block = _STYLE_LOCK_HYGIENE if style_prefix else _STYLE_LOCK
+
     m = moment["master"]
     master_url, master_model = None, None
     try:
         s_anchor, s_ref = await _setup_ref(m)
         m_anchor, m_ref = _board(m, board_is_last=not s_ref)
-        master_prompt = (build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
-                         + _STYLE_LOCK + m_anchor + s_anchor)
+        master_prompt = (style_prefix
+                         + build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
+                         + style_block + m_anchor + s_anchor)
         master_url, master_model = await _gen(master_prompt, base + m_ref + s_ref)  # master first — angles anchor on it
     finally:
         _resolve_owned(m, master_url)
@@ -759,8 +799,9 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         try:
             s_anchor, s_ref = await _setup_ref(a)
             a_anchor, a_ref = _board(a, board_is_last=not s_ref)
-            ap = (build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
-                  + _SAME_SUBJECT + _STYLE_LOCK + a_anchor + s_anchor)
+            ap = (style_prefix
+                  + build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
+                  + _SAME_SUBJECT + style_block + a_anchor + s_anchor)
             url, model_used = await _gen(ap, angle_base + a_ref + s_ref)
         finally:
             _resolve_owned(a, url)
