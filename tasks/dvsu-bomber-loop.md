@@ -21,8 +21,43 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 - MCP endpoint LIVE: `POST https://storyengine.dev/api/mcp` (401 without token → enabled).
 - Auth: agent token minted for DvsU (id `5703bdac-c3f9-4e14-ad70-897c64cc2223`, name
   "dvsu-loop-orchestrator-2026-07-21 (auto; revoke after run)"). Plaintext in
-  `scratchpad/.dvsu_agent_token` (chmod 600, NOT in git). **REVOKE at loop end** (UPDATE
-  agent_tokens SET revoked_at=now() WHERE id=…).
+  `scratchpad/.dvsu_agent_token` (chmod 600, NOT in git).
+  **DO NOT REVOKE (Ryan, 2026-07-21): keep it alive for cross-session use.** Plaintext stays
+  in scratchpad only — never committed (live prod bearer credential). Any session can re-mint
+  an equivalent token in one SQL insert against Supabase project `wrromlupsmyzrrcqlucn`:
+  ```
+  # secret = 'se_agent_' + secrets.token_urlsafe(32); hash = sha256(secret).hexdigest()
+  INSERT INTO agent_tokens (tenant_id, name, token_hash)
+  VALUES ('561b872d-7b73-45e3-9c44-7f30c3566eda', '<name>', '<hash>');
+  # use: Authorization: Bearer <secret>  against POST https://storyengine.dev/api/mcp
+  ```
+
+## Tokens & MCP registration (Ryan 2026-07-21 — keep alive, cross-session)
+- **PRIMARY token (Ryan-supplied, use this):** name "claude", id `0e2f8362-84cf-4797-9c1c-a5aa37779f84`,
+  tenant DvsU. Plaintext in `scratchpad/.dvsu_agent_token_user` (chmod 600, NOT git). Do NOT revoke.
+- **Backup token (orchestrator-minted):** id `5703bdac-…`, `scratchpad/.dvsu_agent_token`. Do NOT revoke.
+- **MCP server registered natively (user scope):** `storyengine-dvsu` →
+  `https://storyengine.dev/api/mcp`, `claude mcp list` = √ Connected. Native tools load for
+  FUTURE sessions at startup; THIS session keeps using curl for explicit money-gate control.
+
+## ⚠ Load-bearing findings (verified 2026-07-21)
+- **Cheap one-machine routes are SESSION-JWT-ONLY — agent token CANNOT reach them.** Confirmed
+  empirically (agent token → `/api/pipeline/machine-script-preview-readiness` → 401 "Invalid or
+  expired session") and in code (`routes/pipeline.py` machine-* handlers use
+  `Depends(get_tenant_id)`; the 3 session paths need `SESSION_SECRET`/`DEV_TOKEN`+`DEV_MODE`/
+  `SUPABASE_JWT_SECRET`, all VPS-env-only, unmintable from here).
+- **MCP `research` verb is DESTRUCTIVE — DO NOT CALL IT.** `run_research` (pipeline_executor.py
+  :7826) re-runs full topic discovery and `UPDATE videos SET research_payload = $1` wholesale
+  (:7981) → would overwrite the curated 23-machine roster + discard the 8 done packages + 4
+  previews. MCP `script` verb = full-roster fail-fast, full-restart each call (expensive to
+  iterate). So platform-driven gen is destructive/costly; prefer worker-write + free submit.
+- **Only 8/23 machines are researched** (B17,B24,B29,B32,B52,XB15,XB19,XB39). 15 missing.
+  4 old previews (B17,B24,B52,XB15) are pre-seed 0/3-era artifacts.
+- **Revised drive-mode (non-destructive):** Sonnet workers do real research (WebSearch/WebFetch)
+  for the 15 missing + stale XB-15, written to the gate schema; I inject into the EXISTING
+  payload (preserve curated roster + 8 done). Workers write all 23 paragraphs to the 76 laws +
+  rubric; submit via free `submit_script` (or direct DB write in gate schema) — pending the
+  contract-feasibility check. Media (images/voice/render/thumbnail) is the only $ spend.
 - Handshake proven: initialize 200 / initialized 202 / tools/list = 86 tools (incl. research,
   script). DvsU standing passes both gates (owner ryan@nativestates.ai is_operator=true, pro).
 
