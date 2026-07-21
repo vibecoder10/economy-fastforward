@@ -176,30 +176,50 @@ if echo "$FRONTEND_CHANGES" | grep -q "package-lock.json"; then
 fi
 
 # ──────────────────────────────────────────────────────────────────
-# STEP 1: Kill ALL Next.js processes and force-release port
-# Aggressive shutdown — we MUST guarantee nothing serves stale chunks
+# STEP 1: Kill StoryEngine's OWN Next.js frontend and force-release
+# its port. Scoped to processes whose cwd is FRONTEND_DIR — never a
+# bare `pkill -f "next-server"` / `pkill -f "next start"`.
+#
+# WHY: a compiled Next.js server process shows up in `ps` as just
+# "next-server (vX)" with no port or path in its argv, so a bare
+# pkill -f matches EVERY Next.js app on the box by cmdline text alone.
+# That's exactly what sent a clean SIGTERM to the Hailey follow-up
+# processor's next-server on 2026-07-14 — it stayed down 6 days
+# because nothing was watching it. Hailey now runs under systemd with
+# Restart=always as a second safety net, but this script must not be
+# able to touch it at all. Match on cwd instead of cmdline text.
 # ──────────────────────────────────────────────────────────────────
-log "Killing all Next.js processes..."
+log "Killing StoryEngine frontend (scoped to $FRONTEND_DIR)..."
 
-# SIGTERM first (graceful)
-pkill -f "next start" 2>/dev/null || true
-pkill -f "next-server" 2>/dev/null || true
+storyengine_frontend_pids() {
+    local pid cwd
+    for pid in $(pgrep -f "next-server|next start|npm run start" 2>/dev/null); do
+        cwd=$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)
+        [ "$cwd" = "$FRONTEND_DIR" ] && echo "$pid"
+    done
+}
+
+# SIGTERM first (graceful), cwd-scoped
+for pid in $(storyengine_frontend_pids); do kill "$pid" 2>/dev/null || true; done
 
 # Wait up to 5 seconds for graceful shutdown
 for i in 1 2 3 4 5; do
-    if ! pgrep -f "next-server" > /dev/null 2>&1; then
+    if [ -z "$(storyengine_frontend_pids)" ]; then
         log "Server stopped gracefully after ${i}s"
         break
     fi
     sleep 1
 done
 
-# SIGKILL anything still alive
-pkill -9 -f "next-server" 2>/dev/null || true
-pkill -9 -f "next start" 2>/dev/null || true
+# SIGKILL anything still alive — still cwd-scoped, never a bare pkill -f
+for pid in $(storyengine_frontend_pids); do kill -9 "$pid" 2>/dev/null || true; done
 sleep 1
 
-# Force-release port 3001 (handles OS TIME_WAIT state)
+# Force-release port 3001 (handles OS TIME_WAIT state). fuser here
+# targets whatever exact PID is bound to TCP port 3001, not a name
+# pattern, so this stays scoped to StoryEngine's own port (Hailey
+# listens on 3022, a different port, so it can never be the PID fuser
+# finds here).
 fuser -k 3001/tcp 2>/dev/null || true
 sleep 1
 
