@@ -72,7 +72,17 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## CORRECTION (15:32): serial run NOT hung — progressing slowly (scene 10→12)
+## REVIEW-GATE (17:55): 22/23 images done, scene 15 (YB-60) failed; fixes bundled → need deploy
+Images stage COMPLETED (serial): 22/23 done, video at ready_for_images. Scene 15 (Convair YB-60)
+render returned no URL (transient) → no asset row. Ryan review-gate feedback also: storyboards
+shouldn't be offered for static_docu. FIXES on main (2d54d6f, atop parallel/timeout 5b7c25c):
+- run_coverage_images routes static_docu → static path, scene-scoped (only_scenes) → can regen
+  JUST scene 15 (safer than re-rolling 22 good images) + fixes the images-verb mis-wiring.
+- run_storyboard_sheet refuses cleanly for static_docu (frontend button-hide = follow-up polish).
+NEED `se deploy` → then: `images` verb scene=15 (targeted regen) → verify → render (build finish)
+→ thumbnail. Spend ~$5.47 ledger (+~$0.66 unledgered static images; +$0.03 scene 15). PR #457 open.
+
+## (superseded) CORRECTION (15:32): serial run NOT hung — progressing slowly (scene 10→12)
 Re-checked: task moved to scene 12 (B-36); it was crawling through scene-10 retries, not hung.
 So THIS video finishes on the current serial run (~6 min/scene, ~45-60 min for the last 11) with
 NO further deploy needed. Ryan approved finishing this one as-is. Parallel+timeout fix (main
