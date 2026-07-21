@@ -57,6 +57,7 @@ from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_coverage, enforce_shot_budget, parse_set_dressing,
     parse_axis_line, parse_setups_line, panels_per_sheet_for,
+    sheet_chunk_sizes,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
@@ -990,7 +991,7 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
                         setups_line: str = "", header_variant: str = "primary") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
-    ≤panels_per_sheet per sheet (9 = the adherence ceiling; pass
+    into BALANCED sheets of ≤panels_per_sheet via sheet_chunk_sizes (pass
     panels_per_sheet_for(directive) so legacy 12-panel plans redraw true).
     The preview shows exactly what the pictures step will draw: same shots,
     same order, same spoken lines. No LLM in between to drift.
@@ -1060,7 +1061,16 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
                     "letter; only faces, gestures and the caption change between them.\n"
                     if (setups_line or "").strip() else "")
     prompts = []
-    chunks = [panels[i:i + panels_per_sheet] for i in range(0, len(panels), panels_per_sheet)]
+    # BALANCED chunking (Ryan, 2026-07-21): sizes come from sheet_chunk_sizes
+    # — the shared single source of truth with the board-anchor math in
+    # storyboard/coverage.py — instead of a fixed stride, so the last board is
+    # never a runt (15 panels draw 5+5+5, not 6+6+3) and chunking can never
+    # disagree with picture anchoring on which sheet a panel lives on.
+    # Global panel numbering (the [k] labels baked in above) is unchanged.
+    chunks, _start = [], 0
+    for _size in sheet_chunk_sizes(len(panels), panels_per_sheet):
+        chunks.append(panels[_start:_start + _size])
+        _start += _size
     for ci, chunk in enumerate(chunks, start=1):
         listed = "\n".join(chunk)
         prompts.append(
@@ -1171,6 +1181,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             set_line=parse_set_dressing(directive or "") or "",
             axis_line=parse_axis_line(directive or "") or "",
             setups_line=parse_setups_line(directive or "") or "")
+        # Computed ONCE here and reused below (never re-derived) so sheet
+        # chunking (_plan_sheet_prompts, via _sheet_kwargs), the per-board
+        # panel counts and the progress messages can never diverge. _sizes is
+        # the SAME balanced per-board split _plan_sheet_prompts chunks with
+        # (shot_count == len(its panels list): one panel per master + angle).
+        _cap = _sheet_kwargs["panels_per_sheet"]
+        _sizes = sheet_chunk_sizes(shot_count, _cap)
+        _previewed = sum(_sizes[:5])  # panels on the (at most 5) boards actually drawn
         prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
         # C25a-fix8: the same panels, header-swapped — held ready so a board
         # that trips OpenAI's content filter on the primary header can retry
@@ -1200,8 +1218,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 # the shot plan in the app, then draws boards one at a time.
                 done += 1
                 total_shots += shot_count
-                _p(f"Scene {sc}: plan ready — {shot_count} shots on {len(prompts)} board(s), "
-                   "nothing drawn yet")
+                # A scene over 5 boards' worth of panels (prompts is sliced to
+                # [:5]) previews only its FIRST sum(_sizes[:5]) shots — say so
+                # plainly instead of implying every shot got a preview panel.
+                # The pictures step still draws every planned shot from the
+                # full text plan regardless; only the SHEET PREVIEW truncates.
+                if shot_count > _previewed:
+                    _p(f"Scene {sc}: plan ready — {shot_count} shots — previewing the "
+                       f"first {_previewed} on {len(prompts)} board(s), nothing drawn yet")
+                else:
+                    _p(f"Scene {sc}: plan ready — {shot_count} shots on {len(prompts)} board(s), "
+                       "nothing drawn yet")
                 continue
 
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
@@ -1230,9 +1257,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         for bi, sp in todo:
             # Panels ON THIS SHEET, not the scene's total — "(27 shots)" on a
             # single-board draw read as "everything is generating" (Ryan hit
-            # Stop on a correct one-board run, 2026-07-07).
-            _cap = panels_per_sheet_for(directive or "")
-            on_sheet = min(_cap, shot_count - _cap * (bi - 1))
+            # Stop on a correct one-board run, 2026-07-07). Read from the SAME
+            # balanced _sizes list computed once above — never re-derived
+            # min/stride math, so this can't diverge from the chunking
+            # _plan_sheet_prompts actually used.
+            on_sheet = _sizes[bi - 1]
             _p(f"Scene {sc}: drawing {'ONLY board' if beat is not None else 'board'} "
                f"{bi} of {len(prompts)} — one sheet, {on_sheet} panels{lock_note}…")
             # Storyboard SHEETS are a preview, not an asset row — no image_model to persist here.
@@ -1294,7 +1323,15 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             _p(f"Scene {sc}: storyboard image failed"); continue
         done += 1
         total_shots += shot_count
-        _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s)")
+        # Same truncation honesty as the plan-only message above: a scene over
+        # 5 boards' worth of panels only ever got a SHEET PREVIEW for its
+        # first sum(_sizes[:5]) shots — say so, never imply every shot got a
+        # preview.
+        if shot_count > _previewed:
+            _p(f"Scene {sc}: storyboard ready — {shot_count} shots — previewed the "
+               f"first {_previewed} on {ok} board(s)")
+        else:
+            _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s)")
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "

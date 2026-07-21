@@ -323,30 +323,67 @@ def panels_per_sheet_for(directive_text: str) -> int:
     k//cap) still points at the right panel on sheets approved before the
     change.
 
-    New-format plans TARGET 6 panels per sheet. 9-panel 3x3 sheets reliably
-    trip GPT Image 2's content-density filter (proven on PocoAPoco 'El Mercado'
-    2026-07-20: the 9-panel board 400'd on the primary header while the 7-panel
-    board on the SAME scene drew clean), so a lighter sheet passes on the
-    primary instead of limping through the fallback-header retry. But the
-    preview has only 5 board slots (storyboard_1_url..storyboard_5_url) and an
-    echo/voice_over scene can plan up to COVERAGE_MAX_FRAMES (40) shots, so a
-    FLAT 6 would overflow to 7 boards and silently drop the tail. Instead: 6
-    whenever the scene fits in 5 boards at 6 (<=30 shots), else the smallest cap
-    that still fits every shot in 5 boards (ceil(shots/5), which tops out at 8
-    for a 40-shot scene) — so no shot ever loses its preview panel.
+    New-format [AXIS|...] plans are a HARD 6 panels per sheet, ALWAYS — no
+    adaptive growth, no ceil(shots/5) math, regardless of how many shots the
+    scene plans. An earlier version of this function scaled the cap up to
+    ceil(shots/5) (floored at 6) for scenes too big to fit 5 boards at 6 —
+    but that let the cap climb back to 9 on big scenes (proven live on the
+    Spanish Class video, 2026-07-20: prompts said "a grid of 9 panels" despite
+    the 6-target fix) and even 7-8 still flirts with the same problem. 9-panel
+    3x3 sheets reliably trip GPT Image 2's content-density filter (proven on
+    PocoAPoco 'El Mercado' 2026-07-20: the 9-panel board 400'd on the primary
+    header while the 7-panel board on the SAME scene drew clean). 6 is the one
+    proven-safe density, so it's now the ONLY answer for an AXIS plan — no
+    per-scene math left to get wrong.
 
-    Sheet chunking and board anchoring MUST both call this on the SAME directive
-    so they agree on the cap; because it is a pure function of the directive
-    text, they always do (a video storyboarded before this change keeps
-    anchoring at whatever cap its own directive yields today — which, for those
-    already-approved sheets, means they should be re-drawn if the count shifts;
-    the ready_for_image_prompts set is small and known)."""
+    A scene with more than 30 shots (6 panels x the 5 available board slots,
+    storyboard_1_url..storyboard_5_url) simply previews only its first 5
+    boards' worth of panels (the sum of sheet_chunk_sizes()' first five
+    entries — e.g. 28 of 33 shots at 6+6+6+5+5):
+    generate_storyboard_sheet_for_scene slices its sheet prompts to `[:5]`
+    boards, and the board-anchor block below only pins a shot whose sheet
+    index falls inside `board_urls` (`si < len(board_urls)`) — both already
+    handle the truncation gracefully, nothing crashes. The PICTURES step
+    still draws every planned shot from the full text plan regardless — only
+    the SHEET PREVIEW truncates, never what actually gets drawn.
+
+    Sheet chunking and board anchoring MUST both call this on the SAME
+    directive so they agree on the cap; because it is a pure function of the
+    directive text alone, they always do (a video storyboarded before this
+    change keeps anchoring at whatever cap its own directive yields today —
+    which, for those already-approved sheets, means they should be re-drawn
+    if the count shifts; the ready_for_image_prompts set is small and
+    known)."""
     if not _AXIS_RE.search(directive_text or ""):
         return 12
-    shots = sum(1 + len(m.get("angles") or []) for m in parse_coverage(directive_text or ""))
-    if shots <= 0:
-        return 6
-    return max(6, (shots + 4) // 5)  # (shots+4)//5 == ceil(shots/5); floored at 6
+    return 6
+
+
+def sheet_chunk_sizes(total_panels: int, cap: int) -> list[int]:
+    """BALANCED per-board panel counts for a plan of `total_panels` shots at
+    `cap` panels per sheet (Ryan, 2026-07-21). Fixed-stride chunking
+    (panels[i:i+cap]) left the LAST board a runt — a 15-shot scene drew
+    6+6+3 and a 20-shot one 6+6+6+2 — even though the board COUNT is the
+    same either way. Balancing spreads the panels evenly instead: 15 -> 5+5+5,
+    20 -> 5+5+5+5, 33 -> 6+6+6+5+5+5. Board count is ceil(total/cap),
+    identical to fixed-stride, so beat-mode redo indexes and the 5-slot
+    preview cap are untouched.
+
+    THE ONE SOURCE OF TRUTH for board boundaries: sheet chunking
+    (coverage_to_app._plan_sheet_prompts) and picture anchoring (the board-
+    anchor block below) MUST both derive their panel->board mapping from this
+    function with the same (total, cap) pair, or pictures anchor to a panel
+    on the wrong sheet.
+
+    Invariants (pinned by tests): no chunk exceeds cap; sum(sizes) ==
+    total_panels; len(sizes) == ceil(total_panels/cap); chunk sizes differ by
+    at most 1. total_panels <= 0 returns []."""
+    if total_panels <= 0:
+        return []
+    n_boards = (total_panels + cap - 1) // cap  # ceil(total/cap)
+    base = total_panels // n_boards
+    extra = total_panels % n_boards
+    return [base + 1 if i < extra else base for i in range(n_boards)]
 # Tolerant of how the LLM writes the shot line: "- MASTER [WS]:", "- MASTER WS:",
 # or multi-word "- ANGLE INSERT ECU:" (brackets optional, shot type 1+ words, colon required).
 _SHOT_RE = re.compile(
@@ -445,7 +482,8 @@ _BOARD_ANCHOR = (
 
 # Panels per gate sheet now depends on the plan's format — see
 # panels_per_sheet_for(). Sheet chunking (coverage_to_app._plan_sheet_prompts
-# caller) and the board-anchor math below must both use it on the same plan.
+# caller) and the board-anchor math below must both derive their boundaries
+# from sheet_chunk_sizes() on the same (total, cap) pair.
 
 
 async def _gen_ref(image_client, prompt, refs, aspect, resolution, attempts=2, model_override=None):
@@ -817,14 +855,25 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if board_urls:
         k = 0
         _cap = panels_per_sheet_for(directive_text)
+        # BALANCED boards (Ryan, 2026-07-21): panel->sheet is no longer a
+        # fixed stride ((k-1)//cap) — boards are evenly sized via
+        # sheet_chunk_sizes(), the SAME function _plan_sheet_prompts chunks
+        # with, so anchoring and chunking cannot disagree on boundaries.
+        # _bounds[i] = the last (1-based) global panel number on sheet i.
+        _total = sum(1 + len(m.get("angles") or []) for m in moments)
+        _bounds, _run = [], 0
+        for _size in sheet_chunk_sizes(_total, _cap):
+            _run += _size
+            _bounds.append(_run)
         for m in moments:
             for shot in [m["master"], *(m.get("angles") or [])]:
                 k += 1
-                si = (k - 1) // _cap
+                si = next(i for i, b in enumerate(_bounds) if k <= b)
                 if si < len(board_urls) and board_urls[si]:
                     shot["board_url"], shot["board_panel"] = board_urls[si], k
         print(f"  📌 board anchor: {k} shots pinned to the approved sheet panels "
-              f"({_cap}/sheet)", flush=True)
+              f"(panels/board: {'+'.join(str(s) for s in sheet_chunk_sizes(_total, _cap))})",
+              flush=True)
 
     # Camera Movement Engine: decide each shot's move NOW, before drawing, so
     # the stills are composed for their moves (storytelling formats only —

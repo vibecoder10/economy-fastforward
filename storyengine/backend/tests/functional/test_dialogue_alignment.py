@@ -226,6 +226,125 @@ def test_enforce_budget_frame_ceiling_strips_angles_first():
     assert len(out2) == 4
 
 
+def _coverage_directive(n_moments: int, angles_per_moment: int, axis: bool = True) -> str:
+    """A synthetic coverage plan with a KNOWN shot count:
+    n_moments * (1 master + angles_per_moment angles). AXIS-format (drives
+    panels_per_sheet_for's hard-6 branch) when axis=True; no [AXIS|...] line
+    (legacy plan, always caps at 12) when axis=False."""
+    lines = []
+    if axis:
+        lines += ["[AXIS | Left frame-left, Right frame-right.]", ""]
+    for i in range(1, n_moments + 1):
+        lines.append(f"[MOMENT {i} | moment {i} happens]")
+        lines.append(f"- MASTER [WS]: master shot for moment {i}.")
+        for a in range(angles_per_moment):
+            lines.append(f"- ANGLE [CU]: angle {a + 1} for moment {i}.")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def test_panels_per_sheet_for_is_a_hard_six_for_axis_plans_any_size():
+    """Pins the design fixed 2026-07-21: panels_per_sheet_for used to scale
+    the cap up to ceil(shots/5) (floored at 6) for scenes too big to fit 5
+    boards at 6 — but that let the cap climb back to 9 on big scenes (proven
+    live on the Spanish Class video: prompts said "a grid of 9 panels"
+    despite the 6-target fix) and even 7-8 still flirts with the same content
+    filter. The fix drops the adaptive math entirely: an AXIS plan is ALWAYS
+    6, no matter how big the raw plan is (proven here with a 45-shot
+    directive) — a scene that big simply previews only its first 30 panels,
+    which generate_storyboard_sheet_for_scene's prompts[:5] slice and the
+    board-anchor block's `si < len(board_urls)` guard already handle without
+    crashing or losing any shot from the actual pictures step."""
+    from storyboard.coverage import panels_per_sheet_for, parse_coverage
+
+    fat_directive = _coverage_directive(15, 2)  # 15 * (1 + 2) = 45 shots
+    raw_shots = sum(1 + len(m.get("angles") or []) for m in parse_coverage(fat_directive))
+    assert raw_shots == 45, raw_shots
+    assert panels_per_sheet_for(fat_directive) == 6
+
+    # A small AXIS scene is the same hard 6 — no scaling either direction.
+    small_directive = _coverage_directive(3, 2)  # 3 * 3 = 9 shots
+    assert panels_per_sheet_for(small_directive) == 6
+
+    # Legacy (non-AXIS) plans always keep 12, regardless of size.
+    legacy_directive = _coverage_directive(15, 2, axis=False)
+    assert panels_per_sheet_for(legacy_directive) == 12
+
+
+def test_sheet_chunk_sizes_balances_boards():
+    """Balanced chunking (Ryan, 2026-07-21): fixed-stride chunking left the
+    last board a runt (15 shots drew 6+6+3, 20 drew 6+6+6+2). Board count is
+    unchanged (ceil(total/cap)); the panels are spread evenly instead."""
+    from storyboard.coverage import sheet_chunk_sizes
+
+    assert sheet_chunk_sizes(15, 6) == [5, 5, 5]
+    assert sheet_chunk_sizes(16, 6) == [6, 5, 5]
+    assert sheet_chunk_sizes(20, 6) == [5, 5, 5, 5]
+    assert sheet_chunk_sizes(33, 6) == [6, 6, 6, 5, 5, 5]
+    assert sheet_chunk_sizes(6, 6) == [6]
+    assert sheet_chunk_sizes(3, 6) == [3]
+    # Legacy cap goes through the same function.
+    assert sheet_chunk_sizes(16, 12) == [8, 8]
+    assert sheet_chunk_sizes(0, 6) == []
+    # Invariants, swept: no chunk over cap, everything accounted for, board
+    # count identical to fixed-stride, sizes within 1 of each other.
+    for cap in (6, 12):
+        for total in range(1, 61):
+            sizes = sheet_chunk_sizes(total, cap)
+            assert sum(sizes) == total, (total, cap, sizes)
+            assert len(sizes) == -(-total // cap), (total, cap, sizes)  # ceil
+            assert all(s <= cap for s in sizes), (total, cap, sizes)
+            assert max(sizes) - min(sizes) <= 1, (total, cap, sizes)
+
+
+def test_sheet_chunking_and_anchor_math_share_one_source_of_truth():
+    """The whole point of sheet_chunk_sizes: sheet CHUNKING (which panels
+    _plan_sheet_prompts puts on which board) and picture ANCHORING (which
+    board_url a shot pins to in storyboard.coverage's board-anchor block)
+    must agree on the boundaries, or pictures anchor to a panel on the wrong
+    sheet. Both now derive from sheet_chunk_sizes — this proves the actual
+    _plan_sheet_prompts output lands every panel on the board the anchor
+    math (cumulative sheet_chunk_sizes boundaries, exactly as coverage.py
+    computes them) assigns it, and that each prompt header's declared panel
+    count is the same sizes entry end to end."""
+    import re
+    from scripts.coverage_to_app import _plan_sheet_prompts
+    from storyboard.coverage import sheet_chunk_sizes
+
+    cap = 6
+    for total in (9, 15, 16, 20, 33):
+        moments = []
+        for i in range(total):  # masters-only: total moments == total panels
+            m = _moment(f"beat {i + 1} action")
+            m["moment_number"] = i + 1
+            moments.append(m)
+        sizes = sheet_chunk_sizes(total, cap)
+        prompts = _plan_sheet_prompts(moments, "Pixar 3D", panels_per_sheet=cap)
+        assert len(prompts) == len(sizes), (total, len(prompts), sizes)
+
+        # The board each panel ACTUALLY landed on, parsed from the prompts.
+        actual_board = {}
+        for bi, prompt in enumerate(prompts):
+            for match in re.finditer(r"^\[(\d+)\]", prompt, re.MULTILINE):
+                actual_board[int(match.group(1))] = bi
+        assert sorted(actual_board) == list(range(1, total + 1)), total
+
+        # The board the anchor math assigns — the cumulative-boundary lookup
+        # exactly as storyboard.coverage's board-anchor block computes it.
+        bounds, run = [], 0
+        for size in sizes:
+            run += size
+            bounds.append(run)
+        for k in range(1, total + 1):
+            si = next(i for i, b in enumerate(bounds) if k <= b)
+            assert actual_board[k] == si, (total, k, actual_board[k], si)
+
+        # End to end: each header's declared panel count is the sizes entry.
+        for bi, prompt in enumerate(prompts):
+            m = re.search(r"grid of (\d+) panels", prompt)
+            assert m and int(m.group(1)) == sizes[bi], (total, bi, sizes)
+
+
 def test_match_assigned():
     lines = [
         {"speaker": "Marco", "text": "¡Espera! ¡Espera!", "audio_url": "u1"},
@@ -257,7 +376,7 @@ def test_sheet_prompts_preview_the_whole_plan():
         moments.append(m)
     prompts = _plan_sheet_prompts(moments, "Pixar 3D", panels_per_sheet=12)
     total_panels = 9 + 5  # masters + angles
-    assert len(prompts) == 2, len(prompts)  # 12 + 2
+    assert len(prompts) == 2, len(prompts)  # balanced 7 + 7 (was fixed-stride 12 + 2)
     joined = "\n".join(prompts)
     for k in range(1, total_panels + 1):
         assert f"[{k}]" in joined, f"panel {k} missing"
