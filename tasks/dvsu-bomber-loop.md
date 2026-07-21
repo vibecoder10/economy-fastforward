@@ -69,6 +69,29 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 
 **Cumulative spend: $0.00 / $10.00**
 
+## ✅ DECISIVE EXECUTION PLAN (from the 5-agent map, 2026-07-21)
+**No research injection needed.** submit_script gates on the `critique_script` prose judge
+(seeded 76 laws), NOT the deterministic claim_map/evidence gate; static_docu images self-source
+real reference photos from scene_text (never read machine_raw_source_packages). So the 15
+unresearched machines need nothing injected — workers write grounded paragraphs, images
+self-source photos.
+
+**Path:** (1) workers research + write all 23 paragraphs to the 76 laws [FREE, my subscription];
+(2) I verify each vs rubric + hard_gate laws; (3) submit all 23 via `submit_script` MCP verb
+(~$0.02 critique, seeded rules enforced; rejections return rule_verdicts → revise → resubmit)
+→ writes scripts table + status ready_for_voice; (4) media.
+
+**Spend map (real, not the inflated quotes):**
+| Stage | MCP verb | Real cost | Trap |
+|---|---|---|---|
+| voice | `voice` | ~$4.40 (23 ElevenLabs) | QL-46 Nathaniel-C only if vault has elevenlabs_voice_id, else Rachel |
+| images | `build` (target=pictures) — NOT `images` (mis-wired→generic coverage) | ~$0.70 (23×$0.03 @1K) | quote shows ~$6.90 (10× over); real billed on usage |
+| render | `build` (target=finish) — NOT `render` (blocked: needs clips) | ~$0.05 (compute+music) | must go via build |
+| thumbnail | `thumbnail` | ~$0.05 (1 img @2K, DvsU channel-formula) | only 1 thumbnail_url; "2 A/B" not implemented — call 2× force=true to get a 2nd |
+| **total** | | **~$5.20–6.00** | budget $10 → safe |
+
+Verify actual spend via generation_ledger (media is ledgered; research/script Claude is not).
+
 ## Checklist (dependency-ordered)
 - [x] DV-0 · seed quality law live (76 rows, verified + idempotent) — commit 13ab44b
 - [x] path · MCP reachable + token minted + handshake verified
@@ -87,7 +110,26 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 - [ ] DV-6 · orchestrator final review: MP4 vs Anton's real video, verdict
 - [ ] CLEANUP · revoke agent token; write completion report + deferred items
 
+## Prep confirmed (2026-07-21)
+- DvsU vault has ALL keys: anthropic_api_key, elevenlabs_api_key, elevenlabs_voice_id (QL-46
+  Nathaniel C ✓), elevenlabs_model_id, elevenlabs_voice_style, kie_ai_api_key. Media pipeline
+  will run with the correct narrator + no missing-key failures.
+- Roster = 23 machines confirmed (indices 1-23). Anchors with Anton's REAL paragraphs
+  (notes/dvsu-paragraph-rubric.md): XB-15 (idx1), B-17 (idx3), B-52 (idx18) → use verbatim
+  (spell their numbers). Other 20 → workflow writes.
+- scripts table has 1 stray row (scene 2); submit_script full-replace handles it cleanly.
+
+## Progress
+- [x] DV-0 seed (76 rows) · [x] MCP path + tokens · [x] blocker/destructive findings ·
+  [x] 5-agent execution map · [x] voice/key prep · [x] rubric + anchors + roster
+- [~] SCRIPTS: workflow `wjzfcvwva` writing+verifying 20 machines (Anton voice, fact-checked).
+      3 anchors added verbatim in assembly. → then submit_script (all 23).
+- [ ] voice → [ ] images (build/pictures) → [ ] render (build/finish) → [ ] thumbnail
+- [ ] verify MP4 + thumbnail visually → final review vs Anton
+
 ## Handoff (2-line, keep current)
-- **Last done:** token minted + MCP handshake verified live; DV-0 seed confirmed 76 rows.
-- **Next:** consume the MAP worker's runbook → run DV-1a (measure platform writer on sample),
-  logging spend. Then branch on the result.
+- **Last done:** full execution map done; no research injection needed; media ~$5-6 mapped;
+  voice/keys confirmed; launched 20-machine script writing+verify workflow `wjzfcvwva`.
+- **Next:** on workflow completion — review the 20 verified paragraphs (reject any with
+  fact_issues/law_issues, re-run those), assemble 23 with the 3 Anton anchors, submit via
+  `submit_script` MCP verb, verify scripts table + status ready_for_voice. Then media spend.
