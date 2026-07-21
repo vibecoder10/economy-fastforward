@@ -10842,3 +10842,111 @@ anywhere (`systematic-debugging`, `verification-before-completion`,
 same problem `tasks/lessons.md` recorded on 2026-04-03. Decision needed:
 create thin real skills, repoint at real equivalents (`verify`, maestro), or
 strip the rows.
+
+---
+
+## C48 — Media-bearing MCP tools + `quick_demo_video` (added 2026-07-21)
+
+Checklist "Media-bearing MCP tools + creation-walkthrough recipe" —
+UNBLOCKED this session: C25a's signed tenant-scoped media proxy
+(`routes/media.py`'s `?token=` gate) merged into main and was deployed by
+Ryan's coordinated deploy 2026-07-21 (tasks/decisions.md same date
+"PROCESS-AWARE" entry). This is the FIRST chunk allowed to put a media URL
+in an MCP tool result — every earlier chunk (C26/C27/C47/C49) explicitly
+banned it (module docstring's "Explicitly EXCLUDED" section).
+
+### What "lifting the ban" actually means
+
+The ban is narrowed, not removed: an MCP tool result may now carry a URL
+ONLY if it is the output of the new `_sign_media_url(url, tenant_id)`
+helper (`routes/mcp.py`) — a signed, short-lived media-proxy URL, never a
+raw Drive/storage link. `_sign_media_url` is a thin pass-through to
+`shared.clients.image_client._kie_fetchable_url` — the EXACT function Kie's
+own image-to-image ingestion already calls (C25a-fix2) to mint a
+`routes.media.mint_media_token`-backed `?token=` — imported, not
+reimplemented (locked by a source-pattern test:
+`test_sign_media_url_calls_the_shared_kie_fetchable_url_not_a_fork`). TTL
+is read off `mint_media_token`'s own default parameter via `inspect`
+(`_media_token_ttl_minutes()`), so the number in every tool's expiry
+`note` can never drift from what the token actually carries — currently 60
+minutes. Non-Drive URLs (e.g. Supabase Storage) pass through unsigned, same
+precedent as chat.py's `_media_proxy_url`.
+
+### 4 new media-read tools (`routes/mcp.py`)
+
+| Tool | Wraps | Cap | Notes |
+|---|---|---|---|
+| `get_scene_boards` | Same query as chat.py's C15b `_handle_show_op` (assets table) | 6 images/scene | Omitting `scene` returns a compact per-scene picture-COUNT summary with **no images/urls at all** — call again with a scene number to see pictures. Each image carries `asset_id`, `index`, signed `url`, `prompt_snippet` (≤140 chars). |
+| `get_character_sheets` | `routes.characters.list_characters` (video_id given) or `routes.projects.get_channel_cast` (video_id omitted) | 12 | The channel-level fallback is the SAME locked cast every new video starts from. |
+| `get_environment_images` | `routes.environments.list_environments` | 12 (matches `MAX_ENVIRONMENTS`) | reference_url signed instead of stripped. |
+| `get_thumbnail_image` | `videos.thumbnail_url` (direct query) | 1 | No thumbnail yet → a friendly `{"url": null, "note": ...}`, not an error. |
+
+All four: tenant-scoped (via the SAME underlying route/module function's own
+ownership check, or a direct `WHERE tenant_id = $2` for the thumbnail query
+— ownership is enforced once, never re-implemented here), capped, and every
+result's `note` field states the real signed-URL expiry.
+
+### `quick_demo_video` — staged, no weakened money gate
+
+Ryan's "quickly demonstrate" one-off ask (2026-07-19). Explicitly staged
+(the chunk brief forbade a single do-it-all tool that would bypass
+quote/confirm):
+
+1. No `video_id` → creates the video. Thin pass-through to
+   `_call_create_video` (the exact function `create_video` already uses) —
+   free, zero new logic.
+2. `video_id`, no `confirm_token` → a price quote. Thin pass-through to
+   `_call_verb(tenant_id, "build", ...)` — the EXISTING "build" meta-verb
+   (already auto-advances script → cast → pictures to the pictures
+   checkpoint; this is what makes "minimal ceremony" free to build: no new
+   pipeline composition needed).
+3. `video_id` + valid `confirm_token` → dispatches through the SAME
+   `routes.chat._run_pending_action` every other paid tool/button calls.
+
+No new pipeline logic, no new confirm_tokens mechanism, no bypass —
+`_call_quick_demo_video` never itself calls `background_tasks.add_task` or
+touches `confirm_tokens`; it only ever calls `_call_create_video` /
+`_call_verb`, which already hold every existing money-safety layer.
+
+### Tests (`tests/functional/test_c48_media_tools.py`, 24 tests)
+
+Non-vacuous via `git stash -- routes/mcp.py`: 23/24 fail without the
+implementation (the 24th, the S5-2 remember/forget exclusion check, is a
+pre-existing invariant unrelated to this chunk — correctly unaffected by
+the stash). Covers: tool-surface presence + confirm_token placement,
+signing-helper reuse (source-pattern lock), real-JWT signing round trip,
+per-tool tenant scoping / caps / expiry notes, and quick_demo_video's full
+money-gate proof — a no-confirm-token call is asserted to NEVER reach
+`chat._run_pending_action` (an `AsyncMock` configured to raise if awaited),
+and a real (non-mocked `confirm_tokens.execute`) quote→confirm round trip
+proves the confirmed call dispatches through that SAME function with
+`verb="build"`.
+
+One pre-existing tool-count lock test needed a legitimate bump:
+`test_c25a_fix11_streamable_http_compliance.py`'s
+`test_tools_list_with_echoed_session_id_returns_full_toolset` pinned the
+MCP surface at 86 tools (as of C65) — updated to 91 (86 + this chunk's 5).
+
+Full suite: 2098P/15F/1E = baseline (2074P/15F/1E, the post-C25a-merge
+baseline established this session) + 24, same 15 pre-existing failures by
+name, same 1 pre-existing error.
+
+### Runbook (`tasks/live-verification-queue.md` §C29)
+
+Added a "Media tools + quick_demo_video" recipe walking the guided-session
+flow this chunk exists to support: prompt → `quick_demo_video` staged
+create+build → `get_scene_boards` to review per-scene → approve/redo per
+scene → clips — plus wiring the flagship "model this video" recipe's board-
+review step onto `get_scene_boards`/`get_character_sheets` instead of a
+generic "ask the user to check the app" placeholder.
+
+### Deploy-safety assessment
+
+**Deploy-safe, ff-merge candidate.** Purely additive: 5 new MCP tools (no
+existing tool's dispatch/schema changed), no new DB column/table, no
+migration. `quick_demo_video` adds zero new money logic — it is a thin
+pass-through to two already-shipped, already-tested dispatchers
+(`_call_create_video`, `_call_verb`). The only non-additive edit is the
+tool-count-86→91 bump in an existing lock test, which is a test-only
+change tracking a real (intended) count increase, not a behavior change.
+No frontend touched.

@@ -4,10 +4,11 @@ Higgsfield-killer door").
 
 DARK BY DEFAULT: this router only registers in main.py when
 `MCP_ENABLED=true`. Default/unset -> these routes structurally do not exist
-(404, not "exists but blocked") — see main.py's registration comment. Nothing
-external may reach this endpoint until the C25a media-proxy tenant-auth fix
-(currently held on `claude/c25a-media-auth-hold`, not on this branch) lands
-via a coordinated deploy.
+(404, not "exists but blocked") — see main.py's registration comment. C25a's
+media-proxy tenant-auth fix (the signed `?token=` gate on routes/media.py)
+merged and deployed 2026-07-21 (tasks/decisions.md same date) — that's what
+unblocked TOOL SURFACE v6 (C48) below, which is the first version of this
+server allowed to put a (signed, short-lived) media URL in a tool result.
 
 Protocol shape (justified): the UX map §7 spec says "streamable-HTTP MCP
 endpoint" only parenthetically, as one possible file/route name — it does
@@ -132,16 +133,47 @@ signal chat's own claimed_by already carries (docs/reports/2026-07-17-
 storyengine-agent-audit-findings.md §S5-2's "smallest correct v1" framing),
 not a new durable column/migration.
 
+TOOL SURFACE v6 (C48 — checklist "Media-bearing MCP tools + creation-
+walkthrough recipe", now unblocked: C25a's signed tenant-scoped media proxy
+merged+deployed 2026-07-21, tasks/decisions.md same date "PROCESS-AWARE"
+entry): the blanket "no media URL" rule below is LIFTED for exactly one
+shape — a SIGNED, SHORT-LIVED media-proxy URL, never a raw Drive/storage
+link. Four read tools + one staged convenience tool:
+  get_scene_boards (a scene's drawn pictures, or a no-image per-scene count
+    summary when `scene` is omitted — the MCP twin of chat.py's C15b "show"
+    op, `_handle_show_op`), get_character_sheets (a video's designed cast,
+    or the channel-level locked cast when `video_id` is omitted —
+    routes.characters.list_characters / routes.projects.get_channel_cast),
+    get_environment_images (routes.environments.list_environments),
+    get_thumbnail_image (videos.thumbnail_url). Every one signs its URL(s)
+    via `_sign_media_url` below, which is a THIN wrapper over
+    `shared.clients.image_client._kie_fetchable_url` — the EXACT same
+    signing call Kie's own image-to-image ingestion already uses
+    (C25a-fix2) — not a parallel signing scheme. TTL is whatever
+    `routes.media.mint_media_token`'s own default (60 minutes) is; every
+    result's `note` field states it so the calling agent relays it instead
+    of caching a URL past its life.
+  quick_demo_video: the one-off "demonstrate quickly" convenience path
+    (Ryan 2026-07-19). STAGED, not one-shot — it does not weaken the money
+    gate. Call 1 (no video_id): create_video verbatim (free). Call 2+
+    (video_id, no confirm_token): a price quote. Final call (+
+    confirm_token): starts. Calls 2/3 are a THIN pass-through to `_call_verb`
+    with verb="build" — the SAME existing meta-verb (script + cast +
+    pictures, auto-advances to the pictures checkpoint) every button/chat
+    "build it" already uses; no new pipeline logic, no new gate.
+
 Explicitly EXCLUDED from v1 (docs/reports/2026-07-17-storyengine-agent-
 audit-findings.md §S5):
   - Any memory-writing tool (remember/forget) — S5-2 says MCP v1 must
     EXCLUDE memory-writing tools outright. Not in actions.ACTIONS at all,
     so there is nothing to wrap; pinned by a test regardless.
-  - Any media/asset URL in any tool result. get_scenes/get_script are
-    hand-written queries that never SELECT an *_url column; get_ledger's
+  - Any UNSIGNED media/asset URL in any tool result. get_scenes/get_script
+    are hand-written queries that never SELECT an *_url column; get_ledger's
     kie_task_id is an opaque provider job id, not a URL;
     list_style_presets' preview_url is explicitly stripped before return
-    (belt-and-suspenders — same posture C26 took with get_video).
+    (belt-and-suspenders — same posture C26 took with get_video). The C48
+    media tools above are the sole exception, and even they only ever
+    return a SIGNED, short-lived proxy URL — never the raw stored link.
 
 Auth: get_agent_tenant_id (auth_agent.py) — the DISTINCT agent-token
 dependency (S5-4), never auth.verify_token/get_tenant_id.
@@ -219,6 +251,49 @@ def _coerce_scene(raw: Any) -> Optional[int]:
         return int(raw)
     except (TypeError, ValueError):
         return None
+
+
+# =============================================================================
+# C48 media signing — see the module docstring's "TOOL SURFACE v6" section.
+# =============================================================================
+
+def _media_token_ttl_minutes() -> int:
+    """The real TTL a signed media URL carries — read off
+    `routes.media.mint_media_token`'s own default parameter rather than a
+    second hardcoded literal, so this number can never drift from what the
+    token actually carries."""
+    import inspect
+    from routes.media import mint_media_token
+    return inspect.signature(mint_media_token).parameters["minutes"].default
+
+
+def _sign_media_url(url: Optional[str], tenant_id) -> Optional[str]:
+    """Sign a stored asset URL (Drive-hosted or otherwise) for a short-lived
+    MCP fetch — the C48 exception to the blanket "no media URL" rule.
+
+    Reuses `shared.clients.image_client._kie_fetchable_url` UNCHANGED — the
+    exact function Kie's own image-to-image ingestion calls to turn a stored
+    Drive link into this backend's tenant-scoped media-proxy URL
+    (C25a-fix2), not a second/parallel signing scheme. That function already:
+      - mints a `mint_media_token(tenant_id)` (60-minute default TTL) and
+        appends it as `?token=`,
+      - passes non-Drive URLs (e.g. Supabase Storage) through unchanged —
+        those were never proxied and have their own auth model, same
+        precedent as chat.py's `_media_proxy_url`,
+      - returns None/falsy input unchanged.
+    `_ensure_pipeline_on_path()` is the SAME sys.path shim
+    `_resolve_tenant_anthropic_client` already uses to reach
+    skills/video-pipeline's `shared.clients.*` package from this route."""
+    if not url:
+        return None
+    _ensure_pipeline_on_path()
+    from shared.clients.image_client import _kie_fetchable_url
+    return _kie_fetchable_url(url, tenant_id)
+
+
+def _media_expiry_note(noun: str = "URLs") -> str:
+    return (f"{noun} are signed and expire in {_media_token_ttl_minutes()} minutes — "
+            "call this tool again for fresh links.")
 
 
 # =============================================================================
@@ -2229,6 +2304,283 @@ async def _call_redo_character_sheet(tenant_id, arguments: dict[str, Any],
     return _text_result({"status": "started", "video_id": video_id, "char_id": char_id, "message": resp.get("message")})
 
 
+# =============================================================================
+# MEDIA TOOLS (C48 — see module docstring "TOOL SURFACE v6"): the C25a-hold's
+# "no media URL" ban is lifted for exactly one shape — a SIGNED, SHORT-LIVED
+# `_sign_media_url` proxy URL, never a raw Drive/storage link. Every read
+# below is tenant-scoped (via the SAME existing route/module function the
+# HTTP door already uses, so ownership is enforced once, not re-implemented
+# here) and capped.
+# =============================================================================
+
+_MAX_BOARD_IMAGES = 6  # same UX ceiling as chat.py's C15b _MAX_SHOW_IMAGES (kept as an independent constant — this module doesn't import chat.py's private one)
+_MAX_CHARACTER_SHEETS = 12  # generous cap above characters.MAX_CHARACTERS(8)/a channel cast's real size — belt-and-suspenders, not the real limiter
+_MAX_ENVIRONMENT_IMAGES = 12  # matches routes.environments.MAX_ENVIRONMENTS
+
+_GET_SCENE_BOARDS_TOOL: dict[str, Any] = {
+    "name": "get_scene_boards",
+    "description": (
+        "The MCP twin of chat's \"show me scene N's boards\" (C15b's "
+        "_handle_show_op): actual drawn pictures for a video, each a SIGNED, "
+        "SHORT-LIVED media-proxy URL (C48) + asset id + a prompt snippet. "
+        "Pass `scene` for that scene's pictures (capped at "
+        f"{_MAX_BOARD_IMAGES}); omit it for a compact per-scene picture-count "
+        "summary across the whole video (no images in that mode — call again "
+        "with a scene number to actually see them). Tenant+video+scene scoped."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Video UUID."},
+            "scene": {"type": "integer", "description": "Only this scene's pictures; omit for a per-scene count summary (no images)."},
+        },
+        "required": ["video_id"],
+    },
+}
+
+_GET_CHARACTER_SHEETS_TOOL: dict[str, Any] = {
+    "name": "get_character_sheets",
+    "description": (
+        "Character/model-sheet portraits, signed (C48). Pass `video_id` for "
+        "that video's designed cast (wraps GET /api/videos/{id}/characters); "
+        "omit it for the channel-level LOCKED cast every new video starts "
+        "from instead (wraps GET /api/projects/current/cast). Tenant-scoped, "
+        "capped, no cost."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Omit for the channel-level locked cast instead of one video's designed characters."},
+        },
+    },
+}
+
+_GET_ENVIRONMENT_IMAGES_TOOL: dict[str, Any] = {
+    "name": "get_environment_images",
+    "description": (
+        "This video's designed location/environment reference images, "
+        "signed (C48). Wraps GET /api/videos/{id}/environments "
+        "(routes/environments.py) — same query, reference_url signed instead "
+        "of stripped. Tenant-scoped, capped, no cost."
+    ),
+    "inputSchema": _VIDEO_ID_SCHEMA,
+}
+
+_GET_THUMBNAIL_IMAGE_TOOL: dict[str, Any] = {
+    "name": "get_thumbnail_image",
+    "description": (
+        "This video's current thumbnail, signed (C48) — a single short-lived "
+        "media-proxy URL for videos.thumbnail_url. Tenant-scoped, no cost."
+    ),
+    "inputSchema": _VIDEO_ID_SCHEMA,
+}
+
+_QUICK_DEMO_VIDEO_TOOL: dict[str, Any] = {
+    "name": "quick_demo_video",
+    "description": (
+        "One-off convenience path for a quick demo (Ryan 2026-07-19): create "
+        "a video and auto-advance it through script + cast + pictures with "
+        "minimal ceremony — no need to call script/characters/images "
+        "separately. STAGED, not one-shot — the money gate is NEVER "
+        "weakened, so this takes up to 3 calls. (1) Call with a `title` and "
+        "no `video_id` to create the video (free). (2) Call again with that "
+        "`video_id` and no `confirm_token` to get the SAME price quote the "
+        "\"build\" verb/button would show (script + cast + pictures, "
+        "whatever model is wired). (3) Call once more with that "
+        "`confirm_token` to actually start it — it runs in the background "
+        "and stops at the pictures checkpoint for review; poll get_video for "
+        "status, then call get_scene_boards to see the pictures. Thin "
+        "wrapper: step 1 is create_video, steps 2-3 are the EXISTING "
+        "\"build\" verb (the same confirm_tokens gate every other paid tool "
+        "uses) — no new pipeline logic, no bypass of the quote/confirm dance."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "video_id": {"type": "string", "description": "Omit on the first call to create a new video; pass it back on later calls to continue building that same video."},
+            "title": {"type": "string", "description": "The video's working title/topic (required when video_id is omitted)."},
+            "visual_style": {"type": "string", "description": "Free-text visual style, or an id from list_style_presets. Optional, only used when creating."},
+            "video_length_minutes": {"type": "integer", "description": "Target runtime in minutes (default 10). Only used when creating."},
+            "confirm_token": {"type": "string", "description": "Omit on the first two calls; pass back the token from the price-quote call to actually start the build."},
+        },
+    },
+}
+
+_MEDIA_TOOLS: list[dict[str, Any]] = [
+    _GET_SCENE_BOARDS_TOOL, _GET_CHARACTER_SHEETS_TOOL,
+    _GET_ENVIRONMENT_IMAGES_TOOL, _GET_THUMBNAIL_IMAGE_TOOL,
+    _QUICK_DEMO_VIDEO_TOOL,
+]
+
+
+async def _call_get_scene_boards(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_scene_boards requires a video_id argument")
+    video_id = str(video_id)
+    owned = await actions.video_summary(tenant_id, video_id)
+    if owned is None:
+        return _error_result(f"No video {video_id} found for this tenant")
+
+    scene = _coerce_scene(arguments.get("scene"))
+    if scene is None:
+        rows = await fetch_all(
+            "SELECT scene, count(*) FILTER (WHERE image_url IS NOT NULL OR drive_image_url IS NOT NULL) AS pics "
+            "FROM assets WHERE video_id = $1 AND tenant_id = $2 AND scene IS NOT NULL "
+            "GROUP BY scene ORDER BY scene",
+            video_id, tenant_id,
+        )
+        scenes = [{"scene": r.get("scene"), "pics": int(r.get("pics") or 0)} for r in (rows or [])]
+        return _text_result({
+            "video_id": video_id, "scenes": scenes,
+            "note": "Compact summary, no images — call again with a scene number to see its pictures.",
+        })
+
+    rows = await fetch_all(
+        "SELECT id, image_index, image_url, drive_image_url, image_prompt FROM assets "
+        "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+        "AND (image_url IS NOT NULL OR drive_image_url IS NOT NULL) "
+        "ORDER BY image_index LIMIT $4",
+        video_id, tenant_id, scene, _MAX_BOARD_IMAGES,
+    )
+    images = []
+    # Defense-in-depth: cap client-side too, not just via the SQL LIMIT —
+    # same belt-and-suspenders posture as chat.py's C15b _handle_show_op.
+    for r in (rows or [])[:_MAX_BOARD_IMAGES]:
+        signed = _sign_media_url(r.get("image_url") or r.get("drive_image_url"), tenant_id)
+        if not signed:
+            continue
+        prompt = (r.get("image_prompt") or "").strip()
+        snippet = prompt[:140] + ("…" if len(prompt) > 140 else "")
+        images.append({
+            "asset_id": str(r["id"]), "scene": scene, "index": r.get("image_index"),
+            "url": signed, "prompt_snippet": snippet,
+        })
+    if not images:
+        return _text_result({"video_id": video_id, "scene": scene, "images": [],
+                             "note": f"Scene {scene} has no pictures yet."})
+    return _text_result({
+        "video_id": video_id, "scene": scene, "images": images,
+        "note": _media_expiry_note(),
+    })
+
+
+async def _call_get_character_sheets(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if video_id:
+        video_id = str(video_id)
+        from routes.characters import list_characters as _list_characters_route
+        try:
+            result = await _list_characters_route(video_id, tenant_id=tenant_id)
+        except HTTPException as e:
+            return _error_result(e.detail if isinstance(e.detail, str) else "Video not found")
+        chars = (result.get("characters") or [])[:_MAX_CHARACTER_SHEETS]
+        sheets = [
+            {"char_id": c.get("id"), "name": c.get("name"), "status": c.get("status"),
+             "url": _sign_media_url(c.get("reference_url"), tenant_id)}
+            for c in chars
+        ]
+        return _text_result({"video_id": video_id, "characters": sheets, "note": _media_expiry_note()})
+
+    from routes.projects import get_channel_cast as _get_channel_cast_route
+    result = await _get_channel_cast_route(tenant_id=tenant_id)
+    chars = (result.get("characters") or [])[:_MAX_CHARACTER_SHEETS]
+    sheets = [
+        {"name": c.get("name"), "url": _sign_media_url(c.get("reference_url"), tenant_id)}
+        for c in chars
+    ]
+    return _text_result({
+        "channel_cast_locked": bool(result.get("cast_locked")), "characters": sheets,
+        "note": _media_expiry_note(),
+    })
+
+
+async def _call_get_environment_images(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_environment_images requires a video_id argument")
+    video_id = str(video_id)
+    from routes.environments import list_environments as _list_environments_route
+    try:
+        result = await _list_environments_route(video_id, tenant_id=tenant_id)
+    except HTTPException as e:
+        return _error_result(e.detail if isinstance(e.detail, str) else "Video not found")
+    envs = (result.get("environments") or [])[:_MAX_ENVIRONMENT_IMAGES]
+    images = [
+        {"env_id": e.get("id"), "name": e.get("name"), "status": e.get("status"),
+         "url": _sign_media_url(e.get("reference_url"), tenant_id)}
+        for e in envs
+    ]
+    return _text_result({
+        "video_id": video_id, "environments": images,
+        "approved_at": result.get("approved_at"), "note": _media_expiry_note(),
+    })
+
+
+async def _call_get_thumbnail_image(tenant_id, arguments: dict[str, Any]) -> dict[str, Any]:
+    video_id = arguments.get("video_id")
+    if not video_id:
+        return _error_result("get_thumbnail_image requires a video_id argument")
+    video_id = str(video_id)
+    row = await fetch_one(
+        "SELECT thumbnail_url FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    if row is None:
+        return _error_result(f"No video {video_id} found for this tenant")
+    url = row.get("thumbnail_url")
+    if not url:
+        return _text_result({"video_id": video_id, "url": None, "note": "No thumbnail yet."})
+    return _text_result({
+        "video_id": video_id, "url": _sign_media_url(url, tenant_id),
+        "note": _media_expiry_note(noun="The URL"),
+    })
+
+
+async def _call_quick_demo_video(tenant_id, arguments: dict[str, Any],
+                                  background_tasks: Optional[BackgroundTasks], caller: str) -> dict[str, Any]:
+    """Staged (module docstring "TOOL SURFACE v6"): step 1 creates the video
+    (free, via the SAME _call_create_video every create_video call uses);
+    once a video_id exists, every further call is a THIN pass-through to
+    `_call_verb(..., "build", ...)` — the exact existing meta-verb dispatcher
+    (quote first, dispatch only after a redeemed confirm_token) every other
+    paid tool/button already goes through. No new money logic lives here."""
+    video_id = arguments.get("video_id")
+    if not video_id:
+        title = (arguments.get("title") or "").strip()
+        if not title:
+            return _error_result("quick_demo_video requires a title to create the video (first call, no video_id).")
+        create_args = {"title": title}
+        if arguments.get("visual_style") is not None:
+            create_args["visual_style"] = arguments["visual_style"]
+        if arguments.get("video_length_minutes") is not None:
+            create_args["video_length_minutes"] = arguments["video_length_minutes"]
+        created = await _call_create_video(tenant_id, create_args, background_tasks)
+        if created.get("isError"):
+            return created
+        payload = json.loads(created["content"][0]["text"])
+        payload["next_step"] = (
+            "Call quick_demo_video again with this video_id (no confirm_token) to get a price "
+            "quote for the build (script + cast + pictures)."
+        )
+        return _text_result(payload)
+
+    # video_id given -> delegate to the EXACT SAME "build" verb dispatcher
+    # every other paid tool/button uses (quote, then dispatch on a redeemed
+    # confirm_token). No parallel quote math, no parallel confirm_tokens use.
+    result = await _call_verb(tenant_id, "build", {**arguments, "video_id": str(video_id)},
+                              background_tasks, caller)
+    if not result.get("isError"):
+        payload = json.loads(result["content"][0]["text"])
+        if payload.get("status") == "started":
+            payload["next_step"] = (
+                "This runs in the background — poll get_video for status, then call "
+                "get_scene_boards once pictures exist."
+            )
+            result = _text_result(payload)
+    return result
+
+
 # --- Voice control ------------------------------------------------------------
 
 _SET_NARRATOR_VOICE_TOOL: dict[str, Any] = {
@@ -2843,11 +3195,26 @@ _ATOMIC_PAID_HANDLERS = {
     "redo_dialogue_scene_voice": _call_redo_dialogue_scene_voice,
 }
 
+# C48 media reads: (tenant_id, arguments) — same shape as _ATOMIC_READ_HANDLERS.
+_MEDIA_READ_HANDLERS = {
+    "get_scene_boards": _call_get_scene_boards,
+    "get_character_sheets": _call_get_character_sheets,
+    "get_environment_images": _call_get_environment_images,
+    "get_thumbnail_image": _call_get_thumbnail_image,
+}
+
+# C48 quick_demo_video: (tenant_id, arguments, background_tasks, caller) — same
+# shape as _ATOMIC_PAID_HANDLERS (it needs background_tasks for both the free
+# create_video step and the "build" verb pass-through).
+_MEDIA_STAGED_HANDLERS = {
+    "quick_demo_video": _call_quick_demo_video,
+}
+
 
 TOOLS: list[dict[str, Any]] = (
     _READ_TOOLS + [_CREATE_VIDEO_TOOL] + _verb_tools() + _SETUP_TOOLS
     + _AUTOPILOT_PROPOSAL_TOOLS + _AUTOPILOT_DIAL_TOOLS + _INGEST_TOOLS
-    + _ATOMIC_TOOLS + _FEATURE_BOARD_TOOLS
+    + _ATOMIC_TOOLS + _FEATURE_BOARD_TOOLS + _MEDIA_TOOLS
 )
 
 # Names only — used by tests to pin the surface never silently grows a
@@ -2992,6 +3359,10 @@ async def _dispatch(method: str, params: dict[str, Any], tenant_id,
             return await _ATOMIC_FREE_HANDLERS[name](tenant_id, arguments, caller)
         if name in _ATOMIC_PAID_HANDLERS:
             return await _ATOMIC_PAID_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
+        if name in _MEDIA_READ_HANDLERS:
+            return await _MEDIA_READ_HANDLERS[name](tenant_id, arguments)
+        if name in _MEDIA_STAGED_HANDLERS:
+            return await _MEDIA_STAGED_HANDLERS[name](tenant_id, arguments, background_tasks, caller)
         if name in _FEATURE_BOARD_READ_HANDLERS:
             return await _FEATURE_BOARD_READ_HANDLERS[name](tenant_id, arguments)
         if name in _FEATURE_BOARD_WRITE_HANDLERS:

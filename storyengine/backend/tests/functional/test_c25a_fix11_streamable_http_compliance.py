@@ -245,7 +245,10 @@ def test_unknown_notification_method_is_also_202_not_an_error():
 
 
 # =============================================================================
-# 3. tools/list with the echoed session id -> the full 86-tool result.
+# 3. tools/list with the echoed session id -> the full 91-tool result.
+# (86 as of C65 + C48's 5 new media tools: get_scene_boards,
+# get_character_sheets, get_environment_images, get_thumbnail_image,
+# quick_demo_video.)
 # =============================================================================
 
 def test_tools_list_with_echoed_session_id_returns_full_toolset():
@@ -277,7 +280,7 @@ def test_tools_list_with_echoed_session_id_returns_full_toolset():
         )
     assert list_resp.status_code == 200, list_resp.text
     tools = list_resp.json()["result"]["tools"]
-    assert len(tools) == len(mcp_mod.TOOLS) == 86, (
+    assert len(tools) == len(mcp_mod.TOOLS) == 91, (
         f"expected the full {len(mcp_mod.TOOLS)}-tool surface, got {len(tools)}"
     )
     print(f"✅ test_tools_list_with_echoed_session_id_returns_full_toolset ({len(tools)} tools)")

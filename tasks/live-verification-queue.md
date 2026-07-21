@@ -431,6 +431,55 @@ edit never lands on the wrong client's video.
 - **Rollback:** none needed beyond Step 5/5b's own (delete the test video/rule if unwanted); revoking
   the token in Step 6 below covers all of C49's tools too, same as everything else in this runbook.
 
+### Step 5d — C48 media tools + `quick_demo_video`, same connected client, same token
+
+**Why this rides the same runbook:** C48's 5 new tools are dark behind the SAME `MCP_ENABLED` flag
+and the SAME token — nothing new to deploy/flip/mint. This is the FIRST live check of an MCP tool
+result actually carrying an image URL (every earlier chunk banned it outright) — the real thing to
+prove here isn't "does the tool run", it's "does the signed URL actually render an image when
+fetched with no browser session, and does it stop working after it expires." Expected spend: **~$0.20-
+0.80** if you let `quick_demo_video` actually build (same range as Step 5's `draft_pass`, since it's
+the same "build" verb underneath) — or **$0** if you only quote-and-stop at step 2 below.
+
+1. **The guided-session walkthrough** (prompt → boards in steps → approve/redo per scene → clips —
+   the walkthrough this chunk exists to support): `quick_demo_video({title: "..."})` with no
+   `video_id` → note the returned `id`. Call again with that `video_id` and no `confirm_token` →
+   expect a `status: "quote"` payload with `verb: "build"` and a `confirm_token` (SAME shape as the
+   "build" tool's own quote — this is not a parallel quote path). Confirm it → expect `status:
+   "started"`. Poll `get_video` until status reaches the pictures checkpoint (`ready_for_images` or
+   similar). Then `get_scene_boards({video_id, scene: 1})` → **open the returned `url` directly in a
+   browser with NO active StoryEngine session** (a fresh incognito window, or curl -I) → expect the
+   image to actually load (this is the real proof the signed token authenticates a bare fetch, not
+   just "the tool didn't error"). Wait past the TTL the tool's own `note` states (60 minutes by
+   default) and refetch the SAME url → expect a 401, confirming it's genuinely short-lived, not a
+   permanent link with a cosmetic expiry claim.
+2. **Per-scene approve/redo loop**: `get_scene_boards({video_id})` with no `scene` → expect the
+   compact per-scene count summary (no images). Pick a scene with pictures → `get_scene_boards
+   ({video_id, scene: N})` → review the images → either `approve_scene` (free, existing verb tool) or
+   `edit_shot_image_prompt` + `redraw_shot` (C49, quote-gated) on a specific `asset_id` from the
+   response, then `get_scene_boards` again to confirm the new picture. This is the "approve/redo per
+   scene" half of the guided-session recipe — every tool it needs already existed before C48; C48
+   only added the ability to actually SEE the pictures from inside the chat.
+3. **Character/environment/thumbnail signing:** on a video with a designed cast and environments,
+   `get_character_sheets({video_id})` and `get_character_sheets({})` (no video_id — expect the
+   channel-level locked cast instead) → open a returned `url` directly, same bare-fetch proof as step
+   1. `get_environment_images({video_id})` → same proof. `get_thumbnail_image({video_id})` on a video
+   with no thumbnail yet → expect `{"url": null, ...}`, not an error; after a thumbnail exists, expect
+   a signed url that opens.
+4. **Tenant isolation smoke test:** if you have two connected channel workspaces (see "Managing
+   multiple channels" under Step 4), call any C48 tool with the WRONG workspace's token against the
+   OTHER workspace's `video_id` → expect a clean "no video found" error, never someone else's picture.
+- **Rollback:** none needed beyond Step 5's own (delete the test video if unwanted); revoking the
+  token in Step 6 below covers all of C48's tools too.
+
+**Fold-in — the "model this video" flagship recipe's remaining gap (Composition recipes §6 below):**
+the two things that recipe flagged as "flag, don't build — C48's scope" are now built:
+`get_scene_boards`/`get_character_sheets` give the flagship's board-review step somewhere real to
+land (step 7 of that recipe, "normal walkthrough creation from here"), and `quick_demo_video` is the
+one-call convenience path for the recipe's steps 6-7 when the creator just wants to see it built
+without stepping through `script`/`characters`/`images` individually. The recipe's own text is
+updated below to point at these instead of the old "still missing" note.
+
 ### Step 6 — Revoke the token, confirm 401
 
 1. Profile → Agent Access → Revoke the token minted in step 3 (confirm modal).
@@ -479,12 +528,17 @@ paid step unless the creator also wants a redraw.
 video({title, video_length_minutes: 2})` → `draft_pass` (quote → confirm, draft-tier clip model,
 ~$0.20-0.80 for 2 scenes per Step 5's own breakdown) → `get_ledger` to show the real spend → done.
 This is literally Step 5 above, restated as a recipe an end user (not just this runbook) can follow.
+The even-thinner version of the SAME recipe (C48): `quick_demo_video({title})` → `quick_demo_video
+({video_id})` (quote) → `quick_demo_video({video_id, confirm_token})` (confirm) → `get_scene_boards
+({video_id})` to see the pictures in-chat instead of switching to the web UI. Same money gate, same
+underlying "build" verb — just fewer separate tool names for a first-time demo.
 
 **6. "Model this video" (the flagship recipe — decisions.md 2026-07-19, Ryan: "give it a video and
 ask it to model this video where it will give me new title ideas based on looking at a channel's top
 3 videos... clone the video style but with my own twist"):**
    1. `pull_reference_video_metadata({video_url})` — read the reference video's title/description/
-      transcript excerpt (text only, no thumbnail — media-bearing steps wait on C48/C25a).
+      transcript excerpt (text only — this tool still deliberately has no thumbnail, per C49's own
+      no-media-URL scope; C48 didn't touch it).
    2. `get_channel_top_performers({channel, top_n: 3})` — the channel's own top 3 by views, for
       pattern-grounding (decisions.md's literal ask).
    3. `score_title_gap_structures({hook, thesis, facts})` drawn from step 1+2's data → agent reasons
@@ -500,11 +554,20 @@ ask it to model this video where it will give me new title ideas based on lookin
    7. Normal walkthrough creation from here: `script` → `characters` → `storyboards`/`images` →
       `animate` → ... — every paid step still quote+confirm gated, any wired model, any length (the
       creator's "as long as I am willing to pay for it" — decisions.md), exactly per Step 5's model.
-   - **What's still missing for a FULLY hands-off run of this recipe (flag, don't build — C48's
-     scope):** a single "walkthrough" convenience tool that chains steps 1-6 with one call instead of
-     six, and the media-bearing board-review steps (`get_scene_boards`/`get_thumbnail` with signed
-     URLs) — both explicitly deferred to C48, itself blocked on the C25a coordinated deploy. Today
-     this recipe is fully RUNNABLE (every step above has a live tool), just not yet a one-liner.
+      (C48 update: step 6 can instead be `quick_demo_video({title, visual_style, ...})` staged
+      create+quote+confirm to auto-advance to the pictures checkpoint in fewer calls, and this step's
+      board review is now a real tool call — `get_scene_boards({video_id, scene})` — instead of
+      switching to the web UI, with `get_character_sheets`/`get_environment_images` covering the cast
+      and location review the same way.)
+   - **What C48 shipped of this recipe's gap:** the media-bearing board-review steps
+     (`get_scene_boards`/`get_character_sheets`/`get_environment_images`/`get_thumbnail_image`, all
+     signed) and the `quick_demo_video` convenience path for steps 6-7 — see Step 5d above for the
+     live check. **Still not built (a real product decision, not an oversight):** a single tool that
+     chains steps 1-5 (reference pull → top-performer read → title scoring → DNA read → twist
+     proposal) into one call — those steps mix data reads with an in-session reasoning step (picking
+     the twist) that has "no tool call... same intelligence-layer-is-the-session law" by design, so a
+     literal one-call chain would either skip that reasoning or fake it; today this recipe is fully
+     RUNNABLE end-to-end (every step above has a live tool), just not a one-liner for steps 1-5.
 
 ### Fold-ins — what this replaces
 
