@@ -58,7 +58,7 @@ _stub("vault", get_secret=_boom)
 _stub("kie_unified", get_text_client_for_tenant=_boom)
 
 from scripts.coverage_to_app import (  # noqa: E402
-    generate_storyboard_sheet_for_scene, _scene_text_hash,
+    generate_storyboard_sheet_for_scene, _scene_text_hash, _sheet_filter_reject,
 )
 
 VIDEO_ID = "cd5d2883-427e-4bfb-854d-8849d025d444"
@@ -196,10 +196,78 @@ def test_three_cast_refs_no_env_all_sent_uncapped():
     assert refs == ["https://fake/cast-a.png", "https://fake/cast-b.png", "https://fake/cast-c.png"]
 
 
+# ---------------------------------------------------------------------------
+# _sheet_filter_reject: widened to the 422 "flagged as sensitive" class
+# (2026-07-20 prod sweep, taskId 9b5af734f2455c8cbf39422142396051 — Kie
+# rejects with failCode "422", failMsg "CONTENT_POLICY_BLOCKED: The input or
+# output was flagged as sensitive...", creditsConsumed 0.0). Same zero-cost
+# moderation class as the original failCode "400" signature; previously got
+# no fallback-header retry and no free re-rolls. The 0-credit guard must
+# still block ANY credit-consuming failure regardless of failCode.
+# ---------------------------------------------------------------------------
+
+def test_400_known_msg_zero_credits_accepted():
+    assert _sheet_filter_reject({
+        "failCode": "400", "failMsg": "The current content could not be processed",
+        "creditsConsumed": 0.0,
+    }) is True
+
+
+def test_400_other_known_msg_zero_credits_accepted():
+    assert _sheet_filter_reject({
+        "failCode": "400",
+        "failMsg": "Sorry, but the image we created may violate OpenAI's content policies",
+        "creditsConsumed": 0.0,
+    }) is True
+
+
+def test_422_flagged_as_sensitive_zero_credits_accepted():
+    assert _sheet_filter_reject({
+        "failCode": "422",
+        "failMsg": "CONTENT_POLICY_BLOCKED: The input or output was flagged as sensitive.",
+        "creditsConsumed": 0.0,
+    }) is True
+
+
+def test_422_with_credits_consumed_rejected():
+    """The 0-credit guard is mandatory — a 422 that actually spent money must
+    NEVER qualify for the free retry/re-roll, even with the right message."""
+    assert _sheet_filter_reject({
+        "failCode": "422",
+        "failMsg": "CONTENT_POLICY_BLOCKED: The input or output was flagged as sensitive.",
+        "creditsConsumed": 0.5,
+    }) is False
+
+
+def test_400_with_credits_consumed_still_rejected():
+    """Pre-existing 400 guard stays intact after widening to 422."""
+    assert _sheet_filter_reject({
+        "failCode": "400", "failMsg": "The current content could not be processed",
+        "creditsConsumed": 1.2,
+    }) is False
+
+
+def test_unknown_failcode_rejected():
+    assert _sheet_filter_reject({
+        "failCode": "500", "failMsg": "flagged as sensitive", "creditsConsumed": 0.0,
+    }) is False
+
+
+def test_none_fail_info_rejected():
+    assert _sheet_filter_reject(None) is False
+
+
 if __name__ == "__main__":
     test_two_cast_refs_plus_env_sends_all_three_uncapped()
     test_env_locked_location_text_and_ref_both_present()
     test_one_cast_ref_plus_env_both_sent()
     test_no_env_two_cast_refs_unaffected()
     test_three_cast_refs_no_env_all_sent_uncapped()
+    test_400_known_msg_zero_credits_accepted()
+    test_400_other_known_msg_zero_credits_accepted()
+    test_422_flagged_as_sensitive_zero_credits_accepted()
+    test_422_with_credits_consumed_rejected()
+    test_400_with_credits_consumed_still_rejected()
+    test_unknown_failcode_rejected()
+    test_none_fail_info_rejected()
     print("\nAll C25a-fix7-Part-B-revert (C25a-fix8) tests passed.")

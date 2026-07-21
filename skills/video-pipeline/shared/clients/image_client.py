@@ -958,11 +958,23 @@ class ImageClient:
                 if task_id_out is not None:
                     task_id_out.append(task_id)
                 await asyncio.sleep(5)
+                # poll_for_completion returns None on either of two distinct
+                # paths: an explicit Kie fail-state it detected instantly
+                # (populates fail_info_out) or genuine 120-attempt budget
+                # exhaustion (fail_info_out stays empty). Use a local box when
+                # the caller didn't pass one so we can still tell them apart —
+                # a real Kie rejection is not a "timeout" and printing it as
+                # one sends debugging down the wrong path.
+                _fail_probe = fail_info_out if fail_info_out is not None else []
                 result_urls = await self.poll_for_completion(
-                    task_id, max_attempts=120, poll_interval=5.0, fail_info_out=fail_info_out)
+                    task_id, max_attempts=120, poll_interval=5.0, fail_info_out=_fail_probe)
                 if result_urls:
                     return {"url": result_urls[0]}
-                print("      ❌ Generation failed (poll timeout)")
+                if _fail_probe:
+                    info = _fail_probe[-1]
+                    print(f"      ❌ Generation failed (Kie reported fail: {info.get('failCode')})")
+                else:
+                    print("      ❌ Generation failed (poll budget exhausted after 120 attempts)")
                 return None
         except Exception as e:
             print(f"      ❌ GPT Image 2 error: {e}")

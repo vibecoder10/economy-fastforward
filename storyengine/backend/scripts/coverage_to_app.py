@@ -860,25 +860,42 @@ def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_l
 
 
 def _sheet_filter_reject(fail_info: Optional[dict]) -> bool:
-    """True if fail_info matches the KNOWN OpenAI-content-filter rejection
-    signature C25a-fix8 targets: failCode 400, ~0 credits consumed (Kie/
-    OpenAI reject before real generation starts, so nothing is spent), and
-    one of the two known failMsg strings seen in prod bisection (2026-07-20,
-    video cd5d2883) — "The current content could not be processed..." and
-    "...may violate OpenAI's content policies." Used to gate the ONE free
-    fallback-header retry so it fires only on this specific, deterministic,
-    zero-cost rejection — never on a real (credit-consuming) failure, where
-    retrying would just burn money on the same doomed prompt."""
+    """True if fail_info matches a KNOWN zero-cost content-filter rejection
+    class C25a-fix8 targets: ~0 credits consumed (Kie/OpenAI reject before
+    real generation starts, so nothing is spent) plus a recognized failCode +
+    failMsg pairing. Two classes are known so far, both from prod evidence,
+    never from a guess:
+      - failCode "400" with one of the failMsg strings from the 2026-07-20
+        bisection on video cd5d2883 — "The current content could not be
+        processed..." or "...may violate OpenAI's content policies."
+      - failCode "422" with a "flagged as sensitive" / generic "sensitive"
+        failMsg, e.g. "CONTENT_POLICY_BLOCKED: The input or output was
+        flagged as sensitive...", creditsConsumed 0.0 (taskId
+        9b5af734f2455c8cbf39422142396051, 2026-07-20 prod sweep) — Kie's other
+        zero-cost moderation rejection, previously getting no fallback-header
+        retry and no free re-rolls.
+    Used to gate the ONE free fallback-header retry (and the free re-roll
+    loop) so they fire only on this specific, deterministic, zero-cost
+    rejection class — never on a real (credit-consuming) failure, where
+    retrying would just burn money on the same doomed prompt. The 0-credit
+    guard is mandatory and must never be loosened: it is the entire reason
+    this gate is safe to retry for free."""
     if not fail_info:
         return False
     code = str(fail_info.get("failCode") or "").strip()
-    if code != "400":
+    if code not in ("400", "422"):
         return False
     credits = fail_info.get("creditsConsumed")
     if credits not in (0, 0.0, None):
         return False
     msg = (fail_info.get("failMsg") or "").lower()
-    return ("could not be processed" in msg) or ("content polic" in msg) or ("violat" in msg)
+    return (
+        ("could not be processed" in msg)
+        or ("content polic" in msg)
+        or ("violat" in msg)
+        or ("flagged as sensitive" in msg)
+        or ("sensitive" in msg)
+    )
 
 
 # =============================================================================
