@@ -195,8 +195,10 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
     # GPT Image 2 first, intelligent nano-banana-2 fallback (shared ImageClient) — locations
     # have no kid-content obstacle, so they render on GPT Image 2; nano only on a real outage.
     from shared.clients.image_client import ImageClient
+    # 1K, not the client's 2K default — an env ref is a style/layout anchor,
+    # not a deliverable, and 1K halves its cost (Ryan, 2026-07-21).
     res = await ImageClient(api_key=api_key).generate_scene_image_gpt(
-        prompt, None, aspect_ratio=aspect_ratio or "16:9")
+        prompt, None, aspect_ratio=aspect_ratio or "16:9", resolution="1K")
     url = (res or {}).get("url")
     if not url:
         raise RuntimeError("Environment generation failed")

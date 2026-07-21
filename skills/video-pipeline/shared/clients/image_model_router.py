@@ -179,12 +179,19 @@ async def generate_scene_image_for_model(
     prompt: str,
     reference_urls=None,
     aspect_ratio: str = "16:9",
-    resolution: str = "2K",
+    resolution: str = "1K",
     task_id_out: Optional[list] = None,
     fail_info_out: Optional[list] = None,
     no_gpt_fallback: bool = False,
     no_nano_fallback: bool = False,
 ) -> tuple[Optional[str], Optional[str]]:
+    # resolution defaults to "1K" (Ryan, 2026-07-21: "we dont need a 2k gpt
+    # image... downgrade it to 1k so its cheaper"). The old "2K" default
+    # silently made per-shot REDRAWS, character 4-view sheets, image
+    # variants and storyboard sheets cost ~2x the batch pictures run, which
+    # already drew at 1K explicitly. A caller that genuinely needs 2K (none
+    # today — thumbnails call generate_thumbnail_gpt2 directly with their
+    # own default) must now ask for it.
     """Draw ONE image honoring `model_override`. Returns (url, model_used) — the
     model actually reflected in `model_used` is what generated the pixels, which
     may differ from `model_override` when a fallback fired. Returns (None, None)
