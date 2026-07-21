@@ -67,11 +67,30 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 | — | seed DV-0 / MCP probes / 5-agent map / 20-machine script workflow | $0.00 | $0.00 | all my-subscription / DB only |
 | 1 | submit_script critique (tenant Anthropic key, 1 call) | ~$0.02 | ~$0.02 | verdict=pass, 23 scenes, 0 violations |
 | 2 | voice (23 ElevenLabs clips, Nathaniel C) | $5.47 | ~$5.49 | ✅ DONE — ledger confirms $5.470, all 23 voice_over_url set |
-| 3 | images (23 static_docu, GPT Image 2 @1K) | ~$0.69 est | ~$6.18 | build started; quote showed $6.90 (inflated) but code-verified 23×$0.03; billed on usage. Polling. |
+| 3 | images (build) — **FAILED, $0 charged** | $0.00 | ~$5.49 | prod bug: dead `_KIE_CLAUDE_URL` import crashed image gen before any spend |
 
-**Cumulative spend: ~$6.18 / $10.00** (remaining ~$3.82; render~$0.05 + thumb~$0.05 to go)
-Voice cost VERIFIED via generation_ledger = $5.470 (matches quote exactly). Image real cost
-verified in code (static_docu.py:697 res=1K; channel_profile.py:502 gpt-image-2 1K=$0.03).
+**Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
+Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
+
+## 🛑 BLOCKER (2026-07-21) — images/render/thumbnail need a prod deploy
+The `build`/images stage failed on prod: `cannot import name '_KIE_CLAUDE_URL' from
+'identity_builder'`. Root cause: `static_docu.py::_vision_confirms` imported a symbol C43
+removed (test_c43_dna_convergence.py:273 asserts its absence) — an unconditional import that
+crashed EVERY static-docu image run (likely why no DvsU video ever rendered end-to-end).
+**FIXED on this branch** (commit on `claude/dvsu-channel-story-engine-hzyts1`, static_docu.py):
+moved the KIE-Claude URL to the fallback branch that uses it, sourced from `KIE_CLAUDE_BASE_URL`
+env. py_compile OK. **NOT deployed** — deploying backend code to live multi-tenant prod is
+beyond the granted "execution power through the mcp/browser" + the explicit "never push to main
+without permission" rule; Ryan is away. Needs Ryan to merge the fix to main → deploy → re-run.
+
+### RESUME RECIPE (after the fix is on prod)
+Video is clean at status `ready_for_image_prompts`, scripts+voice done, orphan asset row deleted.
+1. `build` (quote→confirm) → generates 23 static images (~$0.69 real; quote shows ~$6.90, ignore).
+2. `build` again (quote→confirm) → finish: render Ken Burns MP4 + thumbnail (~$0.10).
+3. Download MP4 + thumbnail, visually verify (character/machine accuracy per the Visual Output
+   Verification Rule), review vs Anton. Total projected spend ~$6.3 / $10.
+(Agent token for MCP: scratchpad/.dvsu_agent_token_user, or mint per the recipe above. render_static
++ thumbnail chain scanned — no sibling dead imports found, but never proven end-to-end for DvsU.)
 
 ### SCRIPTS DONE ✅ (2026-07-21)
 23 paragraphs submitted via submit_script → **verdict: pass, 0 violations, 0 warnings** under
@@ -143,8 +162,7 @@ Verify actual spend via generation_ledger (media is ledgered; research/script Cl
 - [ ] verify MP4 + thumbnail visually → final review vs Anton
 
 ## Handoff (2-line, keep current)
-- **Last done:** full execution map done; no research injection needed; media ~$5-6 mapped;
-  voice/keys confirmed; launched 20-machine script writing+verify workflow `wjzfcvwva`.
-- **Next:** on workflow completion — review the 20 verified paragraphs (reject any with
-  fact_issues/law_issues, re-run those), assemble 23 with the 3 Anton anchors, submit via
-  `submit_script` MCP verb, verify scripts table + status ready_for_voice. Then media spend.
+- **Last done:** SCRIPTS (23, passed seeded law, 0 violations) + VOICE ($5.47 verified) DONE.
+  Images BLOCKED by a prod bug (dead `_KIE_CLAUDE_URL` import) — FIXED on this branch, not deployed.
+- **Next (Ryan):** merge the static_docu.py fix to main + deploy, then run the RESUME RECIPE above
+  (build→images, build→finish→render+thumbnail, verify). ~$0.8 of media spend remains of the $10.
