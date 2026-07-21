@@ -35,6 +35,29 @@ then finish→render+thumbnail), ~$0.8 of the $10 budget remains. Resume recipe 
 Key method finding: worker-write + `submit_script` (prose critic, not the brutal claim-map gate)
 is the reliable path — no fragile research injection needed; static images self-source photos.
 
+## ▶ VIDEO #2 PLAN (Ryan approved 2026-07-21) — "agent-researches → inject as VERIFIED → platform grounds the script"
+The standard flow for the NEXT DvsU video, so it shows grounded research + VERIFIED cards +
+an auditable evidence chain (unlike video #1, which used the prose-critic shortcut):
+1. **Agent researches** each machine (my subscription — real WebFetch of authoritative sources,
+   per-fact source URLs, adversarial fact-check). Free.
+2. **Structure + inject as the platform's evidence**, per machine, in the EXACT gate contract
+   (from audit §research-schema): `machine_raw_source_packages[key]` = ≥6 traceable verbatim
+   excerpts, ≥2 distinct source URLs, ≥1 Tier-1/2, `source_capture_method` ∈
+   {fetched_page,tavily_raw_content}, `source_variant_selection`, covering the 4 required Anton
+   slots with DISTINCT excerpts; + `machine_research_cards` row (schema_version 3, evidence_segments
+   citing those excerpts, engineering_thesis, etc.). Inject via jsonb_set/upsert (non-destructive,
+   roster-snapshot guard) since the per-machine `/machine-research-one` route is session-JWT-locked
+   from the agent token. Result: each machine reads **VERIFIED**.
+3. **Ground the script against that stored evidence** — either the platform's own writer, OR I
+   write the paragraph AND bind every fact to an injected evidence_id via claim_map so it passes
+   the FULL `_run_static_script_hold` evidence gate (two-source numeric grounding QL-18/19), not
+   just the prose critic. → fully auditable.
+4. Then voice → images (now PARALLEL, main 5b7c25c) → render.
+- **DE-RISK FIRST:** validate steps 2-3 on ONE machine (e.g. XB-15) on a scratch/new video —
+  confirm it shows VERIFIED + the injected card+package clears `_research_card_contract_warnings`
+  + a grounded paragraph passes `_run_static_script_hold` — BEFORE doing a full roster.
+- **BLOCKED ON:** a title for video #2 (Ryan supplies). Video #1 (bomber) finishes first.
+
 ## Definition of Complete (extracted from GOAL.md Phase G + Ryan's 2026-07-15 rulings)
 
 1. **Quality law live:** the 74+2 DvsU quality rules are seeded into `quality_rules` for
