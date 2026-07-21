@@ -72,7 +72,16 @@ Orchestrator (Fable) verifies; Sonnet workers do free thinking/verification. Run
 **Cumulative spend: ~$5.49 / $10.00** (voice verified $5.470 + ~$0.02 script critique)
 Voice cost VERIFIED via generation_ledger = $5.470. Images did NOT charge (crash pre-generation).
 
-## ⏳ PARALLEL+TIMEOUT FIX — awaiting 2nd deploy (2026-07-21 15:22)
+## CORRECTION (15:32): serial run NOT hung — progressing slowly (scene 10→12)
+Re-checked: task moved to scene 12 (B-36); it was crawling through scene-10 retries, not hung.
+So THIS video finishes on the current serial run (~6 min/scene, ~45-60 min for the last 11) with
+NO further deploy needed. Ryan approved finishing this one as-is. Parallel+timeout fix (main
+5b7c25c) is for the NEXT video (applies whenever Ryan next deploys). Just poll to completion →
+render → thumbnail. NOTE (Ryan Q): next video, if driven through the platform research→script
+verbs, WILL show grounded research + evidence cards (designed pipeline). Open work = prove the
+platform's OWN writer clears the evidence gate for a full roster (the 0/3 "writer gap", DV-2).
+
+## (superseded) PARALLEL+TIMEOUT FIX — awaiting 2nd deploy (2026-07-21 15:22)
 Serial image gen HUNG 61 min on scene 10 (B-45, no-ref; Kie render poll never returned — serial
 loop blocked all 23). Ryan: "images are supposed to be parallel, not serial... for this channel."
 FIXED on **main (5b7c25c)**: (1) generate_static_images_for_video now runs scenes via
