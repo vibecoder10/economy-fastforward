@@ -158,7 +158,15 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
     """One environment reference (wide establishing shot) via Kie (same job
     pattern as the character portrait generation). Rendered at the video's
     aspect ratio so it matches the panel frame. Returns the image URL."""
-    style = (style_dna or "").strip()
+    # Same two style guards the storyboard/cast/director seam (_resolve_style)
+    # applies: scrub studio names (they read as IP references to the filter),
+    # then make a stylized medium carry an explicit photorealism ban. Without
+    # the ban this exact slot drew a near-photoreal 'cooking class kitchen'
+    # ref on video cd5d2883 (2026-07-21) that then dragged every nano
+    # storyboard panel's background photoreal — the env ref conditions every
+    # sheet draw, so its medium IS the boards' medium.
+    from scripts.coverage_to_app import _enforce_stylized_media, _neutralize_style_brands
+    style = _enforce_stylized_media(_neutralize_style_brands((style_dna or "").strip()))
     # Structured prompt with explicit slots so the art style can't get buried
     # behind the scene description (the drift cause). art_style + render_medium are
     # the SAME leading slots the character portraits use, so locations lock to the

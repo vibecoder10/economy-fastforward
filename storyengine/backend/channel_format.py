@@ -85,7 +85,13 @@ async def set_channel_format(tenant_id, fields: dict[str, Any]) -> dict:
 #     both frontend doors (New Video's "Style description" grid + the chat
 #     LOOK card) instead of either one hardcoding its own copy.
 STYLE_DESCRIPTIONS: dict[str, dict[str, str]] = {
-    "pixar_3d":   {"label": "3D Animated", "look": "Soft 3D animated CG, rounded forms, warm cinematic light, subsurface skin, shallow depth of field"},
+    # pixar_3d's look rewritten 2026-07-21: the old wording ("subsurface skin,
+    # shallow depth of field") read as photoreal render cues — on video
+    # cd5d2883 it let nano-banana-2 storyboards drift fully live-action. The
+    # look now names the cartoon medium for every element and bans
+    # photorealism outright (the wording proven on El Mercado 65a8021e, whose
+    # boards held the 3D-cartoon style on every panel).
+    "pixar_3d":   {"label": "3D Animated", "look": "Soft 3D animated cartoon CG, stylized cartoon characters with warm expressive faces, rounded forms, clean bright saturated colors, smooth cartoon shading, warm cinematic light. Environments, props and food are stylized 3D cartoon too. Fully animated 3D cartoon, NOT photorealistic, NOT live-action, NOT a real photograph"},
     "flat_2d":    {"label": "2D flat",    "look": "Clean 2D flat vector animation, bold flat colors, simple shapes, crisp outlines, minimal shading"},
     "realistic":  {"label": "Realistic",  "look": "Photorealistic cinematic photography, natural lighting, real textures, shallow depth of field"},
     "anime":      {"label": "Anime",      "look": "Modern anime cel-shaded illustration, expressive faces, clean linework, soft gradient shading"},

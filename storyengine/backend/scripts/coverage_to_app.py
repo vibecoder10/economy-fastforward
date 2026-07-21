@@ -144,6 +144,45 @@ def _neutralize_style_brands(text):
     return out
 
 
+# Stylized-medium markers for _enforce_stylized_media. Substring matches on the
+# lowercased style text — "animat" catches animated/animation, "illustrat"
+# catches illustrated/illustration.
+_STYLIZED_MEDIUM_MARKERS = (
+    "animat", "cartoon", "anime", "cel-shaded", "cel shaded", "illustrat",
+    "watercolor", "hand-drawn", "hand drawn", "stop-motion", "claymation",
+    "comic", "graphic-novel", "graphic novel", "vector", "storybook",
+    "painterly", "pixel art",
+)
+
+
+def _enforce_stylized_media(style):
+    """Append an explicit anti-photoreal clause to a style that names a
+    stylized medium but never says NOT to render it as a photograph.
+
+    Why (proven live 2026-07-21, video cd5d2883 'Spanish Class'): the weak
+    'Soft 3D CG, subsurface skin, shallow depth of field' style produced
+    storyboard sheets that drifted fully live-action on nano-banana-2 — the
+    model follows the strongest realism signal in the request (here, a
+    photoreal environment reference image) unless the prompt explicitly bans
+    photorealism. El Mercado's style, identical pipeline but carrying 'NOT
+    photorealistic, NOT live-action', held the 3D-cartoon look on every panel.
+    So: a stylized style keeps its author's wording and gains the ban only
+    when it is missing; a style that already bans photorealism (or never
+    names a stylized medium — e.g. the 'realistic' preset, or no style at
+    all) passes through untouched."""
+    if not style or not style.strip():
+        return style
+    low = style.lower()
+    if "not photoreal" in low or "no photoreal" in low:
+        return style
+    if not any(marker in low for marker in _STYLIZED_MEDIUM_MARKERS):
+        return style
+    return (style.rstrip().rstrip(".") +
+            ". Every element is rendered in this exact stylized medium - "
+            "characters, sets, props and food alike. NOT photorealistic, "
+            "NOT live-action, NOT a real photograph.")
+
+
 def _resolve_style(image_style_override, visual_style):
     """Turn a video's stored style choice into (profile, style_directive).
 
@@ -157,7 +196,9 @@ def _resolve_style(image_style_override, visual_style):
     Every style string is run through _neutralize_style_brands here — the ONE seam all three
     image paths (director, cast sheet, storyboard) draw their style from — so a studio name can
     never reach an image prompt no matter how it got into the stored style (creator entry,
-    producer-LLM elaboration, or a legacy preset)."""
+    producer-LLM elaboration, or a legacy preset). The resolved directive then runs through
+    _enforce_stylized_media so an animated/stylized look always reaches the image models with
+    an explicit photorealism ban (see that helper's docstring for the live evidence)."""
     rec = {}
     iso = _neutralize_style_brands((image_style_override or "").strip())
     if iso:
@@ -166,7 +207,8 @@ def _resolve_style(image_style_override, visual_style):
     if vs:
         rec["Visual Style"] = vs
     profile = load_profile(rec)
-    return profile, _neutralize_style_brands(profile.visual_style_directive if rec else None)
+    return profile, _enforce_stylized_media(
+        _neutralize_style_brands(profile.visual_style_directive if rec else None))
 
 
 async def build_cast_prompt(claude, script_text: str, model=None, style: str | None = None) -> str:
