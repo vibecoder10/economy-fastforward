@@ -654,3 +654,22 @@ every panel brief — accumulated density trips OpenAI's filter (sheet 1 passed 
 identical caption content). Structural fix: name risky props ONCE in the set block, neutral references
 elsewhere, deterministic neutral-phrasing pass over builder-authored text only — CAPTIONS (the spoken
 script) stay verbatim, always. Every wording change pre-flighted against the real filter before deploy.
+
+## 2026-07-21 — MCP co-pilot must be PROCESS-AWARE (Ryan, from live driving): no more skipped steps
+Ryan: "I need the mcp to know each and every step of the generation process, there were several
+processes that were skipped today, like environment design, and knowing if there are characters
+there or not... surface the images in the chat and then handle all the image prompting and video
+prompting and storyboard prompting... it should be my co pilot to keep me on track."
+Root cause: the MCP exposes ~60 atomic tools but NO canonical process map — the driving agent
+improvises stage order from tool names, so silent stages (environment design, character-presence
+checks) get skipped. Rulings:
+- C66 queued: process brain — (a) MCP initialize response carries SERVER INSTRUCTIONS teaching
+  the canonical per-format stage order + house rules (every session starts process-aware);
+  (b) `get_production_guide(video_id)` tool: full stage checklist for THAT video's format with
+  per-stage done/missing/gaps (characters present? sheets built? environments designed? boards
+  drawn? voice? clips? sound? thumbnail?), next-step recommendation — read off the SAME status
+  machine the UI uses, no parallel logic; (c) environments MCP tool family (the named skipped
+  step) wrapping routes/environments.py.
+- C48 UNBLOCKED (C25a confirmed merged into main by Ryan's coordinated deploy, verified via
+  git merge-base 2026-07-21) — media-bearing tools ship per its existing spec.
+- New verified baseline post-deploy-merge: 2074P/15F/1E.
