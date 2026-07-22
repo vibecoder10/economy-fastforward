@@ -80,6 +80,12 @@ interface StageRailProps {
   guide: ProductionGuide;
   activeTab: string;
   onSelect: (tabId: string) => void;
+  /** Declutter (2026-07-22): a stage-owned control block can portal itself in
+   * here — right now only the Scenes tab's progress summary + bulk-generate
+   * button (see ScenesWorkspaceTab's `stageRailSlot` prop), which used to be
+   * its own full-width green banner below this card. Empty div, zero footprint,
+   * whenever no tab has anything to show. */
+  slotRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 /** The regular (non-static_docu) pipeline page's clickable stage rail —
@@ -89,14 +95,19 @@ interface StageRailProps {
  * duplicate. Reuses StaticDocuStageRail's visual language (icon circles,
  * connector line, status colors) so the two rails read as one family
  * across formats. */
-export function StageRail({ guide, activeTab, onSelect }: StageRailProps) {
+export function StageRail({ guide, activeTab, onSelect, slotRef }: StageRailProps) {
   const segments = SEGMENTS
     .map((seg) => computeSegment(seg, guide.stages))
     .filter((s): s is SegmentInfo => s !== null);
 
   return (
     <GlassCard className="p-4">
-      <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+      {/* Rail takes priority: shrink-0 + its own overflow-x-auto keeps the
+          icon row intact and scrollable rather than letting the slot content
+          squeeze or wrap it at ~1280px. The slot only wraps to its own line
+          (parent flex-wrap) when both don't fit side by side. */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide shrink-0">
         {segments.map((seg, idx) => {
           const Icon = seg.icon;
           const isActive = activeTab === seg.tabId;
@@ -138,6 +149,13 @@ export function StageRail({ guide, activeTab, onSelect }: StageRailProps) {
             </div>
           );
         })}
+        </div>
+        {/* Slot for a stage's own control block (e.g. Scenes' bulk-generate
+            button), portaled in from the active tab. Empty + weightless
+            (no min-height/padding) when nothing targets it. ml-auto pins it
+            right, vertically centered with the icon rail via items-center
+            on the parent row above. */}
+        <div ref={slotRef} className="flex items-center gap-3 flex-wrap ml-auto" />
       </div>
     </GlassCard>
   );

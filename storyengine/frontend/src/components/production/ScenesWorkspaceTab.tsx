@@ -14,6 +14,7 @@
  */
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check, Loader2, Image as ImageIcon, RefreshCw,
@@ -302,11 +303,28 @@ interface ScenesWorkspaceTabProps {
   /** The ONE page-level task watcher (S9-1/C19a) — replaces this tab's own
    * useTaskWatcher so it doesn't duplicate-poll against TaskFailureBanner. */
   taskWatcher: TaskWatcherBridge;
+  /** Declutter (2026-07-22): the progress summary + bulk-generate button used
+   * to live in a full-width green banner between the stage rail and the
+   * model-settings row. Ryan asked to move it up into the StageRail card's
+   * empty right-hand side instead of deleting it — this ref points at the
+   * slot div StageRail renders for exactly that, and stays undefined for any
+   * caller that doesn't have one (portal simply doesn't render). */
+  stageRailSlot?: React.RefObject<HTMLDivElement | null>;
 }
 
-export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onGoToCharacters, onAdvanced, taskWatcher }: ScenesWorkspaceTabProps) {
+export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironments, onGoToCharacters, onAdvanced, taskWatcher, stageRailSlot }: ScenesWorkspaceTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  // Portal target for the command-bar controls (progress text + bulk button +
+  // overflow menu) — StageRail mounts its slot div in the SAME commit as this
+  // component (both render from page.tsx's tree), but a ref write doesn't
+  // trigger a re-render, so this runs on every render (cheap: one ref read)
+  // until it catches the node, then stops. Guards the productionGuide-still-
+  // loading edge case where StageRail hasn't mounted its slot yet.
+  const [commandBarSlot, setCommandBarSlot] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!commandBarSlot && stageRailSlot?.current) setCommandBarSlot(stageRailSlot.current);
+  });
   const model = video.video_model || "grok-imagine";
   // Clip-model registry (GET /api/models) — queried early so every per-clip
   // price computed below can read it directly on the SAME render it arrives,
@@ -1384,11 +1402,17 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         </p>
       )}
 
-      {/* Prominent command bar — progress at a glance + the one big bulk action.
-          order-first floats it to the top of the workspace, above the model pickers. */}
-      <div className="order-first rounded-xl px-5 py-4 flex items-center gap-3 flex-wrap"
-        style={{ background: "rgba(0, 230, 138, 0.06)", border: "1px solid rgba(0, 230, 138, 0.22)" }}>
-        <p className="text-base font-medium" style={{ color: "var(--text-secondary)" }}>
+      {/* Command bar — progress at a glance + the one big bulk action. Used to
+          be a full-width green banner between the stage rail and the model-
+          settings row; Ryan asked to declutter (2026-07-22) by moving it up
+          into the StageRail card's empty right-hand side instead, via a
+          portal into the slot div StageRail renders for it. Same conditional
+          as before governs whether it renders at all: this whole block only
+          exists in the tree while ScenesWorkspaceTab is mounted, i.e. the
+          Scenes stage is active — it never leaks into other stages. */}
+      {commandBarSlot && createPortal(
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+        <p className="text-sm font-medium text-right" style={{ color: "var(--text-secondary)" }}>
           <strong style={{ color: "var(--text-primary)" }}>{scenes.length} scenes</strong>
           {" · "}
           <strong style={{ color: boardsDone >= boardsTotal ? "var(--green)" : "var(--text-primary)" }}>
@@ -1549,7 +1573,9 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             </>
           )}
         </div>
-      </div>
+        </div>,
+        commandBarSlot
+      )}
 
       {showMotionPrompt && (
         <SystemPromptEditor

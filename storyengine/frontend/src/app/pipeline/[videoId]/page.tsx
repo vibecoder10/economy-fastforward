@@ -365,6 +365,11 @@ export default function VideoDetailPage() {
   // bridge below (useSharedTaskWatcher), so each consumer's own
   // onComplete/onFailed/onProgress side effects are preserved exactly —
   // only the polling itself is de-duplicated.
+  // Declutter (2026-07-22): lets ScenesWorkspaceTab portal its progress
+  // summary + bulk-generate button into StageRail's card instead of its own
+  // full-width banner — see StageRail's `slotRef` prop and
+  // ScenesWorkspaceTab's `stageRailSlot` prop.
+  const stageRailSlotRef = useRef<HTMLDivElement>(null);
   const taskCallbacksRef = useRef<Set<TaskWatcherHandlers>>(new Set());
   const subscribeTaskWatcher = useCallback((handlers: TaskWatcherHandlers) => {
     taskCallbacksRef.current.add(handlers);
@@ -795,7 +800,7 @@ export default function VideoDetailPage() {
             taskWatcher={taskWatcher}
           />
         ) : productionGuide ? (
-          <StageRail guide={productionGuide} activeTab={currentTab} onSelect={(tabId) => setActiveTab(tabId)} />
+          <StageRail guide={productionGuide} activeTab={currentTab} onSelect={(tabId) => setActiveTab(tabId)} slotRef={stageRailSlotRef} />
         ) : (
           <PipelineStepper status={status} liveStatus={liveStatus} planStages={planStages} />
         )}
@@ -923,7 +928,7 @@ export default function VideoDetailPage() {
         )}
         {currentTab === "characters" && <CharactersTab video={videoForTabs} onApproved={() => setActiveTab("environments")} taskWatcher={taskWatcher} />}
         {currentTab === "environments" && <EnvironmentsTab video={videoForTabs} onApproved={() => setActiveTab("scenes")} taskWatcher={taskWatcher} />}
-        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onGoToEnvironments={() => setActiveTab("environments")} onGoToCharacters={() => setActiveTab("characters")} onAdvanced={() => setActiveTab("sound")} taskWatcher={taskWatcher} />}
+        {currentTab === "scenes" && <ScenesWorkspaceTab video={videoForTabs} onGoToScriptVoice={() => setActiveTab("script-voice")} onGoToEnvironments={() => setActiveTab("environments")} onGoToCharacters={() => setActiveTab("characters")} onAdvanced={() => setActiveTab("sound")} taskWatcher={taskWatcher} stageRailSlot={stageRailSlotRef} />}
         {currentTab === "sound" && <SoundTab video={videoForTabs} onAdvanced={() => setActiveTab("thumbnail")} taskWatcher={taskWatcher} />}
         {currentTab === "thumbnail" && <ThumbnailTab video={videoForTabs} onAdvanced={() => setActiveTab("render")} taskWatcher={taskWatcher} />}
         {currentTab === "render" && <RenderTab video={videoForTabs} onAdvanced={() => setActiveTab("upload")} taskWatcher={taskWatcher} />}
