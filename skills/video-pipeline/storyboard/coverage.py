@@ -62,6 +62,17 @@ _COVERAGE_CONCURRENCY = int(os.getenv("COVERAGE_CONCURRENCY", "5"))
 
 def _coverage_system_prompt(profile, max_moments: int, angles_min: int, angles_max: int) -> str:
     cg = profile.color_grade
+    # SETUP-KIT SCALING (C2 item 1): rule 5e used to hard-code "3-5 setups"
+    # regardless of scene length, so a 40-shot dialogue scene got the same
+    # tiny kit as a 6-shot one and read as 2 setups ping-ponging for pages.
+    # Derive a target from the scene-size knobs the caller already passes in:
+    # roughly one setup per 6-8 shots (midpoint 7), floored at 3 (the
+    # minimum real coverage — establish + reverse pair). No parser reads this
+    # number; it's prose guidance only, so there's no format risk in getting
+    # the estimate approximate.
+    _avg_angles = (angles_min + angles_max) / 2
+    _estimated_shots = max_moments * (1 + _avg_angles)
+    _setup_target = max(3, round(_estimated_shots / 7))
     # angles_min == 0 = the RESTRAINED shape (e.g. the bilingual echo format):
     # an angle must earn its place, master-only is the default.
     motivated_rule = "" if angles_min > 0 else """
@@ -158,7 +169,15 @@ sharing a letter are the IDENTICAL camera position and IDENTICAL staging repeate
 expressions, gestures and the spoken line change between them. Bodies never drift closer, swap \
 ends, lean across the set, or change orientation between moments unless the narration \
 explicitly moves someone — and then you re-establish with a new two-shot and restate the \
-setups.{motivated_rule}
+setups. SCALE THE KIT TO THE SCENE: a short scene needs only the minimum kit (3 setups — \
+establish plus a reverse pair); a longer conversation EARNS more setups, roughly one new setup \
+per 6-8 shots you plan, so the camera doesn't just ping-pong between the same two positions for \
+pages of dialogue — for THIS scene, aim for about {_setup_target} setups. A setup CAN be a SIZE \
+VARIANT of another: an id like "B-CU" means the SAME camera axis and background as SETUP B, just \
+tighter framing (a close-up) — declare it as its own entry on the [SETUPS | ...] line (e.g. \
+"B-CU: tighter close-up variant of B, same axis/background") and tag its shots "(SETUP B-CU)". \
+Reach for a size variant when a beat wants to punch in without staging a whole new camera \
+position.{motivated_rule}
 7) CONTENT SAFETY — NOTHING SHARP, NOTHING VIOLENT (Ryan's ruling 2026-07-21: sheets and \
 pictures draw on GPT Image 2, whose content filter randomly rejects any composition it can \
 read as threatening — a knife on a counter near two people is enough, proven repeatedly on \
@@ -186,11 +205,13 @@ Second line — the SET geography resolved into SCREEN coordinates, the scene's 
 [AXIS | <name> frame-LEFT looking frame-RIGHT; <name> frame-RIGHT looking frame-LEFT; key \
 light from screen-<left|right>. Holds in EVERY shot unless the shot says NEUTRAL]
 
-Third line — the camera kit, ONE line (rule 5e); 3-5 setups cover the whole scene:
+Third line — the camera kit, ONE line (rule 5e); SCALE it to the scene — about one setup per \
+6-8 shots you plan, floored at 3; for THIS scene aim for roughly {_setup_target} setups:
 [SETUPS | A: WS two-shot — <each body's exact spot on the set, distance apart, orientation to \
 camera>; B: MCU OTS over <name>'s <left/right> shoulder onto <name>; C: MCU OTS over <name>'s \
 <left/right> shoulder onto <name>, the matched reverse of B; D: matched CU pair, tighter B/C; \
-E: INSERT on the props, no people]
+E: INSERT on the props, no people; B-CU: tighter close-up variant of SETUP B, same axis/ \
+background — punch in on B's reverse at a sharper emotional beat]
 
 Then, for each moment:
 
@@ -270,7 +291,14 @@ def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, imag
             f"\n--- DIALOGUE TURNS ({len(turns)}) — make EXACTLY ONE speaking moment for EACH, "
             f"IN THIS ORDER, its MASTER framing that speaker and a LINE: row with these EXACT words. "
             f"Cover all {len(turns)}: skip none, merge none across speakers, change no words. Add a "
-            f"few SILENT moments (establishing/insert) around them for variety ---\n{listed}")
+            f"few SILENT moments (establishing/insert) around them for variety. SIZE WITH THE "
+            f"TENSION: a turn's position in this T1..T{len(turns)} order IS the scene's tension curve "
+            f"— early turns (T1, T2...) favor WIDER/MEDIUM framing (WS/MS/MCU, plain setup letters "
+            f"like SETUP B); as turns move toward T{len(turns)}, punch in — favor tighter sizes "
+            f"(CU/ECU) and the SIZE-VARIANT compound setups (rule 5e, e.g. SETUP B-CU) at the beat's "
+            f"sharpest emotional turns. If a <visual_arc> block above states a per-scene tension_level, "
+            f"treat it only as a coarse confirming signal — turn order is the primary sizing cue "
+            f"---\n{listed}")
     return "\n".join(parts)
 
 
@@ -565,6 +593,149 @@ def _setup_id(shot) -> str | None:
     m = _SETUP_TAG_RE.match(shot.get("description") or "")
     return m.group(1).upper() if m else None
 
+
+def _setup_base_id(setup_id: str | None) -> str | None:
+    """The BASE camera-setup family for a (possibly size-variant) setup id
+    (C2 item 2). A compound id like "B-CU" means "same camera axis and
+    background as SETUP B, tighter framing" (rule 5e's size-variant grammar)
+    — split on the first "-" and keep the leading token so "B-CU" and "B"
+    resolve to the same family. A plain id ("B") or a weird id with no
+    hyphen passes through unchanged. None-safe (legacy/NEUTRAL shots with no
+    setup tag at all)."""
+    if not setup_id:
+        return setup_id
+    return setup_id.split("-", 1)[0]
+
+
+def _shot_family(shot) -> str | None:
+    """The shot's BASE setup family, used for the consecutive-repeat cap
+    (C2 item 3) — B and B-CU count as the SAME family: a same-axis size
+    change still reads as the camera never moving to a viewer."""
+    return _setup_base_id(_setup_id(shot))
+
+
+def _flatten_shots(moments: list) -> list[dict]:
+    """Every shot in a scene's draw/output order — each moment's master then
+    its angles, moments in plan order — the same order the board-anchor
+    block below numbers panels in. Returns references to the ACTUAL shot
+    dicts (not copies) and stamps shot['role'] = 'master'/'angle' in place,
+    so a caller that mutates the returned dicts (enforce_setup_variety swaps
+    content between two of them) mutates the real moments structure too."""
+    flat: list[dict] = []
+    for moment in moments:
+        m = moment["master"]
+        m["role"] = "master"
+        flat.append(m)
+        for a in moment.get("angles") or []:
+            a["role"] = "angle"
+            flat.append(a)
+    return flat
+
+
+def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> int:
+    """CODE validator (C2 item 3): visual-variety cap. No more than
+    `max_consecutive` shots in a row (in scene draw/output order) may share
+    the same BASE setup family — "B, B-CU, B" in a row is 3 consecutive
+    shots of family B, not 3 different setups, so it counts as a violation
+    exactly like "B, B, B" would.
+
+    flat_shots: the scene's shots in output order (see _flatten_shots),
+    each a dict with a 'description' carrying its "(SETUP X)" tag (or an
+    explicit 'setup_id' override, handy for tests) and a 'role' of
+    'master'/'angle'.
+
+    Fix strategy (cheapest-first, no LLM re-plan — matches C1's zero-paid-
+    call rule): for each shot beyond the cap in a same-family run, find the
+    NEAREST angle-role shot elsewhere in the sequence belonging to a
+    different family and swap the two shots' full visual content
+    (shot_type + description) in place. Angles carry no LINE/speaker — only
+    which framing appears at a given position changes, never which moment's
+    dialogue plays — so this can never reassign a spoken line to the wrong
+    moment. MASTERS ARE NEVER SWAPPED, on either side: a master owns its
+    moment's LINE and is the setup's anchor-owner slot, and moving one would
+    reorder the dialogue. When no safe swap exists (e.g. the whole run is
+    masters, or no other family has a spare angle to trade), the violation
+    is left in place and logged loudly instead.
+
+    Returns the number of violations found (fixed + merely flagged)."""
+    violations = 0
+    n = len(flat_shots)
+    families = [_shot_family(s) if "setup_id" not in s else _setup_base_id(s["setup_id"])
+                for s in flat_shots]
+    i = 0
+    while i < n:
+        fam = families[i]
+        if fam is None:
+            i += 1
+            continue
+        j = i
+        while j < n and families[j] == fam:
+            j += 1
+        run_len = j - i
+        if run_len > max_consecutive:
+            for k in range(i + max_consecutive, j):
+                violations += 1
+                swap_with = None
+                if flat_shots[k].get("role") == "angle":
+                    for cand in list(range(0, i)) + list(range(j, n)):
+                        if (flat_shots[cand].get("role") == "angle"
+                                and families[cand] not in (None, fam)):
+                            swap_with = cand
+                            break
+                if swap_with is not None:
+                    a, b = flat_shots[k], flat_shots[swap_with]
+                    a["shot_type"], b["shot_type"] = b["shot_type"], a["shot_type"]
+                    a["description"], b["description"] = b["description"], a["description"]
+                    if "setup_id" in a or "setup_id" in b:
+                        a["setup_id"], b["setup_id"] = b.get("setup_id"), a.get("setup_id")
+                    families[k], families[swap_with] = families[swap_with], families[k]
+                    print(f"  ⚠️ setup variety: swapped shot {k} <-> {swap_with} to break a "
+                          f"{run_len}-long run of setup {fam}", flush=True)
+                else:
+                    print(f"  ⚠️ setup variety: {run_len}-long run of setup {fam} at position "
+                          f"{k} — no safe angle swap found, left as-is", flush=True)
+        i = j
+    return violations
+
+
+def assign_setup_anchors(moments: list) -> dict:
+    """SETUP ANCHORS (Ryan, 2026-07-21; base-family keying added C2 item 2):
+    tag every shot with its camera-setup id and make the FIRST-planned shot
+    of each BASE setup family that family's anchor owner — its landed frame
+    becomes the canonical room every later same-FAMILY shot copies (see
+    _SETUP_ANCHOR / generate_coverage_frames's docstring). Plan order makes
+    the wait graph acyclic; an owner never waits on a setup future.
+
+    Keyed on setup_base_id (not the full compound id): "B-CU" and "B" share
+    one family, so a size-variant shot awaits and attaches its BASE setup's
+    anchor frame instead of starting its own, unmatched room. The full
+    compound id still rides on shot["setup_id"] for bookkeeping (consecutive-
+    cap, logging) — only the anchor lookup collapses to the base family.
+
+    Ownership rule (simplest correct one — documented per the chunk spec):
+    whichever shot of a base family is planned FIRST owns that family's
+    anchor, whatever its own variant. A B-CU that happens to lead a family
+    DOES become the owner, and every later B (or B-CU) shot in that family
+    awaits it — no separate "prefer the plain letter" rule is applied.
+
+    Mutates every tagged shot in place (setup_id, setup_base_id,
+    setup_anchor_owner) and returns the {base_id: asyncio.Future} map that
+    generate_coverage_frames awaits/resolves against. Must run inside a
+    running event loop."""
+    setup_anchors: dict = {}
+    for moment in moments:
+        for shot in [moment["master"], *(moment.get("angles") or [])]:
+            sid = _setup_id(shot)
+            if not sid:
+                continue
+            base = _setup_base_id(sid)
+            shot["setup_id"] = sid
+            shot["setup_base_id"] = base
+            if base not in setup_anchors:
+                setup_anchors[base] = asyncio.get_running_loop().create_future()
+                shot["setup_anchor_owner"] = True
+    return setup_anchors
+
 # Panels per gate sheet now depends on the plan's format — see
 # panels_per_sheet_for(). Sheet chunking (coverage_to_app._plan_sheet_prompts
 # caller) and the board-anchor math below must both derive their boundaries
@@ -812,17 +983,23 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                                   model_override=model_override)
 
     def _resolve_owned(shot, url):
-        """Resolve the setup future this shot owns (idempotent, never raises)."""
+        """Resolve the setup future this shot owns (idempotent, never raises).
+        Keyed on setup_base_id (C2 item 2) — a compound owner like B-CU
+        resolves the SAME family future a plain B owner would, so every
+        later shot of family B (variant or not) awaits the one anchor."""
         if not shot.get("setup_anchor_owner"):
             return
-        fut = setup_anchors.get(shot.get("setup_id"))
+        fut = setup_anchors.get(shot.get("setup_base_id") or shot.get("setup_id"))
         if fut is not None and not fut.done():
             fut.set_result(url)
 
     async def _setup_ref(shot):
         """(anchor_text, extra_ref) for a non-owner shot whose setup already has
-        an anchor frame. Empty for owners, unknown setups, and failed anchors."""
-        sid = shot.get("setup_id")
+        an anchor frame. Empty for owners, unknown setups, and failed anchors.
+        Looks up setup_anchors by BASE family (setup_base_id) so a size-variant
+        shot like B-CU shares SETUP B's anchor frame/background instead of
+        starting its own, unmatched room (C2 item 2)."""
+        sid = shot.get("setup_base_id") or shot.get("setup_id")
         if not sid or shot.get("setup_anchor_owner"):
             return "", []
         fut = setup_anchors.get(sid)
@@ -1031,6 +1208,17 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
     moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
 
+    # SETUP VARIETY CAP (C2 item 3): no more than 2 consecutive shots in the
+    # scene's draw order may share the same BASE setup family (B and B-CU
+    # count as one family) — otherwise the cut reads as the camera never
+    # moving. Runs BEFORE the tail locks below so a swapped shot's
+    # description still gets its set/axis/staging tail appended once, and
+    # BEFORE board anchoring so panel numbers stay purely positional.
+    n_variety = enforce_setup_variety(_flatten_shots(moments))
+    if n_variety:
+        print(f"  🎞️ setup variety: {n_variety} same-setup run(s) beyond 2 consecutive "
+              f"shots addressed", flush=True)
+
     # SET-DRESSING LOCK: the planner declares the scene's fixed props once on the
     # [SET | ...] line; stamp it into EVERY shot's image prompt. Per-shot prompts
     # that stay silent about props let the image model invent them — observed
@@ -1114,19 +1302,24 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # copies (see _SETUP_ANCHOR / generate_coverage_frames's docstring). Plan
     # order makes the wait graph acyclic; concurrency below is unchanged (an
     # owner never waits on a setup future, so the gather still fans out).
-    setup_anchors: dict = {}
-    anchored_shots = 0
-    for moment in moments:
-        for shot in [moment["master"], *(moment.get("angles") or [])]:
-            sid = _setup_id(shot)
-            if not sid:
-                continue
-            shot["setup_id"] = sid
-            if sid not in setup_anchors:
-                setup_anchors[sid] = asyncio.get_running_loop().create_future()
-                shot["setup_anchor_owner"] = True
-            else:
-                anchored_shots += 1
+    #
+    # C2 item 2: ownership and the future dict are keyed on setup_base_id
+    # (B-CU and B share the same family) rather than the full compound id,
+    # so a size-variant shot awaits and attaches its BASE setup's anchor
+    # frame instead of starting its own unmatched room. The full compound
+    # id still rides on shot["setup_id"] for bookkeeping (consecutive-cap,
+    # logging) — only the ANCHOR lookup collapses to the base family.
+    # Ownership rule (simplest correct one, per the chunk spec): whichever
+    # shot of a base family is planned FIRST owns that family's anchor,
+    # whatever its own variant — a B-CU that happens to lead a family DOES
+    # become the owner, and every later B (or B-CU) shot in that family
+    # awaits it. This falls out naturally from iterating in plan order and
+    # keying on the base id below; no separate "prefer the plain letter"
+    # rule is applied.
+    setup_anchors = assign_setup_anchors(moments)
+    anchored_shots = sum(
+        1 for m in moments for s in [m["master"], *(m.get("angles") or [])]
+        if s.get("setup_id") and not s.get("setup_anchor_owner"))
     if anchored_shots:
         print(f"  🔗 setup anchors: {len(setup_anchors)} camera setups, "
               f"{anchored_shots} repeat shots will copy their setup's anchor frame", flush=True)
