@@ -114,6 +114,14 @@ SELECT 1 WHERE EXISTS (
 ) OR EXISTS (
     -- the locked channel cast on the project (referenced by every new video)
     SELECT 1 FROM projects WHERE tenant_id = ANY($2::uuid[]) AND character_references::text LIKE $1
+) OR EXISTS (
+    -- roster reference photos (static_docu.py's machine-consistency cache) —
+    -- the Roster tab's dashboard (pipeline_executor.py::roster_repair_
+    -- dashboard) hands the browser this hosted_url straight from the cache,
+    -- same Drive->proxy conversion (toDisplayImageUrl) every other card uses.
+    -- Missing here meant every "verified" roster card's photo 401'd through
+    -- the proxy despite the frontend already building the right URL shape.
+    SELECT 1 FROM static_reference_cache WHERE tenant_id = ANY($2::uuid[]) AND hosted_url LIKE $1
 )
 """
 

@@ -88,8 +88,8 @@ def test_allowlist_sql_scopes_every_table_by_tenant():
     tenant-scoping guarantee, just over a set instead of one id."""
     exists_count = len(re.findall(r"EXISTS\s*\(", media._ALLOWLIST_SQL))
     tenant_scoped_count = len(re.findall(r"tenant_id\s*=\s*ANY\(\$2::uuid\[\]\)", media._ALLOWLIST_SQL))
-    assert exists_count == 7, f"expected 7 EXISTS subqueries (one per table), found {exists_count}"
-    assert tenant_scoped_count == 7, (
+    assert exists_count == 8, f"expected 8 EXISTS subqueries (one per table), found {exists_count}"
+    assert tenant_scoped_count == 8, (
         f"expected every one of the {exists_count} EXISTS subqueries to carry "
         f"tenant_id = ANY($2::uuid[]), only found {tenant_scoped_count}"
     )
@@ -97,7 +97,7 @@ def test_allowlist_sql_scopes_every_table_by_tenant():
 
 @pytest.mark.parametrize("table", [
     "assets", "video_characters", "scripts", "videos",
-    "video_environments", "chat_assets", "projects",
+    "video_environments", "chat_assets", "projects", "static_reference_cache",
 ])
 def test_allowlist_sql_names_every_table_once(table):
     assert media._ALLOWLIST_SQL.count(f"FROM {table}") == 1
@@ -127,6 +127,28 @@ def test_is_allowed_denies_cross_tenant_and_allows_same_tenant(monkeypatch):
     # Both tenant sets actually hit the DB (not served from a shared,
     # un-scoped cache entry) — the cache key includes the full tenant set.
     assert len(calls) == 2
+
+
+def test_is_allowed_allows_static_reference_cache_file_for_owning_tenant_only(monkeypatch):
+    """The roster-thumbnail fix: a Drive file id that exists ONLY in
+    `static_reference_cache` (the machine-consistency reference photos
+    pipeline_executor.py::roster_repair_dashboard hands to the browser as
+    `reference.hosted_url`) must pass the allowlist for the tenant that owns
+    the cache row and be refused for any other tenant — same tenant-scoping
+    guarantee as every other table, now extended to this one."""
+    async def fake_fetch_one(sql, like_pattern, tenant_ids):
+        assert "static_reference_cache" in sql, "must query the new table, not some other path"
+        # Simulate: this file id exists in static_reference_cache ONLY for TENANT_A.
+        return {"?column?": 1} if TENANT_A in [str(t) for t in tenant_ids] else None
+
+    monkeypatch.setattr(media, "fetch_one", fake_fetch_one)
+    media._allow_cache.clear()
+
+    allowed_a = asyncio.run(media._is_allowed(FILE_ID, [uuid.UUID(TENANT_A)]))
+    allowed_b = asyncio.run(media._is_allowed(FILE_ID, [uuid.UUID(TENANT_B)]))
+
+    assert allowed_a is True
+    assert allowed_b is False
 
 
 def test_is_allowed_allows_file_owned_by_any_tenant_in_a_multi_tenant_set(monkeypatch):
