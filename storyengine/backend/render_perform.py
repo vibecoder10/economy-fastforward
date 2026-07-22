@@ -380,7 +380,18 @@ def build_timeline(segments: list, shots: list) -> dict:
                                 "end": round(end, 3), "speaking": False})
                 t = end
         else:
-            weights = [max(1, len((shots[p].get("sentence_text") or "").split())) for p in keep]
+            # C3 item 4: prefer coverage.py's stamped per-shot-type target
+            # (assets.duration_seconds — wide/medium/closeup, silent shots
+            # only) as this shot's WEIGHT in the split; a shot with no
+            # stamp (legacy rows, non-coverage assets) falls back to the
+            # original word-count weight unchanged. The block's TOTAL time
+            # is still fixed by the narration audio (block, above) — this
+            # only changes how that fixed budget is divided, so a wide
+            # holds the frame longer than an insert without touching the
+            # scene's overall runtime or the speaking-shot path at all.
+            weights = [shots[p].get("duration_seconds")
+                      or max(1, len((shots[p].get("sentence_text") or "").split()))
+                      for p in keep]
             wsum = float(sum(weights))
             t = b_start
             acc = 0.0
@@ -593,7 +604,7 @@ async def _load_scene_inputs(video_id: str, tenant_id, scene: int) -> tuple[list
     shots = await fetch_all(
         "SELECT id, scene, image_index, sentence_text, assigned_dialogue, hero_shot, "
         "video_clip_url, video_duration, "
-        "carries_own_line, clip_speech_start, clip_speech_end FROM assets "
+        "carries_own_line, clip_speech_start, clip_speech_end, duration_seconds FROM assets "
         "WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 "
         "AND video_clip_url IS NOT NULL ORDER BY image_index",
         video_id, tenant_id, scene)

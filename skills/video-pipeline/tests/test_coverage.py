@@ -20,6 +20,8 @@ from storyboard.coverage import (  # noqa: E402
     parse_coverage, cast_prompt_from_story_bible, generate_coverage_frames,
     plan_camera_moves, _coverage_system_prompt, _setup_base_id,
     enforce_setup_variety, assign_setup_anchors,
+    _shot_tag, _setup_id, enforce_reaction_insert_floors, stamp_shot_durations,
+    _flatten_shots, _shot_family, _is_wide,
 )
 
 SAMPLE = """\
@@ -545,6 +547,209 @@ def test_tension_sizing_guidance_present_in_user_prompt():
     assert "B-CU" in prompt
 
 
+# =============================================================================
+# C3 item 1: inline (REACTION)/(INSERT) tags — own regex, disjoint from setup tags
+# =============================================================================
+
+def test_inline_tag_regex_parses_reaction_and_insert():
+    """(e) the new tag regex parses both tags, case-insensitively, wherever
+    they sit in the description (right after the setup tag, per rule 5f)."""
+    assert _shot_tag({"description": "(SETUP C)(REACTION) CU on Vanessa listening."}) == "REACTION"
+    assert _shot_tag({"description": "(SETUP E)(INSERT) Insert on the bowl of eggs."}) == "INSERT"
+    assert _shot_tag({"description": "(setup c)(reaction) lower-case tag still parses."}) == "REACTION"
+    assert _shot_tag({"description": "(SETUP B-CU) MCU on Ryan, speaking."}) is None
+    assert _shot_tag({"description": ""}) is None
+    assert _shot_tag({}) is None
+
+
+def test_inline_tag_regex_never_matches_inside_a_setup_tag():
+    """(e) the new regex and _SETUP_TAG_RE (via _setup_id) are disjoint: a
+    setup id is only ever letters/digits/hyphens, so it can never itself
+    read as "(REACTION)"/"(INSERT)", and the inline-tag regex never mistakes
+    a "(SETUP X)" token for one of its own tags."""
+    desc = "(SETUP C)(REACTION) CU on Vanessa listening."
+    assert _setup_id({"description": desc}) == "C"  # setup parse ignores the trailing tag
+    assert _shot_tag({"description": "(SETUP REACTION)"}) is None  # a weird id, still no false match
+
+
+# =============================================================================
+# C3 item 2: reaction/insert/re-establish FLOORS
+# =============================================================================
+
+def _moment(n, shot_type, description, speaker=None, line=None, angles=None):
+    return {"moment_number": n, "summary": f"moment {n}",
+            "master": {"shot_type": shot_type, "description": description},
+            "angles": angles or [], "speaker": speaker, "line": line}
+
+
+def test_reaction_floor_adds_shot_on_the_listener_for_a_key_line():
+    """(a) a clean 2-speaker scene with no REACTION shot anywhere gets one
+    added, framed on the LISTENER (the speaker who did NOT say the line the
+    floor attached to), never the speaker themselves."""
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide two-shot establishing the kitchen."),
+        _moment(2, "MCU", "(SETUP B) Ryan speaks.", speaker="Ryan", line="Hello there."),
+        _moment(3, "MCU", "(SETUP C) Vanessa speaks.", speaker="Vanessa", line="Hi Ryan."),
+        _moment(4, "MCU", "(SETUP B) Ryan speaks again.", speaker="Ryan", line="How are you?"),
+    ]
+    before = sum(1 for s in _flatten_shots(moments) if _shot_tag(s) == "REACTION")
+    assert before == 0
+    n = enforce_reaction_insert_floors(moments)
+    assert n >= 1
+    reactions = [s for s in _flatten_shots(moments) if _shot_tag(s) == "REACTION"]
+    assert len(reactions) >= 1
+    # The floor attached to the LAST speaking moment (Ryan) — its listener is Vanessa.
+    assert any("Vanessa" in s["description"] for s in reactions)
+    assert not any("listening to Vanessa" in s["description"] for s in reactions), \
+        "the reaction shot must show the LISTENER, never re-frame the speaker"
+
+
+def test_reaction_floor_skipped_for_a_single_speaker_or_three_plus():
+    """(a)-adjacent: with 1 speaker (monologue) or 3+ distinct speakers,
+    "the listener" has no single well-defined answer, so the floor is
+    skipped rather than guessed."""
+    mono = [
+        _moment(1, "WS", "(SETUP A) wide establishing."),
+        _moment(2, "MCU", "(SETUP B) Dad speaks.", speaker="Dad", line="Line one."),
+        _moment(3, "MCU", "(SETUP B) Dad speaks again.", speaker="Dad", line="Line two."),
+    ]
+    enforce_reaction_insert_floors(mono)
+    assert not any(_shot_tag(s) == "REACTION" for s in _flatten_shots(mono))
+
+    three_way = [
+        _moment(1, "WS", "(SETUP A) wide establishing."),
+        _moment(2, "MCU", "(SETUP B) A speaks.", speaker="A", line="One."),
+        _moment(3, "MCU", "(SETUP C) B speaks.", speaker="B", line="Two."),
+        _moment(4, "MCU", "(SETUP D) C speaks.", speaker="C", line="Three."),
+    ]
+    enforce_reaction_insert_floors(three_way)
+    assert not any(_shot_tag(s) == "REACTION" for s in _flatten_shots(three_way))
+
+
+def _silent_scene(n_moments, families):
+    """n_moments moments, each a master + 1 angle (2 shots/moment), no
+    speakers — isolates the INSERT/RE-ESTABLISH floors from the REACTION
+    floor (which requires a clean 2-speaker dialogue)."""
+    moments = []
+    for i in range(n_moments):
+        fam_m = families[(2 * i) % len(families)]
+        fam_a = families[(2 * i + 1) % len(families)]
+        shot_type = "WS" if i == 0 else "MS"
+        moments.append(_moment(i + 1, shot_type, f"(SETUP {fam_m}) master beat {i}.",
+                               angles=[{"shot_type": "MCU", "description": f"(SETUP {fam_a}) angle beat {i}."}]))
+    return moments
+
+
+def test_insert_floor_is_roughly_one_per_six_to_eight_shots():
+    """(b) a 14-shot silent scene (7 moments x 2 shots) with zero INSERT
+    shots gets exactly 2 added (14 // 7, the midpoint of the prompt's "1 per
+    6-8" guidance) — none pre-existing, none over-added."""
+    moments = _silent_scene(7, ["A", "B", "C", "D"])
+    assert len(_flatten_shots(moments)) == 14
+    enforce_reaction_insert_floors(moments)
+    inserts = [s for s in _flatten_shots(moments) if _shot_tag(s) == "INSERT"]
+    assert len(inserts) == 2, [s["description"] for s in inserts]
+
+
+def test_re_establish_floor_is_roughly_one_per_ten_shots():
+    """(c) a 22-shot silent scene (11 moments x 2 shots) needs 2 total
+    re-establish wides of the scene's ESTABLISHING family (22 // 10); the
+    opening master already provides 1, so exactly 1 more gets added."""
+    moments = _silent_scene(11, ["A", "B", "C", "D"])
+    assert len(_flatten_shots(moments)) == 22
+    establish_family = _shot_family(moments[0]["master"])
+    assert establish_family == "A"
+
+    def _wide_a_count():
+        return sum(1 for s in _flatten_shots(moments)
+                   if _shot_family(s) == establish_family and _is_wide(s))
+
+    assert _wide_a_count() == 1  # just the opening master, before the floor runs
+    enforce_reaction_insert_floors(moments)
+    assert _wide_a_count() == 2
+
+
+def test_floors_convert_an_excess_shot_instead_of_adding_at_the_frame_cap():
+    """(d) at the scene's frame cap, a missing REACTION floor is satisfied by
+    CONVERTING an existing excess same-family angle in place — the total
+    shot count never grows past the cap."""
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide two-shot establishing."),
+        _moment(2, "MCU", "(SETUP B) Ryan speaks.", speaker="Ryan", line="Hello there.",
+               angles=[{"shot_type": "MCU", "description": "(SETUP B) untagged excess angle."}]),
+        _moment(3, "MCU", "(SETUP C) Vanessa speaks.", speaker="Vanessa", line="Hi Ryan."),
+    ]
+    total_before = len(_flatten_shots(moments))
+    assert total_before == 4  # 1 + 2 + 1
+    n = enforce_reaction_insert_floors(moments, max_frames=total_before)
+    assert n >= 1
+    assert len(_flatten_shots(moments)) == total_before, \
+        "at the frame cap, the floor must CONVERT, never grow the total"
+    # The excess SETUP B angle (the only convertible candidate) now carries
+    # the REACTION content instead of a brand-new shot being appended.
+    excess = moments[1]["angles"][0]
+    assert _shot_tag(excess) == "REACTION"
+    assert "Ryan" in excess["description"]  # the listener of Vanessa's line
+
+
+def test_floors_leave_violation_logged_when_no_safe_conversion_exists():
+    """(d)-adjacent: at the cap with NO convertible angle available (every
+    shot is a master, or every angle's family is unique), the floor is left
+    unmet rather than blowing the budget — matches enforce_setup_variety's
+    own flag-don't-force fallback."""
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide two-shot establishing."),
+        _moment(2, "MCU", "(SETUP B) Ryan speaks.", speaker="Ryan", line="Hello there."),
+        _moment(3, "MCU", "(SETUP C) Vanessa speaks.", speaker="Vanessa", line="Hi Ryan."),
+    ]
+    total_before = len(_flatten_shots(moments))  # 3, all masters — nothing convertible
+    enforce_reaction_insert_floors(moments, max_frames=total_before)
+    assert len(_flatten_shots(moments)) == total_before
+    assert not any(_shot_tag(s) == "REACTION" for s in _flatten_shots(moments))
+
+
+# =============================================================================
+# C3 item 4: per-shot target durations (SILENT shots only)
+# =============================================================================
+
+def test_stamp_shot_durations_by_shot_size_and_skips_speaking_master():
+    """(f) wide -> 3.5s, medium/OTS -> 2.5s, close/insert/reaction -> 1.6s,
+    stamped on every silent shot; a speaking moment's MASTER is left alone
+    (its length comes from measured speech at assemble time, never this
+    table) — its angles (never the line-carrying shot) still get stamped."""
+    moments = [
+        {"master": {"shot_type": "WS", "description": "wide establishing"},
+         "angles": [
+             {"shot_type": "OTS", "description": "medium OTS"},
+             {"shot_type": "CU", "description": "close"},
+             {"shot_type": "INSERT", "description": "insert"},
+         ], "speaker": None, "line": None},
+        {"master": {"shot_type": "MCU", "description": "Ryan speaks"},
+         "angles": [{"shot_type": "CU", "description": "reaction on the listener"}],
+         "speaker": "Ryan", "line": "Hello there."},
+    ]
+    n = stamp_shot_durations(moments)
+    assert moments[0]["master"]["duration_seconds"] == 3.5
+    assert moments[0]["angles"][0]["duration_seconds"] == 2.5   # OTS -> medium
+    assert moments[0]["angles"][1]["duration_seconds"] == 1.6   # CU -> closeup
+    assert moments[0]["angles"][2]["duration_seconds"] == 1.6   # INSERT -> closeup
+    assert "duration_seconds" not in moments[1]["master"], \
+        "a speaking master must NEVER get a stamped target — measured speech owns its length"
+    assert moments[1]["angles"][0]["duration_seconds"] == 1.6   # its angle is still silent
+    assert n == 5  # 4 silent shots in moment 1 + 1 silent angle in moment 2
+
+
+def test_stamp_shot_durations_is_idempotent():
+    """(f)-adjacent: calling it twice yields the same values (deterministic,
+    no accumulation/drift)."""
+    moments = [{"master": {"shot_type": "WS", "description": "wide"}, "angles": [],
+               "speaker": None, "line": None}]
+    stamp_shot_durations(moments)
+    first = moments[0]["master"]["duration_seconds"]
+    stamp_shot_durations(moments)
+    assert moments[0]["master"]["duration_seconds"] == first == 3.5
+
+
 if __name__ == "__main__":
     test_parses_two_moments()
     test_parses_no_bracket_and_multiword_shot_types()
@@ -568,4 +773,14 @@ if __name__ == "__main__":
     test_enforce_setup_variety_same_moment_candidate_beats_adjacent()
     test_setup_target_scales_with_max_moments()
     test_tension_sizing_guidance_present_in_user_prompt()
+    test_inline_tag_regex_parses_reaction_and_insert()
+    test_inline_tag_regex_never_matches_inside_a_setup_tag()
+    test_reaction_floor_adds_shot_on_the_listener_for_a_key_line()
+    test_reaction_floor_skipped_for_a_single_speaker_or_three_plus()
+    test_insert_floor_is_roughly_one_per_six_to_eight_shots()
+    test_re_establish_floor_is_roughly_one_per_ten_shots()
+    test_floors_convert_an_excess_shot_instead_of_adding_at_the_frame_cap()
+    test_floors_leave_violation_logged_when_no_safe_conversion_exists()
+    test_stamp_shot_durations_by_shot_size_and_skips_speaking_master()
+    test_stamp_shot_durations_is_idempotent()
     print("ok — coverage parser + cast-builder self-checks passed")

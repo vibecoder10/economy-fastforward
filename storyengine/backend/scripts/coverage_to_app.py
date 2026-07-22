@@ -58,7 +58,7 @@ from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_coverage, enforce_shot_budget, parse_set_dressing,
     parse_axis_line, parse_setups_line, panels_per_sheet_for,
-    sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE,
+    sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
 )
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
@@ -342,9 +342,10 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, sentence_index, "
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
-                "location_id, camera_movement, image_model, routed_model, routing_reason) "
+                "location_id, camera_movement, image_model, routed_model, routing_reason, "
+                "duration_seconds) "
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',"
-                "$15,$16,$17,$18,$19,$20)",
+                "$15,$16,$17,$18,$19,$20,$21)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
                 title, aspect, url, url, is_master, assigned, location_id,
@@ -352,6 +353,13 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 fr.get("image_model"),  # WHICH model actually drew this frame (image_model_router)
                 fr.get("routed_model"),  # C12 (checklist §1.2): recommended video model, plan-time
                 fr.get("routing_reason"),  # human-readable "why" for the pick above
+                # C3 item 4: coverage.py's stamp_shot_durations' per-shot-type
+                # target (SILENT shots only — None for a speaking master, which
+                # sizes from measured speech instead; render_perform.py reads
+                # this column as a pro-rata WEIGHT when splitting a narration
+                # block, falling back to word-count when it's NULL — legacy
+                # rows and non-coverage assets are unaffected).
+                fr.get("duration_seconds"),
                 # model_used (C13) stays NULL here — no INSERT column for it — until
                 # clip generation records which model actually ran this shot.
             )
@@ -1237,6 +1245,21 @@ def _neutralize_risky_gestures(text: Optional[str]) -> Optional[str]:
 # escalation must NEVER reword, matched line-by-line on the raw stored text.
 _DIRECTIVE_LINE_ROW_RE = re.compile(r"^\s*\*{0,2}\s*LINE\s*:", re.IGNORECASE)
 _DIRECTIVE_AXIS_ROW_RE = re.compile(r"^\s*\[AXIS\b", re.IGNORECASE)
+# C3 item 3: a MASTER/ANGLE row carrying storyboard.coverage's "(REACTION)"
+# or "(INSERT)" inline tag (rule 5f) is ALSO protected whole-line, same as
+# the two above. Reuses coverage.py's own _INLINE_TAG_RE (imported above) as
+# the single source of truth for what that tag looks like — if that regex
+# ever changes shape, this protection changes with it instead of drifting.
+# Without this, a sweep-2 escalation (this is the ONLY caller of
+# _neutralize_risky_props/_neutralize_risky_gestures that rewrites text —
+# never the build-time pass) could rewrite the shot's prose around the tag;
+# more importantly, a FUTURE pattern added to either dictionary that isn't
+# careful about word boundaries could eat the tag's own text, silently
+# dropping the reaction/insert floor bookkeeping (coverage.py's
+# enforce_reaction_insert_floors / _shot_tag) the next time this directive
+# is re-parsed. Not anchored to line-start (unlike the two above) — the tag
+# sits after "- MASTER [CU]:" or "- ANGLE [CU]:", never at column 0.
+_DIRECTIVE_REACTION_INSERT_ROW_RE = _INLINE_TAG_RE
 
 
 def _escalate_panel_briefs(directive_text: str) -> tuple[str, list[tuple[str, str]]]:
@@ -1247,13 +1270,16 @@ def _escalate_panel_briefs(directive_text: str) -> tuple[str, list[tuple[str, st
     filter after a plain re-roll already had a fair shot (sweep 1). Mirrors
     the manual playbook proven twice tonight on live scenes.
 
-    Applied line-by-line so the two protected rows are never touched: a
+    Applied line-by-line so the protected rows are never touched: a
     `LINE: <Speaker> | "..."` row (the verbatim spoken script — protected
-    dialogue this fix must never reword, same law as the build-time pass)
-    and the `[AXIS | ...]` screen-direction contract (never carries prop/
-    gesture nouns; touching it is an explicit product rule). Every other
-    line — [SET|], [SETUPS|], MOMENT headers, MASTER/ANGLE briefs — passes
-    through both dictionaries.
+    dialogue this fix must never reword, same law as the build-time pass),
+    the `[AXIS | ...]` screen-direction contract (never carries prop/
+    gesture nouns; touching it is an explicit product rule), and (C3 item 3)
+    a MASTER/ANGLE row carrying a "(REACTION)"/"(INSERT)" inline tag (rule
+    5f) — those tags are structural bookkeeping for coverage.py's reaction/
+    insert floors, not prose, and must survive a re-parse byte-for-byte.
+    Every other line — [SET|], [SETUPS|], MOMENT headers, untagged MASTER/
+    ANGLE briefs — passes through both dictionaries.
 
     Returns (rewritten_directive_text, reworded) where `reworded` is every
     (old, new) phrase actually swapped, in order — the sweep log prints
@@ -1263,7 +1289,8 @@ def _escalate_panel_briefs(directive_text: str) -> tuple[str, list[tuple[str, st
     reworded: list[tuple[str, str]] = []
     out_lines = []
     for line in (directive_text or "").splitlines():
-        if _DIRECTIVE_LINE_ROW_RE.match(line) or _DIRECTIVE_AXIS_ROW_RE.match(line):
+        if (_DIRECTIVE_LINE_ROW_RE.match(line) or _DIRECTIVE_AXIS_ROW_RE.match(line)
+                or _DIRECTIVE_REACTION_INSERT_ROW_RE.search(line)):
             out_lines.append(line)
             continue
         new_line = line

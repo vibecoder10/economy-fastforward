@@ -227,6 +227,48 @@ def test_narration_cuts_align_to_content():
     _covers(tl["entries"], tl["total"])
 
 
+def test_narration_block_pro_rata_prefers_stamped_duration_over_word_count():
+    """C3 item 4: coverage.py's stamped assets.duration_seconds (wide/medium/
+    closeup targets, SILENT shots only) is preferred as the PRO-RATA WEIGHT
+    when the content-aligned DP can't apply (more shots than segments in the
+    block — same trigger as the pinned word-count test above) — the block's
+    fixed TOTAL time is unchanged, only how it's divided between the shots."""
+    segs = [_nar("One two three four five six seven eight nine ten.", 10.0)]
+    shots = [_shot(1, "many many many words here padding out the count"),  # would win by word count
+             _shot(2, "few words")]
+    shots[0]["duration_seconds"] = 1.6   # stamped closeup target — SHORT
+    shots[1]["duration_seconds"] = 3.5   # stamped wide target — LONG
+    tl = build_timeline(segs, shots)
+    entries = tl["entries"]
+    assert len(entries) == 2
+    # duration_seconds ratio 1.6:3.5 favors shot 2 despite shot 1 having far
+    # more words — the OLD word-count weighting would have given shot 1 the
+    # LARGER share; this proves the new column won, not word count.
+    assert entries[0]["duration"] < entries[1]["duration"], entries
+    expected_ratio = 1.6 / (1.6 + 3.5)
+    actual_ratio = entries[0]["duration"] / tl["total"]
+    assert abs(actual_ratio - expected_ratio) < 0.02, (actual_ratio, expected_ratio)
+    _covers(entries, tl["total"])
+
+
+def test_narration_block_pro_rata_mixed_stamped_and_unstamped_shots():
+    """Backward compatibility, explicit mixed case: a shot with NO
+    duration_seconds (legacy row / non-coverage asset) still falls back to
+    its own word-count weight even when its block-mate IS stamped — the two
+    weighting schemes coexist per-shot, never scene-wide."""
+    segs = [_nar("One two three four five six seven eight nine ten.", 10.0)]
+    shots = [_shot(1, "one two three four five six"),  # 6 words, NO stamp
+             _shot(2, "few")]                            # 1 word, NO stamp
+    shots[1]["duration_seconds"] = 8.0                    # only shot 2 stamped
+    tl = build_timeline(segs, shots)
+    entries = tl["entries"]
+    # weight(shot1) = 6 (word count, unstamped); weight(shot2) = 8.0 (stamped)
+    expected_ratio = 6.0 / (6.0 + 8.0)
+    actual_ratio = entries[0]["duration"] / tl["total"]
+    assert abs(actual_ratio - expected_ratio) < 0.02, (actual_ratio, expected_ratio)
+    _covers(entries, tl["total"])
+
+
 def test_no_voiced_segments_is_actionable():
     tl = build_timeline([{"type": "narration", "text": "x"}], [_shot(1, "s")])
     assert tl["entries"] == []

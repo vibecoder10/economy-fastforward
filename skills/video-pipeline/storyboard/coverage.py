@@ -177,7 +177,20 @@ VARIANT of another: an id like "B-CU" means the SAME camera axis and background 
 tighter framing (a close-up) — declare it as its own entry on the [SETUPS | ...] line (e.g. \
 "B-CU: tighter close-up variant of B, same axis/background") and tag its shots "(SETUP B-CU)". \
 Reach for a size variant when a beat wants to punch in without staging a whole new camera \
-position.{motivated_rule}
+position.
+5f) REACTION, INSERT, AND RE-ESTABLISH — CUT LIKE AN EDITOR (C3). A scene of only masters reads \
+flat; real coverage cuts to the LISTENER on a key line, punctuates with a detail, and periodically \
+steps back to remind the eye of the whole room. On a KEY EMOTIONAL LINE (a turn, a confession, a \
+joke landing, bad news) add an ANGLE on the LISTENER's face — tag it "(REACTION)" right after its \
+setup letter, e.g. "(SETUP C)(REACTION) MCU on Vanessa listening, her brow tightening as Ryan \
+speaks." — same instant, same setup kit, showing the OTHER character's face, never the speaker's \
+own. Punctuate roughly every 6-8 shots with an INSERT on a prop or detail already declared on the \
+[SET | ...] line (hands, food, an object) — tag it "(INSERT)" the same way, e.g. "(SETUP E)(INSERT) \
+Insert on the bowl of eggs, a whisk resting against the rim." Roughly every 10 shots, drop in a \
+RE-ESTABLISH: a WIDE two-shot reusing SETUP A (the scene's establishing shot) to remind the eye of \
+the whole staging — no special tag needed, it's just a repeat of SETUP A at a WIDE size. These are \
+FLOORS, not a rigid schedule: place them where the scene's rhythm earns them, IN ADDITION TO (never \
+instead of) whatever coverage the moment already needs.{motivated_rule}
 7) CONTENT SAFETY — NOTHING SHARP, NOTHING VIOLENT (Ryan's ruling 2026-07-21: sheets and \
 pictures draw on GPT Image 2, whose content filter randomly rejects any composition it can \
 read as threatening — a knife on a counter near two people is enough, proven repeatedly on \
@@ -586,6 +599,26 @@ _SETUP_ANCHOR = (
 # (rule 5e makes the planner start every description with one).
 _SETUP_TAG_RE = re.compile(r"^\s*\(SETUP\s+([A-Z0-9]+(?:-[A-Z0-9]+)?)\)", re.IGNORECASE)
 
+# Inline coverage-grammar tags (C3 item 1): a shot carrying the listener's
+# REACTION to a key line, or punctuation INSERT framing (rule 5f). Written
+# right after the setup tag in a description, e.g. "(SETUP C)(REACTION) ...".
+# Kept as its OWN regex, deliberately never folded into _SETUP_TAG_RE — that
+# one only ever matches the LEADING "(SETUP X)" token (an id of letters/
+# digits/hyphens), so it can never accidentally swallow "(REACTION)" or
+# "(INSERT)"; widening it to try would risk _setup_id() silently eating the
+# wrong token. This regex searches anywhere in the description (the tag
+# rides right after the setup tag, not necessarily at position 0).
+_INLINE_TAG_RE = re.compile(r"\((REACTION|INSERT)\)", re.IGNORECASE)
+
+
+def _shot_tag(shot) -> str | None:
+    """"REACTION" or "INSERT" if the shot's description carries that inline
+    tag (C3 item 1), else None. A setup id is always letters/digits/hyphens
+    (see _SETUP_TAG_RE), so this can never match INSIDE a "(SETUP X)" tag —
+    the two regexes are structurally disjoint, not just separately defined."""
+    m = _INLINE_TAG_RE.search(shot.get("description") or "")
+    return m.group(1).upper() if m else None
+
 
 def _setup_id(shot) -> str | None:
     """The shot's camera-setup letter from its description tag, or None for
@@ -761,6 +794,255 @@ def assign_setup_anchors(moments: list) -> dict:
                 setup_anchors[base] = asyncio.get_running_loop().create_future()
                 shot["setup_anchor_owner"] = True
     return setup_anchors
+
+
+# =============================================================================
+# Reaction/insert/re-establish FLOORS (C3 item 2) — the ADD-side counterpart
+# to enforce_shot_budget, which only ever TRIMS. A dialogue scene with no
+# listener reactions, no punctuation inserts, and no periodic re-establish
+# reads like a slideshow, not an edit.
+# =============================================================================
+
+_REACTION_TURNS_PER_SHOT = 4     # >=1 REACTION shot per this many speaking turns, floored at 1
+_INSERT_SHOTS_PER_ONE = 7        # >=1 INSERT shot per this many total shots (midpoint of "6-8")
+_REESTABLISH_SHOTS_PER_ONE = 10  # >=1 RE-ESTABLISH wide per this many total shots
+
+
+def _is_wide(shot) -> bool:
+    """True when the shot's shot_type resolves to the "wide" composition
+    bucket (reuses plan_camera_moves' own _SHOT_TYPE_COMPOSITION mapping —
+    one source of truth for what counts as a wide shot)."""
+    return _SHOT_TYPE_COMPOSITION.get((shot.get("shot_type") or "").upper()) == "wide"
+
+
+def _family_counts(flat: list[dict]) -> dict:
+    """{setup family: how many shots in the scene share it} — used to find a
+    safe shot to repurpose when a floor must be met AT the frame cap (an
+    "excess" family has more than one shot, so converting one still leaves
+    the family represented)."""
+    counts: dict = {}
+    for s in flat:
+        fam = _shot_family(s)
+        if fam:
+            counts[fam] = counts.get(fam, 0) + 1
+    return counts
+
+
+def _least_recently_used_family(flat: list[dict], exclude: set | None = None) -> str | None:
+    """The setup family that has gone longest without a shot in DRAW order
+    (or was never used) — a reasonable, deterministic camera reuse for a
+    floor-added shot (per the chunk spec: never invent a new camera
+    position). `exclude` keeps out a family the caller doesn't want reused
+    (typically the shot the new one is reacting against). None when no
+    tagged family exists at all (legacy plan with no [SETUPS | ...] kit)."""
+    exclude = exclude or set()
+    last_seen: dict = {}
+    for i, s in enumerate(flat):
+        fam = _shot_family(s)
+        if fam:
+            last_seen[fam] = i
+    candidates = [f for f in last_seen if f not in exclude]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda f: last_seen[f])
+
+
+def _listener_for_moment(moment: dict, speakers: set) -> str | None:
+    """The scene's OTHER speaker for a clean 2-hander (rule 5f: a REACTION
+    shot shows the person LISTENING, not the one talking). None when the
+    moment has no assigned speaker or the scene isn't exactly 2 speakers —
+    with 1 or 3+ speakers "the listener" has no single well-defined answer,
+    so the caller must skip rather than guess."""
+    spk = moment.get("speaker")
+    if not spk or len(speakers) != 2:
+        return None
+    others = speakers - {spk}
+    return next(iter(others)) if others else None
+
+
+def _find_convertible_angle(flat: list[dict], family_counts: dict) -> dict | None:
+    """An existing ANGLE shot safe to repurpose for a floor addition when the
+    scene is already at its frame cap (C3 item 2's "convert rather than add"
+    rule): an angle whose family has at least one sibling shot (so
+    repurposing it loses no unique camera setup) and that isn't already
+    carrying a REACTION/INSERT tag of its own. Searched in flat (draw) order
+    — first eligible shot wins (same "cheapest deterministic fix" precedent
+    as enforce_setup_variety's swap search). MASTERS ARE NEVER CONVERTED —
+    a master owns its moment's LINE, same law as enforce_setup_variety."""
+    for s in flat:
+        if s.get("role") != "angle":
+            continue
+        if _shot_tag(s):
+            continue
+        fam = _shot_family(s)
+        if fam and family_counts.get(fam, 0) > 1:
+            return s
+    return None
+
+
+def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
+                                   max_frames: int | None = None) -> int:
+    """CODE floor validator (C3 item 2), parallel to enforce_shot_budget but
+    the opposite direction — that one only ever TRIMS, this one only ever
+    ADDS the minimum coverage a dialogue scene needs to cut like an editor
+    (rule 5f). Deterministic, NO LLM call — same zero-paid-call rule as C1/
+    C2's CODE validators:
+
+      REACTION — on a "key line" (approximated as the scene's speaking
+      turns, most climactic first — mirrors C1's scene-move-budget
+      precedent of treating the scene-final beat as the place to spend a
+      limited floor), an angle on the LISTENER's face. >=1 per
+      _REACTION_TURNS_PER_SHOT speaking turns, floored at 1, but ONLY when
+      the scene is a clean 2-speaker dialogue with >=2 turns — a monologue
+      or 3+-speaker scene has no single well-defined "listener", so this
+      floor is skipped rather than guessed (see _listener_for_moment).
+
+      INSERT — a prop/detail punctuation shot, >=1 per _INSERT_SHOTS_PER_ONE
+      total shots (the prompt's own "1 per 6-8" rule of thumb, midpointed).
+
+      RE-ESTABLISH — a WIDE two-shot reusing the scene's ESTABLISHING setup
+      family (moments[0]'s master's family — rule 5b makes the scene's
+      first shot a two-shot master by construction), >=1 per
+      _REESTABLISH_SHOTS_PER_ONE total shots; the opening master itself
+      always counts toward this floor, so a short scene typically needs no
+      extra at all.
+
+    Every addition is deterministic: a `(SETUP X)` tag reusing an EXISTING
+    family (_least_recently_used_family — never inventing a new camera
+    position) and a plain-language description built only from data already
+    on the moments (the listener's name from `moment["speaker"]` /
+    `speakers`, the scene's own [SET | ...] text passed as `set_line`).
+
+    max_frames (C3 item 2's frame-cap rule): once the scene is AT its frame
+    cap, a floor is satisfied by CONVERTING an existing excess same-family
+    ANGLE (never a master — see _find_convertible_angle) into the needed
+    shot instead of growing the total. When no safe conversion exists, the
+    floor is logged loudly and left unmet rather than blowing the budget —
+    matches enforce_setup_variety's own "flag, don't force" fallback.
+
+    Mutates `moments` in place (appends to a moment's "angles", or rewrites
+    an existing angle's shot_type/description). Returns the number of shots
+    added or converted."""
+    if not moments or not moments[0].get("master"):
+        return 0
+    fixed = 0
+
+    def _at_cap() -> bool:
+        return max_frames is not None and len(_flatten_shots(moments)) >= max_frames
+
+    def _place(mi: int, shot_type: str, description: str, kind: str) -> bool:
+        nonlocal fixed
+        if _at_cap():
+            cur = _flatten_shots(moments)
+            victim = _find_convertible_angle(cur, _family_counts(cur))
+            if victim is None:
+                print(f"  ⚠️ {kind} floor: at the {max_frames}-frame cap with no safe shot "
+                      f"to convert — floor left unmet", flush=True)
+                return False
+            victim["shot_type"], victim["description"] = shot_type, description
+            print(f"  🎬 {kind} floor: converted an excess shot instead of growing past the "
+                  f"{max_frames}-frame cap", flush=True)
+            fixed += 1
+            return True
+        moments[mi].setdefault("angles", []).append(
+            {"shot_type": shot_type, "description": description})
+        print(f"  🎬 {kind} floor: added a shot to moment "
+              f"{moments[mi].get('moment_number', mi + 1)}", flush=True)
+        fixed += 1
+        return True
+
+    # ---- RE-ESTABLISH ---------------------------------------------------
+    establish_family = _shot_family(moments[0]["master"])
+    if establish_family:
+        cur = _flatten_shots(moments)
+        want = max(1, len(cur) // _REESTABLISH_SHOTS_PER_ONE)
+        have = sum(1 for s in cur if _shot_family(s) == establish_family and _is_wide(s))
+        need = max(0, want - have)
+        n = len(moments)
+        for k in range(need):
+            target_mi = min(n - 1, ((k + 1) * n) // (need + 1))
+            desc = (f"(SETUP {establish_family}) WS re-establishing the whole staging — "
+                    "the scene's opening two-shot, camera unchanged.")
+            _place(target_mi, "WS", desc, "re-establish")
+
+    # ---- REACTION ---------------------------------------------------------
+    speaking_moments = [m for m in moments if m.get("speaker") and m.get("line")]
+    speakers = {m["speaker"] for m in speaking_moments}
+    if len(speakers) == 2 and len(speaking_moments) >= 2:
+        cur = _flatten_shots(moments)
+        want = max(1, len(speaking_moments) // _REACTION_TURNS_PER_SHOT)
+        have = sum(1 for s in cur if _shot_tag(s) == "REACTION")
+        need = max(0, want - have)
+        if need:
+            # Most climactic turn first (the scene's LAST speaking moment) —
+            # same tie-break precedent as C1's scene move budget.
+            for m in list(reversed(speaking_moments))[:need]:
+                listener = _listener_for_moment(m, speakers)
+                if not listener:
+                    continue
+                mi = moments.index(m)
+                cur = _flatten_shots(moments)
+                fam = _least_recently_used_family(cur, exclude={_shot_family(m["master"])})
+                if not fam:
+                    continue
+                desc = (f"(SETUP {fam})(REACTION) CU on {listener}, listening to "
+                        f"{m['speaker']}'s line, same instant.")
+                _place(mi, "CU", desc, "reaction")
+
+    # ---- INSERT -------------------------------------------------------
+    cur = _flatten_shots(moments)
+    want = len(cur) // _INSERT_SHOTS_PER_ONE
+    have = sum(1 for s in cur if _shot_tag(s) == "INSERT")
+    need = max(0, want - have)
+    if need:
+        n = len(moments)
+        prop_hint = (set_line or "").strip() or "hands and a prop already on the set"
+        for k in range(need):
+            target_mi = min(n - 1, ((k + 1) * n) // (need + 1))
+            cur = _flatten_shots(moments)
+            fam = _least_recently_used_family(cur)
+            if not fam:
+                continue
+            desc = f"(SETUP {fam})(INSERT) Insert punctuating the beat — {prop_hint[:80]}."
+            _place(target_mi, "INSERT", desc, "insert")
+
+    return fixed
+
+
+# =============================================================================
+# Per-shot target durations (C3 item 4) — SILENT shots only.
+# =============================================================================
+# render_perform.py's assembler already sizes a SPEAKING shot's window from
+# measured speech (assets.carries_own_line / clip_speech_start/end, migration
+# 114) — that path is untouched. Every other (silent) shot gets a per-type
+# target so the assembler cuts like an editor instead of splitting a fixed
+# narration block by word count alone: a wide holds the frame longer than an
+# insert. Reuses plan_camera_moves' own _SHOT_TYPE_COMPOSITION bucketing —
+# one source of truth for what counts as wide/medium/closeup.
+_COMPOSITION_DURATION_SECONDS = {"wide": 3.5, "medium": 2.5, "closeup": 1.6}
+
+
+def stamp_shot_durations(moments: list) -> int:
+    """Stamp shot["duration_seconds"] on every SILENT shot in `moments` —
+    every angle, and every master EXCEPT a speaking moment's master (that
+    one's clip-length comes from measured speech at animate/assemble time,
+    never from this table). Idempotent (safe to call more than once; always
+    overwrites with the same deterministic value for a given shot_type).
+    Returns how many shots were stamped."""
+    n = 0
+    for moment in moments:
+        speaking = bool(moment.get("speaker") and moment.get("line"))
+        m = moment.get("master")
+        if m and not speaking:
+            m["duration_seconds"] = _COMPOSITION_DURATION_SECONDS.get(
+                _SHOT_TYPE_COMPOSITION.get((m.get("shot_type") or "").upper(), "medium"), 2.5)
+            n += 1
+        for a in moment.get("angles") or []:
+            a["duration_seconds"] = _COMPOSITION_DURATION_SECONDS.get(
+                _SHOT_TYPE_COMPOSITION.get((a.get("shot_type") or "").upper(), "medium"), 2.5)
+            n += 1
+    return n
+
 
 # Panels per gate sheet now depends on the plan's format — see
 # panels_per_sheet_for(). Sheet chunking (coverage_to_app._plan_sheet_prompts
@@ -1073,7 +1355,11 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
     frames = [{"role": "master", "shot_type": m["shot_type"], "description": m["description"],
                "camera_move": m.get("camera_move"), "routed_model": m.get("routed_model"),
                "routing_reason": m.get("routing_reason"), "url": master_url,
-               "image_model": master_model}]
+               "image_model": master_model,
+               # C3 item 4: None for a speaking master (stamp_shot_durations
+               # skips it on purpose — its length comes from measured speech
+               # at assemble time, never this table).
+               "duration_seconds": m.get("duration_seconds")}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -1090,7 +1376,8 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
                 "camera_move": a.get("camera_move"), "routed_model": a.get("routed_model"),
                 "routing_reason": a.get("routing_reason"), "url": url,
-                "image_model": model_used} if url else None
+                "image_model": model_used,
+                "duration_seconds": a.get("duration_seconds")} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -1234,6 +1521,19 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
     moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
 
+    # REACTION/INSERT/RE-ESTABLISH FLOORS (C3 item 2): guarantee the minimum
+    # cut-like-an-editor coverage a dialogue scene needs (rule 5f) — a code
+    # validator, never an LLM re-plan. Runs BEFORE the setup-variety cap
+    # below (so a floor-added shot's family gets swept by that cap too) and
+    # BEFORE the tail locks further down (so every floor-added shot's
+    # description also gets the set/axis/staging tail appended, same as any
+    # shot the planner wrote itself).
+    n_floors = enforce_reaction_insert_floors(
+        moments, set_line=parse_set_dressing(directive_text), max_frames=max_frames)
+    if n_floors:
+        print(f"  🎬 reaction/insert/re-establish floors: {n_floors} shot(s) added or converted",
+              flush=True)
+
     # SETUP VARIETY CAP (C2 item 3): no more than 2 consecutive shots in the
     # scene's draw order may share the same BASE setup family (B and B-CU
     # count as one family) — otherwise the cut reads as the camera never
@@ -1285,6 +1585,16 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
             for a in m.get("angles") or []:
                 a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
         print("  📷 staging/setup lock applied to every shot", flush=True)
+
+    # PER-SHOT TARGET DURATIONS (C3 item 4): stamp every SILENT shot (every
+    # angle, every non-speaking master) with a target duration_seconds by
+    # shot size, so the assembler cuts like an editor instead of splitting a
+    # fixed narration block evenly. Runs AFTER the floors above so any
+    # floor-added shot gets stamped too. Speaking masters are skipped —
+    # their clip length comes from measured speech at assemble time.
+    n_durations = stamp_shot_durations(moments)
+    if n_durations:
+        print(f"  ⏱️ target durations stamped on {n_durations} silent shot(s)", flush=True)
 
     # BOARD ANCHOR: pin each shot to its numbered panel on the approved gate
     # sheet(s). Panel numbers are GLOBAL across sheets and count masters then
