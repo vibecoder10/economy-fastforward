@@ -34,6 +34,22 @@ _REPO = os.path.dirname(os.path.dirname(_BACKEND))
 _SKILLS = os.path.join(_REPO, "skills", "video-pipeline")
 sys.path.insert(0, _BACKEND)            # backend: database, storage, vault, kie_unified
 sys.path.insert(0, _SKILLS)             # skills: storyboard.coverage, shared.*, orchestrator.*
+# C8 fix (c): mirrors pipeline_executor.py's server-boot bootstrap exactly. Each
+# bot folder has its own internal bare imports (e.g. camera_selector.py's
+# `from animation_prompt_engine import ...`, which only resolves when
+# image_prompts/ itself — not just skills/video-pipeline/ — is on sys.path).
+# The live server adds these at boot; this standalone CLI script didn't, so
+# plan_camera_moves()'s camera-engine import silently failed here and every
+# shot quietly degraded to static/freeform with no error (the broad except in
+# plan_camera_moves swallowed it — now also fixed to log loudly). Bootstrap
+# identically so running this file directly behaves like the server, not a
+# degraded twin of it.
+for _bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
+                 "thumbnail", "render", "sound", "storyboard", "research",
+                 "upload", "analytics", "title_idea"]:
+    _bot_path = os.path.join(_SKILLS, _bot_dir)
+    if _bot_path not in sys.path:
+        sys.path.append(_bot_path)
 
 # main.py loads .env for the server; this standalone script must do it itself, BEFORE
 # importing database/storage (they read DATABASE_URL / storage creds from env).
@@ -59,6 +75,11 @@ from storyboard.coverage import (  # noqa: E402
     parse_set_dressing, parse_axis_line, parse_setups_line, panels_per_sheet_for,
     sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
     plan_moments_deterministic,
+    # C8 fix (a): the SAME ratios enforce_reaction_insert_floors uses to decide
+    # how many reaction/insert/re-establish shots a scene needs — imported
+    # (never re-guessed) so _coverage_shape's pure-dialogue headroom always
+    # matches what the floor validator will actually go looking for.
+    _REACTION_TURNS_PER_SHOT, _INSERT_SHOTS_PER_ONE, _REESTABLISH_SHOTS_PER_ONE,
 )
 # C4 prop manifest: the ONE renderer every consumer (beat prompt, real draw
 # prompt, redraw/repair prompt) uses, so the wording is byte-identical
@@ -293,8 +314,49 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
     cooking class'), which locked the home cram-session scene to the class
     kitchen (caught live 2026-07-07). Word counting survives only as the
     fallback when no name phrase appears at all. With one approved environment
-    it always wins; with several and no signal, None (better no lock than the
-    wrong location)."""
+    it always wins; with several and no signal, the fallback chain below picks.
+
+    C8 fix (b): the word-count fallback used to hand the match to whichever
+    environment had the HIGHEST word score with no floor at all — a SINGLE
+    stray word was enough to win outright. Found live on video cd5d2883,
+    Spanish Class scene 2 (the home cram-session scene: "Now the actions...
+    peel... cut... fry"): neither environment's name appears as a phrase in
+    the raw scene text (no directive/SET-line exists yet on a fresh plan —
+    this function only ever sees scene_text at that point), and "Community
+    cooking class kitchen"'s word set hits exactly ONE word ONE time ("class",
+    from Vanessa's aside "In the class, you use a knife") while "Home kitchen
+    — cram session"'s words hit zero times — a 1-0 score handed the whole
+    scene to the wrong kitchen on that single coincidental word. The scene's
+    own planner-generated [SET|] line independently, correctly describes the
+    home kitchen (yellow fridge, sage cabinetry, copper pans) — this mislock
+    happens before that text exists, so it silently misdirects the image
+    reference anchor at picture-draw time.
+
+    Now the word fallback requires MEANINGFULLY stronger evidence than one
+    stray word before it decides anything: either >=2 DISTINCT words hit (not
+    the same word repeated), or a >=2x score margin over the runner-up (with
+    the runner-up at 0, that means a score of >=2). A lone word matched once,
+    with nothing else backing it, no longer wins by default — the fallback
+    chain below decides instead.
+
+    That chain (in order), traced against what's actually available:
+      1. story_bible scene->location mapping — doesn't exist. scene_aware_bible
+         and _story_bible_locations (this same module) both deliberately
+         refuse to guess one ("keyword scene->location matching proved
+         unreliable (road vs street)"), so there is nothing to read here.
+      2. previous scene's matched environment (continuity) — considered and
+         REJECTED: this exact video's scenes alternate locations (scene 1 is
+         genuinely the class kitchen per the check above, scene 2 is genuinely
+         the home kitchen), so blindly inheriting the prior scene's match would
+         silently reproduce this exact mislock one scene later, on a video
+         that happens to be the very proof case for this fix.
+      3. the first APPROVED environment (`envs[0]`, `_approved_envs`'s own
+         `ORDER BY sort, created_at` — the creator's own primary/first-added
+         location). Verified against real data: video cd5d2883 has "Home
+         kitchen — cram session" at sort=0 and "Community cooking class
+         kitchen" at sort=1, and scene 2 genuinely is the home kitchen — so
+         this is both the deterministic AND the empirically correct choice
+         here, unlike (2)."""
     if not envs:
         return None
     if len(envs) == 1:
@@ -316,14 +378,29 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
             best, best_score = e, score
     if best:
         return best
-    # Fallback: no environment NAME appears as a phrase — old distinctive-word count.
-    best, best_score = None, 0
+    # No environment NAME appears as a phrase — distinctive-word evidence,
+    # but require it to be MEANINGFULLY stronger than a single stray word
+    # (see docstring): >=2 distinct words hit, or a >=2x margin over the
+    # runner-up (score >=2 when the runner-up is 0).
+    scored = []
     for e in envs:
         words = {w for w in re.split(r"[^a-z0-9]+", (e["name"] or "").lower()) if len(w) > 3}
+        hit_words = [w for w in words if low_text.count(w) > 0]
         score = sum(low_text.count(w) for w in words)
-        if score > best_score:
-            best, best_score = e, score
-    return best
+        scored.append((e, score, len(hit_words)))
+    scored.sort(key=lambda t: t[1], reverse=True)
+    top_e, top_score, top_distinct = scored[0]
+    runner_score = scored[1][1] if len(scored) > 1 else 0
+    strong = top_score > 0 and (
+        top_distinct >= 2
+        or (runner_score == 0 and top_score >= 2)
+        or (runner_score > 0 and top_score >= 2 * runner_score)
+    )
+    if strong:
+        return top_e
+    # Evidence too weak to trust — fall back to the first approved environment
+    # (see docstring for why this beats scene continuity here).
+    return envs[0]
 
 
 async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, location_id=None) -> int:
@@ -2321,7 +2398,43 @@ def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
     # into one mouth (EP2 gate). The rich multi-angle shape below is for
     # narration-driven scenes, not wall-to-wall dialogue.
     if narration_words < 15:
-        return turns + 1, 0, 0, turns + 1
+        masters = turns + 1  # one establishing + one master per line
+        # C8 fix (a): max_frames used to equal `masters` exactly (zero
+        # headroom). enforce_reaction_insert_floors then found the scene
+        # ALREADY at its frame cap with angles_max=0 — i.e. no angle-role
+        # shot anywhere to convert (_find_convertible_angle only ever
+        # repurposes an ANGLE, never a master) — so every reaction/insert/
+        # re-establish floor came back "at the cap with no safe shot to
+        # convert" and went unmet. Live proof: Spanish Class scene 2 dry run
+        # (35 turns, 36 masters) wanted 8 reactions + 5 inserts, placed 0
+        # reactions + 2 inserts. The floor validator's ADD path (append a
+        # new angle to a moment) only fires when max_frames leaves headroom
+        # ABOVE the master count — fund that headroom here, derived from the
+        # SAME per-shot ratios the validator itself applies (never a fresh
+        # magic number): ~1 reaction per _REACTION_TURNS_PER_SHOT turns, ~1
+        # insert per _INSERT_SHOTS_PER_ONE shots, ~1 re-establish per
+        # _REESTABLISH_SHOTS_PER_ONE shots. max_moments (element 0, below)
+        # is UNCHANGED — masters still one per line, nothing added there;
+        # only max_frames (element 3) grows so floors can ADD instead of
+        # being forced into a conversion that can never succeed.
+        headroom = (
+            max(1, turns // _REACTION_TURNS_PER_SHOT)
+            + max(0, masters // _INSERT_SHOTS_PER_ONE)
+            + max(0, masters // _REESTABLISH_SHOTS_PER_ONE)
+        )
+        # Safety valve: COVERAGE_MAX_FRAMES is the echo/voice_over branch's
+        # own runaway-planner ceiling (below), but that branch's shot count
+        # is PACED TO RUNTIME (typically well under 40) — pure-dialogue's
+        # one-master-per-turn law can already sit close to (or past) that
+        # ceiling on masters ALONE (this scene: 36 of 40), so reusing it as
+        # a hard cap on TOTAL frames here would starve the very floors this
+        # fix funds. Instead cap the EXTRA headroom on its own dial
+        # (COVERAGE_FLOOR_HEADROOM_CAP, default 20 — comfortably covers this
+        # scene's real ~11-shot need with room to spare) so a pathological
+        # scene (hundreds of turns) still can't make the floor validator add
+        # an unbounded number of shots.
+        headroom = min(headroom, int(os.getenv("COVERAGE_FLOOR_HEADROOM_CAP", "20")))
+        return masters, 0, 0, masters + headroom
     if (dialogue_audio or "voice_over") == "grok_native":
         inserts = max(2, narration_words // 20)
         return min(turns + inserts, SCENE_FRAME_BUDGET), 1, 2, None

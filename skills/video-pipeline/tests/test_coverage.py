@@ -772,6 +772,32 @@ def test_floors_leave_violation_logged_when_no_safe_conversion_exists():
     assert not any(_shot_tag(s) == "REACTION" for s in _flatten_shots(moments))
 
 
+def test_floors_add_reactions_when_headroom_exists_above_masters_only_cap():
+    """C8 fix (a) regression pin: the EXACT masters-only-at-cap scenario from
+    test_floors_leave_violation_logged_when_no_safe_conversion_exists (every
+    shot a master, angles_max=0 so nothing is ever convertible) — but now
+    with max_frames carrying headroom ABOVE the master count (what
+    coverage_to_app._coverage_shape's pure-dialogue branch now funds). The
+    floor validator's ADD path (append a new angle to a moment) only fires
+    when there's headroom; this proves it does, rather than falling into the
+    "at the cap, no safe shot to convert" dead end the live dry run hit
+    (Spanish Class scene 2: 8 reactions wanted, 0 placed, before this fix)."""
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide two-shot establishing."),
+        _moment(2, "MCU", "(SETUP B) Ryan speaks.", speaker="Ryan", line="Hello there."),
+        _moment(3, "MCU", "(SETUP C) Vanessa speaks.", speaker="Vanessa", line="Hi Ryan."),
+        _moment(4, "MCU", "(SETUP B) Ryan speaks again.", speaker="Ryan", line="How are you?"),
+    ]
+    total_before = len(_flatten_shots(moments))  # 4, all masters
+    assert not any(_shot_tag(s) == "REACTION" for s in _flatten_shots(moments))
+    n = enforce_reaction_insert_floors(moments, max_frames=total_before + 4)
+    assert n >= 1
+    reactions = [s for s in _flatten_shots(moments) if _shot_tag(s) == "REACTION"]
+    assert len(reactions) >= 1, "headroom above the master count must let the floor ADD, not convert-or-fail"
+    assert len(_flatten_shots(moments)) > total_before, \
+        "with headroom, the floor grows the scene instead of leaving it unmet"
+
+
 # =============================================================================
 # C3 item 4: per-shot target durations (SILENT shots only)
 # =============================================================================

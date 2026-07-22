@@ -36,6 +36,7 @@ from scripts.coverage_to_app import (  # noqa: E402
     _coverage_shape,
     _dialogue_turns,
     _reconcile_moment_dialogue,
+    _match_scene_env,
 )
 from clip_dialogue import match_assigned  # noqa: E402
 
@@ -192,10 +193,58 @@ def test_shape_echo_paces_to_runtime():
 
 def test_shape_pure_dialogue_plans_masters_only():
     """Couple format: no narrator → no clock for silent angles. One
-    establishing + one master per line, nothing the renderer must drop."""
-    text = "\n".join(f"{'Ryan' if i % 2 else 'Vanessa'}: line {i} palabra." for i in range(24))
+    establishing + one master per line for the PLANNER (max_moments/angles
+    unchanged), but max_frames now carries headroom (C8 fix (a)) above the
+    master count so enforce_reaction_insert_floors can ADD its reaction/
+    insert/re-establish shots instead of being forced into a conversion that
+    can never succeed with zero angle-role shots on the board (angles_max=0
+    here). Headroom = the SAME ratios the floor validator itself uses:
+    max(1, turns // 4) reactions + masters // 7 inserts + masters // 10
+    re-establishes. 24 turns → 25 masters, headroom = max(1,6) + 3 + 2 = 11."""
+    turns = 24
+    text = "\n".join(f"{'Ryan' if i % 2 else 'Vanessa'}: line {i} palabra." for i in range(turns))
     mm, amin, amax, mf = _coverage_shape(text, "voice_over")
-    assert (mm, amin, amax, mf) == (25, 0, 0, 25), (mm, amin, amax, mf)
+    masters = turns + 1
+    expected_headroom = max(1, turns // 4) + masters // 7 + masters // 10
+    assert (mm, amin, amax) == (masters, 0, 0), (mm, amin, amax)
+    assert mf == masters + expected_headroom == 36, (mf, expected_headroom)
+
+
+def test_shape_pure_dialogue_headroom_matches_real_scene2_dry_run():
+    """Pins the exact live dry-run scene (Spanish Class scene 2, video
+    cd5d2883): 35 speaking turns, no narrator. Before C8 fix (a), max_frames
+    equalled the 36 masters exactly (zero headroom) and the floor validator
+    could place 0 of 8 wanted reactions. This is the number that, fed
+    through the real deterministic pipeline on the scene's saved planner
+    directive, actually funds all 8 reactions (see shot-list-scene2-v2.md)."""
+    turns = 35
+    text = "\n".join(f"{'Ryan' if i % 2 else 'Vanessa'}: turn {i}." for i in range(turns))
+    mm, amin, amax, mf = _coverage_shape(text, "voice_over")
+    assert (mm, amin, amax, mf) == (36, 0, 0, 52), (mm, amin, amax, mf)
+
+
+def test_shape_pure_dialogue_headroom_capped_for_a_pathological_scene():
+    """A scene with hundreds of turns must not let the floor validator ADD an
+    unbounded number of shots — COVERAGE_FLOOR_HEADROOM_CAP (default 20)
+    bounds the EXTRA headroom (never the master count itself, which is the
+    one-shot-per-line law and always survives uncapped)."""
+    turns = 300
+    text = "\n".join(f"{'Ryan' if i % 2 else 'Vanessa'}: t{i}." for i in range(turns))
+    mm, amin, amax, mf = _coverage_shape(text, "voice_over")
+    masters = turns + 1
+    assert (mm, amin, amax) == (masters, 0, 0)
+    assert mf == masters + 20, (mf, masters)  # headroom capped, masters uncapped
+
+
+def test_shape_pure_dialogue_headroom_cap_is_env_tunable():
+    turns = 300
+    text = "\n".join(f"{'Ryan' if i % 2 else 'Vanessa'}: t{i}." for i in range(turns))
+    os.environ["COVERAGE_FLOOR_HEADROOM_CAP"] = "5"
+    try:
+        mm, amin, amax, mf = _coverage_shape(text, "voice_over")
+    finally:
+        os.environ.pop("COVERAGE_FLOOR_HEADROOM_CAP", None)
+    assert mf == (turns + 1) + 5, mf
 
 
 def test_shape_grok_native_keeps_cinematic_coverage():
@@ -205,6 +254,102 @@ def test_shape_grok_native_keeps_cinematic_coverage():
     assert mm >= 10, mm
     # Pure narration keeps classic coverage in both modes
     assert _coverage_shape("Just narration, no speakers at all.") == (3, 2, 3, None)
+
+
+# ── C8 fix (b): _match_scene_env real-data fixtures ──
+# Verbatim (read-only, `se db`) scene 1 and scene 2 text and the two approved
+# environments for video cd5d2883 (Spanish Class) — the exact live dry-run
+# proof case. video_environments real ORDER BY sort, created_at: Home
+# kitchen at sort=0, Community kitchen at sort=1.
+_SPANISH_SCENE_1_TEXT = (
+    "**Ryan:** I have one hour to learn enough Spanish to survive a cooking "
+    "class in front of strangers. Vanessa enrolled us three weeks ago. She "
+    "told me one hour ago.\n\n**Vanessa:** Sorpresa.\n\n**Ryan:** Sorpresa. "
+    "Surprise. Yeah. I'm surprised. I'm very surprised. Why didn't you tell "
+    "me three weeks ago?\n\n**Vanessa:** Because you would have said no.\n\n"
+    "**Ryan:** Yes. I would have said no. Because I don't speak Spanish.\n\n"
+    "**Vanessa:** Poco a poco, mi amor. Little by little. We have one hour. "
+    "I'll teach you everything you need.\n\n**Ryan:** Everything. In one "
+    "hour. For a cooking class. In Spanish.\n\n**Vanessa:** Sí. The class is "
+    "tortilla española. Spanish omelet. Very simple.\n\n**Ryan:** Simple. "
+    "Great. What's a tortilla española?\n\n**Vanessa:** Eggs, potatoes, "
+    "onions. That's it. Three ingredients."
+)
+_SPANISH_SCENE_2_TEXT = (
+    "**Vanessa:** Now the actions. You need to know how to peel.\n\n"
+    "**Ryan:** Peel. What's peel?\n\n**Vanessa:** Pelar. Pelar las patatas. "
+    "Peel the potatoes.\n\n**Ryan:** Pelar. Peel. Pelar las patatas. I peel "
+    "the potatoes with the… wait, what's knife again?\n\n**Vanessa:** "
+    "Cuchillo.\n\n**Ryan:** Cuchillo. Right. I peel the potatoes with the "
+    "cuchillo. Wait, no. Do I peel with a knife? Don't I need a peeler?\n\n"
+    "**Vanessa:** In the class, you use a knife. Pelar con el cuchillo.\n\n"
+    "**Ryan:** Pelar con el cuchillo. This sounds dangerous. What's cut?"
+)
+_SPANISH_ENVS = [
+    {"name": "Home kitchen — cram session",
+     "description": "A sunlit Mediterranean-style kitchen with sage green "
+                     "cabinetry, warm terracotta tile flooring."},
+    {"name": "Community cooking class kitchen",
+     "description": "Professional culinary kitchen with multiple wooden "
+                     "islands featuring stainless steel countertops."},
+]
+
+
+def test_match_scene_env_scene1_is_genuinely_the_class_kitchen():
+    """Scene 1's own name-phrase doesn't appear verbatim, but "cooking" and
+    "class" both hit distinctly (>=2 distinct words) — strong enough
+    evidence to win outright, same as before this fix (C8 fix (b) only
+    raises the bar for a SINGLE stray word, not for real multi-word
+    overlap)."""
+    env = _match_scene_env(_SPANISH_SCENE_1_TEXT, _SPANISH_ENVS)
+    assert env["name"] == "Community cooking class kitchen", env
+
+
+def test_match_scene_env_scene2_is_genuinely_the_home_kitchen():
+    """The live bug: scene 2 never names either environment, and the ONLY
+    word-level signal is "class" appearing ONCE ("In the class, you use a
+    knife") — before this fix that single stray word handed the whole
+    home cram-session scene to the wrong (community) kitchen. Now a lone
+    word with no distinct partner and no margin isn't enough, so the match
+    falls through to the first approved environment — which, on cd5d2883's
+    real video_environments row order, IS the home kitchen."""
+    env = _match_scene_env(_SPANISH_SCENE_2_TEXT, _SPANISH_ENVS)
+    assert env["name"] == "Home kitchen — cram session", env
+
+
+def test_match_scene_env_no_evidence_falls_back_to_first_approved():
+    """A scene whose text names neither environment at all, word or phrase,
+    still needs SOME anchor rather than crashing the draw with no location
+    lock — falls back to envs[0] (the creator's own first-added/approved
+    environment, `_approved_envs`'s own sort order)."""
+    envs = [{"name": "Rooftop bar", "description": "d"},
+            {"name": "Downtown loft", "description": "d"}]
+    env = _match_scene_env("Two friends argue about nothing in particular.", envs)
+    assert env["name"] == "Rooftop bar", env
+
+
+def test_match_scene_env_single_stray_word_never_wins_alone():
+    """Direct regression pin for the exact failure mode: a SINGLE word hit,
+    for only ONE environment, with the other environment at zero — must NOT
+    win by itself anymore (score=1, distinct=1, runner=0 fails every strong-
+    evidence branch)."""
+    envs = [{"name": "Home kitchen — cram session", "description": "d"},
+            {"name": "Community cooking class kitchen", "description": "d"}]
+    text = "The only thing on the mind of every student in class is dinner."
+    env = _match_scene_env(text, envs)
+    # "class" hits once for Community, nothing for Home — old code returned
+    # Community; new code falls back to envs[0] (Home, listed first).
+    assert env["name"] == "Home kitchen — cram session", env
+
+
+def test_match_scene_env_two_distinct_words_still_win_over_the_fallback():
+    """Two distinct word hits (not the same word repeated) DO clear the new
+    bar — the fallback only kicks in when evidence is genuinely thin."""
+    envs = [{"name": "Home kitchen — cram session", "description": "d"},
+            {"name": "Community cooking class kitchen", "description": "d"}]
+    text = "The community show runs a cooking segment before class starts."
+    env = _match_scene_env(text, envs)
+    assert env["name"] == "Community cooking class kitchen", env
 
 
 def test_enforce_budget_frame_ceiling_strips_angles_first():

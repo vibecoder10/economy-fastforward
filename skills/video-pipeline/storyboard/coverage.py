@@ -1263,7 +1263,22 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
     (un-composed) description and re-routing their model recommendation."""
     try:
         from image_prompts.engine.camera_selector import ShotContext, select_camera_move
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        # C8 fix (c): this except used to swallow the failure silently — EVERY
+        # shot in the scene then quietly degraded to static/freeform with no
+        # trace of why. The real cause is almost always sys.path: this module
+        # AND camera_selector.py's own inner `from animation_prompt_engine
+        # import ...` (bare, not package-qualified) only resolve when
+        # skills/video-pipeline/image_prompts is on sys.path — the live
+        # server gets that from pipeline_executor.py's boot-time bootstrap,
+        # but a standalone CLI invocation (coverage_to_app.py run directly,
+        # not through the server) can miss it and silently fall back to a
+        # fully static scene. Name it loudly instead of guessing later.
+        print(f"  ⚠️ plan_camera_moves: camera engine unavailable ({e!r}) — every shot in "
+              f"this scene degrades to static/freeform. This needs "
+              f"skills/video-pipeline/image_prompts on sys.path (the server adds it at boot "
+              f"in pipeline_executor.py; a standalone script must bootstrap the same bot "
+              f"subdirectories itself — see coverage_to_app.py's sys.path setup).", flush=True)
         return 0
 
     planned = 0
@@ -1373,7 +1388,30 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
                     print(f"  model re-routing failed after budget downgrade: "
                           f"{str(route_err)[:120]}", flush=True)
     except Exception as e:  # noqa: BLE001 — camera planning must never kill coverage
-        print(f"  camera planning failed (shots stay freeform): {str(e)[:120]}", flush=True)
+        # C8 fix (c): THIS is the outer catch that actually swallows the real
+        # live failure — the top-level `from image_prompts.engine.
+        # camera_selector import ...` above always resolves fine (image_prompts
+        # is reachable as a subpackage the moment skills/video-pipeline is on
+        # sys.path, which is required for this module to import at all), but
+        # camera_selector.resolve_purpose()'s OWN inner bare
+        # `from animation_prompt_engine import ...` only resolves when
+        # skills/video-pipeline/image_prompts is on sys.path DIRECTLY — the
+        # server gets that from pipeline_executor.py's boot bootstrap; a
+        # standalone CLI run of coverage_to_app.py didn't, so the FIRST shot's
+        # ModuleNotFoundError aborted this whole per-shot loop and every shot
+        # in the scene silently ended up with no camera_move planned at all —
+        # the one line this except used to print (bare `str(e)`) named the
+        # missing module but not the sys.path cause, easy to miss in a wall of
+        # other output. Name it unmissably when that's the failure.
+        if isinstance(e, ModuleNotFoundError):
+            print(f"  ⚠️ camera planning failed — {e} — every shot in this scene stays "
+                  f"static/freeform. This is a sys.path gap: skills/video-pipeline/"
+                  f"image_prompts must be on sys.path for camera_selector.resolve_purpose()'s "
+                  f"animation_prompt_engine import to resolve (the server adds it at boot in "
+                  f"pipeline_executor.py; coverage_to_app.py's CLI bootstraps the same bot "
+                  f"subdirectories itself).", flush=True)
+        else:
+            print(f"  camera planning failed (shots stay freeform): {str(e)[:120]}", flush=True)
     return planned
 
 
