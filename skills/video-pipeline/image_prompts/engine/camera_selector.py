@@ -69,6 +69,16 @@ class ShotContext:
     """Everything the selector knows about one shot."""
 
     sentence_text: str = ""
+    narrative_text: str = ""           # C1: the narrative beat ONLY (moment summary +
+                                        # spoken line) — what classify_camera_purpose()
+                                        # reads. Never the composed shot description,
+                                        # which carries scene-constant boilerplate
+                                        # (SET-DRESSING/AXIS/STAGING tails appended in
+                                        # coverage.py's run_coverage) that keyword-matches
+                                        # false positives (e.g. "...stove behind Vanessa..."
+                                        # false-triggers REVEAL on every shot). Falls back
+                                        # to sentence_text when blank so existing callers/
+                                        # tests that never set it keep working unchanged.
     composition: str = "medium"        # wide/medium/closeup/environmental/portrait/overhead/low_angle
     subject_kind: str = ""             # SUBJECT_* value; inferred from text when blank
     intensity: str = "medium"          # low | medium | high (narrative intensity)
@@ -157,7 +167,11 @@ def resolve_purpose(ctx: ShotContext) -> str:
     """
     from animation_prompt_engine import classify_camera_purpose, CAMERA_PURPOSE_STATIC
 
-    purpose = classify_camera_purpose(ctx.sentence_text)
+    # C1 classifier diet: purpose classification sees ONLY the narrative beat,
+    # never the boilerplate-laden composed description (see ShotContext.narrative_text
+    # docstring above). sentence_text remains the input for everything else in this
+    # module (subject inference, interior check, jitter) — those are unaffected.
+    purpose = classify_camera_purpose(ctx.narrative_text or ctx.sentence_text)
     if purpose != CAMERA_PURPOSE_STATIC:
         return purpose
 

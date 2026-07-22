@@ -251,6 +251,103 @@ def test_plan_camera_moves_camera_move_unaffected_when_routing_fails():
     assert "routing_reason" not in shot
 
 
+# ---------------------------------------------------------------------------
+# C1: scene move budget (plan_camera_moves is the only place that sees a
+# scene's WHOLE ordered shot list, so it's the only place a per-scene cap can
+# be enforced — see its docstring for the full rationale).
+# ---------------------------------------------------------------------------
+
+def _reveal_scene(n=5, final_reveals=True):
+    """n single-master moments, each earning a REVEAL move via GENUINE
+    narrative language (never boilerplate) — this exercises the budget logic
+    in isolation from the C1 classifier-diet fix. Mirrors the real shape of
+    the bug: the per-shot selector knows nothing about its siblings, so left
+    unchecked it rotates through the REVEAL move family (pull-back/
+    lateral-pan/tilt-up/tilt-down/static/push-in/orbital legacy keys) on
+    every shot in the scene.
+
+    final_reveals=False makes the LAST shot's narrative calm (no reveal
+    language) — used to prove the budget's "otherwise the first earned"
+    tie-break branch (no scene-final shot earned a move)."""
+    moments = []
+    for i in range(1, n + 1):
+        calm_final = (not final_reveals) and i == n
+        beat = "talks quietly about the weather" if calm_final else (
+            f"reveals what's hidden behind panel {i}")
+        moments.append({
+            "moment_number": i,
+            "summary": f"Marcus {beat}",
+            "master": {
+                "shot_type": "MS",
+                "description": f"Marcus {beat}, in the kitchen with Vanessa nearby.",
+            },
+            "angles": [],
+            "speaker": None, "line": None,
+        })
+    return moments
+
+
+def _camera_moves(moments):
+    return [m["master"]["camera_move"] for m in moments]
+
+
+def test_scene_move_budget_defaults_to_one_earned_move():
+    """5 shots that would each individually earn a REVEAL move must end with
+    exactly 1 non-static camera_move — the default SE_SCENE_MOVE_BUDGET.
+    Downgraded shots restore their ORIGINAL (un-composed) description — no
+    leaked 'Composed for a ... camera move' tail on a shot that ships static."""
+    moments = _reveal_scene(5)
+    originals = [m["master"]["description"] for m in moments]
+    os.environ.pop("SE_SCENE_MOVE_BUDGET", None)
+    planned = plan_camera_moves(moments)
+    moves = _camera_moves(moments)
+    non_static = [mv for mv in moves if mv != "static"]
+    assert len(non_static) == 1, f"expected 1 earned move, got {moves}"
+    assert planned == 1
+    for m, orig in zip(moments, originals):
+        if m["master"]["camera_move"] == "static":
+            assert m["master"]["description"] == orig
+
+
+def test_scene_move_budget_env_var_tunable():
+    """SE_SCENE_MOVE_BUDGET=2 raises the cap to 2 earned moves for the same
+    scene, read at CALL time so this override needs no reload/import dance."""
+    moments = _reveal_scene(5)
+    os.environ["SE_SCENE_MOVE_BUDGET"] = "2"
+    try:
+        planned = plan_camera_moves(moments)
+    finally:
+        os.environ.pop("SE_SCENE_MOVE_BUDGET", None)
+    moves = _camera_moves(moments)
+    non_static = [mv for mv in moves if mv != "static"]
+    assert len(non_static) == 2, f"expected 2 earned moves, got {moves}"
+    assert planned == 2
+
+
+def test_scene_move_budget_prefers_scene_final_shot():
+    """Tie-break (documented in plan_camera_moves): when more shots earn a
+    move than the budget allows, the scene's FINAL shot (the climactic/
+    PAYOFF-tier beat) keeps the move over every earlier earned shot."""
+    moments = _reveal_scene(5)
+    os.environ.pop("SE_SCENE_MOVE_BUDGET", None)
+    plan_camera_moves(moments)
+    moves = _camera_moves(moments)
+    assert moves[-1] != "static", "the scene-final shot should keep the budget's one move"
+    assert all(mv == "static" for mv in moves[:-1]), moves
+
+
+def test_scene_move_budget_falls_back_to_first_earned_when_none_scene_final():
+    """When the scene's FINAL shot doesn't earn a move, the budget keeps the
+    FIRST earned shot instead (the tie-break's documented 'otherwise' branch)."""
+    moments = _reveal_scene(5, final_reveals=False)  # last shot: calm, no reveal language
+    os.environ.pop("SE_SCENE_MOVE_BUDGET", None)
+    plan_camera_moves(moments)
+    moves = _camera_moves(moments)
+    assert moves[-1] == "static", "final shot has no reveal language — must not earn a move"
+    earned = [i for i, mv in enumerate(moves) if mv != "static"]
+    assert earned == [0], f"expected only the first earned shot to keep the move, got {earned} ({moves})"
+
+
 if __name__ == "__main__":
     test_parses_two_moments()
     test_parses_no_bracket_and_multiword_shot_types()
@@ -261,4 +358,8 @@ if __name__ == "__main__":
     test_plan_camera_moves_stamps_routed_model_on_shots()
     test_plan_camera_moves_no_style_stamps_video_level_model_unchanged()
     test_plan_camera_moves_camera_move_unaffected_when_routing_fails()
+    test_scene_move_budget_defaults_to_one_earned_move()
+    test_scene_move_budget_env_var_tunable()
+    test_scene_move_budget_prefers_scene_final_shot()
+    test_scene_move_budget_falls_back_to_first_earned_when_none_scene_final()
     print("ok — coverage parser + cast-builder self-checks passed")

@@ -616,6 +616,19 @@ _SHOT_TYPE_COMPOSITION = {
 }
 
 
+def _scene_move_budget() -> int:
+    """Max earned non-static camera moves per scene (C1). Read at CALL time
+    (not module import) so tests/callers can tune SE_SCENE_MOVE_BUDGET per
+    run. Defaults to 1: calm dialogue coverage should land mostly static,
+    with at most one earned move per scene unless a channel opts into more."""
+    raw = os.getenv("SE_SCENE_MOVE_BUDGET", "1")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return n if n >= 0 else 1
+
+
 def plan_camera_moves(moments: list, render_style: str | None = None,
                        video_model_id: str | None = None) -> int:
     """Plan a camera move per shot across a scene's coverage moments, in shot
@@ -631,7 +644,21 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
     to None (the "no channel style declared" money-safe path) so every
     existing caller keeps working unchanged; a real caller (generate_
     coverage_for_video in coverage_to_app.py) passes the video's actual
-    values."""
+    values.
+
+    SCENE MOVE BUDGET (C1): this is the only place that sees the whole
+    ordered shot list for a scene, so it's the only place a per-scene cap can
+    be enforced. The per-shot selector (select_camera_move) decides purely
+    shot-by-shot and knows nothing about how many of its siblings already
+    earned a move — left alone, a scene of otherwise-calm dialogue beats can
+    have every shot individually "earn" a move via the REVEAL/PAYOFF
+    positional upgrades, which the anti-repeat variety scoring in
+    camera_selector.score_move() then mechanically rotates into a rigid
+    period-4 pattern. After the normal per-shot loop below runs (unchanged),
+    a second pass caps the scene to SE_SCENE_MOVE_BUDGET (default 1) earned
+    moves: it keeps the move on the scene's most climactic earned shot and
+    downgrades the rest back to static, restoring their original
+    (un-composed) description and re-routing their model recommendation."""
     try:
         from image_prompts.engine.camera_selector import ShotContext, select_camera_move
     except Exception:
@@ -640,6 +667,7 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
     planned = 0
     prev_ids: list = []
     prev_keys: list = []
+    earned: list = []  # [{shot, ctx, sel, orig_description}] in shot order, this scene
     try:
         for mi, moment in enumerate(moments):
             shots = [("master", moment.get("master") or {})]
@@ -648,19 +676,31 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
             for role, shot in shots:
                 if not shot.get("description"):
                     continue
+                is_scene_final = (mi == len(moments) - 1 and role == "master")
                 ctx = ShotContext(
                     sentence_text=f"{moment.get('summary') or ''}. {shot['description']}",
+                    # C1 classifier diet: the narrow narrative beat (moment summary +
+                    # spoken line, if any) — NEVER shot['description'], which by the
+                    # time plan_camera_moves runs already carries the scene-constant
+                    # SET-DRESSING/AXIS/STAGING boilerplate appended above in
+                    # run_coverage(). That boilerplate keyword-matches "behind" etc.
+                    # and would false-classify every shot REVEAL. sentence_text
+                    # (unchanged) still carries the full composed text for every
+                    # other use in camera_selector.py (subject inference, interior
+                    # check, jitter) — only classify_camera_purpose() gets the diet.
+                    narrative_text=f"{moment.get('summary') or ''}. {moment.get('line') or ''}".strip(". ") + ".",
                     composition=_SHOT_TYPE_COMPOSITION.get(
                         (shot.get("shot_type") or "MS").upper(), "medium"),
                     # Lip-synced speaking shots want calm moves — cap intensity low
                     intensity="low" if (speaking and role == "master") else "medium",
                     is_scene_open=(mi == 0 and role == "master"),
-                    is_scene_final=(mi == len(moments) - 1 and role == "master"),
+                    is_scene_final=is_scene_final,
                     prev_move_ids=prev_ids,
                     prev_legacy_keys=prev_keys,
                 )
                 sel = select_camera_move(ctx)
                 if sel.move:
+                    orig_description = shot["description"]
                     shot["camera_move"] = f"{sel.move.id}|{sel.purpose}"
                     shot["description"] = (
                         f"{shot['description'].rstrip('. ')}. "
@@ -669,6 +709,8 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
                     prev_ids.append(sel.move.id)
                     prev_keys.append(sel.move.legacy_key)
                     planned += 1
+                    earned.append({"shot": shot, "ctx": ctx, "sel": sel,
+                                    "orig_description": orig_description})
                 else:
                     shot["camera_move"] = "static"
                     prev_keys.append("static")
@@ -691,6 +733,43 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
                 except Exception as route_err:  # noqa: BLE001
                     print(f"  model routing failed (shot ships without a "
                           f"recommendation): {str(route_err)[:120]}", flush=True)
+
+        # SCENE MOVE BUDGET (C1): trim the scene's earned moves down to the
+        # cap. Tie-break: keep the scene-final earned shot first (the
+        # PAYOFF-tier beat — the most climactic moment to spend the move
+        # budget on), then earned shots in original shot order, until the
+        # budget is filled; downgrade everything past that back to static.
+        budget = _scene_move_budget()
+        if len(earned) > budget:
+            priority = sorted(
+                range(len(earned)),
+                key=lambda i: (0 if earned[i]["ctx"].is_scene_final else 1, i),
+            )
+            keep = set(priority[:budget])
+            for i, rec in enumerate(earned):
+                if i in keep:
+                    continue
+                shot = rec["shot"]
+                shot["description"] = rec["orig_description"]
+                shot["camera_move"] = "static"
+                planned -= 1
+                # Re-route: the shot's EFFECTIVE purpose is now STATIC (the
+                # move was downgraded), so its model recommendation should
+                # reflect that too — the cheap default tier, not the
+                # earned-purpose tier it was routed to above. Best-effort,
+                # same fail-soft contract as the routing call above: on
+                # failure the shot simply keeps whichever routed_model/
+                # routing_reason it already had (never crashes the plan).
+                try:
+                    from shared.model_router import route_shot_model
+                    decision = route_shot_model(
+                        "STATIC", render_style=render_style,
+                        video_model_id=video_model_id)
+                    shot["routed_model"] = decision.model_id
+                    shot["routing_reason"] = decision.routing_reason
+                except Exception as route_err:  # noqa: BLE001
+                    print(f"  model re-routing failed after budget downgrade: "
+                          f"{str(route_err)[:120]}", flush=True)
     except Exception as e:  # noqa: BLE001 — camera planning must never kill coverage
         print(f"  camera planning failed (shots stay freeform): {str(e)[:120]}", flush=True)
     return planned
