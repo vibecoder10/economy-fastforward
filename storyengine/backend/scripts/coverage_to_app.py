@@ -56,9 +56,9 @@ from vault import get_secret                                  # noqa: E402
 from kie_unified import get_text_client_for_tenant            # noqa: E402
 from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
-    parse_coverage, enforce_shot_budget, parse_set_dressing,
-    parse_axis_line, parse_setups_line, panels_per_sheet_for,
+    parse_set_dressing, parse_axis_line, parse_setups_line, panels_per_sheet_for,
     sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
+    plan_moments_deterministic,
 )
 # C4 prop manifest: the ONE renderer every consumer (beat prompt, real draw
 # prompt, redraw/repair prompt) uses, so the wording is byte-identical
@@ -877,16 +877,19 @@ def _scene_text_hash(text: str) -> str:
 def _expected_coverage_frame_count(directive_text: str, max_moments: int, angles_max: int,
                                    max_frames) -> int:
     """C16b (S7-2): the frame count THIS SAME saved directive would produce if drawn
-    again right now — parse_coverage() + enforce_shot_budget() are the exact two calls
-    run_coverage() makes when handed a saved directive_text (see run_coverage() below),
-    given today's per-scene shape params (_coverage_shape, deterministic from scene_text
-    + dialogue_audio). Used as the "how many frames SHOULD exist" side of the
-    skip-if-done completeness check — never a guess, the same planner math the paid
-    draw itself uses."""
-    moments = parse_coverage(directive_text or "")
+    again right now — plan_moments_deterministic() (parse -> budget -> floors -> variety,
+    C7 fix (a)) is the EXACT pipeline run_coverage() runs when handed a saved
+    directive_text (see run_coverage() below), given today's per-scene shape params
+    (_coverage_shape, deterministic from scene_text + dialogue_audio). Used as the
+    "how many frames SHOULD exist" side of the skip-if-done completeness check — never
+    a guess, the same planner math the paid draw itself uses. Before C7, this only ran
+    parse+budget (no floors), which under-counted any scene whose floors add shots —
+    a false-positive "already drawn" skip that would strand a scene that actually
+    still needs more frames drawn."""
+    moments = plan_moments_deterministic(directive_text or "", max_moments, angles_max,
+                                         max_frames=max_frames)
     if not moments:
         return 0
-    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
     return sum(1 + len(m.get("angles") or []) for m in moments)
 
 
@@ -945,6 +948,31 @@ def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_l
         "bubbles, captions, dialogue or written words of any kind — keep every panel free of "
         "readable text except the small panel-number label."
     )
+
+
+# C7 fix (a), layer 2 — legacy-sheet guard: both _sheet_header variants embed
+# "N panels" once per board ("...a grid of {panel_count} panels..." / "...:
+# {panel_count} panels in a 3-column grid..."), and generate_storyboard_sheet_for_scene
+# persists every board's full header+body into scripts.storyboard_prompts (the
+# SAME UPDATE that writes storyboard_1_url.._5_url — see its "STREAMING CONTRACT"
+# comment). That makes storyboard_prompts the one piece of bookkeeping that
+# survives a code change: it records the panel count the boards ACTUALLY drew
+# with, at the time they were drawn, regardless of what today's planner would
+# produce from the same directive_text.
+_SHEET_PANEL_COUNT_RE = re.compile(r"\b(\d+)\s+panels\b", re.IGNORECASE)
+
+
+def _stored_sheet_panel_total(storyboard_prompts: Optional[str]) -> Optional[int]:
+    """Sum of every board's "N panels" count embedded in the persisted
+    storyboard_prompts blob — the TRUE total panel count the approved sheets
+    in board_urls were planned with. None when the column is empty (no prior
+    gate ran) or nothing matches (unparseable/legacy shape) — callers must
+    treat None as "unknown, can't compare" rather than a 0-panel mismatch."""
+    text = storyboard_prompts or ""
+    if not text.strip():
+        return None
+    counts = [int(m) for m in _SHEET_PANEL_COUNT_RE.findall(text)]
+    return sum(counts) if counts else None
 
 
 def _sheet_filter_reject(fail_info: Optional[dict]) -> bool:
@@ -1659,10 +1687,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 s["scene_text"] or "", title, profile, bible, [sc], [],
                 max_moments=_mm, angles_min=_amin, angles_max=_amax,
                 anthropic_client=claude, model=claude_model)
-        moments = parse_coverage(directive or "")
+        # C7 fix (a): parse -> budget -> floors -> variety, the SAME deterministic
+        # pipeline (and order) run_coverage() runs on this exact directive_text at
+        # picture-draw time — the sheet preview built below from `moments` and the
+        # picture step's board-anchor panel numbering can no longer disagree on the
+        # scene's final shot sequence.
+        moments = plan_moments_deterministic(directive or "", _mm, _amax, max_frames=_mframes)
         if not moments:
             _p(f"Scene {sc}: the planner returned no shots"); continue
-        moments = enforce_shot_budget(moments, _mm, _amax, max_frames=_mframes)
         # Verbatim line placement NOW, so the preview shows exactly which shot
         # speaks which line — the same reconcile runs again at draw time and,
         # being deterministic, lands identically.
@@ -1828,8 +1860,18 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                         for old, new in reworded_pairs:
                             print(f"      🔧 Sweep {sweeps_run} escalation: reworded "
                                   f"'{old}' -> '{new}'")
-                        moments = parse_coverage(directive or "")
-                        moments = enforce_shot_budget(moments, _mm, _amax, max_frames=_mframes)
+                        # C7 fix (a): same shared deterministic pipeline as the initial
+                        # plan above — the escalation only reworks wording (never adds/
+                        # removes shots), but re-running the full pipeline here (not just
+                        # parse+budget) keeps this re-plan byte-identical to what the
+                        # picture step will recompute from the same (reworded) directive.
+                        # Falls back to [] (never None) on a parse failure — practically
+                        # unreachable (the reworded text keeps every MOMENT/shot line,
+                        # only prop/gesture nouns change) but matches the old
+                        # parse_coverage()-returns-[] behavior instead of crashing
+                        # downstream on a bare None.
+                        moments = plan_moments_deterministic(
+                            directive or "", _mm, _amax, max_frames=_mframes) or []
                         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
                         _sheet_kwargs = dict(
                             panels_per_sheet=panels_per_sheet_for(directive or ""),
@@ -2483,8 +2525,9 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         # reviewed are binding. An edited script invalidates the preview.
         directive = None
         board_urls: list = []
+        board_panel_total = None
         saved = await fetch_one(
-            "SELECT coverage_directive, coverage_directive_hash, "
+            "SELECT coverage_directive, coverage_directive_hash, storyboard_prompts, "
             "storyboard_1_url, storyboard_2_url, storyboard_3_url, "
             "storyboard_4_url, storyboard_5_url FROM scripts "
             "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
@@ -2496,7 +2539,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 # are ALREADY fully drawn under this exact plan, re-running
                 # would re-bill the paid draw for pixels that would come out
                 # as the identical prompts. "Complete" is judged against the
-                # frame count parse_coverage()+enforce_shot_budget() would
+                # frame count plan_moments_deterministic() (C7 fix (a)) would
                 # actually produce from THIS saved directive under today's
                 # shape params (_expected_coverage_frame_count) — not merely
                 # "> 0 rows exist" — so a crash or content-policy skip
@@ -2522,6 +2565,15 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 board_urls = [saved.get(f"storyboard_{i}_url") for i in range(1, 6)]
                 while board_urls and not board_urls[-1]:
                     board_urls.pop()
+                # C7 fix (a), layer 2: the TRUE panel count those sheets were
+                # planned with (never re-derived from moments) — the legacy-
+                # sheet guard run_coverage's board-anchor block checks its
+                # own recompute against. storyboard_prompts is set in the
+                # SAME UPDATE as the board URLs (the gate's one write), so
+                # it's present whenever board_urls is; None only for a row
+                # this fix predates or that isn't parseable.
+                board_panel_total = (_stored_sheet_panel_total(saved.get("storyboard_prompts"))
+                                     if board_urls else None)
                 anchored = " — matching the approved boards" if any(board_urls) else ""
                 _p(f"Scene {sc}: drawing the storyboarded plan ({model_override or 'GPT Image 2'}){anchored}…")
             else:
@@ -2538,7 +2590,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 anthropic_client=claude, directive_model=claude_model, directive_text=directive,
                 max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
                 aspect=aspect, env_url=(env or {}).get("reference_url"),
-                board_urls=board_urls or None, model_override=model_override,
+                board_urls=board_urls or None, board_panel_total=board_panel_total,
+                model_override=model_override,
                 render_style=render_style, video_model_id=video_model_id,
                 # C4: the matched environment's canonical prop manifest, if it
                 # has one — run_coverage appends it verbatim to every shot's

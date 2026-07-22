@@ -5,6 +5,8 @@ Run: python skills/video-pipeline/tests/test_coverage.py   (or via pytest)
 import asyncio
 import os
 import sys
+import tempfile
+from unittest.mock import AsyncMock, patch
 
 _PIPELINE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _PIPELINE_ROOT)
@@ -19,9 +21,10 @@ sys.path.append(os.path.join(_PIPELINE_ROOT, "image_prompts"))
 from storyboard.coverage import (  # noqa: E402
     parse_coverage, cast_prompt_from_story_bible, generate_coverage_frames,
     plan_camera_moves, _coverage_system_prompt, _setup_base_id,
-    enforce_setup_variety, assign_setup_anchors,
+    enforce_setup_variety, assign_setup_anchors, enforce_shot_budget,
     _shot_tag, _setup_id, enforce_reaction_insert_floors, stamp_shot_durations,
-    _flatten_shots, _shot_family, _is_wide,
+    _flatten_shots, _shot_family, _is_wide, parse_set_dressing,
+    plan_moments_deterministic, run_coverage,
 )
 
 SAMPLE = """\
@@ -431,18 +434,21 @@ def test_setup_anchor_ownership_and_size_variant_sharing():
 
 
 def _flat(*shots):
-    """Build a minimal flat_shots list from (family, role) pairs or
-    (family, role, moment_index) triples, e.g. _flat(('A', 'master'),
-    ('B', 'angle', 2), ...) — each shot gets a synthetic
-    "(SETUP <family>) ..." description so enforce_setup_variety's real
-    description-tag parsing is exercised, matching production. A pair's
-    moment index defaults to 0 (single-beat scene)."""
+    """Build a minimal flat_shots list from (family, role) pairs, (family,
+    role, moment_index) triples, or (family, role, moment_index, tag)
+    quadruples (tag: "REACTION"/"INSERT"/None) e.g. _flat(('A', 'master'),
+    ('B', 'angle', 2), ('C', 'angle', 2, 'REACTION'), ...) — each shot gets a
+    synthetic "(SETUP <family>)[(TAG)] ..." description so enforce_setup_variety's
+    real description-tag parsing is exercised, matching production. A pair's
+    moment index defaults to 0 (single-beat scene); the tag defaults to none."""
     out = []
     for i, spec in enumerate(shots):
         fam, role = spec[0], spec[1]
         mi = spec[2] if len(spec) > 2 else 0
+        tag = spec[3] if len(spec) > 3 else None
+        tag_str = f"({tag})" if tag else ""
         out.append({"shot_type": "MS", "role": role, "_mi": mi,
-                    "description": f"(SETUP {fam}) placeholder shot {i}."})
+                    "description": f"(SETUP {fam}){tag_str} placeholder shot {i}."})
     return out
 
 
@@ -516,6 +522,47 @@ def test_enforce_setup_variety_same_moment_candidate_beats_adjacent():
     assert flat[4]["description"] == "(SETUP B) placeholder shot 3."
     assert flat[0]["description"] == "(SETUP D) placeholder shot 0.", \
         "the adjacent-moment candidate must be left alone when a same-moment one exists"
+
+
+def test_enforce_setup_variety_never_swaps_a_reaction_tagged_offender():
+    """(c) C7 fix: a REACTION-tagged shot names a specific listener/speaker
+    tied to one exact instant ("CU on X, listening to Y's line") — relocating
+    it via the variety swap (even to an adjacent beat) can land it where Y
+    isn't speaking. The 3rd-consecutive-B offender here is angle-role AND
+    REACTION-tagged, with an otherwise-perfect same-moment C candidate
+    available — pre-fix this would swap; post-fix it must be left in place
+    and merely flagged, same as a master would be."""
+    flat = _flat(
+        ("B", "master", 0),
+        ("B", "angle", 0),
+        ("B", "angle", 0, "REACTION"),   # offender: angle, but REACTION-tagged
+        ("C", "angle", 0),               # otherwise a perfect same-moment candidate
+    )
+    before = [s["description"] for s in flat]
+    n = enforce_setup_variety(flat)
+    assert n == 1, "the 3-long run is still counted as a violation"
+    assert [s["description"] for s in flat] == before, \
+        "a REACTION-tagged offender must never be swapped, even with a safe candidate available"
+
+
+def test_enforce_setup_variety_never_uses_an_insert_tagged_shot_as_a_candidate():
+    """(c) C7 fix: the OTHER side of the exclusion — an INSERT-tagged shot
+    must never be chosen as the swap TARGET either (it carries its own
+    punctuation-beat content that would get dragged to the wrong position).
+    The offender (plain angle, family B) has only one different-family
+    candidate available, and it's INSERT-tagged — so no safe swap exists and
+    the violation is flagged instead."""
+    flat = _flat(
+        ("B", "master", 0),
+        ("B", "angle", 0),
+        ("B", "angle", 0),               # offender: plain angle, no tag
+        ("C", "angle", 0, "INSERT"),     # only candidate, but INSERT-tagged
+    )
+    before = [s["description"] for s in flat]
+    n = enforce_setup_variety(flat)
+    assert n == 1
+    assert [s["description"] for s in flat] == before, \
+        "an INSERT-tagged shot must never be used as a swap candidate"
 
 
 def test_setup_target_scales_with_max_moments():
@@ -669,6 +716,23 @@ def test_re_establish_floor_is_roughly_one_per_ten_shots():
     assert _wide_a_count() == 2
 
 
+def test_re_establish_floor_phrasing_has_no_two_shot_or_character_count_claim():
+    """(b) C7 fix: the RE-ESTABLISH floor's description must never claim
+    "two-shot" (or any other character-count wording) — that's false for a
+    solo or 3+ character scene, and this codebase has live proof that prose
+    implying extra bodies makes the image model invent people (see coverage.py
+    ~555). The added shot's description must describe the framing/camera only."""
+    moments = _silent_scene(11, ["A", "B", "C", "D"])
+    enforce_reaction_insert_floors(moments)
+    re_establish = [s for s in _flatten_shots(moments)
+                   if _shot_family(s) == "A" and _is_wide(s) and s is not moments[0]["master"]]
+    assert re_establish, "expected at least one added re-establish shot"
+    for s in re_establish:
+        desc = s["description"].lower()
+        assert "two-shot" not in desc, f"re-establish phrasing must not claim a two-shot: {desc!r}"
+        assert "camera unchanged" in desc
+
+
 def test_floors_convert_an_excess_shot_instead_of_adding_at_the_frame_cap():
     """(d) at the scene's frame cap, a missing REACTION floor is satisfied by
     CONVERTING an existing excess same-family angle in place — the total
@@ -750,6 +814,169 @@ def test_stamp_shot_durations_is_idempotent():
     assert moments[0]["master"]["duration_seconds"] == first == 3.5
 
 
+# =============================================================================
+# C7 fix (a): sheet/pictures divergence — plan_moments_deterministic is the
+# ONE shared pipeline (parse -> budget -> floors -> variety) both the sheet-
+# planning path (coverage_to_app.py) and the real pictures path (run_coverage)
+# must call, so a floor insertion or variety swap can never make an approved
+# sheet's panel k disagree with the final picture's shot k.
+# =============================================================================
+
+def _sequence(moments):
+    return [(s["shot_type"], s["description"]) for s in _flatten_shots(moments)]
+
+
+_PARITY_FLOOR_DIRECTIVE = (
+    "[SETUPS | A: wide two-shot; B: MCU on Ryan; C: MCU on Vanessa]\n"
+    "[MOMENT 1 | opening]\n"
+    "- MASTER [WS]: (SETUP A) Wide two-shot establishing the kitchen.\n"
+    "[MOMENT 2 | Ryan speaks]\n"
+    "LINE: Ryan | \"Hello there.\"\n"
+    "- MASTER [MCU]: (SETUP B) Ryan speaks, looking at Vanessa.\n"
+    "[MOMENT 3 | Vanessa speaks]\n"
+    "LINE: Vanessa | \"Hi Ryan.\"\n"
+    "- MASTER [MCU]: (SETUP C) Vanessa speaks, looking at Ryan.\n"
+    "[MOMENT 4 | Ryan speaks again]\n"
+    "LINE: Ryan | \"How are you?\"\n"
+    "- MASTER [MCU]: (SETUP B) Ryan speaks again.\n"
+)
+
+
+def test_plan_moments_deterministic_matches_manual_pipeline_when_a_floor_fires():
+    """(a) layer 1: plan_moments_deterministic must run parse -> budget ->
+    floors -> variety, in that exact order, on the SAME directive_text — the
+    ONE pipeline both coverage_to_app.py's sheet-planning path and
+    run_coverage() now import and call, instead of each re-typing the call
+    chain (the divergence that broke board-anchor panel mapping). This clean
+    2-speaker, 3-turn dialogue earns exactly 1 REACTION floor shot (3 // 4,
+    floored at 1) that a parse+budget-ONLY pipeline (the pre-fix sheet-
+    planning behavior) would never have added — proving the shared function
+    isn't just parse+budget in a trench coat."""
+    moments = plan_moments_deterministic(_PARITY_FLOOR_DIRECTIVE, 10, 4, max_frames=None)
+    assert moments is not None
+    seq = _sequence(moments)
+    assert len(seq) == 5, f"expected 4 planned masters + 1 REACTION floor shot, got {seq}"
+    assert sum(1 for _, desc in seq if "(REACTION)" in desc) == 1
+
+    # Manually chaining the SAME four calls, in the SAME order, on a FRESH
+    # parse of the identical text must yield byte-identical output — pinning
+    # the shared function's internal order, not merely its final count.
+    manual = parse_coverage(_PARITY_FLOOR_DIRECTIVE)
+    manual = enforce_shot_budget(manual, 10, 4, max_frames=None)
+    enforce_reaction_insert_floors(manual, set_line=parse_set_dressing(_PARITY_FLOOR_DIRECTIVE),
+                                   max_frames=None)
+    enforce_setup_variety(_flatten_shots(manual))
+    assert _sequence(manual) == seq
+
+
+def test_plan_moments_deterministic_matches_manual_pipeline_when_a_variety_swap_fires():
+    """(a) layer 1, second fixture: a scene where enforce_setup_variety
+    performs a REAL swap (not merely a flagged violation) — proves the
+    shared pipeline's floors-then-variety ordering holds even when the
+    LATER pass is the one that mutates content, not just the earlier one."""
+    directive = (
+        "[SETUPS | B: wide of the room; C: MCU on the table]\n"
+        "[MOMENT 1 | beat one]\n"
+        "- MASTER [WS]: (SETUP B) wide beat one.\n"
+        "[MOMENT 2 | beat two]\n"
+        "- MASTER [MS]: (SETUP B) medium beat two.\n"
+        "- ANGLE [MS]: (SETUP B) angle beat two, same setup.\n"
+        "[MOMENT 3 | beat three]\n"
+        "- MASTER [MS]: (SETUP C) medium master beat three.\n"
+        "- ANGLE [ECU]: (SETUP C) extreme close angle beat three.\n"
+    )
+    moments = plan_moments_deterministic(directive, 10, 4, max_frames=None)
+    assert moments is not None
+    seq = _sequence(moments)
+    assert len(seq) == 5, f"no floor should fire on this silent, tiny scene, got {seq}"
+    # The offending 3rd-consecutive-B shot (position 2, an angle) swapped with
+    # the nearest safe different-family angle (position 4) — content moved.
+    assert "extreme close angle beat three" in seq[2][1], seq
+    assert "angle beat two, same setup" in seq[4][1], seq
+
+    manual = parse_coverage(directive)
+    manual = enforce_shot_budget(manual, 10, 4, max_frames=None)
+    enforce_reaction_insert_floors(manual, set_line=parse_set_dressing(directive), max_frames=None)
+    enforce_setup_variety(_flatten_shots(manual))
+    assert _sequence(manual) == seq
+
+
+# ---- board-anchor legacy-sheet guard (a, layer 2) --------------------------
+
+_BOARD_ANCHOR_DIRECTIVE = (
+    "[MOMENT 1 | opening]\n"
+    "- MASTER [WS]: (SETUP A) Wide two-shot establishing the kitchen.\n"
+    "- ANGLE [MCU]: (SETUP B) MCU on Dad.\n"
+)
+
+
+def _run_coverage_with_mocked_draw(board_urls, board_panel_total):
+    """Drives run_coverage() for real through parse/budget/floors/variety,
+    the tail locks, and the board-anchor block — but short-circuits the
+    (real network/paid) cast resolution, per-shot draw, and download calls
+    with recording fakes, so the test observes exactly what the board-anchor
+    block stamped onto the shot dicts."""
+    captured = []
+
+    async def _fake_frames(moment, cast_url, image_client, profile=None, env_url=None,
+                           aspect="16:9", resolution="1K", sem=None, model_override=None,
+                           setup_anchors=None):
+        captured.append(moment)
+        frames = [{"role": "master", "shot_type": moment["master"]["shot_type"],
+                  "description": moment["master"]["description"], "url": "https://img/m.png"}]
+        for a in moment.get("angles") or []:
+            frames.append({"role": "angle", "shot_type": a["shot_type"],
+                           "description": a["description"], "url": "https://img/a.png"})
+        return frames
+
+    outdir = tempfile.mkdtemp()
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames)), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="two people talk in a kitchen", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=_BOARD_ANCHOR_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+            board_urls=board_urls, board_panel_total=board_panel_total,
+        ))
+    assert not out.get("error"), out
+    assert captured, "generate_coverage_frames must have been reached"
+    return captured[0]
+
+
+def test_board_anchor_skips_on_legacy_panel_count_mismatch():
+    """(a) layer 2: board_panel_total is the TRUE panel count the approved
+    sheets were planned with (read back from persisted bookkeeping by the
+    caller, never re-derived from moments). When it disagrees with what THIS
+    run just recomputed for the same directive (a legacy sheet planned before
+    floors/variety existed, or before they ran in the sheet path too),
+    anchoring must be SKIPPED for the scene — never pin a frame to the wrong
+    approved panel."""
+    m = _run_coverage_with_mocked_draw(["https://sheet1.png"], board_panel_total=99)
+    assert "board_panel" not in m["master"], \
+        "a mismatched board_panel_total must skip anchoring, not pin to the wrong panel"
+    for a in m.get("angles") or []:
+        assert "board_panel" not in a
+
+
+def test_board_anchor_applies_normally_on_matching_panel_count():
+    """(a) layer 2 counterpart: a MATCHING board_panel_total anchors exactly
+    as before this fix — 2 shots (1 master + 1 angle) pinned to panels 1/2."""
+    m = _run_coverage_with_mocked_draw(["https://sheet1.png"], board_panel_total=2)
+    assert m["master"].get("board_panel") == 1
+    assert m["master"].get("board_url") == "https://sheet1.png"
+    assert m["angles"][0].get("board_panel") == 2
+
+
+def test_board_anchor_applies_when_no_ground_truth_is_available():
+    """(a) layer 2: board_panel_total=None (no persisted bookkeeping to
+    compare against — e.g. an old row from before this fix) must preserve
+    the prior anchor-unconditionally behavior, never a silent skip."""
+    m = _run_coverage_with_mocked_draw(["https://sheet1.png"], board_panel_total=None)
+    assert m["master"].get("board_panel") == 1
+    assert m["angles"][0].get("board_panel") == 2
+
+
 if __name__ == "__main__":
     test_parses_two_moments()
     test_parses_no_bracket_and_multiword_shot_types()
@@ -771,6 +998,8 @@ if __name__ == "__main__":
     test_enforce_setup_variety_fixes_with_a_safe_angle_swap()
     test_enforce_setup_variety_never_swaps_across_distant_moments()
     test_enforce_setup_variety_same_moment_candidate_beats_adjacent()
+    test_enforce_setup_variety_never_swaps_a_reaction_tagged_offender()
+    test_enforce_setup_variety_never_uses_an_insert_tagged_shot_as_a_candidate()
     test_setup_target_scales_with_max_moments()
     test_tension_sizing_guidance_present_in_user_prompt()
     test_inline_tag_regex_parses_reaction_and_insert()
@@ -779,8 +1008,14 @@ if __name__ == "__main__":
     test_reaction_floor_skipped_for_a_single_speaker_or_three_plus()
     test_insert_floor_is_roughly_one_per_six_to_eight_shots()
     test_re_establish_floor_is_roughly_one_per_ten_shots()
+    test_re_establish_floor_phrasing_has_no_two_shot_or_character_count_claim()
     test_floors_convert_an_excess_shot_instead_of_adding_at_the_frame_cap()
     test_floors_leave_violation_logged_when_no_safe_conversion_exists()
     test_stamp_shot_durations_by_shot_size_and_skips_speaking_master()
     test_stamp_shot_durations_is_idempotent()
+    test_plan_moments_deterministic_matches_manual_pipeline_when_a_floor_fires()
+    test_plan_moments_deterministic_matches_manual_pipeline_when_a_variety_swap_fires()
+    test_board_anchor_skips_on_legacy_panel_count_mismatch()
+    test_board_anchor_applies_normally_on_matching_panel_count()
+    test_board_anchor_applies_when_no_ground_truth_is_available()
     print("ok — coverage parser + cast-builder self-checks passed")

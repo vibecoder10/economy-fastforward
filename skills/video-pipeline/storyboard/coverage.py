@@ -768,9 +768,15 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
     — so this can never reassign a spoken line to the wrong moment. MASTERS
     ARE NEVER SWAPPED, on either side: a master owns its moment's LINE and
     is the setup's anchor-owner slot, and moving one would reorder the
-    dialogue. When no safe swap exists (the whole run is masters, or no
-    different-family angle sits within one moment of the offender), the
-    violation is left in place and logged loudly instead.
+    dialogue. A (REACTION)/(INSERT)-TAGGED shot (see _shot_tag) is ALSO NEVER
+    SWAPPED, on either side, same as a master: its description names a
+    specific listener/speaker tied to one exact instant ("CU on X, listening
+    to Y's line, same instant") — even an adjacent-moment swap can land that
+    content where Y isn't speaking, so a tagged shot is excluded from both
+    the offender-fix attempt and the candidate pool. When no safe swap
+    exists (the whole run is masters/tagged shots, or no safe different-
+    family angle sits within one moment of the offender), the violation is
+    left in place and logged loudly instead.
 
     Returns the number of violations found (fixed + merely flagged)."""
     violations = 0
@@ -791,12 +797,13 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
             for k in range(i + max_consecutive, j):
                 violations += 1
                 swap_with = None
-                if flat_shots[k].get("role") == "angle":
+                if flat_shots[k].get("role") == "angle" and not _shot_tag(flat_shots[k]):
                     k_mi = flat_shots[k].get("_mi", 0)
                     candidates = [
                         c for c in range(n)
                         if not (i <= c < j)  # never trade within the offending run
                         and flat_shots[c].get("role") == "angle"
+                        and not _shot_tag(flat_shots[c])  # never relocate REACTION/INSERT content
                         and families[c] not in (None, fam)
                         and abs(flat_shots[c].get("_mi", 0) - k_mi) <= 1  # same or adjacent beat ONLY
                     ]
@@ -1026,8 +1033,8 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
         n = len(moments)
         for k in range(need):
             target_mi = min(n - 1, ((k + 1) * n) // (need + 1))
-            desc = (f"(SETUP {establish_family}) WS re-establishing the whole staging — "
-                    "the scene's opening two-shot, camera unchanged.")
+            desc = (f"(SETUP {establish_family}) WS re-establishing the whole staging at its "
+                    "established framing, camera unchanged.")
             _place(target_mi, "WS", desc, "re-establish")
 
     # ---- REACTION ---------------------------------------------------------
@@ -1107,6 +1114,57 @@ def stamp_shot_durations(moments: list) -> int:
                 _SHOT_TYPE_COMPOSITION.get((a.get("shot_type") or "").upper(), "medium"), 2.5)
             n += 1
     return n
+
+
+# =============================================================================
+# C7 fix (a): the ONE deterministic shot-planning pipeline. Before this fix,
+# coverage_to_app.py's sheet-planning path (_plan_sheet_prompts's callers)
+# ran parse_coverage -> enforce_shot_budget ONLY, while run_coverage() below
+# ALSO ran enforce_reaction_insert_floors and enforce_setup_variety before
+# chunking/counting panels for the board-anchor block. Both passes are
+# deterministic and code-only (no LLM), so there was never a reason for them
+# to disagree — but any floor insertion or variety swap shifted which shot
+# landed at position k, so the approved sheet's panel k and the final
+# picture's shot k silently stopped matching (composing to the WRONG
+# panel). Centralizing the whole sequence in one function, imported by both
+# sides instead of re-typed at each call site, makes that divergence
+# structurally impossible rather than merely documented.
+# =============================================================================
+
+def plan_moments_deterministic(directive_text: str, max_moments: int, angles_max: int,
+                               max_frames: int | None = None, verbose: bool = False) -> list[dict] | None:
+    """parse_coverage -> enforce_shot_budget -> enforce_reaction_insert_floors ->
+    enforce_setup_variety, in that exact order, on the SAME directive_text —
+    the one pipeline every consumer of a saved coverage directive (the sheet
+    preview AND the real pictures draw) must run so a shot's position never
+    depends on which caller asked. Every pass here is pure/deterministic
+    (no LLM call), so two callers handed the same directive_text and the
+    same shape params (max_moments/angles_max/max_frames — themselves
+    deterministic from scene_text + dialogue_audio, see _coverage_shape)
+    always get byte-identical shot sequences back.
+
+    Returns None (never an empty list) when the directive parses to no
+    moments at all — callers should treat that as "nothing to plan",
+    same as a bare parse_coverage() failure would.
+
+    verbose: print the same progress lines run_coverage() has always
+    printed for the floors/variety passes (the sheet-planning callers stay
+    silent, matching their pre-fix behavior of never logging these — only
+    the real draw path narrates progress to the creator)."""
+    moments = parse_coverage(directive_text or "")
+    if not moments:
+        return None
+    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
+    n_floors = enforce_reaction_insert_floors(
+        moments, set_line=parse_set_dressing(directive_text or ""), max_frames=max_frames)
+    if verbose and n_floors:
+        print(f"  🎬 reaction/insert/re-establish floors: {n_floors} shot(s) added or converted",
+              flush=True)
+    n_variety = enforce_setup_variety(_flatten_shots(moments))
+    if verbose and n_variety:
+        print(f"  🎞️ setup variety: {n_variety} same-setup run(s) beyond 2 consecutive "
+              f"shots addressed", flush=True)
+    return moments
 
 
 # Panels per gate sheet now depends on the plan's format — see
@@ -1549,7 +1607,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        anthropic_client=None, directive_model=None,
                        max_moments=3, angles_min=2, angles_max=4, max_frames=None,
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
-                       board_urls=None, model_override=None,
+                       board_urls=None, board_panel_total=None, model_override=None,
                        render_style=None, video_model_id=None,
                        props=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
@@ -1572,7 +1630,19 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     video_environments.props via coverage_to_app._approved_envs/_match_scene_env), or None.
     When present, apply_prop_manifest appends it VERBATIM to every shot's draw prompt below —
     the same manifest text render_prop_manifest renders into the beat prompt and the redraw/
-    repair prompt (contract-triangle law). None is today's behavior, unchanged."""
+    repair prompt (contract-triangle law). None is today's behavior, unchanged.
+
+    board_panel_total (C7 fix (a), legacy-sheet guard): the TRUE panel count the
+    approved sheets in `board_urls` were planned with, read back from persisted
+    bookkeeping by the caller (coverage_to_app._stored_sheet_panel_total, off
+    scripts.storyboard_prompts) — never re-derived here. None means "unknown"
+    (no prior gate, or an old row with nothing parseable) and preserves today's
+    anchor-unconditionally behavior. When it disagrees with what THIS run just
+    recomputed for the same directive, the sheets were planned by an older
+    pipeline (before floors/variety existed, or before they ran in the sheet
+    path too) — anchoring to their panel numbers would pin frames to the WRONG
+    approved panel, so anchoring is skipped for the scene instead (composed
+    unanchored — honest degradation, not silent wrong-panel composition)."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
     cast_url = await resolve_cast_url(cast_url, image_client, cast_prompt=cast_prompt,
@@ -1588,34 +1658,16 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     with open(os.path.join(outdir, "directive.txt"), "w") as f:
         f.write(directive_text)
 
-    moments = parse_coverage(directive_text)
+    # C7 fix (a): parse -> budget -> floors -> variety, all via the ONE shared
+    # deterministic pipeline coverage_to_app.py's sheet-planning path now
+    # imports and runs too (plan_moments_deterministic) — the two can no
+    # longer silently diverge on the scene's final shot sequence. verbose=True
+    # preserves this function's existing progress lines for the floors/
+    # variety passes, unchanged from before this refactor.
+    moments = plan_moments_deterministic(directive_text, max_moments, angles_max,
+                                         max_frames=max_frames, verbose=True)
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
-    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
-
-    # REACTION/INSERT/RE-ESTABLISH FLOORS (C3 item 2): guarantee the minimum
-    # cut-like-an-editor coverage a dialogue scene needs (rule 5f) — a code
-    # validator, never an LLM re-plan. Runs BEFORE the setup-variety cap
-    # below (so a floor-added shot's family gets swept by that cap too) and
-    # BEFORE the tail locks further down (so every floor-added shot's
-    # description also gets the set/axis/staging tail appended, same as any
-    # shot the planner wrote itself).
-    n_floors = enforce_reaction_insert_floors(
-        moments, set_line=parse_set_dressing(directive_text), max_frames=max_frames)
-    if n_floors:
-        print(f"  🎬 reaction/insert/re-establish floors: {n_floors} shot(s) added or converted",
-              flush=True)
-
-    # SETUP VARIETY CAP (C2 item 3): no more than 2 consecutive shots in the
-    # scene's draw order may share the same BASE setup family (B and B-CU
-    # count as one family) — otherwise the cut reads as the camera never
-    # moving. Runs BEFORE the tail locks below so a swapped shot's
-    # description still gets its set/axis/staging tail appended once, and
-    # BEFORE board anchoring so panel numbers stay purely positional.
-    n_variety = enforce_setup_variety(_flatten_shots(moments))
-    if n_variety:
-        print(f"  🎞️ setup variety: {n_variety} same-setup run(s) beyond 2 consecutive "
-              f"shots addressed", flush=True)
 
     # SET-DRESSING LOCK: the planner declares the scene's fixed props once on the
     # [SET | ...] line; stamp it into EVERY shot's image prompt. Per-shot prompts
@@ -1686,12 +1738,13 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
 
     # BOARD ANCHOR: pin each shot to its numbered panel on the approved gate
     # sheet(s). Panel numbers are GLOBAL across sheets and count masters then
-    # angles in moment order — the exact order _plan_sheet_prompts drew them in
-    # (same directive, same deterministic parse + budget, so the k-th shot here
-    # IS panel k on the sheets). Only sound when the caller verified the sheets
-    # came from THIS directive_text; a re-planned scene passes no board_urls.
+    # angles in moment order — the exact order the sheet-planning path draws
+    # them in (same directive, same deterministic parse + budget + floors +
+    # variety via plan_moments_deterministic — C7 fix (a) — so the k-th shot
+    # here IS panel k on the sheets). Only sound when the caller verified the
+    # sheets came from THIS directive_text; a re-planned scene passes no
+    # board_urls.
     if board_urls:
-        k = 0
         _cap = panels_per_sheet_for(directive_text)
         # BALANCED boards (Ryan, 2026-07-21): panel->sheet is no longer a
         # fixed stride ((k-1)//cap) — boards are evenly sized via
@@ -1699,19 +1752,39 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
         # with, so anchoring and chunking cannot disagree on boundaries.
         # _bounds[i] = the last (1-based) global panel number on sheet i.
         _total = sum(1 + len(m.get("angles") or []) for m in moments)
-        _bounds, _run = [], 0
-        for _size in sheet_chunk_sizes(_total, _cap):
-            _run += _size
-            _bounds.append(_run)
-        for m in moments:
-            for shot in [m["master"], *(m.get("angles") or [])]:
-                k += 1
-                si = next(i for i, b in enumerate(_bounds) if k <= b)
-                if si < len(board_urls) and board_urls[si]:
-                    shot["board_url"], shot["board_panel"] = board_urls[si], k
-        print(f"  📌 board anchor: {k} shots pinned to the approved sheet panels "
-              f"(panels/board: {'+'.join(str(s) for s in sheet_chunk_sizes(_total, _cap))})",
-              flush=True)
+        # LEGACY-SHEET GUARD (C7 fix (a), layer 2): board_panel_total is the
+        # panel count the approved sheets were ACTUALLY planned with, read
+        # back from persisted bookkeeping (never re-derived from moments —
+        # that's exactly the assumption that broke before this fix). A sheet
+        # planned before floors/variety existed (or before they ran in the
+        # sheet path too) shows fewer panels than today's full pipeline just
+        # recomputed; anchoring to those panel numbers would pin frames to
+        # the WRONG approved panel. Skip anchoring for this scene instead —
+        # composed unanchored is an honest degradation; composed to the
+        # wrong panel is a silent one. None means "unknown" (no prior gate,
+        # or unparseable legacy bookkeeping) and preserves the prior
+        # anchor-unconditionally behavior.
+        if board_panel_total is not None and board_panel_total != _total:
+            print(f"  ⚠️ board anchor SKIPPED: the approved sheet(s) show "
+                  f"{board_panel_total} panel(s) but today's plan recomputes {_total} "
+                  f"shot(s) from this same directive — a legacy/stale sheet plan. "
+                  f"Composing this scene UNANCHORED rather than pinning frames to the "
+                  f"wrong panels.", flush=True)
+        else:
+            k = 0
+            _bounds, _run = [], 0
+            for _size in sheet_chunk_sizes(_total, _cap):
+                _run += _size
+                _bounds.append(_run)
+            for m in moments:
+                for shot in [m["master"], *(m.get("angles") or [])]:
+                    k += 1
+                    si = next(i for i, b in enumerate(_bounds) if k <= b)
+                    if si < len(board_urls) and board_urls[si]:
+                        shot["board_url"], shot["board_panel"] = board_urls[si], k
+            print(f"  📌 board anchor: {k} shots pinned to the approved sheet panels "
+                  f"(panels/board: {'+'.join(str(s) for s in sheet_chunk_sizes(_total, _cap))})",
+                  flush=True)
 
     # Camera Movement Engine: decide each shot's move NOW, before drawing, so
     # the stills are composed for their moves (storytelling formats only —
