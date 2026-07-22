@@ -60,6 +60,13 @@ from storyboard.coverage import (  # noqa: E402
     parse_axis_line, parse_setups_line, panels_per_sheet_for,
     sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
 )
+# C4 prop manifest: the ONE renderer every consumer (beat prompt, real draw
+# prompt, redraw/repair prompt) uses, so the wording is byte-identical
+# everywhere — never a fresh LLM restatement. Lives in storyboard.bot (not
+# coverage.py) because bot.py is the module coverage.py itself already
+# imports FROM (see coverage.py's own `from storyboard.bot import ...`) —
+# putting it here avoids a circular import.
+from storyboard.bot import render_prop_manifest                # noqa: E402
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 from shared.channel_profile import (  # noqa: E402
@@ -230,15 +237,41 @@ async def build_cast_prompt(claude, script_text: str, model=None, style: str | N
     return (text or "").strip()
 
 
+def _parse_props(val) -> list[dict] | None:
+    """video_environments.props (migration 115) comes back from asyncpg as a
+    raw JSON string (no jsonb codec registered — same reason routes/
+    characters.py has its own _parse_json). None/'' /'[]' all normalize to
+    None, the single falsy value every consumer treats as "no manifest"."""
+    if val is None:
+        return None
+    if isinstance(val, list):
+        return val or None
+    try:
+        parsed = json.loads(val)
+    except Exception:  # noqa: BLE001
+        return None
+    return parsed or None if isinstance(parsed, list) else None
+
+
 async def _approved_envs(vid, tenant) -> list[dict]:
     """The creator-approved environment references (the Environments tab).
-    Empty for videos that never designed locations."""
+    Empty for videos that never designed locations. `props` (C4, when
+    present) is the environment's canonical prop manifest, parsed to a
+    list[dict] ready for render_prop_manifest — absent/NULL stays None,
+    every downstream consumer's existing no-manifest fallback."""
     try:
         rows = await fetch_all(
-            "SELECT name, description, reference_url FROM video_environments "
+            "SELECT name, description, reference_url, props FROM video_environments "
             "WHERE video_id=$1 AND tenant_id=$2 AND reference_url IS NOT NULL "
             "ORDER BY sort, created_at", vid, tenant)
-        return [dict(r) for r in rows if r.get("name") and r.get("reference_url")]
+        out = []
+        for r in rows:
+            if not (r.get("name") and r.get("reference_url")):
+                continue
+            d = dict(r)
+            d["props"] = _parse_props(d.get("props"))
+            out.append(d)
+        return out
     except Exception:  # noqa: BLE001
         return []
 
@@ -464,14 +497,17 @@ async def _scene_locations(vid, tenant) -> list:
     """The locked locations to feed the director: the creator-APPROVED video_environments first
     (reviewed, each with a reference image), else the story bible's locations. Shaped for
     _format_story_bible_for_beat; scenes_present omitted so the director picks the right one per shot.
-    `reference_url` is carried for the image-anchor step."""
+    `reference_url` is carried for the image-anchor step. `props` (C4, when the environment has
+    one) is the canonical prop manifest — _format_story_bible_for_beat renders it verbatim; absent
+    means no manifest and the formatter's prior prose-only behavior is unchanged."""
     rows = await fetch_all(
-        "SELECT name, description, reference_url FROM video_environments "
+        "SELECT name, description, reference_url, props FROM video_environments "
         "WHERE video_id=$1 AND tenant_id=$2 ORDER BY sort", vid, tenant)
     envs = [r for r in (rows or []) if (r.get("description") or "").strip()]
     if envs:
         return [{"id": r["name"] or "location", "description": r["description"], "lighting": "",
-                 "type": "", "reference_url": r.get("reference_url")} for r in envs]
+                 "type": "", "reference_url": r.get("reference_url"),
+                 "props": _parse_props(r.get("props"))} for r in envs]
     return await _story_bible_locations(vid, tenant)
 
 
@@ -1936,6 +1972,14 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
                 "this frame's background is this EXACT location; keep its layout, colors and "
                 "props IDENTICAL to that reference."
             )
+            # C4 contract-triangle repair leg: the SAME verbatim manifest the
+            # build prompt used (render_prop_manifest — build-time callers are
+            # storyboard.bot._format_story_bible_for_beat and storyboard.
+            # coverage.run_coverage), so a repair/redraw can't drift the props
+            # even when the batch draw already applied the manifest once.
+            manifest = render_prop_manifest(env.get("props"))
+            if manifest:
+                env_note += f" {manifest}"
     except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this
         _p(f"  (no location lock for this redraw: {str(env_err)[:80]})")
 
@@ -2495,7 +2539,12 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 max_moments=_mm, angles_min=_amin, angles_max=_amax, max_frames=_mframes,
                 aspect=aspect, env_url=(env or {}).get("reference_url"),
                 board_urls=board_urls or None, model_override=model_override,
-                render_style=render_style, video_model_id=video_model_id)
+                render_style=render_style, video_model_id=video_model_id,
+                # C4: the matched environment's canonical prop manifest, if it
+                # has one — run_coverage appends it verbatim to every shot's
+                # draw prompt. None (no match, or the env has no manifest yet)
+                # is the existing behavior, unchanged.
+                props=(env or {}).get("props"))
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
             _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
             continue

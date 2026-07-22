@@ -30,7 +30,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one
@@ -48,6 +48,26 @@ KIE_RECORD_INFO_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
 PORTRAIT_MODEL = "nano-banana-2"
 MAX_ENVIRONMENTS = 12
 TASK_TYPE = "environments"
+# C4 prop manifest: 6-8 is the target extraction count; 10 is the hard cap
+# accepted from a creator edit (routes match the migration's doc comment).
+MAX_PROPS = 10
+
+
+class PropItem(BaseModel):
+    """One entry in an environment's canonical prop manifest (migration 115).
+    Kept intentionally tiny — a name and where it sits — because this gets
+    rendered VERBATIM into prompts (storyboard.bot.render_prop_manifest),
+    never re-paraphrased."""
+    name: str
+    position: str
+
+    @field_validator("name", "position")
+    @classmethod
+    def _not_empty(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("must not be empty")
+        return v[:200]
 
 
 class EnvironmentRead(BaseModel):
@@ -58,11 +78,20 @@ class EnvironmentRead(BaseModel):
     status: str = "draft"
     source: str = "generated"
     sort: int = 0
+    props: Optional[list[PropItem]] = None
 
 
 class EnvironmentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    props: Optional[list[PropItem]] = None
+
+    @field_validator("props")
+    @classmethod
+    def _max_props(cls, v):
+        if v is not None and len(v) > MAX_PROPS:
+            raise ValueError(f"at most {MAX_PROPS} props")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +111,7 @@ async def _get_video(video_id: str, tenant_id) -> dict:
 
 
 def _row_to_read(row: dict) -> EnvironmentRead:
+    props = _parse_json(row.get("props")) or None
     return EnvironmentRead(
         id=str(row["id"]),
         name=row.get("name") or "",
@@ -90,6 +120,7 @@ def _row_to_read(row: dict) -> EnvironmentRead:
         status=row.get("status") or "draft",
         source=row.get("source") or "generated",
         sort=row.get("sort") or 0,
+        props=props if isinstance(props, list) else None,
     )
 
 
@@ -203,6 +234,55 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
     if not url:
         raise RuntimeError("Environment generation failed")
     return url
+
+
+async def _extract_env_props(env_name: str, description: str, img_url: str, creds: dict) -> list[dict]:
+    """One-time LLM prop-manifest extraction (C4) from an environment's approved
+    reference image: 6-8 {name, position} objects, authored ONCE at approval and
+    from then on injected VERBATIM everywhere a shot's prompt is built (see
+    storyboard.bot.render_prop_manifest) — never re-paraphrased by a fresh LLM
+    call per scene, which is the proven drift source (stove/fridge swapped
+    within one setup, whole kitchen swapped by shot 125).
+
+    Reuses the SAME vision_call helper (and provider-chain/creds pattern) the
+    description-refresh vision pass above already uses — no new client.
+
+    Can raise (network/parse/refusal) — the CALLER must treat this as
+    fail-soft: log loudly, leave props NULL, never block approval. This is a
+    one-time pennies call per environment; no test in this repo may invoke it
+    for real (mock vision_call)."""
+    from shared.clients.vision_client import vision_call, _looks_like_refusal
+    prompt = (
+        "List the 6-8 MOVABLE PROPS visible in this location reference image — the "
+        "specific objects a set dresser would place (never walls, floors, built-in "
+        "cabinetry, or architecture). For each, give a short name and where it sits "
+        f"in the frame. The location is {env_name}: {(description or '').strip()[:300]}\n\n"
+        'Return ONLY valid JSON, no preamble: {"props": [{"name": "...", "position": "..."}]}'
+    )
+    text = await vision_call(
+        prompt, [img_url],
+        kie_key=creds["key"] if creds["provider"] == "kie" else None,
+        anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
+        tier="fast", max_tokens=500,
+    )
+    if not text or _looks_like_refusal(text):
+        raise RuntimeError(f"no usable prop-extraction reply for {env_name}")
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    data = json.loads(text)
+    raw = data.get("props") or []
+    out = []
+    for p in raw[:MAX_PROPS]:
+        if not isinstance(p, dict):
+            continue
+        name = (p.get("name") or "").strip()
+        position = (p.get("position") or "").strip()
+        if name and position:
+            out.append({"name": name[:200], "position": position[:200]})
+    if not out:
+        raise RuntimeError(f"prop-extraction reply parsed to zero usable props for {env_name}")
+    return out[:8]
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +480,12 @@ async def update_environment(
         params.append(body.name.strip()[:120]); sets.append(f"name = ${len(params)}")
     if body.description is not None:
         params.append(body.description.strip()[:1000]); sets.append(f"description = ${len(params)}")
+    if body.props is not None:
+        # Creator-editable manifest (C4): shape + max-count already enforced by
+        # PropItem/EnvironmentUpdate's validators above; an empty list clears it
+        # back to "no manifest" (every downstream consumer's fallback path).
+        props_json = json.dumps([p.model_dump() for p in body.props]) if body.props else None
+        params.append(props_json); sets.append(f"props = ${len(params)}")
     if not sets:
         return {"status": "unchanged"}
     params += [env_id, video_id, tenant_id]
@@ -588,6 +674,33 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
                                                "(vision reply looked invalid)", env["name"])
                         except Exception as e:
                             logger.warning("[environments] vision description failed for %s: %s", env["name"], str(e)[:150])
+
+                        # PROP MANIFEST (C4): one-time extraction, only when this
+                        # environment doesn't already have one (re-approving an
+                        # env that was already extracted must not re-spend).
+                        # FAIL-SOFT BY DESIGN: any failure here (network, parse,
+                        # refusal) is logged loudly and props stays NULL —
+                        # approval must NEVER block or fail because of this.
+                        # This is the ONLY place real extraction ever fires;
+                        # every other consumer only ever reads what's already
+                        # stored.
+                        if not _parse_json(env.get("props")):
+                            try:
+                                props = await _extract_env_props(
+                                    env["name"], env.get("description") or "", img_url, creds)
+                                await execute(
+                                    "UPDATE video_environments SET props = $1, updated_at = now() "
+                                    "WHERE id = $2 AND tenant_id = $3",
+                                    json.dumps(props), env["id"], tenant_id,
+                                )
+                                env["props"] = props
+                                logger.info("[environments] prop manifest extracted for %s (%d props)",
+                                            env["name"], len(props))
+                            except Exception as e:
+                                logger.warning(
+                                    "[environments] PROP EXTRACTION FAILED for %s — approval "
+                                    "continues, props stays NULL (falls back to prose-only "
+                                    "prompts): %s", env["name"], str(e)[:200])
             except Exception as e:
                 logger.warning("[environments] vision sync skipped: %s", str(e)[:150])
 

@@ -1200,6 +1200,7 @@ CREATE TABLE video_environments (
   status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
   source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
   sort INT DEFAULT 0,
+  props JSONB,  -- migration 115: canonical {name, position} prop manifest, authored once at approval
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

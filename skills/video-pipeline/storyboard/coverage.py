@@ -43,6 +43,7 @@ sys.path.insert(0, _HERE)
 from storyboard.bot import (  # noqa: E402  reuse, don't reinvent
     _format_story_bible_for_beat,
     build_image_prompt_from_keyframe,
+    render_prop_manifest,
 )
 from shared.channel_profile import load_profile  # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
@@ -367,6 +368,70 @@ def parse_setups_line(directive_text: str) -> str | None:
     the 3-5 named setups covering one frozen staging. None on legacy plans."""
     m = _SETUPS_RE.search(directive_text or "")
     return m.group(1).strip() if m else None
+
+
+def apply_prop_manifest(moments: list, props: list | None) -> int:
+    """C4 prop-manifest lock: append the environment's canonical manifest
+    (render_prop_manifest — the SAME renderer the beat prompt and the
+    redraw/repair prompt use) to every shot's image prompt, verbatim and
+    code-rendered, exactly like the set/axis/staging locks above it in
+    run_coverage. Never a fresh LLM paraphrase — that per-scene re-derivation
+    from prose is the proven cross-scene drift source (stove/fridge swapped
+    within one setup, whole kitchen swapped by shot 125 despite env refs).
+
+    PICTURES path only (called from run_coverage) — the sheet-preview
+    builder (coverage_to_app._plan_sheet_prompts) is a separate, explicitly
+    walled-off path and must never call this.
+
+    Returns the number of shot descriptions touched (0 when props is
+    empty/None — byte-identical to before this feature existed)."""
+    manifest = render_prop_manifest(props)
+    if not manifest:
+        return 0
+    n = 0
+    for m in moments:
+        m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {manifest}"
+        n += 1
+        for a in m.get("angles") or []:
+            a["description"] = f"{a['description'].rstrip('. ')}. {manifest}"
+            n += 1
+    return n
+
+
+_PROP_NAME_NORM_RE = re.compile(r"[^a-z0-9 ]+")
+
+
+def check_prop_manifest_consistency(props: list | None, set_line: str | None) -> int:
+    """Cheap, deterministic drift ALARM for the C4 contract triangle — not a
+    gate, never blocks or rewrites anything, just logs loudly and counts.
+
+    Fuzzy-matching arbitrary shot prose against the manifest ("does any shot
+    mention an uninventoried prop") is unreliable — a shot can describe the
+    same prop with different words, and prop-class nouns in general prose
+    are too noisy to key off. So this checks the one CHEAP, deterministic
+    direction instead: does this scene's OWN planner-authored [SET | ...]
+    line (parse_set_dressing) mention every prop the environment's fixed
+    manifest declares? A manifest prop the planner's own set line never
+    echoes is a warning — worth a human glance, not proof of an error.
+
+    Returns the number of manifest props NOT found (substring, normalized)
+    in set_line. 0 when there's no manifest, no set_line, or every manifest
+    prop is echoed."""
+    if not props or not (set_line or "").strip():
+        return 0
+    norm_set = f" {_PROP_NAME_NORM_RE.sub(' ', set_line.lower())} "
+    warnings = 0
+    for p in props:
+        name = (p.get("name") or "").strip() if isinstance(p, dict) else str(p).strip()
+        if not name:
+            continue
+        norm_name = _PROP_NAME_NORM_RE.sub(" ", name.lower()).strip()
+        if norm_name and f" {norm_name} " not in norm_set:
+            warnings += 1
+            print(f"  ⚠️ prop manifest drift check: '{name}' (from the environment's fixed "
+                  f"manifest) is not mentioned in this scene's own [SET | ...] line — "
+                  f"worth a human glance, not a hard failure", flush=True)
+    return warnings
 
 
 def panels_per_sheet_for(directive_text: str) -> int:
@@ -1485,7 +1550,8 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        max_moments=3, angles_min=2, angles_max=4, max_frames=None,
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
                        board_urls=None, model_override=None,
-                       render_style=None, video_model_id=None) -> dict:
+                       render_style=None, video_model_id=None,
+                       props=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
     bible (or cast_prompt) so coverage always has something to lock characters to.
@@ -1500,7 +1566,13 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     render_style/video_model_id (C13b): videos.render_style ('animated' | 'realistic' | None)
     and videos.video_model — the IMAGE model_override above never mixes with these, they're
     the separate CLIP-model routing guardrail, passed straight through to plan_camera_moves()
-    (shot-plan time, before any frame is drawn) -> shared.model_router.route_shot_model()."""
+    (shot-plan time, before any frame is drawn) -> shared.model_router.route_shot_model().
+
+    props (C4): the matched environment's canonical prop manifest (list of {name, position},
+    video_environments.props via coverage_to_app._approved_envs/_match_scene_env), or None.
+    When present, apply_prop_manifest appends it VERBATIM to every shot's draw prompt below —
+    the same manifest text render_prop_manifest renders into the beat prompt and the redraw/
+    repair prompt (contract-triangle law). None is today's behavior, unchanged."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
     cast_url = await resolve_cast_url(cast_url, image_client, cast_prompt=cast_prompt,
@@ -1585,6 +1657,22 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
             for a in m.get("angles") or []:
                 a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
         print("  📷 staging/setup lock applied to every shot", flush=True)
+
+    # PROP MANIFEST LOCK (C4): the environment's canonical, code-rendered prop
+    # list — authored ONCE at env-approval time, never a fresh LLM
+    # paraphrase per scene (the proven drift source). Kept ALONGSIDE the
+    # [SET|] lock above (not replacing it): [SET|] is the planner's own
+    # per-scene read on surfaces/materials/blocking, while the manifest is
+    # the environment's fixed, cross-scene prop inventory — together they
+    # cover "what this beat's set dressing looks like" and "what never
+    # changes about this location's movable objects."
+    n_props = apply_prop_manifest(moments, props)
+    if n_props:
+        print(f"  🧰 prop manifest lock applied to {n_props} shot(s)", flush=True)
+    # Cheap deterministic drift ALARM (not a gate): does the planner's own
+    # [SET|] line agree with the fixed manifest it was handed? Warning-only,
+    # logged loudly, never blocks the draw.
+    check_prop_manifest_consistency(props, set_line)
 
     # PER-SHOT TARGET DURATIONS (C3 item 4): stamp every SILENT shot (every
     # angle, every non-speaking master) with a target duration_seconds by

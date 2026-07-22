@@ -2679,10 +2679,14 @@ _REDO_ENVIRONMENT_TOOL: dict[str, Any] = {
 _EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
     "name": "edit_environment",
     "description": (
-        "Edit one environment's name/description (routes/environments.py's "
-        "PATCH /{id}/environments/{env_id}). Free, no cost — redo_"
-        "environment is what actually spends money against the new "
-        "description."
+        "Edit one environment's name/description/prop manifest (routes/"
+        "environments.py's PATCH /{id}/environments/{env_id}). Free, no "
+        "cost — redo_environment is what actually spends money against "
+        "the new description. props is the C4 canonical prop manifest "
+        "(6-8 {name, position} objects) injected verbatim into every "
+        "scene's planning and draw prompts for this location — pass the "
+        "full replacement list (an empty list clears it back to no "
+        "manifest); omit to leave it untouched."
     ),
     "inputSchema": {
         "type": "object",
@@ -2691,6 +2695,18 @@ _EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
             "env_id": {"type": "string", "description": "Environment UUID (from get_environment_images)."},
             "name": {"type": "string", "description": "New name, if changing."},
             "description": {"type": "string", "description": "New description, if changing."},
+            "props": {
+                "type": "array",
+                "description": "Full replacement prop manifest, max 10 items. Omit to leave unchanged.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "position": {"type": "string"},
+                    },
+                    "required": ["name", "position"],
+                },
+            },
         },
         "required": ["video_id", "env_id"],
     },
@@ -2791,13 +2807,19 @@ async def _call_edit_environment(tenant_id, arguments: dict[str, Any], caller: s
         return _error_result("edit_environment requires video_id and env_id")
     from routes.environments import EnvironmentUpdate, update_environment as _update_environment_route
     try:
+        props_arg = arguments.get("props")
         result = await _update_environment_route(
             str(video_id), str(env_id),
-            EnvironmentUpdate(name=arguments.get("name"), description=arguments.get("description")),
+            EnvironmentUpdate(
+                name=arguments.get("name"), description=arguments.get("description"),
+                props=props_arg if props_arg is not None else None,
+            ),
             tenant_id=tenant_id,
         )
     except HTTPException as e:
         return _error_result(e.detail if isinstance(e.detail, str) else "Environment not found")
+    except ValueError as e:
+        return _error_result(f"Invalid props: {e}")
     _log_setup_write("edit_environment", tenant_id, caller, detail=str(env_id))
     return _text_result(result)
 

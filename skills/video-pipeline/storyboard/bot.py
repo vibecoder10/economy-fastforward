@@ -503,6 +503,39 @@ def segment_script_into_beats(
 # =============================================================================
 
 
+def render_prop_manifest(props: list | None) -> str:
+    """Render an environment's canonical prop manifest (migration 115,
+    video_environments.props) as ONE verbatim, code-built sentence —
+    NEVER restated or paraphrased by an LLM call. This is the single
+    source of truth every consumer renders identically (contract-triangle
+    law, C4): _format_story_bible_for_beat below (the planning prompt),
+    storyboard.coverage.run_coverage (the real draw-prompt tail, PICTURES
+    path only), and coverage_to_app.redraw_asset_image (the repair/redraw
+    prompt). Authored ONCE per environment at approval time — a fresh LLM
+    re-paraphrasing the location's prose every scene was the proven
+    cross-scene drift source (stove/fridge swapped within one setup, a
+    whole kitchen swapped by shot 125 despite env refs + anchors).
+
+    props: list of {"name": str, "position": str} dicts, or falsy.
+    Returns "" when props is empty/None — every caller's fallback is then
+    a silent no-op, byte-identical to before this feature existed."""
+    bits = []
+    for p in (props or []):
+        if isinstance(p, dict):
+            name = (p.get("name") or "").strip()
+            position = (p.get("position") or "").strip()
+        else:
+            name, position = str(p).strip(), ""
+        if not name:
+            continue
+        i = len(bits) + 1
+        bits.append(f"{i}. {name} — {position}" if position else f"{i}. {name}")
+    if not bits:
+        return ""
+    return ("The ONLY movable props in this environment are: " + "; ".join(bits) +
+            ". Do not add, remove, or substitute any prop.")
+
+
 def _format_story_bible_for_beat(
     story_bible: dict | None,
     beat_scenes: list[int],
@@ -565,6 +598,14 @@ def _format_story_bible_for_beat(
                     lines.append(f"    Signature detail: {signature}")
                 if loc_type:
                     lines.append(f"    Type: {loc_type}")
+                # C4 prop manifest: when this environment has one, render it
+                # verbatim (render_prop_manifest) so the planner isn't asked
+                # to remember/re-derive props from prose alone — it gets the
+                # fixed inventory as a hard, code-rendered list. Absent =
+                # today's prose-only behavior, unchanged.
+                manifest = render_prop_manifest(loc.get("props"))
+                if manifest:
+                    lines.append(f"    {manifest}")
         lines.append("</visual_bible_locations>")
 
     # === VISUAL ARC entries for this beat's scenes ===
