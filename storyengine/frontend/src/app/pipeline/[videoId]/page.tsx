@@ -21,7 +21,7 @@ import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { ResearchTab } from "@/components/production/ResearchTab";
 import { CharactersTab } from "@/components/production/CharactersTab";
 import { EnvironmentsTab } from "@/components/production/EnvironmentsTab";
-import { GuidedNextStep } from "@/components/production/GuidedNextStep";
+import { TaskFailureBanner } from "@/components/production/TaskFailureBanner";
 import { ScriptVoiceTab } from "@/components/production/ScriptVoiceTab";
 import { ScenesWorkspaceTab } from "@/components/production/ScenesWorkspaceTab";
 import { ThumbnailTab } from "@/components/production/ThumbnailTab";
@@ -355,10 +355,11 @@ export default function VideoDetailPage() {
       return next;
     });
 
-  // ONE task watcher for the whole page (S9-1/C19a). GuidedNextStep and every
-  // production tab used to each mount their own useTaskWatcher/useTaskPoller
-  // — a 3s setInterval against the SAME getPipelineTaskStatus endpoint — so
-  // up to 3 identical polls ran concurrently (GuidedNextStep always-on + the
+  // ONE task watcher for the whole page (S9-1/C19a). The old GuidedNextStep
+  // (U5: removed, replaced by TaskFailureBanner) and every production tab
+  // used to each mount their own useTaskWatcher/useTaskPoller — a 3s
+  // setInterval against the SAME getPipelineTaskStatus endpoint — so up to
+  // 3 identical polls ran concurrently (GuidedNextStep always-on + the
   // active tab's own + this page's own Run-Next poller). This is now the
   // only place that opens the interval; everyone else subscribes via the
   // bridge below (useSharedTaskWatcher), so each consumer's own
@@ -772,12 +773,14 @@ export default function VideoDetailPage() {
         </div>
       </motion.div>
 
-      {/* Progress — static-documentary videos get the C3c 5-stage gated rail
-          (Roster/Research/Script/Voice/Video + Run All) instead of the
-          general stepper. Regular videos get the clickable 9-segment
-          StageRail once the production-guide query has data; until then
-          (or if the fetch fails) fall back to the passive stepper so the
-          page never blanks. */}
+      {/* Progress + navigation — static-documentary videos get the C3c
+          5-stage gated rail (Roster/Research/Script/Voice/Video + Run All)
+          instead of the general stepper. Regular videos get the clickable
+          10-segment StageRail (U5: the ONLY tab switcher now, the old
+          numbered tab strip below it is gone) once the production-guide
+          query has data; until then (or if the fetch fails) fall back to
+          the passive, non-clickable stepper so the page never blanks — tab
+          switching is unavailable for that brief loading window only. */}
       <motion.div variants={item}>
         {isStaticDocu ? (
           <StaticDocuStageRail
@@ -851,41 +854,24 @@ export default function VideoDetailPage() {
         );
       })()}
 
-      {/* Guided next step — the one big button that always knows what's next.
-          Hidden on the Scenes tab (its own green command bar covers the same
-          ground) and hidden entirely for static-documentary videos — the
-          StaticDocuStageRail above is the one place to act for this format. */}
+      {/* U5: the "NEXT UP" guided card is gone — Ryan's call, it duplicated
+          the clickable StageRail bubbles above. This keeps only the one
+          side effect worth keeping: a persistent failure card that still
+          catches a task failure after you've navigated off the tab that
+          started it. Hidden on the Scenes tab (its own per-clip
+          failed-card indicator covers the same ground) and hidden entirely
+          for static-documentary videos — the StaticDocuStageRail above is
+          the one place to act for this format. */}
       {!isStaticDocu && currentTab !== "scenes" && !machineResearchIncomplete && (
-        <GuidedNextStep video={videoForTabs} onNavigate={(t) => setActiveTab(t)} planStages={planStages} taskWatcher={taskWatcher} />
+        <TaskFailureBanner videoId={videoForTabs.id} taskWatcher={taskWatcher} />
       )}
 
-      {/* Tab navigation */}
-      <motion.div variants={item}>
-        <div className="flex gap-0.5 overflow-x-auto pb-1 -mx-2 px-2" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-          {visibleTabs.map((tab, idx) => {
-            const isActive = currentTab === tab.id;
-            const Icon = tab.icon;
-            // Renumber for the visible set so a hidden step doesn't leave gaps
-            // (e.g. a script-only video shows "1 · Script & Voice", not "2 ·").
-            const label = `${idx + 1} · ${tab.label.replace(/^\d+\s*·\s*/, "")}`;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium font-body whitespace-nowrap transition-all rounded-t-lg shrink-0"
-                style={{
-                  color: isActive ? "var(--turquoise)" : "var(--text-tertiary)",
-                  background: isActive ? "var(--turquoise-bg)" : "transparent",
-                  borderBottom: isActive ? "2px solid var(--turquoise)" : "2px solid transparent",
-                }}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </motion.div>
+      {/* U5: the numbered tab strip ("1 · Script & Voice" … "8 · Results")
+          duplicated the clickable StageRail bubbles above — removed. The
+          bubbles (StageRail for regular videos, StaticDocuStageRail for
+          static-documentary) are now the ONLY tab switcher; StageRail's
+          SEGMENTS list was extended with a Results segment so every tab
+          in `visibleTabs` still has a bubble that reaches it. */}
 
       {/* Approval gate message */}
       {approvalMessage && (

@@ -967,9 +967,12 @@ export const getVideoActions = (videoId: string) =>
   fetchApi<VideoActions>(`/api/pipeline/actions/${videoId}`);
 
 // C18 (checklist §1.3 [U]) — the clickable doors for C17's draft_pass/finalize
-// verbs (GuidedNextStep's "Draft the whole video" / "Finalize N approved
-// scenes" buttons) and C15b's scene-scoped approve, which was chat-only until
-// now. All three call the SAME actions.py runner chat already uses.
+// verbs and C15b's scene-scoped approve, which was chat-only until now. All
+// three call the SAME actions.py runner chat already uses. U5: the only UI
+// caller of runDraftPass/runFinalize (GuidedNextStep's "Draft the whole
+// video" / "Finalize N approved scenes" buttons) was removed from the
+// pipeline page — these routes are unused from the frontend for now, kept
+// for chat/MCP callers of the same actions.py runner.
 export const runDraftPass = (videoId: string) =>
   fetchApi<PipelineResponse>(`/api/pipeline/actions/${videoId}/draft-pass`, { method: "POST" });
 

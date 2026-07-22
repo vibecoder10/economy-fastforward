@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Check, Loader2, Search, FileText, Users, MapPin, Video, Volume2, Film, Upload,
+  Check, Loader2, Search, FileText, Users, MapPin, Video, Volume2, Film, Upload, BarChart3,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import type { ProductionGuide, ProductionGuideStage } from "@/lib/api";
@@ -21,8 +21,12 @@ const STATUS_COLOR: Record<SegmentState, string> = {
 };
 
 /** One segment per clickable tab on the regular (non-static_docu) pipeline
- * page — same 9 tabs as the page's own TAB row, minus Results (that tab has
- * no build stage of its own to track). Order matches TABS in page.tsx. */
+ * page — now ALL 10 tabs from the page's own TABS array (U5: this rail is
+ * the ONLY tab switcher on the page, the old numbered tab strip is gone, so
+ * every tab needs a bubble). Results has no build stage of its own to
+ * track, so it rides the Upload stage's state — same mapping page.tsx's own
+ * TAB_STAGES already used for the "performance" tab (`performance: ["upload"]`).
+ * Order matches TABS in page.tsx. */
 const SEGMENTS: { tabId: string; label: string; icon: typeof Search; stageKeys: string[] }[] = [
   { tabId: "research", label: "Research", icon: Search, stageKeys: ["research"] },
   { tabId: "script-voice", label: "Script & Voice", icon: FileText, stageKeys: ["script", "voice"] },
@@ -33,6 +37,7 @@ const SEGMENTS: { tabId: string; label: string; icon: typeof Search; stageKeys: 
   { tabId: "thumbnail", label: "Thumbnail", icon: Film, stageKeys: ["thumbnail"] },
   { tabId: "render", label: "Render", icon: Film, stageKeys: ["render"] },
   { tabId: "upload", label: "Upload", icon: Upload, stageKeys: ["upload"] },
+  { tabId: "performance", label: "Results", icon: BarChart3, stageKeys: ["upload"] },
 ];
 
 interface SegmentInfo {
@@ -79,9 +84,11 @@ interface StageRailProps {
 
 /** The regular (non-static_docu) pipeline page's clickable stage rail —
  * navigation only, no Run/Run All (every tab is already reachable and each
- * tab owns its own run actions). Reuses StaticDocuStageRail's visual
- * language (icon circles, connector line, status colors) so the two rails
- * read as one family across formats. */
+ * tab owns its own run actions). U5: this is now the ONLY tab switcher on
+ * the page — the old numbered tab strip below it was removed as a
+ * duplicate. Reuses StaticDocuStageRail's visual language (icon circles,
+ * connector line, status colors) so the two rails read as one family
+ * across formats. */
 export function StageRail({ guide, activeTab, onSelect }: StageRailProps) {
   const segments = SEGMENTS
     .map((seg) => computeSegment(seg, guide.stages))

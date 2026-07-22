@@ -300,7 +300,7 @@ interface ScenesWorkspaceTabProps {
   onGoToCharacters?: () => void;
   onAdvanced?: () => void;
   /** The ONE page-level task watcher (S9-1/C19a) — replaces this tab's own
-   * useTaskWatcher so it doesn't duplicate-poll against GuidedNextStep. */
+   * useTaskWatcher so it doesn't duplicate-poll against TaskFailureBanner. */
   taskWatcher: TaskWatcherBridge;
 }
 

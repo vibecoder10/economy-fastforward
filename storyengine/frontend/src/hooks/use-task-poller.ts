@@ -189,10 +189,11 @@ export interface TaskWatcherHandlers {
 
 /**
  * Bridge exposed by the ONE page-level useTaskWatcher (see
- * pipeline/[videoId]/page.tsx) so GuidedNextStep and every tab can react to
- * the video's single task slot without each mounting its own 3s poll against
- * the same getPipelineTaskStatus endpoint (S9-1/C19a — this used to be 2-3
- * concurrent identical pollers: GuidedNextStep + the active tab + sometimes
+ * pipeline/[videoId]/page.tsx) so TaskFailureBanner and every tab can react
+ * to the video's single task slot without each mounting its own 3s poll
+ * against the same getPipelineTaskStatus endpoint (S9-1/C19a — this used to
+ * be 2-3 concurrent identical pollers: the old always-on GuidedNextStep
+ * (U5: removed, replaced by TaskFailureBanner) + the active tab + sometimes
  * page.tsx's own).
  */
 export interface TaskWatcherBridge {
@@ -217,7 +218,7 @@ export interface TaskWatcherBridge {
  * believes it started, via its own local `taskRunning`/`enabled` flag), but
  * it rides the page's ONE shared watcher instead of opening a second 3s
  * interval against the same endpoint. `enabled` defaults to true for
- * always-on consumers (GuidedNextStep, ScenesWorkspaceTab) that watch
+ * always-on consumers (TaskFailureBanner, ScenesWorkspaceTab) that watch
  * whatever holds the video's task slot regardless of who started it.
  */
 export function useSharedTaskWatcher({
