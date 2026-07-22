@@ -9,17 +9,28 @@ QA judge's word alone. PROVEN costly live on 2026-07-22: a QA-wording bug
 (~$0.36 of paid generations, gone).
 
 Fix (static_docu.py `_one_scene` + routes/pipeline.py):
-- The double-reject path now KEEPS the asset row: status='qa_rejected',
-  image_url NULL (render_static.py only ships rows with image_url IS NOT
-  NULL, so a parked render can never leak into a video), drive_image_url =
-  the render self-hosted to durable storage (falling back to the ephemeral
-  provider URL only if hosting fails — still better than losing it).
+- The pipeline runs UNATTENDED, so a double reject is first sent to an
+  automated tie-breaker: `_arbiter_confirms_render`, an independently
+  worded second-opinion judge (its own prompt framing, MATCH/MISMATCH
+  vocabulary instead of YES/NO) whose failure modes can't correlate with a
+  wording bug in the primary judge. Arbiter says MATCH -> the rejection is
+  overruled and the render ships, stamped "[qa: arbiter-approved after
+  double reject]" in image_prompt for the audit trail. The arbiter fails
+  CLOSED everywhere, including keyless — an arbiter that can't see the
+  images must never overrule a rejection.
+- Only when QA AND the arbiter agree does the scene fail — and then the
+  row is KEPT: status='qa_rejected', image_url NULL (render_static.py only
+  ships rows with image_url IS NOT NULL, so a parked render can never leak
+  into a video), drive_image_url = the render self-hosted to durable
+  storage (falling back to the ephemeral provider URL only if hosting
+  fails — still better than losing it).
 - `_bounded`'s exception cleanup no longer sweeps up deliberately parked
   rows (qa_rejected / blocked_no_reference both carry image_url NULL by
   design).
-- POST /api/pipeline/static-qa-approve/{asset_id} is the human YES: flips
-  the parked row to status='done' and promotes drive_image_url to
-  image_url, putting it back in render_static.py's shippable set.
+- POST /api/pipeline/static-qa-approve/{asset_id} is the rare-case manual
+  back-door: flips a parked row to status='done' and promotes
+  drive_image_url to image_url, putting it back in render_static.py's
+  shippable set.
 
 Run:
     cd storyengine/backend && ./venv/bin/python -m pytest \
@@ -41,6 +52,11 @@ import static_docu  # noqa: E402
 # must finish loading before any test monkeypatches httpx.AsyncClient to a
 # fake callable.
 import shared.clients.image_client as image_client_mod  # noqa: E402
+
+from test_static_docu_c2f_vision_gate_fixes import (  # noqa: E402
+    _anthropic_body,
+    _install_vision_fakes,
+)
 
 REF_HOSTED = "https://storage.example/ref_cached.jpg"
 REF_SOURCE = "https://commons.example/Boeing_XB-15.jpg"
@@ -70,11 +86,14 @@ class _FakeDownloadResp:
         pass
 
 
-def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False):
+def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
+                  arbiter_verdicts=()):
     """Fake DB + provider world for generate_static_images_for_video, modeled
     on test_static_docu_reference_fail_closed. One scene, a CACHED verified
     reference (so no Wikimedia lookup layers run), a scripted sequence of
-    generation URLs and QA verdicts. No network, no real DB anywhere."""
+    generation URLs, QA verdicts, and arbiter verdicts (exhausted -> False,
+    matching the arbiter's own fail-closed contract). No network, no real DB
+    anywhere."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
 
@@ -86,6 +105,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False):
         "uploads": [],       # upload_bytes storage paths
         "downloads": [],     # URLs fetched via httpx
         "qa_calls": [],      # (render_url, ref_url) per _render_matches_reference
+        "arbiter_calls": [],  # (render_url, ref_url) per _arbiter_confirms_render
         "gen_prompts": [],   # prompt per generate_scene_image_gpt call
     }
 
@@ -156,6 +176,12 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False):
         env["qa_calls"].append((render_url, ref_url))
         return remaining_verdicts.pop(0) if remaining_verdicts else False
 
+    remaining_arbiter = list(arbiter_verdicts)
+
+    async def fake_arbiter(tid, render_url, ref_url, machine, aliases=None):
+        env["arbiter_calls"].append((render_url, ref_url))
+        return remaining_arbiter.pop(0) if remaining_arbiter else False
+
     class _FakeHttp:
         async def get(self, url, **kwargs):
             env["downloads"].append(url)
@@ -174,6 +200,7 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False):
     monkeypatch.setattr(static_docu, "fetch_all", fake_fetch_all)
     monkeypatch.setattr(static_docu, "execute", fake_execute)
     monkeypatch.setattr(static_docu, "_render_matches_reference", fake_render_matches)
+    monkeypatch.setattr(static_docu, "_arbiter_confirms_render", fake_arbiter)
     monkeypatch.setattr(static_docu, "upload_bytes", fake_upload_bytes)
     monkeypatch.setattr(static_docu.httpx, "AsyncClient", _http_factory)
 
@@ -226,9 +253,11 @@ async def test_double_qa_reject_parks_render_instead_of_deleting(monkeypatch):
     assert env["downloads"][-1] == RENDER_2
     assert env["uploads"] == [f"{env['video_id']}/static/S01_qa_rejected.png"]
 
-    # Both generations and both QA checks actually ran (unchanged flow).
+    # Both generations and both QA checks actually ran (unchanged flow), and
+    # the arbiter got its say on the newest render before the park.
     assert len(env["gen_prompts"]) == 2
     assert [c[0] for c in env["qa_calls"]] == [RENDER_1, RENDER_2]
+    assert [c[0] for c in env["arbiter_calls"]] == [RENDER_2]
 
     # The operator sees WHICH prompt produced the parked render: the retry's
     # (it carries the reproduce-exactly emphasis), prefixed with the ref.
@@ -277,7 +306,8 @@ async def test_failed_retry_generation_parks_first_render(monkeypatch):
 @pytest.mark.asyncio
 async def test_qa_pass_still_ships_done(monkeypatch):
     """Regression guard: the happy path is untouched — a first-try QA pass
-    still ships status='done' with image_url set to the durable copy."""
+    still ships status='done' with image_url set to the durable copy, and
+    the arbiter is never consulted."""
     env = _pipeline_env(monkeypatch, verdicts=[True], gen_urls=[RENDER_1])
 
     result = await static_docu.generate_static_images_for_video(
@@ -288,10 +318,189 @@ async def test_qa_pass_still_ships_done(monkeypatch):
     assert row["status"] == "done"
     assert row["image_url"] == DURABLE
     assert env["uploads"] == [f"{env['video_id']}/static/S01.png"]
+    assert env["arbiter_calls"] == []
+    assert "[qa:" not in row["image_prompt"], (
+        "a first-try pass must not carry the arbiter audit stamp")
 
 
 # ---------------------------------------------------------------------------
-# 2. render_static.py exclusion tripwire: parking relies on the stitcher
+# 2. The automated tie-breaker. The pipeline runs unattended — a double QA
+#    reject goes to _arbiter_confirms_render (independently worded second
+#    opinion) instead of dead-ending on a human. MATCH -> ship with an audit
+#    stamp; MISMATCH -> park (covered by the tests above, whose arbiter
+#    default is False).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_arbiter_overrules_double_reject_and_ships(monkeypatch):
+    env = _pipeline_env(monkeypatch, verdicts=[False, False],
+                        gen_urls=[RENDER_1, RENDER_2],
+                        arbiter_verdicts=[True])
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    row = _the_row(env)
+    assert row["status"] == "done"
+    assert row["image_url"] == DURABLE
+    # Shipped through the NORMAL success path (durable S01.png copy), from
+    # the newest render, judged against the verified reference.
+    assert env["uploads"] == [f"{env['video_id']}/static/S01.png"]
+    assert env["downloads"][-1] == RENDER_2
+    assert env["arbiter_calls"] == [(RENDER_2, REF_HOSTED)]
+    # Audit trail: the row says the arbiter shipped it.
+    assert row["image_prompt"].startswith(f"[ref: {REF_SOURCE}] ")
+    assert "[qa: arbiter-approved after double reject]" in row["image_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_arbiter_judges_first_render_when_retry_generation_failed(monkeypatch):
+    """Retry GENERATION produced nothing — the first render is the only paid
+    artifact, so that's what the arbiter judges and ships on MATCH."""
+    env = _pipeline_env(monkeypatch, verdicts=[False],
+                        gen_urls=[RENDER_1, None],
+                        arbiter_verdicts=[True])
+
+    result = await static_docu.generate_static_images_for_video(
+        env["video_id"], env["tenant_id"])
+
+    assert result["status"] == "completed"
+    row = _the_row(env)
+    assert row["status"] == "done"
+    assert env["arbiter_calls"] == [(RENDER_1, REF_HOSTED)]
+    assert "[qa: arbiter-approved after double reject]" in row["image_prompt"]
+
+
+# ---------------------------------------------------------------------------
+# 3. _arbiter_confirms_render — unit tests, via the same scripted vision
+#    fakes the C2f/C2h files use. The whole point of the arbiter is
+#    INDEPENDENCE from the primary judge: its own framing and its own
+#    MATCH/MISMATCH vocabulary, and fail-CLOSED everywhere (keyless
+#    included) because a False parks a render while a false True ships a
+#    wrong machine.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_arbiter_match_returns_true(monkeypatch):
+    _install_vision_fakes(monkeypatch, [
+        _anthropic_body("MATCH, same shape, wing form and tail configuration"),
+    ])
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is True
+
+
+@pytest.mark.asyncio
+async def test_arbiter_mismatch_returns_false(monkeypatch):
+    """MISMATCH must parse as a rejection — including that the word
+    'mismatch' itself must never satisfy the ^match parse."""
+    _install_vision_fakes(monkeypatch, [
+        _anthropic_body("MISMATCH, image 2 shows a different aircraft type"),
+    ])
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is False
+
+
+@pytest.mark.asyncio
+async def test_arbiter_requires_its_own_vocabulary(monkeypatch):
+    """A YES-style reply (the PRIMARY judge's vocabulary) must not pass the
+    arbiter — vocabulary separation is what keeps the two judges' parsing
+    failure modes uncorrelated."""
+    _install_vision_fakes(monkeypatch, [
+        _anthropic_body("YES, same aircraft type and configuration"),
+    ])
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is False
+
+
+@pytest.mark.asyncio
+async def test_arbiter_render_ness_does_not_reject(monkeypatch):
+    _install_vision_fakes(monkeypatch, [
+        _anthropic_body("MATCH — image 2 is clearly a rendered illustration, "
+                        "but it shows the same machine type as image 1"),
+    ])
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is True
+
+
+@pytest.mark.asyncio
+async def test_arbiter_empty_render_hard_rejected_even_on_match(monkeypatch):
+    _install_vision_fakes(monkeypatch, [
+        _anthropic_body("MATCH, although image 2 appears mostly blank"),
+    ])
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is False
+
+
+@pytest.mark.asyncio
+async def test_arbiter_transport_failure_fails_closed(monkeypatch):
+    """Non-200 from the model API, twice: the rejection must STAND (render
+    parks) — never a silent overrule on an API failure."""
+    from test_static_docu_c2f_vision_gate_fixes import _FakeResp
+    fake_client = _install_vision_fakes(monkeypatch, [
+        _FakeResp({"error": "nope"}, status_code=400),
+        _FakeResp({"error": "nope"}, status_code=400),
+    ])
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is False
+    assert fake_client.calls == 2, "must retry exactly once, then fail closed"
+
+
+@pytest.mark.asyncio
+async def test_arbiter_keyless_fails_closed_unlike_primary_judges(monkeypatch):
+    """No provider key at all: the primary judges fail OPEN on this config
+    gap, but the arbiter must fail CLOSED — an arbiter that can't see the
+    images must never overrule a rejection. (Unreachable in practice: with
+    no key the primary judge already passed everything.)"""
+    _install_vision_fakes(monkeypatch, [], anthropic_key=None)
+
+    import vault
+
+    async def fake_get_secret(name, *a, **k):
+        return None  # neither anthropic_api_key nor kie_ai_api_key
+
+    monkeypatch.setattr(vault, "get_secret", fake_get_secret)
+
+    assert await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Boeing XB-15") is False
+
+
+@pytest.mark.asyncio
+async def test_arbiter_aliases_included_in_prompt(monkeypatch):
+    fake_client = _install_vision_fakes(monkeypatch, [
+        _anthropic_body("MATCH, same machine"),
+    ])
+    captured = {}
+    orig_post = fake_client.post
+
+    async def spy_post(url, headers=None, json=None, **kwargs):
+        captured["json"] = json
+        return await orig_post(url, headers=headers, json=json, **kwargs)
+
+    monkeypatch.setattr(fake_client, "post", spy_post)
+
+    await static_docu._arbiter_confirms_render(
+        "tenant-1", "https://example.com/render.png",
+        "https://example.com/ref.jpg", "Douglas XB-42 Mixmaster",
+        aliases=["XB-42"])
+
+    content = captured["json"]["messages"][0]["content"]
+    assert "XB-42" in content[0]["text"]
+    # Same two-image structural contract as the primary judge: reference
+    # first, render second, both base64.
+    image_blocks = [b for b in content if b["type"] == "image"]
+    assert len(image_blocks) == 2
+
+
+# ---------------------------------------------------------------------------
+# 4. render_static.py exclusion tripwire: parking relies on the stitcher
 #    selecting image_url IS NOT NULL. If that WHERE clause ever changes,
 #    parked (image_url NULL) renders could leak into shipped videos — fail
 #    loudly here instead.
@@ -307,8 +516,9 @@ def test_render_static_only_ships_rows_with_image_url():
 
 
 # ---------------------------------------------------------------------------
-# 3. POST /api/pipeline/static-qa-approve/{asset_id} — the human YES. Route
-#    wiring + tenant scoping, same TestClient shape as
+# 5. POST /api/pipeline/static-qa-approve/{asset_id} — the rare-case manual
+#    back-door (the automated path is the arbiter above). Route wiring +
+#    tenant scoping, same TestClient shape as
 #    test_static_docu_seed_reference.py.
 # ---------------------------------------------------------------------------
 

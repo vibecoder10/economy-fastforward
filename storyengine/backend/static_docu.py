@@ -1292,6 +1292,132 @@ async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: st
     return said_yes and not is_empty
 
 
+async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str,
+                                   machine: str,
+                                   aliases: Optional[list] = None) -> bool:
+    """Automated tie-breaker for a DOUBLE `_render_matches_reference` reject.
+    The pipeline runs unattended — no operator is in the loop to review a
+    parked render — and the primary QA judge has a PROVEN systematic failure
+    mode: on 2026-07-22 one prompt-wording bug rejected 12 correct paid
+    renders in a row. A wording bug in ONE prompt won't correlate with a
+    DIFFERENTLY-worded second judge, so this asks the same-machine question
+    independently: its own framing (an audit second opinion, not a QA check)
+    and its own answer vocabulary (MATCH/MISMATCH, not YES/NO — a parser or
+    prompt bug around "yes" can't infect it).
+
+    True = the rejection is overruled and the render ships (the caller marks
+    it arbiter-approved in image_prompt for the audit trail). False = the
+    rejection STANDS and the render is parked as qa_rejected.
+
+    Deliberately DUPLICATES the two-image transport of
+    `_render_matches_reference` rather than sharing it via refactor — same
+    C2h precedent as `_vision_confirms` vs `_render_matches_reference`: each
+    judgment owns its full path, so a change to one can never silently
+    change the other's behavior.
+
+    FAILS CLOSED everywhere, including the keyless case: an arbiter that
+    can't actually look at the images must never overrule a rejection — the
+    worst outcome of False is a parked render (recoverable), the worst
+    outcome of a false True is a wrong machine SHIPPED in a video. (The
+    keyless case is unreachable in practice anyway: with no provider key the
+    primary judge already failed open, so a double-reject can't occur.)"""
+    from vault import get_secret
+
+    alias_txt = ""
+    if aliases:
+        alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
+
+    prompt_text = (
+        "You are auditing an automated documentary image pipeline. "
+        f"Image 1 is a verified real photograph of the {machine}{alias_txt}. "
+        "Image 2 is a clean studio illustration that an earlier automated "
+        "check flagged as possibly showing the wrong machine — that check is "
+        "sometimes wrong, so give a fresh, independent second opinion. "
+        "Answer on one line: first word MATCH or MISMATCH, then one short "
+        "reason. MATCH if image 2 shows the same machine type as image 1 — "
+        "same overall shape, wing form, engine count and placement, and tail "
+        "configuration. Style, background, livery, markings, and image 2 "
+        "looking like a rendered illustration are all EXPECTED and must not "
+        "count against it. MISMATCH only if image 2 shows a different "
+        "machine type or variant, or is empty, blank, or shows no machine "
+        "at all."
+    )
+
+    async def _ask_once() -> Optional[str]:
+        ref_img = await _download_image_b64(ref_url)
+        render_img = await _download_image_b64(render_url)
+        if ref_img is None or render_img is None:
+            return ""  # download failure this attempt — caller retries
+        ref_type, ref_b64 = ref_img
+        render_type, render_b64 = render_img
+        content = [
+            {"type": "text", "text": prompt_text},
+            {"type": "image", "source": {"type": "base64",
+             "media_type": ref_type, "data": ref_b64}},
+            {"type": "image", "source": {"type": "base64",
+             "media_type": render_type, "data": render_b64}},
+        ]
+
+        # DIRECT Anthropic first — same reasoning as _vision_confirms (the
+        # Kie gateway injects tool configuration that derails the reply).
+        akey = await get_secret("anthropic_api_key", tenant_id)
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            if akey:
+                r = await c.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": akey,
+                             "anthropic-version": "2023-06-01",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+            else:
+                key = await get_secret("kie_ai_api_key", tenant_id)
+                if not key:
+                    return None
+                kie_claude_url = os.getenv(
+                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
+                ).rstrip("/") + "/v1/messages"
+                r = await c.post(
+                    kie_claude_url,
+                    headers={"Authorization": f"Bearer {key}",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+        if r.status_code != 200:
+            _logger.warning("_arbiter_confirms_render: model API HTTP %s", r.status_code)
+            return ""
+        body = r.json()
+        return " ".join(b.get("text", "") for b in body.get("content", [])
+                        if b.get("type") == "text").strip().lower()
+
+    txt: Optional[str] = None
+    for attempt in range(2):
+        try:
+            result = await _ask_once()
+        except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
+            result = ""
+        if result is None:
+            # No provider key: fail CLOSED (see docstring — unlike the
+            # primary judges, an arbiter that can't see must never overrule).
+            return False
+        txt = result
+        if txt:
+            break
+        # empty reply — loop again for the one allowed retry
+
+    if not txt:
+        # Every attempt raised, failed to download, or came back empty —
+        # FAIL CLOSED: the rejection stands and the render parks, never a
+        # silent overrule on a network/API failure.
+        return False
+
+    is_empty = _has_keyword(txt, _RENDER_EMPTY_KEYWORDS)
+    said_match = bool(re.match(r"^\W*match\b", txt))
+    return said_match and not is_empty
+
+
 async def _scene_subjects(tenant_id: str, scenes: list[dict],
                           research_payload: Optional[dict]) -> dict[int, dict]:
     """One Claude call -> {scene: {machine, caption_title, caption_sub,
@@ -1508,6 +1634,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # CGI/model and hard-rejects it every time (PROVEN live: 6 scenes,
         # 12 generations, 100% rejected). _vision_confirms is still the
         # right check for candidate REFERENCE photos above (unchanged).
+        qa_note = ""
         if not await _render_matches_reference(tenant_id, url, ref_url, machine,
                                                sub.get("aliases")):
             _p(f"Segment {sc}: render doesn't match the {machine} — one retry…")
@@ -1522,36 +1649,56 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                                                         sub.get("aliases")):
                 url = url2
             else:
-                # We HAVE proof of what this machine looks like and the render
-                # doesn't match it — fail the scene rather than ship it. But
-                # the render is PAID FOR, and the QA judge itself can be wrong
-                # (2026-07-22: a QA-wording bug rejected 12 correct renders and
-                # the old DELETE here destroyed every one). PARK it instead:
-                # status='qa_rejected' with image_url NULL keeps it out of the
-                # rendered video (render_static.py ships image_url IS NOT NULL
-                # only), while drive_image_url holds the render self-hosted to
-                # durable storage so an operator can view it and approve via
-                # POST /api/pipeline/static-qa-approve/{asset_id}.
-                _p(f"Segment {sc}: could not verify the render shows the real "
-                   f"{machine} — parked for operator review (not shipped)")
-                parked_url = url2 or url
-                parked_prompt = retry_prompt if url2 else prompt
-                try:
-                    async with httpx.AsyncClient(timeout=120.0) as c:
-                        r = await c.get(parked_url, follow_redirects=True)
-                        r.raise_for_status()
-                        data = r.content
-                    parked_url = await upload_bytes(
-                        data, f"{video_id}/static/S{sc:02d}_qa_rejected.png",
-                        "image/png", tenant_id)
-                except Exception:  # noqa: BLE001 — the ephemeral provider URL
-                    pass           # still beats losing the render entirely
-                await execute(
-                    "UPDATE assets SET status='qa_rejected', image_url=NULL, "
-                    "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
-                    row_id, parked_url,
-                    (f"[ref: {ref_src}] " if ref_src else "") + parked_prompt[:900])
-                return str(sc)
+                # Both attempts failed the primary QA judge — but that judge
+                # has a PROVEN systematic failure mode (2026-07-22: one
+                # prompt-wording bug rejected 12 correct paid renders in a
+                # row, and the old DELETE here destroyed every one). The
+                # pipeline runs UNATTENDED, so the tie can't wait for a
+                # human: ask _arbiter_confirms_render — an independently
+                # worded second-opinion judge (MATCH/MISMATCH vocabulary, its
+                # own prompt) whose failure modes can't correlate with the
+                # primary's wording. Arbiter says MATCH -> the rejection is
+                # overruled and the render ships, stamped in image_prompt for
+                # the audit trail.
+                candidate = url2 or url
+                if await _arbiter_confirms_render(tenant_id, candidate, ref_url,
+                                                  machine, sub.get("aliases")):
+                    _p(f"Segment {sc}: second-opinion arbiter overruled the QA "
+                       f"rejection — shipping the render")
+                    url = candidate
+                    qa_note = "[qa: arbiter-approved after double reject] "
+                else:
+                    # TWO independently-worded judges both say this render
+                    # doesn't show the machine — fail the scene rather than
+                    # ship it. But the render is PAID FOR: PARK it instead of
+                    # deleting. status='qa_rejected' with image_url NULL keeps
+                    # it out of the rendered video (render_static.py ships
+                    # image_url IS NOT NULL only), while drive_image_url holds
+                    # the render self-hosted to durable storage — the audit
+                    # trail for tuning the judges, and manually approvable via
+                    # POST /api/pipeline/static-qa-approve/{asset_id} as the
+                    # rare-case back-door.
+                    _p(f"Segment {sc}: could not verify the render shows the "
+                       f"real {machine} (QA + arbiter agree) — parked, not "
+                       f"shipped")
+                    parked_url = candidate
+                    parked_prompt = retry_prompt if url2 else prompt
+                    try:
+                        async with httpx.AsyncClient(timeout=120.0) as c:
+                            r = await c.get(parked_url, follow_redirects=True)
+                            r.raise_for_status()
+                            data = r.content
+                        parked_url = await upload_bytes(
+                            data, f"{video_id}/static/S{sc:02d}_qa_rejected.png",
+                            "image/png", tenant_id)
+                    except Exception:  # noqa: BLE001 — the ephemeral provider
+                        pass           # URL still beats losing the render
+                    await execute(
+                        "UPDATE assets SET status='qa_rejected', image_url=NULL, "
+                        "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
+                        row_id, parked_url,
+                        (f"[ref: {ref_src}] " if ref_src else "") + parked_prompt[:900])
+                    return str(sc)
 
         async with httpx.AsyncClient(timeout=120.0) as c:
             r = await c.get(url, follow_redirects=True)
@@ -1563,7 +1710,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
             "image_prompt=$3 WHERE id=$1",
             row_id, durable,
-            (f"[ref: {ref_src}] " if ref_src else "") + prompt[:900],
+            (f"[ref: {ref_src}] " if ref_src else "") + qa_note + prompt[:900],
         )
         return None
 
