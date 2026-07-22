@@ -101,13 +101,19 @@ export function StageRail({ guide, activeTab, onSelect, slotRef }: StageRailProp
     .filter((s): s is SegmentInfo => s !== null);
 
   return (
-    <GlassCard className="p-4">
-      {/* Rail takes priority: shrink-0 + its own overflow-x-auto keeps the
-          icon row intact and scrollable rather than letting the slot content
-          squeeze or wrap it at ~1280px. The slot only wraps to its own line
-          (parent flex-wrap) when both don't fit side by side. */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide shrink-0">
+    /* overflow visible (vs .glass-card's default hidden): the slot column can
+       host a dropdown (the Scenes tab's "..." advanced menu) that must hang
+       below the card edge instead of being clipped. The rail row clips its
+       own overflow via its overflow-x-auto child, so nothing else bleeds. */
+    <GlassCard className="p-4" style={{ overflow: "visible" }}>
+      {/* One row, no wrap: the rail takes all the space it can get (flex-1 +
+          min-w-0) and scrolls inside itself when tight, while the slot is a
+          shrink-0 right-side column that keeps its intrinsic width — so the
+          slot can never be squeezed/clipped and never drops onto the rail's
+          baseline (the v1 flex-wrap layout did exactly that at ~1440px).
+          items-center vertically centers the slot column against the rail. */}
+      <div className="flex items-center gap-4">
+        <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto scrollbar-hide">
         {segments.map((seg, idx) => {
           const Icon = seg.icon;
           const isActive = activeTab === seg.tabId;
@@ -151,11 +157,13 @@ export function StageRail({ guide, activeTab, onSelect, slotRef }: StageRailProp
         })}
         </div>
         {/* Slot for a stage's own control block (e.g. Scenes' bulk-generate
-            button), portaled in from the active tab. Empty + weightless
-            (no min-height/padding) when nothing targets it. ml-auto pins it
-            right, vertically centered with the icon rail via items-center
-            on the parent row above. */}
-        <div ref={slotRef} className="flex items-center gap-3 flex-wrap ml-auto" />
+            button stacked over its progress summary), portaled in from the
+            active tab. shrink-0 = it always keeps its intrinsic width (the
+            rail scrolls instead), so nothing in it ever clips the card edge.
+            Empty + weightless (no min-height/padding) when nothing targets
+            it. Vertically centered against the icon rail via items-center on
+            the parent row above. */}
+        <div ref={slotRef} className="shrink-0 flex items-center" />
       </div>
     </GlassCard>
   );

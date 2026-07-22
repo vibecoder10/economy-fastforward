@@ -117,6 +117,18 @@ body {
   background: rgba(0, 212, 170, 0.2);
 }
 
+/* Elements that scroll but should show no scrollbar chrome (e.g. the stage
+   rail's icon row). The class was already used by StageRail/StaticDocuStageRail
+   but never defined — a silent no-op until the rail actually overflowed
+   (declutter 2026-07-22: the bulk-action column makes that common at 1280px). */
+.scrollbar-hide {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---- Glass Card Base ---- */
 .glass-card {
   background: var(--glass-bg);

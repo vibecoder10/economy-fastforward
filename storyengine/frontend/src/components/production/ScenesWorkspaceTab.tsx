@@ -1411,41 +1411,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           exists in the tree while ScenesWorkspaceTab is mounted, i.e. the
           Scenes stage is active — it never leaks into other stages. */}
       {commandBarSlot && createPortal(
-        <div className="flex items-center gap-3 flex-wrap justify-end">
-        <p className="text-sm font-medium text-right" style={{ color: "var(--text-secondary)" }}>
-          <strong style={{ color: "var(--text-primary)" }}>{scenes.length} scenes</strong>
-          {" · "}
-          <strong style={{ color: boardsDone >= boardsTotal ? "var(--green)" : "var(--text-primary)" }}>
-            {boardsDone}/{boardsTotal} boards
-          </strong>
-          {extractedCount > 0 && (
-            <>
-              {" · "}
-              <strong style={{ color: "var(--green)" }}>{extractedCount}/{totalSegments} pictures</strong>
-              {videoStageEnabled && (
-                <>
-                  {" · "}
-                  <strong style={{ color: clipsDone === clipCards.length ? "var(--green)" : "var(--text-primary)" }}>
-                    {clipsDone}/{clipCards.length} animated
-                  </strong>
-                  {clipsPending > 0 && (
-                    <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
-                  )}
-                </>
-              )}
-            </>
-          )}
-          {badCropCount > 0 && (
-            <span className="ml-2 text-xs font-semibold" style={{ color: "rgb(255,110,110)" }}>
-              <AlertTriangle size={11} className="inline mr-0.5 -mt-0.5" /> {badCropCount} bad crop{badCropCount === 1 ? "" : "s"}
-            </span>
-          )}
-          {storyLocked && (
-            <span className="ml-2 text-xs font-semibold" style={{ color: "var(--green)" }}>
-              <Lock size={11} className="inline mr-0.5 -mt-0.5" /> Story locked
-            </span>
-          )}
-        </p>
+        /* Ryan's mockup (2026-07-22 v2): a vertical stack in the card's
+           right-side column — action row (bulk button + helpers) on TOP,
+           progress summary BELOW it. The slot div itself is shrink-0 and
+           vertically centered against the icon rail (see StageRail). */
+        <div className="flex flex-col items-end gap-2">
+        <div className="flex items-center gap-2 justify-end flex-wrap">
         {running && (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
             style={{ background: "rgba(139, 92, 246, 0.15)", color: "var(--purple)", border: "1px solid rgba(139, 92, 246, 0.35)" }}>
@@ -1453,7 +1424,6 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             {(taskMessage || "Working…").replace(/[*_]/g, "").slice(0, 80)}
           </span>
         )}
-        <div className="flex-1" />
         {/* ONE stage-aware bulk button: storyboards → pictures → animate everything. */}
         {!running && !storyLocked && environmentsReady && bulk && (
           bulk.kind === "animate" ? (
@@ -1573,6 +1543,42 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             </>
           )}
         </div>
+        </div>
+        {/* Progress summary — sits UNDER the action row per the mockup. */}
+        <p className="text-sm font-medium text-right" style={{ color: "var(--text-secondary)" }}>
+          <strong style={{ color: "var(--text-primary)" }}>{scenes.length} scenes</strong>
+          {" · "}
+          <strong style={{ color: boardsDone >= boardsTotal ? "var(--green)" : "var(--text-primary)" }}>
+            {boardsDone}/{boardsTotal} boards
+          </strong>
+          {extractedCount > 0 && (
+            <>
+              {" · "}
+              <strong style={{ color: "var(--green)" }}>{extractedCount}/{totalSegments} pictures</strong>
+              {videoStageEnabled && (
+                <>
+                  {" · "}
+                  <strong style={{ color: clipsDone === clipCards.length ? "var(--green)" : "var(--text-primary)" }}>
+                    {clipsDone}/{clipCards.length} animated
+                  </strong>
+                  {clipsPending > 0 && (
+                    <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          {badCropCount > 0 && (
+            <span className="ml-2 text-xs font-semibold" style={{ color: "rgb(255,110,110)" }}>
+              <AlertTriangle size={11} className="inline mr-0.5 -mt-0.5" /> {badCropCount} bad crop{badCropCount === 1 ? "" : "s"}
+            </span>
+          )}
+          {storyLocked && (
+            <span className="ml-2 text-xs font-semibold" style={{ color: "var(--green)" }}>
+              <Lock size={11} className="inline mr-0.5 -mt-0.5" /> Story locked
+            </span>
+          )}
+        </p>
         </div>,
         commandBarSlot
       )}
