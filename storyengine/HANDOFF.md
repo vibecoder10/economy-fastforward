@@ -1,37 +1,59 @@
-# HANDOFF - 2026-07-21 - The filter war ended: nano previews, GPT pictures, doctrine locked in stone
+# HANDOFF - 2026-07-22 - STS voice-lock shipped; film-grammar rebuild planned
 
 ## State
-- Prod: 30646ced deployed, healthy. main == origin == local. All work committed and live.
-- BOTH PocoAPoco videos have COMPLETE storyboards:
-  - El Mercado (65a8021e-eafa-4cff-94dc-31982ae7b63d): 16/16 boards. Ryan ruled its sheets stay as-is (drawn pre-balanced-chunking; minor picture-anchor offset accepted).
-  - Spanish Class (cd5d2883-427e-4bfb-854d-8849d025d444): 18/18 boards. b5 was the first-ever nano board (landed first try after 14+ GPT rejections).
-- Night's spend: roughly $2-3 total in landed sheet draws; every rejection cost $0.
+- Prod: bbed20a8 deployed (deploys.log + se health verified), healthy. Local/origin
+  main = b071ce0d (one docs-only commit ahead: the film-grammar plan file).
+- Branch: main - uncommitted: HANDOFF-adjacent files from the PARALLEL static_docu
+  session (tasks/loop-checklist.md, loop-handoff.md, ref-dryrun txt, .claude/) -
+  do not touch/commit. Check git log for interleaved static_docu commits.
+- What shipped this session (all deployed + live-proven):
+  - InfiniteTalk REMOVED (0 prod successes ever; each attempt burned up to 20 min).
+    Speaking clips now: Grok performs the line -> ElevenLabs speech-to-speech
+    re-voices in pinned cast voice -> carries_own_line + speech bounds persisted
+    (migration 114, applied) -> assembler plays the clip's OWN audio, timed by
+    measured speech. Proven live on S-01.105 ($0.09).
+  - Adversarial review caught 2 critical timeline bugs pre-ship; fixed, repro-proven.
+  - StageRail: clickable stage icons on the pipeline page (new REST route
+    /production-guide), skipped stages auto-hide; Performance Track panel now
+    honest + per-scene "voice-locked N/M" chips.
+  - Scene 1 Spanish Class: 28 older clips manually sync-aligned (not carrier-marked,
+    chips read 1/29); full re-animate (~$2.60) upgrades all to true voice-lock.
+  - Ledger kie_task_id bug fixed (was recording the failed attempt's task id).
 
-## The final architecture (locked, deployed, documented)
-- ALL storyboard sheets draw on nano-banana-2 (SHEET_DRAW_MODEL in coverage_to_app.py, no_gpt_fallback=True - a nano failure can never reroute onto the filtered GPT endpoint). Uniform sketch layer, no OpenAI moderation. NOTE: nano leans photoreal vs the 3D-cartoon channel style - acceptable for previews, tune later if Ryan wants.
-- Real per-shot PICTURES stay GPT Image 2, now with up to 2 FREE re-rolls on zero-cost filter rejections before the nano fallback. Discovery: the GPT-with-refs path (what pictures use) had NO nano fallback at all before 30646ced.
-- Belt-and-suspenders, all deployed: hard 6-panel balanced sheets (sheet_chunk_sizes = one boundary source for chunking AND picture anchoring), caption-free sheets, prop/brand/gesture neutralizers (preview set + LOCKED LOCATION now neutralized too), 4-class free retry ladder (moderation 400 / sensitive 422 / Kie 500 / ref-fetch), auto-sweeper (2 spaced passes over missing boards + dictionary escalation on sweep 2), per-board error surfacing (scripts.storyboard_errors + red chips in Scenes UI), text-free cast-generation prompts, vps-deploy.sh refuses to deploy over active generations without --force.
-- The law: storyengine/docs/SHEET-MODERATION-LAW.md (10 rules + 4 ops rules, commit-level evidence).
-- Both cast references are clean text-free sheets (Ryan drive id 1UpoVF9taFoWBtT7PIkwREHPZYhc-IgOF, Vanessa 1C91qU57ScKkGXmsw_8STsKXN1kC8xNbB), installed in the channel profile (locked) and both videos.
+## Next action (start here cold)
+Implement the film-grammar coverage rebuild. Read
+~/economy-fastforward/storyengine/tasks/FILM-GRAMMAR-PLAN.md - design approved by
+Ryan, all mapping DONE with file:line evidence (do NOT re-map). Build with Sonnet
+subagents + adversarial review, then the dry-run proof: run the planner on Spanish
+Class scene 2 (cd5d2883) script text and print the shot list for Ryan before
+drawing any frames. Goal: dialogue shot and cut like a movie.
 
-## Next actions (start here)
-1. Ryan reviews both videos' storyboards in the UI (the gate), then Generate Pictures - El Mercado first. Pictures now have the re-roll + nano net; expect smooth runs.
-2. Restart El Mercado's interrupted pictures run if not already done (skip-if-done keeps drawn frames).
-3. Optional polish: tune nano sheet style adherence (previews lean photoreal vs the 3D-cartoon look).
-4. Optional: frontend already shows error chips; verify visually on a real blocked board when one occurs.
+## Open threads
+- Camera/film-grammar build - plan file above, not started.
+- Spanish Class scenes 2-4: pictures + clips still to generate (Ryan runs from UI;
+  clips now go through the new voice path automatically).
+- Kie logs recovery trick: dashboard endpoint pageRecordListByDoris (browser
+  session auth, pageNum/pageSize) lists tasks the public API can't; task media
+  kept 14 days.
+- VPS stability: box lost NETWORK twice tonight (not OOM, not a crash - kernel
+  logs clean, backend kept running; both deaths within minutes of my bulk media
+  transfer bursts; Hostinger null-route suspected, NOT confirmed). Ryan should
+  check Hostinger for abuse/DDoS notices. Keep bulk transfers off the box or
+  throttled sequential.
+- Box-sharing cleanup parked: Hailey cloudflared quick tunnel + TWO n8n installs
+  (clawd + ubuntu) + ns-* services live on the StoryEngine VPS; npm ci runs at
+  boot; load avg 10 at boot. Ryan said clean up later.
+- Carried: billing.py LIMIT-1 x3, SSE home-tenant bug, OAuth wrapper for
+  Connectors, agent-token rotation owed, VPS password rotation owed.
 
-## Open threads (carried from 2026-07-20, still open)
-- Seedance live clip test (~$0.60) - Spanish video now AT pictures-ready; payload fix deployed but unproven.
-- billing.py LIMIT-1-no-ORDER-BY x3; SSE stream home-tenant bug; OAuth wrapper for claude.ai Connectors; MCP confirm_failed error; research/script ledger rows; agent_tokens.created_by; voice fixes stash; youtube_quota toordinal bug (STILL spamming logs); UX papercuts.
-- Ryan owes: rotate the agent token pasted in chat; Stripe price naming; VPS password rotation.
-- Cast upload dropzone (b280fe13) never live-verified end-to-end with a real 200 (backend deployed since - quick UI check someday).
-
-## Gotchas learned this session (full detail in memory: storyengine-storyboard-sheet-moderation)
-- OpenAI two-stage moderation: input blocks deterministic, OUTPUT blocks random per-draw - a composite sheet is judged whole, one borderline panel poisons the board. That asymmetry is WHY previews moved to nano.
-- The filter reads text INSIDE reference images, and i2i is stricter than t2i.
-- A staged prop gets DRAWN into every panel ("a knife on the cutting board" in FIXED SET = knife in 30 panels); wording swaps don't help when the drawn IMAGE is the trigger (utensil close-up still renders as a knife).
-- Kie's failCode in task records is the UPSTREAM OpenAI error; Kie docs list only envelope codes. Kie also throws transient 500s ("Internal Error") and ref-fetch failures under load - all 0-credit, all retried free now.
-- kill -9 restarts strand generation_claims rows AND leave ghost active_tasks counters (only a restart clears the counter). Deploy guard now blocks deploys over active tasks.
-- Two Claude sessions on one box WILL collide (a deploy killed a paid pictures run; a restart killed a board ladder). The deploy guard helps; coordination discipline still required.
-- se token is owner-tenant only; client-tenant API calls need the X-Active-Tenant header.
-- Per-board redo: POST /api/pipeline/storyboard-images/{vid}?scene=S&beat=B - redraws ONE board from the SAVED plan, never re-plans. Scene-level (no beat) RE-PLANS and wipes the scene's boards.
+## Gotchas learned this session
+- The performance assembler MUTES all clips and lays TTS on its own clock - any
+  per-clip audio fix is invisible in the stitch unless carries_own_line marks the
+  shot (that's what demotion rules protect).
+- reboots wipe /tmp on the VPS (se_token, uploaded scripts) - re-scp after.
+- ElevenLabs v3 is TTS-only; STS stays on eleven_multilingual_sts_v2
+  (env ELEVEN_STS_MODEL to swap when a newer STS family lands).
+- The camera-move "rotation" root cause is the continuity boilerplate poisoning
+  the purpose classifier ("behind" in set-dressing text -> REVEAL x32) - re-run
+  proven; details + fix design in FILM-GRAMMAR-PLAN.md.
+- se db blocks writes without --write; se deploy needs a session name.
