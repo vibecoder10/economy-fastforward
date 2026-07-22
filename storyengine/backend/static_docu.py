@@ -16,6 +16,7 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
 import base64
 import json
 import logging
+import os
 import re
 import sys
 import uuid
@@ -129,6 +130,7 @@ _STUDIO_PROMPT = (
 )
 
 _COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+_WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
 _COMMONS_UA = {"User-Agent": "StoryEngine/1.0 (nativestates.ai; media research)"}
 
 # Wikimedia politeness: ONE throttled gateway for every wikimedia.org request
@@ -138,21 +140,171 @@ _WM_MIN_INTERVAL = 1.5
 _wm_lock: Optional["asyncio.Lock"] = None
 _wm_last = 0.0
 
+# --- authenticated Wikimedia session (C5) -------------------------------------
+#
+# Anonymous datacenter-IP traffic is what got the VPS 429/403-jailed live. A
+# classic MediaWiki bot password (Special:BotPasswords) logged in once per
+# process gets materially better rate treatment. Read the same way every other
+# module in this backend reads env (os.getenv — there is no central
+# config.py/settings module in this codebase to route through instead).
+WIKIMEDIA_BOT_USER = os.getenv("WIKIMEDIA_BOT_USER")
+WIKIMEDIA_BOT_PASSWORD = os.getenv("WIKIMEDIA_BOT_PASSWORD")
+
+# VERIFIED LIVE (scratchpad/wm_login_test.py, 2026-07-22): a bot-password
+# login sets a WIKI-SCOPED session cookie (e.g. `commonswikiSession` on
+# commons.wikimedia.org), not a shared `.wikimedia.org` CentralAuth cookie —
+# logging in on commons.wikimedia.org does NOT authenticate subsequent calls
+# to en.wikipedia.org (userinfo came back anonymous with only the commons
+# login). So each host this module calls needs its OWN login call — but
+# httpx's cookie jar is domain-scoped, so ONE shared AsyncClient can hold
+# both hosts' session cookies at once; no need for separate client objects.
+_WM_LOGIN_HOSTS = (_COMMONS_API, _WIKIPEDIA_API)
+
+_wm_auth_client: Optional[httpx.AsyncClient] = None
+_wm_auth_init_lock: Optional["asyncio.Lock"] = None
+_wm_auth_ready = False        # True once every host in _WM_LOGIN_HOSTS is logged in
+_wm_auth_init_done = False    # True once we've attempted init at least once
+
+
+async def _wm_login_host(c: httpx.AsyncClient, api_url: str) -> bool:
+    """One MediaWiki bot-password login (token fetch -> action=login) against
+    `api_url`'s wiki, using session cookies already carried by `c`. Never
+    raises; never logs the password — only the outcome."""
+    try:
+        r = await c.get(api_url, params={
+            "action": "query", "meta": "tokens", "type": "login", "format": "json"})
+        token = ((r.json().get("query") or {}).get("tokens") or {}).get("logintoken")
+        if not token:
+            return False
+        r2 = await c.post(api_url, data={
+            "action": "login", "lgname": WIKIMEDIA_BOT_USER,
+            "lgpassword": WIKIMEDIA_BOT_PASSWORD, "lgtoken": token,
+            "format": "json"})
+        return ((r2.json().get("login") or {}).get("result") or "") == "Success"
+    except Exception:  # noqa: BLE001 — login is best-effort, anonymous fallback covers it
+        return False
+
+
+async def _get_wm_auth_client() -> Optional[httpx.AsyncClient]:
+    """Lazily create ONE process-wide authenticated httpx.AsyncClient for
+    Wikimedia calls (cookies persist across the process lifetime), logged in
+    separately to every host in _WM_LOGIN_HOSTS. Returns None (anonymous
+    fallback via the caller's own client) when creds are absent, or when
+    login failed — logged ONCE here, never retried on every call so a bad
+    password can't turn into a login-endpoint hammering loop."""
+    global _wm_auth_client, _wm_auth_init_lock, _wm_auth_ready, _wm_auth_init_done
+    if not WIKIMEDIA_BOT_USER or not WIKIMEDIA_BOT_PASSWORD:
+        return None
+    if _wm_auth_init_done:
+        return _wm_auth_client if _wm_auth_ready else None
+
+    import asyncio
+    if _wm_auth_init_lock is None:
+        _wm_auth_init_lock = asyncio.Lock()
+    async with _wm_auth_init_lock:
+        if _wm_auth_init_done:  # another task finished init while we waited
+            return _wm_auth_client if _wm_auth_ready else None
+        client = httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA)
+        oks = [await _wm_login_host(client, host) for host in _WM_LOGIN_HOSTS]
+        if all(oks):
+            _wm_auth_client = client
+            _wm_auth_ready = True
+            _logger.info("wikimedia bot session established as %s", WIKIMEDIA_BOT_USER)
+        else:
+            await client.aclose()
+            _wm_auth_ready = False
+            _logger.warning(
+                "wikimedia bot login failed for one or more Wikimedia hosts "
+                "— falling back to anonymous Wikimedia access")
+        _wm_auth_init_done = True
+        return _wm_auth_client if _wm_auth_ready else None
+
+
+async def _wm_relogin() -> bool:
+    """Re-run login on the SAME shared client (session silently expired —
+    surfaced via assertuserfailed, see _wm_get). Never tears down/rebuilds
+    the client, only re-authenticates it."""
+    global _wm_auth_ready
+    if _wm_auth_client is None:
+        return False
+    oks = [await _wm_login_host(_wm_auth_client, host) for host in _WM_LOGIN_HOSTS]
+    _wm_auth_ready = all(oks)
+    if _wm_auth_ready:
+        _logger.info("wikimedia bot session re-established as %s", WIKIMEDIA_BOT_USER)
+    else:
+        _logger.warning("wikimedia bot re-login failed — falling back to anonymous access")
+    return _wm_auth_ready
+
+
+def _add_assert_user(kwargs: dict, url: str) -> dict:
+    """Add assert=user to authenticated MediaWiki API calls only (api.php) —
+    raw file fetches (upload.wikimedia.org, /thumb/ URLs) aren't MediaWiki
+    actions and don't accept the param."""
+    if "api.php" not in url:
+        return kwargs
+    params = dict(kwargs.get("params") or {})
+    params.setdefault("assert", "user")
+    new_kwargs = dict(kwargs)
+    new_kwargs["params"] = params
+    return new_kwargs
+
+
+def _is_assertuserfailed(r: httpx.Response) -> bool:
+    """Did this API response carry the assertuserfailed error code (session
+    silently expired mid-process)? Best-effort — never raises on a non-JSON
+    response (raw file fetch, or a transport-level error page)."""
+    try:
+        if "json" not in (r.headers.get("content-type") or ""):
+            return False
+        return ((r.json().get("error") or {}).get("code")) == "assertuserfailed"
+    except Exception:  # noqa: BLE001
+        return False
+
 
 async def _wm_get(c: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """Throttled, retrying GET for any wikimedia.org URL (API or file fetch).
+
+    `c` is the caller's own httpx.AsyncClient, kept for signature stability.
+    When WIKIMEDIA_BOT_USER/WIKIMEDIA_BOT_PASSWORD are set and the shared
+    authenticated session is live (see _get_wm_auth_client), `c` is IGNORED —
+    every call instead routes through the one shared, logged-in client, since
+    authenticated requests get materially better rate treatment than
+    anonymous datacenter-IP traffic (the anonymous fallback below is exactly
+    what got the VPS 429/403-jailed live). Falls back to `c` (anonymous, prior
+    behavior unchanged) when creds are absent or the bot login failed
+    (logged once by _get_wm_auth_client, not repeated here).
+
+    Keeps the existing 1.5s politeness throttle + Retry-After handling
+    unchanged for both paths. When authenticated, api.php calls get
+    assert=user so a silently-expired session surfaces as an
+    `assertuserfailed` API error instead of quietly degrading to anonymous
+    treatment — caught here, triggers ONE re-login + retry before falling
+    through to the normal 429/403 handling for that attempt.
+    """
     import asyncio
     import time
 
     global _wm_lock, _wm_last
     if _wm_lock is None:
         _wm_lock = asyncio.Lock()
+
+    auth_client = await _get_wm_auth_client()
+    active = auth_client if auth_client is not None else c
+    call_kwargs = _add_assert_user(kwargs, url) if auth_client is not None else kwargs
+
+    relogin_used = False
+    r = None
     for attempt in range(4):
         async with _wm_lock:
             wait = _WM_MIN_INTERVAL - (time.monotonic() - _wm_last)
             if wait > 0:
                 await asyncio.sleep(wait)
             _wm_last = time.monotonic()
-        r = await c.get(url, **kwargs)
+        r = await active.get(url, **call_kwargs)
+        if auth_client is not None and not relogin_used and _is_assertuserfailed(r):
+            relogin_used = True
+            if await _wm_relogin():
+                continue  # session refreshed — retry this same attempt
         if r.status_code not in (429, 403):
             return r
         # Honor Wikimedia's own Retry-After. Cap at 90s (not 30) — a real
@@ -172,9 +324,6 @@ def _parse_json_array(text: str) -> Optional[list]:
         return val if isinstance(val, list) else None
     except ValueError:
         return None
-
-
-_WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
 
 
 _THUMB_WIDTH_LADDER = (1600, 1280, 1024, 800, 640)
