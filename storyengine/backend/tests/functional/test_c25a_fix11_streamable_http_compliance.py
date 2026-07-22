@@ -283,7 +283,9 @@ def test_tools_list_with_echoed_session_id_returns_full_toolset():
     # C66: +5 (get_production_guide, design_environments, redo_environment,
     # edit_environment, delete_environment) — 91 -> 96. Legitimate surface
     # growth, not a regression; see tasks/decisions.md 2026-07-21.
-    assert len(tools) == len(mcp_mod.TOOLS) == 96, (
+    # P1 (chat channel-identity rebuild): +1 (get_channel_identity_context —
+    # the composed identity pool) — 96 -> 97.
+    assert len(tools) == len(mcp_mod.TOOLS) == 97, (
         f"expected the full {len(mcp_mod.TOOLS)}-tool surface, got {len(tools)}"
     )
     print(f"✅ test_tools_list_with_echoed_session_id_returns_full_toolset ({len(tools)} tools)")

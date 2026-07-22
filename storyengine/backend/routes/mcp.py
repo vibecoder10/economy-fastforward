@@ -51,7 +51,11 @@ for the full per-tool docstrings):
   new logic; every write attributed via `caller`, structurally where a real
   attribution column already exists — quality_rules.source='mcp_agent',
   channel_patterns.confirmed_by — else logged):
-    get_channel_dna, learn_channel_start (the one tool here with a real,
+    get_channel_dna, get_channel_identity_context (P1 chat channel-identity
+    rebuild — the composed identity POOL: dna + locked cast + format + this
+    channel's OWN median runtime + confirmed title patterns + the script-
+    profile catalog + any custom script prompt, see channel_identity_
+    context.py), learn_channel_start (the one tool here with a real,
     stated, non-StoryEngine-billed cost — BYOK ~$0.10-0.30), learn_channel_
     status, list_quality_rules, upsert_quality_rule, deactivate_quality_rule,
     list_channel_patterns, confirm_channel_pattern, retire_channel_pattern,
@@ -841,6 +845,22 @@ _GET_CHANNEL_DNA_TOOL: dict[str, Any] = {
     "inputSchema": {"type": "object", "properties": {}},
 }
 
+_GET_CHANNEL_IDENTITY_CONTEXT_TOOL: dict[str, Any] = {
+    "name": "get_channel_identity_context",
+    "description": (
+        "THE channel-identity POOL (checklist P1) — one call that composes "
+        "the learned DNA, the locked cast (name + one-line description), the "
+        "locked visual format, this channel's OWN median video runtime "
+        "(computed from its own catalog, NOT a competitor's), any confirmed "
+        "title/performance patterns, the available script-voice profile "
+        "catalog, and any custom script system-prompt override. This is the "
+        "single source every surface (chat, MCP, pipeline) is meant to drink "
+        "from, rather than each re-deriving its own idea of the channel. "
+        "Read-only, no cost."
+    ),
+    "inputSchema": {"type": "object", "properties": {}},
+}
+
 _LEARN_CHANNEL_START_TOOL: dict[str, Any] = {
     "name": "learn_channel_start",
     "description": (
@@ -1046,7 +1066,8 @@ _SET_STYLE_PRESET_TOOL: dict[str, Any] = {
 }
 
 _SETUP_TOOLS: list[dict[str, Any]] = [
-    _GET_CHANNEL_DNA_TOOL, _LEARN_CHANNEL_START_TOOL, _LEARN_CHANNEL_STATUS_TOOL,
+    _GET_CHANNEL_DNA_TOOL, _GET_CHANNEL_IDENTITY_CONTEXT_TOOL,
+    _LEARN_CHANNEL_START_TOOL, _LEARN_CHANNEL_STATUS_TOOL,
     _LIST_QUALITY_RULES_TOOL, _UPSERT_QUALITY_RULE_TOOL, _DEACTIVATE_QUALITY_RULE_TOOL,
     _LIST_CHANNEL_PATTERNS_TOOL, _CONFIRM_CHANNEL_PATTERN_TOOL, _RETIRE_CHANNEL_PATTERN_TOOL,
     _GET_SCRIPT_TEMPLATE_TOOL, _SET_SCRIPT_TEMPLATE_TOOL, _LIST_SCRIPT_PROFILES_TOOL,
@@ -1059,6 +1080,12 @@ async def _call_get_channel_dna(tenant_id, arguments: dict[str, Any], caller: st
     from channel_dna import _current_identity
     identity = await _current_identity(tenant_id)
     return _text_result(identity)
+
+
+async def _call_get_channel_identity_context(tenant_id, arguments: dict[str, Any], caller: str) -> dict[str, Any]:
+    from channel_identity_context import build_identity_pool
+    pool = await build_identity_pool(tenant_id)
+    return _text_result(pool)
 
 
 async def _call_learn_channel_start(tenant_id, arguments: dict[str, Any], caller: str,
@@ -1227,6 +1254,7 @@ async def _call_set_style_preset(tenant_id, arguments: dict[str, Any], caller: s
 
 _SETUP_READ_HANDLERS = {
     "get_channel_dna": _call_get_channel_dna,
+    "get_channel_identity_context": _call_get_channel_identity_context,
     "learn_channel_status": _call_learn_channel_status,
     "list_quality_rules": _call_list_quality_rules,
     "list_channel_patterns": _call_list_channel_patterns,
