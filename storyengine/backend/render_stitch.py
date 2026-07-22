@@ -88,7 +88,9 @@ def _google_client():
         sys.path.insert(0, str(pipeline_path))
     from shared.clients.google_client import GoogleClient
 
-    return GoogleClient()
+    # strict_folder: backend's shared app-owned Drive identity — see
+    # google_client.py's DEFAULT_PARENT_FOLDER_ID docstring.
+    return GoogleClient(strict_folder=True)
 
 
 async def _emit(on_progress: ProgressCb, msg: str) -> None:

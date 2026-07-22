@@ -1617,7 +1617,9 @@ def _trash_drive_file(file_id: str) -> None:
     if str(pipeline_path) not in sys.path:
         sys.path.insert(0, str(pipeline_path))
     from shared.clients.google_client import GoogleClient
-    GoogleClient().drive_service.files().update(
+    # strict_folder: backend's shared app-owned Drive identity — see
+    # google_client.py's DEFAULT_PARENT_FOLDER_ID docstring.
+    GoogleClient(strict_folder=True).drive_service.files().update(
         fileId=file_id, body={"trashed": True}
     ).execute()
 

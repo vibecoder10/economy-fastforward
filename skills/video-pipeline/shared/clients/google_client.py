@@ -58,27 +58,53 @@ def get_direct_drive_url(drive_url: str) -> Optional[str]:
 class GoogleClient:
     """Client for Google Drive and Docs APIs."""
 
-    # Default folder ID from n8n workflow (Economy Fastforward folder)
+    # Legacy default folder ID from the old n8n workflow (a personal "Economy
+    # Fastforward" folder). Still used by standalone LOCAL skill runs
+    # (content-engine, clone-video, the video-pipeline CLI bots) that run
+    # under Ryan's own Google identity and never set GOOGLE_DRIVE_FOLDER_ID —
+    # for those, this folder is genuinely visible and correct.
+    #
+    # The BACKEND (server) process must NEVER fall back to this silently: its
+    # Drive identity is a different account that can't see this folder, which
+    # caused a real incident (2026-07-22) — a 63-min render's Drive upload
+    # 404'd against this folder, and the workdir cleanup then deleted the only
+    # copy of the finished MP4. Backend call sites pass strict_folder=True (or
+    # an explicit parent_folder_id) so a missing env var fails loudly at
+    # client init instead of 404'ing after an hour of render time.
     DEFAULT_PARENT_FOLDER_ID = "1zqsSvdyLWTRIt-Ri8VQELbYHhJihn6YD"
 
     # Retry settings for transient errors
     MAX_RETRIES = 3
     INITIAL_BACKOFF = 1.0  # seconds
-    
+
     def __init__(
         self,
         client_id: Optional[str] = None,
         client_secret: Optional[str] = None,
         refresh_token: Optional[str] = None,
+        parent_folder_id: Optional[str] = None,
+        strict_folder: bool = False,
     ):
         self.client_id = client_id or os.getenv("GOOGLE_CLIENT_ID")
         self.client_secret = client_secret or os.getenv("GOOGLE_CLIENT_SECRET")
         self.refresh_token = refresh_token or os.getenv("GOOGLE_REFRESH_TOKEN")
-        
+
         if not all([self.client_id, self.client_secret, self.refresh_token]):
             raise ValueError("Google OAuth credentials not found in environment")
-        
-        self.parent_folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", self.DEFAULT_PARENT_FOLDER_ID)
+
+        env_folder = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+        resolved_folder = parent_folder_id or env_folder
+        if not resolved_folder:
+            if strict_folder:
+                raise RuntimeError(
+                    "GOOGLE_DRIVE_FOLDER_ID not set and no parent_folder_id "
+                    "provided. Refusing to fall back to the hardcoded default "
+                    "folder — it belongs to a different Google identity than "
+                    "the backend's and Drive uploads through it will 404. Set "
+                    "GOOGLE_DRIVE_FOLDER_ID in the environment."
+                )
+            resolved_folder = self.DEFAULT_PARENT_FOLDER_ID
+        self.parent_folder_id = resolved_folder
         
         # Initialize credentials
         self.credentials = Credentials(

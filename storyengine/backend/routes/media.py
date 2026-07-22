@@ -288,7 +288,9 @@ def _drive_service():
                 if str(pipeline_path) not in sys.path:
                     sys.path.insert(0, str(pipeline_path))
                 from shared.clients.google_client import GoogleClient
-                _google_client = GoogleClient()
+                # strict_folder: backend's shared app-owned Drive identity —
+                # see google_client.py's DEFAULT_PARENT_FOLDER_ID docstring.
+                _google_client = GoogleClient(strict_folder=True)
     return _google_client.drive_service
 
 

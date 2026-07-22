@@ -25,6 +25,7 @@ Public entry:
 
 import asyncio
 import json
+import logging
 import os
 import re
 import shutil
@@ -42,6 +43,8 @@ from render_stitch import (
     _probe_duration,
     _run_subprocess,
 )
+
+logger = logging.getLogger(__name__)
 
 _REMOTION_DIR = Path(__file__).resolve().parents[2] / "remotion-video"
 _PIPELINE_PATH = Path(__file__).resolve().parents[2] / "skills" / "video-pipeline"
@@ -375,24 +378,45 @@ async def render_static_video(
             await _emit(on_progress, "Rendering the documentary (Remotion)")
             await _run_remotion(public_dir, props_file, out_file, on_progress)
 
-        await _emit(on_progress, "Uploading the final video")
-        data = out_file.read_bytes()
-        safe = _safe_filename(title, video_id[:8])
-        # Unique name per render: re-using one filename REPLACED the Drive file
-        # in place, so anyone streaming the video mid-upload got a corrupted
-        # "robotic" stream (heard live). A new file per render swaps the URL
-        # atomically instead.
-        import uuid as _uuid
-        url = await upload_bytes(
-            data, f"{video_id}/final/{safe}_{_uuid.uuid4().hex[:6]}.mp4",
-            "video/mp4", tenant_id)
-        duration = await _probe_duration(str(out_file))
-        return {
-            "final_video_url": url,
-            "duration_seconds": duration or rc["total_duration_seconds"],
-            "scene_count": len(segments),
-            "resolution": "1920x1080",
-            "method": "remotion_static",
-        }
+        # Salvage guard: the render itself (the expensive ~1hr+ part) is done
+        # once out_file exists. If anything past this point raises (upload
+        # 404, DB write failure, etc.) the `finally` below still wipes workdir
+        # — which used to silently delete the only copy of a finished MP4
+        # (2026-07-22 incident: a bad Drive parent folder 404'd the upload and
+        # the render was lost). Move the finished file to a persistent path
+        # before re-raising so a failed post-render step never destroys
+        # otherwise-good render output.
+        try:
+            await _emit(on_progress, "Uploading the final video")
+            data = out_file.read_bytes()
+            safe = _safe_filename(title, video_id[:8])
+            # Unique name per render: re-using one filename REPLACED the Drive
+            # file in place, so anyone streaming the video mid-upload got a
+            # corrupted "robotic" stream (heard live). A new file per render
+            # swaps the URL atomically instead.
+            import uuid as _uuid
+            url = await upload_bytes(
+                data, f"{video_id}/final/{safe}_{_uuid.uuid4().hex[:6]}.mp4",
+                "video/mp4", tenant_id)
+            duration = await _probe_duration(str(out_file))
+            return {
+                "final_video_url": url,
+                "duration_seconds": duration or rc["total_duration_seconds"],
+                "scene_count": len(segments),
+                "resolution": "1920x1080",
+                "method": "remotion_static",
+            }
+        except Exception:
+            if out_file.exists() and out_file.stat().st_size > 0:
+                salvage_dir = Path.home() / "render_salvage"
+                os.makedirs(salvage_dir, exist_ok=True)
+                salvage_path = salvage_dir / f"{video_id}.mp4"
+                shutil.move(str(out_file), str(salvage_path))
+                logger.warning(
+                    "render_static_video(%s): post-render step failed — "
+                    "salvaged finished MP4 to %s before workdir cleanup",
+                    video_id, salvage_path,
+                )
+            raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

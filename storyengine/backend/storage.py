@@ -51,7 +51,11 @@ def _get_google_client():
         if _google_client is not None:
             return _google_client
         from shared.clients.google_client import GoogleClient
-        client = GoogleClient()
+        # strict_folder: this is the backend's shared app-owned Drive identity
+        # — it must never silently fall back to the hardcoded default folder
+        # (a different, personal Google account the backend can't see into).
+        # See google_client.py's DEFAULT_PARENT_FOLDER_ID docstring.
+        client = GoogleClient(strict_folder=True)
         _root_folder_id = client.get_or_create_folder("StoryEngine Assets")["id"]
         # Keep workspaces and legacy media beneath one visible app-owned root.
         client.workspace_root_folder_id = _root_folder_id

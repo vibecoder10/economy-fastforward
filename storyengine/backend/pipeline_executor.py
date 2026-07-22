@@ -6539,7 +6539,9 @@ class PipelineExecutor:
         # Try to load optional clients (non-blocking)
         try:
             from shared.clients.google_client import GoogleClient
-            self._pipeline.google = GoogleClient()
+            # strict_folder: backend's shared app-owned Drive identity — see
+            # google_client.py's DEFAULT_PARENT_FOLDER_ID docstring.
+            self._pipeline.google = GoogleClient(strict_folder=True)
             print("[INIT] GoogleClient OK", flush=True)
         except Exception as e:
             print(f"[INIT] GoogleClient skipped: {e}", flush=True)
