@@ -978,6 +978,41 @@ async def seed_roster_reference(
     return await seed_reference_from_url(video_id, tenant_id, machine, url)
 
 
+@router.post("/static-qa-approve/{asset_id}")
+async def approve_static_qa_render(
+    asset_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    """Operator override for the static-docu post-generation QA gate: a render
+    the vision judge rejected TWICE is parked (status='qa_rejected', image_url
+    NULL, drive_image_url = the hosted render) instead of deleted, because the
+    judge itself can be wrong (2026-07-22: a QA-wording bug rejected 12 correct,
+    paid renders). This endpoint is the human YES: flip the parked row to
+    status='done' and promote drive_image_url to image_url, which is exactly
+    what puts it back in render_static.py's shippable set (image_url IS NOT
+    NULL). Free — no generation spend, just a status flip."""
+    from static_docu import STATIC_RENDER_MODE
+    row = await fetch_one(
+        "SELECT id, video_id, scene, status, generation_method, drive_image_url "
+        "FROM assets WHERE id = $1 AND tenant_id = $2", asset_id, tenant_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if (row.get("generation_method") or "") != STATIC_RENDER_MODE \
+            or (row.get("status") or "") != "qa_rejected":
+        raise HTTPException(
+            status_code=400,
+            detail="Only QA-rejected static-documentary renders can be approved")
+    if not row.get("drive_image_url"):
+        raise HTTPException(
+            status_code=400, detail="This rejected render has no hosted image to approve")
+    await execute(
+        "UPDATE assets SET status='done', image_url=drive_image_url "
+        "WHERE id = $1 AND tenant_id = $2", asset_id, tenant_id)
+    return {"status": "completed", "asset_id": asset_id,
+            "video_id": row.get("video_id"), "scene": row.get("scene"),
+            "image_url": row.get("drive_image_url")}
+
+
 @router.post("/roster-recheck/{video_id}", response_model=PipelineResponse)
 async def recheck_roster_references(
     video_id: str,

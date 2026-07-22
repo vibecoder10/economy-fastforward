@@ -947,7 +947,8 @@ async def delete_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
 async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     """Get all assets for a video."""
     rows = await fetch_all(
-        """SELECT id, video_id, scene, image_index, image_url, image_prompt,
+        """SELECT id, video_id, scene, image_index, image_url, drive_image_url,
+                  image_prompt,
                   status, shot_type, hero_shot, sentence_text, video_clip_url,
                   video_prompt, sound_prompt, sound_effect_url, sound_volume,
                   duration_seconds, extraction_flags, image_model,

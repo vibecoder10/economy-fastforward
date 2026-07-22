@@ -1523,10 +1523,34 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 url = url2
             else:
                 # We HAVE proof of what this machine looks like and the render
-                # doesn't match it — fail the scene rather than ship it.
+                # doesn't match it — fail the scene rather than ship it. But
+                # the render is PAID FOR, and the QA judge itself can be wrong
+                # (2026-07-22: a QA-wording bug rejected 12 correct renders and
+                # the old DELETE here destroyed every one). PARK it instead:
+                # status='qa_rejected' with image_url NULL keeps it out of the
+                # rendered video (render_static.py ships image_url IS NOT NULL
+                # only), while drive_image_url holds the render self-hosted to
+                # durable storage so an operator can view it and approve via
+                # POST /api/pipeline/static-qa-approve/{asset_id}.
                 _p(f"Segment {sc}: could not verify the render shows the real "
-                   f"{machine} — scene failed for review (not shipped)")
-                await execute("DELETE FROM assets WHERE id=$1", row_id)
+                   f"{machine} — parked for operator review (not shipped)")
+                parked_url = url2 or url
+                parked_prompt = retry_prompt if url2 else prompt
+                try:
+                    async with httpx.AsyncClient(timeout=120.0) as c:
+                        r = await c.get(parked_url, follow_redirects=True)
+                        r.raise_for_status()
+                        data = r.content
+                    parked_url = await upload_bytes(
+                        data, f"{video_id}/static/S{sc:02d}_qa_rejected.png",
+                        "image/png", tenant_id)
+                except Exception:  # noqa: BLE001 — the ephemeral provider URL
+                    pass           # still beats losing the render entirely
+                await execute(
+                    "UPDATE assets SET status='qa_rejected', image_url=NULL, "
+                    "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
+                    row_id, parked_url,
+                    (f"[ref: {ref_src}] " if ref_src else "") + parked_prompt[:900])
                 return str(sc)
 
         async with httpx.AsyncClient(timeout=120.0) as c:
@@ -1552,9 +1576,15 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 return await asyncio.wait_for(_one_scene(s), timeout=300)
             except Exception:  # noqa: BLE001 — timeout or any error: isolate this scene
                 try:
+                    # Never sweep up a row _one_scene deliberately parked for
+                    # the operator (qa_rejected / blocked_no_reference) — both
+                    # carry image_url NULL by design, and a timeout cancelling
+                    # _one_scene right after it parked would otherwise delete
+                    # the parked render here.
                     await execute(
                         "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 "
-                        "AND scene=$3 AND generation_method=$4 AND image_url IS NULL",
+                        "AND scene=$3 AND generation_method=$4 AND image_url IS NULL "
+                        "AND status NOT IN ('qa_rejected','blocked_no_reference')",
                         video_id, tenant_id, s["scene"], STATIC_RENDER_MODE)
                 except Exception:  # noqa: BLE001
                     pass
