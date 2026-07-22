@@ -1016,8 +1016,13 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # Files the creator has dropped into this video's co-pilot (chat_assets rows
     # bound to this conversation) — folded into the summary so the copilot can
     # reference them ("use the reference I dropped", "that image I attached").
+    # THE channel-identity pool brief (checklist P2) goes FIRST, ahead of the
+    # video summary — same position/rationale as the home producer assembly
+    # in chat_turn: its hard precedence law must be the first thing the
+    # co-pilot reads.
     summary_with_assets = (
-        _summary_line(summary)
+        await _identity_pool_brief(tenant_id)
+        + _summary_line(summary)
         + await _assets_brief(tenant_id, state)
         + await _preferences_brief(tenant_id, video_id)
     )
@@ -1738,6 +1743,33 @@ _GOAL_LABELS = {
 }
 
 
+async def _identity_pool_brief(tenant_id) -> str:
+    """THE canonical channel-identity block (chat channel-identity rebuild,
+    checklist P2) — injected FIRST into both chat system prompts (producer +
+    in-video co-pilot), ahead of every other brief, so its hard precedence
+    law (our locked identity leads; a modeled reference contributes topic
+    only, never format/runtime/titling) is the first thing the model reads.
+    Every other brief that touches a reference video (_reference_brief,
+    producer_prompt's LENGTH/MODELING-A-REFERENCE guidance) is written to
+    point back at this block rather than re-deriving its own anchor.
+
+    Built fresh every turn — no cross-turn state caching (unlike
+    _reference_brief's per-URL cache), so a just-locked format/cast/DNA
+    change lands on the very next turn. Fail-soft: any error here still
+    yields "" rather than breaking prompt assembly; render_identity_brief
+    itself already renders a minimal, honest block for a pool with nothing
+    learned yet, so there is no separate "empty tenant" special case."""
+    try:
+        from channel_identity_context import build_identity_pool, render_identity_brief
+
+        pool = await build_identity_pool(tenant_id)
+        brief = render_identity_brief(pool)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chat: identity pool brief failed for tenant=%s: %s", tenant_id, e)
+        return ""
+    return f"\n{brief}\n" if brief else ""
+
+
 def _creator_brief(state: dict) -> str:
     """A compact 'who you're talking to' note injected into EVERY producer turn so
     it remembers the onboarding (intent, goals, channel, competitors) across the
@@ -1833,10 +1865,14 @@ async def _reference_brief(state: dict, reference_url: str | None) -> str:
             if desc:
                 lines.append(f"What it's actually about: {desc}")
             lines.append(
-                "Propose a concrete new TITLE that adapts THIS video's proven formula AND its "
-                "actual subject and genre to the creator: keep its hook structure and topic lane. "
-                "Do NOT snap back to an unrelated topic from the creator's past videos. Anchor the "
-                f"recommended length to this video's runtime (~{runtime})."
+                "OUR CHANNEL IDENTITY LEADS (see the identity block above): this reference contributes "
+                "its TOPIC and subject lane ONLY — never its title structure, pacing, or runtime. "
+                "Propose a concrete new TITLE that carries this reference's topic hook and actual "
+                "subject/genre, but written in OUR channel's own title convention (from the identity "
+                "block's TITLE PATTERN/VOICE lines when present). Do NOT snap back to an unrelated "
+                "topic from the creator's past videos, and do NOT copy this reference's title formula "
+                "wholesale. Recommend length from OUR channel identity's own LENGTH line, not from this "
+                f"reference's runtime (~{runtime}) — that runtime is context only, never the anchor."
             )
             brief = "\n".join(lines) + "\n"
     except Exception as e:  # noqa: BLE001
@@ -3461,8 +3497,12 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=_NO_KEY_PRODUCER_MSG, phase="asking")
+    # THE channel-identity pool brief (checklist P2) goes FIRST here too —
+    # this is the onboarding hand-off into the SAME producer chat_turn drives,
+    # so it must open with the same precedence law from turn one.
     brief = (
-        _creator_brief(state)
+        await _identity_pool_brief(tenant_id)
+        + _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
         + await _channel_intel_brief(tenant_id)
         + await _competitor_winners_brief(tenant_id)
@@ -4629,13 +4669,19 @@ async def chat_turn(
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=_NO_KEY_PRODUCER_MSG, phase="asking")
 
+    # THE channel-identity pool brief (checklist P2) goes FIRST, ahead of the
+    # durable creator brief, the length anchor, channel intelligence,
+    # competitor winners, the loop brief, and — most directly —
+    # _reference_brief: that function's own modeling instructions point back
+    # at "the identity block above", so it must actually render above them.
     # Producer sees the durable creator brief + a real length anchor + the channel
     # intelligence brief (top titles / hook pattern / thumbnail motifs / cadence) +
     # REAL data on any video being modeled (so it grounds the proposal in the
     # reference, not the creator's own channel) + the current channel setup it can
     # edit (competitors, name, niche, look).
     system_prompt = build_system_prompt(
-        _creator_brief(state)
+        await _identity_pool_brief(tenant_id)
+        + _creator_brief(state)
         + await _modeled_runtime_hint(tenant_id)
         + await _channel_intel_brief(tenant_id)
         + await _competitor_winners_brief(tenant_id)
