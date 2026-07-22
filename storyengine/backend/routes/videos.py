@@ -465,6 +465,12 @@ async def create_video(
             "claim needs an on-air source, attribute it to the institution "
             "(the Army, Congress, GAO, the program office) — otherwise let the "
             "research-verified figure stand on its own.")).strip()
+    # P5/migration 116: a skip_voice=true set at creation (reduced stage plan
+    # or the legacy explicit flag) is always a creator choice, never the
+    # dialogue_intelligence auto-detector (that only ever runs later, once a
+    # script exists) — stamp 'manual' so it's never auto-reverted. false
+    # needs no provenance yet.
+    skip_voice_source = "manual" if skip_voice else None
 
     # Optional reference (a YouTube link) puts the video in "modeled" mode.
     # Two shapes share this one INSERT (checklist C38 — create-surface
@@ -530,13 +536,14 @@ async def create_video(
     script_profile = _resolve_script_profile(body.script_profile)
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, title, initial_status, source_val, _strip_md(body.framework_angle),
         body.video_length_minutes, writer_guidance, body.visual_style, style_override, body.accent_color,
-        body.aspect_ratio, body.video_resolution, skip_voice, json.dumps(plan) if plan is not None else None, reference_url,
+        body.aspect_ratio, body.video_resolution, skip_voice, skip_voice_source,
+        json.dumps(plan) if plan is not None else None, reference_url,
         render_mode, render_style, style_preset_id, script_profile,
     )
 
@@ -758,6 +765,14 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # Scenes gate reads it (advancing status alone left the gate locked).
     if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
         raise HTTPException(status_code=400, detail="skip_voice must be a boolean")
+    # P5/migration 116: a skip_voice key arriving in the request body at all
+    # is always an explicit creator action through this generic PATCH path
+    # (GuidedNextStep's skip button sends {skip_voice: true} directly) —
+    # stamp provenance 'manual' so dialogue_intelligence.tag_video_dialogue's
+    # bidirectional auto-revert never touches it. Captured BEFORE the
+    # grok_native auto-fill below (which also injects "skip_voice" into
+    # body) so both paths are covered.
+    stamp_skip_voice_manual = "skip_voice" in body
     # U3 — dialogue voice folds into Animate: a creator who explicitly picks
     # grok_native (Grok performs the line, ElevenLabs STS re-voices in the
     # pinned cast voice — carries_own_line) for a character-dialogue video is
@@ -767,7 +782,8 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # false->true (never overrides a caller who set skip_voice explicitly in
     # the same request, and never un-skips), and never for a static_docu
     # video (voice IS the narration there — not that a static video would
-    # ever carry character_dialogue, but belt-and-suspenders).
+    # ever carry character_dialogue, but belt-and-suspenders). This is a
+    # creator choice (grok_native), not the dialogue detector — 'manual' too.
     if (
         body.get("dialogue_audio") == "grok_native"
         and "skip_voice" not in body
@@ -777,6 +793,7 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     ):
         body = dict(body)
         body["skip_voice"] = True
+        stamp_skip_voice_manual = True
     # aspect_ratio flows into image/video gen + render — reject anything unexpected.
     if "aspect_ratio" in body and body["aspect_ratio"] not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
         raise HTTPException(status_code=400, detail="Invalid aspect_ratio")
@@ -825,6 +842,14 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
             updates.append(f"{safe_column(key)} = ${idx}")
             params.append(val)
             idx += 1
+    # P5/migration 116: skip_voice_source is server-derived, never a
+    # client-writable field (kept out of allowed_fields on purpose) — stamped
+    # here whenever this request touched skip_voice through an explicit
+    # creator action (see stamp_skip_voice_manual above).
+    if stamp_skip_voice_manual:
+        updates.append(f"{safe_column('skip_voice_source')} = ${idx}")
+        params.append("manual")
+        idx += 1
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update")
 

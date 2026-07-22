@@ -70,6 +70,12 @@ _TITLE_PATTERNS_CAP = 8
 _TITLE_PATTERNS_IN_BRIEF = 3
 _HOOK_EXAMPLES_IN_BRIEF = 2
 _SIGNATURE_PHRASES_IN_BRIEF = 3
+# P5 fix: a large locked cast (a full ensemble show) used to render every
+# member on one unbounded "LOCKED CAST:" line — same unbounded-brief risk
+# _TITLE_PATTERNS_IN_BRIEF already guards against for title patterns. Capped
+# with a "+N more" overflow tag so the brief stays compact but still tells
+# the model the cast is bigger than what's listed.
+_CAST_IN_BRIEF = 6
 _SCRIPT_PROMPT_SUMMARY_MAX_CHARS = 400
 _STYLE_DESCRIPTION_MAX_CHARS = 320
 
@@ -297,7 +303,7 @@ async def _script_prompt_summary(tenant_id) -> Optional[str]:
 # The pool
 # ---------------------------------------------------------------------------
 
-async def build_identity_pool(tenant_id) -> dict[str, Any]:
+async def build_identity_pool(tenant_id, include_script_profiles: bool = True) -> dict[str, Any]:
     """Assemble THE channel-identity pool for `tenant_id`. Every field is
     None/empty-safe when missing — no section's absence (or DB hiccup)
     breaks the others, matching channel_briefs.py's fail-soft posture.
@@ -309,13 +315,25 @@ async def build_identity_pool(tenant_id) -> dict[str, Any]:
        "title_patterns": list[{"pattern","evidence"}],
        "script_profiles": list[{"id","display_name","description","is_default"}],
        "script_prompt_summary": str | None}
+
+    P5 fix: `_script_profiles_section` loads and describes EVERY registered
+    script profile — real work (sys.path surgery, an import, a load per
+    profile) that render_identity_brief never reads (grep confirms nothing
+    in that function touches pool["script_profiles"]). chat.py's
+    `_identity_pool_brief` rebuilds the pool fresh on every single chat turn
+    just to throw that section away, so it passes
+    `include_script_profiles=False` to skip it. The MCP verb
+    (`get_channel_identity_context`) genuinely surfaces the catalog to
+    callers and keeps the default (True) — its output shape is unchanged.
+    When skipped, the key is still present (empty list) so the return shape
+    never varies by caller.
     """
     dna = await _dna_section(tenant_id)
     cast = await _cast_section(tenant_id)
     fmt = await _format_section(tenant_id)
     own_median_minutes = await _own_median_minutes(tenant_id)
     title_patterns = await _title_patterns_section(tenant_id)
-    script_profiles = await _script_profiles_section()
+    script_profiles = await _script_profiles_section() if include_script_profiles else []
     script_prompt_summary = await _script_prompt_summary(tenant_id)
 
     return {
@@ -414,10 +432,13 @@ def render_identity_brief(pool: dict[str, Any]) -> str:
 
     if cast:
         cast_bits = []
-        for c in cast:
+        for c in cast[:_CAST_IN_BRIEF]:
             name = c.get("name") or "?"
             desc = c.get("description") or ""
             cast_bits.append(f"{name} — {desc}" if desc else name)
+        overflow = len(cast) - _CAST_IN_BRIEF
+        if overflow > 0:
+            cast_bits.append(f"+{overflow} more")
         lines.append("LOCKED CAST: " + "; ".join(cast_bits))
 
     if script_prompt_summary:

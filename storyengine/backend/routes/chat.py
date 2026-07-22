@@ -342,7 +342,38 @@ def _selections_to_text(selections: dict[str, Any]) -> str:
     return "My choices — " + ", ".join(parts)
 
 
-async def _stamp_length_default(data: dict[str, Any], tenant_id=None) -> None:
+# P5 fix: spec.length_user_set is an LLM self-report ("did the creator name a
+# length?"), not ground truth — a producer pass can mis-set it. Longest
+# alternatives first so alternation short-circuits on the fullest match
+# (belt-and-suspenders; the trailing \b already forces a full-unit match).
+_LENGTH_EXPR_RE = re.compile(
+    r"\b\d+\s*-?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?|s|m|h)\b",
+    re.IGNORECASE,
+)
+# How many of the creator's OWN most-recent turns we'll scan for a plausible
+# length expression before distrusting length_user_set — bounded so this
+# stays cheap on a long-running conversation.
+_LENGTH_USER_SET_LOOKBACK_TURNS = 3
+
+
+def _user_length_expression_present(transcript: Any) -> bool:
+    """True only when one of the creator's last few turns actually contains
+    something that reads like a length ('90 seconds', '3 minutes',
+    '3-minute', '1 hour', '45s', ...). Used to sanity-check
+    spec.length_user_set before trusting it — see _stamp_length_default."""
+    if not isinstance(transcript, list):
+        return False
+    user_texts = [
+        t.get("content") for t in transcript
+        if isinstance(t, dict) and t.get("role") == "user" and isinstance(t.get("content"), str)
+    ]
+    for text in user_texts[-_LENGTH_USER_SET_LOOKBACK_TURNS:]:
+        if _LENGTH_EXPR_RE.search(text):
+            return True
+    return False
+
+
+async def _stamp_length_default(data: dict[str, Any], tenant_id=None, transcript: Any = None) -> None:
     """Pre-set the length slider so it opens on a sensible default, not the generic
     1-minute floor. Source order: the producer's recommended_minutes (asking phase),
     else the plan spec's video_length_minutes.
@@ -365,7 +396,14 @@ async def _stamp_length_default(data: dict[str, Any], tenant_id=None) -> None:
     length_user_set (set by the producer prompt when the creator named a
     specific length, in either direction) turns the whole bump off — a
     user-specified length rides through untouched, shorter OR longer than
-    the channel median."""
+    the channel median.
+
+    P5 fix: length_user_set is the LLM's own self-report, not ground truth —
+    a deterministic guard (_user_length_expression_present) only honors it
+    when a plausible length expression ('90 seconds', '3-minute', '1 hour',
+    ...) actually appears in one of the creator's own last few transcript
+    turns (`transcript`). Otherwise it's logged and ignored, and the channel
+    runtime backstop applies exactly as if the creator never named a length."""
     cards = data.get("cards")
     if not isinstance(cards, list):
         return
@@ -379,6 +417,14 @@ async def _stamp_length_default(data: dict[str, Any], tenant_id=None) -> None:
         except (TypeError, ValueError):
             spec_min = None
         user_set = bool(spec.get("length_user_set"))
+        if user_set and not _user_length_expression_present(transcript):
+            logger.warning(
+                "chat length_user_set=true but no plausible length expression found "
+                "in the last %d user turn(s) — distrusting the self-report and "
+                "applying the channel-runtime backstop normally",
+                _LENGTH_USER_SET_LOOKBACK_TURNS,
+            )
+            user_set = False
     channel_min = None
     if tenant_id is not None:
         from channel_identity_context import own_median_minutes
@@ -1780,11 +1826,16 @@ async def _identity_pool_brief(tenant_id) -> str:
     change lands on the very next turn. Fail-soft: any error here still
     yields "" rather than breaking prompt assembly; render_identity_brief
     itself already renders a minimal, honest block for a pool with nothing
-    learned yet, so there is no separate "empty tenant" special case."""
+    learned yet, so there is no separate "empty tenant" special case.
+
+    P5 fix: passes include_script_profiles=False — render_identity_brief
+    never reads pool["script_profiles"], so building that section (a sys.path
+    import + a load per registered profile) on every single chat turn was
+    pure dead work. The MCP verb still asks for the full pool (default True)."""
     try:
         from channel_identity_context import build_identity_pool, render_identity_brief
 
-        pool = await build_identity_pool(tenant_id)
+        pool = await build_identity_pool(tenant_id, include_script_profiles=False)
         brief = render_identity_brief(pool)
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: identity pool brief failed for tenant=%s: %s", tenant_id, e)
@@ -3562,7 +3613,7 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
         + await _assets_brief(tenant_id, state)
     )
     data = call_producer(transcript, build_system_prompt(brief), client=client)
-    await _stamp_length_default(data, tenant_id)
+    await _stamp_length_default(data, tenant_id, transcript)
     await _annotate_style_recommendation(data, tenant_id, state)
     await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, None)
@@ -4744,7 +4795,7 @@ async def chat_turn(
         + await _preferences_brief(tenant_id)
     )
     data = call_producer(transcript, system_prompt, client=client)
-    await _stamp_length_default(data, tenant_id)
+    await _stamp_length_default(data, tenant_id, transcript)
     await _annotate_style_recommendation(data, tenant_id, state)
     await _stamp_plan_estimate(data)
     assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)

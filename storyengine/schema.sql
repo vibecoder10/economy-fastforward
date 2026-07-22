@@ -146,6 +146,11 @@ CREATE TABLE videos (
   -- user-facing stages (research, script, voice, images, sound, video,
   -- thumbnail, render, upload) in chain order — NULL = run the full pipeline.
   skip_voice BOOLEAN NOT NULL DEFAULT false,
+  -- migration 116: who set the current skip_voice value — 'auto' (dialogue
+  -- detector, bidirectional with its own re-classification) | 'manual'
+  -- (creator action, never auto-reverted) | NULL (legacy row, treated as
+  -- manual). See migration 116 for the full rationale.
+  skip_voice_source TEXT CHECK (skip_voice_source IN ('auto', 'manual')),
   pipeline_stages JSONB,
   -- True when the default autobuild chain skipped the optional research stage
   -- for this video (migration 086) — drives the "Research: skipped — Run

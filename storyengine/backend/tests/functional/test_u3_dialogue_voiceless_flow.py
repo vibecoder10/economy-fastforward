@@ -59,6 +59,7 @@ def _video_row(**overrides):
         "dialogue_audio": None,
         "render_mode": None,
         "skip_voice": False,
+        "skip_voice_source": None,
         "pipeline_stages": None,
     }
     row.update(overrides)
@@ -252,6 +253,119 @@ def test_explicit_pipeline_stages_voice_blocks_auto_skip(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 1b. P5 BLOCKER fix — bidirectional auto-skip (skip_voice_source, migration 116)
+# ---------------------------------------------------------------------------
+
+def _revert_writes(writes):
+    return [w for w in writes if "SET skip_voice = false" in w[0]]
+
+
+def test_THE_REGRESSION_reclassified_narration_reverts_auto_skip(monkeypatch):
+    """THE blocker scenario from the sweep: a video tagged character_dialogue
+    at >=0.8 dialogue share auto-skips voice (source='auto'). The creator
+    regenerates the script into something narration-heavy; re-tagging now
+    concludes narration_only. Before this fix skip_voice stayed stuck true —
+    voice never ran, the character_dialogue-gated Animate auto-chain never
+    fired, and render hard-failed "Missing audio: Scene N.mp3" with no
+    self-serve recovery (voiceSkipped hides the frontend's voice controls).
+    This proves the auto-detector can undo what it itself set."""
+    scenes = [{"id": "sc-1", "scene": 1, "scene_text": "scene one"}]
+    # Video already auto-skipped by a PRIOR tagging pass (source='auto').
+    video = _video_row(skip_voice=True, skip_voice_source="auto")
+    writes = _wire_tag(
+        monkeypatch, video, scenes, [], detected_mode="narration_only",
+    )
+
+    result = asyncio.run(dialogue_intelligence.tag_video_dialogue(VIDEO_ID, TENANT))
+
+    assert result["dialogue_mode"] == "narration_only"
+    assert result["voice_auto_restored"] is True
+    reverts = _revert_writes(writes)
+    assert len(reverts) == 1
+    assert reverts[0][1] == (VIDEO_ID,)
+
+
+def test_dialogue_share_dropping_below_threshold_also_reverts_auto_skip(monkeypatch):
+    """Same bidirectional fix, but the mode is STILL character_dialogue —
+    only the dialogue SHARE dropped back under the majority threshold (e.g.
+    a rewrite added a lot of new narration around the same dialogue lines).
+    Must revert just like the mode-flip case."""
+    scenes = [{"id": "sc-1", "scene": 1, "scene_text": "scene one"}]
+    narration_sentence = " ".join(["word"] * 20)
+    segments = (
+        [{"type": "narration", "text": narration_sentence} for _ in range(9)]
+        + [{"type": "dialogue", "speaker": "A", "text": "one short line"}]
+    )
+    video = _video_row(skip_voice=True, skip_voice_source="auto")
+    writes = _wire_tag(monkeypatch, video, scenes, segments, cast=[{"name": "A"}])
+
+    result = asyncio.run(dialogue_intelligence.tag_video_dialogue(VIDEO_ID, TENANT))
+
+    assert result["dialogue_mode"] == "character_dialogue"
+    assert result["dialogue_share"] < dialogue_intelligence.DIALOGUE_MAJORITY_THRESHOLD
+    assert result["voice_auto_restored"] is True
+    assert len(_revert_writes(writes)) == 1
+
+
+def test_manual_skip_survives_reclassification(monkeypatch):
+    """A creator's own explicit skip (skip_voice_source='manual' — the
+    GuidedNextStep button, or a grok_native PATCH) must NEVER be auto-flipped
+    back, even when this same pass concludes the video no longer qualifies."""
+    scenes = [{"id": "sc-1", "scene": 1, "scene_text": "scene one"}]
+    video = _video_row(skip_voice=True, skip_voice_source="manual")
+    writes = _wire_tag(monkeypatch, video, scenes, [], detected_mode="narration_only")
+
+    result = asyncio.run(dialogue_intelligence.tag_video_dialogue(VIDEO_ID, TENANT))
+
+    assert "voice_auto_restored" not in result
+    assert _revert_writes(writes) == []
+
+
+def test_legacy_null_source_never_auto_flipped(monkeypatch):
+    """A pre-migration-116 row has skip_voice=true with no provenance
+    (skip_voice_source is NULL) — treated the same as 'manual', never
+    auto-reverted, since we have no evidence the detector set it."""
+    scenes = [{"id": "sc-1", "scene": 1, "scene_text": "scene one"}]
+    video = _video_row(skip_voice=True, skip_voice_source=None)
+    writes = _wire_tag(monkeypatch, video, scenes, [], detected_mode="narration_only")
+
+    result = asyncio.run(dialogue_intelligence.tag_video_dialogue(VIDEO_ID, TENANT))
+
+    assert "voice_auto_restored" not in result
+    assert _revert_writes(writes) == []
+
+
+def test_no_revert_when_skip_voice_already_false(monkeypatch):
+    """Nothing to revert when skip_voice was never set — a plain
+    narration-only (or below-threshold) video must not generate a spurious
+    revert write."""
+    scenes = [{"id": "sc-1", "scene": 1, "scene_text": "scene one"}]
+    video = _video_row(skip_voice=False, skip_voice_source=None)
+    writes = _wire_tag(monkeypatch, video, scenes, [], detected_mode="narration_only")
+
+    result = asyncio.run(dialogue_intelligence.tag_video_dialogue(VIDEO_ID, TENANT))
+
+    assert "voice_auto_restored" not in result
+    assert _revert_writes(writes) == []
+
+
+def test_forward_auto_skip_stamps_source_auto(monkeypatch):
+    """The forward-setting write (skip_voice false->true) now also stamps
+    skip_voice_source='auto' in the same UPDATE, so a later pass knows it's
+    eligible to revert."""
+    scenes = [{"id": "sc-1", "scene": 1, "scene_text": "scene one"}]
+    segments = [{"type": "dialogue", "speaker": "A", "text": "all dialogue all the time here"}]
+    writes = _wire_tag(monkeypatch, _video_row(), scenes, segments, cast=[{"name": "A"}])
+
+    result = asyncio.run(dialogue_intelligence.tag_video_dialogue(VIDEO_ID, TENANT))
+
+    assert result["voice_auto_skipped"] is True
+    skip_writes = _skip_voice_writes(writes)
+    assert len(skip_writes) == 1
+    assert "skip_voice_source = 'auto'" in skip_writes[0][0]
+
+
+# ---------------------------------------------------------------------------
 # 2. PATCH /api/videos/{id} — dialogue_audio='grok_native' hook
 # ---------------------------------------------------------------------------
 
@@ -377,6 +491,88 @@ def test_patch_grok_native_non_dialogue_video_never_auto_skips(monkeypatch):
     assert resp.status_code == 200, resp.text
     query, params = writes[0]
     assert "skip_voice" not in query
+
+
+# ---------------------------------------------------------------------------
+# 2b. P5 fix — PATCH stamps skip_voice_source='manual' (never auto-reverted)
+# ---------------------------------------------------------------------------
+
+def test_patch_grok_native_stamps_skip_voice_source_manual(monkeypatch):
+    """The grok_native auto-fill (a creator's explicit dialogue_audio choice,
+    not the dialogue detector) must stamp skip_voice_source='manual' in the
+    SAME write, so dialogue_intelligence.tag_video_dialogue's bidirectional
+    auto-revert never touches it later."""
+    async def fake_fetch_one(query, *args):
+        return {"id": VIDEO_ID, "dialogue_mode": "character_dialogue",
+                "render_mode": None, "skip_voice": False}
+
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    monkeypatch.setattr(videos_route, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(videos_route, "execute", fake_execute)
+    client = _videos_client()
+    resp = client.patch(f"/api/videos/{VIDEO_ID}", json={"dialogue_audio": "grok_native"})
+    assert resp.status_code == 200, resp.text
+    query, params = writes[0]
+    assert "skip_voice_source" in query
+    # column order in `updates`: dialogue_audio, skip_voice, then the
+    # server-stamped skip_voice_source appended after the body loop.
+    assert params[0] == "grok_native"
+    assert params[1] is True
+    assert params[2] == "manual"
+
+
+def test_patch_explicit_skip_voice_stamps_manual(monkeypatch):
+    """GuidedNextStep's skip button sends {skip_voice: true} directly through
+    this generic PATCH path — that's exactly as much a creator action as the
+    grok_native auto-fill, so it must be stamped 'manual' too."""
+    async def fake_fetch_one(query, *args):
+        return {"id": VIDEO_ID, "dialogue_mode": None,
+                "render_mode": None, "skip_voice": False}
+
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    monkeypatch.setattr(videos_route, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(videos_route, "execute", fake_execute)
+    client = _videos_client()
+    resp = client.patch(f"/api/videos/{VIDEO_ID}", json={"skip_voice": True})
+    assert resp.status_code == 200, resp.text
+    query, params = writes[0]
+    assert "skip_voice_source" in query
+    assert params[0] is True  # skip_voice
+    assert params[1] == "manual"
+
+
+def test_patch_grok_native_never_flips_true_back_to_false_no_source_stamp(monkeypatch):
+    """When skip_voice was already true and the request only carries
+    dialogue_audio (no explicit skip_voice, no auto-fill trigger since it's
+    already true), no skip_voice_source write happens either — nothing about
+    skip_voice changed in this request."""
+    async def fake_fetch_one(query, *args):
+        return {"id": VIDEO_ID, "dialogue_mode": "character_dialogue",
+                "render_mode": None, "skip_voice": True}
+
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    monkeypatch.setattr(videos_route, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(videos_route, "execute", fake_execute)
+    client = _videos_client()
+    resp = client.patch(f"/api/videos/{VIDEO_ID}", json={"dialogue_audio": "grok_native"})
+    assert resp.status_code == 200, resp.text
+    query, params = writes[0]
+    assert "skip_voice_source" not in query
 
 
 if __name__ == "__main__":

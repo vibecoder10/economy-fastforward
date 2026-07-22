@@ -130,7 +130,9 @@ def test_competitor_median_used_only_when_no_own_history(monkeypatch):
 
 def test_user_set_length_shorter_than_median_survives(monkeypatch):
     """Creator explicitly asked for 1 min; the channel median is 8 min. The
-    backstop must leave the 1-minute pick alone."""
+    backstop must leave the 1-minute pick alone. P5: length_user_set is only
+    trusted when the creator's own transcript actually says a length, so this
+    test supplies one."""
     async def fake_own(tenant_id):
         return 8.0
 
@@ -138,7 +140,8 @@ def test_user_set_length_shorter_than_median_survives(monkeypatch):
     monkeypatch.setattr(chat, "_competitor_median_seconds", _boom)
 
     data = _plan_data(video_length_minutes=1, length_user_set=True)
-    asyncio.run(chat._stamp_length_default(data, TENANT))
+    transcript = [{"role": "user", "content": "keep this one to 1 minute please"}]
+    asyncio.run(chat._stamp_length_default(data, TENANT, transcript))
     assert data["cards"][0]["recommended_seconds"] == 60
 
 
@@ -146,7 +149,7 @@ def test_user_set_length_longer_than_median_survives(monkeypatch):
     """Creator explicitly asked for 15 min; the channel median is 5 min. The
     old code only bumped UP, but the gate must block ANY touch when the
     creator set it themselves — confirms this isn't just a one-directional
-    fix."""
+    fix. P5: transcript carries the actual length phrase the guard checks for."""
     async def fake_own(tenant_id):
         return 5.0
 
@@ -154,8 +157,73 @@ def test_user_set_length_longer_than_median_survives(monkeypatch):
     monkeypatch.setattr(chat, "_competitor_median_seconds", _boom)
 
     data = _plan_data(video_length_minutes=15, length_user_set=True)
-    asyncio.run(chat._stamp_length_default(data, TENANT))
+    transcript = [{"role": "user", "content": "I want this to be a full 15 minute deep dive"}]
+    asyncio.run(chat._stamp_length_default(data, TENANT, transcript))
     assert data["cards"][0]["recommended_seconds"] == 15 * 60
+
+
+def test_user_set_length_without_plausible_expression_is_distrusted(monkeypatch):
+    """P5 fix: spec.length_user_set is the producer LLM's own self-report,
+    not ground truth. When nothing in the creator's own recent turns actually
+    reads like a length expression, the deterministic guard distrusts the
+    self-report and the channel-runtime backstop applies exactly as if
+    length_user_set had never been set."""
+    async def fake_own(tenant_id):
+        return 8.0
+
+    monkeypatch.setattr(cic, "own_median_minutes", fake_own)
+    monkeypatch.setattr(chat, "_competitor_median_seconds", _boom)
+
+    data = _plan_data(video_length_minutes=3, length_user_set=True)
+    transcript = [{"role": "user", "content": "make it about the history of the Roman empire"}]
+    asyncio.run(chat._stamp_length_default(data, TENANT, transcript))
+    assert data["cards"][0]["recommended_seconds"] == 8 * 60
+
+
+def test_user_set_length_with_no_transcript_is_distrusted(monkeypatch):
+    """Same guard, no transcript supplied at all (None) — must not crash and
+    must fall back to the backstop rather than trusting the self-report."""
+    async def fake_own(tenant_id):
+        return 8.0
+
+    monkeypatch.setattr(cic, "own_median_minutes", fake_own)
+    monkeypatch.setattr(chat, "_competitor_median_seconds", _boom)
+
+    data = _plan_data(video_length_minutes=3, length_user_set=True)
+    asyncio.run(chat._stamp_length_default(data, TENANT))
+    assert data["cards"][0]["recommended_seconds"] == 8 * 60
+
+
+def test_user_length_expression_present_matches_common_phrasings():
+    """Unit coverage for the regex guard itself, both directions."""
+    positive = [
+        "keep it under 90 seconds",
+        "make it a 3-minute video",
+        "I want a 15 minute deep dive",
+        "let's do 45s for the short",
+        "give me a 1 hour documentary",
+        "2hrs would be great",
+    ]
+    for text in positive:
+        transcript = [{"role": "user", "content": text}]
+        assert chat._user_length_expression_present(transcript), text
+
+    negative = [
+        "make it about the Roman empire",
+        "focus on the moon landing",
+        "I like this style, keep going",
+    ]
+    for text in negative:
+        transcript = [{"role": "user", "content": text}]
+        assert not chat._user_length_expression_present(transcript), text
+
+    # Only user turns count — an assistant turn mentioning a length must not count.
+    assistant_only = [{"role": "assistant", "content": "how about a 5 minute video?"}]
+    assert not chat._user_length_expression_present(assistant_only)
+
+    # Non-list / empty transcript never crashes.
+    assert not chat._user_length_expression_present(None)
+    assert not chat._user_length_expression_present([])
 
 
 def test_non_user_set_normal_form_length_still_bumped_to_median(monkeypatch):

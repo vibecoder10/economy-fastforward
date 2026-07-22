@@ -229,3 +229,14 @@ async def test_identity_pool_brief_fail_soft(monkeypatch):
         raise RuntimeError("db down")
     monkeypatch.setattr(cic, "build_identity_pool", boom)
     assert await chat._identity_pool_brief("t1") == ""
+
+
+async def test_identity_pool_brief_skips_script_profiles_build(monkeypatch):
+    """P5 fix: render_identity_brief never reads pool["script_profiles"], so
+    the chat wiring's _identity_pool_brief must ask build_identity_pool to
+    skip building that section (a sys.path import + a per-profile load, real
+    work repeated on every single chat turn for nothing)."""
+    mock = AsyncMock(return_value=_FIXTURE_POOL)
+    monkeypatch.setattr(cic, "build_identity_pool", mock)
+    await chat._identity_pool_brief("tenant-p2")
+    mock.assert_awaited_once_with("tenant-p2", include_script_profiles=False)

@@ -147,6 +147,26 @@ async def segment_scene(scene_text: str, cast_names: list[str], tenant_id) -> li
     return cleaned
 
 
+async def _revert_auto_skip(video: dict, video_id: str, result: dict) -> None:
+    """P5 fix: undo what THIS detector set, when its own conclusion no
+    longer supports it.
+
+    skip_voice_source (migration 116) tracks provenance. Only a row this
+    detector itself flipped to true ('auto') is eligible to flip back —
+    a creator's explicit skip (GuidedNextStep's button, PATCH
+    dialogue_audio='grok_native', a reduced create-form stage plan — all
+    stamped 'manual') and any legacy row (source NULL, pre-dates this
+    column) are never touched here.
+    """
+    if not video.get("skip_voice") or video.get("skip_voice_source") != "auto":
+        return
+    await execute(
+        "UPDATE videos SET skip_voice = false, skip_voice_source = NULL, updated_at = now() WHERE id = $1",
+        video_id,
+    )
+    result["voice_auto_restored"] = True
+
+
 async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
     """The full intelligence pass: detect mode, then tag every scene.
 
@@ -155,18 +175,28 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
 
     U3: for a video that turns out MAJORITY performed dialogue (see
     DIALOGUE_MAJORITY_THRESHOLD — PocoAPoco shape, not a narrated documentary
-    that merely quotes a line or two), also auto-sets skip_voice=true in the
-    same pass. Clip generation already auto-chains the per-segment TTS/STS
-    that render's clock needs (pipeline_executor.py run_dialogue_voice
-    auto-chain during Animate) whenever a scene is unvoiced, so the separate
-    Script&Voice "Generate Voice" step is redundant for this shape. Guarded:
-    never for static_docu (render_mode or tenant static format — voice IS the
-    narration there), only ever flips skip_voice false->true (never
-    true->false), and never overrides a creator who explicitly kept 'voice'
-    in this video's pipeline_stages.
+    that merely quotes a line or two), also auto-sets skip_voice=true (and
+    skip_voice_source='auto') in the same pass. Clip generation already
+    auto-chains the per-segment TTS/STS that render's clock needs
+    (pipeline_executor.py run_dialogue_voice auto-chain during Animate)
+    whenever a scene is unvoiced, so the separate Script&Voice "Generate
+    Voice" step is redundant for this shape. Guarded: never for static_docu
+    (render_mode or tenant static format — voice IS the narration there),
+    and never overrides a creator who explicitly kept 'voice' in this
+    video's pipeline_stages.
+
+    P5: the auto-set is now BIDIRECTIONAL with this same detector's own
+    conclusion. If a later pass on this video (script regenerated into
+    something narration-heavy, say) concludes it no longer qualifies —
+    mode != character_dialogue, or dialogue_share drops back under the
+    majority threshold — and skip_voice was set by THIS detector
+    (skip_voice_source == 'auto'), it gets flipped back to false so voice
+    (and the character_dialogue-gated Animate auto-chain, and render) work
+    again without a manual fix. A creator's own explicit skip
+    (skip_voice_source == 'manual', or a legacy NULL row) is never touched.
     """
     video = await fetch_one(
-        "SELECT id, script, dialogue_audio, render_mode, skip_voice, pipeline_stages "
+        "SELECT id, script, dialogue_audio, render_mode, skip_voice, skip_voice_source, pipeline_stages "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -179,7 +209,9 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
         mode, video_id,
     )
     if mode != "character_dialogue":
-        return {"dialogue_mode": mode, "scenes_tagged": 0}
+        result = {"dialogue_mode": mode, "scenes_tagged": 0}
+        await _revert_auto_skip(video, video_id, result)
+        return result
 
     cast_rows = await fetch_all(
         "SELECT name FROM video_characters WHERE video_id = $1 ORDER BY sort",
@@ -223,10 +255,11 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
     dialogue_share = dialogue_words / total_words
     result["dialogue_share"] = dialogue_share
     if dialogue_share < DIALOGUE_MAJORITY_THRESHOLD:
+        await _revert_auto_skip(video, video_id, result)
         return result
 
     if video.get("skip_voice"):
-        return result  # already skipped — nothing to flip
+        return result  # already skipped and still qualifies — nothing to flip
 
     from static_docu import static_mode_for_tenant, STATIC_RENDER_MODE
     if (video.get("render_mode") or "") == STATIC_RENDER_MODE:
@@ -242,7 +275,7 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
         return result  # creator explicitly kept the voice stage — don't override
 
     await execute(
-        "UPDATE videos SET skip_voice = true, updated_at = now() WHERE id = $1",
+        "UPDATE videos SET skip_voice = true, skip_voice_source = 'auto', updated_at = now() WHERE id = $1",
         video_id,
     )
     result["voice_auto_skipped"] = True

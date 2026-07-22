@@ -382,6 +382,42 @@ async def test_build_identity_pool_full_fixture_shape(monkeypatch):
     assert pool["script_prompt_summary"].startswith("Always end with")
 
 
+async def test_build_identity_pool_include_script_profiles_false_skips_section(monkeypatch):
+    """P5 fix: render_identity_brief never reads pool["script_profiles"] —
+    the chat wiring passes include_script_profiles=False to skip that
+    section's real work (sys.path import + a load per registered profile)
+    on every chat turn. The key stays present (empty list), same shape."""
+    _wire_full_fixture(monkeypatch)
+    called = {"hit": False}
+    real_section = cic._script_profiles_section
+
+    async def spy():
+        called["hit"] = True
+        return await real_section()
+
+    monkeypatch.setattr(cic, "_script_profiles_section", spy)
+
+    pool = await cic.build_identity_pool("t1", include_script_profiles=False)
+
+    assert set(pool.keys()) == {
+        "dna", "cast", "format", "own_median_minutes", "title_patterns",
+        "script_profiles", "script_prompt_summary",
+    }
+    assert pool["script_profiles"] == []
+    assert called["hit"] is False, "_script_profiles_section must not run when the caller opted out"
+    # Everything else still builds normally.
+    assert pool["dna"]["voice_tone"] == "warm, curious narrator"
+
+
+async def test_build_identity_pool_default_still_includes_script_profiles(monkeypatch):
+    """The MCP verb (get_channel_identity_context) calls build_identity_pool
+    with no override — default True must keep surfacing the real catalog,
+    unchanged output shape."""
+    _wire_full_fixture(monkeypatch)
+    pool = await cic.build_identity_pool("t1")
+    assert any(p["id"] == "neutral_v1" for p in pool["script_profiles"])
+
+
 async def test_build_identity_pool_empty_tenant_shape(monkeypatch):
     monkeypatch.setattr("channel_dna._current_identity", AsyncMock(return_value={}))
     monkeypatch.setattr(cic, "fetch_one", AsyncMock(return_value=None))
@@ -459,6 +495,29 @@ def test_render_identity_brief_own_median_uses_minutes_and_seconds():
     pool = {"own_median_minutes": 6.2}
     brief = cic.render_identity_brief(pool)
     assert "6 min 12 sec" in brief
+
+
+def test_render_identity_brief_caps_cast_at_six_with_overflow_tag():
+    """P5 fix: an 8-member locked cast renders only the first 6, with a
+    '+2 more' overflow tag — mirrors _TITLE_PATTERNS_IN_BRIEF's cap style so
+    a big ensemble show can't blow out the compact brief."""
+    cast = [{"name": f"Member{i}", "description": ""} for i in range(1, 9)]
+    pool = {"cast": cast}
+    brief = cic.render_identity_brief(pool)
+    line = next(l for l in brief.splitlines() if l.startswith("LOCKED CAST:"))
+    assert "Member1" in line and "Member6" in line
+    assert "Member7" not in line and "Member8" not in line
+    assert "+2 more" in line
+
+
+def test_render_identity_brief_cast_at_or_under_cap_has_no_overflow_tag():
+    cast = [{"name": f"Member{i}", "description": ""} for i in range(1, 7)]
+    pool = {"cast": cast}
+    brief = cic.render_identity_brief(pool)
+    line = next(l for l in brief.splitlines() if l.startswith("LOCKED CAST:"))
+    assert "more" not in line
+    for i in range(1, 7):
+        assert f"Member{i}" in line
 
 
 # =============================================================================
