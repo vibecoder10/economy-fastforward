@@ -932,6 +932,91 @@ def _listener_for_moment(moment: dict, speakers: set) -> str | None:
     return next(iter(others)) if others else None
 
 
+def _parse_setup_kit(setups_line: str | None) -> dict:
+    """{setup_id: kit description} parsed from the [SETUPS | ...] line's own
+    'ID: text; ID: text' format (the format the planner prompt mandates and
+    every live directive uses — e.g. 'B: MCU OTS over Ryan's RIGHT shoulder
+    onto Vanessa — ...; B-CU: tighter CU variant of SETUP B ...'). Compound
+    ids (B-CU) parse as their own entries. Empty dict for a legacy plan with
+    no kit line — every consumer must treat that as 'no kit knowledge' and
+    fall back to its pre-C9 behavior."""
+    out: dict = {}
+    for part in (setups_line or "").split(";"):
+        m = re.match(r"\s*([A-Z][A-Za-z0-9\-]{0,7})\s*:\s*(.+)", part.strip(), re.DOTALL)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
+# Kit-line markers that say a setup family shows NO people (an insert/prop/
+# detail camera) — a REACTION (a face CU) must never be assigned there: the
+# family's approved anchor frame is a props-only composition, and the draw
+# prompt tells the model to match that anchor's framing/background EXACTLY,
+# so a face shot pinned to it fights its own reference (C9 defect: shot 47's
+# reaction landed in family E, the island-props INSERT/NEUTRAL setup).
+_NO_PEOPLE_KIT_RE = re.compile(r"\bINSERT\b|\bNEUTRAL\b|\bno people\b", re.IGNORECASE)
+
+
+def _no_people_families(kit: dict) -> set:
+    """BASE families whose kit text marks them INSERT/NEUTRAL/no-people —
+    excluded from REACTION placement entirely (add path, LRU fallback, all
+    of it). Base-level on purpose: if 'E' is a props camera, 'E-CU' is too."""
+    return {_setup_base_id(fid) for fid, desc in kit.items()
+            if _NO_PEOPLE_KIT_RE.search(desc or "")}
+
+
+def _facing_family(kit: dict, listener: str) -> str | None:
+    """The BASE setup family whose camera FACES `listener` (i.e. the family
+    whose frames show the listener's face as the subject), derived from the
+    kit line's own text — 'onto {name}' is the kit's explicit facing
+    declaration ('B: MCU OTS over Ryan's right shoulder onto Vanessa' faces
+    Vanessa); 'on {name}' / '{name} sharp' are the subject-naming fallbacks
+    the CU-variant entries use ('punching in on Vanessa's face', 'Vanessa
+    sharp right-of-center'). Excludes no-people families by construction
+    (their text names props, not a person, so no pattern can match a
+    listener there — but the caller re-checks anyway). None when the kit
+    carries no facing evidence for this listener at all (legacy or terse
+    kit) — the caller then falls back to LRU. First match in kit order wins;
+    compound entries (B-CU) resolve to their base family."""
+    if not listener:
+        return None
+    name = re.escape(listener)
+    patterns = [
+        re.compile(rf"\bonto\s+{name}\b", re.IGNORECASE),
+        re.compile(rf"\bon\s+{name}\b", re.IGNORECASE),
+        re.compile(rf"\b{name}\b[^;]{{0,30}}\bsharp\b", re.IGNORECASE),
+    ]
+    for pat in patterns:
+        for fid, desc in kit.items():
+            if pat.search(desc or ""):
+                return _setup_base_id(fid)
+    return None
+
+
+def _reaction_family_tag(kit: dict, listener: str, cur: list, master_family) -> str | None:
+    """The full setup id a floor-added REACTION on `listener` should carry
+    (C9 placement rule): the CU compound variant of the family that FACES
+    the listener ('{base}-CU' when the kit defines one, sharing that
+    family's anchor via the existing base-letter logic; the base id itself
+    otherwise). Never a family the kit marks INSERT/NEUTRAL/no-people, and
+    never invented — when no facing family is derivable, fall back to the
+    least-recently-used family among the non-excluded, non-establish
+    families (the establishing family's anchor is the WIDE two-shot — legal
+    as a same-axis tighter variant but not the film-grammar-correct home
+    for a face CU either). None when nothing eligible exists at all."""
+    excluded = _no_people_families(kit)
+    establish = _shot_family(cur[0]) if cur else None
+    facing = _facing_family(kit, listener)
+    if facing and facing not in excluded:
+        return f"{facing}-CU" if f"{facing}-CU" in kit else facing
+    exclude = set(excluded)
+    if establish:
+        exclude.add(establish)
+    if master_family:
+        exclude.add(master_family)
+    return _least_recently_used_family(cur, exclude=exclude)
+
+
 def _find_convertible_angle(flat: list[dict], family_counts: dict) -> dict | None:
     """An existing ANGLE shot safe to repurpose for a floor addition when the
     scene is already at its frame cap (C3 item 2's "convert rather than add"
@@ -953,7 +1038,8 @@ def _find_convertible_angle(flat: list[dict], family_counts: dict) -> dict | Non
 
 
 def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
-                                   max_frames: int | None = None) -> int:
+                                   max_frames: int | None = None,
+                                   setups_line: str | None = None) -> int:
     """CODE floor validator (C3 item 2), parallel to enforce_shot_budget but
     the opposite direction — that one only ever TRIMS, this one only ever
     ADDS the minimum coverage a dialogue scene needs to cut like an editor
@@ -980,10 +1066,15 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
       extra at all.
 
     Every addition is deterministic: a `(SETUP X)` tag reusing an EXISTING
-    family (_least_recently_used_family — never inventing a new camera
-    position) and a plain-language description built only from data already
-    on the moments (the listener's name from `moment["speaker"]` /
-    `speakers`, the scene's own [SET | ...] text passed as `set_line`).
+    family (never inventing a new camera position) and a plain-language
+    description built only from data already on the moments (the listener's
+    name from `moment["speaker"]` / `speakers`, the scene's own [SET | ...]
+    text passed as `set_line`). REACTION placement (C9): the kit text passed
+    as `setups_line` picks the family that FACES the listener (its CU
+    compound variant when the kit defines one) via _reaction_family_tag —
+    families the kit marks INSERT/NEUTRAL/no-people are never used for a
+    face shot; _least_recently_used_family remains the fallback (and the
+    INSERT/RE-ESTABLISH floors' unchanged mechanism).
 
     max_frames (C3 item 2's frame-cap rule): once the scene is AT its frame
     cap, a floor is satisfied by CONVERTING an existing excess same-family
@@ -1038,6 +1129,15 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
             _place(target_mi, "WS", desc, "re-establish")
 
     # ---- REACTION ---------------------------------------------------------
+    # C9 placement rule: a REACTION on listener L belongs in the CU compound
+    # variant of the setup family that FACES L (derived from the [SETUPS|]
+    # kit text — see _reaction_family_tag), never in a family the kit marks
+    # INSERT/NEUTRAL/no-people (a face CU pinned to a props-only anchor
+    # frame fights its own reference — C9 defect: shot 47's reaction landed
+    # in family E, the island-props insert camera), and only falls back to
+    # LRU (among non-excluded, non-establish families) when no facing family
+    # is derivable at all.
+    kit = _parse_setup_kit(setups_line)
     speaking_moments = [m for m in moments if m.get("speaker") and m.get("line")]
     speakers = {m["speaker"] for m in speaking_moments}
     if len(speakers) == 2 and len(speaking_moments) >= 2:
@@ -1054,7 +1154,7 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
                     continue
                 mi = moments.index(m)
                 cur = _flatten_shots(moments)
-                fam = _least_recently_used_family(cur, exclude={_shot_family(m["master"])})
+                fam = _reaction_family_tag(kit, listener, cur, _shot_family(m["master"]))
                 if not fam:
                     continue
                 desc = (f"(SETUP {fam})(REACTION) CU on {listener}, listening to "
@@ -1156,7 +1256,11 @@ def plan_moments_deterministic(directive_text: str, max_moments: int, angles_max
         return None
     moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
     n_floors = enforce_reaction_insert_floors(
-        moments, set_line=parse_set_dressing(directive_text or ""), max_frames=max_frames)
+        moments, set_line=parse_set_dressing(directive_text or ""), max_frames=max_frames,
+        # C9: the kit line drives REACTION placement (the facing family's CU
+        # variant) — parsed from the SAME directive_text, so both callers of
+        # this one pipeline keep byte-identical shot sequences.
+        setups_line=parse_setups_line(directive_text or ""))
     if verbose and n_floors:
         print(f"  🎬 reaction/insert/re-establish floors: {n_floors} shot(s) added or converted",
               flush=True)

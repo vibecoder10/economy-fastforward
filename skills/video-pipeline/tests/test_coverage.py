@@ -24,7 +24,8 @@ from storyboard.coverage import (  # noqa: E402
     enforce_setup_variety, assign_setup_anchors, enforce_shot_budget,
     _shot_tag, _setup_id, enforce_reaction_insert_floors, stamp_shot_durations,
     _flatten_shots, _shot_family, _is_wide, parse_set_dressing,
-    plan_moments_deterministic, run_coverage,
+    plan_moments_deterministic, run_coverage, parse_setups_line,
+    _parse_setup_kit, _facing_family, _no_people_families,
 )
 
 SAMPLE = """\
@@ -772,6 +773,107 @@ def test_floors_leave_violation_logged_when_no_safe_conversion_exists():
     assert not any(_shot_tag(s) == "REACTION" for s in _flatten_shots(moments))
 
 
+# C9: a realistic [SETUPS|] kit line, abbreviated from the real Spanish Class
+# scene-2 planner output — same structure, same facing declarations, same
+# INSERT/NEUTRAL no-people family E.
+_C9_KIT_LINE = (
+    "A: WS two-shot — Ryan sharp at the far-left edge of island, Vanessa sharp "
+    "at the far-right edge, both facing each other; "
+    "B: MCU OTS over Ryan's RIGHT shoulder onto Vanessa — Vanessa sharp "
+    "right-of-center looking frame-LEFT; "
+    "C: MCU OTS over Vanessa's LEFT shoulder onto Ryan — Ryan sharp "
+    "left-of-center looking frame-RIGHT; "
+    "B-CU: tighter CU variant of SETUP B, same axis/background, punching in on "
+    "Vanessa's face filling right-of-center; "
+    "C-CU: tighter CU variant of SETUP C, same axis/background, punching in on "
+    "Ryan's face filling left-of-center; "
+    "E: INSERT, NEUTRAL — close on island props (potato bowl, egg bowl, oil "
+    "bottle, spatula), no people, camera straight down on the surface")
+
+
+def test_reaction_family_faces_the_listener_from_the_kit_line():
+    """C9 placement rule: a REACTION on listener L uses the CU compound
+    variant of the family that FACES L, derived from the kit text's own
+    'onto {name}' declaration — reaction on Vanessa → (SETUP B-CU),
+    reaction on Ryan → (SETUP C-CU), sharing the facing family's anchor via
+    the existing base-letter logic. Never LRU when facing is derivable."""
+    kit = _parse_setup_kit(_C9_KIT_LINE)
+    assert set(kit) == {"A", "B", "C", "B-CU", "C-CU", "E"}, set(kit)
+    assert _facing_family(kit, "Vanessa") == "B"
+    assert _facing_family(kit, "Ryan") == "C"
+    assert _no_people_families(kit) == {"E"}
+
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide two-shot establishing."),
+        _moment(2, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Pelar."),
+        _moment(3, "MCU", "(SETUP C) Ryan speaks.", speaker="Ryan", line="Pelar. Peel."),
+        _moment(4, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Cuchillo."),
+        _moment(5, "MCU", "(SETUP C) Ryan speaks.", speaker="Ryan", line="Cuchillo. Right."),
+        _moment(6, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Vamos."),
+        _moment(7, "MCU", "(SETUP C) Ryan speaks.", speaker="Ryan", line="Great."),
+        _moment(8, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Sí."),
+    ]
+    enforce_reaction_insert_floors(moments, setups_line=_C9_KIT_LINE,
+                                   max_frames=len(_flatten_shots(moments)) + 4)
+    reactions = [s for s in _flatten_shots(moments) if _shot_tag(s) == "REACTION"]
+    assert reactions, "expected at least one floor-added reaction"
+    for s in reactions:
+        if "CU on Ryan" in s["description"]:
+            assert _setup_id(s) == "C-CU", s["description"]
+        elif "CU on Vanessa" in s["description"]:
+            assert _setup_id(s) == "B-CU", s["description"]
+        else:
+            raise AssertionError(f"reaction names neither listener: {s['description']!r}")
+
+
+def test_reaction_never_lands_in_a_no_people_family():
+    """C9 defect pin: family E is the INSERT/NEUTRAL props camera (its
+    anchor frame has no people) — a face-CU REACTION must never be assigned
+    there, even when E is the least-recently-used family (which is exactly
+    how the live v2 shot list dealt shot 47 to E). Kit text here carries no
+    facing evidence (names stripped) so the LRU fallback runs — and must
+    skip E."""
+    kit_no_facing = ("A: WS two-shot, both actors visible; "
+                     "B: MCU over-shoulder one direction; "
+                     "C: MCU over-shoulder the other direction; "
+                     "E: INSERT, NEUTRAL — close on props, no people")
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide establishing."),
+        _moment(2, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Uno."),
+        _moment(3, "MCU", "(SETUP C) Ryan speaks.", speaker="Ryan", line="Dos."),
+        _moment(4, "INSERT", "(SETUP E)(INSERT) props on the island."),
+        _moment(5, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Tres."),
+        _moment(6, "MCU", "(SETUP C) Ryan speaks.", speaker="Ryan", line="Cuatro."),
+    ]
+    enforce_reaction_insert_floors(moments, setups_line=kit_no_facing,
+                                   max_frames=len(_flatten_shots(moments)) + 3)
+    reactions = [s for s in _flatten_shots(moments) if _shot_tag(s) == "REACTION"]
+    assert reactions, "expected at least one floor-added reaction"
+    for s in reactions:
+        assert _shot_family(s) != "E", \
+            f"REACTION landed in the no-people INSERT family: {s['description']!r}"
+        assert _shot_family(s) != "A", \
+            f"LRU fallback must also skip the establish family: {s['description']!r}"
+
+
+def test_reaction_falls_back_to_lru_when_no_kit_line_exists():
+    """Legacy plan with no [SETUPS|] kit at all: no facing derivable, no
+    exclusions knowable — the pre-C9 LRU behavior (minus the establish
+    family) still places the reaction rather than dropping the floor."""
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide establishing."),
+        _moment(2, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Uno."),
+        _moment(3, "MCU", "(SETUP C) Ryan speaks.", speaker="Ryan", line="Dos."),
+        _moment(4, "MCU", "(SETUP B) Vanessa speaks.", speaker="Vanessa", line="Tres."),
+    ]
+    enforce_reaction_insert_floors(moments, setups_line=None,
+                                   max_frames=len(_flatten_shots(moments)) + 2)
+    reactions = [s for s in _flatten_shots(moments) if _shot_tag(s) == "REACTION"]
+    assert reactions, "no kit line must not silently kill the reaction floor"
+    for s in reactions:
+        assert _shot_family(s) in {"B", "C"}, s["description"]
+
+
 def test_floors_add_reactions_when_headroom_exists_above_masters_only_cap():
     """C8 fix (a) regression pin: the EXACT masters-only-at-cap scenario from
     test_floors_leave_violation_logged_when_no_safe_conversion_exists (every
@@ -890,7 +992,11 @@ def test_plan_moments_deterministic_matches_manual_pipeline_when_a_floor_fires()
     manual = parse_coverage(_PARITY_FLOOR_DIRECTIVE)
     manual = enforce_shot_budget(manual, 10, 4, max_frames=None)
     enforce_reaction_insert_floors(manual, set_line=parse_set_dressing(_PARITY_FLOOR_DIRECTIVE),
-                                   max_frames=None)
+                                   max_frames=None,
+                                   # C9: the shared pipeline now threads the kit
+                                   # line into the floors — the manual arm must
+                                   # mirror it or the parity claim tests nothing.
+                                   setups_line=parse_setups_line(_PARITY_FLOOR_DIRECTIVE))
     enforce_setup_variety(_flatten_shots(manual))
     assert _sequence(manual) == seq
 
