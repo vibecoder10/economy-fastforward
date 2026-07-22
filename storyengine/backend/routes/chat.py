@@ -347,27 +347,48 @@ async def _stamp_length_default(data: dict[str, Any], tenant_id=None) -> None:
     1-minute floor. Source order: the producer's recommended_minutes (asking phase),
     else the plan spec's video_length_minutes.
 
-    Deterministic length backstop (GOAL v2 Phase 4): a real channel runtime should
-    anchor the default. If we know the typical runtime of the videos this creator
-    models and the producer picked a NORMAL-form length below it, open the slider on
-    the channel runtime instead — the creator can still drag it down. Intentional
-    short-form (< 2 min) is left alone so 'make a 30s short' stays short."""
+    Deterministic length backstop (GOAL v2 Phase 4; rewired chat channel-identity
+    rebuild checklist P3): a real channel runtime should anchor the default —
+    OUR OWN channel's runtime, not a competitor's. Source order:
+      1. This tenant's OWN median runtime (channel_identity_context.
+         own_median_minutes — real channel_videos import data, or this
+         tenant's own pipeline-produced videos when that's empty).
+      2. Competitor median (_competitor_median_seconds) ONLY when the tenant
+         has no own-catalog history yet — the old sole source, now a fallback.
+    If we know the channel runtime and the producer picked a NORMAL-form length
+    below it, open the slider on the channel runtime instead — the creator can
+    still drag it down. Intentional short-form (< 2 min) is left alone so 'make
+    a 30s short' stays short.
+
+    USER-OVERRIDE GATE (P3): this is a DEFAULT-FILLING backstop, never a
+    silent override of a length the creator actually asked for. spec.
+    length_user_set (set by the producer prompt when the creator named a
+    specific length, in either direction) turns the whole bump off — a
+    user-specified length rides through untouched, shorter OR longer than
+    the channel median."""
     cards = data.get("cards")
     if not isinstance(cards, list):
         return
     plan = data.get("plan")
     spec = plan.get("spec") if isinstance(plan, dict) else None
     spec_min = None
+    user_set = False
     if isinstance(spec, dict):
         try:
             spec_min = float(spec.get("video_length_minutes") or 0) or None
         except (TypeError, ValueError):
             spec_min = None
+        user_set = bool(spec.get("length_user_set"))
     channel_min = None
     if tenant_id is not None:
-        med_s = await _competitor_median_seconds(tenant_id)
-        if med_s >= 60:
-            channel_min = round(med_s / 60)  # whole minutes, matches the slider's granularity
+        from channel_identity_context import own_median_minutes
+        own_min = await own_median_minutes(tenant_id)
+        if own_min and own_min >= 1:
+            channel_min = round(own_min)  # whole minutes, matches the slider's granularity
+        else:
+            med_s = await _competitor_median_seconds(tenant_id)
+            if med_s >= 60:
+                channel_min = round(med_s / 60)
     for c in cards:
         if not (isinstance(c, dict) and (c.get("id") == "length" or c.get("type") == "slider")):
             continue
@@ -377,8 +398,9 @@ async def _stamp_length_default(data: dict[str, Any], tenant_id=None) -> None:
         except (TypeError, ValueError):
             mins = None
         mins = mins or spec_min
-        # Backstop: anchor a normal-form default up to the channel's real runtime.
-        if channel_min:
+        # Backstop: anchor a normal-form default up to the channel's real runtime —
+        # but NEVER touch a length the creator explicitly asked for.
+        if channel_min and not user_set:
             if not mins:
                 mins = channel_min
             elif 2 <= mins < channel_min:
@@ -2450,6 +2472,31 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     f"({hard} hard-gate, {warn} warn, {guidance} guidance) — "
                     "tap to save them to your channel's quality rules."
                 )
+            elif kind == "clear_reference":
+                # No value needed — the creator wants OFF the reference video
+                # entirely (P3, the length-backstop/reference-steering fix).
+                # Clears BOTH state keys _reference_brief/_dna_brief read so
+                # next turn's system prompt renders neither block, and drops
+                # the per-URL _reference_brief cache so a stale cached string
+                # can't leak back in if the same URL is set again later.
+                ref_url = state.get("pending_reference_url")
+                had_ref = bool(ref_url or state.get("video_dna"))
+                state.pop("pending_reference_url", None)
+                state.pop("video_dna", None)
+                state.pop("_ref_brief_for", None)
+                state.pop("_ref_brief", None)
+                if had_ref:
+                    # Durable steering lesson — reuses the SAME director_preferences
+                    # channel-wide store the "remember" op already writes to (no new
+                    # table/infra), so this steering survives into future
+                    # conversations too, not just the rest of this one.
+                    lesson = (
+                        f"Stopped modeling {ref_url} — " if ref_url else "Stopped modeling that reference video — "
+                    ) + "build from OUR channel's own identity, not a reference video, unless I ask to model one again."
+                    await _save_preference(tenant_id, lesson, scope=_PREF_SCOPE_CHANNEL)
+                    results.append("Dropped that reference — I'll build from our own channel identity from here.")
+                else:
+                    results.append("There wasn't a reference video active, but I'll keep it that way.")
             elif kind == "use_style":
                 # value: the saved style's name (or a close match to it). Switches
                 # the tenant's ACTIVE visual_styles row — same activate semantics

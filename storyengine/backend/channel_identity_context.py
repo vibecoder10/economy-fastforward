@@ -207,6 +207,17 @@ async def _own_median_minutes(tenant_id) -> Optional[float]:
     return None
 
 
+async def own_median_minutes(tenant_id) -> Optional[float]:
+    """Public entry point for `_own_median_minutes` (chat channel-identity
+    rebuild, checklist P3) — the tenant's OWN median runtime in minutes, for
+    callers that want just this one number without paying for the whole
+    pool build (chat.py's `_stamp_length_default` length backstop). Thin
+    wrapper so P1's existing tests keep pinning the private implementation
+    directly while every OTHER caller imports this public name instead of
+    reaching across modules for an underscore-prefixed function."""
+    return await _own_median_minutes(tenant_id)
+
+
 async def _title_patterns_section(tenant_id) -> list[dict[str, Any]]:
     """Confirmed, human-verified 'good'-polarity channel_patterns rows —
     proven title/performance patterns, never a proposed/unconfirmed guess.
