@@ -428,14 +428,20 @@ def test_setup_anchor_ownership_and_size_variant_sharing():
     asyncio.run(_run())
 
 
-def _flat(*families_and_roles):
-    """Build a minimal flat_shots list from (family, role) pairs, e.g.
-    _flat(('A', 'master'), ('B', 'angle'), ...) — each shot gets a synthetic
+def _flat(*shots):
+    """Build a minimal flat_shots list from (family, role) pairs or
+    (family, role, moment_index) triples, e.g. _flat(('A', 'master'),
+    ('B', 'angle', 2), ...) — each shot gets a synthetic
     "(SETUP <family>) ..." description so enforce_setup_variety's real
-    description-tag parsing is exercised, matching production."""
-    return [{"shot_type": "MS", "role": role,
-             "description": f"(SETUP {fam}) placeholder shot {i}."}
-            for i, (fam, role) in enumerate(families_and_roles)]
+    description-tag parsing is exercised, matching production. A pair's
+    moment index defaults to 0 (single-beat scene)."""
+    out = []
+    for i, spec in enumerate(shots):
+        fam, role = spec[0], spec[1]
+        mi = spec[2] if len(spec) > 2 else 0
+        out.append({"shot_type": "MS", "role": role, "_mi": mi,
+                    "description": f"(SETUP {fam}) placeholder shot {i}."})
+    return out
 
 
 def test_enforce_setup_variety_flags_three_in_a_row():
@@ -472,6 +478,42 @@ def test_enforce_setup_variety_fixes_with_a_safe_angle_swap():
     assert flat[2]["description"] == "(SETUP C) placeholder shot 3."
     assert flat[3]["description"] == "(SETUP B) placeholder shot 2."
     assert flat[0]["description"] == "(SETUP B) placeholder shot 0."  # master untouched
+
+
+def test_enforce_setup_variety_never_swaps_across_distant_moments():
+    """(c)+C2.1: a different-family angle at moment distance >= 2 is NOT a
+    swap candidate — an angle's description carries its BEAT's action, so
+    dragging it across the scene lands narratively wrong. The run must be
+    flagged (counted) but every shot left untouched."""
+    flat = _flat(("B", "master", 0), ("B", "angle", 0), ("B", "angle", 1),
+                 ("C", "angle", 3))  # only candidate is 2 moments away from the offender
+    before = [s["description"] for s in flat]
+    n = enforce_setup_variety(flat)
+    assert n == 1, "the 3-long run is still a violation"
+    assert [s["description"] for s in flat] == before, \
+        "no swap may occur when the only candidate is >= 2 moments away"
+
+
+def test_enforce_setup_variety_same_moment_candidate_beats_adjacent():
+    """(c)+C2.1: candidate ordering — a different-family angle in the SAME
+    moment as the offender wins over one in an ADJACENT moment, even when
+    the adjacent one appears earlier in flat order (the old earliest-first
+    scan would have picked it)."""
+    flat = _flat(
+        ("D", "angle", 0),   # 0: adjacent-moment candidate, earliest in flat order
+        ("B", "master", 0),  # 1: run starts
+        ("B", "angle", 0),   # 2
+        ("B", "angle", 1),   # 3: offender (3rd consecutive B), moment 1
+        ("C", "angle", 1),   # 4: SAME-moment candidate — must win
+    )
+    n = enforce_setup_variety(flat)
+    assert n == 1
+    # The offender's slot now holds the SAME-moment C content, not the
+    # adjacent-moment D content.
+    assert flat[3]["description"] == "(SETUP C) placeholder shot 4."
+    assert flat[4]["description"] == "(SETUP B) placeholder shot 3."
+    assert flat[0]["description"] == "(SETUP D) placeholder shot 0.", \
+        "the adjacent-moment candidate must be left alone when a same-moment one exists"
 
 
 def test_setup_target_scales_with_max_moments():
@@ -522,6 +564,8 @@ if __name__ == "__main__":
     test_enforce_setup_variety_flags_three_in_a_row()
     test_enforce_setup_variety_size_variant_counts_as_same_family()
     test_enforce_setup_variety_fixes_with_a_safe_angle_swap()
+    test_enforce_setup_variety_never_swaps_across_distant_moments()
+    test_enforce_setup_variety_same_moment_candidate_beats_adjacent()
     test_setup_target_scales_with_max_moments()
     test_tension_sizing_guidance_present_in_user_prompt()
     print("ok — coverage parser + cast-builder self-checks passed")

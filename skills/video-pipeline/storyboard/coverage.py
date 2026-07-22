@@ -618,16 +618,22 @@ def _flatten_shots(moments: list) -> list[dict]:
     """Every shot in a scene's draw/output order — each moment's master then
     its angles, moments in plan order — the same order the board-anchor
     block below numbers panels in. Returns references to the ACTUAL shot
-    dicts (not copies) and stamps shot['role'] = 'master'/'angle' in place,
-    so a caller that mutates the returned dicts (enforce_setup_variety swaps
-    content between two of them) mutates the real moments structure too."""
+    dicts (not copies) and stamps shot['role'] = 'master'/'angle' AND
+    shot['_mi'] = the shot's 0-based moment index in place, so a caller
+    that mutates the returned dicts (enforce_setup_variety swaps content
+    between two of them) mutates the real moments structure too — and can
+    reason about how far apart two shots' BEATS are, not just their flat
+    positions (a swap across many moments drags one beat's visual content
+    into a narratively wrong beat)."""
     flat: list[dict] = []
-    for moment in moments:
+    for mi, moment in enumerate(moments):
         m = moment["master"]
         m["role"] = "master"
+        m["_mi"] = mi
         flat.append(m)
         for a in moment.get("angles") or []:
             a["role"] = "angle"
+            a["_mi"] = mi
             flat.append(a)
     return flat
 
@@ -641,21 +647,32 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
 
     flat_shots: the scene's shots in output order (see _flatten_shots),
     each a dict with a 'description' carrying its "(SETUP X)" tag (or an
-    explicit 'setup_id' override, handy for tests) and a 'role' of
-    'master'/'angle'.
+    explicit 'setup_id' override, handy for tests), a 'role' of
+    'master'/'angle', and '_mi' — the shot's 0-based moment index
+    (_flatten_shots stamps it; a missing '_mi' defaults to 0, which makes
+    every shot same-moment — fine for synthetic single-beat test inputs,
+    never the case for real flattened scenes).
 
     Fix strategy (cheapest-first, no LLM re-plan — matches C1's zero-paid-
-    call rule): for each shot beyond the cap in a same-family run, find the
-    NEAREST angle-role shot elsewhere in the sequence belonging to a
-    different family and swap the two shots' full visual content
-    (shot_type + description) in place. Angles carry no LINE/speaker — only
-    which framing appears at a given position changes, never which moment's
-    dialogue plays — so this can never reassign a spoken line to the wrong
-    moment. MASTERS ARE NEVER SWAPPED, on either side: a master owns its
-    moment's LINE and is the setup's anchor-owner slot, and moving one would
-    reorder the dialogue. When no safe swap exists (e.g. the whole run is
-    masters, or no other family has a spare angle to trade), the violation
-    is left in place and logged loudly instead.
+    call rule): for each shot beyond the cap in a same-family run, find a
+    different-family angle-role shot to trade with, searched in BEAT-
+    DISTANCE order, never flat-position order — an angle's description
+    carries its BEAT's action ("Close on Marco listening, brow furrowed"),
+    so content dragged across distant moments lands narratively wrong even
+    though no dialogue moves. Candidate order: (a) different-family angles
+    in the SAME moment first (fully safe — same beat, different framing),
+    then (b) angles in an ADJACENT moment (absolute moment distance exactly
+    1), nearer flat position breaking ties. Anything at moment distance >= 2
+    is NEVER used: the violation is left in place and logged loudly instead.
+    The swap trades the two shots' full visual content (shot_type +
+    description) in place. Angles carry no LINE/speaker — only which framing
+    appears at a given position changes, never which moment's dialogue plays
+    — so this can never reassign a spoken line to the wrong moment. MASTERS
+    ARE NEVER SWAPPED, on either side: a master owns its moment's LINE and
+    is the setup's anchor-owner slot, and moving one would reorder the
+    dialogue. When no safe swap exists (the whole run is masters, or no
+    different-family angle sits within one moment of the offender), the
+    violation is left in place and logged loudly instead.
 
     Returns the number of violations found (fixed + merely flagged)."""
     violations = 0
@@ -677,11 +694,20 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
                 violations += 1
                 swap_with = None
                 if flat_shots[k].get("role") == "angle":
-                    for cand in list(range(0, i)) + list(range(j, n)):
-                        if (flat_shots[cand].get("role") == "angle"
-                                and families[cand] not in (None, fam)):
-                            swap_with = cand
-                            break
+                    k_mi = flat_shots[k].get("_mi", 0)
+                    candidates = [
+                        c for c in range(n)
+                        if not (i <= c < j)  # never trade within the offending run
+                        and flat_shots[c].get("role") == "angle"
+                        and families[c] not in (None, fam)
+                        and abs(flat_shots[c].get("_mi", 0) - k_mi) <= 1  # same or adjacent beat ONLY
+                    ]
+                    # Same-moment candidates first (distance 0 — same beat,
+                    # different framing, fully safe), then adjacent-moment
+                    # (distance 1); nearer flat position breaks ties.
+                    candidates.sort(key=lambda c: (abs(flat_shots[c].get("_mi", 0) - k_mi),
+                                                   abs(c - k)))
+                    swap_with = candidates[0] if candidates else None
                 if swap_with is not None:
                     a, b = flat_shots[k], flat_shots[swap_with]
                     a["shot_type"], b["shot_type"] = b["shot_type"], a["shot_type"]
