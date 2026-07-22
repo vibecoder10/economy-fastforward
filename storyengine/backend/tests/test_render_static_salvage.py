@@ -176,7 +176,39 @@ async def test_happy_path_still_cleans_up_fully_no_salvage_file(monkeypatch, tmp
 
 
 # ---------------------------------------------------------------------------
-# 2. GoogleClient strict-folder init
+# 2. Clean frames: no caption text on static-docu renders by default
+# ---------------------------------------------------------------------------
+
+def _caption_segments():
+    return [{
+        "scene": 1, "scene_text": "hello", "voice_url": "http://x/v.mp3",
+        "voice_duration": 5.0, "duration": 5.0, "image_url": "http://x/i.png",
+        "caption": {"title": "B-52 STRATOFORTRESS", "sub": "1955 — present"},
+    }]
+
+
+def test_render_config_has_no_caption_text_by_default(monkeypatch):
+    """DvsU clean-frames rule: even when the asset rows carry caption JSON,
+    the renderConfig hands Scene.tsx empty caption fields — Scene.tsx only
+    draws its text block when caption_title is non-empty."""
+    assert render_static.DRAW_CAPTIONS is False  # default off
+    rc = render_static._build_render_config("vid-1", _caption_segments())
+    scene = rc["scenes"][0]
+    assert scene["caption_title"] == ""
+    assert scene["caption_sub"] == ""
+
+
+def test_render_config_carries_captions_when_flag_enabled(monkeypatch):
+    """The drawing plumbing stays: flipping the flag restores captions."""
+    monkeypatch.setattr(render_static, "DRAW_CAPTIONS", True)
+    rc = render_static._build_render_config("vid-1", _caption_segments())
+    scene = rc["scenes"][0]
+    assert scene["caption_title"] == "B-52 STRATOFORTRESS"
+    assert scene["caption_sub"] == "1955 — present"
+
+
+# ---------------------------------------------------------------------------
+# 3. GoogleClient strict-folder init
 # ---------------------------------------------------------------------------
 
 def test_strict_folder_raises_when_env_and_explicit_parent_both_missing(monkeypatch):

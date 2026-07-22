@@ -63,6 +63,13 @@ _REMOTION_SEM = asyncio.Semaphore(int(os.getenv("STATIC_RENDER_CONCURRENCY", "1"
 # image to image (its direction map keys off the composition).
 _COMPOSITION_CYCLE = ["wide", "environmental", "medium", "wide", "overhead", "medium"]
 
+# Text overlay switch — DvsU wants clean frames: machine images only, no
+# caption title/sub burned in (the narration already says it). Scene.tsx only
+# draws its caption block when caption_title is non-empty, so blanking the
+# fields here disables all on-frame text. Env-tunable without a code change
+# (STATIC_DRAW_CAPTIONS=1 turns it back on); the drawing plumbing stays.
+DRAW_CAPTIONS = os.getenv("STATIC_DRAW_CAPTIONS", "0") == "1"
+
 
 def _safe_filename(title: str, fallback: str) -> str:
     clean = re.sub(r"[^\w\s-]", "", title or "")
@@ -180,7 +187,9 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
     cursor = 0.0
     for i, seg in enumerate(segments):
         dur = round(seg["duration"], 4)
-        cap = seg.get("caption") or {}
+        # Caption fields feed Scene.tsx's fixed text overlay; blank them when
+        # captions are off (default) so frames show only the image.
+        cap = (seg.get("caption") or {}) if DRAW_CAPTIONS else {}
         scenes.append({
             "scene_number": seg["scene"],
             "image_path": f"Scene_{seg['scene']:02d}_01.png",
