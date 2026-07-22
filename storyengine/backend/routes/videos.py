@@ -16,6 +16,7 @@ from models import (
 from database import fetch_all, fetch_one, execute, safe_column
 from error_utils import humanize_error
 from status_map import get_next_status_supabase, normalize_stage_plan, first_status_for_plan
+import production_guide
 from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
@@ -952,6 +953,8 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
                   duration_seconds, extraction_flags, image_model,
                   routed_model, routing_reason, model_used, model_override,
                   camera_movement, camera_preset_id,
+                  carries_own_line, clip_speech_start, clip_speech_end,
+                  assigned_dialogue,
                   created_at::text
            FROM assets WHERE video_id = $1 AND tenant_id = $2
              AND (generation_method IS NULL OR generation_method <> 'variant_candidate')
@@ -959,6 +962,18 @@ async def get_video_assets(video_id: str, tenant_id: str = Depends(get_tenant_id
         video_id, tenant_id,
     )
     return rows
+
+
+@router.get("/{video_id}/production-guide")
+async def get_video_production_guide(video_id: str, tenant_id: str = Depends(get_tenant_id)):
+    """Ordered stage checklist for this video (done/in_progress/not_started/
+    skipped_by_format), concrete gaps, and a next_step recommendation — same
+    query the get_production_guide MCP tool uses (routes/mcp.py's
+    _call_get_production_guide), so the UI and the co-pilot never disagree."""
+    guide = await production_guide.get_production_guide(tenant_id, video_id)
+    if guide is None:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return guide
 
 
 @router.get("/{video_id}/assets/variants")

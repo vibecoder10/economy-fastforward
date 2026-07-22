@@ -1492,6 +1492,32 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
     return { mode: dialogueMap.dialogue_mode, bySpeaker: [...bySpeaker.entries()], narration };
   }, [dialogueMap]);
 
+  // Per-scene voice-lock rollup (migration 114): character lines are performed
+  // INSIDE the speaking clip now (Grok acts it, ElevenLabs speech-to-speech
+  // re-voices it in the pinned cast voice) - the per-line TTS mp3s below are
+  // just a preview/audition, or the fallback when a clip's lock failed. This
+  // counts, per scene, how many speaking shots (a clip whose asset carries an
+  // assigned_dialogue line) actually carry their own locked-in performance
+  // (carries_own_line === true), so the card can show real progress instead
+  // of implying the old per-line TTS still ships.
+  const voiceLockByScene = useMemo(() => {
+    const map = new Map<number, { totalSpeaking: number; withClip: number; locked: number }>();
+    for (const a of apiAssets || []) {
+      const scene = a.scene;
+      if (scene == null) continue;
+      const isSpeakingShot = !!(a.assigned_dialogue && a.assigned_dialogue.trim());
+      if (!isSpeakingShot) continue;
+      const entry = map.get(scene) ?? { totalSpeaking: 0, withClip: 0, locked: 0 };
+      entry.totalSpeaking += 1;
+      if (a.video_clip_url) {
+        entry.withClip += 1;
+        if (a.carries_own_line === true) entry.locked += 1;
+      }
+      map.set(scene, entry);
+    }
+    return map;
+  }, [apiAssets]);
+
   // Per-line audition: tap a line on the Performance Track card to hear that
   // character's cast voice (the scene player only carries the narrator). The
   // segment MP3 streams via GET dialogue-audio/{scene}/{index} with the same
@@ -3435,8 +3461,17 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                                 background: hasVoice ? "rgba(0, 200, 83, 0.08)" : "rgba(255,255,255,0.04)",
                                 border: `1px solid ${hasVoice ? "rgba(0, 200, 83, 0.2)" : "rgba(255,255,255,0.06)"}`,
                               }}
+                              title={
+                                hasVoice && performanceTrack?.mode === "character_dialogue"
+                                  ? "Narrator audio plus the per-line preview/fallback take - character lines ship inside their clips once voice-locked"
+                                  : undefined
+                              }
                             >
-                              {hasVoice ? "Voice Ready" : "No Voice"}
+                              {hasVoice
+                                ? performanceTrack?.mode === "character_dialogue"
+                                  ? "Voice Ready (narrator + fallback)"
+                                  : "Voice Ready"
+                                : "No Voice"}
                             </span>
                             {hasVoice && (
                               <button
@@ -3543,8 +3578,38 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
               {performanceTrack.mode === "character_dialogue" ? (
                 <div className="space-y-2">
                   <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
-                    Character dialogue detected. Each character performs their lines in their
-                    own cast voice; the narrator carries everything else. Tap a line to hear it.
+                    Character dialogue detected. Characters perform their lines inside the
+                    clips in their pinned cast voices - the narrator carries everything else.
+                    Tap a line to preview its studio (TTS) take; clips use their own performed
+                    audio once voice-locked.
+                  </p>
+                  {[...voiceLockByScene.entries()].sort((a, b) => a[0] - b[0]).map(([sceneNum, roll]) => {
+                    const full = roll.withClip > 0 && roll.locked === roll.totalSpeaking;
+                    const partial = !full && roll.locked > 0;
+                    return (
+                      <div key={sceneNum} className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
+                          S{sceneNum} voice-locked
+                        </span>
+                        <span
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+                          style={{
+                            color: full ? "var(--turquoise)" : partial ? "var(--gold)" : "var(--text-tertiary)",
+                            background: full ? "rgba(0,229,255,0.08)" : partial ? "rgba(255,186,8,0.08)" : "rgba(255,255,255,0.04)",
+                            border: `1px solid ${full ? "rgba(0,229,255,0.25)" : partial ? "rgba(255,186,8,0.25)" : "rgba(255,255,255,0.06)"}`,
+                          }}
+                          title={roll.withClip === 0 ? "No clips generated for this scene's dialogue yet" : undefined}
+                        >
+                          {roll.locked}/{roll.totalSpeaking}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <p
+                    className="text-[10px] font-mono uppercase tracking-wider mt-3"
+                    style={{ color: "var(--text-tertiary)" }}
+                  >
+                    Preview lines (studio takes / fallback)
                   </p>
                   {performanceTrack.bySpeaker.map(([speaker, info]) => (
                     <div key={speaker}>

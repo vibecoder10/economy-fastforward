@@ -11,7 +11,7 @@ import {
 import { ChatCore } from "@/components/chat/ChatCore";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getVideo, getVideoAssets, getVideoActions, getRosterDashboard, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
+import { getVideo, getVideoAssets, getVideoActions, getRosterDashboard, getProductionGuide, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useTaskWatcher, useSharedTaskWatcher, type TaskWatcherBridge, type TaskWatcherHandlers } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -32,6 +32,7 @@ import { SoundTab } from "@/components/production/SoundTab";
 import { CostLedgerChip } from "@/components/video-detail/cost-ledger-chip";
 import { RosterStagePanel } from "@/components/production/RosterStagePanel";
 import { StaticDocuStageRail, type StaticDocuStageKey } from "@/components/production/StaticDocuStageRail";
+import { StageRail } from "@/components/production/StageRail";
 
 const container = {
   hidden: { opacity: 0 },
@@ -258,6 +259,16 @@ export default function VideoDetailPage() {
     queryKey: ["video-actions", videoId],
     queryFn: () => getVideoActions(videoId),
     refetchInterval: () => (status && !TERMINAL_STATUSES.has(status) ? 10000 : false),
+  });
+  // Production-guide-backed stage rail for regular (non-static_docu) videos —
+  // same canonical done/in_progress/not_started/skipped_by_format read the
+  // MCP co-pilot's get_production_guide tool uses. static_docu videos have
+  // their own rail (StaticDocuStageRail) and don't need this fetch.
+  const { data: productionGuide } = useQuery({
+    queryKey: ["production-guide", videoId],
+    queryFn: () => getProductionGuide(videoId),
+    enabled: !isStaticDocu,
+    refetchInterval: () => (status && !TERMINAL_STATUSES.has(status) ? 8000 : false),
   });
   // Sync the shared clip-price cache from the server's real prices (it's
   // only the offline/loading-gap fallback — the server is the source of
@@ -754,7 +765,10 @@ export default function VideoDetailPage() {
 
       {/* Progress — static-documentary videos get the C3c 5-stage gated rail
           (Roster/Research/Script/Voice/Video + Run All) instead of the
-          general stepper; everyone else keeps the passive stepper. */}
+          general stepper. Regular videos get the clickable 9-segment
+          StageRail once the production-guide query has data; until then
+          (or if the fetch fails) fall back to the passive stepper so the
+          page never blanks. */}
       <motion.div variants={item}>
         {isStaticDocu ? (
           <StaticDocuStageRail
@@ -767,6 +781,8 @@ export default function VideoDetailPage() {
             onSelectStage={(stage) => setActiveTab(STATIC_STAGE_TO_TAB[stage])}
             taskWatcher={taskWatcher}
           />
+        ) : productionGuide ? (
+          <StageRail guide={productionGuide} activeTab={currentTab} onSelect={(tabId) => setActiveTab(tabId)} />
         ) : (
           <PipelineStepper status={status} liveStatus={liveStatus} planStages={planStages} />
         )}

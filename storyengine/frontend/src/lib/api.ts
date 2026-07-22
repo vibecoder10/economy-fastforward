@@ -1896,6 +1896,17 @@ export interface Asset {
    * generation time. Both null for assets that predate C23. */
   camera_movement?: string | null;
   camera_preset_id?: string | null;
+  /** STS voice-lock (migration 114): when true, this clip's own audio track
+   * carries the line (no separate narration audio should be layered over it).
+   * clip_speech_start/clip_speech_end are the in-clip second offsets where
+   * the spoken line starts/ends. All null for assets that predate migration 114. */
+  carries_own_line?: boolean | null;
+  clip_speech_start?: number | null;
+  clip_speech_end?: number | null;
+  /** Coverage-assigned spoken line for a speaking shot ("Speaker: \"line\"",
+   * migration 065). Non-null is the proxy for "this shot performs dialogue"
+   * used by the Performance Track voice-lock rollup. */
+  assigned_dialogue?: string | null;
   created_at: string | null;
 }
 
@@ -1916,6 +1927,44 @@ export interface DialogueMap {
 
 export const getDialogueMap = (videoId: string) =>
   fetchApi<DialogueMap>(`/api/videos/${videoId}/dialogue-map`);
+
+// Production guide (checklist C66; backend/production_guide.py's
+// get_production_guide) — the same canonical stage checklist the MCP
+// co-pilot's get_production_guide tool reads, now exposed as a REST route
+// so the UI can show the same done/in_progress/not_started/skipped_by_format
+// state and gaps without a second, independently-guessed answer.
+export interface ProductionGuideStage {
+  key: string;
+  label: string;
+  state: "done" | "in_progress" | "not_started" | "skipped_by_format";
+  detail: string;
+  /** Concrete gaps for this stage (missing character sheets, unapproved
+   * environments, scenes with no storyboard grid, etc). Absent when there
+   * are none. */
+  gaps?: string[];
+}
+
+export interface ProductionGuideNextStep {
+  stage: string;
+  action: string;
+  reason: string;
+}
+
+export interface ProductionGuide {
+  video_id: string;
+  title: string | null;
+  status: string | null;
+  format: "static_docu" | "animated";
+  /** Enabled format buckets for this video's stage plan, or null for the
+   * full pipeline (status_map.parse_stage_plan / static_stage_plan). */
+  plan: string[] | null;
+  stages: ProductionGuideStage[];
+  warnings: string[];
+  next_step: ProductionGuideNextStep;
+}
+
+export const getProductionGuide = (videoId: string) =>
+  fetchApi<ProductionGuide>(`/api/videos/${videoId}/production-guide`);
 
 export const deleteClip = (videoId: string, assetId: string) =>
   fetchApi<{ status: string }>(`/api/videos/${videoId}/clips/${assetId}`, { method: "DELETE" });
