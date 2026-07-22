@@ -91,7 +91,7 @@ import generation_ledger  # noqa: E402
 # (images, voice, thumbnail, sound) each reuse an EXISTING price constant
 # rather than a new hardcoded number — import the real ones so a drift in
 # actions.py/SoundClient is caught here too, not just re-typed as a literal.
-from actions import PICTURE_COST, VOICE_COST_ESTIMATE, THUMBNAIL_COST  # noqa: E402
+from actions import PICTURE_COST, VOICE_COST_ESTIMATE, THUMBNAIL_COST, SCRIPT_COST_ESTIMATE  # noqa: E402
 from shared.clients.sound_client import SoundClient  # noqa: E402
 
 # C09 (checklist §0.3c): single price source — actions.py's constants above
@@ -314,6 +314,67 @@ def test_sound_stage_row_uses_sound_client_generation_price():
     print("✅ test_sound_stage_row_uses_sound_client_generation_price")
 
 
+# --- script/storyboard ledger-gap fix -------------------------------------
+# Found live on video f00ea79a-06bd-407a-a467-2f014f184744: script generated
+# + 3 storyboard sheets drawn (real Anthropic + GPT Image 2 spend), yet
+# generation_ledger had ZERO rows and the cost widget read "$0.00 -> $0.00".
+# Root cause: run_script/_run_modeled_script (pipeline_executor.py) and
+# generate_storyboard_sheet_for_scene (scripts/coverage_to_app.py) had NO
+# record_ledger_entry call at all — unlike every other paid-generation stage
+# (clip/image/voice/thumbnail/sound, all pinned above). These two tests pin
+# the same "reuse an existing price constant, one row per completed unit"
+# convention for the two newly-wired stages.
+
+def test_script_stage_row_uses_script_cost_estimate_from_actions():
+    """run_script()'s brief-translator path and _run_modeled_script() both
+    price with actions.SCRIPT_COST_ESTIMATE — the SAME flat number the
+    pre-generation 'script' verb quote already charges (no per-token signal
+    is threaded back from the Anthropic call today, same flat-estimate
+    reasoning as VOICE_COST_ESTIMATE/SOUND_COST_ESTIMATE)."""
+    _reset()
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="script",
+        model=None, units=1, unit_cost=SCRIPT_COST_ESTIMATE,
+        actual_cost=SCRIPT_COST_ESTIMATE,
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["stage"] == "script"
+    assert row["unit_cost"] == SCRIPT_COST_ESTIMATE == 0.02
+    assert VIDEOS["video-1"]["total_cost"] == SCRIPT_COST_ESTIMATE
+    print("✅ test_script_stage_row_uses_script_cost_estimate_from_actions")
+
+
+def test_storyboard_stage_row_uses_picture_price_for_sheet_model():
+    """generate_storyboard_sheet_for_scene() prices each landed sheet board
+    with picture_price_for('gpt-image-2') — the SAME per-board number
+    actions.py's pre-generation 'storyboards' verb quote already charges
+    (scene_count * PICTURE_COST), not a new invented number. Units = boards
+    actually landed THIS call (a scene with 3 of 5 boards drawn bills 3, not
+    5) — mirrors the 'image' stage's one-row-per-batch convention."""
+    _reset()
+    ok = 3  # e.g. 3 of 5 boards landed this pass
+    sheet_price = picture_price_for("gpt-image-2")
+    asyncio.run(generation_ledger.record_ledger_entry(
+        tenant_id="tenant-1", video_id="video-1", stage="storyboard",
+        model="gpt-image-2", units=ok, unit_cost=sheet_price,
+        actual_cost=round(ok * sheet_price, 2),
+    ))
+    row = LEDGER_ROWS[0]
+    assert row["stage"] == "storyboard"
+    assert row["unit_cost"] == sheet_price == PICTURE_COST == 0.05
+    assert row["actual_cost"] == round(ok * sheet_price, 2) == 0.15
+    assert VIDEOS["video-1"]["total_cost"] == 0.15
+    print("✅ test_storyboard_stage_row_uses_picture_price_for_sheet_model")
+
+
+def test_script_and_storyboard_prices_are_the_same_object_as_channel_profile():
+    """Same identity pin as test_actions_prices_are_the_same_object_as_
+    channel_profile above, extended to the new constant: actions.py must not
+    hold a second hand-copied 0.02 for the script estimate."""
+    assert SCRIPT_COST_ESTIMATE == channel_profile.SCRIPT_PRICE_ESTIMATE == 0.02
+    print("✅ test_script_and_storyboard_prices_are_the_same_object_as_channel_profile")
+
+
 def test_all_five_stages_sum_without_double_counting():
     """The point of the whole ledger (C07+C08 together): a video that spent
     on clip (C07) + image/voice/thumbnail/sound (C08) gets total_cost = the
@@ -533,6 +594,9 @@ TESTS = [
     test_voice_stage_row_uses_voice_cost_estimate_from_actions,
     test_thumbnail_stage_row_uses_thumbnail_cost_from_actions,
     test_sound_stage_row_uses_sound_client_generation_price,
+    test_script_stage_row_uses_script_cost_estimate_from_actions,
+    test_storyboard_stage_row_uses_picture_price_for_sheet_model,
+    test_script_and_storyboard_prices_are_the_same_object_as_channel_profile,
     test_all_five_stages_sum_without_double_counting,
     test_c08_fail_soft_identical_to_c07_for_every_new_stage,
     test_actions_prices_are_the_same_object_as_channel_profile,

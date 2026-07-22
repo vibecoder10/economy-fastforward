@@ -1981,6 +1981,22 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             _p(f"Scene {sc}: 0 of {len(todo)} board(s) drawn{fail_note}{sweep_note}" if scene_failures
                else f"Scene {sc}: storyboard image failed{sweep_note}")
             continue
+        # generation_ledger (script/storyboard ledger-gap fix): every board
+        # `ok` counts here just drew a real GPT Image 2 sheet (_draw_board's
+        # SHEET_DRAW_MODEL, unconditional per the C25a-fix-nano-sheets
+        # ruling above) — this whole function had NO write path into
+        # generation_ledger before this fix (found live on video f00ea79a:
+        # 3 sheets landed on scene 1, ledger empty, total_cost stuck at 0).
+        # One row per scene pass — same "one row per batch, not per frame"
+        # convention store_scene()'s "image" stage write uses — priced with
+        # the SAME PICTURE_COST(gpt-image-2) number actions.py's
+        # pre-generation "storyboards" verb quote already charges per board.
+        from actions import picture_price_for
+        sheet_price = picture_price_for(SHEET_DRAW_MODEL)
+        await record_ledger_entry(
+            tenant_id=tenant, video_id=vid, stage="storyboard", model=SHEET_DRAW_MODEL,
+            units=ok, unit_cost=sheet_price, actual_cost=round(ok * sheet_price, 2),
+        )
         done += 1
         total_shots += shot_count
         # Failures present: switch to the "N of M board(s) drawn" shape so a

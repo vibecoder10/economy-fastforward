@@ -66,6 +66,7 @@ from shared.channel_profile import (  # noqa: E402
     VOICE_PRICE_PER_1K_CHARS,
     VOICE_PRICE_FLAT_ESTIMATE as VOICE_COST_ESTIMATE,
     SOUND_PRICE_ESTIMATE as SOUND_COST_ESTIMATE,
+    SCRIPT_PRICE_ESTIMATE as SCRIPT_COST_ESTIMATE,
     picture_price_for,
     # Single Claude tier source (checklist §3.4 / C35) — same re-export
     # pattern as the cost constants above; the values live in
@@ -721,7 +722,7 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
     elif verb == "thumbnail":
         cost = THUMBNAIL_COST
     elif verb == "script":
-        cost = 0.02
+        cost = SCRIPT_COST_ESTIMATE
     elif verb == "research":
         cost = 0.05
     elif verb == "seo":

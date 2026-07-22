@@ -580,6 +580,20 @@ VOICE_PRICE_FLAT_ESTIMATE = 0.30
 # estimate.
 SOUND_PRICE_ESTIMATE = 0.05
 
+# Flat per-script estimate for the Anthropic script-generation call (brief
+# translator / modeled-style writer / static-documentary hold writer all
+# spend real workspace-key Anthropic tokens but none of them threads actual
+# token counts back to the caller today, so — same "no per-unit signal, use
+# a flat number" reasoning as VOICE_PRICE_FLAT_ESTIMATE/SOUND_PRICE_ESTIMATE
+# above — this is one flat estimate, not a token-metered price). Was already
+# quoted pre-generation as a hardcoded 0.02 literal in actions.py's
+# cost_breakdown() "script" verb; pulled out here as the single source so
+# the post-generation generation_ledger write (pipeline_executor.py's
+# run_script/_run_modeled_script, added alongside this constant — checklist
+# script/storyboard ledger-gap fix) prices with the SAME number instead of a
+# second hardcoded 0.02 drifting out of sync with the quote.
+SCRIPT_PRICE_ESTIMATE = 0.02
+
 
 # --- Claude Text Model Tiers ---
 #

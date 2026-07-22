@@ -11641,6 +11641,17 @@ separate scenes."""
         await sync_video_workspace_fail_soft(video_id, self.tenant_id)
         await self._log_activity(bot_name, video_id, "completed",
                                  f"Modeled-style script complete ({len(scenes)} scenes, {len(full_script.split())} words)")
+        # generation_ledger (script/storyboard ledger-gap fix, same as
+        # run_script's brief-translator path): this modeled-style path spent
+        # real Anthropic tokens via self._pipeline.anthropic.generate above
+        # and had no ledger write either. Same flat-estimate reasoning/source
+        # as run_script's write.
+        from actions import SCRIPT_COST_ESTIMATE
+        await record_ledger_entry(
+            tenant_id=self.tenant_id, video_id=video_id, stage="script",
+            model=None, units=1, unit_cost=SCRIPT_COST_ESTIMATE,
+            actual_cost=SCRIPT_COST_ESTIMATE,
+        )
         return {"status": "ready_for_voice", "video_id": video_id, "new_status": "ready_for_voice"}
 
     async def _save_machine_script_block(
@@ -12138,6 +12149,26 @@ separate scenes."""
             await self._update_video_status(video_id, eff_status)
             await self._log_transition(video_id, current_status, eff_status, "api")
             await self._log_activity(bot_name, video_id, "completed", "Script generated")
+
+            # generation_ledger (script/storyboard ledger-gap fix): the
+            # brief-translator call above already spent real workspace-key
+            # Anthropic tokens — this stage had NO write path into
+            # generation_ledger at all before this fix, so total_cost sat at
+            # its DEFAULT 0 forever for every video's script step (found
+            # live on video f00ea79a: script generated + storyboard sheets
+            # drawn, ledger empty, cost widget read $0.00 -> $0.00). No
+            # token-usage figure is threaded back from
+            # self._pipeline.run_brief_translator() today, so this reuses
+            # the SAME flat SCRIPT_COST_ESTIMATE actions.py's pre-generation
+            # "script" verb quote already charges — one number, one source
+            # (shared.channel_profile.SCRIPT_PRICE_ESTIMATE), not a second
+            # hardcoded literal drifting out of sync with the quote.
+            from actions import SCRIPT_COST_ESTIMATE
+            await record_ledger_entry(
+                tenant_id=self.tenant_id, video_id=video_id, stage="script",
+                model=None, units=1, unit_cost=SCRIPT_COST_ESTIMATE,
+                actual_cost=SCRIPT_COST_ESTIMATE,
+            )
 
             return {
                 "status": to_supabase(new_status),
