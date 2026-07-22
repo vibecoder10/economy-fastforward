@@ -62,22 +62,57 @@ import shared.clients.image_client  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 class _FakeResp:
-    def __init__(self, body):
+    def __init__(self, body, status_code=200):
         self._body = body
+        self.status_code = status_code
 
     def json(self):
         return self._body
+
+
+class _FakeImageResp:
+    """Stands in for the httpx.Response of the C2g image-download `.get()`
+    call. Defaults to a small, valid-looking JPEG payload so every
+    pre-existing C2f test (which only scripts the vision-model `.post()`
+    replies) keeps passing unchanged now that _vision_confirms downloads the
+    image itself before asking the model."""
+
+    def __init__(self, content=b"\xff\xd8\xff" + b"0" * 32, status_code=200,
+                 content_type="image/jpeg"):
+        self.content = content
+        self.status_code = status_code
+        self.headers = {"content-type": content_type}
 
 
 class _FakeHttpClient:
     """Stands in for httpx.AsyncClient inside _vision_confirms. `replies` is
     a list of callables/exceptions/strings consumed one per `.post()` call —
     lets a test script "attempt 1 fails, attempt 2 succeeds" behavior and
-    assert exactly how many attempts were made."""
+    assert exactly how many attempts were made.
 
-    def __init__(self, replies):
+    C2g: `_vision_confirms` now downloads the candidate image itself
+    (`.get()`) before asking the model (`.post()`). `get_replies` scripts
+    that download the same way `replies` scripts the model call; left
+    unset, `.get()` always returns a valid small-image 200 so tests that
+    only care about the model reply don't need to know about the download
+    step at all."""
+
+    def __init__(self, replies, get_replies=None):
         self._replies = list(replies)
+        self._get_replies = list(get_replies) if get_replies is not None else None
         self.calls = 0
+        self.get_calls = 0
+
+    async def get(self, url, **kwargs):
+        self.get_calls += 1
+        if self._get_replies is None:
+            return _FakeImageResp()
+        if not self._get_replies:
+            raise AssertionError("get() called more times than scripted")
+        item = self._get_replies.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
     async def post(self, url, headers=None, json=None, **kwargs):
         self.calls += 1
@@ -102,11 +137,13 @@ class _ClientCM:
         return False
 
 
-def _install_vision_fakes(monkeypatch, replies, anthropic_key="fake-anthropic-key"):
+def _install_vision_fakes(monkeypatch, replies, anthropic_key="fake-anthropic-key",
+                          get_replies=None):
     """Wires get_secret (anthropic key present -> direct-Anthropic branch)
     and httpx.AsyncClient to the scripted fake client. Returns the fake
-    client so tests can assert on `.calls`."""
-    fake_client = _FakeHttpClient(replies)
+    client so tests can assert on `.calls`. `get_replies` (C2g) scripts the
+    image-download step; unset, downloads always succeed with a fake image."""
+    fake_client = _FakeHttpClient(replies, get_replies=get_replies)
 
     async def fake_get_secret(name, *a, **k):
         if name == "anthropic_api_key":

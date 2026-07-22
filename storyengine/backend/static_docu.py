@@ -13,6 +13,7 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
   * render via render_static.render_static_video (Remotion Ken Burns).
 """
 
+import base64
 import json
 import logging
 import re
@@ -818,7 +819,23 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     FAILS CLOSED on transport failure: a request that raises or comes back
     with no usable reply text is retried ONCE, then treated as REJECTED (not
     verified) — an HTTP-level failure (23/23 URL-source calls 400'd live)
-    must never silently become "verified"."""
+    must never silently become "verified".
+
+    C2g fix: this used to hand the model a URL-source image block built from
+    `_kie_fetchable_url(image_url)` — called WITHOUT tenant_id, so it minted
+    no auth token and the media proxy 401'd; even a correctly-signed proxy
+    URL still 404s here because a freshly `_host_reference`d candidate only
+    exists in storage (and later static_reference_cache), neither of which
+    routes/media.py's `_ALLOWLIST_SQL` matches. Anthropic returned a 400
+    ("Unable to download the file"), which `_ask_once` couldn't distinguish
+    from an empty reply, so EVERY first-time hosted candidate silently
+    failed closed. Fixed by downloading the image bytes OURSELVES and
+    inlining them as base64 — the same self-fetch pattern `_host_reference`
+    already uses to avoid depending on a third party (or our own proxy)
+    being fetchable. Confirmed live: the Kie-gateway Claude endpoint
+    (api.kie.ai/claude/v1/messages) already accepts this same base64 block
+    shape elsewhere (shared/clients/vision_client.py's `_claude_blocks`), so
+    both branches below share one content list."""
     from vault import get_secret
 
     alias_txt = ""
@@ -832,34 +849,72 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         "independent confirmation. "
     )
 
-    from shared.clients.image_client import _kie_fetchable_url
-    content = [
-        {"type": "text", "text":
-         f"We believe this image shows the {machine}{alias_txt}. "
-         f"{source_hint}"
-         "Answer on one line: first word YES or NO, then one short "
-         "reason. YES only if the image is consistent with being a real "
-         "photograph (or full-scale museum/factory rendering) of THIS "
-         "SPECIFIC designation/variant. A DIFFERENT variant of the same "
-         "aircraft/vehicle family counts as NO — for example, a later "
-         "production model is NOT the same as an earlier experimental "
-         "prototype designation, unless that variant is explicitly one of "
-         "the aliases listed above. NO if it shows a different variant, an "
-         "unrelated vehicle, is not a real photo (a drawing/sketch/diagram/"
-         "blueprint/schematic/scale model), or primarily shows an interior, "
-         "cockpit, a person or portrait, a map, insignia, or a document/"
-         "text page."},
-        {"type": "image", "source": {"type": "url",
-         "url": _kie_fetchable_url(image_url)}},
-    ]
+    prompt_text = (
+        f"We believe this image shows the {machine}{alias_txt}. "
+        f"{source_hint}"
+        "Answer on one line: first word YES or NO, then one short "
+        "reason. YES only if the image is consistent with being a real "
+        "photograph (or full-scale museum/factory rendering) of THIS "
+        "SPECIFIC designation/variant. A DIFFERENT variant of the same "
+        "aircraft/vehicle family counts as NO — for example, a later "
+        "production model is NOT the same as an earlier experimental "
+        "prototype designation, unless that variant is explicitly one of "
+        "the aliases listed above. NO if it shows a different variant, an "
+        "unrelated vehicle, is not a real photo (a drawing/sketch/diagram/"
+        "blueprint/schematic/scale model), or primarily shows an interior, "
+        "cockpit, a person or portrait, a map, insignia, or a document/"
+        "text page."
+    )
+
+    async def _download_image_b64() -> Optional[tuple]:
+        """Fetch `image_url` ourselves and return (media_type, base64_data),
+        or None on any download/oversize failure — treated by the caller as
+        a failed attempt (same fail-closed bucket as a raised exception),
+        never as a silent pass. Anthropic's per-image limit is ~5MB; a
+        payload over ~4.5MB is rejected here rather than risking a
+        provider-side size error (no image-processing deps added)."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA,
+                                         follow_redirects=True) as c:
+                r = await c.get(image_url)
+        except Exception:  # noqa: BLE001 — network failure downloading the candidate
+            _logger.warning("_vision_confirms: download failed for %s", image_url)
+            return None
+        if r.status_code != 200:
+            _logger.warning("_vision_confirms: download HTTP %s for %s",
+                            r.status_code, image_url)
+            return None
+        data = r.content
+        if not data:
+            return None
+        if len(data) > 4_500_000:
+            _logger.warning("_vision_confirms: oversize download (%d bytes) for %s",
+                            len(data), image_url)
+            return None
+        media_type = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if media_type not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+            media_type = "image/jpeg"
+        return media_type, base64.b64encode(data).decode("ascii")
 
     async def _ask_once() -> Optional[str]:
-        """One round-trip to the vision model. Returns the lowercased reply
-        text (possibly empty), or None specifically when NO provider key is
-        configured at all — a workspace config gap, not a transport symptom,
-        so the caller treats it differently (unchanged fail-open, since
-        there's no live evidence this ever fires in practice and retrying
-        can't help a missing key)."""
+        """One round-trip: download the candidate image fresh, then ask the
+        vision model. Returns the lowercased reply text (possibly empty —
+        including when the download itself failed, which the retry loop
+        treats identically to a transport exception), or None specifically
+        when NO provider key is configured at all — a workspace config gap,
+        not a transport symptom, so the caller treats it differently
+        (unchanged fail-open, since there's no live evidence this ever fires
+        in practice and retrying can't help a missing key)."""
+        img = await _download_image_b64()
+        if img is None:
+            return ""  # download/size failure this attempt — caller retries
+        media_type, b64_data = img
+        content = [
+            {"type": "text", "text": prompt_text},
+            {"type": "image", "source": {"type": "base64",
+             "media_type": media_type, "data": b64_data}},
+        ]
+
         # DIRECT Anthropic first — the Kie gateway injects tool configuration
         # that derails the reply into meta-talk about tools (seen live).
         akey = await get_secret("anthropic_api_key", tenant_id)
@@ -888,6 +943,13 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                     json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
                           "messages": [{"role": "user", "content": content}]},
                 )
+        if r.status_code != 200:
+            # A non-200 model-API response is a failed attempt, never parsed
+            # as if it were an empty-but-successful answer (the C2f bug this
+            # continues to guard against — 23/23 URL-source calls 400'd and
+            # were silently read as "no reply text").
+            _logger.warning("_vision_confirms: model API HTTP %s", r.status_code)
+            return ""
         body = r.json()
         return " ".join(b.get("text", "") for b in body.get("content", [])
                         if b.get("type") == "text").strip().lower()
@@ -911,10 +973,11 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     if no_key:
         return True  # config gap, not a transport failure — unchanged behavior
     if not txt:
-        # Every attempt raised or came back empty — FAIL CLOSED: this
-        # candidate is treated as unverified/rejected (the caller tries the
-        # next candidate; worst case the scene blocks, which is visible and
-        # recoverable), never silently promoted to "verified".
+        # Every attempt raised, failed to download, or came back empty —
+        # FAIL CLOSED: this candidate is treated as unverified/rejected (the
+        # caller tries the next candidate; worst case the scene blocks,
+        # which is visible and recoverable), never silently promoted to
+        # "verified".
         return False
 
     # Hard rejections (word-boundary matched) apply UNIFORMLY to trusted and
