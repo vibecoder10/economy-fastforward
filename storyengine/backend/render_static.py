@@ -43,6 +43,7 @@ from render_stitch import (
     _probe_duration,
     _run_subprocess,
 )
+import render_static_ffmpeg
 
 logger = logging.getLogger(__name__)
 
@@ -294,18 +295,42 @@ async def _select_music_beds(tenant_id: str, segments: list[dict],
         return []
 
 
+def _remotion_concurrency() -> int:
+    """Chrome-worker concurrency for the Remotion render.
+
+    Was hardcoded at 3 regardless of box size. ``REMOTION_CONCURRENCY`` is an
+    explicit override (matches the existing ``STATIC_RENDER_CONCURRENCY``
+    naming, which instead governs how many *whole renders* run at once);
+    absent that, use every core but one so the render doesn't starve the
+    rest of the backend process, with 3 as a floor to never regress below
+    the old fixed value on small boxes.
+    """
+    override = os.getenv("REMOTION_CONCURRENCY")
+    if override:
+        try:
+            n = int(override)
+            if n > 0:
+                return n
+        except ValueError:
+            pass
+    cores = os.cpu_count() or 3
+    return max(3, cores - 1)
+
+
 async def _run_remotion(public_dir: Path, props_file: Path, out_file: Path,
                         on_progress: ProgressCb) -> None:
     cmd = [
         "npx", "remotion", "render", "Main", str(out_file),
         "--props", str(props_file),
         "--public-dir", str(public_dir),
-        "--concurrency=3",
+        f"--concurrency={_remotion_concurrency()}",
         "--gl=swangle",
         "--timeout=180000",
-        # Default encode gave ~1GB per 9 min; crf 23 is visually equivalent
-        # for held images + slow pans at a fraction of the size.
-        "--crf=23",
+        # Default encode gave ~1GB per 9 min; crf 20 + a fast x264 preset
+        # cuts encode time sharply while staying visually lossless-enough
+        # for held images + slow pans.
+        "--crf=20",
+        "--x264-preset=veryfast",
     ]
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=str(_REMOTION_DIR),
@@ -383,9 +408,15 @@ async def render_static_video(
         props_file.write_text(json.dumps({"renderConfig": rc}))
 
         out_file = workdir / "out.mp4"
+        engine = render_static_ffmpeg.render_engine()
         async with _REMOTION_SEM:
-            await _emit(on_progress, "Rendering the documentary (Remotion)")
-            await _run_remotion(public_dir, props_file, out_file, on_progress)
+            if engine == "ffmpeg":
+                await _emit(on_progress, "Rendering the documentary (ffmpeg engine)")
+                await render_static_ffmpeg.render_static_ffmpeg_video(
+                    rc, public_dir, workdir, out_file, on_progress)
+            else:
+                await _emit(on_progress, "Rendering the documentary (Remotion)")
+                await _run_remotion(public_dir, props_file, out_file, on_progress)
 
         # Salvage guard: the render itself (the expensive ~1hr+ part) is done
         # once out_file exists. If anything past this point raises (upload
