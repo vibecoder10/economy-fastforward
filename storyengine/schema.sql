@@ -419,6 +419,14 @@ CREATE TABLE assets (
   -- generation keeps composing the motion prompt from the auto/"earned"
   -- camera_movement exactly as before this migration.
   camera_preset_id TEXT,
+  -- STS voice-lock marker (migration 114): the clip's audio already carries
+  -- this shot's spoken line in the pinned cast voice at the clip's own timing
+  -- (ElevenLabs speech-to-speech over the Grok take). The performance
+  -- assembler must NOT overlay the TTS line for spans this shot claims;
+  -- clip_speech_start/end (seconds into the clip) size its window instead.
+  carries_own_line BOOLEAN NOT NULL DEFAULT false,
+  clip_speech_start REAL,
+  clip_speech_end REAL,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

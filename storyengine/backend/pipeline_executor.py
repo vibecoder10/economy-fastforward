@@ -12265,37 +12265,6 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def _stamp_padded_audio(self, video_id: str, scene: int, line: dict, pad_url: str) -> None:
-        """Record a speaking shot's padded performance audio on its segment in
-        the dialogue_segments jsonb. Two jobs: bookkeeping, and the media-proxy
-        ALLOWLIST — the proxy only serves DB-referenced files, and the talking-
-        clip model fetches this audio through it. Best-effort."""
-        try:
-            import json as _json
-            from clip_dialogue import norm as _norm
-            row = await fetch_one(
-                "SELECT id, dialogue_segments FROM scripts "
-                "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
-                video_id, self.tenant_id, scene)
-            raw = (row or {}).get("dialogue_segments")
-            if isinstance(raw, str):
-                raw = _json.loads(raw)
-            if not raw:
-                return
-            for seg in raw:
-                if (seg.get("type") == "dialogue"
-                        and _norm(seg.get("speaker")) == _norm(line.get("speaker"))
-                        and _norm(seg.get("text")) == _norm(line.get("text"))):
-                    seg["padded_audio_url"] = pad_url
-                    break
-            else:
-                return
-            await execute(
-                "UPDATE scripts SET dialogue_segments=$1, updated_at=now() WHERE id=$2",
-                _json.dumps(raw), row["id"])
-        except Exception as e:
-            print(f"[clips] padded-audio stamp failed ({str(e)[:120]})", flush=True)
-
     async def run_dialogue_voice(self, video_id: str, scene: int = None, progress_callback=None) -> dict:
         """Voice every dialogue_segments entry (per-segment performance track).
 
@@ -12523,21 +12492,10 @@ separate scenes."""
                 m = _re.search(r"[?&]id=([\w-]+)", url) or _re.search(r"/d/([\w-]+)", url)
                 return f"{base}/api/media/drive/{m.group(1)}?token={mint_media_token(self.tenant_id)}" if m else url
 
-            def _with_ext(url: str, ext: str) -> str:
-                """Some Kie model validators reject URLs without a recognizable
-                extension. The cosmetic suffix must land BEFORE the ?token=
-                query string, not after — appending it to the tail would
-                corrupt the token (e.g. "...?token=eyJ...XYZ.png" fails to
-                decode as a JWT)."""
-                if "?" in url:
-                    path, _, query = url.partition("?")
-                    return f"{path}{ext}?{query}"
-                return url + ext
-
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, match_assigned,
                                        speaking_prompt, native_speaking_prompt, motion_guard,
-                                       duck_audio, download_voice, mux_voice, pad_line_audio,
+                                       duck_audio, download_voice, mux_voice,
                                        DIALOGUE_VOICE_LEAD_SECONDS, speech_seconds,
                                        spoken_word_count, pick_clip_duration, clip_cost_for)
             from shared.clients.image_client import CONTENT_POLICY_MARKER
@@ -12603,12 +12561,17 @@ separate scenes."""
                 cast_names = ", ".join((c["name"] or "").strip() for c in name_rows if c.get("name"))
                 cast_voice_by_name = {(c["name"] or "").strip().casefold(): c["voice_name"]
                                       for c in name_rows if c.get("voice_name")}
-            # Option A voice lock: grok_native speaking clips get their audio
-            # re-rendered in the character's pinned ElevenLabs voice (speech-
-            # to-speech keeps timing, so the mouth stays synced). Needs the
-            # tenant's direct ElevenLabs key; off without one, or via env.
+            # Option A voice lock: speaking clips get their audio re-rendered
+            # in the character's pinned ElevenLabs voice (speech-to-speech
+            # keeps timing, so the mouth stays synced). Since 2026-07-22 this
+            # covers voice_over too, not just grok_native — the swapped take
+            # then CARRIES its line (assets.carries_own_line, migration 114)
+            # and the performance assembler plays the clip's own audio instead
+            # of overlaying the TTS mp3. Needs the tenant's direct ElevenLabs
+            # key; off without one, or via env.
             xi_key = None
-            if native_voices and os.getenv("VOICE_SWAP", "on") != "off":
+            if ((video.get("dialogue_mode") or "") == "character_dialogue"
+                    and os.getenv("VOICE_SWAP", "on") != "off"):
                 from vault import get_secret
                 xi_key = await get_secret("elevenlabs_api_key", self.tenant_id)
 
@@ -12784,77 +12747,23 @@ separate scenes."""
                     is_speaking = bool(lines) or (native_voices and embedded_words > 0)
 
                     if lines:
-                        # Speaking card → Grok animates the FULL SCENE.
-                        # Loose sync by design (Ryan's call): scene
-                        # continuity beats mouth precision in this format —
-                        # see decisions.md 2026-06-12.
-                        # DUAL-ANIMATOR ROUTING (Ryan's call, 2026-07-03):
-                        # voice_over speaking shots animate via InfiniteTalk —
-                        # the mouth is GENERATED FROM the line's waveform, so
-                        # lip-sync is structural (Grok speaking was a coin flip:
-                        # the live test's second mouth never moved). Silent
-                        # shots keep Grok's camera/action motion. Any talking
-                        # failure falls back to the Grok+mux path below.
+                        # Speaking card → Grok animates the FULL SCENE with
+                        # the line embedded, so the mouth performs the exact
+                        # words at Grok's own pace. voice_over takes then get
+                        # their audio re-rendered in the pinned cast voice via
+                        # ElevenLabs speech-to-speech (the voice-lock branch
+                        # below) — same timing, same mouth, consistent
+                        # identity. InfiniteTalk (audio-driven talking clips)
+                        # was REMOVED 2026-07-22: zero successful clips since
+                        # it shipped 2026-07-03 — every task died on Kie's
+                        # side (422/500/timeout) after burning up to 20
+                        # minutes, then fell back here anyway.
                         clip_url = None
                         clip_cost = 0.0
                         clip_dur = None
-                        talked = False
-                        # The engine that ACTUALLY animates this row (checklist
-                        # §1.2/C13 orchestrator review) — refined below once we
-                        # know whether InfiniteTalk or the Grok/Seedance
-                        # fallback ran. Never reported as the routed model when
-                        # a different engine actually produced the clip.
                         effective_model_id = row_model_id
-                        talking_model = os.getenv("TALKING_CLIP_MODEL", "infinitalk")
-                        if not native_voices and talking_model != "off":
-                            try:
-                                vbytes = [b for b in [await download_voice(l["audio_url"])
-                                                      for l in lines] if b]
-                                if vbytes:
-                                    padded = await pad_line_audio(
-                                        vbytes, head=DIALOGUE_VOICE_LEAD_SECONDS,
-                                        tail=float(os.getenv("PERFORM_DIALOGUE_TAIL", "0.25")))
-                                    pad_url = await upload_bytes(
-                                        padded, f"{video_id}/voice/padded/S{sc:02d}-{idx:02d}.mp3",
-                                        "audio/mpeg", tenant_id=self.tenant_id)
-                                    # The media proxy serves only DB-referenced
-                                    # files — stamp the padded url into the
-                                    # first line's segment jsonb (allowlist).
-                                    await self._stamp_padded_audio(video_id, sc, lines[0], pad_url)
-                                    talk_prompt = (
-                                        f"{(lines[0].get('speaker') or 'The character')} speaks "
-                                        "naturally with expressive face and small natural "
-                                        "gestures, keeping the exact pose, framing and scene "
-                                        "shown in the image.")
-                                    clip_url = await asyncio.wait_for(
-                                        client.generate_talking_video(
-                                            _with_ext(img, ".png") if "/api/media/drive/" in img else img,
-                                            _with_ext(_proxy_url(pad_url), ".mp3"),
-                                            prompt=talk_prompt,
-                                            resolution=_vres,
-                                            task_id_out=task_id_box),
-                                        timeout=int(os.getenv("TALKING_CLIP_DEADLINE", "1200")))
-                                    if clip_url:
-                                        talked = True
-                                        # InfiniteTalk ran, not row_model_id's
-                                        # engine — model_used/ledger must say
-                                        # so (checklist §1.2/C13 orchestrator
-                                        # review), not whatever model routing
-                                        # picked for this row.
-                                        effective_model_id = talking_model
-                                        audio_len = (DIALOGUE_VOICE_LEAD_SECONDS
-                                                     + sum(float(l.get("duration") or 2.0) for l in lines)
-                                                     + float(os.getenv("PERFORM_DIALOGUE_TAIL", "0.25")))
-                                        clip_dur = round(audio_len, 2)
-                                        clip_cost = round(audio_len * float(
-                                            os.getenv("INFINITALK_USD_PER_SEC", "0.03")), 3)
-                            except Exception as te:
-                                print(f"[clips] S{sc}.{idx} talking clip failed "
-                                      f"({str(te)[:120]}) — falling back to Grok", flush=True)
-                                clip_url = None
                         if not clip_url:
-                            # Grok speaking path (grok_native, kill-switched
-                            # talking model, or InfiniteTalk failure).
+                            # Grok speaking path — the only speaking animator.
                             # _animate_for() has NO Veo case — this leg can
                             # only ever really run Seedance (if routed there)
                             # or Grok (every other id, INCLUDING any Veo id —
@@ -12963,14 +12872,22 @@ separate scenes."""
                     # voice_over lays the ElevenLabs line over a quiet bed.
                     # Narration cards keep quiet ambience either way — the
                     # renderer mixes narration and music over them.
+                    carries_line = False
+                    clip_speech = (None, None)
                     try:
-                        if native_voices and is_speaking and xi_key:
-                            # Option A voice lock: swap Grok's invented voice
-                            # for the speaker's pinned ElevenLabs voice. Same
-                            # timing, same mouth, consistent identity. A swap
-                            # failure ships Grok's original take (never lose
-                            # a paid clip over the polish pass).
+                        if is_speaking and xi_key and (native_voices or lines):
+                            # Voice lock: swap Grok's invented voice for the
+                            # speaker's pinned ElevenLabs voice. Same timing,
+                            # same mouth, consistent identity. A swap failure
+                            # ships grok_native's original take, or drops
+                            # voice_over to the overlay-mux fallback below
+                            # (never lose a paid clip over the polish pass).
                             spk = (r.get("assigned_dialogue") or "").split(":", 1)[0].strip()
+                            if not spk and lines:
+                                # Legacy non-coverage cards have no
+                                # assigned_dialogue — without this fallback
+                                # the swap silently no-ops (mapped 2026-07-22).
+                                spk = (lines[0].get("speaker") or "").strip()
                             voice_id = cast_voice_by_name.get(spk.casefold())
                             # A Grok take can chain SEVERAL speakers' lines
                             # ("Then" chaining) — converting the whole clip
@@ -12986,6 +12903,15 @@ separate scenes."""
                                         [{"speaker": l.get("speaker"), "text": l.get("text") or ""}
                                          for l in lines],
                                         cast_voice_by_name, xi_key)
+                                    # carries_line deliberately stays False:
+                                    # a chained take converts EVERY turn, but
+                                    # nothing guarantees this shot CLAIMS all
+                                    # of them on the assembler's timeline — an
+                                    # unclaimed line would then play twice
+                                    # (clip + TTS track). Multi-speaker shots
+                                    # keep the overlay path; the swap still
+                                    # pins the voices under it (adversarial
+                                    # review 2026-07-22 finding #3).
                                     await _report(f"S{sc}.{idx}: voices locked "
                                                   f"({len(turn_speakers)} speakers)")
                                 except Exception as se:
@@ -12995,13 +12921,32 @@ separate scenes."""
                                 try:
                                     from clip_dialogue import swap_voice
                                     clip_bytes = await swap_voice(clip_bytes, voice_id, xi_key)
+                                    carries_line = not native_voices
                                     await _report(f"S{sc}.{idx}: voice locked ({spk})")
                                 except Exception as se:
                                     print(f"[clips] S{sc}.{idx} voice swap failed "
                                           f"({str(se)[:120]}) — keeping Grok's take", flush=True)
-                        elif lines and not native_voices and talked:
-                            pass  # an InfiniteTalk clip already carries its line
-                        elif lines and not native_voices:
+                            else:
+                                print(f"[clips] S{sc}.{idx} no pinned voice for "
+                                      f"'{spk or '?'}' — voice not locked", flush=True)
+                            if carries_line:
+                                # Measure where the line actually sits in the
+                                # take — the assembler sizes this shot's window
+                                # from these bounds instead of assuming a 0.5s
+                                # head (migration 114). No bounds → overlay
+                                # fallback keeps today's behavior.
+                                try:
+                                    from clip_dialogue import measure_speech_bounds
+                                    clip_speech = await measure_speech_bounds(clip_bytes)
+                                    if clip_speech[0] is None:
+                                        carries_line = False
+                                except Exception as me:
+                                    print(f"[clips] S{sc}.{idx} speech-bounds measure "
+                                          f"failed ({str(me)[:120]}) — overlay fallback",
+                                          flush=True)
+                                    clip_speech = (None, None)
+                                    carries_line = False
+                        if lines and not native_voices and not carries_line:
                             voice_secs = sum(float(l.get("duration") or 2.0) for l in lines)
                             vbytes = [b for b in [await download_voice(l["audio_url"]) for l in lines] if b]
                             if vbytes:
@@ -13023,10 +12968,15 @@ separate scenes."""
                         print(f"[clips] S{sc}.{idx} audio mux failed, keeping raw clip: {str(e)[:150]}", flush=True)
                     drive_url = await upload_bytes(
                         clip_bytes, f"{video_id}/clips/S{sc:02d}-{idx:02d}.mp4", "video/mp4", tenant_id=self.tenant_id)
+                    # carries_own_line rides the SAME statement as the clip
+                    # url so a re-animate can never leave a stale marker from
+                    # a dead clip's timing (assembler sizes windows from it).
                     await execute(
                         "UPDATE assets SET video_clip_url = $1, video_duration = $2, "
-                        "updated_at = now() WHERE id = $3",
-                        drive_url, clip_dur, r["id"],
+                        "carries_own_line = $3, clip_speech_start = $4, "
+                        "clip_speech_end = $5, updated_at = now() WHERE id = $6",
+                        drive_url, clip_dur, carries_line,
+                        clip_speech[0], clip_speech[1], r["id"],
                     )
                     # model_used (checklist §1.2/C13, migration 088): which model
                     # ACTUALLY generated this clip — `effective_model_id`, NOT
@@ -13051,10 +13001,9 @@ separate scenes."""
                     # generation_ledger: one row per completed clip, single source
                     # of truth for videos.total_cost (checklist §0.3a / C07).
                     # unit_cost/actual_cost both resolve to clip_cost — the SAME
-                    # value already computed above (row_profile.cost_per_clip for
-                    # the Grok/Seedance/Veo legs, INFINITALK_USD_PER_SEC for the
-                    # InfiniteTalk leg); Kie never returns an actual-spend figure
-                    # in the task-status payload, so there's no better "actual"
+                    # value already computed above (row_profile.cost_per_clip);
+                    # Kie never returns an actual-spend figure in the
+                    # task-status payload, so there's no better "actual"
                     # than that for now. `model` is `effective_model_id`
                     # (checklist §1.2/C13 money invariant #1, tightened by the
                     # orchestrator's review) — the engine that ACTUALLY ran this
@@ -13064,6 +13013,10 @@ separate scenes."""
                     # false one borrowed from a model that never ran).
                     # record_ledger_entry() is fail-soft internally — never
                     # raises — so the clip result above is never at risk.
+                    # [-1], not [0]: _animate_recover's content-policy redraw
+                    # retry appends a SECOND task id, leaving [0] pointing at
+                    # the blocked task (found 2026-07-22 recovering raw clips —
+                    # the ledger cited tasks that produced nothing).
                     await record_ledger_entry(
                         tenant_id=self.tenant_id,
                         video_id=video_id,
@@ -13072,7 +13025,7 @@ separate scenes."""
                         units=1,
                         unit_cost=clip_cost,
                         actual_cost=clip_cost,
-                        kie_task_id=(task_id_box[0] if task_id_box else None),
+                        kie_task_id=(task_id_box[-1] if task_id_box else None),
                     )
                     await _report(f"Animated S{sc}.{idx} ({done}/{total} done)")
 

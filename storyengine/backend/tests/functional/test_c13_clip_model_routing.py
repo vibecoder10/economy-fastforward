@@ -467,38 +467,99 @@ def test_speaking_branch_veo_routed_row_falls_back_to_grok_not_veo(monkeypatch):
     assert model_used_updates[0] == ("grok-imagine", "asset-1")
 
 
-def test_speaking_branch_infinitalk_success_records_infinitalk_not_routed_model(monkeypatch):
-    """When InfiniteTalk actually generates the clip (the DUAL-ANIMATOR
-    routing's preferred path for voice_over speaking shots), model_used and
-    the ledger must say so — not whatever model_router routed this shot to,
-    which never ran at all."""
-    def _wire_infinitalk(monkeypatch, image_client):
-        async def fake_download_voice(url):
-            return b"fake-voice-bytes"  # skip the real Drive-only fetch path
+def test_voice_over_speaking_shot_sts_swap_sets_carries_own_line(monkeypatch):
+    """STS voice-lock (2026-07-22, replaced InfiniteTalk): a voice_over
+    speaking shot animates through Grok, then swap_voice re-renders the
+    take's audio in the pinned cast voice. On success the persist row must
+    carry carries_own_line=True plus the measured speech bounds (the
+    performance assembler sizes the shot's window from them), and the
+    ledger/model_used must still name the engine that drew the pixels
+    (grok-imagine) — STS is a polish pass, not an animator."""
+    def _wire_sts(monkeypatch, image_client):
+        import vault as vault_mod
 
-        async def fake_pad_line_audio(voice_bytes_list, head=0.5, tail=0.25):
-            return b"fake-padded-audio"
+        async def fake_get_secret(name, tenant_id=None, user_id=None):
+            return "fake-xi-key" if name == "elevenlabs_api_key" else None
 
-        monkeypatch.setattr(clip_dialogue_mod, "download_voice", fake_download_voice)
-        monkeypatch.setattr(clip_dialogue_mod, "pad_line_audio", fake_pad_line_audio)
+        async def fake_swap_voice(clip_bytes, voice_id, xi_key):
+            assert voice_id == "fake-voice-tom"
+            return b"swapped-clip-bytes"
+
+        async def fake_measure(clip_bytes):
+            assert clip_bytes == b"swapped-clip-bytes"
+            return (0.42, 3.1)
+
+        async def fake_fetch_all_cast(query, *args):
+            if "FROM video_characters" in query:
+                return [{"name": "Tom", "voice_name": "fake-voice-tom"}]
+            return None
+
+        monkeypatch.setattr(vault_mod, "get_secret", fake_get_secret)
+        monkeypatch.setattr(clip_dialogue_mod, "swap_voice", fake_swap_voice)
+        monkeypatch.setattr(clip_dialogue_mod, "measure_speech_bounds", fake_measure)
+        # layer the cast query on top of the harness's fetch_all
+        prev = pe_mod.fetch_all
+
+        async def fetch_all_with_cast(query, *args):
+            hit = await fake_fetch_all_cast(query, *args)
+            return hit if hit is not None else await prev(query, *args)
+
+        monkeypatch.setattr(pe_mod, "fetch_all", fetch_all_with_cast)
 
     client, ledger_calls, model_used_updates, clip_url_updates = _run_clip_generation_for(
         monkeypatch, "veo-3.1-quality",
         dialogue_mode="character_dialogue", dialogue_audio="voice_over",
-        assigned_dialogue=_ASSIGNED_DIALOGUE, extra_patches=_wire_infinitalk)
+        assigned_dialogue=_ASSIGNED_DIALOGUE, extra_patches=_wire_sts)
 
-    assert client.calls and client.calls[0][0] == "infinitalk", (
-        "expected the InfiniteTalk path to run — got " + repr(client.calls))
+    assert client.calls and client.calls[0][0] == "grok", (
+        "voice_over speaking shots animate through Grok since InfiniteTalk's "
+        "removal — got " + repr(client.calls))
+    # persist: (drive_url, clip_dur, carries_own_line, speech_start, speech_end, id)
+    row = clip_url_updates[0]
+    assert row[2] is True, "successful STS swap must persist carries_own_line=True"
+    assert row[3] == 0.42 and row[4] == 3.1
+    assert ledger_calls[0]["model"] == "grok-imagine"
+    assert model_used_updates[0] == ("grok-imagine", "asset-1")
 
-    assert len(ledger_calls) == 1
-    assert ledger_calls[0]["model"] == "infinitalk", (
-        "ledger must name InfiniteTalk — the engine that actually ran — "
-        f"not the routed model. Got {ledger_calls[0]['model']!r}")
-    assert ledger_calls[0]["model"] != "veo-3.1-quality"
-    assert model_used_updates[0] == ("infinitalk", "asset-1")
-    # InfiniteTalk's own cost formula (INFINITALK_USD_PER_SEC), not either
-    # model's cost_per_clip table.
-    assert ledger_calls[0]["unit_cost"] not in (VEO_QUALITY_PRICE, GROK_PRICE)
+
+def test_voice_over_sts_failure_falls_back_to_overlay_mux_not_carrying(monkeypatch):
+    """A swap failure must never lose the paid clip: the shot ships via the
+    overlay-mux fallback and carries_own_line stays False so the assembler
+    treats it exactly as before the STS work."""
+    def _wire_failing_sts(monkeypatch, image_client):
+        import vault as vault_mod
+
+        async def fake_get_secret(name, tenant_id=None, user_id=None):
+            return "fake-xi-key" if name == "elevenlabs_api_key" else None
+
+        async def failing_swap_voice(clip_bytes, voice_id, xi_key):
+            raise RuntimeError("elevenlabs down")
+
+        async def fake_fetch_all_cast(query, *args):
+            if "FROM video_characters" in query:
+                return [{"name": "Tom", "voice_name": "fake-voice-tom"}]
+            return None
+
+        monkeypatch.setattr(vault_mod, "get_secret", fake_get_secret)
+        monkeypatch.setattr(clip_dialogue_mod, "swap_voice", failing_swap_voice)
+        prev = pe_mod.fetch_all
+
+        async def fetch_all_with_cast(query, *args):
+            hit = await fake_fetch_all_cast(query, *args)
+            return hit if hit is not None else await prev(query, *args)
+
+        monkeypatch.setattr(pe_mod, "fetch_all", fetch_all_with_cast)
+
+    client, ledger_calls, model_used_updates, clip_url_updates = _run_clip_generation_for(
+        monkeypatch, "veo-3.1-quality",
+        dialogue_mode="character_dialogue", dialogue_audio="voice_over",
+        assigned_dialogue=_ASSIGNED_DIALOGUE, extra_patches=_wire_failing_sts)
+
+    assert client.calls and client.calls[0][0] == "grok"
+    row = clip_url_updates[0]
+    assert row[2] is False, "failed swap must persist carries_own_line=False"
+    assert row[3] is None and row[4] is None
+    assert ledger_calls[0]["model"] == "grok-imagine"
 
 
 def test_model_used_write_is_fail_soft_never_breaks_a_paid_clip(monkeypatch):

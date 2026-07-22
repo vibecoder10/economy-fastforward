@@ -385,19 +385,67 @@ def _extract_wav(clip_bytes: bytes) -> bytes:
 
 
 async def _sts_convert(wav_bytes: bytes, voice_id: str, xi_api_key: str) -> bytes:
-    """ElevenLabs speech-to-speech: same words, same timing, pinned voice."""
+    """ElevenLabs speech-to-speech: same words, same timing, pinned voice.
+    Model is env-overridable so a newer STS family can be adopted without a
+    code change (v3 is TTS-only as of 2026-07 — do not point this at it
+    blindly; verify the model id exists on /v1/models first)."""
     import httpx
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(
             f"https://api.elevenlabs.io/v1/speech-to-speech/{voice_id}",
             headers={"xi-api-key": xi_api_key},
-            data={"model_id": "eleven_multilingual_sts_v2",
+            data={"model_id": os.getenv("ELEVEN_STS_MODEL", "eleven_multilingual_sts_v2"),
                   "remove_background_noise": "true"},
             files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
         )
         if resp.status_code != 200:
             raise RuntimeError(f"speech-to-speech failed: {resp.status_code} {resp.text[:150]}")
         return resp.content
+
+
+def _measure_speech_bounds_sync(clip_bytes: bytes) -> tuple:
+    """(speech_start, speech_end) seconds inside the clip's audio, via
+    silencedetect complement. Returns (None, None) when no speech is found.
+    Used at STS time so the performance assembler can size a carrying shot's
+    window from where the mouth ACTUALLY talks instead of assuming the
+    DIALOGUE_VOICE_LEAD_SECONDS head (only ever true for audio-driven clips)."""
+    with tempfile.TemporaryDirectory() as td:
+        clip = os.path.join(td, "clip.mp4")
+        wav = os.path.join(td, "speech.wav")
+        with open(clip, "wb") as f:
+            f.write(clip_bytes)
+        _run_ffmpeg(["-i", clip, "-vn", "-ac", "1", "-ar", "44100", wav])
+        total_p = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", wav], capture_output=True, timeout=60)
+        try:
+            total = float(total_p.stdout.decode().strip())
+        except ValueError:
+            return (None, None)
+        proc = subprocess.run(
+            ["ffmpeg", "-i", wav, "-af", "silencedetect=noise=-30dB:d=0.25",
+             "-f", "null", "-"], capture_output=True, timeout=120)
+        err = proc.stderr.decode(errors="replace")
+        starts = [float(x) for x in re.findall(r"silence_start: ([\d.]+)", err)]
+        ends = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", err)]
+        silences = []
+        for s in starts:
+            e = next((x for x in ends if x > s), total)
+            silences.append((s, e))
+        speech, cur = [], 0.0
+        for s, e in silences:
+            if s - cur > 0.15:
+                speech.append((cur, s))
+            cur = max(cur, e)
+        if total - cur > 0.15:
+            speech.append((cur, total))
+        if not speech:
+            return (None, None)
+        return (round(speech[0][0], 3), round(speech[-1][1], 3))
+
+
+async def measure_speech_bounds(clip_bytes: bytes) -> tuple:
+    return await asyncio.to_thread(_measure_speech_bounds_sync, clip_bytes)
 
 
 def _remux_audio(clip_bytes: bytes, audio_bytes: bytes, suffix: str = ".mp3") -> bytes:

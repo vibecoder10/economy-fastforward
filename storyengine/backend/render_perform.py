@@ -76,32 +76,41 @@ _ASSIGNED_RE = re.compile(r'^\s*(?P<speaker>[^:"]{1,80}):\s*"(?P<line>.+)"\s*$',
 
 # ── pure timeline math ────────────────────────────────────────────────────────
 
-def build_segment_spans(segments: list) -> list[dict]:
+def build_segment_spans(segments: list, overrides: Optional[dict] = None) -> list[dict]:
     """Lay the segments end to end on one clock.
 
     Returns one span per segment: {index, type, speaker, text, audio_url,
     duration, start, end, audio_at}. Dialogue spans include the head/tail pads
     (audio_at = start + head); a segment with no audio or no duration gets a
     zero-length span so indexes stay aligned.
+
+    overrides (migration 114 / STS voice-lock): {seg_index: {duration, head,
+    carrier: True}} replaces a claimed dialogue span's TTS-mp3 clock math with
+    the CLIP's measured speech timing — the carrying shot plays its own audio,
+    so the clock must follow Grok's pace, not the unused mp3's.
     """
     spans: list[dict] = []
     t = 0.0
     for i, seg in enumerate(segments or []):
-        dur = float(seg.get("duration") or 0)
+        ov = (overrides or {}).get(i)
+        dur = float(ov["duration"] if ov else (seg.get("duration") or 0))
         url = seg.get("audio_url")
         is_dialogue = seg.get("type") == "dialogue"
-        if not url or dur <= 0:
+        if (not url and not ov) or dur <= 0:
             spans.append({"index": i, "type": seg.get("type"), "speaker": seg.get("speaker"),
                           "text": seg.get("text") or "", "audio_url": None, "duration": 0.0,
-                          "start": t, "end": t, "audio_at": t})
+                          "start": t, "end": t, "audio_at": t, "carrier": False})
             continue
         start = t
-        audio_at = start + (DIALOGUE_HEAD_SECONDS if is_dialogue else 0.0)
+        head = (float(ov["head"]) if ov and ov.get("head") is not None
+                else (DIALOGUE_HEAD_SECONDS if is_dialogue else 0.0))
+        audio_at = start + head
         end = audio_at + dur + (DIALOGUE_TAIL_SECONDS if is_dialogue else 0.0)
         spans.append({"index": i, "type": seg.get("type"), "speaker": seg.get("speaker"),
                       "text": seg.get("text") or "", "audio_url": url, "duration": dur,
                       "start": round(start, 3), "end": round(end, 3),
-                      "audio_at": round(audio_at, 3)})
+                      "audio_at": round(audio_at, 3),
+                      "carrier": bool(ov and ov.get("carrier"))})
         t = end
     return spans
 
@@ -241,6 +250,34 @@ def build_timeline(segments: list, shots: list) -> dict:
 
     speaking = match_speaking_shots(shots, spans)
 
+    # STS voice-lock (migration 114): a speaking shot whose clip already
+    # CARRIES its line replaces its claimed span's TTS clock math with the
+    # clip's measured speech timing — Grok's pace, not the unused mp3's.
+    # Its mp3 placement is dropped (the clip's own audio goes on the scene
+    # track at the window start instead — see _assemble_scene_file).
+    # SINGLE-SPAN shots only (adversarial review 2026-07-22): a carrier
+    # claiming several spans plays ONE continuous take, but the span math
+    # would interleave other placements/tail pads inside its window —
+    # narration over the take's second line, then dead air (verified by
+    # repro). Multi-span masters keep the overlay behavior instead.
+    overrides: dict = {}
+    for pos, idxs in speaking.items():
+        shot = shots[pos]
+        cs, ce = shot.get("clip_speech_start"), shot.get("clip_speech_end")
+        if not (shot.get("carries_own_line") and len(idxs) == 1
+                and cs is not None and ce is not None and float(ce) > float(cs)):
+            continue
+        overrides[idxs[0]] = {
+            "duration": round(float(ce) - float(cs), 3),
+            "head": round(float(cs), 3),
+            "carrier": True,
+        }
+    if overrides:
+        spans = build_segment_spans(segments, overrides)
+        total = spans[-1]["end"] if spans else 0.0
+        placements = [(s["audio_url"], s["audio_at"])
+                      for s in spans if s["audio_url"] and not s.get("carrier")]
+
     # Scene opens on a line AND silent shots were planned before the first
     # speaking shot → give them a lead-in beat instead of dropping them.
     first_speaking_pos = min(speaking) if speaking else None
@@ -252,7 +289,8 @@ def build_timeline(segments: list, shots: list) -> dict:
                 s["end"] = round(s["end"] + SCENE_LEADIN_SECONDS, 3)
                 s["audio_at"] = round(s["audio_at"] + SCENE_LEADIN_SECONDS, 3)
             total = round(total + SCENE_LEADIN_SECONDS, 3)
-            placements = [(s["audio_url"], s["audio_at"]) for s in spans if s["audio_url"]]
+            placements = [(s["audio_url"], s["audio_at"])
+                          for s in spans if s["audio_url"] and not s.get("carrier")]
 
     span_by_index = {s["index"]: s for s in spans}
 
@@ -272,7 +310,13 @@ def build_timeline(segments: list, shots: list) -> dict:
         start = span_by_index[idxs[0]]["start"]
         end = span_by_index[idxs[-1]]["end"]
         entries.append({"shot": shots[pos], "start": start, "end": end,
-                        "speaking": True})
+                        "speaking": True,
+                        "carries": bool(span_by_index[idxs[0]].get("carrier")),
+                        # span-clock anchor + claimed span, needed AFTER
+                        # normalization to place carrier audio (or demote the
+                        # carrier when normalization moved its window).
+                        "track_at": start,
+                        "claim_span": span_by_index[idxs[0]]})
 
     # Narration blocks: consecutive non-speaking shots between two speaking
     # shots (in list order) share the clock between those windows.
@@ -369,6 +413,24 @@ def build_timeline(segments: list, shots: list) -> dict:
     for e in entries:
         e["duration"] = round(e["end"] - e["start"], 3)
 
+    # A carrier's window must sit exactly where the span clock put it —
+    # normalization pulls entries[0] to 0.0 and snaps starts/ends, and a
+    # carrier whose window MOVED would play its audio against a shifted
+    # mouth, or over leading narration (verified by repro, adversarial
+    # review 2026-07-22). Demote any moved carrier back to overlay
+    # behavior: un-mark it and restore its TTS line to the scene track.
+    for e in entries:
+        if not e.get("carries"):
+            continue
+        if abs(e["start"] - e.get("track_at", e["start"])) > 0.05:
+            e["carries"] = False
+            sp = e.get("claim_span") or {}
+            if sp.get("audio_url"):
+                placements.append((sp["audio_url"], sp.get("audio_at", e["start"])))
+            warnings.append(
+                "a voice-locked shot's window moved during normalization — "
+                "its line plays from the TTS track instead")
+
     return {"entries": entries, "placements": placements, "total": round(total, 3),
             "warnings": warnings}
 
@@ -392,9 +454,14 @@ async def _download_audio(url: str, dest: Path) -> None:
 
 async def _build_scene_track(placements: list, total: float, workdir: Path) -> Path:
     """One audio file for the scene: every segment MP3 at its placed offset
-    over a silent base. amix normalize=0 keeps each voice at its own level."""
+    over a silent base. amix normalize=0 keeps each voice at its own level.
+    A placement source may also be a local Path (a carrier clip's extracted
+    audio — STS voice-lock) instead of a URL."""
     files: list[Path] = []
     for i, (url, _at) in enumerate(placements):
+        if isinstance(url, Path):
+            files.append(url)
+            continue
         p = workdir / f"seg_{i:03d}.mp3"
         await _download_audio(url, p)
         files.append(p)
@@ -434,21 +501,24 @@ async def _build_scene_track(placements: list, total: float, workdir: Path) -> P
 FREEZE_TOLERANCE_SECONDS = float(os.getenv("PERFORM_FREEZE_TOLERANCE", "1.0"))
 
 
-async def _cut_shot(src: Path, duration: float, tw: int, th: int, out: Path) -> None:
+async def _cut_shot(src: Path, duration: float, tw: int, th: int, out: Path,
+                    allow_loop: bool = True) -> None:
     """Normalize a clip onto the canvas and hold it to EXACTLY `duration`:
     trimmed if long; if the window outlasts the clip beyond the tolerance the
     clip REPLAYS FORWARD with a short crossfade at each seam — a runner keeps
     running (the earlier ping-pong visibly reversed directional motion —
     Ryan caught his sprinter moonwalking at second nine). Sub-tolerance
     overruns freeze the last frame. Audio dropped — the scene track carries
-    every voice."""
+    every voice. allow_loop=False (carrier shots whose audio plays ONCE on
+    the track) forbids the replay path — a re-spoken mouth with no second
+    voice reads as a glitch; those freeze instead."""
     import math
 
     normalize = (f"scale={tw}:{th}:force_original_aspect_ratio=decrease,"
                  f"pad={tw}:{th}:-1:-1:color=black,setsar=1,fps={_FPS},format=yuv420p")
     clip_dur = await _probe_duration(str(src))
 
-    if clip_dur > 0.5 and duration > clip_dur + FREEZE_TOLERANCE_SECONDS:
+    if allow_loop and clip_dur > 0.5 and duration > clip_dur + FREEZE_TOLERANCE_SECONDS:
         fade = min(0.5, clip_dur / 4)
         step = clip_dur - fade
         k = min(6, max(2, math.ceil((duration - clip_dur) / step) + 1))
@@ -522,7 +592,8 @@ async def _load_scene_inputs(video_id: str, tenant_id, scene: int) -> tuple[list
 
     shots = await fetch_all(
         "SELECT id, scene, image_index, sentence_text, assigned_dialogue, hero_shot, "
-        "video_clip_url, video_duration FROM assets "
+        "video_clip_url, video_duration, "
+        "carries_own_line, clip_speech_start, clip_speech_end FROM assets "
         "WHERE video_id = $1 AND tenant_id = $2 AND scene = $3 "
         "AND video_clip_url IS NOT NULL ORDER BY image_index",
         video_id, tenant_id, scene)
@@ -548,20 +619,44 @@ async def _assemble_scene_file(
     sdir = workdir / f"scene_{scene}"
     sdir.mkdir(parents=True, exist_ok=True)
 
-    await _emit(on_progress, f"Scene {scene}: building the performance track "
-                             f"({len(timeline['placements'])} voices)…")
-    track = await _build_scene_track(timeline["placements"], timeline["total"], sdir)
-
     used = {id(e["shot"]): e["shot"] for e in timeline["entries"]}
     clip_rows = list(used.values())
     paths = await _download_clips(clip_rows, sdir, on_progress)
     path_by_shot = {id(r): p for r, p in zip(clip_rows, paths)}
 
+    # Carrier shots (STS voice-lock) play their OWN audio: extract it and
+    # place it on the scene track at the shot's window start. Their TTS mp3s
+    # were already dropped from placements by build_timeline.
+    placements = list(timeline["placements"])
+    for i, e in enumerate(timeline["entries"]):
+        if not e.get("carries"):
+            continue
+        src = path_by_shot[id(e["shot"])]
+        ca = sdir / f"carrier_{i:03d}.m4a"
+        async with _FFMPEG_SEM:
+            rc, err = await _run_subprocess(
+                ["ffmpeg", "-y", "-i", str(src), "-vn", "-map", "0:a:0",
+                 "-c:a", "aac", str(ca)])
+        if rc != 0 or not ca.exists() or ca.stat().st_size == 0:
+            # No extractable audio → this line has NO fallback mp3 on the
+            # track (it was dropped) — fail loudly rather than ship silence.
+            raise RuntimeError(
+                f"scene {scene}: carrier shot audio extraction failed (rc={rc}): "
+                f"{err[-300:]}")
+        # track_at, not start: the span-clock anchor. Post-normalization
+        # start equals it within tolerance (moved carriers were demoted).
+        placements.append((ca, e.get("track_at", e["start"])))
+
+    await _emit(on_progress, f"Scene {scene}: building the performance track "
+                             f"({len(placements)} voices)…")
+    track = await _build_scene_track(placements, timeline["total"], sdir)
+
     await _emit(on_progress, f"Scene {scene}: timing {len(timeline['entries'])} shots…")
     parts: list[Path] = []
     for i, e in enumerate(timeline["entries"]):
         part = sdir / f"part_{i:03d}.mp4"
-        await _cut_shot(path_by_shot[id(e["shot"])], e["duration"], tw, th, part)
+        await _cut_shot(path_by_shot[id(e["shot"])], e["duration"], tw, th, part,
+                        allow_loop=not e.get("carries"))
         parts.append(part)
 
     silent = sdir / "scene_silent.mp4"

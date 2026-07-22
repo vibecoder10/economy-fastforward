@@ -233,6 +233,84 @@ def test_no_voiced_segments_is_actionable():
     assert any("voiceover" in w for w in tl["warnings"])
 
 
+def test_carrier_shot_window_follows_clip_speech_not_tts_mp3():
+    """STS voice-lock (migration 114): a speaking shot whose clip CARRIES its
+    line must be timed by the clip's measured speech bounds — head = where the
+    take starts talking, duration = the take's speech length — and its TTS mp3
+    must be dropped from the scene-track placements (the clip's own audio
+    plays instead). Grok's pace, not the unused mp3's."""
+    segs = [_nar("One two three four five six.", 6.0),        # 0
+            _dlg("Marco", "¡Lo siento, Sofia!", 2.0),         # 1 (TTS says 2.0s)
+            _nar("Seven eight nine.", 3.0)]                   # 2
+    shot = _shot(3, "Marco speaks", assigned='Marco: "¡Lo siento, Sofia!"', hero=True)
+    shot["carries_own_line"] = True
+    shot["clip_speech_start"] = 1.2   # Grok starts talking 1.2s into the take
+    shot["clip_speech_end"] = 4.2     # and speaks for 3.0s (vs the 2.0s mp3)
+    shots = [_shot(1, "one two three four"), _shot(2, "five six"),
+             shot, _shot(4, "closing shot")]
+    tl = build_timeline(segs, shots)
+
+    entry = next(e for e in tl["entries"] if e["speaking"])
+    assert entry.get("carries") is True
+    # window = clip head (1.2) + speech (3.0) + tail — NOT 0.5 + 2.0 + tail
+    expected = 1.2 + 3.0 + DIALOGUE_TAIL_SECONDS
+    assert abs((entry["end"] - entry["start"]) - expected) < 0.01, entry
+    # the claimed line's mp3 is NOT on the scene track (2 narrator segs only)
+    assert len(tl["placements"]) == 2
+    # non-carrier runs stay byte-identical: same segments without the marker
+    tl_plain = build_timeline(segs, [
+        _shot(1, "one two three four"), _shot(2, "five six"),
+        _shot(3, "Marco speaks", assigned='Marco: "¡Lo siento, Sofia!"', hero=True),
+        _shot(4, "closing shot")])
+    plain_entry = next(e for e in tl_plain["entries"] if e["speaking"])
+    from render_perform import DIALOGUE_HEAD_SECONDS as _H
+    assert abs((plain_entry["end"] - plain_entry["start"])
+               - (_H + 2.0 + DIALOGUE_TAIL_SECONDS)) < 0.01
+    assert len(tl_plain["placements"]) == 3
+
+
+def test_multi_span_carrier_keeps_overlay_behavior():
+    """Review finding #1: a merged master claiming spans with narration
+    BETWEEN them plays one continuous take — the span math can't interleave
+    the narration placement inside its window. Multi-span carriers must NOT
+    get the override; everything stays on the TTS clock."""
+    segs = [_dlg("Marco", "First line here totally.", 2.0),
+            _nar("Narration between the turns.", 2.5),
+            _dlg("Marco", "Second line here truly.", 2.0)]
+    master = _shot(1, "Marco speaks", hero=True,
+                   assigned='Marco: "First line here totally. Second line here truly."')
+    master["carries_own_line"] = True
+    master["clip_speech_start"] = 0.8
+    master["clip_speech_end"] = 5.3
+    tl = build_timeline(segs, [master, _shot(2, "closing")])
+    entry = next(e for e in tl["entries"] if e["speaking"])
+    assert not entry.get("carries"), "multi-span master must not carry"
+    assert len(tl["placements"]) == 3, "all three mp3s must stay on the track"
+
+
+def test_first_entry_carrier_moved_by_normalization_is_demoted():
+    """Review finding #2: when the scene's first SHOT is a carrier but its
+    window starts later on the clock (leading narration, no earlier shots),
+    normalization pulls its start to 0.0 — the audio anchor no longer matches
+    the window, so the carrier must demote to overlay and its TTS line must
+    come back to the scene track."""
+    segs = [_nar("Some opening narration first.", 3.0),
+            _dlg("Marco", "¡Lo siento, Sofia!", 2.0),
+            _nar("Closing narration.", 2.0)]
+    shot = _shot(1, "Marco speaks", assigned='Marco: "¡Lo siento, Sofia!"', hero=True)
+    shot["carries_own_line"] = True
+    shot["clip_speech_start"] = 1.2
+    shot["clip_speech_end"] = 4.2
+    # ONLY the speaking shot — normalization must stretch it over the intro.
+    tl = build_timeline(segs, [shot])
+    entry = tl["entries"][0]
+    assert entry["start"] == 0.0
+    assert not entry.get("carries"), "moved carrier must be demoted"
+    # the claimed line's mp3 must be RESTORED to the track (3 total again)
+    assert len(tl["placements"]) == 3
+    assert any("normalization" in w for w in tl["warnings"])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
