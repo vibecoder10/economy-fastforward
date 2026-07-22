@@ -935,9 +935,52 @@ _FLAT_MEDIA_KEYWORDS = ("drawing", "sketch", "diagram", "blueprint",
 _WRONG_CONTENT_KEYWORDS = ("interior", "cockpit", "person", "portrait", "map",
                           "insignia", "document", "text page")
 
+# C2h render-QA hard rejects: our own render is BY DESIGN a clean studio
+# illustration, not a "real photograph" — so unlike _FLAT_MEDIA_KEYWORDS/
+# _WRONG_CONTENT_KEYWORDS above (which judge candidate REFERENCE photos),
+# _render_matches_reference only hard-rejects a reply saying the render
+# itself is missing/not-an-aircraft, never "rendered"/"illustration"/"model".
+_RENDER_EMPTY_KEYWORDS = ("empty", "blank", "not an aircraft")
+
 
 def _has_keyword(text: str, keywords: tuple) -> bool:
     return any(re.search(r"\b" + re.escape(k) + r"\b", text) for k in keywords)
+
+
+async def _download_image_b64(image_url: str) -> Optional[tuple]:
+    """Fetch `image_url` ourselves and return (media_type, base64_data), or
+    None on any download/oversize failure — treated by the caller as a
+    failed attempt (same fail-closed bucket as a raised exception), never as
+    a silent pass. Anthropic's per-image limit is ~5MB; a payload over
+    ~4.5MB is rejected here rather than risking a provider-side size error
+    (no image-processing deps added).
+
+    C2h: factored out of _vision_confirms (C2g) so _render_matches_reference
+    can reuse the exact same self-fetch-then-base64 pattern for BOTH images
+    it sends (the reference photo and our own render) instead of duplicating
+    it."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA,
+                                     follow_redirects=True) as c:
+            r = await c.get(image_url)
+    except Exception:  # noqa: BLE001 — network failure downloading the candidate
+        _logger.warning("_download_image_b64: download failed for %s", image_url)
+        return None
+    if r.status_code != 200:
+        _logger.warning("_download_image_b64: download HTTP %s for %s",
+                        r.status_code, image_url)
+        return None
+    data = r.content
+    if not data:
+        return None
+    if len(data) > 4_500_000:
+        _logger.warning("_download_image_b64: oversize download (%d bytes) for %s",
+                        len(data), image_url)
+        return None
+    media_type = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if media_type not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
+        media_type = "image/jpeg"
+    return media_type, base64.b64encode(data).decode("ascii")
 
 
 async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
@@ -1015,36 +1058,6 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         "text page."
     )
 
-    async def _download_image_b64() -> Optional[tuple]:
-        """Fetch `image_url` ourselves and return (media_type, base64_data),
-        or None on any download/oversize failure — treated by the caller as
-        a failed attempt (same fail-closed bucket as a raised exception),
-        never as a silent pass. Anthropic's per-image limit is ~5MB; a
-        payload over ~4.5MB is rejected here rather than risking a
-        provider-side size error (no image-processing deps added)."""
-        try:
-            async with httpx.AsyncClient(timeout=30.0, headers=_COMMONS_UA,
-                                         follow_redirects=True) as c:
-                r = await c.get(image_url)
-        except Exception:  # noqa: BLE001 — network failure downloading the candidate
-            _logger.warning("_vision_confirms: download failed for %s", image_url)
-            return None
-        if r.status_code != 200:
-            _logger.warning("_vision_confirms: download HTTP %s for %s",
-                            r.status_code, image_url)
-            return None
-        data = r.content
-        if not data:
-            return None
-        if len(data) > 4_500_000:
-            _logger.warning("_vision_confirms: oversize download (%d bytes) for %s",
-                            len(data), image_url)
-            return None
-        media_type = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
-        if media_type not in ("image/png", "image/jpeg", "image/webp", "image/gif"):
-            media_type = "image/jpeg"
-        return media_type, base64.b64encode(data).decode("ascii")
-
     async def _ask_once() -> Optional[str]:
         """One round-trip: download the candidate image fresh, then ask the
         vision model. Returns the lowercased reply text (possibly empty —
@@ -1054,7 +1067,7 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         not a transport symptom, so the caller treats it differently
         (unchanged fail-open, since there's no live evidence this ever fires
         in practice and retrying can't help a missing key)."""
-        img = await _download_image_b64()
+        img = await _download_image_b64(image_url)
         if img is None:
             return ""  # download/size failure this attempt — caller retries
         media_type, b64_data = img
@@ -1139,6 +1152,144 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         return not is_flat and not wrong
     said_yes = bool(re.match(r"^\W*yes\b", txt))
     return said_yes and not is_flat and not wrong
+
+
+async def _render_matches_reference(tenant_id: str, render_url: str, ref_url: str,
+                                    machine: str, aliases: Optional[list] = None) -> bool:
+    """C2h post-generation render-QA: does OUR OWN studio render still show
+    the SAME machine as the verified reference photo it was image-to-image'd
+    from? This is a DIFFERENT question from `_vision_confirms` (which judges
+    whether a candidate REFERENCE photo is a real, correctly-identified photo
+    of the machine) — `_vision_confirms`'s wording demands "a real photograph"
+    and hard-rejects "scale model"/flat-media replies, which is right for a
+    candidate reference but wrong for OUR render: `generate_static_images_
+    for_video`'s `_STUDIO_PROMPT` deliberately asks for a clean white-studio
+    product illustration, which is not, and was never meant to be, "a real
+    photograph". Feeding that render through `_vision_confirms` reads as
+    CGI/render/model to the vision model -> NO -> hard-reject on every single
+    generation (PROVEN live: 6 scenes, 12 generations, both attempts each
+    rejected, 100% of renders failed).
+
+    Sends TWO images in one message — the verified reference photo FIRST,
+    then our render SECOND — and asks only whether they show the SAME
+    aircraft type/configuration (shape, wing form, engine count/type, tail
+    configuration); livery/markings/background/style differences, and the
+    render simply LOOKING like a clean render, are explicitly told to be
+    fine. Only a hard-reject if the reply says the render itself is empty/
+    blank/not an aircraft (`_RENDER_EMPTY_KEYWORDS`) — no flat-media/scale-
+    model rejects here, since the render IS a render by design.
+
+    FAILS CLOSED on transport failure exactly like `_vision_confirms`: one
+    retry, then treated as REJECTED (not verified) — never silently promoted
+    to "matches" on a network/API failure. Keyless carve-out unchanged (no
+    provider key configured on the tenant is a config gap, not a transport
+    symptom, so it fails OPEN like `_vision_confirms` does)."""
+    from vault import get_secret
+
+    alias_txt = ""
+    if aliases:
+        alias_txt = " (also known as " + ", ".join(str(a) for a in aliases if a) + ")"
+
+    prompt_text = (
+        f"Image 1 is a verified real photograph of the {machine}{alias_txt}. "
+        "Image 2 is our own clean studio illustration of the same machine, "
+        "prepared for a documentary. "
+        "Answer on one line: first word YES or NO, then one short reason. "
+        "YES if image 2 depicts the SAME aircraft type/configuration as "
+        "image 1 — same overall shape, wing form, engine count/type, and "
+        "tail configuration (small liveries/markings/background/style "
+        "differences are fine; it is EXPECTED that image 2 looks like a "
+        "clean render, that is not a flaw). NO if image 2 shows a different "
+        "aircraft type/variant or the wrong configuration, or if image 2 is "
+        "empty, blank, or not an aircraft at all."
+    )
+
+    async def _ask_once() -> Optional[str]:
+        """One round-trip: download BOTH images fresh (reference, then
+        render), then ask the vision model. Returns the lowercased reply
+        text (possibly empty — including when either download failed, which
+        the retry loop treats identically to a transport exception), or None
+        specifically when NO provider key is configured at all (unchanged
+        fail-open, same reasoning as `_vision_confirms`)."""
+        ref_img = await _download_image_b64(ref_url)
+        render_img = await _download_image_b64(render_url)
+        if ref_img is None or render_img is None:
+            return ""  # download failure this attempt — caller retries
+        ref_type, ref_b64 = ref_img
+        render_type, render_b64 = render_img
+        content = [
+            {"type": "text", "text": prompt_text},
+            {"type": "image", "source": {"type": "base64",
+             "media_type": ref_type, "data": ref_b64}},
+            {"type": "image", "source": {"type": "base64",
+             "media_type": render_type, "data": render_b64}},
+        ]
+
+        # DIRECT Anthropic first — same reasoning as _vision_confirms (the
+        # Kie gateway injects tool configuration that derails the reply).
+        akey = await get_secret("anthropic_api_key", tenant_id)
+        async with httpx.AsyncClient(timeout=60.0) as c:
+            if akey:
+                r = await c.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": akey,
+                             "anthropic-version": "2023-06-01",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDE_MODELS["anthropic"]["smart"], "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+            else:
+                key = await get_secret("kie_ai_api_key", tenant_id)
+                if not key:
+                    return None
+                kie_claude_url = os.getenv(
+                    "KIE_CLAUDE_BASE_URL", "https://api.kie.ai/claude"
+                ).rstrip("/") + "/v1/messages"
+                r = await c.post(
+                    kie_claude_url,
+                    headers={"Authorization": f"Bearer {key}",
+                             "Content-Type": "application/json"},
+                    json={"model": CLAUDE_MODELS["kie"]["smart"], "max_tokens": 80,
+                          "messages": [{"role": "user", "content": content}]},
+                )
+        if r.status_code != 200:
+            # A non-200 model-API response is a failed attempt, never parsed
+            # as if it were an empty-but-successful answer (same C2f/C2g
+            # guard _vision_confirms applies).
+            _logger.warning("_render_matches_reference: model API HTTP %s", r.status_code)
+            return ""
+        body = r.json()
+        return " ".join(b.get("text", "") for b in body.get("content", [])
+                        if b.get("type") == "text").strip().lower()
+
+    txt: Optional[str] = None
+    no_key = False
+    for attempt in range(2):
+        try:
+            result = await _ask_once()
+        except Exception:  # noqa: BLE001 — transport failure: retry once, then fail closed
+            result = ""
+        if result is None:
+            no_key = True
+            txt = None
+            break
+        txt = result
+        if txt:
+            break
+        # empty reply — loop again for the one allowed retry
+
+    if no_key:
+        return True  # config gap, not a transport failure — unchanged behavior
+    if not txt:
+        # Every attempt raised, failed to download, or came back empty —
+        # FAIL CLOSED: this render is treated as unverified/rejected (the
+        # caller's own retry-with-a-stricter-prompt loop in _one_scene picks
+        # up from there), never silently promoted to "matches".
+        return False
+
+    is_empty = _has_keyword(txt, _RENDER_EMPTY_KEYWORDS)
+    said_yes = bool(re.match(r"^\W*yes\b", txt))
+    return said_yes and not is_empty
 
 
 async def _scene_subjects(tenant_id: str, scenes: list[dict],
@@ -1348,7 +1499,17 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         # Post-generation accuracy check: does the OUTPUT actually look like
         # the machine? One bounded retry, then FAIL the scene — never ship an
         # unverified machine on an audience that knows every rivet.
-        if not await _vision_confirms(tenant_id, url, machine, sub.get("aliases")):
+        #
+        # C2h: this judges OUR OWN RENDER against the verified reference
+        # (ref_url, guaranteed non-None past the FAIL CLOSED block above),
+        # NOT a candidate reference photo — so it uses _render_matches_
+        # reference, not _vision_confirms. _vision_confirms's "is this a
+        # real photograph" bar reads a deliberately clean studio render as
+        # CGI/model and hard-rejects it every time (PROVEN live: 6 scenes,
+        # 12 generations, 100% rejected). _vision_confirms is still the
+        # right check for candidate REFERENCE photos above (unchanged).
+        if not await _render_matches_reference(tenant_id, url, ref_url, machine,
+                                               sub.get("aliases")):
             _p(f"Segment {sc}: render doesn't match the {machine} — one retry…")
             retry_prompt = prompt + (
                 " Reproduce the machine in the reference image EXACTLY — same "
@@ -1357,7 +1518,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 retry_prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
                 resolution="1K")
             url2 = (res or {}).get("url")
-            if url2 and await _vision_confirms(tenant_id, url2, machine, sub.get("aliases")):
+            if url2 and await _render_matches_reference(tenant_id, url2, ref_url, machine,
+                                                        sub.get("aliases")):
                 url = url2
             else:
                 # We HAVE proof of what this machine looks like and the render
