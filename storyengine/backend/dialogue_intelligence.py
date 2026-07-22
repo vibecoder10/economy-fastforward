@@ -21,6 +21,34 @@ from database import fetch_all, fetch_one, execute
 
 logger = logging.getLogger(__name__)
 
+# U3 — voice-less pipeline flow for dialogue-format videos (PocoAPoco shape).
+# Auto-skip fires only when the script is MAJORITY performed dialogue by word
+# share: a narrated documentary that merely quotes a source line or two (DvsU
+# shape) must never cross this bar, even though it's tagged
+# dialogue_mode='character_dialogue' for those quoted lines. 0.8 keeps a
+# couple of narrator sentences (title card, closing beat) from disqualifying
+# a true two-hander scene while still holding a hard line against
+# mostly-narrated content.
+DIALOGUE_MAJORITY_THRESHOLD = 0.8
+
+
+def _parse_stage_list(val) -> Optional[list]:
+    """Parse the pipeline_stages JSONB column — asyncpg may hand it back as a
+    list or a JSON string depending on codecs. Local copy of
+    routes.videos._parse_stage_plan's logic (kept import-free here to avoid a
+    routes -> service circular import)."""
+    if val is None:
+        return None
+    if isinstance(val, list):
+        return val or None
+    if isinstance(val, str):
+        try:
+            result = json.loads(val)
+            return result if isinstance(result, list) and result else None
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return None
+
 # Kie's ElevenLabs roster (docs.kie.ai/market/elevenlabs/text-to-speech-
 # multilingual-v2): the API takes the voice ID; off-roster ids are rejected.
 # Curated character-casting subset — preview any voice at
@@ -124,9 +152,22 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
 
     Idempotent and safe to re-run; narration-only videos just get the mode
     stamp and are otherwise untouched.
+
+    U3: for a video that turns out MAJORITY performed dialogue (see
+    DIALOGUE_MAJORITY_THRESHOLD — PocoAPoco shape, not a narrated documentary
+    that merely quotes a line or two), also auto-sets skip_voice=true in the
+    same pass. Clip generation already auto-chains the per-segment TTS/STS
+    that render's clock needs (pipeline_executor.py run_dialogue_voice
+    auto-chain during Animate) whenever a scene is unvoiced, so the separate
+    Script&Voice "Generate Voice" step is redundant for this shape. Guarded:
+    never for static_docu (render_mode or tenant static format — voice IS the
+    narration there), only ever flips skip_voice false->true (never
+    true->false), and never overrides a creator who explicitly kept 'voice'
+    in this video's pipeline_stages.
     """
     video = await fetch_one(
-        "SELECT id, script FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, script, dialogue_audio, render_mode, skip_voice, pipeline_stages "
+        "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video or not (video.get("script") or "").strip():
@@ -152,6 +193,8 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
     )
     tagged = 0
     dialogue_lines = 0
+    dialogue_words = 0
+    total_words = 0
     for sc in scenes:
         text = (sc.get("scene_text") or "").strip()
         if not text:
@@ -162,9 +205,48 @@ async def tag_video_dialogue(video_id: str, tenant_id) -> dict:
             json.dumps(segments), sc["id"],
         )
         tagged += 1
-        dialogue_lines += sum(1 for s in segments if s["type"] == "dialogue")
+        for s in segments:
+            words = len(s["text"].split())
+            total_words += words
+            if s["type"] == "dialogue":
+                dialogue_lines += 1
+                dialogue_words += words
 
-    return {"dialogue_mode": mode, "scenes_tagged": tagged, "dialogue_lines": dialogue_lines}
+    result = {"dialogue_mode": mode, "scenes_tagged": tagged, "dialogue_lines": dialogue_lines}
+
+    # Fail-safe: no segments at all (nothing tagged, or every scene came back
+    # empty) means we have no evidence this is majority-dialogue — keep voice
+    # rather than guess.
+    if total_words == 0:
+        return result
+
+    dialogue_share = dialogue_words / total_words
+    result["dialogue_share"] = dialogue_share
+    if dialogue_share < DIALOGUE_MAJORITY_THRESHOLD:
+        return result
+
+    if video.get("skip_voice"):
+        return result  # already skipped — nothing to flip
+
+    from static_docu import static_mode_for_tenant, STATIC_RENDER_MODE
+    if (video.get("render_mode") or "") == STATIC_RENDER_MODE:
+        return result
+    try:
+        if await static_mode_for_tenant(tenant_id):
+            return result
+    except Exception:  # noqa: BLE001 — detection must never block tagging
+        return result
+
+    stages = _parse_stage_list(video.get("pipeline_stages"))
+    if stages and "voice" in stages:
+        return result  # creator explicitly kept the voice stage — don't override
+
+    await execute(
+        "UPDATE videos SET skip_voice = true, updated_at = now() WHERE id = $1",
+        video_id,
+    )
+    result["voice_auto_skipped"] = True
+    return result
 
 
 async def cast_character_voices(video_id: str, tenant_id) -> dict:

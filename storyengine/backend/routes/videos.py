@@ -747,7 +747,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
 async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_tenant_id)):
     """Update arbitrary video fields (revision_notes, etc.)."""
     video = await fetch_one(
-        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, dialogue_mode, render_mode, skip_voice FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
@@ -758,6 +758,25 @@ async def update_video(video_id: str, body: dict, tenant_id: str = Depends(get_t
     # Scenes gate reads it (advancing status alone left the gate locked).
     if "skip_voice" in body and not isinstance(body["skip_voice"], bool):
         raise HTTPException(status_code=400, detail="skip_voice must be a boolean")
+    # U3 — dialogue voice folds into Animate: a creator who explicitly picks
+    # grok_native (Grok performs the line, ElevenLabs STS re-voices in the
+    # pinned cast voice — carries_own_line) for a character-dialogue video is
+    # opting OUT of the separate voice-over stage as surely as the tagging
+    # hook's majority-dialogue detection does. Mirrors
+    # dialogue_intelligence.tag_video_dialogue's guards: only flips
+    # false->true (never overrides a caller who set skip_voice explicitly in
+    # the same request, and never un-skips), and never for a static_docu
+    # video (voice IS the narration there — not that a static video would
+    # ever carry character_dialogue, but belt-and-suspenders).
+    if (
+        body.get("dialogue_audio") == "grok_native"
+        and "skip_voice" not in body
+        and not video.get("skip_voice")
+        and (video.get("render_mode") or "") != "static_docu"
+        and (video.get("dialogue_mode") or "") == "character_dialogue"
+    ):
+        body = dict(body)
+        body["skip_voice"] = True
     # aspect_ratio flows into image/video gen + render — reject anything unexpected.
     if "aspect_ratio" in body and body["aspect_ratio"] not in {"16:9", "9:16", "1:1", "4:3", "3:4"}:
         raise HTTPException(status_code=400, detail="Invalid aspect_ratio")

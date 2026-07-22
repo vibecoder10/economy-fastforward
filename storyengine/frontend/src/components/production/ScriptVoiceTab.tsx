@@ -1545,7 +1545,10 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
   // ---------------------------------------------------------------------------
 
   const handleApprove = useCallback(async () => {
-    if (!(await confirmDialog({ message: "Approve script & voice and advance to next stage?" }))) return;
+    const message = voiceSkipped
+      ? "Approve script and advance to next stage?"
+      : "Approve script & voice and advance to next stage?";
+    if (!(await confirmDialog({ message }))) return;
     setApproving(true);
     try {
       await advanceVideo(video.id);
@@ -1555,7 +1558,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
       toast.error(`Failed to approve: ${(err as Error).message}`);
       setApproving(false);
     }
-  }, [video.id, invalidateAll, confirmDialog]);
+  }, [video.id, invalidateAll, confirmDialog, voiceSkipped]);
 
   // C46d: the quality-critic hold ("Quality Review Needed" card below) only
   // ever HOLDS the video's status — nothing is deleted, no words are
@@ -2698,7 +2701,10 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-4 text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
             <span>Script {scenesWithScript}/{totalScenes}</span>
-            <span>Voice {voiceSkipped ? "off" : `${scenesWithVoice}/${totalScenes}`}</span>
+            {/* U3: voice folds into Animate for majority-dialogue videos (skip_voice) —
+                a "Voice off" readout here is legacy noise once there's no separate
+                voice stage to track. */}
+            {!voiceSkipped && <span>Voice {scenesWithVoice}/{totalScenes}</span>}
           </div>
 	          <button onClick={handleAdvanceStage} disabled={advancing}
 	            className="px-3 py-1.5 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50 transition-all hover:brightness-110"
@@ -2738,10 +2744,15 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           </span>
         </div>
         <div className="flex items-center gap-0">
+          {/* U3: collapse to 2 steps (Generate Script -> Approve) once voice folds
+              into Animate — no ghost "Voice (off)" step for a stage that no longer
+              runs separately for this video. */}
           {[
             { label: "Generate Script", done: scriptDone, count: `${scenesWithScript}/${totalScenes}` },
-            { label: voiceSkipped ? "Voice (off)" : "Generate Voice", done: voiceDone, count: voiceSkipped ? "Skipped" : `${scenesWithVoice}/${totalScenes}` },
-            { label: "Approve", done: approved, count: approved ? "Done" : "Pending" },
+            ...(voiceSkipped
+              ? []
+              : [{ label: "Generate Voice", done: voiceDone, count: `${scenesWithVoice}/${totalScenes}` }]),
+            { label: voiceSkipped ? "Approve Script" : "Approve", done: approved, count: approved ? "Done" : "Pending" },
           ].map((step, i, arr) => {
             const isNext = !step.done && (i === 0 || arr[i - 1].done);
             return (
@@ -2816,7 +2827,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                 style={{ background: "var(--green)", color: "var(--bg-void)" }}
               >
                 {approving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                Step 3: Approve Script & Voice
+                {voiceSkipped ? "Step 2: Approve Script" : "Step 3: Approve Script & Voice"}
               </button>
               {/* Go back and rewrite the script (e.g. after changing the style or scene rules). */}
               <button
@@ -3312,66 +3323,72 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                             )}
                           </AnimatePresence>
 
-                          {/* ---- Voice status (generation controls only, playback moved to Storyboard tab) ---- */}
-                          <div
-                            className="mt-3 pt-3 flex items-center gap-3 flex-wrap"
-                            style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-                          >
-                            <span
-                              className="text-[10px] font-mono px-2 py-0.5 rounded-full"
-                              style={{
-                                color: hasVoice ? "var(--green)" : "var(--text-tertiary)",
-                                background: hasVoice ? "rgba(0, 200, 83, 0.08)" : "rgba(255,255,255,0.04)",
-                                border: `1px solid ${hasVoice ? "rgba(0, 200, 83, 0.2)" : "rgba(255,255,255,0.06)"}`,
-                              }}
-                              title={
-                                hasVoice && performanceTrack?.mode === "character_dialogue"
-                                  ? "Narrator audio plus the per-line preview/fallback take - character lines ship inside their clips once voice-locked"
-                                  : undefined
-                              }
+                          {/* ---- Voice status (generation controls only, playback moved to Storyboard tab) ----
+                              U3: hidden for voice-skipped (voiceSkipped) videos — the Performance Track
+                              panel below is the honest status here (voice-locked chips per clip), and this
+                              legacy per-scene voice_over_url row would only ever read "No Voice" / dangle a
+                              dead "Generate Voice" button since that stage no longer runs separately. */}
+                          {!voiceSkipped && (
+                            <div
+                              className="mt-3 pt-3 flex items-center gap-3 flex-wrap"
+                              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
                             >
-                              {hasVoice
-                                ? performanceTrack?.mode === "character_dialogue"
-                                  ? "Voice Ready (narrator + fallback)"
-                                  : "Voice Ready"
-                                : "No Voice"}
-                            </span>
-                            {hasVoice && (
-                              <button
-                                onClick={() => playSceneVoice(scene.sceneNumber)}
-                                title={playingSceneVoice === scene.sceneNumber ? "Stop playback" : "Listen to this scene's voiceover"}
-                                className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110"
+                              <span
+                                className="text-[10px] font-mono px-2 py-0.5 rounded-full"
                                 style={{
-                                  background: playingSceneVoice === scene.sceneNumber ? "var(--green)" : "rgba(0, 200, 83, 0.12)",
-                                  color: playingSceneVoice === scene.sceneNumber ? "var(--bg-void)" : "var(--green)",
-                                  border: "1px solid rgba(0, 200, 83, 0.3)",
+                                  color: hasVoice ? "var(--green)" : "var(--text-tertiary)",
+                                  background: hasVoice ? "rgba(0, 200, 83, 0.08)" : "rgba(255,255,255,0.04)",
+                                  border: `1px solid ${hasVoice ? "rgba(0, 200, 83, 0.2)" : "rgba(255,255,255,0.06)"}`,
+                                }}
+                                title={
+                                  hasVoice && performanceTrack?.mode === "character_dialogue"
+                                    ? "Narrator audio plus the per-line preview/fallback take - character lines ship inside their clips once voice-locked"
+                                    : undefined
+                                }
+                              >
+                                {hasVoice
+                                  ? performanceTrack?.mode === "character_dialogue"
+                                    ? "Voice Ready (narrator + fallback)"
+                                    : "Voice Ready"
+                                  : "No Voice"}
+                              </span>
+                              {hasVoice && (
+                                <button
+                                  onClick={() => playSceneVoice(scene.sceneNumber)}
+                                  title={playingSceneVoice === scene.sceneNumber ? "Stop playback" : "Listen to this scene's voiceover"}
+                                  className="flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110"
+                                  style={{
+                                    background: playingSceneVoice === scene.sceneNumber ? "var(--green)" : "rgba(0, 200, 83, 0.12)",
+                                    color: playingSceneVoice === scene.sceneNumber ? "var(--bg-void)" : "var(--green)",
+                                    border: "1px solid rgba(0, 200, 83, 0.3)",
+                                  }}
+                                >
+                                  {playingSceneVoice === scene.sceneNumber ? <Square size={10} /> : <Play size={10} className="ml-px" />}
+                                  {playingSceneVoice === scene.sceneNumber ? "Stop" : "Play Voice"}
+                                </button>
+                              )}
+                              <span
+                                className="text-[10px] font-mono shrink-0"
+                                style={{ color: "var(--text-tertiary)" }}
+                              >
+                                {Math.round((scene.narrationText.split(/\s+/).filter(Boolean).length || 0) / 2.5)}s
+                              </span>
+                              <button
+                                onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
+                                disabled={isVoiceBusy}
+                                className="text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
+                                style={{
+                                  border: hasVoice ? "1px solid var(--turquoise)" : "none",
+                                  color: hasVoice ? "var(--turquoise)" : "var(--bg-void)",
+                                  background: hasVoice ? "transparent" : "var(--turquoise)",
                                 }}
                               >
-                                {playingSceneVoice === scene.sceneNumber ? <Square size={10} /> : <Play size={10} className="ml-px" />}
-                                {playingSceneVoice === scene.sceneNumber ? "Stop" : "Play Voice"}
+                                {isGeneratingThisVoice || (voiceTaskRunning && generatingVoiceScene === scene.sceneNumber)
+                                  ? (voiceTaskMessage || "Generating...")
+                                  : hasVoice ? "Regenerate Voice" : "Generate Voice"}
                               </button>
-                            )}
-                            <span
-                              className="text-[10px] font-mono shrink-0"
-                              style={{ color: "var(--text-tertiary)" }}
-                            >
-                              {Math.round((scene.narrationText.split(/\s+/).filter(Boolean).length || 0) / 2.5)}s
-                            </span>
-                            <button
-                              onClick={() => handleGenerateSceneVoice(scene.sceneNumber)}
-                              disabled={isVoiceBusy}
-                              className="text-[10px] font-medium px-2 py-1 rounded-lg transition-all hover:brightness-110 disabled:opacity-40"
-                              style={{
-                                border: hasVoice ? "1px solid var(--turquoise)" : "none",
-                                color: hasVoice ? "var(--turquoise)" : "var(--bg-void)",
-                                background: hasVoice ? "transparent" : "var(--turquoise)",
-                              }}
-                            >
-                              {isGeneratingThisVoice || (voiceTaskRunning && generatingVoiceScene === scene.sceneNumber)
-                                ? (voiceTaskMessage || "Generating...")
-                                : hasVoice ? "Regenerate Voice" : "Generate Voice"}
-                            </button>
-                          </div>
+                            </div>
+                          )}
 
                           {/* Segment Editor — save segment text edits to backend */}
                           {isExpanded && <SegmentEditor videoId={video.id} sceneNumber={scene.sceneNumber} />}
@@ -3765,52 +3782,59 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
             );
           })()}
 
-          {/* Voice progress */}
-          <GlassCard className="p-5">
-            <div className="space-y-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
-                  Voice Progress
-                </p>
-                <div className="flex items-center gap-3">
-                  <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-                    {scenesWithVoice}/{totalScenes}
+          {/* Voice progress — U3: hidden once voice folds into Animate (voiceSkipped);
+              the Performance Track panel is the honest status for that flow. */}
+          {!voiceSkipped && (
+            <GlassCard className="p-5">
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: "var(--text-tertiary)" }}>
+                    Voice Progress
                   </p>
-                  <ProgressRing
-                    value={totalScenes > 0 ? (scenesWithVoice / totalScenes) * 100 : 0}
-                    size={50}
-                    color="var(--green)"
-                    strokeWidth={4}
-                  />
+                  <div className="flex items-center gap-3">
+                    <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                      {scenesWithVoice}/{totalScenes}
+                    </p>
+                    <ProgressRing
+                      value={totalScenes > 0 ? (scenesWithVoice / totalScenes) * 100 : 0}
+                      size={50}
+                      color="var(--green)"
+                      strokeWidth={4}
+                    />
+                  </div>
+                  <p className="text-[10px] font-mono mt-1" style={{ color: "var(--text-tertiary)" }}>
+                    {totalScenes > 0 ? Math.round((scenesWithVoice / totalScenes) * 100) : 0}% voiced
+                  </p>
                 </div>
-                <p className="text-[10px] font-mono mt-1" style={{ color: "var(--text-tertiary)" }}>
-                  {totalScenes > 0 ? Math.round((scenesWithVoice / totalScenes) * 100) : 0}% voiced
-                </p>
               </div>
-            </div>
-          </GlassCard>
+            </GlassCard>
+          )}
 
-          {/* Custom voice (ElevenLabs) — paste your own voice ID */}
-          <CustomVoiceCard />
+          {/* Custom voice (ElevenLabs) — paste your own voice ID. U3: hidden when
+              voiceSkipped — there's no separate voice stage left to cast a custom
+              voice into. */}
+          {!voiceSkipped && <CustomVoiceCard />}
 
           {/* Action buttons */}
           <div className="space-y-2">
-            {/* Generate All Voice */}
-            <ActionButton
-              variant="outline"
-              icon={isVoiceBusy ? Loader2 : Mic}
-              className="w-full"
-              onClick={handleGenerateAllVoice}
-              disabled={isVoiceBusy || scenesWithVoice === totalScenes}
-            >
-              {voiceTaskRunning && generatingVoiceAll
-                ? voiceTaskMessage || "Generating Voice..."
-                : generatingVoiceAll
-                  ? "Starting..."
-                  : scenesWithVoice === totalScenes
-                    ? "All Voiced"
-                    : "Generate All Voice"}
-            </ActionButton>
+            {/* Generate All Voice — U3: hidden when voiceSkipped */}
+            {!voiceSkipped && (
+              <ActionButton
+                variant="outline"
+                icon={isVoiceBusy ? Loader2 : Mic}
+                className="w-full"
+                onClick={handleGenerateAllVoice}
+                disabled={isVoiceBusy || scenesWithVoice === totalScenes}
+              >
+                {voiceTaskRunning && generatingVoiceAll
+                  ? voiceTaskMessage || "Generating Voice..."
+                  : generatingVoiceAll
+                    ? "Starting..."
+                    : scenesWithVoice === totalScenes
+                      ? "All Voiced"
+                      : "Generate All Voice"}
+              </ActionButton>
+            )}
 
             {/* Regenerate Script */}
             <button
@@ -3842,7 +3866,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                 className="flex items-center justify-center gap-2 w-full px-5 py-2.5 rounded-xl text-sm font-semibold"
                 style={{ color: "var(--green)" }}
               >
-                <CheckCircle size={14} /> Script &amp; Voice Approved
+                <CheckCircle size={14} /> {voiceSkipped ? "Script Approved" : "Script & Voice Approved"}
               </div>
             ) : (
               <>
@@ -3856,13 +3880,17 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                     <>
                       <Loader2 size={14} className="animate-spin" /> Advancing...
                     </>
+                  ) : voiceSkipped ? (
+                    "Approve Script"
                   ) : (
                     "Approve Script & Voice"
                   )}
                 </ActionButton>
                 {!allReady && (
                   <p className="text-[10px] text-center" style={{ color: "var(--text-tertiary)" }}>
-                    All scenes need script text and voice audio before approval.
+                    {voiceSkipped
+                      ? "All scenes need script text before approval."
+                      : "All scenes need script text and voice audio before approval."}
                   </p>
                 )}
                 <ActionButton variant="outline" className="w-full" onClick={handleReject} disabled={rejecting}>
