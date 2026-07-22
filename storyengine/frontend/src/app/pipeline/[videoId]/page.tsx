@@ -31,6 +31,7 @@ import { PerformanceTab } from "@/components/production/PerformanceTab";
 import { SoundTab } from "@/components/production/SoundTab";
 import { CostLedgerChip } from "@/components/video-detail/cost-ledger-chip";
 import { RosterStagePanel } from "@/components/production/RosterStagePanel";
+import { ImagesStagePanel } from "@/components/production/ImagesStagePanel";
 import { StaticDocuStageRail, type StaticDocuStageKey } from "@/components/production/StaticDocuStageRail";
 import { StageRail } from "@/components/production/StageRail";
 
@@ -99,21 +100,23 @@ const LEGACY_TAB_IDS: Record<string, string> = {
   clips: "scenes",
 };
 
-/** C3c: static-documentary videos (render_mode === 'static_docu') get a
- * purpose-built 5-stage flow instead of the general 10-tab production
+/** C3c/C6: static-documentary videos (render_mode === 'static_docu') get a
+ * purpose-built stage flow instead of the general 10-tab production
  * workspace — no Characters/Environments/Scenes/Sound tabs (static docs
  * never build a cast, never design environments, and draw ONE archival
  * image per segment via static_docu.py rather than the multi-angle
- * coverage flow those tabs assume). "Video" combines Thumbnail + Render —
- * Ryan's stage 5 ("Video: render+thumbnail") — since static docs have no
- * separate animate stage between them. */
+ * coverage flow those tabs assume). "Pictures" (C6) is the roster-style
+ * grid of those generated segment images, its own gated stage between
+ * Voice and Video. "Video" combines Thumbnail + Render — since static docs
+ * have no separate animate stage between them. */
 const STATIC_DOCU_TABS = [
   { id: "roster", label: "1 · Roster", icon: ImageIcon },
   { id: "research", label: "2 · Research", icon: Search },
   { id: "script-voice", label: "3 · Script & Voice", icon: FileText },
-  { id: "video", label: "4 · Video", icon: Film },
-  { id: "upload", label: "5 · Upload", icon: Upload },
-  { id: "performance", label: "6 · Results", icon: BarChart3 },
+  { id: "pictures", label: "4 · Pictures", icon: ImageIcon },
+  { id: "video", label: "5 · Video", icon: Film },
+  { id: "upload", label: "6 · Upload", icon: Upload },
+  { id: "performance", label: "7 · Results", icon: BarChart3 },
 ];
 
 /** Maps a StaticDocuStageRail stage key to the tab id that shows its
@@ -124,6 +127,7 @@ const STATIC_STAGE_TO_TAB: Record<StaticDocuStageKey, string> = {
   research: "research",
   script: "script-voice",
   voice: "script-voice",
+  pictures: "pictures",
   video: "video",
 };
 
@@ -131,7 +135,12 @@ function getDefaultTabStatic(status: string): string {
   const idx = PIPELINE_ORDER.indexOf(status);
   if (idx <= 2) return "roster";
   if (idx <= 6) return "script-voice";
-  if (idx <= 19) return "video"; // storyboards..rendered all collapse into the Video tab for this format
+  // ready_for_image_prompts (idx 7): script+voice are done, segment pictures
+  // haven't been drawn yet — land on Pictures. Everything from
+  // ready_for_images (idx 8, pictures already made) through rendered (idx
+  // 19) collapses into the Video tab for this format.
+  if (idx <= 7) return "pictures";
+  if (idx <= 19) return "video";
   if (idx <= 20) return "upload";
   return "performance";
 }
@@ -775,6 +784,7 @@ export default function VideoDetailPage() {
             video={videoForTabs}
             videoActions={videoActions}
             rosterDashboard={rosterDashboard}
+            assets={costAssets}
             activeStage={
               (Object.entries(STATIC_STAGE_TO_TAB).find(([, tab]) => tab === currentTab)?.[0] as StaticDocuStageKey) || "roster"
             }
@@ -912,7 +922,10 @@ export default function VideoDetailPage() {
           />
         )}
         {currentTab === "research" && <ResearchTab video={videoForTabs} onApproved={() => setActiveTab("script-voice")} taskWatcher={taskWatcher} />}
-        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab(isStaticDocu ? "video" : "scenes")} taskWatcher={taskWatcher} />}
+        {currentTab === "script-voice" && <ScriptVoiceTab video={videoForTabs} onAdvanced={() => setActiveTab(isStaticDocu ? "pictures" : "scenes")} taskWatcher={taskWatcher} />}
+        {/* C6: the roster-style grid of generated segment images — its own
+            gated stage between Voice and Video for this format. */}
+        {currentTab === "pictures" && <ImagesStagePanel videoId={videoId} taskWatcher={taskWatcher} />}
         {/* C3c: static-documentary "Video" stage — thumbnail + render stacked
             (no separate animate stage for this format, so the two existing
             tabs' own quote->confirm flows just sit one above the other). */}

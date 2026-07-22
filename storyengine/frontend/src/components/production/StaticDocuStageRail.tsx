@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Check, Loader2, Lock, AlertTriangle, Zap, ImageIcon, Search, FileText, Volume2, Film,
+  Check, Loader2, Lock, AlertTriangle, Zap, ImageIcon, Images, Search, FileText, Volume2, Film,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -12,10 +12,10 @@ import { useConfirm } from "@/components/ui/confirm";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import {
   runPipelineStage, runBuild, getRosterDashboard, clearStaleTask,
-  type VideoDetail, type VideoActions, type RosterDashboard,
+  type VideoDetail, type VideoActions, type RosterDashboard, type Asset,
 } from "@/lib/api";
 
-export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "video";
+export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "pictures" | "video";
 export type StageStatus = "done" | "in_progress" | "blocked" | "not_started";
 
 interface StageInfo {
@@ -28,10 +28,17 @@ const STAGE_META: Record<StaticDocuStageKey, { label: string; icon: typeof Searc
   research: { label: "Research", icon: Search },
   script: { label: "Script", icon: FileText },
   voice: { label: "Voice", icon: Volume2 },
+  pictures: { label: "Pictures", icon: Images },
   video: { label: "Video", icon: Film },
 };
 
-const STAGE_ORDER: StaticDocuStageKey[] = ["roster", "research", "script", "voice", "video"];
+const STAGE_ORDER: StaticDocuStageKey[] = ["roster", "research", "script", "voice", "pictures", "video"];
+
+// C6: a scene's static-documentary image is "blocked" the same way roster
+// treats a missing reference photo — a state the operator must go fix (Roster
+// tab's Add photo, or the qa_rejected Approve/Redraw in the Pictures panel),
+// never something a re-run alone clears.
+const PICTURE_BLOCKED_STATUSES = new Set(["blocked_no_reference", "qa_rejected"]);
 
 const RENDER_DONE_STATUSES = new Set(["rendered", "uploaded_draft", "uploaded", "done", "published"]);
 
@@ -45,6 +52,7 @@ export function computeStaticDocuStages(
   video: VideoDetail,
   videoActions: VideoActions | undefined,
   rosterDashboard: RosterDashboard | undefined,
+  assets?: Asset[],
 ): Record<StaticDocuStageKey, StageInfo> {
   const summary = videoActions?.summary;
   const scenes = summary?.scenes ?? 0;
@@ -81,6 +89,31 @@ export function computeStaticDocuStages(
       ? { status: "in_progress", detail: `${voiced}/${scenes} segment(s) voiced.` }
       : { status: "not_started", detail: "No narration yet." };
 
+  // C6: one archival image per scene (backend/static_docu.py) — pictures are
+  // gated on Voice being green, same chain every other stage follows.
+  // done/blocked/gray only (no live "in_progress" color here beyond the
+  // 'generating' pulse the Pictures panel itself shows per-card) — a scene
+  // whose generation row never landed (a total-failure case that DELETES the
+  // placeholder row) is neither done nor blocked, just still to do.
+  const staticAssets = (assets ?? []).filter((a) => !a.generation_method || a.generation_method === "static_docu");
+  const picByScene = new Map<number, Asset>();
+  for (const a of staticAssets) {
+    if (a.scene != null) picByScene.set(a.scene, a);
+  }
+  const picDone = Array.from(picByScene.values()).filter((a) => a.status === "done").length;
+  const picBlocked = Array.from(picByScene.values()).filter((a) => PICTURE_BLOCKED_STATUSES.has(a.status || "")).length;
+  const picGenerating = Array.from(picByScene.values()).filter((a) => a.status === "generating").length;
+  const pictures: StageInfo =
+    scenes === 0
+      ? { status: "not_started", detail: "No scenes yet — write the script first." }
+      : picBlocked > 0
+        ? { status: "blocked", detail: `${picBlocked} scene(s) need attention (no reference photo, or a rejected render).` }
+        : picDone >= scenes
+          ? { status: "done", detail: `All ${scenes} segment picture(s) made.` }
+          : picGenerating > 0
+            ? { status: "in_progress", detail: `${picDone}/${scenes} done — drawing more now…` }
+            : { status: "not_started", detail: `${picDone}/${scenes} segment picture(s) made.` };
+
   const renderDone = RENDER_DONE_STATUSES.has(video.status || "");
   const hasThumb = Boolean(video.thumbnail_url);
   const videoStage: StageInfo =
@@ -94,7 +127,7 @@ export function computeStaticDocuStages(
             ? { status: "in_progress", detail: "Thumbnail set — awaiting render." }
             : { status: "not_started", detail: "Not rendered yet." };
 
-  return { roster, research, script, voice, video: videoStage };
+  return { roster, research, script, voice, pictures, video: videoStage };
 }
 
 /** Locked-until-previous-green gating, with ONE deliberate bootstrap
@@ -110,12 +143,17 @@ export function computeCanRun(stages: Record<StaticDocuStageKey, StageInfo>): Re
   const researchGreen = stages.research.status === "done";
   const scriptGreen = stages.script.status === "done";
   const voiceGreen = stages.voice.status === "done";
+  const picturesGreen = stages.pictures.status === "done";
   return {
     roster: true,
     research: stages.roster.status !== "blocked",
     script: rosterGreen && researchGreen,
     voice: rosterGreen && researchGreen && scriptGreen,
-    video: rosterGreen && researchGreen && scriptGreen && voiceGreen,
+    pictures: rosterGreen && researchGreen && scriptGreen && voiceGreen,
+    // C6: Video (thumbnail + render) now also waits on Pictures — a render
+    // must not ship before every segment's picture is drawn (or the operator
+    // has explicitly cleared the blocked ones).
+    video: rosterGreen && researchGreen && scriptGreen && voiceGreen && picturesGreen,
   };
 }
 
@@ -133,11 +171,18 @@ function lockReason(key: StaticDocuStageKey, stages: Record<StaticDocuStageKey, 
     if (stages.research.status !== "done") return "Locked until Research is done.";
     if (stages.script.status !== "done") return "Locked until the Script is written.";
   }
+  if (key === "pictures") {
+    if (stages.roster.status !== "done") return "Locked until the Roster stage is green.";
+    if (stages.research.status !== "done") return "Locked until Research is done.";
+    if (stages.script.status !== "done") return "Locked until the Script is written.";
+    if (stages.voice.status !== "done") return "Locked until Voice is recorded.";
+  }
   if (key === "video") {
     if (stages.roster.status !== "done") return "Locked until the Roster stage is green.";
     if (stages.research.status !== "done") return "Locked until Research is done.";
     if (stages.script.status !== "done") return "Locked until the Script is written.";
     if (stages.voice.status !== "done") return "Locked until Voice is recorded.";
+    if (stages.pictures.status !== "done") return "Locked until every segment's picture is drawn.";
   }
   return null;
 }
@@ -153,21 +198,24 @@ interface StaticDocuStageRailProps {
   video: VideoDetail & { id: string };
   videoActions: VideoActions | undefined;
   rosterDashboard: RosterDashboard | undefined;
+  /** C6: drives the Pictures stage's done/blocked/gray read — the same
+   * ["video-assets", videoId] query the page and the Pictures panel share. */
+  assets: Asset[] | undefined;
   activeStage: StaticDocuStageKey;
   onSelectStage: (stage: StaticDocuStageKey) => void;
   taskWatcher: TaskWatcherBridge;
 }
 
 /**
- * C3c: the 5-stage pipeline rail for static-documentary (render_mode ===
- * 'static_docu') videos — Roster, Research, Script, Voice, Video
+ * C3c/C6: the 6-stage pipeline rail for static-documentary (render_mode ===
+ * 'static_docu') videos — Roster, Research, Script, Voice, Pictures, Video
  * (render+thumbnail). No storyboard stage: static docs draw ONE archival
  * image per segment via static_docu.py, never the multi-angle coverage
  * flow. Each stage is locked until the previous is green (see
  * computeCanRun), and "Run All" chains the whole build automatically.
  */
 export function StaticDocuStageRail({
-  video, videoActions, rosterDashboard, activeStage, onSelectStage, taskWatcher,
+  video, videoActions, rosterDashboard, assets, activeStage, onSelectStage, taskWatcher,
 }: StaticDocuStageRailProps) {
   const toast = useToast();
   const confirmDialog = useConfirm();
@@ -177,7 +225,10 @@ export function StaticDocuStageRail({
   const [runAllActive, setRunAllActive] = useState(false);
   const [runAllError, setRunAllError] = useState<{ stage: StaticDocuStageKey; message: string } | null>(null);
 
-  const stages = useMemo(() => computeStaticDocuStages(video, videoActions, rosterDashboard), [video, videoActions, rosterDashboard]);
+  const stages = useMemo(
+    () => computeStaticDocuStages(video, videoActions, rosterDashboard, assets),
+    [video, videoActions, rosterDashboard, assets],
+  );
   const canRun = useMemo(() => computeCanRun(stages), [stages]);
 
   const refresh = () => {
@@ -381,9 +432,10 @@ export function StaticDocuStageRail({
 
       {/* Per-stage run buttons — research/script/voice/video each get their
           own quote->confirm action, same as every other tab in the app.
-          Roster's actions live in its own panel (Add photo / Re-check —
-          they're free, per-machine, and don't fit a single "run" button). */}
-      {activeStage !== "roster" && (
+          Roster's and Pictures' actions live in their own panels (Add photo /
+          Re-check, and per-scene Redraw/Approve — free-or-per-scene work that
+          doesn't fit a single "run" button). */}
+      {activeStage !== "roster" && activeStage !== "pictures" && (
         <div className="flex items-center justify-end gap-2">
           {activeStage === "research" && (
             <StageRunButton

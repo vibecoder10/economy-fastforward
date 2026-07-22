@@ -465,6 +465,16 @@ export const saveVideoSeo = (
 
 export const getVideoAssets = (id: string) => fetchApi<Asset[]>(`/api/videos/${id}/assets`);
 
+// C6: operator override for a parked static-documentary render (status='qa_rejected') —
+// promotes drive_image_url to image_url and flips status to 'done'. Free (no spend),
+// tenant-scoped, and only valid on a static_docu QA-rejected row (backend enforces both;
+// see routes/pipeline.py's approve_static_qa_render).
+export const approveStaticQaRender = (assetId: string) =>
+  fetchApi<{ status: string; asset_id: string; video_id: string | null; scene: number | null; image_url: string }>(
+    `/api/pipeline/static-qa-approve/${assetId}`,
+    { method: "POST" },
+  );
+
 export const getImageVariants = (videoId: string, scene: number, index: number) =>
   fetchApi<ImageVariant[]>(
     `/api/videos/${videoId}/assets/variants?scene=${scene}&index=${index}`
@@ -1860,6 +1870,10 @@ export interface Asset {
   scene: number | null;
   image_index: number | null;
   image_url: string | null;
+  /** The self-hosted render even when image_url is cleared (status='qa_rejected'
+   * parks the render here instead of shipping it — see backend/static_docu.py).
+   * Optional: most rows never set it. */
+  drive_image_url?: string | null;
   image_prompt: string | null;
   status: string | null;
   shot_type: string | null;
@@ -1907,6 +1921,15 @@ export interface Asset {
    * migration 065). Non-null is the proxy for "this shot performs dialogue"
    * used by the Performance Track voice-lock rollup. */
   assigned_dialogue?: string | null;
+  /** Which generator wrote this row — 'static_docu' for the one-archival-image-
+   * per-scene documentary format (backend/static_docu.py); null/other values
+   * are the regular multi-angle coverage path. Null for assets that predate
+   * this column being selected. */
+  generation_method?: string | null;
+  /** Static-documentary display caption (migration 072): {"title", "sub"},
+   * JSON-stringified by the route (`caption::text`) so it always arrives as a
+   * string here — parse before use, and handle parse failure (older/odd rows). */
+  caption?: string | null;
   created_at: string | null;
 }
 
