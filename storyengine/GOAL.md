@@ -91,8 +91,10 @@ data. We are not missing the workflow. The two real moves are:
 - **Director remnants (from the v2 pass):** **D1** per-scene shot budget (cap ~6-10 moments;
   today an 8-scene video can balloon to ~290 frames / ~$14 in images); **D2** the gated paid
   Scene-1 CLIP proof (motion / lip-sync / consistency in actual video). [D2 lip-sync
-  half DONE 2026-07-22: STS voice-lock shipped + live-proven (see HANDOFF.md);
-  motion/variety half = tasks/FILM-GRAMMAR-PLAN.md, design approved, build next.]
+  half DONE 2026-07-22: STS voice-lock shipped + live-proven; motion/variety
+  half ALSO DONE 2026-07-22: film-grammar rebuild C1-C9 built, dry-run-proven
+  on scene 2 (48 shots, 0 repeats, 8/8 reactions) and DEPLOYED @ b340c124-era
+  deploys — real-frames proof on the 1-min test video is the remaining check.]
 
 ---
 
