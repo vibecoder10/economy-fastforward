@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Loader2, Lock, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Loader2, Lock, Search, X } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
 import { useToast } from "@/components/ui/toast";
@@ -281,7 +281,10 @@ export function GuidedNextStep({ video, onNavigate, planStages, taskWatcher }: G
     }
   };
 
-  // ---------- FAILED: persistent until retried or dismissed ----------
+  // ---------- FAILED: persistent until dismissed. No retry button here —
+  // it duplicated (and for some stages silently skipped follow-up work
+  // after) each tab's own action button, which is the one reliable retry
+  // path. See the tab's own generate/regenerate button for that stage. ----------
   if (failure && !running) {
     return (
       <>
@@ -295,16 +298,9 @@ export function GuidedNextStep({ video, onNavigate, planStages, taskWatcher }: G
             </p>
             <p className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>{failure}</p>
             <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
-              Anything already created was kept — trying again only does the missing part.
+              Anything already created was kept — use the button below to pick up where it left off.
             </p>
           </div>
-          <button
-            onClick={start}
-            className="px-4 py-2 rounded-xl text-sm font-bold shrink-0 flex items-center gap-2 transition-all hover:brightness-110"
-            style={{ background: "var(--red)", color: "var(--bg-void)" }}
-          >
-            <RefreshCw size={14} /> Try again
-          </button>
           <button onClick={() => setFailure(null)} title="Dismiss" className="shrink-0 p-1" style={{ color: "var(--text-tertiary)" }}>
             <X size={16} />
           </button>
