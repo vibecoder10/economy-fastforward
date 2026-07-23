@@ -8,6 +8,6 @@ Nothing is being treated as silently skipped. These checks require Ryan’s late
   - Cross-reference: checklist C1, C3, C4.
 
 - [ ] Production render and Anton visual review.
-  - Proof reached now: a short local synthetic MP4 is rendered and frame-inspected for card content, multi-view rotation, and smooth full-duration motion.
-  - Later recipe: deploy the reviewed branch with `storyengine/scripts/se.sh deploy anton-dvsu-feedback --with-frontend`, verify `http://localhost:8001/api/health` through the normal deployment smoke path, then render the regenerated one-aircraft proof. Expect one animated title card per aircraft, 2–3 rotating views, alternating slow push-in/pull-out moves, and no visible jump, lateral wander, freeze, or wobble. Do not upload to YouTube.
+  - Proof reached now: a short local synthetic MP4 is rendered and frame-inspected for card content, multi-view rotation, and smooth full-duration motion. Production deployment is also verified at revision `3a980674` with backend healthy and frontend HTTP 200.
+  - Later recipe: create the new Anton DVsU video, explicitly approve its quoted paid stages, and render one regenerated aircraft proof. Expect one animated title card per aircraft, 2–3 rotating views, alternating slow push-in/pull-out moves, and no visible jump, lateral wander, freeze, or wobble. Do not upload to YouTube until Anton has reviewed the production render.
   - Cross-reference: checklist C2, C3, C4.
