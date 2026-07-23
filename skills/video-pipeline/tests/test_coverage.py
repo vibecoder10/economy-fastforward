@@ -26,6 +26,8 @@ from storyboard.coverage import (  # noqa: E402
     _flatten_shots, _shot_family, _is_wide, parse_set_dressing,
     plan_moments_deterministic, run_coverage, parse_setups_line,
     _parse_setup_kit, _facing_family, _no_people_families,
+    _insert_subject_hint, _insert_desc_violation, _INSERT_FRAMING_CLAUSE,
+    _INSERT_FALLBACK_SUBJECT,
 )
 
 SAMPLE = """\
@@ -697,6 +699,166 @@ def test_insert_floor_is_roughly_one_per_six_to_eight_shots():
     enforce_reaction_insert_floors(moments)
     inserts = [s for s in _flatten_shots(moments) if _shot_tag(s) == "INSERT"]
     assert len(inserts) == 2, [s["description"] for s in inserts]
+
+
+# ---- insert-framing fix (verified bug: INSERT shots drew as wide two-shots
+# instead of tight detail close-ups) ----------------------------------------
+
+def test_insert_floor_desc_contains_close_up_framing_clause():
+    """The generated INSERT desc must lead with an explicit close-up/tight
+    framing clause — the whole point of the fix, since before it nothing in
+    the prompt ever asked for tight framing at all."""
+    moments = _silent_scene(7, ["A", "B", "C", "D"])
+    enforce_reaction_insert_floors(moments)
+    inserts = [s for s in _flatten_shots(moments) if _shot_tag(s) == "INSERT"]
+    assert inserts, "expected at least one INSERT floor shot"
+    for s in inserts:
+        desc = s["description"]
+        assert "extreme close-up" in desc.lower() or "close-up" in desc.lower(), desc
+        assert "no faces visible" in desc.lower(), desc
+
+
+def test_insert_floor_never_quotes_the_whole_room_set_line():
+    """Regression pin for the exact bug: the old code did
+    `(prop_hint[:80])` where prop_hint fell back to the raw [SET|] line —
+    a whole-room summary truncated to 80 chars, never an actual detail. With
+    no prop manifest, the desc must use the generic hands+prop fallback
+    instead of ever echoing set_line."""
+    moments = _silent_scene(7, ["A", "B", "C", "D"])
+    set_line = ("A cramped kitchen with a butcher-block island, hanging copper pots, a six-burner "
+                "range, and open shelving stacked with ceramic bowls")
+    enforce_reaction_insert_floors(moments, set_line=set_line)
+    inserts = [s for s in _flatten_shots(moments) if _shot_tag(s) == "INSERT"]
+    assert inserts
+    for s in inserts:
+        assert set_line[:40] not in s["description"], \
+            f"INSERT desc must never quote the whole-room [SET|] line verbatim: {s['description']!r}"
+        assert _INSERT_FALLBACK_SUBJECT in s["description"]
+
+
+def test_insert_floor_uses_a_manifest_prop_when_provided():
+    """(1) real detail hint: with an environment prop manifest available,
+    the INSERT floor's subject is a real prop name from that manifest
+    (deterministic rotation by insert index), not the generic fallback."""
+    moments = _silent_scene(7, ["A", "B", "C", "D"])
+    props = [{"name": "copper stockpot", "position": "stovetop"},
+             {"name": "wooden cutting board", "position": "island"}]
+    enforce_reaction_insert_floors(moments, props=props)
+    inserts = [s for s in _flatten_shots(moments) if _shot_tag(s) == "INSERT"]
+    assert len(inserts) == 2, [s["description"] for s in inserts]
+    # Deterministic rotation: insert 0 -> prop 0, insert 1 -> prop 1.
+    assert "copper stockpot" in inserts[0]["description"]
+    assert "wooden cutting board" in inserts[1]["description"]
+    for s in inserts:
+        assert _INSERT_FALLBACK_SUBJECT not in s["description"]
+
+
+def test_insert_subject_hint_rotates_through_manifest_and_falls_back():
+    props = [{"name": "brass compass"}, {"name": "leather journal"}]
+    assert _insert_subject_hint(props, 0) == "brass compass"
+    assert _insert_subject_hint(props, 1) == "leather journal"
+    assert _insert_subject_hint(props, 2) == "brass compass"  # wraps around
+    assert _insert_subject_hint(None, 0) == _INSERT_FALLBACK_SUBJECT
+    assert _insert_subject_hint([], 0) == _INSERT_FALLBACK_SUBJECT
+
+
+def test_insert_desc_violation_rejects_missing_framing_term():
+    desc = "(SETUP A)(INSERT) Insert punctuating the beat — a coffee mug."
+    reason = _insert_desc_violation(desc, {"Ryan", "Vanessa"})
+    assert reason is not None
+    assert "framing" in reason
+
+
+def test_insert_desc_violation_rejects_both_character_names_present():
+    desc = ("(SETUP A)(INSERT) Extreme close-up, tight detail shot, shallow depth of field, "
+            "no faces visible — Ryan hands Vanessa the mug.")
+    reason = _insert_desc_violation(desc, {"Ryan", "Vanessa"})
+    assert reason is not None
+    assert "Ryan" in reason and "Vanessa" in reason
+
+
+def test_insert_desc_violation_passes_a_clean_desc():
+    desc = (f"(SETUP A)(INSERT) {_INSERT_FRAMING_CLAUSE} — a copper stockpot, "
+            f"punctuating the beat.")
+    assert _insert_desc_violation(desc, {"Ryan", "Vanessa"}) is None
+    # Naming ONE character (e.g. whose hands are shown) is fine — only BOTH
+    # names present is a violation.
+    desc_one_name = (f"(SETUP A)(INSERT) {_INSERT_FRAMING_CLAUSE} — Ryan's hands gripping "
+                     f"the stockpot.")
+    assert _insert_desc_violation(desc_one_name, {"Ryan", "Vanessa"}) is None
+
+
+def test_insert_floor_regenerates_when_a_manifest_prop_name_collides_with_both_speakers():
+    """(3) guard: if a (contrived) prop manifest entry happened to smuggle
+    both character names into the subject text, the floor's own guard
+    rejects it and regenerates with the safe generic fallback instead of
+    shipping the bad desc — proves the guard is actually wired into the
+    generation path, not just a standalone function."""
+    moments = [
+        _moment(1, "WS", "(SETUP A) wide establishing.",
+               angles=[{"shot_type": "MCU", "description": "(SETUP B) angle."}]),
+        _moment(2, "MCU", "(SETUP B) Ryan speaks.", speaker="Ryan", line="Hello there.",
+               angles=[{"shot_type": "MCU", "description": "(SETUP C) angle."}]),
+        _moment(3, "MCU", "(SETUP C) Vanessa speaks.", speaker="Vanessa", line="Hi Ryan.",
+               angles=[{"shot_type": "MCU", "description": "(SETUP D) angle."}]),
+        _moment(4, "MCU", "(SETUP D) Ryan speaks again.", speaker="Ryan", line="How are you?",
+               angles=[{"shot_type": "MCU", "description": "(SETUP A) angle."}]),
+    ]
+    # A pathological manifest entry naming both speakers — the kind of prop
+    # text this generator never emits itself, but the guard exists precisely
+    # so a bad upstream value can never reach the image model unfiltered.
+    props = [{"name": "the note Ryan wrote to Vanessa", "position": "counter"}]
+    enforce_reaction_insert_floors(moments, props=props)
+    inserts = [s for s in _flatten_shots(moments) if _shot_tag(s) == "INSERT"]
+    assert inserts, "expected at least one INSERT floor shot"
+    for s in inserts:
+        assert not ("Ryan" in s["description"] and "Vanessa" in s["description"]), \
+            f"guard should have regenerated a both-names desc: {s['description']!r}"
+        assert _INSERT_FALLBACK_SUBJECT in s["description"]
+
+
+def test_run_coverage_insert_tail_drops_character_blocking(tmp_path):
+    """(2) framing law at the append site: run_coverage's SET-DRESSING LOCK
+    tail must give an INSERT shot the shorter continuity-only tail (no
+    "character blocking" language, explicit "no faces visible, detail
+    only"), while non-INSERT shots keep the original full tail unchanged."""
+    directive = (
+        "[SET | a cramped kitchen with a butcher-block island and hanging copper pots]\n"
+        "[MOMENT 1 | Ryan and Vanessa cook]\n"
+        "- MASTER [WS]: (SETUP A) Wide two-shot establishing the kitchen.\n"
+        "- ANGLE [INSERT]: (SETUP E)(INSERT) Extreme close-up, tight detail shot, shallow "
+        "depth of field, no faces visible — a copper stockpot, punctuating the beat.\n"
+    )
+
+    async def _fake_frames(moment, cast_url, image_client, profile=None, env_url=None,
+                           aspect="16:9", resolution="1K", sem=None, model_override=None,
+                           setup_anchors=None):
+        frames = [{"role": "master", "shot_type": moment["master"]["shot_type"],
+                  "description": moment["master"]["description"], "url": "https://img/m.png"}]
+        for a in moment.get("angles") or []:
+            frames.append({"role": "angle", "shot_type": a["shot_type"],
+                           "description": a["description"], "url": "https://img/a.png"})
+        return frames
+
+    outdir = str(tmp_path)
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames)), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="two people cook in a kitchen", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=directive,
+            max_moments=10, angles_max=4, max_frames=None,
+        ))
+    assert not out.get("error"), out
+    moment = out["moments"][0]
+    master_desc = moment["master"]["description"]
+    insert_desc = moment["angles"][0]["description"]
+    assert "character blocking" in master_desc.lower()
+    assert "character blocking" not in insert_desc.lower(), insert_desc
+    assert "no faces visible, detail only" in insert_desc.lower(), insert_desc
+    # Both still get the scene's set-dressing continuity text.
+    assert "butcher-block island" in master_desc
+    assert "butcher-block island" in insert_desc
 
 
 def test_re_establish_floor_is_roughly_one_per_ten_shots():

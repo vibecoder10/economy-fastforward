@@ -879,6 +879,70 @@ _REACTION_TURNS_PER_SHOT = 4     # >=1 REACTION shot per this many speaking turn
 _INSERT_SHOTS_PER_ONE = 7        # >=1 INSERT shot per this many total shots (midpoint of "6-8")
 _REESTABLISH_SHOTS_PER_ONE = 10  # >=1 RE-ESTABLISH wide per this many total shots
 
+# Insert-framing fix (verified bug: INSERT shots were drawing as wide two-shots
+# instead of tight detail close-ups — the old desc truncated the scene's WHOLE-
+# ROOM [SET|] line to 80 chars as the "detail," and the universal set-dressing
+# tail below (run_coverage) then appended full two-character blocking to every
+# shot including inserts, so nothing in the prompt ever asked for a close
+# framing). Every INSERT desc now opens with this explicit framing clause —
+# extreme close-up, shallow depth, no faces — so the image model has no room
+# to draw a wide staged shot instead.
+_INSERT_FRAMING_CLAUSE = ("Extreme close-up, tight detail shot, shallow depth of field, "
+                          "no faces visible")
+_INSERT_FALLBACK_SUBJECT = "the speaking character's hands and the nearest prop"
+
+# Close-up/tight framing language the guard below requires — deliberately
+# broad (several ways a description can legitimately say "this is tight")
+# rather than pinned to _INSERT_FRAMING_CLAUSE's exact wording, so a manually
+# edited or legacy INSERT desc that phrases framing differently still passes.
+_CLOSEUP_FRAMING_TERMS_RE = re.compile(
+    r"extreme close-?up|close-?up|tight (?:detail|framing|shot)|shallow depth", re.IGNORECASE)
+
+
+def _insert_subject_hint(props: list | None, index: int) -> str:
+    """The detail an INSERT shot's close-up frames on — rotated through the
+    matched environment's canonical prop manifest (migration 115,
+    apply_prop_manifest/check_prop_manifest_consistency above) by insert
+    index, so a scene with several INSERT floors doesn't describe the same
+    object twice. Deterministic, no LLM call — same rule as every other
+    floor in this function. Falls back to a generic hands+prop hint when no
+    manifest is available (legacy environments, or no matched environment at
+    all) — the ONLY case where the old whole-room [SET|] text used to leak
+    in as the "detail" is gone; the fallback never quotes set dressing."""
+    names = []
+    for p in (props or []):
+        name = (p.get("name") or "").strip() if isinstance(p, dict) else str(p or "").strip()
+        if name:
+            names.append(name)
+    if names:
+        return names[index % len(names)]
+    return _INSERT_FALLBACK_SUBJECT
+
+
+def _insert_desc_violation(desc: str, character_names) -> str | None:
+    """Cheap deterministic guard on a generated INSERT description (house
+    pattern: coverage_to_app.gate_motion_prompt — a short violation reason
+    or None, regex-only, conservative by design). Two clear failure modes:
+
+      (a) no close-up/tight framing language at all — the desc doesn't
+          actually read as a detail insert, the bug this fix targets.
+      (b) BOTH of the scene's character names appear in the desc — a detail
+          insert should name at most one character (if any); two full names
+          present means character-blocking prose slipped back in.
+
+    Returns a short reason string on a violation, else None. Never raises —
+    a bad/missing character_names iterable is treated as empty."""
+    d = desc or ""
+    if not _CLOSEUP_FRAMING_TERMS_RE.search(d):
+        return "missing a close-up/tight framing term"
+    try:
+        names = [n for n in character_names or [] if n and re.search(rf"\b{re.escape(n)}\b", d, re.IGNORECASE)]
+    except TypeError:
+        names = []
+    if len(names) >= 2:
+        return f"both character names present in a detail insert ({', '.join(sorted(names))})"
+    return None
+
 
 def _is_wide(shot) -> bool:
     """True when the shot's shot_type resolves to the "wide" composition
@@ -1039,7 +1103,8 @@ def _find_convertible_angle(flat: list[dict], family_counts: dict) -> dict | Non
 
 def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
                                    max_frames: int | None = None,
-                                   setups_line: str | None = None) -> int:
+                                   setups_line: str | None = None,
+                                   props: list | None = None) -> int:
     """CODE floor validator (C3 item 2), parallel to enforce_shot_budget but
     the opposite direction — that one only ever TRIMS, this one only ever
     ADDS the minimum coverage a dialogue scene needs to cut like an editor
@@ -1057,6 +1122,17 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
 
       INSERT — a prop/detail punctuation shot, >=1 per _INSERT_SHOTS_PER_ONE
       total shots (the prompt's own "1 per 6-8" rule of thumb, midpointed).
+      Insert-framing fix: the desc always opens with an explicit close-up
+      framing clause (_INSERT_FRAMING_CLAUSE — extreme close-up, shallow
+      depth, no faces) and names a real detail — a prop rotated in from the
+      matched environment's manifest (`props`, migration 115) by insert
+      index when one is available, else a generic hands+prop fallback
+      (_INSERT_FALLBACK_SUBJECT). NEVER the scene's whole-room [SET | ...]
+      line truncated to 80 chars — that was the bug: a wide-room summary
+      quoted as the "detail" produces a wide two-shot, not a close-up. A
+      cheap deterministic guard (_insert_desc_violation) rejects and
+      regenerates any desc that ends up missing the framing clause or
+      naming both of the scene's speakers — see that function's docstring.
 
       RE-ESTABLISH — a WIDE two-shot reusing the scene's ESTABLISHING setup
       family (moments[0]'s master's family — rule 5b makes the scene's
@@ -1068,13 +1144,27 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
     Every addition is deterministic: a `(SETUP X)` tag reusing an EXISTING
     family (never inventing a new camera position) and a plain-language
     description built only from data already on the moments (the listener's
-    name from `moment["speaker"]` / `speakers`, the scene's own [SET | ...]
-    text passed as `set_line`). REACTION placement (C9): the kit text passed
-    as `setups_line` picks the family that FACES the listener (its CU
-    compound variant when the kit defines one) via _reaction_family_tag —
+    name from `moment["speaker"]` / `speakers`, the environment's prop
+    manifest passed as `props`). REACTION placement (C9): the kit text
+    passed as `setups_line` picks the family that FACES the listener (its
+    CU compound variant when the kit defines one) via _reaction_family_tag —
     families the kit marks INSERT/NEUTRAL/no-people are never used for a
     face shot; _least_recently_used_family remains the fallback (and the
     INSERT/RE-ESTABLISH floors' unchanged mechanism).
+
+    set_line: accepted for backward-compatible signature parity with every
+    caller (plan_moments_deterministic, coverage_to_app.py) but no longer
+    used to build an INSERT description — that was the bug this fix
+    addresses (a whole-room [SET | ...] line truncated to 80 chars is a
+    wide-room summary, not a close-up detail). Set-dressing continuity for
+    every shot, INSERT included, is applied separately by run_coverage's own
+    SET-DRESSING LOCK tail, which now branches per shot's _shot_tag.
+
+    props: the matched environment's canonical prop manifest (list of
+    {name, position} dicts, or plain strings — same shape apply_prop_manifest
+    takes), or None. Drives the INSERT floor's subject selection only; every
+    other floor ignores it. None (the default) reproduces the pre-fix
+    fallback-subject behavior exactly.
 
     max_frames (C3 item 2's frame-cap rule): once the scene is AT its frame
     cap, a floor is satisfied by CONVERTING an existing excess same-family
@@ -1162,20 +1252,41 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
                 _place(mi, "CU", desc, "reaction")
 
     # ---- INSERT -------------------------------------------------------
+    # Insert-framing fix (verified bug): the old desc here truncated the
+    # scene's WHOLE-ROOM [SET|] line to 80 chars and called that the
+    # "detail" — a wide-room summary read as a wide two-shot, not a close-up,
+    # and nothing in the prompt asked for tight framing at all. Every INSERT
+    # desc now leads with an explicit close-up clause and names one real
+    # detail (a manifest prop when the environment has one) instead.
     cur = _flatten_shots(moments)
     want = len(cur) // _INSERT_SHOTS_PER_ONE
     have = sum(1 for s in cur if _shot_tag(s) == "INSERT")
     need = max(0, want - have)
     if need:
         n = len(moments)
-        prop_hint = (set_line or "").strip() or "hands and a prop already on the set"
+        # Character names for the guard's "both names present" check — every
+        # speaker assigned anywhere in the scene, not just the 2-speaker
+        # REACTION-eligible set above (an INSERT floor can fire in a
+        # monologue or 3+-speaker scene too).
+        all_speakers = {m["speaker"] for m in moments if m.get("speaker")}
         for k in range(need):
             target_mi = min(n - 1, ((k + 1) * n) // (need + 1))
             cur = _flatten_shots(moments)
             fam = _least_recently_used_family(cur)
             if not fam:
                 continue
-            desc = f"(SETUP {fam})(INSERT) Insert punctuating the beat — {prop_hint[:80]}."
+            subject = _insert_subject_hint(props, k)
+            desc = (f"(SETUP {fam})(INSERT) {_INSERT_FRAMING_CLAUSE} — {subject}, "
+                    f"punctuating the beat.")
+            violation = _insert_desc_violation(desc, all_speakers)
+            if violation:
+                # Same conservative style as coverage_to_app.gate_motion_prompt:
+                # a clear contradiction gets regenerated deterministically
+                # (never an LLM call) rather than shipped as-is.
+                print(f"  ⚠️ insert floor: generated desc failed the framing guard "
+                      f"({violation}) — regenerated with the safe generic subject", flush=True)
+                desc = (f"(SETUP {fam})(INSERT) {_INSERT_FRAMING_CLAUSE} — "
+                        f"{_INSERT_FALLBACK_SUBJECT}, punctuating the beat.")
             _place(target_mi, "INSERT", desc, "insert")
 
     return fixed
@@ -1232,7 +1343,8 @@ def stamp_shot_durations(moments: list) -> int:
 # =============================================================================
 
 def plan_moments_deterministic(directive_text: str, max_moments: int, angles_max: int,
-                               max_frames: int | None = None, verbose: bool = False) -> list[dict] | None:
+                               max_frames: int | None = None, verbose: bool = False,
+                               props: list | None = None) -> list[dict] | None:
     """parse_coverage -> enforce_shot_budget -> enforce_reaction_insert_floors ->
     enforce_setup_variety, in that exact order, on the SAME directive_text —
     the one pipeline every consumer of a saved coverage directive (the sheet
@@ -1250,7 +1362,16 @@ def plan_moments_deterministic(directive_text: str, max_moments: int, angles_max
     verbose: print the same progress lines run_coverage() has always
     printed for the floors/variety passes (the sheet-planning callers stay
     silent, matching their pre-fix behavior of never logging these — only
-    the real draw path narrates progress to the creator)."""
+    the real draw path narrates progress to the creator).
+
+    props: the matched environment's prop manifest, threaded straight into
+    enforce_reaction_insert_floors' INSERT-subject selection (see that
+    function's docstring). Only run_coverage's real PICTURES path passes a
+    real value; the sheet-planning callers pass none (the same "PICTURES
+    path only" wall apply_prop_manifest documents) and keep the generic
+    fallback subject — this changes an INSERT desc's WORDING only, never
+    its shot count or position, so board-panel numbering stays unaffected
+    either way."""
     moments = parse_coverage(directive_text or "")
     if not moments:
         return None
@@ -1260,7 +1381,7 @@ def plan_moments_deterministic(directive_text: str, max_moments: int, angles_max
         # C9: the kit line drives REACTION placement (the facing family's CU
         # variant) — parsed from the SAME directive_text, so both callers of
         # this one pipeline keep byte-identical shot sequences.
-        setups_line=parse_setups_line(directive_text or ""))
+        setups_line=parse_setups_line(directive_text or ""), props=props)
     if verbose and n_floors:
         print(f"  🎬 reaction/insert/re-establish floors: {n_floors} shot(s) added or converted",
               flush=True)
@@ -1772,7 +1893,9 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     video_environments.props via coverage_to_app._approved_envs/_match_scene_env), or None.
     When present, apply_prop_manifest appends it VERBATIM to every shot's draw prompt below —
     the same manifest text render_prop_manifest renders into the beat prompt and the redraw/
-    repair prompt (contract-triangle law). None is today's behavior, unchanged.
+    repair prompt (contract-triangle law). None is today's behavior, unchanged. Also threaded
+    into plan_moments_deterministic (insert-framing fix): an INSERT floor shot's close-up
+    subject is rotated in from this same manifest instead of a generic hands+prop fallback.
 
     board_panel_total (C7 fix (a), legacy-sheet guard): the TRUE panel count the
     approved sheets in `board_urls` were planned with, read back from persisted
@@ -1805,9 +1928,11 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # imports and runs too (plan_moments_deterministic) — the two can no
     # longer silently diverge on the scene's final shot sequence. verbose=True
     # preserves this function's existing progress lines for the floors/
-    # variety passes, unchanged from before this refactor.
+    # variety passes, unchanged from before this refactor. props is threaded
+    # through here (PICTURES path only, same as apply_prop_manifest below) so
+    # the INSERT floor can pick a real manifest prop as its detail subject.
     moments = plan_moments_deterministic(directive_text, max_moments, angles_max,
-                                         max_frames=max_frames, verbose=True)
+                                         max_frames=max_frames, verbose=True, props=props)
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
 
@@ -1816,13 +1941,24 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # that stay silent about props let the image model invent them — observed
     # live (PocoAPoco kitchen): "cram session" phrasing conjured books/laptops in
     # some panels while the food vanished and reappeared between neighbours.
+    #
+    # Insert-framing fix: this tail used to be the SAME text for every shot,
+    # INSERT included — "...AND CHARACTER BLOCKING..." pulled both
+    # characters' body positions back into an insert's prompt, fighting the
+    # tight/no-faces framing the INSERT floor above just wrote (nothing then
+    # told the image model to actually frame close). An INSERT shot still
+    # needs the scene's location/lighting/palette continuity — just not the
+    # bodies — so it gets its own shorter tail instead.
     set_line = parse_set_dressing(directive_text)
     if set_line:
         tail = f"Set dressing and character blocking, identical in every shot of this scene: {set_line}."
+        insert_tail = (f"Set dressing continuity with the rest of this scene (lighting, palette, "
+                       f"surfaces), identical throughout: {set_line}. This is a detail insert — "
+                       f"no faces visible, detail only.")
         for m in moments:
-            m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {tail}"
-            for a in m.get("angles") or []:
-                a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
+            for shot in [m["master"], *(m.get("angles") or [])]:
+                this_tail = insert_tail if _shot_tag(shot) == "INSERT" else tail
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {this_tail}"
         print("  🪑 set-dressing lock applied to every shot", flush=True)
 
     # SCREEN-DIRECTION LOCK (rule 5d): stamp the axis contract into every
