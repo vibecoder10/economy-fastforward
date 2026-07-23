@@ -405,14 +405,29 @@ async def _sts_convert(wav_bytes: bytes, voice_id: str, xi_api_key: str) -> byte
     """ElevenLabs speech-to-speech: same words, same timing, pinned voice.
     Model is env-overridable so a newer STS family can be adopted without a
     code change (v3 is TTS-only as of 2026-07 — do not point this at it
-    blindly; verify the model id exists on /v1/models first)."""
+    blindly; verify the model id exists on /v1/models first).
+
+    Expressiveness (added 2026-07-23): we now send voice_settings. Before this
+    the call sent NONE, so every line rendered at the voice's stored default
+    stability — flat, which read as deadpan/condescending on cheerful or
+    emphatic lines (Ryan caught it on S-01.113 "grande"). LOWER stability lets
+    more of the source performance's emotion carry through the swap. All four
+    knobs are env-tunable so tone can be dialed WITHOUT a redeploy — a backend
+    restart picks up new values (default stability 0.35, was effectively ~0.5+)."""
     import httpx
+    voice_settings = json.dumps({
+        "stability": float(os.getenv("ELEVEN_STS_STABILITY", "0.35")),
+        "similarity_boost": float(os.getenv("ELEVEN_STS_SIMILARITY", "0.85")),
+        "style": float(os.getenv("ELEVEN_STS_STYLE", "0.0")),
+        "use_speaker_boost": os.getenv("ELEVEN_STS_SPEAKER_BOOST", "true").lower() == "true",
+    })
     async with httpx.AsyncClient(timeout=180) as client:
         resp = await client.post(
             f"https://api.elevenlabs.io/v1/speech-to-speech/{voice_id}",
             headers={"xi-api-key": xi_api_key},
             data={"model_id": os.getenv("ELEVEN_STS_MODEL", "eleven_multilingual_sts_v2"),
-                  "remove_background_noise": "true"},
+                  "remove_background_noise": "true",
+                  "voice_settings": voice_settings},
             files={"audio": ("voice.wav", wav_bytes, "audio/wav")},
         )
         if resp.status_code != 200:
