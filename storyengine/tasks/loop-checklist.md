@@ -16,11 +16,12 @@
 ## Chunks
 - [x] C0 SWEEP [D][B][U][V] Trace Anton’s current static-documentary path from subject metadata through image generation, picture review, render config, Remotion composition, and motion math.
       Evidence: captions default off in `render_static.py`; `_STUDIO_PROMPT` requests a pure side profile; `generate_static_images_for_video` writes only `image_index=1`; `Scene.tsx` adds a sinusoidal wobble; Ken Burns `speed_multiplier` can finish motion before the hold ends; the existing Remotion scene model already supports multiple images per narration scene.
-- [ ] C1 [D][B][M][V] Build the three-view aircraft asset contract.
+- [x] C1 [D][B][M][V] Build the three-view aircraft asset contract.
       [D] Source-grounded caption specs and explicit view roles.
       [B] Three per-unit assets, per-view prompts, independent QA/parking, minimum-two success rule, idempotent scene redraw, legacy compatibility.
       [M] Honest three-image cost estimates for static-documentary picture/build confirmations.
       [V] Focused no-spend backend tests, including fail-closed reference behavior and partial-view success.
+      Evidence: commit `9c05cb8a`; stash-proof new suite failed 4/4 against the old implementation and passed 4/4 restored; static-docu/render-static suite passed 127/127. No provider call, database write, deploy, or paid run occurred.
 - [ ] C2 [B][R][V] Render multiple views, the one-per-aircraft title card, and cinematic motion.
       [B] Gather 1–3 ordered static assets per scene and split the narration hold without duplicating audio.
       [R] Enable the fixed overlay by default, add the specs line and one-time card animation, and alternate full-duration smoothstep push-in/pull-out Ken Burns moves with no lateral drift or wobble.

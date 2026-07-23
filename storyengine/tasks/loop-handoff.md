@@ -1,2 +1,2 @@
-Last done: C0 SWEEP complete on branch codex/anton-dvsu-feedback — traced captions-off, side-profile prompt, one-asset generator, early-finish speed multiplier, and sinusoidal wobble; confirmed Remotion already supports multiple images under one narration scene. No paid calls or writes outside the isolated worktree.
-Next chunk: C1 — implement and no-spend verify the source-grounded three-view asset contract and honest static-docu cost math.
+Last done: C1 shipped in 9c05cb8a — three grounded view roles, three idempotent assets, two-view minimum, per-view QA/parking, required title specs, and honest static-docu quote math; stash-proof old code failed 4/4, restored code passed, broader static suite 127/127. No paid/live actions.
+Next chunk: C2 — gather 1–3 views under one narration scene, add the one-time title card, and implement smooth alternating push-in/pull-out motion.
