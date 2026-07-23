@@ -153,11 +153,18 @@ async def _speech_bounds(path: str, duration: float):
 
 
 async def _trim_dead_space(paths: list[Path], workdir: Path,
-                           on_progress: ProgressCb) -> list[Path]:
+                           on_progress: ProgressCb,
+                           clips: Optional[list[dict]] = None) -> list[Path]:
     """Cut the silent head/tail of every SPEAKING clip so the dialogue flows
-    tight when joined. Silent B-roll clips pass through untouched. A clip whose
-    trim would save less than _TRIM_MIN_GAIN seconds is left as-is (not worth a
-    re-encode). Best-effort: any failure keeps the original clip."""
+    tight when joined. Silent B-roll clips pass through untouched — UNLESS its
+    assets row (`clips[i]`, same order as `paths`) carries a stamped
+    duration_seconds (coverage's planned target for that shot): a no-speech
+    clip is capped at that duration, trimmed from the tail, so this fallback
+    path (plain stitch, no dialogue timing) can't ship a clip held for its
+    raw ffmpeg length — this is the backstop for when the performance
+    assembler fails and pipeline_executor falls back to stitch_video. A clip
+    whose trim would save less than _TRIM_MIN_GAIN seconds is left as-is (not
+    worth a re-encode). Best-effort: any failure keeps the original clip."""
     await _emit(on_progress, "Trimming dead space…")
     out: list[Path] = []
     trimmed = saved = 0.0
@@ -165,6 +172,20 @@ async def _trim_dead_space(paths: list[Path], workdir: Path,
         dur = await _probe_duration(str(p))
         bounds = await _speech_bounds(str(p), dur)
         if not bounds:
+            cap_raw = clips[i].get("duration_seconds") if clips and i < len(clips) else None
+            cap = float(cap_raw) if cap_raw is not None else None
+            if cap and cap > 0 and dur > cap + _TRIM_MIN_GAIN:
+                cp = workdir / f"cap_{i:03d}.mp4"
+                async with _FFMPEG_SEM:
+                    rc, err = await _run_subprocess([
+                        "ffmpeg", "-y", "-i", str(p), "-t", f"{cap:.3f}",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(cp)])
+                if rc == 0 and cp.exists() and cp.stat().st_size > 0:
+                    out.append(cp)
+                    trimmed += 1
+                    saved += dur - cap
+                    continue
             out.append(p)
             continue
         s = max(0.0, bounds[0] - _TRIM_LEAD_PAD)
@@ -198,14 +219,14 @@ async def _gather_clips(video_id: str, scene: Optional[int] = None) -> list[dict
     """
     if scene is None:
         rows = await fetch_all(
-            "SELECT scene, image_index, video_clip_url, video_duration "
+            "SELECT scene, image_index, video_clip_url, video_duration, duration_seconds "
             "FROM assets WHERE video_id = $1 AND video_clip_url IS NOT NULL "
             "ORDER BY scene, image_index",
             video_id,
         )
     else:
         rows = await fetch_all(
-            "SELECT scene, image_index, video_clip_url, video_duration "
+            "SELECT scene, image_index, video_clip_url, video_duration, duration_seconds "
             "FROM assets WHERE video_id = $1 AND scene = $2 AND video_clip_url IS NOT NULL "
             "ORDER BY image_index",
             video_id, scene,
@@ -419,7 +440,7 @@ async def stitch_video(
 
         trimmed = False
         if trim_silence:
-            new_paths = await _trim_dead_space(paths, workdir, on_progress)
+            new_paths = await _trim_dead_space(paths, workdir, on_progress, clips)
             trimmed = any(a != b for a, b in zip(paths, new_paths))
             paths = new_paths
 

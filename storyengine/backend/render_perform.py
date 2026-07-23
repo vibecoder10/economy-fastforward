@@ -69,6 +69,14 @@ MIN_SHOT_SECONDS = float(os.getenv("PERFORM_MIN_SHOT", "0.8"))
 # open the video mid-shout, shift the whole track by a short silent lead-in
 # so the opening silent shot(s) get a visual beat first.
 SCENE_LEADIN_SECONDS = float(os.getenv("PERFORM_SCENE_LEADIN", "1.6"))
+# A planned silent beat (reaction/insert) that falls in a ZERO-gap between two
+# adjacent lines used to get dropped outright. Instead it gets an L-cut: a
+# video-only cutaway window, up to this long, carved from the TAIL of the
+# preceding spoken shot's on-screen time. The donor's own audio is untouched —
+# the scene track places every voice at an absolute timestamp independent of
+# which shot's video is on screen (see `placements` / _build_scene_track) —
+# so the line keeps playing under the cutaway exactly like a film L-cut.
+SILENT_OVERLAY_MAX_SECONDS = float(os.getenv("PERFORM_SILENT_OVERLAY_MAX", "2.0"))
 
 # assigned_dialogue is written by coverage as: Speaker: "line"
 _ASSIGNED_RE = re.compile(r'^\s*(?P<speaker>[^:"]{1,80}):\s*"(?P<line>.+)"\s*$', re.DOTALL)
@@ -348,9 +356,44 @@ def build_timeline(segments: list, shots: list) -> dict:
         if not positions:
             continue  # gap with no shots — the neighbor window stretches over it
         if block <= 0.05:
-            warnings.append(
-                f"{len(positions)} narration shot(s) fall between adjacent lines "
-                "with no narration time — dropped")
+            # No narration time exists between two adjacent lines. A shot
+            # planned here with a stamped duration_seconds is a silent beat
+            # (reaction/insert), not narration filler — it must not vanish
+            # or create dead air. Carve it as an L-cut: video-only window
+            # (up to SILENT_OVERLAY_MAX_SECONDS) taken from the TAIL of the
+            # preceding spoken shot, whose own audio plays on unaffected
+            # (see module docstring on SILENT_OVERLAY_MAX_SECONDS). The
+            # boundary at b_start never moves, so total scene length is
+            # unchanged — only where the donor's video hands off to the
+            # cutaway underneath its continuing line.
+            donor = next((e for e in entries if e.get("speaking")
+                         and abs(e["end"] - b_start) <= 0.05), None)
+            donor_tail = donor["end"] if donor else None
+            # Process nearest-the-boundary shot first so carves chain
+            # correctly back into the donor's tail (final story order is
+            # fixed later by the entries.sort() below regardless).
+            for pos in reversed(positions):
+                planned = shots[pos].get("duration_seconds")
+                planned = float(planned) if planned else 0.0
+                if planned <= 0:
+                    warnings.append(
+                        f"narration shot at position {pos} falls between "
+                        "adjacent lines with no narration time and no "
+                        "planned duration — dropped")
+                    continue
+                window = min(planned, SILENT_OVERLAY_MAX_SECONDS)
+                if donor is None or (donor_tail - donor["start"]) - window < MIN_SHOT_SECONDS:
+                    warnings.append(
+                        f"silent beat at position {pos} falls between "
+                        "adjacent lines with no narration time and the "
+                        "preceding shot is too short to donate an L-cut "
+                        "window — dropped")
+                    continue
+                cut_at = round(donor_tail - window, 3)
+                entries.append({"shot": shots[pos], "start": cut_at,
+                                "end": donor_tail, "speaking": False})
+                donor["end"] = cut_at
+                donor_tail = cut_at
             continue
         keep = positions
         max_fit = max(1, int(block / MIN_SHOT_SECONDS))
@@ -389,7 +432,12 @@ def build_timeline(segments: list, shots: list) -> dict:
             # only changes how that fixed budget is divided, so a wide
             # holds the frame longer than an insert without touching the
             # scene's overall runtime or the speaking-shot path at all.
-            weights = [shots[p].get("duration_seconds")
+            # duration_seconds is a Postgres NUMERIC (assets.duration_seconds)
+            # and arrives via asyncpg as decimal.Decimal, not float — cast at
+            # the point of use so `acc = 0.0; acc += weights[k]` below never
+            # mixes float and Decimal (that mix raises TypeError; reproduced
+            # by feeding build_timeline Decimal-valued rows).
+            weights = [float(shots[p].get("duration_seconds") or 0)
                       or max(1, len((shots[p].get("sentence_text") or "").split()))
                       for p in keep]
             wsum = float(sum(weights))
@@ -610,7 +658,19 @@ async def _load_scene_inputs(video_id: str, tenant_id, scene: int) -> tuple[list
         video_id, tenant_id, scene)
     if not shots:
         raise ValueError(f"No clips in scene {scene} — animate it first.")
-    return raw, [dict(r) for r in shots]
+    # duration_seconds/video_duration are NUMERIC columns → asyncpg hands
+    # back decimal.Decimal, which crashes when it meets a float in the
+    # timeline math below (build_timeline mixes it into a `0.0` accumulator).
+    # Cast at this read boundary so every row this module touches downstream
+    # is plain float from here on.
+    out = []
+    for r in shots:
+        d = dict(r)
+        for key in ("duration_seconds", "video_duration"):
+            if d.get(key) is not None:
+                d[key] = float(d[key])
+        out.append(d)
+    return raw, out
 
 
 async def _assemble_scene_file(

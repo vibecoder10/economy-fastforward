@@ -13143,6 +13143,15 @@ separate scenes."""
                                     except Exception as pe:
                                         print(f"[stitch] scene {sc} performance assembly failed "
                                               f"({str(pe)[:150]}) — falling back to plain stitch", flush=True)
+                                        # A silent downgrade must never be silent again: the
+                                        # performance track carries dialogue timing/lip-sync,
+                                        # plain stitch does not — surface the quality drop on
+                                        # the visible bot_activity feed, not just stdout.
+                                        await self._log_activity(
+                                            "Render Bot", video_id, "failed",
+                                            f"Scene {sc}: performance-track assembly failed — "
+                                            f"fell back to plain stitch (lower quality, no "
+                                            f"dialogue timing/lip sync): {str(pe)[:300]}")
                                 if not scene_url:
                                     res = await stitch_video(video_id, self.tenant_id, scene=sc)
                                     scene_url = res["final_video_url"]

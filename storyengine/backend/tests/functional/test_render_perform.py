@@ -35,6 +35,8 @@ for name in ("database", "storage"):
 from render_perform import (  # noqa: E402
     DIALOGUE_HEAD_SECONDS,
     DIALOGUE_TAIL_SECONDS,
+    MIN_SHOT_SECONDS,
+    SILENT_OVERLAY_MAX_SECONDS,
     build_segment_spans,
     build_timeline,
     match_speaking_shots,
@@ -351,6 +353,82 @@ def test_first_entry_carrier_moved_by_normalization_is_demoted():
     # the claimed line's mp3 must be RESTORED to the track (3 total again)
     assert len(tl["placements"]) == 3
     assert any("normalization" in w for w in tl["warnings"])
+
+
+def test_decimal_duration_seconds_does_not_crash_build_timeline():
+    """render_perform.py:392 crash repro (verified diagnosis): duration_seconds
+    arrives from asyncpg as decimal.Decimal (NUMERIC column) and used to blow
+    up `acc = 0.0; acc += weights[k]` with a float/Decimal TypeError. A block
+    with MORE shots than segments forces the pro-rata weight path (the
+    content-aligned DP needs len(keep) <= len(block_spans))."""
+    from decimal import Decimal
+    segs = [_nar("One two three four five six seven eight nine ten.", 10.0)]
+    shots = [_shot(1, "many many many words here padding out the count"),
+             _shot(2, "few words")]
+    shots[0]["duration_seconds"] = Decimal("1.6")
+    shots[1]["duration_seconds"] = Decimal("3.5")
+    tl = build_timeline(segs, shots)  # must not raise TypeError
+    entries = tl["entries"]
+    assert len(entries) == 2
+    assert entries[0]["duration"] < entries[1]["duration"], entries
+    expected_ratio = 1.6 / (1.6 + 3.5)
+    actual_ratio = entries[0]["duration"] / tl["total"]
+    assert abs(actual_ratio - expected_ratio) < 0.02, (actual_ratio, expected_ratio)
+    _covers(entries, tl["total"])
+
+
+def test_silent_beat_in_zero_gap_gets_lcut_overlay_not_dropped():
+    """Design decision, FIX 2: a planned silent beat (reaction/insert shot)
+    that falls between two back-to-back dialogue lines with zero narration
+    gap must NOT be dropped or create dead air. It gets an L-cut: a
+    video-only cutaway window carved from the tail of the preceding spoken
+    shot, while that shot's own line keeps playing underneath (the scene
+    track places every voice at an absolute timestamp independent of which
+    shot's video is on screen — see _build_scene_track/`placements`)."""
+    segs = [_dlg("Marco", "¡Hola!", 2.0), _dlg("Sofia", "¡Hola!", 2.0)]
+    master1 = _shot(1, "Marco waves", assigned='Marco: "¡Hola!"', hero=True)
+    silent = _shot(2, "Sofia's dog reacts")
+    silent["duration_seconds"] = 1.0
+    master2 = _shot(3, "Sofia waves back", assigned='Sofia: "¡Hola!"', hero=True)
+    shots = [master1, silent, master2]
+
+    tl = build_timeline(segs, shots)
+    assert not any("dropped" in w for w in tl["warnings"]), tl["warnings"]
+    entries = tl["entries"]
+    assert len(entries) == 3
+
+    cut = next(e for e in entries if e["shot"] is silent)
+    assert not cut["speaking"]
+    assert 0 < cut["duration"] <= SILENT_OVERLAY_MAX_SECONDS + 0.01
+
+    # scene length is exactly what the audio track dictates — unchanged by
+    # inserting the overlay (compare against the plain span-clock total)
+    spans = build_segment_spans(segs)
+    assert abs(tl["total"] - spans[-1]["end"]) < 0.001
+    _covers(entries, tl["total"])
+
+    # the donor (master1) gave up exactly the cutaway's slice from its tail
+    donor_entry = next(e for e in entries if e["shot"] is master1)
+    assert abs(donor_entry["end"] - cut["start"]) < 0.001
+
+
+def test_silent_beat_dropped_when_donor_too_short_to_carve():
+    """Donor-too-short skip path: when carving the overlay would cut the
+    donor's own on-screen time below MIN_SHOT_SECONDS, skip the overlay and
+    warn instead of stealing an unreasonable slice from the speaking shot."""
+    segs = [_dlg("Marco", "Hi.", 0.1), _dlg("Sofia", "Hi.", 0.1)]
+    master1 = _shot(1, "Marco waves", assigned='Marco: "Hi."', hero=True)
+    silent = _shot(2, "Sofia's dog reacts")
+    silent["duration_seconds"] = 2.0
+    master2 = _shot(3, "Sofia waves back", assigned='Sofia: "Hi."', hero=True)
+    shots = [master1, silent, master2]
+
+    tl = build_timeline(segs, shots)
+    assert any("too short to donate" in w for w in tl["warnings"]), tl["warnings"]
+    assert all(e["shot"] is not silent for e in tl["entries"])
+    _covers(tl["entries"], tl["total"])
+    # donor kept its full original window — nothing carved off it
+    assert len(tl["entries"]) == 2
 
 
 if __name__ == "__main__":
