@@ -1,3 +1,23 @@
+# Deferred verification — Custom Film composer (Milestone 2)
+
+- [ ] **Paid mixed-section provider proof.**
+  - Proof reached now: architecture only. The separate Milestone 2 Definition of Complete requires a no-provider synthetic film that exercises all four section contracts and proves ordered assembly, quote binding, BYOK key selection, and approval behavior before any live spend is considered.
+  - Later recipe: after the separate draft PR passes no-spend review and Ryan approves a fresh itemized budget, use a tester-owned BYOK account to make the shortest supported Custom Film with four concise sections: Photo Documentary, Animated Investigative Documentary, Bilingual Character Animation, and Simple-Language Animation. Review the plain-English plan and section-aware estimate, explicitly approve that exact hash, then compare resulting section assets and ledger rows with the approved bill of materials.
+  - Expected result: each section uses its compiled knobs and user-owned credentials; the final film preserves order, transitions, audio, captions, and aspect; actual ledger rows reconcile with the estimate; no StoryEngine-funded key or unapproved retry is used.
+  - Cross-reference: checklist M2-3 through M2-5 and M2-7.
+
+- [ ] **Production migration, deployment, and first-user smoke.**
+  - Proof reached now: no Milestone 2 schema or product implementation exists yet. PR #459 remains a separate unmerged draft dependency, and no live migration/deploy is authorized.
+  - Later recipe: after both PRs are reviewed/merged and Ryan separately approves deployment, confirm a quiet/drained window, apply the final reviewed migration through the sanctioned deploy path, verify RLS/tenant isolation and health, then walk chat intent → explained plan → edit invalidates approval → re-approve → pre-generation stop without confirming a paid stage.
+  - Expected result: Custom Film stays absent from the four-card public selector; chat shows the section plan and BYOK estimate; stale approval cannot dispatch; saved recipes are tenant-private; backend/frontend return healthy and drain returns to normal.
+  - Cross-reference: checklist M2-1, M2-3, M2-6, and M2-7.
+
+- [ ] **Reusable-profile live persistence proof.**
+  - Proof reached now: the design uses a tenant-owned topic-free recipe and canonical signature, but no live table/write exists.
+  - Later recipe: after approved migration/deployment, compose a genuinely mixed plan, confirm Save Profile separately, reuse it for a different subject, and query through the sanctioned read-only DB path to verify the stored recipe contains roles/proportions/knobs but none of the first video's title, subject, script, sources, or rationale prose. Attempt the same signature twice and from a second tenant.
+  - Expected result: the second save is recognized as an existing recipe, the second tenant cannot read it, and reuse creates a new instantiated plan without mutating the saved version or starting generation.
+  - Cross-reference: checklist M2-1, M2-2, and M2-6.
+
 # Deferred verification — Beta UX + four public production styles (Milestone 1)
 
 - [ ] **Paid four-style shape proof.**

@@ -1,3 +1,107 @@
+# Loop checklist — Custom Film composer (Milestone 2)
+
+## Definition of Complete
+1. A creator can ask for a Custom Film naturally in chat and receive an ordered section-by-section production plan without seeing a fifth public preset card, an advanced-knob form, provider jargon, or internal profile names.
+2. Every section is a validated immutable contract over the Milestone 1 production dimensions. Each knob value is allowlisted, records its public-profile provenance, obeys a compatibility matrix, and is applied by the runtime at section scope rather than collapsing back to one video-wide `render_mode`, script profile, visual profile, language, dubbing, density, camera, or quality-law choice.
+3. Before generation, StoryEngine explains the assembled film in plain English: what each section will feel like, why it was chosen, the expected still/clip/voice shape, the user-owned providers involved, and one section-aware BYOK estimate. Editing the plan invalidates its approval and quote; only explicit approval of the exact current plan can start generation.
+4. Custom Film remains BYOK and fail-closed. Planner/runtime/provider resolution never reads StoryEngine-funded credentials, missing tenant keys produce a useful pre-spend stop, and the existing drain, generation-claim, budget-cap, quote, confirmation, and retry/idempotency laws still guard every start.
+5. A genuinely novel approved composition can become a reusable tenant-owned profile only through a separate explicit save confirmation. The saved artifact is a topic-free, versioned recipe of section roles/proportions/knobs, never the source video's subject matter; canonical signatures prevent copies of a public preset or an existing saved recipe from being presented as novel.
+6. A mixed plan can produce one coherent ordered film across static photo, animated investigative, bilingual character, and simple-language sections. Shared transitions, audio continuity, captions, aspect/resolution, and final assembly stay deterministic; legacy and single-profile videos remain byte-compatible where their paths are not involved.
+7. Focused backend/frontend tests, migration/RLS checks, negative and stash-proof evidence where useful, full relevant regressions/builds, a no-provider synthetic mixed-film render, and a no-spend first-user browser walkthrough pass. The verified implementation is published in a separate draft PR; paid mixed-style proof, live migration, production deployment, Drive writes, uploads, and merge remain explicit Ryan approval gates.
+
+## Milestone boundary
+- Milestone 1 is complete at `836e8c25` and remains sealed in draft PR #459.
+- Milestone 2 lives on `agent/storyengine-custom-film`, based on the Milestone 1 tip because it consumes the production-style contract. Its eventual PR targets `main` only after #459 is merged or is otherwise rebased onto the merged equivalent.
+- This pass prepares architecture and acceptance only. It does not implement Custom Film, push the branch, open a PR, call a provider, migrate a database, deploy, write to Drive, upload, or merge.
+
+## Clarifications and architecture decisions
+- **DEC-M2-CHAT-HIDDEN — resolved 2026-07-23**
+  - Decision: Custom Film is a chat capability, not a fifth card in `ProductionStyleSelector`. The public creation selector remains exactly four profiles.
+  - Why: the composer should translate intent into safe structure while keeping advanced controls private.
+- **DEC-M2-COMPONENT-BOUNDARY — resolved 2026-07-23**
+  - Decision: the planner may compose only the named dimensions and values supplied by the four public profile snapshots, plus explicitly implemented compatibility rules. It cannot invent provider IDs, arbitrary knobs, or a new generation path.
+  - Why: Custom Film is a control-plane composer over proven components, not an unbounded provider prompt.
+- **DEC-M2-SECTION — resolved 2026-07-23**
+  - Decision: a section is a stable ordered production unit with a topic-specific purpose, relative duration, knob snapshot, public-profile provenance, estimated media, and one or more eventual scene numbers. A compiler assigns scenes/assets to section IDs; scene-number heuristics are not the source of truth.
+  - Why: script acts and scene counts can change during planning, so the production contract needs a durable identity independent of display numbering.
+- **DEC-M2-RUNTIME — resolved 2026-07-23**
+  - Decision: compile every validated section into the existing runtime adapters, then assemble their outputs through one ordered mixed-section composition contract. Do not spread `if custom_film` branches through provider callers or choose one video-wide render mode as a lossy fallback.
+  - Why: Milestone 1 currently stores decisive runtime values at video scope; a planner-only change would explain a mix that the executor cannot actually honor.
+- **DEC-M2-APPROVAL — resolved 2026-07-23**
+  - Decision: canonicalize and hash the full instantiated plan plus quote inputs. Generation approval records that hash; any plan, model, duration, or estimate-affecting change clears approval. The generation door re-resolves the current hash, tenant keys, drain state, claim, and budget before dispatch.
+  - Why: approval must bind to what will spend, not to an earlier description.
+- **DEC-M2-BYOK-PLANNING — resolved 2026-07-23**
+  - Decision: the creator's ordinary BYOK chat turn may perform the planning inference, as chat already does. That turn cannot launch script/media generation. The resulting plan and generation estimate always require a separate explicit approval before pipeline work begins.
+  - Why: separating conversational planning from generation keeps the UX usable while preserving the spend gate.
+- **DEC-M2-NOVELTY — resolved 2026-07-23**
+  - Decision: derive a canonical topic-free recipe signature from ordered section roles, duration proportions, normalized knob values, and compatibility version. Ignore titles, subject matter, rationale prose, and scene numbers. Offer Save only when the signature differs from all four single-profile recipes and the tenant's active saved recipes; saving is a separate confirmation.
+  - Why: a reusable profile must capture a production grammar, not accidentally preserve one video's content or create duplicates.
+- **DEC-M2-PR — resolved 2026-07-23**
+  - Decision: no Milestone 2 commit belongs to PR #459. Planning begins on the local separate branch; pushing and opening the Milestone 2 draft PR are final-chunk actions only.
+
+## Architecture pass
+- **Existing reusable foundation**
+  - `backend/production_styles.py` owns the allowlisted dimension schema, public catalog validation, immutable video snapshots, video-level runtime translation, and script guidance.
+  - `routes/chat.py` already owns chat planning, authoritative card selections, the create approval turn, persisted conversation state, and the existing plan estimate.
+  - `actions.py` is the shared quote/budget/dispatch law; `generation_claims.py` and drain mode guard duplicate or unsafe starts.
+  - `coverage_to_app.py` already consumes `production_style_snapshot.knobs.image_density` for visual-cue planning.
+- **Load-bearing gap**
+  - Milestone 1 resolves `render_mode`, `script_profile`, `style_preset_id`, and `dialogue_audio` once in `routes/videos.py` and stores them on `videos`.
+  - Static/coverage stage routing, dialogue behavior, renderer selection, and finish UX still branch mainly on those video-wide fields. Only copying a mixed plan into JSON would not change the actual film.
+  - The current pre-creation estimate is video-level and approximate; it is not an executable per-section bill of materials.
+  - `style_presets` describes visual look and is not a tenant-owned production-recipe store. Custom Film needs a distinct tenant-isolated, versioned recipe contract.
+- **Target control flow**
+  1. Chat recognizes Custom Film intent and gathers only missing creative constraints.
+  2. A planner receives the current public profile snapshots plus a compatibility manifest and returns schema-constrained section intentions.
+  3. A deterministic validator/compiler rejects unknown values, incompatible combinations, unsupported transitions, missing key capabilities, and topic leakage in reusable-recipe fields.
+  4. The compiler persists the instantiated plan and section rows, calculates a section-aware media/provider bill of materials, and renders the plain-English explanation.
+  5. Explicit approval binds to the canonical plan-and-quote hash.
+  6. Existing stage runners execute against section IDs and adapters; a mixed compositor joins ordered section outputs into one video.
+  7. After approval, the novelty checker may offer a separate Save Profile confirmation for a topic-free recipe.
+
+## Assumptions
+- PR #459's schema and runtime contract are the dependency base; if review changes them, M2-0 is rerun before implementation.
+- Custom Film does not expose a public fifth preset and does not modify the four public catalog rows.
+- The four profiles define the initial capability vocabulary. A new provider/mode is a separate product decision, not something the planner may infer.
+- Planner prose is untrusted. Only the deterministic compiler's allowlisted output reaches persistence, estimation, or runtime.
+- A saved recipe is tenant-private by default. Sharing or publishing community recipes is out of scope.
+- Saving and generating are independent confirmations: a creator can generate without saving or save a recipe without triggering generation.
+- No paid/live proof is required to complete the separate no-spend implementation PR; those checks remain honestly deferred.
+
+## Chunks
+- [x] M2-0 SWEEP + ARCHITECTURE [D][B][U][V] Restore the Milestone 1 handoff, verify PR/worktree isolation, trace the style/chat/quote/runtime persistence seams, define the section contract, close plan-changing clarifications with explicit assumptions, and create the separate local planning branch.
+      Evidence: all four governing files were read completely. PR #459 is open, draft, mergeable/CLEAN, has no reviews/comments/check rollup, and still points from `agent/storyengine-beta-ux-styles` to `main` at `836e8c25`. Local branch `agent/storyengine-custom-film` was created from that exact tip; only pre-existing ignored-by-practice directories `storyengine/backend/venv` and `storyengine/frontend/node_modules` are untracked. The protected `/Users/ryanayler/economy-fastforward` checkout remains on `feat/per-card-parallel-clips` at `642e5b1e` with its pre-existing `storyengine/HANDOFF.md`, `storyengine/.claude/`, and `storyengine/tasks/ref-dryrun-2026-07-21.txt` state untouched; stash `19be0af…` remains present. Read-only code tracing proved the video-wide runtime gap and identified the existing chat approval, quote, BYOK, claim, and density seams above. No provider call, product-code edit, remote write, migration, deployment, Drive write, upload, or merge occurred.
+- [ ] M2-1 CONTRACT + PERSISTENCE [D][B][V] Add the validated section/plan schemas, capability/compatibility manifest, tenant-owned versioned reusable-recipe store, instantiated per-video section persistence, canonical signatures, approval hash fields, RLS, and legacy-safe serialization. Recheck the next migration number immediately before editing.
+      Acceptance: malformed/unknown/incompatible plans fail closed; section identity survives scene replanning; tenant isolation and topic-free recipe storage are proven; untouched legacy videos serialize and execute as before.
+      Risk/prohibited: high data-contract risk; no live migration, provider call, or remote write.
+      Depends on: M2-0 and the merged-equivalent Milestone 1 schema.
+- [ ] M2-2 PLANNER + COMPILER [B][V] Build the chat-hidden Custom Film intent path, constrained planner schema, deterministic compiler, plain-English section explanation, provenance, novelty classifier, and no-key/error behavior.
+      Acceptance: fixtures produce stable plans; adversarial output cannot inject knobs/providers; a single-profile request does not masquerade as novel; no generation starts from planning.
+      Risk/prohibited: planner output is untrusted; tests use fakes only and make no provider call.
+      Depends on: M2-1.
+- [ ] M2-3 SECTION-AWARE ESTIMATE + APPROVAL [B][U][V] Compile section media/provider counts through the shared estimator, show one BYOK plan/estimate in chat, bind approval to the current canonical hash, invalidate it on edits, and route the confirmed start through drain/claim/budget/key gates.
+      Acceptance: estimate totals equal their itemized section rows; stale/double approvals cannot dispatch; missing keys and cap breaches stop before work; no advanced controls leak into the UI.
+      Risk/prohibited: money/auth hot path; no paid call.
+      Depends on: M2-1 and M2-2.
+- [ ] M2-4 SECTION RUNTIME [B][R][V] Carry section IDs and compiled runtime values through script, coverage/static imagery, language/dubbing, voice, motion/clip, quality-law, and stage-plan seams without `custom_film` conditionals in provider callers.
+      Acceptance: each stage consumes the compiled section contract; unsupported cross-mode combinations stop before spend; single-profile and legacy regression suites stay at baseline.
+      Risk/prohibited: highest backend/provider blast radius; no paid provider call.
+      Depends on: M2-1 and M2-3.
+- [ ] M2-5 MIXED COMPOSITOR [B][R][U][V] Normalize static and animated section outputs into one ordered composition, preserving transitions, audio continuity, captions, aspect/resolution, progress, and honest finish/co-pilot status.
+      Acceptance: a local fixture film mixes all four section types in order with deterministic timing and no generated media; screenshots/frame inspection prove the user-visible result.
+      Risk/prohibited: high render/UX risk; synthetic local assets only.
+      Depends on: M2-4.
+- [ ] M2-6 REUSABLE NOVEL PROFILES [D][B][U][V] Offer and confirm saving only after canonical novelty passes; store a topic-free recipe; list/reuse/rename/archive tenant recipes through chat while keeping advanced knobs hidden.
+      Acceptance: duplicates/public clones are not offered as novel; cross-tenant reads fail; reuse instantiates a fresh topic-specific plan without mutating the saved version; save never starts generation.
+      Risk/prohibited: tenant data writes only in local tests; no external write.
+      Depends on: M2-1, M2-2, and M2-3.
+- [ ] M2-7 FINAL + SEPARATE PR [V][G] Re-grade all seven criteria from a first-user path, run focused and full relevant regressions/builds, inspect the no-provider mixed render and browser flow, update deferred recipes, commit intentionally, push only this branch, and open a separate draft PR.
+      Acceptance: explicit Complete/Partial verdict with baseline comparison and exact residual risks; PR contains no Milestone 1 amendments unrelated to its M2 dependency and no paid/deploy evidence is implied.
+      Risk/prohibited: remote write is limited to the separate branch/draft PR; no merge, deployment, live migration, paid run, Drive write, or upload.
+      Depends on: M2-1 through M2-6 accepted.
+
+## Previous completed mission
+
 # Loop checklist — Beta UX + four public production styles (Milestone 1)
 
 ## Definition of Complete
