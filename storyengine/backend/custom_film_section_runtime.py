@@ -17,11 +17,20 @@ import database
 import generation_claims
 from custom_film_contract import CustomFilmContractError
 from custom_film_runtime import RUNTIME_VERSION, validate_runtime_envelope
+from error_utils import humanize_error
 
 
 SUPPORTED_STAGES = frozenset(
     {"script", "voice", "pictures", "motion", "clips", "quality"}
 )
+
+
+def _updated_once(result: Any) -> bool:
+    if isinstance(result, str):
+        return result.rsplit(" ", 1)[-1] == "1"
+    if isinstance(result, int):
+        return result == 1
+    return bool(result)
 
 
 def _object(value: Any, name: str) -> dict[str, Any]:
@@ -127,7 +136,89 @@ class SectionStageRunner(Protocol):
         self,
         adapter: SectionStageAdapter,
         scene_ids: tuple[str, ...],
+        operation_id: str,
     ) -> Mapping[str, Any] | None: ...
+
+
+class CustomFilmReconciliationRequired(CustomFilmContractError):
+    """An operation crossed the write-ahead boundary without a durable result."""
+
+
+def _operation_id(
+    tenant_id: str,
+    job_id: str,
+    adapter: SectionStageAdapter,
+) -> str:
+    from custom_film_contract import canonical_hash
+
+    return "custom-film-op:" + canonical_hash(
+        {
+            "tenant_id": tenant_id,
+            "video_id": adapter.video_id,
+            "job_id": job_id,
+            "runtime_hash": adapter.runtime_hash,
+            "stage_key": adapter.stage_key,
+        }
+    )
+
+
+def _validated_progress(
+    value: Any,
+    *,
+    runtime_hash: str,
+    ordered_stage_keys: tuple[str, ...],
+    operation_ids: Mapping[str, str],
+) -> tuple[list[str], dict[str, str] | None]:
+    progress = _object(value or {}, "runtime progress")
+    if not progress:
+        return [], None
+    if set(progress) != {
+        "runtime_hash",
+        "completed_stage_keys",
+        "last_stage_key",
+        "in_flight",
+    }:
+        raise CustomFilmContractError("Custom Film runtime progress shape is invalid")
+    if str(progress.get("runtime_hash") or "") != runtime_hash:
+        raise CustomFilmContractError("Custom Film runtime progress is stale")
+    raw_completed = progress.get("completed_stage_keys")
+    if not isinstance(raw_completed, list) or any(
+        not isinstance(value, str) for value in raw_completed
+    ):
+        raise CustomFilmContractError("Custom Film runtime progress is invalid")
+    completed = list(raw_completed)
+    if completed != list(ordered_stage_keys[: len(completed)]):
+        raise CustomFilmContractError(
+            "Custom Film runtime progress is not an exact ordered prefix"
+        )
+    expected_last = completed[-1] if completed else None
+    if progress.get("last_stage_key") != expected_last:
+        raise CustomFilmContractError(
+            "Custom Film runtime last-stage checkpoint is inconsistent"
+        )
+    raw_in_flight = progress.get("in_flight")
+    if raw_in_flight is None:
+        return completed, None
+    in_flight = _object(raw_in_flight, "runtime in-flight operation")
+    if len(completed) >= len(ordered_stage_keys):
+        raise CustomFilmContractError(
+            "Custom Film runtime has an operation after its completed stage plan"
+        )
+    expected_stage_key = ordered_stage_keys[len(completed)]
+    expected_operation_id = operation_ids[expected_stage_key]
+    if (
+        str(in_flight.get("stage_key") or "") != expected_stage_key
+        or str(in_flight.get("operation_id") or "") != expected_operation_id
+        or in_flight.get("state") != "started"
+    ):
+        raise CustomFilmContractError(
+            "Custom Film runtime in-flight operation is invalid"
+        )
+    return completed, {
+        "stage_key": expected_stage_key,
+        "operation_id": expected_operation_id,
+        "state": "started",
+    }
 
 
 def _validate_section_modes(section: Mapping[str, Any]) -> None:
@@ -380,6 +471,7 @@ async def _replace_assignments(
 async def _unsupported_runner(
     adapter: SectionStageAdapter,
     _scene_ids: tuple[str, ...],
+    _operation_id_value: str,
 ) -> Mapping[str, Any] | None:
     raise CustomFilmContractError(
         f"Custom Film {adapter.stage} production adapter is not installed; "
@@ -393,6 +485,7 @@ async def consume_runtime_schedule(
     job_id: str,
     *,
     stage_runner: SectionStageRunner | None = None,
+    attempt: int = 1,
 ) -> dict[str, Any]:
     """Consume one exact schedule under the main execution claim.
 
@@ -435,39 +528,77 @@ async def consume_runtime_schedule(
             if job_id != expected_job_id or str(row["job_id"]) != expected_job_id:
                 raise CustomFilmContractError("Custom Film runtime job identity is invalid")
             adapters = compile_stage_adapters(envelope)
-            progress = _object(
-                row.get("runtime_progress") or {}, "runtime progress"
-            )
-            if progress and str(progress.get("runtime_hash") or "") != envelope["runtime_hash"]:
-                raise CustomFilmContractError("Custom Film runtime progress is stale")
-            completed = {
-                str(value)
-                for value in progress.get("completed_stage_keys", [])
-                if str(value)
+            ordered_stage_keys = tuple(adapter.stage_key for adapter in adapters)
+            operation_ids = {
+                adapter.stage_key: _operation_id(tenant_id, job_id, adapter)
+                for adapter in adapters
             }
-            valid_keys = {adapter.stage_key for adapter in adapters}
-            if not completed.issubset(valid_keys):
-                raise CustomFilmContractError("Custom Film runtime progress is invalid")
-            await conn.execute(
+            completed, in_flight = _validated_progress(
+                row.get("runtime_progress"),
+                runtime_hash=envelope["runtime_hash"],
+                ordered_stage_keys=ordered_stage_keys,
+                operation_ids=operation_ids,
+            )
+            if in_flight is not None:
+                raise CustomFilmReconciliationRequired(
+                    "A Custom Film section operation may have reached its provider "
+                    "before the restart. Reconciliation is required; it was not run again."
+                )
+            running_result = await conn.execute(
                 """UPDATE background_tasks
                    SET status = 'running', message = 'Running approved section runtime',
-                       error_message = NULL, completed_at = NULL
+                       error_message = NULL, completed_at = NULL, attempt = $4
                    WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
                 tenant_id,
                 video_id,
                 job_id,
+                attempt,
             )
+            if not _updated_once(running_result):
+                raise CustomFilmContractError(
+                    "Custom Film runtime job could not be claimed for execution"
+                )
 
         for adapter in adapters:
             if adapter.stage_key in completed:
                 continue
+            operation_id = operation_ids[adapter.stage_key]
             async with pool.acquire() as conn:
                 scene_ids = (
                     ()
                     if adapter.stage == "script"
                     else await _load_assignments(conn, tenant_id, adapter)
                 )
-            result = await runner(adapter, scene_ids)
+                write_ahead = {
+                    "runtime_hash": envelope["runtime_hash"],
+                    "completed_stage_keys": list(completed),
+                    "last_stage_key": completed[-1] if completed else None,
+                    "in_flight": {
+                        "stage_key": adapter.stage_key,
+                        "operation_id": operation_id,
+                        "state": "started",
+                    },
+                }
+                write_ahead_result = await conn.execute(
+                    """UPDATE background_tasks
+                       SET runtime_progress = $4::jsonb,
+                           message = $5
+                       WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
+                    tenant_id,
+                    video_id,
+                    job_id,
+                    json.dumps(
+                        write_ahead,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    f"Started section stage {adapter.stage_key}",
+                )
+                if not _updated_once(write_ahead_result):
+                    raise CustomFilmContractError(
+                        "Custom Film stage operation could not be reserved"
+                    )
+            result = await runner(adapter, scene_ids, operation_id)
             result_object = _object(result or {}, "stage result")
             if adapter.stage == "script":
                 raw_scene_ids = result_object.get("scene_ids")
@@ -482,13 +613,14 @@ async def consume_runtime_schedule(
                         await _replace_assignments(
                             conn, tenant_id, adapter, scene_ids
                         )
-                    completed.add(adapter.stage_key)
+                    completed.append(adapter.stage_key)
                     durable_progress = {
                         "runtime_hash": envelope["runtime_hash"],
-                        "completed_stage_keys": sorted(completed),
+                        "completed_stage_keys": list(completed),
                         "last_stage_key": adapter.stage_key,
+                        "in_flight": None,
                     }
-                    await conn.execute(
+                    progress_result = await conn.execute(
                         """UPDATE background_tasks
                            SET runtime_progress = $4::jsonb,
                                message = $5
@@ -503,9 +635,13 @@ async def consume_runtime_schedule(
                         ),
                         f"Completed section stage {adapter.stage_key}",
                     )
+                    if not _updated_once(progress_result):
+                        raise CustomFilmContractError(
+                            "Custom Film stage result could not be checkpointed"
+                        )
 
         async with pool.acquire() as conn:
-            await conn.execute(
+            completed_result = await conn.execute(
                 """UPDATE background_tasks
                    SET status = 'completed',
                        message = 'Approved section runtime complete',
@@ -515,13 +651,25 @@ async def consume_runtime_schedule(
                 video_id,
                 job_id,
             )
+            if not _updated_once(completed_result):
+                raise CustomFilmContractError(
+                    "Custom Film runtime completion could not be checkpointed"
+                )
         return {
             "status": "completed",
             "job_id": job_id,
             "runtime_hash": envelope["runtime_hash"],
-            "completed_stage_keys": sorted(completed),
+            "completed_stage_keys": list(completed),
         }
     except Exception as exc:
+        persisted_error = (
+            str(exc)
+            if isinstance(exc, CustomFilmReconciliationRequired)
+            else humanize_error(
+                exc,
+                context="Custom Film section runtime stopped",
+            )
+        )
         if pool is not None:
             try:
                 async with pool.acquire() as conn:
@@ -534,7 +682,7 @@ async def consume_runtime_schedule(
                         tenant_id,
                         video_id,
                         job_id,
-                        str(exc),
+                        persisted_error,
                     )
             except Exception:
                 pass

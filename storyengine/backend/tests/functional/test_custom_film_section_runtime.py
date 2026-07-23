@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -262,6 +263,7 @@ class _FakeConnection:
             self.task["status"] = "completed"
         elif "SET status = 'failed'" in sql:
             self.task["status"] = "failed"
+            self.task["error_message"] = _args[3]
         else:
             raise AssertionError(sql)
         return "UPDATE 1"
@@ -314,8 +316,8 @@ async def test_consumer_holds_claim_persists_assignments_and_passes_resolved_val
     async def release(*args):
         claim_events.append(("release", args, {}))
 
-    async def runner(adapter, scene_ids):
-        calls.append((adapter, scene_ids))
+    async def runner(adapter, scene_ids, operation_id):
+        calls.append((adapter, scene_ids, operation_id))
         if adapter.stage == "script":
             return {"scene_ids": [f"{adapter.section_id}-scene-1"]}
         return {"ok": True}
@@ -338,7 +340,12 @@ async def test_consumer_holds_claim_persists_assignments_and_passes_resolved_val
     assert len(calls) == 10
     assert all(
         not scenes or scenes == (f"{adapter.section_id}-scene-1",)
-        for adapter, scenes in calls
+        for adapter, scenes, _operation_id in calls
+    )
+    assert all(
+        operation_id.startswith("custom-film-op:")
+        and len(operation_id) == len("custom-film-op:") + 64
+        for _adapter, _scenes, operation_id in calls
     )
     assert calls[0][0].provider_values()["script_profile"] == "neutral_v1"
     assert calls[4][0].provider_values()["script_profile"] == "power_doctrine_v2"
@@ -390,7 +397,7 @@ async def test_assignment_remap_rolls_back_if_any_scene_insert_fails():
     async def release(*_args):
         return None
 
-    async def runner(adapter, _scene_ids):
+    async def runner(adapter, _scene_ids, _operation_id):
         if adapter.stage == "script":
             return {"scene_ids": ["new-scene", "bad-scene"]}
         return {"ok": True}
@@ -415,7 +422,14 @@ async def test_assignment_remap_rolls_back_if_any_scene_insert_fails():
 async def test_restart_resumes_after_last_durable_stage_without_replaying_it(monkeypatch):
     envelope = _envelope()
     conn = _FakeConnection(envelope)
-    first_calls = []
+    first_stage_key = f"0:{STATIC_ID}:script"
+    conn.assignments[STATIC_ID] = ["scene-static"]
+    conn.task["runtime_progress"] = {
+        "runtime_hash": envelope["runtime_hash"],
+        "completed_stage_keys": [first_stage_key],
+        "last_stage_key": first_stage_key,
+        "in_flight": None,
+    }
 
     async def acquire(*_args, **_kwargs):
         return True
@@ -423,40 +437,24 @@ async def test_restart_resumes_after_last_durable_stage_without_replaying_it(mon
     async def release(*_args):
         return None
 
-    async def fail_after_first(adapter, _scene_ids):
-        first_calls.append(adapter.stage_key)
-        if len(first_calls) == 1:
-            return {"scene_ids": ["scene-static"]}
-        raise RuntimeError("worker stopped")
-
-    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(_FakePool(conn)))
-    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
-    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
-    with pytest.raises(RuntimeError, match="worker stopped"):
-        await section_runtime.consume_runtime_schedule(
-            "tenant-1",
-            "video-1",
-            conn.task["job_id"],
-            stage_runner=fail_after_first,
-        )
-    assert conn.task["runtime_progress"]["completed_stage_keys"] == [
-        f"0:{STATIC_ID}:script"
-    ]
     second_calls = []
 
-    async def finish(adapter, _scene_ids):
+    async def finish(adapter, _scene_ids, _operation_id):
         second_calls.append(adapter.stage_key)
         if adapter.stage == "script":
             return {"scene_ids": ["scene-animated"]}
         return {"ok": True}
 
+    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(_FakePool(conn)))
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
     await section_runtime.consume_runtime_schedule(
         "tenant-1",
         "video-1",
         conn.task["job_id"],
         stage_runner=finish,
     )
-    assert f"0:{STATIC_ID}:script" not in second_calls
+    assert first_stage_key not in second_calls
     assert conn.task["status"] == "completed"
 
 
@@ -470,6 +468,7 @@ async def test_restart_with_completed_script_but_missing_assignment_stops_pre_ru
         "runtime_hash": envelope["runtime_hash"],
         "completed_stage_keys": [f"0:{STATIC_ID}:script"],
         "last_stage_key": f"0:{STATIC_ID}:script",
+        "in_flight": None,
     }
     calls = []
 
@@ -479,7 +478,7 @@ async def test_restart_with_completed_script_but_missing_assignment_stops_pre_ru
     async def release(*_args):
         return None
 
-    async def runner(adapter, _scene_ids):
+    async def runner(adapter, _scene_ids, _operation_id):
         calls.append(adapter.stage_key)
         return {"ok": True}
 
@@ -497,6 +496,161 @@ async def test_restart_with_completed_script_but_missing_assignment_stops_pre_ru
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("completed", "last_stage_key", "in_flight"),
+    [
+        ([f"0:{STATIC_ID}:voice"], f"0:{STATIC_ID}:voice", None),
+        (
+            [f"0:{STATIC_ID}:script", f"0:{STATIC_ID}:pictures"],
+            f"0:{STATIC_ID}:pictures",
+            None,
+        ),
+        ([f"0:{STATIC_ID}:script"], None, None),
+        (
+            [f"0:{STATIC_ID}:script"],
+            f"0:{STATIC_ID}:script",
+            {
+                "stage_key": f"0:{STATIC_ID}:pictures",
+                "operation_id": "custom-film-op:" + ("a" * 64),
+                "state": "started",
+            },
+        ),
+    ],
+)
+async def test_nonprefix_reordered_or_inconsistent_progress_stops_before_callback(
+    monkeypatch, completed, last_stage_key, in_flight
+):
+    envelope = _envelope()
+    conn = _FakeConnection(envelope)
+    conn.task["runtime_progress"] = {
+        "runtime_hash": envelope["runtime_hash"],
+        "completed_stage_keys": completed,
+        "last_stage_key": last_stage_key,
+        "in_flight": in_flight,
+    }
+    calls = []
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    async def runner(*args):
+        calls.append(args)
+        return {"ok": True}
+
+    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(_FakePool(conn)))
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    with pytest.raises(contract.CustomFilmContractError):
+        await section_runtime.consume_runtime_schedule(
+            "tenant-1",
+            "video-1",
+            conn.task["job_id"],
+            stage_runner=runner,
+        )
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_crash_after_callback_before_complete_never_replays_callback(monkeypatch):
+    class CrashAfterCallbackConnection(_FakeConnection):
+        def __init__(self, envelope):
+            super().__init__(envelope)
+            self.progress_writes = 0
+
+        def transaction(self):
+            return _RollbackContext(self)
+
+        async def execute(self, sql, *_args):
+            if "SET runtime_progress" in sql:
+                self.progress_writes += 1
+                if self.progress_writes == 2:
+                    raise RuntimeError("checkpoint connection dropped")
+            return await super().execute(sql, *_args)
+
+    envelope = _envelope()
+    conn = CrashAfterCallbackConnection(envelope)
+    calls = []
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    async def runner(adapter, _scene_ids, operation_id):
+        calls.append((adapter.stage_key, operation_id))
+        return {"scene_ids": ["scene-static"]}
+
+    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(_FakePool(conn)))
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    with pytest.raises(RuntimeError, match="checkpoint connection dropped"):
+        await section_runtime.consume_runtime_schedule(
+            "tenant-1",
+            "video-1",
+            conn.task["job_id"],
+            stage_runner=runner,
+        )
+    assert len(calls) == 1
+    stable_operation_id = calls[0][1]
+    assert conn.task["runtime_progress"]["in_flight"] == {
+        "stage_key": f"0:{STATIC_ID}:script",
+        "operation_id": stable_operation_id,
+        "state": "started",
+    }
+
+    with pytest.raises(
+        section_runtime.CustomFilmReconciliationRequired,
+        match="Reconciliation is required",
+    ):
+        await section_runtime.consume_runtime_schedule(
+            "tenant-1",
+            "video-1",
+            conn.task["job_id"],
+            stage_runner=runner,
+        )
+    assert len(calls) == 1
+    assert "checkpoint connection dropped" not in conn.task["error_message"]
+    assert "Reconciliation is required" in conn.task["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_raw_callback_error_is_humanized_before_persistence(monkeypatch):
+    envelope = _envelope()
+    conn = _FakeConnection(envelope)
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    async def runner(*_args):
+        raise RuntimeError(
+            "provider secret sk-live-123 at https://private.example failed"
+        )
+
+    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(_FakePool(conn)))
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    with pytest.raises(RuntimeError):
+        await section_runtime.consume_runtime_schedule(
+            "tenant-1",
+            "video-1",
+            conn.task["job_id"],
+            stage_runner=runner,
+        )
+    assert conn.task["error_message"] == (
+        "Custom Film section runtime stopped. Please try again."
+    )
+    assert "sk-live" not in conn.task["error_message"]
+    assert "private.example" not in conn.task["error_message"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["claim", "missing_assignment", "job_mismatch"])
 async def test_consumer_stops_before_runner_for_claim_assignment_or_identity_failure(
     monkeypatch, failure
@@ -511,7 +665,7 @@ async def test_consumer_stops_before_runner_for_claim_assignment_or_identity_fai
     async def release(*_args):
         return None
 
-    async def runner(adapter, _scene_ids):
+    async def runner(adapter, _scene_ids, _operation_id):
         calls.append(adapter.stage_key)
         if adapter.stage == "script":
             if failure == "missing_assignment":
@@ -604,9 +758,52 @@ async def test_queue_requires_and_forwards_durable_runtime_job_id():
         "tenant-1",
         runtime_job_id=runtime_job_id,
     )
-    assert queued == "custom_film_runtime:video-1:1"
+    assert queued == f"custom-film-worker:{runtime_job_id}:1"
     assert pool.call[0][0] == "arq_run_custom_film_runtime"
     assert pool.call[1]["runtime_job_id"] == runtime_job_id
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_reenqueues_exact_runtime_job_identity(monkeypatch):
+    import main
+
+    runtime_job_id = "custom-film-runtime:" + ("d" * 64)
+    calls = []
+
+    async def recover():
+        calls.append(("recover",))
+        return 1
+
+    async def fetch(_sql):
+        assert "job_id" in _sql
+        return [
+            {
+                "video_id": "video-1",
+                "tenant_id": "tenant-1",
+                "task_type": "custom_film_runtime",
+                "job_id": runtime_job_id,
+                "attempt": 1,
+            }
+        ]
+
+    async def enqueue(*args, **kwargs):
+        calls.append(("enqueue", args, kwargs))
+        return "queued"
+
+    monkeypatch.setattr(main, "recover_stale_tasks", recover)
+    monkeypatch.setattr(main, "fetch_all", fetch)
+    monkeypatch.setattr(main, "enqueue_stage", enqueue)
+    app = SimpleNamespace(state=SimpleNamespace(arq=object()))
+    assert await main._recover_stale_tasks_to_queue(app) == 1
+    enqueue_call = calls[-1]
+    assert enqueue_call[0] == "enqueue"
+    assert enqueue_call[1][1:] == (
+        "custom_film_runtime",
+        "video-1",
+        "tenant-1",
+        2,
+    )
+    assert enqueue_call[2] == {"runtime_job_id": runtime_job_id}
 
 
 def test_runtime_progress_schema_migration_worker_and_queue_are_in_lockstep():
@@ -621,6 +818,8 @@ def test_runtime_progress_schema_migration_worker_and_queue_are_in_lockstep():
         "runtime_progress JSONB",
         "background_tasks_custom_film_runtime_progress_check",
         "completed_stage_keys",
+        "custom-film-op:",
+        "in_flight",
     ):
         assert token in migration
         assert token in schema

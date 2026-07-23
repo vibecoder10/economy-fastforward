@@ -554,6 +554,50 @@ async def _auto_generate_meta_insights():
         await asyncio.sleep(86400)  # Every 24 hours
 
 
+async def _recover_stale_tasks_to_queue(app: FastAPI) -> int:
+    """Fail stale rows and causally re-enqueue their exact durable identity."""
+    recovered = 0
+    try:
+        recovered = await recover_stale_tasks()
+        if recovered:
+            logger.info("Recovered %d stale background tasks (marked as failed)", recovered)
+
+        if getattr(app.state, "arq", None):
+            stale_rows = await fetch_all(
+                "SELECT video_id, task_type, tenant_id, job_id, "
+                "COALESCE(attempt, 1) AS attempt "
+                "FROM background_tasks "
+                "WHERE status = 'failed' "
+                "AND error_message = 'Server restarted — task interrupted' "
+                "AND completed_at >= now() - interval '10 minutes'"
+            )
+            for row in stale_rows or []:
+                new_attempt = row["attempt"] + 1
+                if new_attempt <= 3:
+                    try:
+                        stage_kwargs = {}
+                        if row["task_type"] == "custom_film_runtime":
+                            runtime_job_id = str(row.get("job_id") or "")
+                            if not runtime_job_id:
+                                raise ValueError(
+                                    "custom_film_runtime recovery has no durable job_id"
+                                )
+                            stage_kwargs["runtime_job_id"] = runtime_job_id
+                        await enqueue_stage(
+                            app.state.arq,
+                            row["task_type"],
+                            str(row["video_id"]),
+                            str(row["tenant_id"]),
+                            new_attempt,
+                            **stage_kwargs,
+                        )
+                    except (ValueError, Exception) as eq:
+                        logger.warning("Could not re-enqueue %s: %s", row["task_type"], eq)
+    except Exception as e:
+        logger.warning("Stale task recovery error (non-blocking): %s", e)
+    return recovered
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -584,36 +628,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Migration runner error (non-blocking): %s", e)
 
-    # Recover tasks that were running when the server last stopped
-    try:
-        recovered = await recover_stale_tasks()
-        if recovered:
-            logger.info("Recovered %d stale background tasks (marked as failed)", recovered)
-
-        # Re-enqueue stale tasks via arq if Redis is available
-        if getattr(app.state, "arq", None):
-            stale_rows = await fetch_all(
-                "SELECT video_id, task_type, tenant_id, COALESCE(attempt, 1) AS attempt "
-                "FROM background_tasks "
-                "WHERE status = 'failed' "
-                "AND error_message = 'Server restarted — task interrupted' "
-                "AND completed_at >= now() - interval '10 minutes'"
-            )
-            for row in stale_rows or []:
-                new_attempt = row["attempt"] + 1
-                if new_attempt <= 3:
-                    try:
-                        await enqueue_stage(
-                            app.state.arq,
-                            row["task_type"],
-                            str(row["video_id"]),
-                            str(row["tenant_id"]),
-                            new_attempt,
-                        )
-                    except (ValueError, Exception) as eq:
-                        logger.warning("Could not re-enqueue %s: %s", row["task_type"], eq)
-    except Exception as e:
-        logger.warning("Stale task recovery error (non-blocking): %s", e)
+    # Recover tasks that were running when the server last stopped.
+    await _recover_stale_tasks_to_queue(app)
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())

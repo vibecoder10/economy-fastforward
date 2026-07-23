@@ -11329,3 +11329,10 @@ control writes without losing the video, approval, or confirmation.
   accepted work. `worker.py` and `job_queue.py` register the durable runtime job.
   The default runner deliberately fails closed until M2-4B2 wires the existing
   production-stage/provider seams; it cannot call a provider or spend.
+- Repair `a231208e+` makes completed progress an exact contiguous prefix of the
+  immutable stage plan and records a deterministic `custom-film-op:<sha256>`
+  write-ahead identity before each callback. An unresolved in-flight operation
+  is never replayed after a crash; the task enters an explicit reconciliation
+  stop so B2 can query the provider by the stable operation ID. Startup recovery
+  carries the original hashed runtime job ID into the worker queue, and raw
+  callback exceptions are humanized before task persistence.

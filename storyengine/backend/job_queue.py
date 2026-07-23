@@ -54,7 +54,11 @@ async def enqueue_stage(
     if stage == "custom_film_runtime" and not stage_kwargs.get("runtime_job_id"):
         raise ValueError("custom_film_runtime requires its durable runtime_job_id")
 
-    job_id = make_job_id(stage, video_id, attempt)
+    job_id = (
+        f"custom-film-worker:{stage_kwargs['runtime_job_id']}:{attempt}"
+        if stage == "custom_film_runtime"
+        else make_job_id(stage, video_id, attempt)
+    )
     job = await arq_pool.enqueue_job(
         handler,
         video_id,

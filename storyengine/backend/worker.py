@@ -192,7 +192,12 @@ async def arq_run_custom_film_runtime(
     """Consume the durable section schedule; B2 installs provider stage runners."""
     from custom_film_section_runtime import consume_runtime_schedule
 
-    return await consume_runtime_schedule(tenant_id, video_id, runtime_job_id)
+    return await consume_runtime_schedule(
+        tenant_id,
+        video_id,
+        runtime_job_id,
+        attempt=attempt,
+    )
 
 
 # -- WorkerSettings -----------------------------------------------------------
