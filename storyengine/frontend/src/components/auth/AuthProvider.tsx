@@ -15,7 +15,12 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (credential: string) => Promise<void>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName?: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    displayName?: string,
+    betaCode?: string
+  ) => Promise<{ betaApplied: boolean }>;
   logout: () => void;
 }
 
@@ -24,7 +29,7 @@ const AuthContext = createContext<AuthContextValue>({
   isLoading: true,
   login: async () => {},
   loginWithEmail: async () => {},
-  register: async () => {},
+  register: async () => ({ betaApplied: false }),
   logout: () => {},
 });
 
@@ -76,11 +81,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, []);
 
-  const register = useCallback(async (email: string, password: string, displayName?: string) => {
-    const res = await registerUser(email, password, displayName || "");
-    localStorage.setItem("token", res.token);
-    setUser(res.user);
-  }, []);
+  const register = useCallback(
+    async (email: string, password: string, displayName?: string, betaCode?: string) => {
+      const res = await registerUser(email, password, displayName || "", betaCode);
+      localStorage.setItem("token", res.token);
+      setUser(res.user);
+      return { betaApplied: !!res.beta_applied };
+    },
+    []
+  );
 
   const logout = useCallback(() => {
     localStorage.removeItem("token");

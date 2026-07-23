@@ -130,10 +130,20 @@ export const googleLogin = (credential: string) =>
     body: JSON.stringify({ credential }),
   });
 
-export const registerUser = (email: string, password: string, display_name: string = "") =>
-  fetchApi<{ token: string; user: AuthUser }>("/api/auth/register", {
+export const registerUser = (
+  email: string,
+  password: string,
+  display_name: string = "",
+  beta_code?: string
+) =>
+  fetchApi<{ token: string; user: AuthUser; beta_applied?: boolean }>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, display_name }),
+    body: JSON.stringify({
+      email,
+      password,
+      display_name,
+      ...(beta_code ? { beta_code } : {}),
+    }),
   });
 
 export const loginUser = (email: string, password: string) =>
