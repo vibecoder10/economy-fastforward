@@ -1,2 +1,2 @@
-Last done: Drain-mode mission accepted after the guarded Anton deployment exposed the real race: deploy.lock coordinates operators but does not stop users from starting new in-process paid work during a restart window.
-Next chunk: D0 sweep — map the durable task-start/claim seams, health and UI status flow, all generation entry points, and deploy failure paths before selecting the smallest authoritative guard.
+Last done: D1 durable drain contract is implemented and stash-proven: PostgreSQL state plus a shared advisory lock blocks new claims atomically while reads and existing terminal writes remain available.
+Next chunk: D2 — finish and integration-test the operator drain/status/undrain commands and fail-safe sanctioned deploy ordering, then proceed to the frontend banner and live no-spend proof.

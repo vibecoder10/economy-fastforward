@@ -134,6 +134,8 @@ class _FakeConn:
     async def fetchrow(self, query, *args):
         if self.should_fail:
             raise RuntimeError("simulated DB outage")
+        if "FROM application_drain_state" in query:
+            return {"mode": "normal", "reason": None, "owner": None, "changed_at": None}
         tenant_id, video_id, stage, claimed_by = args
         key = (tenant_id, video_id, stage)
         if key in self.store:  # ON CONFLICT DO NOTHING -> no row back

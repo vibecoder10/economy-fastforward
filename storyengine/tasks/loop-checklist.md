@@ -15,11 +15,13 @@
 - Ryan’s “implement this” authorizes the tested production deployment and live no-spend drain toggle proof, but not any paid research/image/voice/video/render run or YouTube upload.
 
 ## Chunks
-- [ ] D0 SWEEP [D][B][U][O][V] Map every new-work entry seam, active-task persistence law, frontend generation surface, deploy race, and migration convention before changing behavior.
-- [ ] D1 [D][B][V] Build one durable drain contract and authoritative pre-cost guard.
+- [x] D0 SWEEP [D][B][U][O][V] Map every new-work entry seam, active-task persistence law, frontend generation surface, deploy race, and migration convention before changing behavior.
+      Evidence: production runs the supported Redis-less in-process queue; `/api/health` previously counted only `background_tasks.status = running`; `generation_claims` is the durable paid-work seam for chat/autobuild while manual pipeline starts converge on `_is_task_active` and `_enqueue_or_fallback`; autonomous schedulers live in `main.py`; the sanctioned deploy checked active work before acquiring its lock, leaving an API race; frontend generation controls converge partly on `ActionButton` and the static-documentary rail. Migration 120 is the next ordered migration and `storyengine/schema.sql` is the fresh-install authority.
+- [x] D1 [D][B][V] Build one durable drain contract and authoritative pre-cost guard.
       [D] Add the singleton control state with normal/draining, reason, owner, and timestamps.
       [B] Expose status through health, preserve terminal writes for existing tasks, and reject every new provider/background claim before work begins.
       [V] Focused fail-open/fail-closed, concurrency, response-contract, and route/claim coverage tests with stash-proof.
+      Evidence: migration 120 and `drain_mode.py` provide the RLS-protected global singleton, owner/reason/timestamp metadata, shared advisory transaction lock, retryable `system_draining` response, fail-closed new-work reads, and conservative active-work counts. Generation claims take the global lock before per-video/channel claims; pipeline dispatch repeats the guard; request classification covers pipeline/chat/autopilot/agent/provider routes while preserving reads, reviews, cancel/reset, and ordinary video edits; autonomous provider cycles pause. Focused + schema-drift suites pass 52/52. With implementation hidden and new tests retained, collection fails on missing `drain_mode`, proving the tests are non-vacuous.
 - [ ] D2 [O][V] Make deployment drain, wait, recover, and reopen safely.
       [O] Add status/drain/undrain operator commands and integrate them into the sanctioned deploy wrapper with traps, timeout, active-task detail, and no-force safety.
       [V] Shell/static tests plus a local fake-control integration prove ordering and recovery when pull/build/health fails.

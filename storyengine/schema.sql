@@ -1973,3 +1973,27 @@ ALTER TABLE beta_codes ENABLE ROW LEVEL SECURITY;
 INSERT INTO beta_codes (code, trial_days, max_redemptions, active, note)
 VALUES ('beta26', 60, NULL, TRUE, 'launch beta - 2 months free')
 ON CONFLICT (code) DO NOTHING;
+
+
+-- =============================================================================
+-- APPLICATION_DRAIN_STATE (migration 120)
+-- =============================================================================
+-- Durable, global deployment drain. The backend and operator CLI share a
+-- PostgreSQL advisory lock around transitions and generation claims, so once
+-- draining commits no later paid claim can enter. Existing work and reads
+-- continue; only backend service credentials can access this control row.
+CREATE TABLE IF NOT EXISTS application_drain_state (
+  singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  mode TEXT NOT NULL DEFAULT 'normal' CHECK (mode IN ('normal', 'draining')),
+  reason TEXT,
+  owner TEXT,
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO application_drain_state (singleton, mode)
+VALUES (TRUE, 'normal')
+ON CONFLICT (singleton) DO NOTHING;
+
+ALTER TABLE application_drain_state ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON application_drain_state FROM anon;
+REVOKE ALL ON application_drain_state FROM authenticated;

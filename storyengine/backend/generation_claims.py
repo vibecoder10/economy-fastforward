@@ -63,6 +63,7 @@ from typing import Optional
 # acquire/is_blocked, fail-soft for release) — never as an ImportError at
 # `import generation_claims` itself.
 import database
+import drain_mode
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,11 @@ async def acquire(tenant_id: str, video_id: str, stage: str, claimed_by: Optiona
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # The global drain lock must be taken BEFORE the per-video
+                # lock. set_draining() takes the same global lock, updates the
+                # singleton row, and commits. Once that call returns, no later
+                # paid claim can have observed normal mode.
+                await drain_mode.assert_accepting_conn(conn)
                 # Advisory lock keyed on the VIDEO (not the stage) — this is
                 # what makes cross-stage blocking (main vs. a side lane)
                 # TOCTOU-free: every acquire for this video, whatever stage
@@ -154,6 +160,8 @@ async def acquire(tenant_id: str, video_id: str, stage: str, claimed_by: Optiona
                     tenant_id, video_id, stage, claimed_by,
                 )
                 return row is not None
+    except drain_mode.DrainModeActive:
+        raise
     except Exception:
         logger.exception(
             "[generation_claims] acquire failed tenant=%s video=%s stage=%s — "
@@ -235,6 +243,7 @@ async def acquire_channel(tenant_id: str, stage: str = "dna", claimed_by: Option
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                await drain_mode.assert_accepting_conn(conn)
                 await conn.execute(
                     "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
                     f"{tenant_id}:channel:{stage}",
@@ -252,6 +261,8 @@ async def acquire_channel(tenant_id: str, stage: str = "dna", claimed_by: Option
                     tenant_id, stage, claimed_by,
                 )
                 return row is not None
+    except drain_mode.DrainModeActive:
+        raise
     except Exception:
         logger.exception(
             "[generation_claims] acquire_channel failed tenant=%s stage=%s — "

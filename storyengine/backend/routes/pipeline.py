@@ -29,6 +29,7 @@ from status_map import (
 from job_queue import enqueue_stage
 from task_store import db_persist_task
 import actions
+import drain_mode
 import generation_claims
 
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
@@ -383,6 +384,11 @@ async def _is_task_active(video_id: str, tenant_id: str, lane: str = "main") -> 
     run (routes/chat.py, gated as of this chunk) also blocks a manual click
     here, and vice versa. Fails CLOSED (treats the lane as busy) if the DB
     check itself errors — see generation_claims.is_blocked."""
+    # Every paid/manual pipeline route calls this before dispatch. Raising the
+    # distinct drain exception here preserves the existing 409 busy contract
+    # while giving deploy drains a retryable 503 contract.
+    await drain_mode.assert_accepting_new_work()
+
     now = _time.time()
     lanes = _side_lanes.get((tenant_id, video_id), {})
     for l, t0 in list(lanes.items()):
@@ -513,6 +519,9 @@ async def _enqueue_or_fallback(
     that don't declare a matching kwarg are unaffected (this is only ever
     populated by callers that need it).
     """
+    # Defence in depth for any present or future endpoint that reaches the
+    # shared dispatcher without calling _is_task_active first.
+    await drain_mode.assert_accepting_new_work()
     arq_pool = _get_arq_pool(request)
     if arq_pool:
         try:

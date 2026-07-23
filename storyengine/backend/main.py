@@ -19,6 +19,7 @@ from routes import dashboard, videos, assets, activity, review, pipeline, settin
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
 from job_queue import enqueue_stage
+import drain_mode
 
 
 def _update_bg_status(tenant_id: str, task_name: str, **kwargs):
@@ -28,6 +29,14 @@ def _update_bg_status(tenant_id: str, task_name: str, **kwargs):
     status = _bg_task_status[tenant_id].get(task_name, {})
     status.update(kwargs)
     _bg_task_status[tenant_id][task_name] = status
+
+
+async def _pause_autonomous_start(task_name: str) -> bool:
+    """Return True while a deploy drain is blocking a new scheduler cycle."""
+    if await drain_mode.is_draining():
+        logger.info("[%s] Drain mode active; skipping this scheduler cycle", task_name)
+        return True
+    return False
 
 
 async def _get_all_tenant_ids() -> list[str]:
@@ -66,6 +75,9 @@ async def _auto_extract_learnings():
     """
     await asyncio.sleep(30)  # Wait for DB pool to stabilize after startup
     while True:
+        if await _pause_autonomous_start("AutoExtract"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             if not tenant_ids:
@@ -122,6 +134,9 @@ async def _auto_sync_youtube():
     """
     await asyncio.sleep(60)  # Wait for DB pool to stabilize
     while True:
+        if await _pause_autonomous_start("AutoYTSync"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
@@ -161,6 +176,9 @@ async def _auto_analyze_competitor_titles():
     """
     await asyncio.sleep(90)  # Offset from other tasks
     while True:
+        if await _pause_autonomous_start("AutoTitleAnalysis"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
@@ -200,6 +218,9 @@ async def _auto_scrape_competitors():
     """
     await asyncio.sleep(120)  # Offset from other tasks
     while True:
+        if await _pause_autonomous_start("AutoScrape"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
@@ -353,6 +374,9 @@ async def _auto_distill_intelligence():
     """
     await asyncio.sleep(120)  # Offset from other startup tasks
     while True:
+        if await _pause_autonomous_start("AutoDistill"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
@@ -484,6 +508,9 @@ async def _auto_produce_queue():
     ``_produce_for_tenant`` above, and covers BOTH paths."""
     await asyncio.sleep(240)  # Offset from other startup tasks
     while True:
+        if await _pause_autonomous_start("AutoQueue"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
@@ -506,6 +533,9 @@ async def _auto_generate_meta_insights():
     """
     await asyncio.sleep(180)  # Offset from other startup tasks
     while True:
+        if await _pause_autonomous_start("AutoMetaInsights"):
+            await asyncio.sleep(30)
+            continue
         try:
             tenant_ids = await _get_all_tenant_ids()
             for tenant_id in tenant_ids:
@@ -646,6 +676,39 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 
+@app.middleware("http")
+async def _application_drain_guard(request: Request, call_next):
+    """Keep read/review traffic live while rejecting new job starts.
+
+    This boundary gives every currently-known generation surface the same
+    machine-readable response. Durable generation claims repeat the check
+    inside their transaction, so the middleware is usability/coverage rather
+    than the sole money-safety authority.
+    """
+    if drain_mode.mutation_starts_work(request.method, request.url.path):
+        try:
+            await drain_mode.assert_accepting_new_work()
+        except drain_mode.DrainModeActive as exc:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=503,
+                content=exc.response_body(),
+                headers={"Retry-After": str(drain_mode.RETRY_AFTER_SECONDS)},
+            )
+    return await call_next(request)
+
+
+@app.exception_handler(drain_mode.DrainModeActive)
+async def _drain_mode_exception_handler(request: Request, exc: drain_mode.DrainModeActive):
+    """Normalize claim-level drain failures that occur below middleware."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=503,
+        content=exc.response_body(),
+        headers={"Retry-After": str(drain_mode.RETRY_AFTER_SECONDS)},
+    )
+
+
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
     """Catch-all so an uncaught error returns clean JSON instead of a raw 500
@@ -741,14 +804,24 @@ async def health():
     except Exception:
         checks["database"] = False
 
-    # Active background tasks
+    # Active background tasks and durable generation claims. During a drain,
+    # deploy waits until every signal reaches zero.
     try:
-        row = await fetch_one(
-            "SELECT count(*) as cnt FROM background_tasks WHERE status = 'running'"
-        )
-        checks["active_tasks"] = row["cnt"] if row else 0
+        active_work = await drain_mode.get_active_work()
+        checks["active_tasks"] = active_work["total"]
+        checks["active_work"] = active_work
     except Exception:
         checks["active_tasks"] = -1
+        checks["active_work"] = {
+            "background_tasks": -1,
+            "generation_claims": -1,
+            "total": -1,
+        }
+
+    # Durable application-level deployment drain. This remains data rather
+    # than an unhealthy status: the service is intentionally available for
+    # reads and task polling while draining.
+    checks["drain"] = (await drain_mode.get_state()).to_dict()
 
     # Storage (basic check — Google Drive client initialized)
     checks["storage"] = True  # Will fail visibly on actual upload if broken
