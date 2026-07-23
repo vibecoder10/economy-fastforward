@@ -14,6 +14,7 @@ carries `WHERE tenant_id = $1` (the pool sets no app.tenant_id GUC).
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -497,6 +498,104 @@ async def _persist(conversation_id, tenant_id, transcript, state, phase, video_i
         json.dumps(transcript), json.dumps(state), phase, video_id,
         conversation_id, tenant_id,
     )
+
+
+_DEFAULT_PERSIST = _persist
+
+
+def _custom_film_start_ready_response(
+    conversation_id: str,
+    state: dict[str, Any],
+    video_id: str,
+) -> ChatTurnResponse:
+    """Reconstruct the one durable M2-3 result after a race or reload."""
+    pending = state.get("pending_custom_film_plan")
+    quote = pending.get("quote_inputs") if isinstance(pending, dict) else None
+    total = (
+        float(quote["totals"]["estimated_cost"])
+        if isinstance(quote, dict)
+        and isinstance(quote.get("totals"), dict)
+        and quote["totals"].get("estimated_cost") is not None
+        else None
+    )
+    amount = f"~${total:.2f} " if total is not None else ""
+    message = (
+        f"Approved — this exact {amount}BYOK plan is safely held and ready for "
+        "section-aware production. No generation has started or been charged yet."
+    )
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=message,
+        video_id=video_id,
+        phase="created",
+    )
+
+
+def _custom_film_converged_response(
+    conversation_id: str,
+    conversation: dict[str, Any],
+) -> ChatTurnResponse:
+    """Return database truth when a Custom Film CAS loses."""
+    state = _as_dict(conversation.get("state"))
+    pending = state.get("pending_custom_film_plan")
+    video_id = str(conversation["video_id"]) if conversation.get("video_id") else None
+    if (
+        video_id
+        and isinstance(pending, dict)
+        and pending.get("status") == "start_ready"
+        and str(pending.get("video_id") or "") == video_id
+    ):
+        return _custom_film_start_ready_response(conversation_id, state, video_id)
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=(
+            "This Custom Film conversation changed while that request was being "
+            "handled, so I kept the newer saved state. Nothing was generated or "
+            "charged by this request; please review the current plan."
+        ),
+        ready_to_create=False,
+        phase=str(conversation.get("phase") or "plan"),
+    )
+
+
+async def _persist_custom_film_cas(
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+    phase: str,
+    expected_state: dict[str, Any] | None,
+) -> ChatTurnResponse | None:
+    """Persist a Custom Film turn only if its loaded state is still current.
+
+    Direct helper tests written before the CAS contract omit ``expected_state``;
+    retain their persistence seam without changing legacy production writes.
+    Every endpoint Custom Film path supplies the raw loaded state.
+    """
+    if expected_state is None or _persist is not _DEFAULT_PERSIST:
+        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        return None
+    updated = await fetch_one(
+        """UPDATE chat_conversations
+              SET transcript = $1::jsonb, state = $2::jsonb, phase = $3,
+                  updated_at = now()
+            WHERE id = $4 AND tenant_id = $5
+              AND video_id IS NULL
+              AND state = $6::jsonb
+            RETURNING id""",
+        json.dumps(transcript),
+        json.dumps(state),
+        phase,
+        conversation_id,
+        tenant_id,
+        json.dumps(expected_state),
+    )
+    if updated:
+        return None
+    current = await _load_conversation(conversation_id, tenant_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return _custom_film_converged_response(conversation_id, current)
 
 
 # --- pipeline kickoff -------------------------------------------------------
@@ -3734,6 +3833,7 @@ async def _handle_custom_film_control_turn(
     tenant_id: str,
     transcript: list[dict[str, Any]],
     state: dict[str, Any],
+    expected_state: dict[str, Any] | None = None,
 ) -> ChatTurnResponse:
     """Hold approve/selection-only taps inside the planning-only M2-2 boundary."""
     _quarantine_custom_film_state(state)
@@ -3748,7 +3848,11 @@ async def _handle_custom_film_control_turn(
         "phase": "plan",
     }
     transcript.append(_assistant_turn(data))
-    await _persist(conversation_id, tenant_id, transcript, state, "plan")
+    converged = await _persist_custom_film_cas(
+        conversation_id, tenant_id, transcript, state, "plan", expected_state
+    )
+    if converged:
+        return converged
     return ChatTurnResponse(
         conversation_id=conversation_id,
         assistant_text=message,
@@ -3763,6 +3867,7 @@ async def _handle_custom_film_cancel_turn(
     tenant_id: str,
     transcript: list[dict[str, Any]],
     state: dict[str, Any],
+    expected_state: dict[str, Any] | None = None,
 ) -> ChatTurnResponse:
     """Leave Custom Film without resolving a key or invoking either planner."""
     state["mode"] = "producer"
@@ -3772,7 +3877,11 @@ async def _handle_custom_film_cancel_turn(
         "Tell me whenever you want to plan a regular video."
     )
     transcript.append(_assistant_turn({"assistant_text": message, "phase": "asking"}))
-    await _persist(conversation_id, tenant_id, transcript, state, "asking")
+    converged = await _persist_custom_film_cas(
+        conversation_id, tenant_id, transcript, state, "asking", expected_state
+    )
+    if converged:
+        return converged
     return ChatTurnResponse(
         conversation_id=conversation_id,
         assistant_text=message,
@@ -3789,13 +3898,18 @@ async def _handle_custom_film_approval_turn(
     transcript: list[dict[str, Any]],
     state: dict[str, Any],
     background_tasks: BackgroundTasks,
+    expected_state: dict[str, Any] | None = None,
 ) -> ChatTurnResponse:
     """Confirm one exact quote into a durable no-provider start intention."""
     pending = state.get("pending_custom_film_plan")
     if selection != "yes":
         message = "No problem — the current Custom Film plan remains unapproved. Tell me what to edit."
         transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, "plan", expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -3804,7 +3918,7 @@ async def _handle_custom_film_approval_turn(
         )
     if not isinstance(pending, dict) or pending.get("status") != "awaiting_approval":
         return await _handle_custom_film_control_turn(
-            conversation_id, tenant_id, transcript, state
+            conversation_id, tenant_id, transcript, state, expected_state
         )
 
     from custom_film_contract import (
@@ -3820,7 +3934,11 @@ async def _handle_custom_film_approval_turn(
         message = "That estimate is incomplete. Please revise the plan so I can quote it again."
         state.pop("pending_custom_film_plan", None)
         transcript.append(_assistant_turn({"assistant_text": message, "phase": "asking"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, "asking", expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="asking"
         )
@@ -3879,39 +3997,25 @@ async def _handle_custom_film_approval_turn(
         from custom_film_planner import load_capability_manifest
 
         manifest = await load_capability_manifest()
-        result = await reserve_approved_start_intent(
-            tenant_id,
-            conversation_id,
-            expected,
-            manifest,
-        )
-        video_id = result["video_id"]
-        pending["status"] = "start_ready"
-        pending["start_intent_hash"] = expected
-        pending["video_id"] = video_id
         quote_total = float(quote_inputs["totals"]["estimated_cost"])
         message = (
             f"Approved — this exact ~${quote_total:.2f} BYOK plan is safely held "
             "and ready for section-aware production. No generation has started "
             "or been charged yet."
         )
-        if result.get("created"):
-            transcript.append(
-                _assistant_turn({"assistant_text": message, "phase": "created"})
-            )
-            # The reservation transaction already owns state/video_id. Update
-            # only the transcript under the durable intent CAS; never write the
-            # caller's stale state back over it.
-            await execute(
-                """UPDATE chat_conversations
-                   SET transcript = $1::jsonb, phase = 'created', updated_at = now()
-                   WHERE id = $2 AND tenant_id = $3
-                     AND state->'pending_custom_film_plan'->>'start_intent_hash' = $4""",
-                json.dumps(transcript),
-                conversation_id,
-                tenant_id,
-                expected,
-            )
+        result = await reserve_approved_start_intent(
+            tenant_id,
+            conversation_id,
+            expected,
+            manifest,
+            confirmation_turn=_assistant_turn(
+                {"assistant_text": message, "phase": "created"}
+            ),
+        )
+        video_id = result["video_id"]
+        pending["status"] = "start_ready"
+        pending["start_intent_hash"] = expected
+        pending["video_id"] = video_id
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -3937,6 +4041,7 @@ async def _handle_custom_film_plan(
     transcript: list[dict[str, Any]],
     state: dict[str, Any],
     user_message: str,
+    expected_state: dict[str, Any] | None = None,
 ) -> ChatTurnResponse:
     """Plan only: no video creation, estimate, approval, or background dispatch."""
     from custom_film_planner import (
@@ -3998,7 +4103,11 @@ async def _handle_custom_film_plan(
             "phase": "plan",
         }
         transcript.append(_assistant_turn(data))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, "plan", expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=SECTION_COUNT_CHANGE_MESSAGE,
@@ -4015,7 +4124,11 @@ async def _handle_custom_film_plan(
             phase = "plan"
         data = {"assistant_text": message, "phase": phase}
         transcript.append(_assistant_turn(data))
-        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, phase, expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -4053,7 +4166,11 @@ async def _handle_custom_film_plan(
             phase = "plan"
         data = {"assistant_text": message, "phase": phase}
         transcript.append(_assistant_turn(data))
-        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, phase, expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -4069,7 +4186,11 @@ async def _handle_custom_film_plan(
             phase = "plan"
         data = {"assistant_text": message, "phase": phase}
         transcript.append(_assistant_turn(data))
-        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, phase, expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -4130,7 +4251,11 @@ async def _handle_custom_film_plan(
         )
         data = {"assistant_text": message, "phase": "plan"}
         transcript.append(_assistant_turn(data))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        converged = await _persist_custom_film_cas(
+            conversation_id, tenant_id, transcript, state, "plan", expected_state
+        )
+        if converged:
+            return converged
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -4186,7 +4311,11 @@ async def _handle_custom_film_plan(
         "phase": "plan",
     }
     transcript.append(_assistant_turn(data))
-    await _persist(conversation_id, tenant_id, transcript, state, "plan")
+    converged = await _persist_custom_film_cas(
+        conversation_id, tenant_id, transcript, state, "plan", expected_state
+    )
+    if converged:
+        return converged
     return ChatTurnResponse(
         conversation_id=conversation_id,
         assistant_text=assistant_text,
@@ -5217,7 +5346,20 @@ async def chat_turn(
     conversation_id = str(conv["id"])
     transcript = _as_list(conv.get("transcript"))
     state = _as_dict(conv.get("state"))
+    custom_film_expected_state = copy.deepcopy(state)
     video_id = str(conv["video_id"]) if conv.get("video_id") else None
+
+    # M2-3 owns a held pre-runtime video, not a generic co-pilot video. A retry
+    # or reload must reconstruct that durable result before legacy video routing.
+    pending_custom_film = state.get("pending_custom_film_plan")
+    if (
+        video_id
+        and state.get("mode") == "custom_film"
+        and isinstance(pending_custom_film, dict)
+        and pending_custom_film.get("status") == "start_ready"
+        and str(pending_custom_film.get("video_id") or "") == video_id
+    ):
+        return _custom_film_start_ready_response(conversation_id, state, video_id)
 
     # Hydrate durable creator facts (intent/goals/niche/channel/competitors) from a
     # past onboarding so a fresh conversation's producer stays channel-aware. Skip
@@ -5256,6 +5398,7 @@ async def chat_turn(
             transcript,
             state,
             background_tasks,
+            custom_film_expected_state,
         )
     if state.get("mode") == "custom_film" and not (
         body.message and body.message.strip()
@@ -5265,6 +5408,7 @@ async def chat_turn(
             tenant_id,
             transcript,
             state,
+            custom_film_expected_state,
         )
 
     if body.message and body.message.strip():
@@ -5284,12 +5428,23 @@ async def chat_turn(
                     tenant_id,
                     transcript,
                     state,
+                    custom_film_expected_state,
                 )
             # A normal-video request continues into ordinary Producer below.
             # Clear every Custom Film/legacy approval payload first, so
             # switching modes cannot itself approve or dispatch anything.
             state["mode"] = "producer"
             _quarantine_custom_film_state(state, clear_custom_plan=True)
+            converged = await _persist_custom_film_cas(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                str(conv.get("phase") or "plan"),
+                custom_film_expected_state,
+            )
+            if converged:
+                return converged
         elif state.get("mode") == "custom_film" or is_custom_film_intent(body.message):
             return await _handle_custom_film_plan(
                 conversation_id,
@@ -5297,6 +5452,7 @@ async def chat_turn(
                 transcript,
                 state,
                 body.message.strip(),
+                custom_film_expected_state,
             )
 
     # 3. Approval -> create the video + kick off the pipeline.

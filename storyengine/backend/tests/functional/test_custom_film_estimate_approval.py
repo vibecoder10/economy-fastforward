@@ -268,8 +268,15 @@ async def test_combined_yes_and_estimate_affecting_message_replans_first(
     async def hydrate(*_args):
         return None
 
-    async def replan(*args):
-        calls.append(("replan", args[-1]))
+    async def replan(
+        _conversation_id,
+        _tenant_id,
+        _transcript,
+        _state,
+        user_message,
+        _expected_state,
+    ):
+        calls.append(("replan", user_message))
         return chat.ChatTurnResponse(
             conversation_id="conv",
             assistant_text="replanned",
@@ -312,6 +319,7 @@ class _AsyncContext:
 class _IntentConnection:
     def __init__(self, state):
         self.state = copy.deepcopy(state)
+        self.transcript = [{"role": "user", "content": "approve"}]
         self.video_id = None
         self.calls = []
         self.video_inserts = 0
@@ -325,6 +333,7 @@ class _IntentConnection:
             return {
                 "id": "conv",
                 "video_id": self.video_id,
+                "transcript": copy.deepcopy(self.transcript),
                 "state": copy.deepcopy(self.state),
             }
         if "INSERT INTO videos" in query:
@@ -339,6 +348,7 @@ class _IntentConnection:
 
             self.state = json.loads(args[2])
             self.video_id = args[3]
+            self.transcript = json.loads(args[4])
         return "OK"
 
 
@@ -390,7 +400,11 @@ async def test_user_budget_cap_is_hashed_persisted_and_blocks_before_insert(
 
     with pytest.raises(contract.CustomFilmContractError, match="Nothing was reserved"):
         await contract.reserve_approved_start_intent(
-            "tenant", "conv", pending["approval_hash"], SimpleNamespace(version="test-v1")
+            "tenant",
+            "conv",
+            pending["approval_hash"],
+            SimpleNamespace(version="test-v1"),
+            confirmation_turn={"role": "assistant", "content": "held"},
         )
     assert connection.video_inserts == 0
 
@@ -408,12 +422,20 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
     manifest = SimpleNamespace(version="test-v1")
 
     first = await contract.reserve_approved_start_intent(
-        "tenant", "conv", pending["approval_hash"], manifest
+        "tenant",
+        "conv",
+        pending["approval_hash"],
+        manifest,
+        confirmation_turn={"role": "assistant", "content": "held"},
     )
     # A second request may have loaded the pre-approval snapshot, but the
     # transaction re-reads the locked durable state and returns the first row.
     second = await contract.reserve_approved_start_intent(
-        "tenant", "conv", pending["approval_hash"], manifest
+        "tenant",
+        "conv",
+        pending["approval_hash"],
+        manifest,
+        confirmation_turn={"role": "assistant", "content": "held"},
     )
     assert first == {
         "video_id": "video-1",
@@ -425,6 +447,10 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
     assert second["video_id"] == "video-1"
     assert second["created"] is False
     assert connection.video_inserts == 1
+    assert connection.transcript == [
+        {"role": "user", "content": "approve"},
+        {"role": "assistant", "content": "held"},
+    ]
     video_insert = next(
         call for call in connection.calls if "INSERT INTO videos" in call[1]
     )
@@ -436,6 +462,118 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
         for call in connection.calls
         for token in ("background_tasks", "Drive", "increment_usage")
     )
+
+
+@pytest.mark.asyncio
+async def test_reserve_commit_wins_over_stale_plan_cancel_and_control_writers(
+    monkeypatch,
+):
+    """Exact causal race: reserve commits after three turns loaded old state."""
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    pending = _pending(quote)
+    loaded_state = {"mode": "custom_film", "pending_custom_film_plan": pending}
+    connection = _patch_intent_contract(monkeypatch, loaded_state)
+    await contract.reserve_approved_start_intent(
+        "tenant",
+        "conv",
+        pending["approval_hash"],
+        SimpleNamespace(version="test-v1"),
+        confirmation_turn={"role": "assistant", "content": "durably held"},
+    )
+
+    async def cas_after_reserve(query, *_args):
+        assert "video_id IS NULL" in query
+        assert "state = $6::jsonb" in query
+        return None
+
+    async def reload(_conversation_id, _tenant_id):
+        return {
+            "id": "conv",
+            "video_id": connection.video_id,
+            "transcript": copy.deepcopy(connection.transcript),
+            "state": copy.deepcopy(connection.state),
+            "phase": "created",
+        }
+
+    monkeypatch.setattr(chat, "fetch_one", cas_after_reserve)
+    monkeypatch.setattr(chat, "_load_conversation", reload)
+
+    # A planner completed from the pre-reservation snapshot and tries to save a
+    # new unapproved plan. Its CAS must miss and converge to video-1.
+    stale_planner_state = copy.deepcopy(loaded_state)
+    stale_planner_state["pending_custom_film_plan"]["status"] = "planned_unapproved"
+    stale_planner_state["pending_custom_film_plan"].pop("approval_hash", None)
+    planner_result = await chat._persist_custom_film_cas(
+        "conv",
+        "tenant",
+        [{"role": "assistant", "content": "stale replan"}],
+        stale_planner_state,
+        "plan",
+        loaded_state,
+    )
+    assert planner_result is not None
+    assert planner_result.video_id == "video-1"
+    assert planner_result.phase == "created"
+
+    # Selection-only control and cancellation loaded at the same old point are
+    # guarded by the identical CAS and also converge instead of overwriting.
+    control_result = await chat._handle_custom_film_control_turn(
+        "conv", "tenant", [], copy.deepcopy(loaded_state), loaded_state
+    )
+    cancel_result = await chat._handle_custom_film_cancel_turn(
+        "conv", "tenant", [], copy.deepcopy(loaded_state), loaded_state
+    )
+    assert control_result.video_id == "video-1"
+    assert cancel_result.video_id == "video-1"
+    assert connection.video_inserts == 1
+    durable_pending = connection.state["pending_custom_film_plan"]
+    assert durable_pending["status"] == "start_ready"
+    assert durable_pending["video_id"] == "video-1"
+    assert durable_pending["approval_hash"] == pending["approval_hash"]
+    assert connection.video_id == "video-1"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_reload_reconstructs_held_start_before_generic_copilot(
+    monkeypatch,
+):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    pending = _pending(quote)
+    pending.update(
+        status="start_ready",
+        start_intent_hash=pending["approval_hash"],
+        video_id="video-1",
+    )
+
+    async def load(*_args):
+        return {
+            "id": "conv",
+            "video_id": "video-1",
+            "transcript": [{"role": "assistant", "content": "durably held"}],
+            "state": {
+                "mode": "custom_film",
+                "pending_custom_film_plan": pending,
+            },
+            "phase": "created",
+        }
+
+    async def forbidden_copilot(*_args, **_kwargs):
+        raise AssertionError("held M2-3 start escaped to generic copilot")
+
+    monkeypatch.setattr(chat, "_load_conversation", load)
+    monkeypatch.setattr(chat, "_handle_copilot", forbidden_copilot)
+    response = await chat.chat_turn(
+        chat.ChatTurnRequest(conversation_id="conv", message="what happened?"),
+        BackgroundTasks(),
+        tenant_id="tenant",
+    )
+    assert response.video_id == "video-1"
+    assert response.phase == "created"
+    assert "No generation has started" in response.assistant_text
 
 
 @pytest.mark.asyncio
@@ -469,13 +607,15 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
     async def length_limit(*_args, **_kwargs):
         order.append("length_limit")
 
-    async def reserve(*_args, **_kwargs):
+    captured = {}
+
+    async def reserve(*_args, **kwargs):
         order.append("reserve")
+        captured.update(kwargs)
         return {"video_id": "video-1", "created": True}
 
-    async def transcript_write(*_args, **_kwargs):
-        order.append("transcript")
-        return "UPDATE 1"
+    async def forbidden_late_write(*_args, **_kwargs):
+        raise AssertionError("approval must not perform a post-commit UPDATE")
 
     monkeypatch.setattr(vault, "get_required_tenant_secret", key)
     monkeypatch.setattr(chat.generation_claims, "acquire_channel", acquire_channel)
@@ -484,7 +624,7 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
     monkeypatch.setattr(billing, "enforce_video_length_cap", length_limit)
     monkeypatch.setattr(planner, "load_capability_manifest", manifest)
     monkeypatch.setattr(contract, "reserve_approved_start_intent", reserve)
-    monkeypatch.setattr(chat, "execute", transcript_write)
+    monkeypatch.setattr(chat, "execute", forbidden_late_write)
 
     bg = BackgroundTasks()
     response = await chat._handle_custom_film_approval_turn(
@@ -493,6 +633,8 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
     assert response.video_id == "video-1"
     assert bg.tasks == []
     assert "No generation has started" in response.assistant_text
+    assert captured["confirmation_turn"]["role"] == "assistant"
+    assert "safely held" in captured["confirmation_turn"]["content"]
     assert order == [
         "key",
         "channel_claim",
@@ -500,6 +642,5 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
         "length_limit",
         "manifest",
         "reserve",
-        "transcript",
         "channel_release",
     ]

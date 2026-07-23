@@ -861,6 +861,8 @@ async def reserve_approved_start_intent(
     conversation_id: str,
     expected_approval_hash: str,
     manifest: CapabilityManifest,
+    *,
+    confirmation_turn: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Atomically reserve one no-provider Custom Film start intention.
 
@@ -873,7 +875,7 @@ async def reserve_approved_start_intent(
     async with pool.acquire() as conn:
         async with conn.transaction():
             conversation = await conn.fetchrow(
-                """SELECT id, video_id, state
+                """SELECT id, video_id, transcript, state
                    FROM chat_conversations
                    WHERE id = $1 AND tenant_id = $2
                    FOR UPDATE""",
@@ -885,6 +887,11 @@ async def reserve_approved_start_intent(
             state = _parse_json(conversation["state"])
             if not isinstance(state, dict):
                 raise CustomFilmContractError("Custom Film conversation state is invalid")
+            transcript = _parse_json(conversation.get("transcript") or [])
+            if not isinstance(transcript, list):
+                raise CustomFilmContractError(
+                    "Custom Film conversation transcript is invalid"
+                )
             pending = state.get("pending_custom_film_plan")
             if not isinstance(pending, dict):
                 raise CustomFilmContractError("Current Custom Film plan not found")
@@ -1051,15 +1058,18 @@ async def reserve_approved_start_intent(
             pending["start_intent_hash"] = expected_approval_hash
             pending["video_id"] = video_id
             state["pending_custom_film_plan"] = pending
+            transcript.append(copy.deepcopy(dict(confirmation_turn)))
             await conn.execute(
                 """UPDATE chat_conversations
-                   SET state = $3::jsonb, video_id = $4, phase = 'created',
+                   SET state = $3::jsonb, video_id = $4, transcript = $5::jsonb,
+                       phase = 'created',
                        updated_at = now()
                    WHERE id = $1 AND tenant_id = $2""",
                 conversation_id,
                 tenant_id,
                 canonical_json(state),
                 video_id,
+                canonical_json(transcript),
             )
             return {
                 "video_id": video_id,

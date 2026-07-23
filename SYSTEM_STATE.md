@@ -11281,7 +11281,12 @@ drain-aware generation claim and shared budget check before one transaction
 locks the conversation and reserves a minimal `custom_film_ready` video plus
 its approved immutable plan. The transaction persists the exact runtime and a
 non-NULL per-video spending cap, then CAS-updates the conversation with the
-approval hash and reserved video. It does not use `create_video`, choose a
+approval hash, reserved video, and confirmation transcript in that same locked
+transaction. Custom Film plan, edit, cancel, and control writes compare the
+entire state snapshot and require `video_id IS NULL`; a stale writer that loses
+to reservation reloads and returns the durable `start_ready` result instead of
+overwriting it. Endpoint reloads reconstruct that held-start response before
+legacy co-pilot routing. It does not use `create_video`, choose a
 single production profile, increment usage, create a project, queue Drive
 sync, schedule autobuild, or call a provider. Replays converge on the same
 reserved video. Approval remains held for M2-4 to consume at the actual
@@ -11292,4 +11297,6 @@ Focused no-network/no-provider coverage lives in the new
 It proves row/total reconciliation through the shared estimator, stale-hash and
 missing-key pre-spend stops, reachable cap gating, exact duration allocation,
 edit-over-approval precedence, transactional replay convergence, and the
-absence of any runtime/background scheduling.
+absence of any runtime/background scheduling. Causal interleaving coverage
+also proves a committed reservation wins over stale planner, cancel, and
+control writes without losing the video, approval, or confirmation.
