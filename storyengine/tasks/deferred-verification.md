@@ -1,6 +1,6 @@
 # Deferred verification — Application drain mode
 
-Nothing is currently deferred for drain mode. The planned live proof is intentionally no-spend: turn draining on, verify reads stay healthy and a synthetic/no-provider task start receives `system_draining`, then turn draining off. If production is not quiet at deploy time, deployment must wait rather than force.
+Nothing is deferred for drain mode. The no-spend live proof completed on 2026-07-23: draining preserved healthy reads, rejected a synthetic generation start with the structured retryable contract, left review traffic outside the drain, restored normal mode, and the automatic deploy wrapper completed drain/wait/restart/verify/undrain with no force and no active work.
 
 ## Previous Anton DVsU gates
 

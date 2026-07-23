@@ -1,2 +1,2 @@
-Last done: D3 user-facing drain state is complete: global polling/event banner, structured retryable client errors, and the main generation/upload controls disable while reads and reviews remain available; TypeScript and the production build pass.
-Next chunk: D4 — run the relevant/full regressions and blast-radius audit, publish the commits, deploy during a zero-work window, then prove live drain/read/reject/undrain without provider spend.
+Last done: Application-level drain mode is complete and live at runtime revision 9784f39c; manual and automatic no-spend production proofs both passed, with normal mode restored and no deploy lock or active work.
+Next chunk: none for this mission; future production deploys should use `se deploy <session> [--with-frontend]`, with `se drain-status` and `se undrain` available for diagnosis/recovery.
