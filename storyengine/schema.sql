@@ -754,6 +754,9 @@ CREATE TABLE accounts (
   email_verified BOOLEAN NOT NULL DEFAULT false,
   email_verification_token TEXT,
   email_verification_expires TIMESTAMPTZ,
+  -- Beta access code redeemed at signup (migration 119), NULL if none —
+  -- see backend/routes/google_auth.py::register() and beta_codes below.
+  beta_code TEXT,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -1944,3 +1947,29 @@ CREATE INDEX IF NOT EXISTS feature_request_votes_request_idx
 ALTER TABLE feature_request_votes ENABLE ROW LEVEL SECURITY;
 -- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+
+-- =============================================================================
+-- BETA_CODES (migration 119)
+-- =============================================================================
+-- Launch beta access codes redeemed at signup for a longer free trial. See
+-- migrations/119_beta_codes.sql for the full design rationale and
+-- backend/routes/google_auth.py::register() for the atomic redeem call site.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS beta_codes (
+  code TEXT PRIMARY KEY,              -- stored lowercased
+  trial_days INT NOT NULL DEFAULT 60,
+  max_redemptions INT,                -- NULL = unlimited
+  redemptions_used INT NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE beta_codes ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+INSERT INTO beta_codes (code, trial_days, max_redemptions, active, note)
+VALUES ('beta26', 60, NULL, TRUE, 'launch beta - 2 months free')
+ON CONFLICT (code) DO NOTHING;

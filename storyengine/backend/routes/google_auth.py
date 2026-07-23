@@ -15,6 +15,7 @@ import hmac
 import secrets
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 import httpx
 import jwt
@@ -38,6 +39,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     display_name: str = ""
+    beta_code: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -61,6 +63,7 @@ class ResetPasswordRequest(BaseModel):
 class AuthResponse(BaseModel):
     token: str
     user: dict
+    beta_applied: bool = False
 
 
 async def _verify_google_token(id_token: str) -> dict:
@@ -245,17 +248,43 @@ async def register(body: RegisterRequest, request: Request):
     display_name = body.display_name.strip() or email.split("@")[0]
     password_hash = _hash_password(body.password)
 
-    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=TRIAL_DAYS)
+    # Beta access code redemption (migration 119): a submitted code can grant
+    # a longer free trial than the default TRIAL_DAYS. Redemption is ONE
+    # atomic UPDATE...RETURNING — the returned row IS the "valid, active, and
+    # under cap" check, so two signups racing the same code can't both win
+    # past a max_redemptions cap (see migrations/119_beta_codes.sql). A
+    # missing row (bad code, inactive, or cap already hit) — or no code
+    # submitted at all — falls back to the normal grant. This NEVER blocks
+    # or errors the signup.
+    beta_applied = False
+    trial_days = TRIAL_DAYS
+    redeemed_code = None
+    submitted_code = (body.beta_code or "").strip().lower()
+    if submitted_code:
+        redeemed = await fetch_one(
+            """UPDATE beta_codes
+                  SET redemptions_used = redemptions_used + 1
+                WHERE code = $1 AND active = TRUE
+                  AND (max_redemptions IS NULL OR redemptions_used < max_redemptions)
+                RETURNING trial_days""",
+            submitted_code,
+        )
+        if redeemed:
+            trial_days = redeemed["trial_days"]
+            beta_applied = True
+            redeemed_code = submitted_code
+
+    trial_ends_at = datetime.now(timezone.utc) + timedelta(days=trial_days)
     # Email verification: password signups start unverified and must confirm via
     # the emailed link before they can generate (gated in billing.check_plan_limits).
     verify_token = secrets.token_urlsafe(32)
     verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRY_HOURS)
     await execute(
         """INSERT INTO accounts (id, email, display_name, password_hash, plan, trial_ends_at,
-               email_verified, email_verification_token, email_verification_expires)
-           VALUES ($1, $2, $3, $4, 'free', $5, false, $6, $7)""",
+               email_verified, email_verification_token, email_verification_expires, beta_code)
+           VALUES ($1, $2, $3, $4, 'free', $5, false, $6, $7, $8)""",
         account_id, email, display_name, password_hash, trial_ends_at,
-        verify_token, verify_expires,
+        verify_token, verify_expires, redeemed_code,
     )
 
     # Create tenant + membership
@@ -274,6 +303,7 @@ async def register(body: RegisterRequest, request: Request):
             "plan": "free",
             "email_verified": False,
         },
+        beta_applied=beta_applied,
     )
 
 
