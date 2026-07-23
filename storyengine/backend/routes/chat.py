@@ -519,9 +519,16 @@ def _custom_film_start_ready_response(
         else None
     )
     amount = f"~${total:.2f} " if total is not None else ""
+    scheduled = bool(
+        isinstance(pending, dict) and pending.get("runtime_job_id")
+    )
     message = (
-        f"Approved — this exact {amount}BYOK plan is safely held and ready for "
-        "section-aware production. No generation has started or been charged yet."
+        f"Approved — this exact {amount}BYOK plan is scheduled for section-aware "
+        "production. No provider charge has happened yet."
+        if scheduled
+        else f"Approved — this exact {amount}BYOK plan is safely reserved, but "
+        "runtime scheduling has not completed. Try again; the same video and "
+        "approval will be reused without a duplicate charge."
     )
     return ChatTurnResponse(
         conversation_id=conversation_id,
@@ -529,6 +536,99 @@ def _custom_film_start_ready_response(
         video_id=video_id,
         phase="created",
     )
+
+
+async def _schedule_reserved_custom_film_runtime(
+    conversation_id: str,
+    tenant_id: str,
+    state: dict[str, Any],
+    video_id: str,
+) -> dict[str, Any]:
+    """Resume-safe scheduling for one already-reserved Custom Film video."""
+    from custom_film_contract import CustomFilmContractError
+    pending = state.get("pending_custom_film_plan")
+    if not isinstance(pending, dict):
+        raise CustomFilmContractError("Reserved Custom Film state is missing")
+    expected = str(
+        pending.get("start_intent_hash") or pending.get("approval_hash") or ""
+    )
+    quote_inputs = pending.get("quote_inputs")
+    if not expected or not isinstance(quote_inputs, dict):
+        raise CustomFilmContractError("Reserved Custom Film approval is incomplete")
+
+    from custom_film_runtime import (
+        consume_approval_and_schedule,
+        load_exact_runtime_schedule,
+    )
+
+    try:
+        scheduled = await load_exact_runtime_schedule(
+            tenant_id, video_id, expected
+        )
+    except CustomFilmContractError:
+        raise
+    except Exception as exc:
+        raise CustomFilmContractError(
+            f"Runtime scheduling is temporarily unavailable: {exc}"
+        ) from exc
+    if scheduled is None:
+        try:
+            from vault import get_required_tenant_secret
+
+            await get_required_tenant_secret(
+                "kie_ai_api_key", tenant_id, provider_label="Kie.ai"
+            )
+            runtime_claimed = await generation_claims.acquire(
+                tenant_id,
+                video_id,
+                "main",
+                claimed_by=f"chat:custom-film-runtime:{conversation_id}",
+            )
+        except Exception as exc:
+            raise CustomFilmContractError(
+                getattr(exc, "message", None) or str(exc)
+            ) from exc
+        if not runtime_claimed:
+            raise CustomFilmContractError(
+                "This Custom Film runtime is already being scheduled. Try again shortly."
+            )
+        try:
+            from routes.billing import check_plan_limits, enforce_video_length_cap
+
+            await check_plan_limits(tenant_id, "video")
+            await enforce_video_length_cap(
+                tenant_id,
+                float(quote_inputs["requested_duration_seconds"]) / 60,
+            )
+            scheduled = await consume_approval_and_schedule(
+                tenant_id, video_id, expected
+            )
+        finally:
+            await generation_claims.release(tenant_id, video_id, "main")
+
+    pending["status"] = "start_ready"
+    pending["video_id"] = video_id
+    pending["start_intent_hash"] = expected
+    pending["runtime_job_id"] = scheduled["job_id"]
+    try:
+        await execute(
+            """UPDATE chat_conversations
+               SET state = $3::jsonb, updated_at = now()
+               WHERE id = $1 AND tenant_id = $2 AND video_id = $4""",
+            conversation_id,
+            tenant_id,
+            json.dumps(state),
+            video_id,
+        )
+    except Exception:
+        # The durable exact task is authoritative. A conversation-state cache
+        # miss is safe: the next reload finds the job by approval identity and
+        # retries only this metadata write, never the video or schedule.
+        logger.warning(
+            "custom film runtime scheduled but conversation cache update failed",
+            exc_info=True,
+        )
+    return scheduled
 
 
 def _custom_film_converged_response(
@@ -4013,52 +4113,9 @@ async def _handle_custom_film_approval_turn(
             ),
         )
         video_id = result["video_id"]
-        # M2-4 runtime door: the reservation above is intentionally inert.
-        # Immediately before the first durable runtime schedule, re-read every
-        # spend/safety gate instead of trusting the earlier pre-reservation
-        # result. The locked scheduler then recompiles the exact approved plan,
-        # verifies the current video cap, atomically consumes both approval
-        # pointers, and inserts one unique task row. M2-4B's general section
-        # adapters consume that task; no provider caller branches on this mode.
-        try:
-            await get_required_tenant_secret(
-                "kie_ai_api_key", tenant_id, provider_label="Kie.ai"
-            )
-            runtime_claimed = await generation_claims.acquire(
-                tenant_id,
-                video_id,
-                "main",
-                claimed_by=f"chat:custom-film-runtime:{conversation_id}",
-            )
-        except Exception as exc:  # drain/key failures must remain creator-safe
-            raise CustomFilmContractError(
-                getattr(exc, "message", None) or str(exc)
-            ) from exc
-        if not runtime_claimed:
-            raise CustomFilmContractError(
-                "This Custom Film runtime is already being scheduled."
-            )
-        try:
-            await check_plan_limits(tenant_id, "video")
-            await enforce_video_length_cap(
-                tenant_id,
-                float(quote_inputs["requested_duration_seconds"]) / 60,
-            )
-            from custom_film_runtime import consume_approval_and_schedule
-
-            scheduled = await consume_approval_and_schedule(
-                tenant_id,
-                video_id,
-                expected,
-            )
-        finally:
-            # M2-4A schedules only the durable runtime task. M2-4B's worker
-            # takes and holds the execution claim while stage adapters run.
-            await generation_claims.release(tenant_id, video_id, "main")
-        pending["status"] = "start_ready"
-        pending["start_intent_hash"] = expected
-        pending["video_id"] = video_id
-        pending["runtime_job_id"] = scheduled["job_id"]
+        await _schedule_reserved_custom_film_runtime(
+            conversation_id, tenant_id, state, video_id
+        )
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -4071,6 +4128,16 @@ async def _handle_custom_film_approval_turn(
             if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
             else str(exc)
         )
+        if "video_id" in locals() and video_id:
+            return ChatTurnResponse(
+                conversation_id=conversation_id,
+                assistant_text=(
+                    f"{message} The approved film is still safely reserved; retry "
+                    "and StoryEngine will reuse this same video."
+                ),
+                video_id=video_id,
+                phase="created",
+            )
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="plan"
         )
@@ -5402,6 +5469,21 @@ async def chat_turn(
         and pending_custom_film.get("status") == "start_ready"
         and str(pending_custom_film.get("video_id") or "") == video_id
     ):
+        try:
+            await _schedule_reserved_custom_film_runtime(
+                conversation_id, tenant_id, state, video_id
+            )
+        except Exception as exc:
+            message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            return ChatTurnResponse(
+                conversation_id=conversation_id,
+                assistant_text=(
+                    f"{message} The approved film is still safely reserved; retry "
+                    "and StoryEngine will reuse this same video."
+                ),
+                video_id=video_id,
+                phase="created",
+            )
         return _custom_film_start_ready_response(conversation_id, state, video_id)
 
     # Hydrate durable creator facts (intent/goals/niche/channel/competitors) from a

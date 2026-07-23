@@ -10,6 +10,11 @@
 - `production_styles.runtime_values_from_knobs` is shared by public profile
   snapshots and Custom Film sections, so provider callers receive resolved
   values without branching on `custom_film` or public profile names.
+- Migration 123 adds `background_tasks.runtime_envelope`, a constrained JSONB
+  recovery payload for Custom Film runtime tasks. It contains the runtime
+  version; approval, runtime, plan, and quote hashes; exact section values and
+  seconds; and the ordered stage plan. Restart consumers must validate its hash
+  through `custom_film_runtime.validate_runtime_envelope` before use.
 
 > Last updated: 2026-06-12
 

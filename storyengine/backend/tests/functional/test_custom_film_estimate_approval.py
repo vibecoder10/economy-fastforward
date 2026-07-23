@@ -15,6 +15,9 @@ from routes import chat
 
 def test_m2_4_runtime_door_replaces_the_inert_m2_3_reservation_without_autobuild():
     source = inspect.getsource(chat._handle_custom_film_approval_turn)
+    runtime_source = inspect.getsource(
+        chat._schedule_reserved_custom_film_runtime
+    )
     for forbidden in (
         "create_video",
         "_make_autobuild_step",
@@ -23,7 +26,8 @@ def test_m2_4_runtime_door_replaces_the_inert_m2_3_reservation_without_autobuild
     ):
         assert forbidden not in source
     assert "reserve_approved_start_intent" in source
-    assert "consume_approval_and_schedule" in source
+    assert "_schedule_reserved_custom_film_runtime" in source
+    assert "consume_approval_and_schedule" in runtime_source
 
 
 def _plan() -> dict:
@@ -565,8 +569,15 @@ async def test_endpoint_reload_reconstructs_held_start_before_generic_copilot(
     async def forbidden_copilot(*_args, **_kwargs):
         raise AssertionError("held M2-3 start escaped to generic copilot")
 
+    async def resume(_conversation_id, _tenant_id, state, _video_id):
+        state["pending_custom_film_plan"]["runtime_job_id"] = (
+            "custom-film-runtime:test"
+        )
+        return {"job_id": "custom-film-runtime:test"}
+
     monkeypatch.setattr(chat, "_load_conversation", load)
     monkeypatch.setattr(chat, "_handle_copilot", forbidden_copilot)
+    monkeypatch.setattr(chat, "_schedule_reserved_custom_film_runtime", resume)
     response = await chat.chat_turn(
         chat.ChatTurnRequest(conversation_id="conv", message="what happened?"),
         BackgroundTasks(),
@@ -574,7 +585,7 @@ async def test_endpoint_reload_reconstructs_held_start_before_generic_copilot(
     )
     assert response.video_id == "video-1"
     assert response.phase == "created"
-    assert "No generation has started" in response.assistant_text
+    assert "scheduled for section-aware" in response.assistant_text
 
 
 @pytest.mark.asyncio
@@ -628,8 +639,12 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
         order.append("schedule")
         return {"scheduled": True, "job_id": "custom-film-runtime:test"}
 
-    async def forbidden_late_write(*_args, **_kwargs):
-        raise AssertionError("approval must not perform a post-commit UPDATE")
+    async def no_existing(*_args, **_kwargs):
+        order.append("lookup")
+        return None
+
+    async def persist_job(*_args, **_kwargs):
+        order.append("persist_job")
 
     monkeypatch.setattr(vault, "get_required_tenant_secret", key)
     monkeypatch.setattr(chat.generation_claims, "acquire_channel", acquire_channel)
@@ -641,7 +656,8 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
     monkeypatch.setattr(planner, "load_capability_manifest", manifest)
     monkeypatch.setattr(contract, "reserve_approved_start_intent", reserve)
     monkeypatch.setattr(custom_film_runtime, "consume_approval_and_schedule", schedule)
-    monkeypatch.setattr(chat, "execute", forbidden_late_write)
+    monkeypatch.setattr(custom_film_runtime, "load_exact_runtime_schedule", no_existing)
+    monkeypatch.setattr(chat, "execute", persist_job)
 
     bg = BackgroundTasks()
     response = await chat._handle_custom_film_approval_turn(
@@ -659,12 +675,14 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
         "length_limit",
         "manifest",
         "reserve",
+        "lookup",
         "key",
         "runtime_claim",
         "plan_limit",
         "length_limit",
         "schedule",
         "runtime_release",
+        "persist_job",
         "channel_release",
     ]
 
@@ -702,6 +720,9 @@ async def test_runtime_drain_recheck_stops_after_reservation_but_before_schedule
     async def forbidden_schedule(*_args, **_kwargs):
         raise AssertionError("drain recheck must stop before durable scheduling")
 
+    async def no_existing(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(vault, "get_required_tenant_secret", key)
     monkeypatch.setattr(chat.generation_claims, "acquire_channel", channel_claim)
     monkeypatch.setattr(chat.generation_claims, "release_channel", noop)
@@ -715,10 +736,107 @@ async def test_runtime_drain_recheck_stops_after_reservation_but_before_schedule
         "consume_approval_and_schedule",
         forbidden_schedule,
     )
+    monkeypatch.setattr(
+        custom_film_runtime, "load_exact_runtime_schedule", no_existing
+    )
 
     response = await chat._handle_custom_film_approval_turn(
         "yes", "conv", "tenant", [], state, BackgroundTasks()
     )
-    assert response.video_id is None
-    assert response.phase == "plan"
+    assert response.video_id == "video-1"
+    assert response.phase == "created"
     assert "draining" in response.assistant_text
+    assert "same video" in response.assistant_text
+
+
+@pytest.mark.asyncio
+async def test_reserved_video_retries_runtime_schedule_after_reload_without_duplicate(
+    monkeypatch,
+):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    pending = _pending(quote)
+    pending.update(
+        status="start_ready",
+        start_intent_hash=pending["approval_hash"],
+        video_id="video-1",
+    )
+    persisted_state = {
+        "mode": "custom_film",
+        "pending_custom_film_plan": pending,
+    }
+    import custom_film_runtime
+    import vault
+    from routes import billing
+    calls: list[str] = []
+
+    async def load(*_args):
+        return {
+            "id": "conv",
+            "video_id": "video-1",
+            "transcript": [{"role": "assistant", "content": "reserved"}],
+            "state": copy.deepcopy(persisted_state),
+            "phase": "created",
+        }
+
+    async def no_existing(*_args, **_kwargs):
+        calls.append("exact_lookup")
+        return None
+
+    async def key(*_args, **_kwargs):
+        calls.append("key")
+        return "tenant-key"
+
+    async def claim(*_args, **_kwargs):
+        calls.append("claim")
+        return True
+
+    async def release(*_args, **_kwargs):
+        calls.append("release")
+
+    async def gate(*_args, **_kwargs):
+        calls.append("gate")
+
+    async def schedule(*_args, **_kwargs):
+        calls.append("schedule")
+        return {"scheduled": True, "job_id": "custom-film-runtime:retry"}
+
+    async def persist(*_args, **_kwargs):
+        calls.append("persist")
+
+    async def forbidden_copilot(*_args, **_kwargs):
+        raise AssertionError("reserved retry escaped to generic copilot")
+
+    monkeypatch.setattr(chat, "_load_conversation", load)
+    monkeypatch.setattr(chat, "_handle_copilot", forbidden_copilot)
+    monkeypatch.setattr(
+        custom_film_runtime, "load_exact_runtime_schedule", no_existing
+    )
+    monkeypatch.setattr(
+        custom_film_runtime, "consume_approval_and_schedule", schedule
+    )
+    monkeypatch.setattr(vault, "get_required_tenant_secret", key)
+    monkeypatch.setattr(chat.generation_claims, "acquire", claim)
+    monkeypatch.setattr(chat.generation_claims, "release", release)
+    monkeypatch.setattr(billing, "check_plan_limits", gate)
+    monkeypatch.setattr(billing, "enforce_video_length_cap", gate)
+    monkeypatch.setattr(chat, "execute", persist)
+
+    response = await chat.chat_turn(
+        chat.ChatTurnRequest(conversation_id="conv", message="try again"),
+        BackgroundTasks(),
+        tenant_id="tenant",
+    )
+    assert response.video_id == "video-1"
+    assert "scheduled for section-aware" in response.assistant_text
+    assert calls == [
+        "exact_lookup",
+        "key",
+        "claim",
+        "gate",
+        "gate",
+        "schedule",
+        "release",
+        "persist",
+    ]

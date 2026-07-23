@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping
 
 from custom_film_contract import (
@@ -37,6 +38,30 @@ def _updated_once(result: Any) -> bool:
     if isinstance(result, int):
         return result == 1
     return bool(result)
+
+
+def _exact_int(value: Any, name: str, *, minimum: int = 0) -> int:
+    if type(value) is not int or value < minimum:
+        raise CustomFilmContractError(
+            f"Custom Film {name} must be an exact integer of at least {minimum}"
+        )
+    return value
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return copy.deepcopy(value)
+
+
+def _thaw(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return copy.deepcopy(value)
 
 
 @dataclass(frozen=True)
@@ -72,16 +97,16 @@ class RuntimeSection:
             "script_profile": self.script_profile,
             "visual_profile": self.visual_profile,
             "dialogue_audio": self.dialogue_audio,
-            "image_density": copy.deepcopy(dict(self.image_density)),
-            "animation": copy.deepcopy(dict(self.animation)),
-            "language": copy.deepcopy(dict(self.language)),
-            "dubbing": copy.deepcopy(dict(self.dubbing)),
-            "segmentation": copy.deepcopy(dict(self.segmentation)),
-            "camera": copy.deepcopy(dict(self.camera)),
+            "image_density": _thaw(self.image_density),
+            "animation": _thaw(self.animation),
+            "language": _thaw(self.language),
+            "dubbing": _thaw(self.dubbing),
+            "segmentation": _thaw(self.segmentation),
+            "camera": _thaw(self.camera),
             "quality_laws": list(self.quality_laws),
             "image_source": self.image_source,
-            "provenance": copy.deepcopy(dict(self.provenance)),
-            "estimated_media": copy.deepcopy(dict(self.estimated_media)),
+            "provenance": _thaw(self.provenance),
+            "estimated_media": _thaw(self.estimated_media),
         }
 
 
@@ -98,19 +123,7 @@ class RuntimePlan:
 
     @property
     def runtime_hash(self) -> str:
-        return canonical_hash(
-            {
-                "runtime_version": RUNTIME_VERSION,
-                "video_id": self.video_id,
-                "plan_id": self.plan_id,
-                "plan_hash": self.plan_hash,
-                "quote_inputs_hash": self.quote_inputs_hash,
-                "approval_hash": self.approval_hash,
-                "total_duration_seconds": self.total_duration_seconds,
-                "max_spend": self.max_spend,
-                "sections": [section.stage_values() for section in self.sections],
-            }
-        )
+        return canonical_hash(self._envelope_base())
 
     def stage_plan(self) -> tuple[dict[str, Any], ...]:
         work: list[dict[str, Any]] = []
@@ -130,6 +143,23 @@ class RuntimePlan:
                     }
                 )
         return tuple(work)
+
+    def envelope(self) -> dict[str, Any]:
+        return {"runtime_hash": self.runtime_hash, **self._envelope_base()}
+
+    def _envelope_base(self) -> dict[str, Any]:
+        return {
+            "runtime_version": RUNTIME_VERSION,
+            "video_id": self.video_id,
+            "plan_id": self.plan_id,
+            "plan_hash": self.plan_hash,
+            "quote_inputs_hash": self.quote_inputs_hash,
+            "approval_hash": self.approval_hash,
+            "total_duration_seconds": self.total_duration_seconds,
+            "max_spend": self.max_spend,
+            "sections": [section.stage_values() for section in self.sections],
+            "stage_plan": list(self.stage_plan()),
+        }
 
 
 def compile_runtime_plan(
@@ -181,15 +211,13 @@ def compile_runtime_plan(
             raise CustomFilmContractError(
                 "Custom Film estimate does not match the approved sections"
             )
-        if int(section.get("order_index", -1)) != expected_index or int(
-            quote_row.get("order_index", -1)
+        if _exact_int(section.get("order_index"), "section order") != expected_index or _exact_int(
+            quote_row.get("order_index"), "estimate section order"
         ) != expected_index:
             raise CustomFilmContractError("Custom Film section order changed")
-        duration_seconds = int(quote_row.get("duration_seconds") or 0)
-        if duration_seconds < 1:
-            raise CustomFilmContractError(
-                "Every Custom Film section needs an exact positive runtime"
-            )
+        duration_seconds = _exact_int(
+            quote_row.get("duration_seconds"), "section runtime", minimum=1
+        )
         knobs = _object(section.get("knobs"), "section knobs")
         resolved = runtime_values_from_knobs(knobs)
         image_source = str(knobs.get("image_source") or "")
@@ -203,9 +231,15 @@ def compile_runtime_plan(
                 "Static Custom Film sections cannot schedule animated clips"
             )
         estimated_media = {
-            "still_images": int(quote_row.get("still_images") or 0),
-            "animation_clips": int(quote_row.get("animation_clips") or 0),
-            "voice_tracks": int(quote_row.get("voice_tracks") or 0),
+            "still_images": _exact_int(
+                quote_row.get("still_images"), "still-image count"
+            ),
+            "animation_clips": _exact_int(
+                quote_row.get("animation_clips"), "animation-clip count"
+            ),
+            "voice_tracks": _exact_int(
+                quote_row.get("voice_tracks"), "voice-track count"
+            ),
         }
         if bool(animation.get("enabled")) != bool(
             estimated_media["animation_clips"]
@@ -224,12 +258,12 @@ def compile_runtime_plan(
                 script_profile=resolved["script_profile"],
                 visual_profile=resolved["visual_profile"],
                 dialogue_audio=resolved["dialogue_audio"],
-                image_density=_object(knobs.get("image_density"), "image density"),
-                animation=animation,
-                language=_object(knobs.get("language"), "language"),
-                dubbing=_object(knobs.get("dubbing"), "dubbing"),
-                segmentation=_object(knobs.get("segmentation"), "segmentation"),
-                camera=_object(knobs.get("camera"), "camera"),
+                image_density=_freeze(_object(knobs.get("image_density"), "image density")),
+                animation=_freeze(animation),
+                language=_freeze(_object(knobs.get("language"), "language")),
+                dubbing=_freeze(_object(knobs.get("dubbing"), "dubbing")),
+                segmentation=_freeze(_object(knobs.get("segmentation"), "segmentation")),
+                camera=_freeze(_object(knobs.get("camera"), "camera")),
                 quality_laws=tuple(
                     str(value)
                     for value in (
@@ -240,13 +274,15 @@ def compile_runtime_plan(
                     if str(value)
                 ),
                 image_source=image_source,
-                provenance=_object(section.get("provenance"), "provenance"),
-                estimated_media=estimated_media,
+                provenance=_freeze(_object(section.get("provenance"), "provenance")),
+                estimated_media=_freeze(estimated_media),
             )
         )
 
-    total_seconds = int(quote.get("requested_duration_seconds") or 0)
-    if total_seconds < 1 or sum(s.duration_seconds for s in sections) != total_seconds:
+    total_seconds = _exact_int(
+        quote.get("requested_duration_seconds"), "total runtime", minimum=1
+    )
+    if sum(s.duration_seconds for s in sections) != total_seconds:
         raise CustomFilmContractError(
             "Custom Film exact section runtimes do not reconcile"
         )
@@ -297,28 +333,6 @@ async def consume_approval_and_schedule(
             )
             if not row:
                 raise CustomFilmContractError("Current Custom Film plan not found")
-            if (
-                str(row.get("custom_film_approval_hash") or "")
-                != expected_approval_hash
-                or str(row.get("approval_hash") or "") != expected_approval_hash
-            ):
-                existing = await conn.fetchrow(
-                    """SELECT job_id FROM background_tasks
-                       WHERE tenant_id = $1 AND video_id = $2
-                         AND task_type = 'custom_film_runtime'
-                       ORDER BY created_at DESC LIMIT 1""",
-                    tenant_id,
-                    video_id,
-                )
-                if existing:
-                    return {
-                        "scheduled": False,
-                        "job_id": str(existing["job_id"]),
-                        "video_id": video_id,
-                    }
-                raise CustomFilmContractError(
-                    "This Custom Film approval is stale or was already used."
-                )
             runtime = compile_runtime_plan(
                 video_id=video_id,
                 plan_id=str(row["custom_film_plan_id"]),
@@ -338,17 +352,51 @@ async def consume_approval_and_schedule(
                     "This Custom Film plan pointer changed. Review it again."
                 )
             job_id = f"custom-film-runtime:{runtime.runtime_hash}"
+            approvals_current = (
+                str(row.get("custom_film_approval_hash") or "")
+                == expected_approval_hash
+                and str(row.get("approval_hash") or "") == expected_approval_hash
+            )
+            if not approvals_current:
+                existing = await conn.fetchrow(
+                    """SELECT job_id, runtime_envelope
+                       FROM background_tasks
+                       WHERE tenant_id = $1 AND video_id = $2
+                         AND task_type = 'custom_film_runtime'
+                         AND job_id = $3
+                         AND runtime_envelope->>'approval_hash' = $4
+                         AND runtime_envelope->>'runtime_hash' = $5""",
+                    tenant_id,
+                    video_id,
+                    job_id,
+                    expected_approval_hash,
+                    runtime.runtime_hash,
+                )
+                if existing:
+                    envelope = validate_runtime_envelope(existing["runtime_envelope"])
+                    return {
+                        "scheduled": False,
+                        "job_id": str(existing["job_id"]),
+                        "video_id": video_id,
+                        "envelope": envelope,
+                    }
+                raise CustomFilmContractError(
+                    "This Custom Film approval is stale or was already used."
+                )
+            envelope = runtime.envelope()
             inserted = await conn.fetchrow(
                 """INSERT INTO background_tasks
                      (tenant_id, video_id, task_type, status, message, job_id,
-                      attempt, started_at)
+                      attempt, started_at, runtime_envelope)
                    VALUES ($1, $2, 'custom_film_runtime', 'pending',
-                           'Preparing approved section runtime', $3, 1, now())
+                           'Preparing approved section runtime', $3, 1, now(),
+                           $4::jsonb)
                    ON CONFLICT (job_id) WHERE job_id IS NOT NULL DO NOTHING
                    RETURNING id""",
                 tenant_id,
                 video_id,
                 job_id,
+                json.dumps(envelope, sort_keys=True, separators=(",", ":")),
             )
             if inserted:
                 plan_result = await conn.execute(
@@ -380,4 +428,49 @@ async def consume_approval_and_schedule(
                 "job_id": job_id,
                 "video_id": video_id,
                 "runtime": runtime,
+                "envelope": envelope,
             }
+
+
+def validate_runtime_envelope(value: Any) -> dict[str, Any]:
+    """Validate a durable envelope before a restarted worker consumes it."""
+    envelope = _object(value, "runtime envelope")
+    if envelope.get("runtime_version") != RUNTIME_VERSION:
+        raise CustomFilmContractError("Custom Film runtime version is unsupported")
+    runtime_hash = str(envelope.get("runtime_hash") or "")
+    base = dict(envelope)
+    base.pop("runtime_hash", None)
+    if canonical_hash(base) != runtime_hash:
+        raise CustomFilmContractError("Custom Film runtime envelope hash is invalid")
+    stage_plan = envelope.get("stage_plan")
+    sections = envelope.get("sections")
+    if not isinstance(stage_plan, list) or not isinstance(sections, list) or not sections:
+        raise CustomFilmContractError("Custom Film runtime envelope is incomplete")
+    return envelope
+
+
+async def load_exact_runtime_schedule(
+    tenant_id: str,
+    video_id: str,
+    expected_approval_hash: str,
+) -> dict[str, Any] | None:
+    """Load only the durable job for this exact reserved approval identity."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT job_id, runtime_envelope
+               FROM background_tasks
+               WHERE tenant_id = $1 AND video_id = $2
+                 AND task_type = 'custom_film_runtime'
+                 AND runtime_envelope->>'approval_hash' = $3""",
+            tenant_id,
+            video_id,
+            expected_approval_hash,
+        )
+    if not row:
+        return None
+    envelope = validate_runtime_envelope(row["runtime_envelope"])
+    expected_job = f"custom-film-runtime:{envelope['runtime_hash']}"
+    if str(row["job_id"]) != expected_job:
+        raise CustomFilmContractError("Custom Film runtime job identity is invalid")
+    return {"job_id": expected_job, "envelope": envelope}

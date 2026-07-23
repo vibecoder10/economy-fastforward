@@ -1054,7 +1054,20 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     job_id TEXT,
-    attempt INTEGER NOT NULL DEFAULT 1
+    attempt INTEGER NOT NULL DEFAULT 1,
+    runtime_envelope JSONB,
+    CONSTRAINT background_tasks_custom_film_runtime_envelope_check CHECK (
+      task_type <> 'custom_film_runtime'
+      OR (
+        runtime_envelope IS NOT NULL
+        AND jsonb_typeof(runtime_envelope) = 'object'
+        AND runtime_envelope->>'runtime_version' = 'custom-film-runtime-v1'
+        AND runtime_envelope->>'runtime_hash' ~ '^[0-9a-f]{64}$'
+        AND runtime_envelope->>'approval_hash' ~ '^[0-9a-f]{64}$'
+        AND jsonb_typeof(runtime_envelope->'sections') = 'array'
+        AND jsonb_typeof(runtime_envelope->'stage_plan') = 'array'
+      )
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_tenant ON background_tasks(tenant_id);
@@ -1065,6 +1078,13 @@ CREATE INDEX IF NOT EXISTS idx_bg_tasks_created_at ON background_tasks(created_a
 -- behind db_persist_task()'s check-then-insert race on the "pending" branch.
 -- NULL job_id (the in-process fallback path) is never deduped.
 CREATE UNIQUE INDEX IF NOT EXISTS background_tasks_job_id_uidx ON background_tasks(job_id) WHERE job_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS background_tasks_custom_film_approval_idx
+  ON background_tasks (
+    tenant_id,
+    video_id,
+    (runtime_envelope->>'approval_hash')
+  )
+  WHERE task_type = 'custom_film_runtime';
 
 ALTER TABLE background_tasks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Tenant isolation" ON background_tasks FOR ALL TO authenticated
