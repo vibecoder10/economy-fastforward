@@ -8,6 +8,7 @@ they never inspect ``custom_film`` mode or public profile IDs themselves.
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -140,6 +141,25 @@ class SectionStageRunner(Protocol):
     ) -> Mapping[str, Any] | None: ...
 
 
+class ReconciliationStageRunner(SectionStageRunner, Protocol):
+    """Concrete production seam with a pure request identity and reconciler."""
+
+    def operation_spec(
+        self,
+        adapter: SectionStageAdapter,
+        scene_ids: tuple[str, ...],
+        operation_id: str,
+    ) -> Any: ...
+
+    async def reconcile(
+        self,
+        adapter: SectionStageAdapter,
+        scene_ids: tuple[str, ...],
+        operation_id: str,
+        operation_record: Any,
+    ) -> Mapping[str, Any] | None: ...
+
+
 class CustomFilmReconciliationRequired(CustomFilmContractError):
     """An operation crossed the write-ahead boundary without a durable result."""
 
@@ -160,6 +180,10 @@ def _operation_id(
             "stage_key": adapter.stage_key,
         }
     )
+
+
+async def _resolve_value(value: Any) -> Any:
+    return await value if inspect.isawaitable(value) else value
 
 
 def _validated_progress(
@@ -495,6 +519,9 @@ async def consume_runtime_schedule(
     validated before it is called.
     """
     runner = stage_runner or _unsupported_runner
+    operation_aware = callable(getattr(runner, "operation_spec", None)) and callable(
+        getattr(runner, "reconcile", None)
+    )
     claimed = await generation_claims.acquire(
         tenant_id,
         video_id,
@@ -539,7 +566,7 @@ async def consume_runtime_schedule(
                 ordered_stage_keys=ordered_stage_keys,
                 operation_ids=operation_ids,
             )
-            if in_flight is not None:
+            if in_flight is not None and not operation_aware:
                 raise CustomFilmReconciliationRequired(
                     "A Custom Film section operation may have reached its provider "
                     "before the restart. Reconciliation is required; it was not run again."
@@ -569,36 +596,100 @@ async def consume_runtime_schedule(
                     if adapter.stage == "script"
                     else await _load_assignments(conn, tenant_id, adapter)
                 )
-                write_ahead = {
-                    "runtime_hash": envelope["runtime_hash"],
-                    "completed_stage_keys": list(completed),
-                    "last_stage_key": completed[-1] if completed else None,
-                    "in_flight": {
-                        "stage_key": adapter.stage_key,
-                        "operation_id": operation_id,
-                        "state": "started",
-                    },
-                }
-                write_ahead_result = await conn.execute(
-                    """UPDATE background_tasks
-                       SET runtime_progress = $4::jsonb,
-                           message = $5
-                       WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
-                    tenant_id,
-                    video_id,
-                    job_id,
-                    json.dumps(
-                        write_ahead,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ),
-                    f"Started section stage {adapter.stage_key}",
+            operation_record = None
+            if operation_aware:
+                import custom_film_provider_operations as provider_operations
+
+                spec = await _resolve_value(
+                    runner.operation_spec(adapter, scene_ids, operation_id)
                 )
-                if not _updated_once(write_ahead_result):
+                if not isinstance(
+                    spec, provider_operations.ProviderOperationSpec
+                ):
                     raise CustomFilmContractError(
-                        "Custom Film stage operation could not be reserved"
+                        "Custom Film provider operation specification is invalid"
                     )
-            result = await runner(adapter, scene_ids, operation_id)
+                operation_record = await provider_operations.prepare_operation(
+                    tenant_id=tenant_id,
+                    video_id=video_id,
+                    runtime_job_id=job_id,
+                    runtime_hash=envelope["runtime_hash"],
+                    stage_key=adapter.stage_key,
+                    operation_id=operation_id,
+                    spec=spec,
+                )
+
+            resuming_in_flight = (
+                in_flight is not None
+                and in_flight["stage_key"] == adapter.stage_key
+                and in_flight["operation_id"] == operation_id
+            )
+            if not resuming_in_flight:
+                async with pool.acquire() as conn:
+                    write_ahead = {
+                        "runtime_hash": envelope["runtime_hash"],
+                        "completed_stage_keys": list(completed),
+                        "last_stage_key": completed[-1] if completed else None,
+                        "in_flight": {
+                            "stage_key": adapter.stage_key,
+                            "operation_id": operation_id,
+                            "state": "started",
+                        },
+                    }
+                    write_ahead_result = await conn.execute(
+                        """UPDATE background_tasks
+                           SET runtime_progress = $4::jsonb,
+                               message = $5
+                           WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
+                        tenant_id,
+                        video_id,
+                        job_id,
+                        json.dumps(
+                            write_ahead,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        f"Started section stage {adapter.stage_key}",
+                    )
+                    if not _updated_once(write_ahead_result):
+                        raise CustomFilmContractError(
+                            "Custom Film stage operation could not be reserved"
+                        )
+
+            if resuming_in_flight:
+                import custom_film_provider_operations as provider_operations
+
+                try:
+                    action = provider_operations.reconciliation_action(
+                        operation_record
+                    )
+                except CustomFilmContractError as exc:
+                    await provider_operations.mark_reconciliation_required(
+                        operation_id,
+                        str(exc),
+                    )
+                    raise
+                if action == "return_completed":
+                    result = operation_record.result
+                elif action == "query_provider":
+                    result = await runner.reconcile(
+                        adapter,
+                        scene_ids,
+                        operation_id,
+                        operation_record,
+                    )
+                elif action == "retry_same_operation":
+                    result = await runner(adapter, scene_ids, operation_id)
+                else:  # pragma: no cover - reconciliation_action is exhaustive
+                    raise CustomFilmReconciliationRequired(
+                        "Custom Film provider reconciliation did not resolve"
+                    )
+            else:
+                result = await runner(adapter, scene_ids, operation_id)
+            if operation_aware and not isinstance(result, Mapping):
+                raise CustomFilmContractError(
+                    "Custom Film provider operation did not return a durable result"
+                )
             result_object = _object(result or {}, "stage result")
             if adapter.stage == "script":
                 raw_scene_ids = result_object.get("scene_ids")
@@ -612,6 +703,14 @@ async def consume_runtime_schedule(
                     if adapter.stage == "script":
                         await _replace_assignments(
                             conn, tenant_id, adapter, scene_ids
+                        )
+                    if operation_aware:
+                        import custom_film_provider_operations as provider_operations
+
+                        await provider_operations.mark_completed(
+                            operation_id,
+                            result_object,
+                            conn=conn,
                         )
                     completed.append(adapter.stage_key)
                     durable_progress = {
@@ -639,6 +738,7 @@ async def consume_runtime_schedule(
                         raise CustomFilmContractError(
                             "Custom Film stage result could not be checkpointed"
                         )
+            in_flight = None
 
         async with pool.acquire() as conn:
             completed_result = await conn.execute(

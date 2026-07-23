@@ -11336,3 +11336,25 @@ control writes without losing the video, approval, or confirmation.
   stop so B2 can query the provider by the stable operation ID. Startup recovery
   carries the original hashed runtime job ID into the worker queue, and raw
   callback exceptions are humanized before task persistence.
+
+# M2-4B2a Custom Film enqueue and provider reconciliation (2026-07-23)
+
+- The Custom Film approval/resume path immediately enqueues the exact durable
+  `custom-film-runtime:<runtime_hash>` job when the application Redis pool is
+  available. The arq worker key is deterministic, so a reload/double tap
+  converges on the same queued work instead of minting a second attempt.
+- Migration 125 and matching `schema.sql` create
+  `custom_film_provider_operations`, a backend-only journal keyed by the
+  B1 `custom-film-op:<sha256>` identity. Each row immutably binds tenant,
+  video, runtime job/hash, stage key, provider, canonical request hash, and one
+  declared reconciliation mode; provider task IDs and completed results are
+  durable.
+- `custom_film_provider_operations.py` permits exactly three restart outcomes:
+  return an already completed result, query a persisted provider task, or
+  repeat a provider-idempotent request with the same operation ID. Missing,
+  changed, opaque, or unsupported reconciliation state fails closed and is
+  persisted as `reconciliation_required`.
+- Operation-aware B2 stage runners are journaled before B1 writes its in-flight
+  marker. Their completed provider result is committed in the same transaction
+  as section assignment/progress. Legacy synthetic function runners retain
+  B1's original explicit reconciliation stop.

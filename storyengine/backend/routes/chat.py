@@ -21,7 +21,16 @@ import os
 import re
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from pydantic import BaseModel
 
 from auth import get_tenant_id
@@ -543,6 +552,8 @@ async def _schedule_reserved_custom_film_runtime(
     tenant_id: str,
     state: dict[str, Any],
     video_id: str,
+    *,
+    arq_pool: Any = None,
 ) -> dict[str, Any]:
     """Resume-safe scheduling for one already-reserved Custom Film video."""
     from custom_film_contract import CustomFilmContractError
@@ -628,6 +639,30 @@ async def _schedule_reserved_custom_film_runtime(
             "custom film runtime scheduled but conversation cache update failed",
             exc_info=True,
         )
+    if arq_pool is not None:
+        try:
+            from job_queue import enqueue_stage
+
+            queued_job_id = await enqueue_stage(
+                arq_pool,
+                "custom_film_runtime",
+                video_id,
+                tenant_id,
+                1,
+                runtime_job_id=str(scheduled["job_id"]),
+            )
+            # None means arq already owns this exact deterministic worker key.
+            # That is successful convergence, not a reason to mint a retry key.
+            scheduled["queue_enqueued"] = queued_job_id is not None
+            scheduled["queue_job_id"] = (
+                queued_job_id
+                or f"custom-film-worker:{scheduled['job_id']}:1"
+            )
+        except Exception as exc:
+            raise CustomFilmContractError(
+                "The approved Custom Film schedule is safely saved, but its "
+                "worker could not be queued. Retry to enqueue the same exact job."
+            ) from exc
     return scheduled
 
 
@@ -3999,6 +4034,8 @@ async def _handle_custom_film_approval_turn(
     state: dict[str, Any],
     background_tasks: BackgroundTasks,
     expected_state: dict[str, Any] | None = None,
+    *,
+    arq_pool: Any = None,
 ) -> ChatTurnResponse:
     """Confirm one exact quote into a durable no-provider start intention."""
     pending = state.get("pending_custom_film_plan")
@@ -4113,8 +4150,13 @@ async def _handle_custom_film_approval_turn(
             ),
         )
         video_id = result["video_id"]
+        schedule_kwargs = {"arq_pool": arq_pool} if arq_pool is not None else {}
         await _schedule_reserved_custom_film_runtime(
-            conversation_id, tenant_id, state, video_id
+            conversation_id,
+            tenant_id,
+            state,
+            video_id,
+            **schedule_kwargs,
         )
         return ChatTurnResponse(
             conversation_id=conversation_id,
@@ -5437,8 +5479,14 @@ async def _handle_cold_start_competitor_followup(
 async def chat_turn(
     body: ChatTurnRequest,
     background_tasks: BackgroundTasks,
+    request: Request = None,
     tenant_id=Depends(get_tenant_id),
 ):
+    arq_pool = (
+        getattr(request.app.state, "arq", None)
+        if request is not None
+        else None
+    )
     # 1. Load or create the conversation (tenant-scoped). The dock sends video_id
     #    with no conversation_id on first open -> find-or-create the ONE conversation
     #    bound to that video so it resumes the whole backstory (Decision A).
@@ -5470,8 +5518,13 @@ async def chat_turn(
         and str(pending_custom_film.get("video_id") or "") == video_id
     ):
         try:
+            schedule_kwargs = {"arq_pool": arq_pool} if arq_pool is not None else {}
             await _schedule_reserved_custom_film_runtime(
-                conversation_id, tenant_id, state, video_id
+                conversation_id,
+                tenant_id,
+                state,
+                video_id,
+                **schedule_kwargs,
             )
         except Exception as exc:
             message = exc.detail if isinstance(exc, HTTPException) else str(exc)
@@ -5516,6 +5569,7 @@ async def chat_turn(
         and "custom_film_approval" in body.selections
         and not (body.message and body.message.strip())
     ):
+        approval_kwargs = {"arq_pool": arq_pool} if arq_pool is not None else {}
         return await _handle_custom_film_approval_turn(
             str(body.selections["custom_film_approval"]),
             conversation_id,
@@ -5524,6 +5578,7 @@ async def chat_turn(
             state,
             background_tasks,
             custom_film_expected_state,
+            **approval_kwargs,
         )
     if state.get("mode") == "custom_film" and not (
         body.message and body.message.strip()

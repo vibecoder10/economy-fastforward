@@ -1951,6 +1951,44 @@ CREATE INDEX IF NOT EXISTS custom_film_section_scenes_order_idx
   ON custom_film_section_scenes
     (tenant_id, plan_id, section_id, scene_order);
 
+-- M2-4B2a: provider request/result journal keyed by the stable stage
+-- operation_id. Provider callers may query a persisted provider task, repeat
+-- an idempotent request with the same operation ID, or fail closed; they may
+-- never blindly replay an unresolved opaque request.
+CREATE TABLE IF NOT EXISTS custom_film_provider_operations (
+  operation_id TEXT PRIMARY KEY
+    CHECK (operation_id ~ '^custom-film-op:[0-9a-f]{64}$'),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  runtime_job_id TEXT NOT NULL
+    CHECK (runtime_job_id ~ '^custom-film-runtime:[0-9a-f]{64}$'),
+  runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
+  stage_key TEXT NOT NULL CHECK (stage_key <> ''),
+  provider TEXT NOT NULL CHECK (provider <> ''),
+  request_hash TEXT NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+  reconciliation_mode TEXT NOT NULL
+    CHECK (reconciliation_mode IN (
+      'provider_query', 'provider_idempotency', 'none'
+    )),
+  state TEXT NOT NULL DEFAULT 'prepared'
+    CHECK (state IN (
+      'prepared', 'submitted', 'completed', 'failed',
+      'reconciliation_required'
+    )),
+  provider_operation_id TEXT,
+  result JSONB,
+  reconciliation_detail TEXT,
+  submitted_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, video_id, runtime_job_id, stage_key),
+  CHECK (state <> 'completed' OR result IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_provider_operations_runtime_idx
+  ON custom_film_provider_operations (tenant_id, video_id, runtime_job_id);
+
 ALTER TABLE videos
   ADD CONSTRAINT videos_custom_film_plan_fkey
   FOREIGN KEY (tenant_id, custom_film_plan_id)
@@ -2025,15 +2063,18 @@ ALTER TABLE custom_film_recipes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_sections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_section_scenes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_provider_operations ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON custom_film_recipes FROM anon;
 REVOKE ALL ON custom_film_plans FROM anon;
 REVOKE ALL ON custom_film_sections FROM anon;
 REVOKE ALL ON custom_film_section_scenes FROM anon;
+REVOKE ALL ON custom_film_provider_operations FROM anon;
 REVOKE ALL ON custom_film_recipes FROM authenticated;
 REVOKE ALL ON custom_film_plans FROM authenticated;
 REVOKE ALL ON custom_film_sections FROM authenticated;
 REVOKE ALL ON custom_film_section_scenes FROM authenticated;
+REVOKE ALL ON custom_film_provider_operations FROM authenticated;
 
 CREATE POLICY "Tenant isolation" ON custom_film_recipes
   FOR ALL TO authenticated

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import custom_film_contract as contract
+import custom_film_provider_operations as provider_operations
 import custom_film_runtime
 import custom_film_section_runtime as section_runtime
 
@@ -300,6 +301,100 @@ async def _value(value):
     return value
 
 
+class _JournalConnection(_FakeConnection):
+    def __init__(self, envelope):
+        super().__init__(envelope)
+        self.operations = {}
+
+    async def fetchrow(self, sql, *_args):
+        if "FROM custom_film_provider_operations" in sql:
+            row = self.operations.get(str(_args[0]))
+            return copy.deepcopy(row) if row else None
+        return await super().fetchrow(sql, *_args)
+
+    async def execute(self, sql, *_args):
+        if "INSERT INTO custom_film_provider_operations" in sql:
+            (
+                tenant_id,
+                video_id,
+                runtime_job_id,
+                runtime_hash,
+                stage_key,
+                operation_id,
+                provider,
+                request_hash,
+                mode,
+            ) = _args
+            self.operations.setdefault(
+                str(operation_id),
+                {
+                    "tenant_id": tenant_id,
+                    "video_id": video_id,
+                    "runtime_job_id": runtime_job_id,
+                    "runtime_hash": runtime_hash,
+                    "stage_key": stage_key,
+                    "operation_id": operation_id,
+                    "provider": provider,
+                    "request_hash": request_hash,
+                    "reconciliation_mode": mode,
+                    "state": "prepared",
+                    "provider_operation_id": None,
+                    "result": None,
+                },
+            )
+            return "INSERT 0 1"
+        if "SET state = 'completed'" in sql:
+            operation_id, result_json = _args
+            row = self.operations[str(operation_id)]
+            result = json.loads(result_json)
+            if row["result"] is not None and row["result"] != result:
+                return "UPDATE 0"
+            row["state"] = "completed"
+            row["result"] = result
+            return "UPDATE 1"
+        if "SET state = 'reconciliation_required'" in sql:
+            operation_id, detail = _args
+            row = self.operations[str(operation_id)]
+            row["state"] = "reconciliation_required"
+            row["reconciliation_detail"] = detail
+            return "UPDATE 1"
+        return await super().execute(sql, *_args)
+
+
+class _OperationAwareRunner:
+    def __init__(self, mode=provider_operations.RECONCILIATION_IDEMPOTENCY):
+        self.mode = mode
+        self.calls = []
+        self.reconciliations = []
+
+    def operation_spec(self, adapter, scene_ids, operation_id):
+        return provider_operations.ProviderOperationSpec(
+            provider=f"fake-{adapter.stage}",
+            request_hash=contract.canonical_hash(
+                {
+                    "operation_id": operation_id,
+                    "values": adapter.provider_values(),
+                    "scene_ids": list(scene_ids),
+                }
+            ),
+            reconciliation_mode=self.mode,
+        )
+
+    async def __call__(self, adapter, scene_ids, operation_id):
+        self.calls.append((adapter.stage_key, operation_id))
+        if adapter.stage == "script":
+            return {"scene_ids": [f"{adapter.section_id}-scene-1"]}
+        return {"ok": True}
+
+    async def reconcile(self, adapter, scene_ids, operation_id, record):
+        self.reconciliations.append(
+            (adapter.stage_key, operation_id, record.provider_operation_id)
+        )
+        if adapter.stage == "script":
+            return {"scene_ids": [f"{adapter.section_id}-scene-1"]}
+        return {"ok": True}
+
+
 @pytest.mark.asyncio
 async def test_consumer_holds_claim_persists_assignments_and_passes_resolved_values(
     monkeypatch,
@@ -351,6 +446,132 @@ async def test_consumer_holds_claim_persists_assignments_and_passes_resolved_val
     assert calls[4][0].provider_values()["script_profile"] == "power_doctrine_v2"
     assert claim_events[0][0] == "acquire"
     assert claim_events[-1][0] == "release"
+
+
+@pytest.mark.asyncio
+async def test_operation_aware_consumer_journals_and_completes_every_stage(
+    monkeypatch,
+):
+    conn = _JournalConnection(_envelope())
+    pool = _FakePool(conn)
+    runner = _OperationAwareRunner()
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(pool))
+    monkeypatch.setattr(provider_operations.database, "get_pool", lambda: _value(pool))
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    result = await section_runtime.consume_runtime_schedule(
+        "tenant-1",
+        "video-1",
+        conn.task["job_id"],
+        stage_runner=runner,
+    )
+    assert result["status"] == "completed"
+    assert len(runner.calls) == 10
+    assert len(conn.operations) == 10
+    assert all(row["state"] == "completed" for row in conn.operations.values())
+    assert all(row["result"] is not None for row in conn.operations.values())
+    assert runner.reconciliations == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "provider_task_id", "expected_path"),
+    [
+        (provider_operations.RECONCILIATION_IDEMPOTENCY, None, "retry"),
+        (provider_operations.RECONCILIATION_QUERY, "provider-task-1", "query"),
+        (provider_operations.RECONCILIATION_NONE, None, "blocked"),
+    ],
+)
+async def test_in_flight_operation_uses_only_provider_safe_reconciliation_path(
+    monkeypatch,
+    mode,
+    provider_task_id,
+    expected_path,
+):
+    envelope = _envelope()
+    conn = _JournalConnection(envelope)
+    pool = _FakePool(conn)
+    runner = _OperationAwareRunner(mode)
+    first_adapter = section_runtime.compile_stage_adapters(envelope)[0]
+    operation_id = section_runtime._operation_id(
+        "tenant-1", conn.task["job_id"], first_adapter
+    )
+    spec = runner.operation_spec(first_adapter, (), operation_id)
+    conn.operations[operation_id] = {
+        "tenant_id": "tenant-1",
+        "video_id": "video-1",
+        "runtime_job_id": conn.task["job_id"],
+        "runtime_hash": envelope["runtime_hash"],
+        "stage_key": first_adapter.stage_key,
+        "operation_id": operation_id,
+        "provider": spec.provider,
+        "request_hash": spec.request_hash,
+        "reconciliation_mode": mode,
+        "state": "submitted" if provider_task_id else "prepared",
+        "provider_operation_id": provider_task_id,
+        "result": None,
+    }
+    conn.task["runtime_progress"] = {
+        "runtime_hash": envelope["runtime_hash"],
+        "completed_stage_keys": [],
+        "last_stage_key": None,
+        "in_flight": {
+            "stage_key": first_adapter.stage_key,
+            "operation_id": operation_id,
+            "state": "started",
+        },
+    }
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    monkeypatch.setattr(section_runtime.database, "get_pool", lambda: _value(pool))
+    monkeypatch.setattr(provider_operations.database, "get_pool", lambda: _value(pool))
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    if expected_path == "blocked":
+        with pytest.raises(
+            contract.CustomFilmContractError,
+            match="cannot query or deduplicate",
+        ):
+            await section_runtime.consume_runtime_schedule(
+                "tenant-1",
+                "video-1",
+                conn.task["job_id"],
+                stage_runner=runner,
+            )
+        assert runner.calls == []
+        assert runner.reconciliations == []
+        assert conn.operations[operation_id]["state"] == "reconciliation_required"
+        assert "cannot query or deduplicate" in conn.operations[operation_id][
+            "reconciliation_detail"
+        ]
+        return
+
+    await section_runtime.consume_runtime_schedule(
+        "tenant-1",
+        "video-1",
+        conn.task["job_id"],
+        stage_runner=runner,
+    )
+    if expected_path == "retry":
+        assert runner.calls[0] == (first_adapter.stage_key, operation_id)
+        assert runner.reconciliations == []
+    else:
+        assert runner.reconciliations == [
+            (first_adapter.stage_key, operation_id, "provider-task-1")
+        ]
+        assert all(stage_key != first_adapter.stage_key for stage_key, _ in runner.calls)
 
 
 @pytest.mark.asyncio
