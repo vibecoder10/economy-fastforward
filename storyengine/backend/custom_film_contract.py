@@ -535,13 +535,17 @@ async def find_recipe_duplicate(
     manifest: CapabilityManifest,
 ) -> tuple[str, str] | None:
     signature = recipe_signature(normalized_recipe)
-    # A one-section recipe that is 100% one public profile is a public clone
-    # regardless of whether its generic role is called full_film/opening/etc.
+    # Any recipe whose every section is 100% the same public profile is a public
+    # clone, even when planner prose splits it into cosmetic opening/context/
+    # closing sections. Section labels and counts cannot manufacture novelty.
     sections = normalized_recipe["sections"]
-    if len(sections) == 1 and sections[0]["duration_units"] == WEIGHT_UNITS:
-        for style_id, profile in manifest.profiles.items():
-            if canonical_json(sections[0]["knobs"]) == canonical_json(profile["knobs"]):
-                return ("public_profile", style_id)
+    for style_id, profile in manifest.profiles.items():
+        profile_knobs = canonical_json(profile["knobs"])
+        if sections and all(
+            canonical_json(section["knobs"]) == profile_knobs
+            for section in sections
+        ):
+            return ("public_profile", style_id)
     public_match = public_recipe_signatures(manifest).get(signature)
     if public_match:
         return ("public_profile", public_match)

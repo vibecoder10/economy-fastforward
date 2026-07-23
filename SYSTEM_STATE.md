@@ -11216,3 +11216,48 @@ NULL for legacy and ordinary single-profile videos. The video detail model
 omits the entire Custom Film field group when no plan pointer exists, preserving
 the legacy response key set, and the route loads section details only when a
 Custom Film plan pointer exists.
+
+## Custom Film M2-2 — chat-hidden planner and compiler (added 2026-07-23)
+
+`storyengine/backend/custom_film_planner.py` is the no-dispatch planning
+boundary. A tenant-owned text client may propose only ordered section roles,
+a grounded exact content-focus phrase, relative weights, and three allowlisted
+public component sources (structure, writing, and visual). The compiler rejects
+generic Custom Film/production-treatment boilerplate plus internal profile IDs
+and advanced knob names. It also rejects quote/price/estimate phrases and
+company/model tokens grounded in operational clauses such as `using`, `via`,
+`powered by`, or `animate ... with`, while allowing those names when they are
+the actual film topic. Connector words alone are not rejected: they must be
+grounded in generation/execution or provider-media context, so topics such as
+artists using a tool for criticism, journeys through a place, and companies
+using recycled materials remain valid. Known provider/model vocabulary and
+fused, dotted, or digit-bearing provider morphology are rejected in terminal
+operational clauses. An unknown lowercase name without any such cue remains
+grounded content only: it cannot select sources or change compiler-owned knobs.
+The compiler derives creator-facing purpose prose from closed role templates
+plus the validated focus. The deterministic compiler also
+derives all knobs, provenance, initial ordered-slot UUIDs, canonical plan and
+topic-free recipe hashes, and a separate creator-safe explanation. Follow-up
+turns receive the prior normalized proposal and validated prior section UUIDs,
+so constrained revisions keep section identity without trusting model IDs.
+Extra provider/model/key/knob/estimate/approval/generation fields fail closed.
+The compiler performs no pricing, persistence, approval, or generation work.
+
+`storyengine/backend/routes/chat.py` intercepts explicit or safely inferred
+mixed-section Custom Film intent before the legacy create approval branch. It
+immediately quarantines stale `last_spec`, pending actions, and old selections,
+then persists only a distinct `pending_custom_film_plan` conversation state
+with `ready_to_create=false`. The API keeps `plan=NULL` so the current frontend
+cannot mistake it for a legacy ProductionPlan or render a live-looking Make It
+button; the ordered explanation is assistant text until M2-3 adds a
+discriminated approval UI. No-key and malformed-revision exits stay useful and
+pre-spend, retaining the last valid unapproved plan on a failed follow-up. The
+creator sees each section's purpose, feel, still/motion/voice
+shape, BYOK notice, and the later estimate/approval boundary without internal
+profile IDs or advanced knobs.
+
+`storyengine/backend/custom_film_contract.py` now classifies a recipe made
+entirely from one public profile as a public clone even when it is cosmetically
+split across multiple roles or sections. Focused fake-client, injection,
+novelty, stable-ID, stale-approval, no-key, and intent-routing coverage lives in
+`storyengine/backend/tests/functional/test_custom_film_planner.py`.

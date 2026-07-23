@@ -3600,6 +3600,278 @@ def _with_kie_hint(assistant_text: str, state: dict, client) -> str:
     return assistant_text
 
 
+def _custom_film_plan_text(display_plan: dict[str, Any]) -> str:
+    """Render only the compiler's creator-safe view, never its private contract."""
+    lines = [str(display_plan["summary"])]
+    for section in display_plan["sections"]:
+        lines.append(
+            f"\n{section['order']}. **{section['role']}** "
+            f"({section['share_percent']:g}% of the film)\n"
+            f"{section['purpose']}. {section['feel']} "
+            f"{section['expected_media']}\n"
+            f"Why: {section['why']}"
+        )
+    lines.extend(
+        [
+            f"\n{display_plan['byok_notice']}",
+            display_plan["status"],
+        ]
+    )
+    return "\n".join(lines)
+
+
+_CUSTOM_FILM_STALE_STATE_KEYS = (
+    "last_spec",
+    "pending_action",
+    "pending_style_draft",
+    "pending_quality_rules_draft",
+    "pending_dna_digest",
+    "pending_reference_url",
+    "pending_assets",
+    "selections",
+)
+
+
+def _quarantine_custom_film_state(
+    state: dict[str, Any],
+    *,
+    clear_custom_plan: bool = False,
+) -> None:
+    for key in _CUSTOM_FILM_STALE_STATE_KEYS:
+        state.pop(key, None)
+    if clear_custom_plan:
+        state.pop("pending_custom_film_plan", None)
+
+
+async def _handle_custom_film_control_turn(
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+) -> ChatTurnResponse:
+    """Hold approve/selection-only taps inside the planning-only M2-2 boundary."""
+    _quarantine_custom_film_state(state)
+    message = (
+        "This Custom Film is still an unapproved plan. Tell me what to revise in "
+        "words; a section-aware estimate and explicit approval come in the next "
+        "Custom Film step. Nothing was generated or charged."
+    )
+    data = {
+        "assistant_text": message,
+        "ready_to_create": False,
+        "phase": "plan",
+    }
+    transcript.append(_assistant_turn(data))
+    await _persist(conversation_id, tenant_id, transcript, state, "plan")
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=message,
+        plan=None,
+        ready_to_create=False,
+        phase="plan",
+    )
+
+
+async def _handle_custom_film_cancel_turn(
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+) -> ChatTurnResponse:
+    """Leave Custom Film without resolving a key or invoking either planner."""
+    state["mode"] = "producer"
+    _quarantine_custom_film_state(state, clear_custom_plan=True)
+    message = (
+        "Custom Film planning is cancelled. Nothing was generated or charged. "
+        "Tell me whenever you want to plan a regular video."
+    )
+    transcript.append(_assistant_turn({"assistant_text": message, "phase": "asking"}))
+    await _persist(conversation_id, tenant_id, transcript, state, "asking")
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=message,
+        plan=None,
+        ready_to_create=False,
+        phase="asking",
+    )
+
+
+async def _handle_custom_film_plan(
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+    user_message: str,
+) -> ChatTurnResponse:
+    """Plan only: no video creation, estimate, approval, or background dispatch."""
+    from custom_film_planner import (
+        CustomFilmPlannerError,
+        NO_KEY_MESSAGE,
+        PLANNER_FAILURE_MESSAGE,
+        SECTION_COUNT_CHANGE_MESSAGE,
+        classify_plan_novelty,
+        is_section_count_change_request,
+        load_capability_manifest,
+        plan_custom_film,
+    )
+
+    transcript.append({"role": "user", "content": user_message})
+    existing_pending = state.get("pending_custom_film_plan")
+    prior_pending = (
+        existing_pending
+        if (
+            state.get("mode") == "custom_film"
+            and isinstance(existing_pending, dict)
+            and existing_pending.get("status") == "planned_unapproved"
+            and isinstance(existing_pending.get("planner_proposal"), dict)
+            and isinstance(existing_pending.get("internal_plan"), dict)
+            and isinstance(existing_pending["internal_plan"].get("sections"), list)
+        )
+        else None
+    )
+    prior_section_ids = (
+        [
+            section.get("section_id")
+            for section in prior_pending["internal_plan"]["sections"]
+            if isinstance(section, dict)
+        ]
+        if prior_pending is not None
+        else None
+    )
+    # Entering the Custom Film composer quarantines any old generic create or
+    # co-pilot confirmation. Even a key/planner failure must not leave a stale
+    # approval payload that a later approve=True/yes tap could consume.
+    _quarantine_custom_film_state(state)
+    if prior_pending is None:
+        state.pop("pending_custom_film_plan", None)
+    if (
+        prior_pending is not None
+        and is_section_count_change_request(user_message)
+    ):
+        data = {
+            "assistant_text": SECTION_COUNT_CHANGE_MESSAGE,
+            "ready_to_create": False,
+            "phase": "plan",
+        }
+        transcript.append(_assistant_turn(data))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=SECTION_COUNT_CHANGE_MESSAGE,
+            plan=None,
+            ready_to_create=False,
+            phase="plan",
+        )
+    client = await _resolve_producer_client(tenant_id)
+    if client is None:
+        message = NO_KEY_MESSAGE
+        phase = "asking"
+        if prior_pending is not None:
+            message += " Your previous unapproved plan is unchanged."
+            phase = "plan"
+        data = {"assistant_text": message, "phase": phase}
+        transcript.append(_assistant_turn(data))
+        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            ready_to_create=False,
+            phase=phase,
+        )
+
+    try:
+        manifest = await load_capability_manifest()
+        compiled = await plan_custom_film(
+            user_message,
+            manifest,
+            client,
+            prior_proposal=(
+                prior_pending.get("planner_proposal")
+                if prior_pending is not None
+                else None
+            ),
+            prior_section_ids=prior_section_ids,
+        )
+    except CustomFilmPlannerError as exc:
+        message = str(exc) or PLANNER_FAILURE_MESSAGE
+        phase = "asking"
+        if prior_pending is not None:
+            message += " Your previous unapproved plan is unchanged."
+            phase = "plan"
+        data = {"assistant_text": message, "phase": phase}
+        transcript.append(_assistant_turn(data))
+        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            ready_to_create=False,
+            phase=phase,
+        )
+    except Exception as exc:  # noqa: BLE001 - DB/manifest detail is not creator-safe
+        logger.warning("custom-film planner setup failed: %s", exc)
+        message = PLANNER_FAILURE_MESSAGE
+        phase = "asking"
+        if prior_pending is not None:
+            message += " Your previous unapproved plan is unchanged."
+            phase = "plan"
+        data = {"assistant_text": message, "phase": phase}
+        transcript.append(_assistant_turn(data))
+        await _persist(conversation_id, tenant_id, transcript, state, phase)
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            ready_to_create=False,
+            phase=phase,
+        )
+
+    # Novelty is classified now for later save eligibility, but M2-2 does not
+    # expose or persist a recipe and never shows a save action. A lookup failure
+    # fails closed to "unverified" instead of masquerading as novel.
+    novelty_payload: dict[str, Any]
+    try:
+        novelty = await classify_plan_novelty(tenant_id, compiled, manifest)
+        novelty_payload = {
+            "is_novel": novelty.is_novel,
+            **(
+                {
+                    "duplicate_kind": novelty.duplicate_kind,
+                    "duplicate_id": novelty.duplicate_id,
+                }
+                if not novelty.is_novel
+                else {}
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001 - no Save offer is safer than guessing
+        logger.warning("custom-film novelty lookup failed: %s", exc)
+        novelty_payload = {"is_novel": None, "status": "unverified"}
+
+    state["mode"] = "custom_film"
+    state["pending_custom_film_plan"] = {
+        "internal_plan": compiled.internal_plan,
+        "display_plan": compiled.display_plan,
+        "planner_proposal": compiled.planner_proposal,
+        "plan_hash": compiled.plan_hash,
+        "recipe_signature": compiled.recipe_signature,
+        "novelty": novelty_payload,
+        "status": "planned_unapproved",
+    }
+    assistant_text = _custom_film_plan_text(compiled.display_plan)
+    data = {
+        "assistant_text": assistant_text,
+        "ready_to_create": False,
+        "phase": "plan",
+    }
+    transcript.append(_assistant_turn(data))
+    await _persist(conversation_id, tenant_id, transcript, state, "plan")
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=assistant_text,
+        plan=None,
+        ready_to_create=False,
+        phase="plan",
+    )
+
+
 async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     """Hand off into the producer seeded with a chosen/typed idea: start a fresh
     producer transcript and run one intake turn."""
@@ -4642,6 +4914,51 @@ async def chat_turn(
         return await _handle_copilot(
             body, conversation_id, tenant_id, transcript, state, video_id, background_tasks
         )
+
+    # 2.5 Custom Film interception must precede legacy approval. A combined
+    # approve=True + Custom Film message can otherwise consume an old last_spec
+    # before the composer has a chance to quarantine it.
+    if state.get("mode") == "custom_film" and not (
+        body.message and body.message.strip()
+    ):
+        return await _handle_custom_film_control_turn(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+        )
+
+    if body.message and body.message.strip():
+        from custom_film_planner import (
+            is_custom_film_exit_intent,
+            is_custom_film_intent,
+            is_custom_film_ordinary_video_request,
+        )
+
+        if (
+            state.get("mode") == "custom_film"
+            and is_custom_film_exit_intent(body.message)
+        ):
+            if not is_custom_film_ordinary_video_request(body.message):
+                return await _handle_custom_film_cancel_turn(
+                    conversation_id,
+                    tenant_id,
+                    transcript,
+                    state,
+                )
+            # A normal-video request continues into ordinary Producer below.
+            # Clear every Custom Film/legacy approval payload first, so
+            # switching modes cannot itself approve or dispatch anything.
+            state["mode"] = "producer"
+            _quarantine_custom_film_state(state, clear_custom_plan=True)
+        elif state.get("mode") == "custom_film" or is_custom_film_intent(body.message):
+            return await _handle_custom_film_plan(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                body.message.strip(),
+            )
 
     # 3. Approval -> create the video + kick off the pipeline.
     if body.approve and state.get("last_spec"):
