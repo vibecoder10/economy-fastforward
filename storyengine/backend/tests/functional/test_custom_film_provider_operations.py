@@ -540,3 +540,35 @@ def test_migration_125_and_fresh_schema_match_operation_journal_contract():
     ):
         assert token in migration
         assert token in schema
+    for exact_column in (
+        "tenant_id UUID NOT NULL,",
+        "video_id UUID NOT NULL,",
+    ):
+        assert exact_column in migration
+        provider_schema = schema.split(
+            "CREATE TABLE IF NOT EXISTS custom_film_provider_operations",
+            1,
+        )[1].split(");", 1)[0]
+        assert exact_column in provider_schema
+
+
+def test_generation_claims_fresh_schema_retains_migration_092_foreign_keys():
+    root = Path(__file__).parents[3]
+    migration = (
+        root / "backend/migrations/092_generation_claims.sql"
+    ).read_text()
+    schema = (root / "schema.sql").read_text()
+    migration_table = migration.split(
+        "CREATE TABLE IF NOT EXISTS generation_claims",
+        1,
+    )[1].split(");", 1)[0]
+    schema_table = schema.split(
+        "CREATE TABLE IF NOT EXISTS generation_claims",
+        1,
+    )[1].split(");", 1)[0]
+    for exact_column in (
+        "tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE",
+        "video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE",
+    ):
+        assert exact_column in migration_table
+        assert exact_column in schema_table

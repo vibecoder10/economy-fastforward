@@ -1674,8 +1674,8 @@ ALTER TABLE director_preferences ENABLE ROW LEVEL SECURITY;
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS generation_claims (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL,
-  video_id UUID NOT NULL,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
   stage TEXT NOT NULL,
   claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   claimed_by TEXT
@@ -1960,8 +1960,8 @@ CREATE INDEX IF NOT EXISTS custom_film_section_scenes_order_idx
 CREATE TABLE IF NOT EXISTS custom_film_provider_operations (
   operation_id TEXT PRIMARY KEY
     CHECK (operation_id ~ '^custom-film-op:[0-9a-f]{64}$'),
-  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL,
+  video_id UUID NOT NULL,
   runtime_job_id TEXT NOT NULL
     CHECK (runtime_job_id ~ '^custom-film-runtime:[0-9a-f]{64}$'),
   runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
