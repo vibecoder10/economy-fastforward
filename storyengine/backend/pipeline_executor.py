@@ -57,6 +57,7 @@ from extraction import extract_grid
 from storage import upload_from_url
 import engine_templates
 from identity import IdentityContext, build_identity_context
+import clip_asset_claims
 
 import logging
 _logger = logging.getLogger(__name__)
@@ -12417,14 +12418,38 @@ separate scenes."""
         progress_callback=None,
         only_scenes: list = None,
         force_model_id: str = None,
+        asset_ids: list = None,
     ) -> dict:
-        """Generate motion clips from final pictures — one card, one scene, or all.
+        """Generate motion clips from final pictures — one card, several
+        cards, one scene, or all.
 
-        All three rungs of the trust ladder land here (tap a card / Animate
-        this scene / Animate everything). Honors videos.video_model via
-        MODEL_REGISTRY (Grok + Veo wired). Clip result URLs expire ~24h, so
-        every clip downloads immediately and persists to Drive {video}/clips/.
-        Additive: only a full run that finishes every clip advances status.
+        All rungs of the trust ladder land here (tap a card / tap several
+        cards / Animate this scene / Animate everything). Honors
+        videos.video_model via MODEL_REGISTRY (Grok + Veo wired). Clip
+        result URLs expire ~24h, so every clip downloads immediately and
+        persists to Drive {video}/clips/. Additive: only a full run that
+        finishes every clip advances status.
+
+        C1 (feat/per-card-parallel-clips) adds ``asset_ids``: a list of 2+
+        asset ids for a manual multi-card run (``routes/pipeline.py``'s
+        "clip_manual" lane). Additive and backward-compatible — every
+        existing caller keeps passing the singular ``asset_id`` (or
+        neither) and sees byte-identical behavior; internally both collapse
+        to the same ``_ids`` list the candidate query and the concurrency
+        guard below both key off. Only one of ``asset_id``/``asset_ids``
+        should be set by a caller (the route normalizes this); if both are
+        somehow set, ``asset_ids`` wins.
+
+        Concurrency safety for a multi-target run (the actual point of this
+        chunk): several ``run_clip_generation`` calls — including two
+        overlapping manual multi-card runs — can now be in flight on the
+        SAME video at once. Every candidate this call is about to animate
+        is claimed via ``clip_asset_claims`` BEFORE any paid call, and any
+        id already claimed by another in-flight call is silently skipped
+        (never animated twice, never double-charged) — see that module's
+        docstring for why a plain in-process claim is safe here without a
+        lock, and the "asset-level claim guard" comment below for exactly
+        where it's applied.
 
         C17 (checklist §1.3 "Draft cheap, finish expensive") adds two params,
         both additive — every existing caller (the "Animate"/"animate" verb,
@@ -12459,6 +12484,12 @@ separate scenes."""
                 except Exception:
                     pass
 
+        # C1: defined here (not inside the try below) so the outer except's
+        # release-on-abort net always has something to check, even if the
+        # exception fires before the claim step below ever runs (then it's
+        # just an empty set — release() on an empty/no-op set is a no-op).
+        _won_ids: set = set()
+
         try:
             video = await self._get_video(video_id)
             if not video:
@@ -12482,11 +12513,23 @@ separate scenes."""
                 return {"status": "failed", "error": user_facing(
                     f"'{model_id}' isn't available yet — pick Grok Imagine or Veo 3.1 under Advanced.")}
 
+            # C1: unify asset_id/asset_ids into one id list. `asset_ids`
+            # wins if a caller somehow sets both (route never does — see
+            # docstring); a bare `asset_id` still produces a 1-element
+            # list, so every downstream check below only ever has to ask
+            # "_ids is None?" (untargeted run) vs "_ids has N ids?"
+            # (targeted run), never juggle asset_id vs asset_ids separately.
+            _ids = list(dict.fromkeys(asset_ids)) if asset_ids else ([asset_id] if asset_id else None)
+
             where = "video_id = $1 AND tenant_id = $2"
             params = [video_id, self.tenant_id]
-            if asset_id:
-                where += " AND id = $3"
-                params.append(asset_id)
+            if _ids:
+                # ANY($3::uuid[]) also covers the single-id case (a 1-element
+                # array) — same pattern already used elsewhere in this
+                # codebase (routes/chat.py, routes/media.py) for a scoped id
+                # list, so this isn't new SQL shape, just applied here too.
+                where += " AND id = ANY($3::uuid[])"
+                params.append(_ids)
             elif scene is not None:
                 where += " AND scene = $3"
                 params.append(scene)
@@ -12545,7 +12588,42 @@ separate scenes."""
                         "clips_generated": 0, "clips_failed": 0, "cost": 0.0,
                         "clips_blocked": len(blocked_rows)}
 
-            label = (f"clip S{todo[0]['scene']}.{todo[0]['image_index']}" if asset_id
+            # --- C1: asset-level claim guard (feat/per-card-parallel-clips) ---
+            # Several run_clip_generation calls can now be in flight on the
+            # SAME video at once — routes/pipeline.py's "clip_manual" lane
+            # deliberately does NOT block a second manual run against
+            # itself. That lane rule alone can't stop two overlapping calls
+            # from both picking up the SAME asset id; this claim is the
+            # actual guard against animating (and charging for) one asset
+            # twice. Claim happens synchronously, before any paid call or
+            # even the cheap prep work below, so the window where two calls
+            # could both believe they own the same id is zero. Released
+            # per-row the instant that row finishes (in _safe_one's finally,
+            # far below) and again for the whole batch right after gather as
+            # a backstop; clip_asset_claims.STALE_SECONDS is the last-resort
+            # self-heal if a release is ever skipped entirely (crash).
+            _todo_ids = [r["id"] for r in todo]
+            _won_ids = set(clip_asset_claims.claim(self.tenant_id, video_id, _todo_ids))
+            already_animating = [r for r in todo if r["id"] not in _won_ids]
+            todo = [r for r in todo if r["id"] in _won_ids]
+            if already_animating:
+                already_labels = ", ".join(
+                    f"S{r['scene']}.{r['image_index']}" for r in already_animating)
+                await self._log_activity(
+                    bot_name, video_id, "started",
+                    user_facing(
+                        (f"Skipping {len(already_animating)} shot(s) already animating in "
+                         f"another run: {already_labels}")[:900]),
+                )
+            if not todo:
+                msg = "Already animating — every requested shot here is already being generated by another in-flight run."
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "completed", "video_id": video_id, "message": msg,
+                        "clips_generated": 0, "clips_failed": 0, "cost": 0.0,
+                        "clips_blocked": len(blocked_rows),
+                        "clips_in_progress_elsewhere": len(already_animating)}
+
+            label = (f"clip S{todo[0]['scene']}.{todo[0]['image_index']}" if _ids and len(_ids) == 1
                      else f"scene {scene}" if scene is not None else f"{len(todo)} clips")
             await self._log_activity(bot_name, video_id, "started", f"Animating {label} ({model_id})")
             await self._install_cancel_support(video_id)
@@ -13147,8 +13225,20 @@ separate scenes."""
                         await _report(f"S{r.get('scene')}.{r.get('image_index')} hit an error ({done + failed}/{total})")
                     except Exception:
                         pass
+                finally:
+                    # C1: release THIS row's asset-level claim the instant its
+                    # own work finishes (success, failure, or cancellation) —
+                    # not at the end of the whole batch — so an overlapping
+                    # run can pick it up again as soon as possible.
+                    clip_asset_claims.release(self.tenant_id, video_id, [r["id"]])
 
-            await asyncio.gather(*[_safe_one(r) for r in todo])
+            try:
+                await asyncio.gather(*[_safe_one(r) for r in todo])
+            finally:
+                # Backstop: _safe_one already released every row above; this
+                # is a no-op in the normal case. Only matters if something
+                # aborts the gather itself before every _safe_one runs.
+                clip_asset_claims.release(self.tenant_id, video_id, _won_ids)
 
             if cancelled:
                 msg = f"Stopped — kept {done} finished clip(s). Animate again to resume."
@@ -13157,7 +13247,11 @@ separate scenes."""
                         "clips_generated": done, "clips_failed": failed, "cost": cost}
 
             # Full untargeted run with everything clipped → stage complete.
-            if asset_id is None and scene is None and failed == 0:
+            # `_ids is None` (not `asset_id is None`) so a C1 multi-card
+            # manual run (asset_ids set, asset_id left None) is correctly
+            # excluded here too — same targeted-run treatment the original
+            # single asset_id path always got.
+            if _ids is None and scene is None and failed == 0:
                 remaining = await fetch_one(
                     "SELECT COUNT(*) AS n FROM assets WHERE video_id = $1 AND tenant_id = $2 "
                     "AND (image_url IS NOT NULL OR drive_image_url IS NOT NULL) AND video_clip_url IS NULL",
@@ -13172,9 +13266,17 @@ separate scenes."""
             # these). A single re-animate re-stitches just its scene; a bulk run
             # stitches every now-complete scene. Best-effort — never fails the clip task.
             try:
-                if asset_id is not None:
-                    arow = await fetch_one("SELECT scene FROM assets WHERE id = $1", asset_id)
-                    consider = [arow["scene"]] if arow and arow.get("scene") is not None else []
+                if _ids is not None:
+                    if len(_ids) == 1:
+                        arow = await fetch_one("SELECT scene FROM assets WHERE id = $1", _ids[0])
+                        consider = [arow["scene"]] if arow and arow.get("scene") is not None else []
+                    else:
+                        # C1 multi-card run: scope to the DISTINCT scenes the
+                        # requested ids actually touch, not the whole video.
+                        srows = await fetch_all(
+                            "SELECT DISTINCT scene FROM assets WHERE id = ANY($1::uuid[]) "
+                            "AND scene IS NOT NULL", _ids)
+                        consider = [r["scene"] for r in srows]
                 elif scene is not None:
                     consider = [scene]
                 else:
@@ -13267,15 +13369,30 @@ separate scenes."""
             msg = (f"Animated {done} clip(s) (${cost:.2f})"
                    + (f" — {failed} failed, tap them to retry" if failed else "")
                    + (f" — {len(blocked_rows)} blocked at the motion gate, needs a human edit"
-                      if blocked_rows else ""))
+                      if blocked_rows else "")
+                   + (f" — {len(already_animating)} already animating in another run"
+                      if already_animating else ""))
             await self._log_activity(bot_name, video_id, "completed" if not failed else "completed", msg, cost=cost)
             return {"status": "completed" if done or not failed else "failed",
                     "video_id": video_id, "message": msg,
                     "clips_generated": done, "clips_failed": failed, "cost": cost,
                     "clips_blocked": len(blocked_rows),
+                    "clips_in_progress_elsewhere": len(already_animating),
                     "error": msg if failed and not done else None}
 
         except Exception as e:
+            # C1 backstop: an exception ANYWHERE between the claim step and
+            # the gather's own try/finally (e.g. dialogue-voice setup,
+            # _install_cancel_support) would otherwise leave `_won_ids`
+            # claimed until clip_asset_claims' 10-minute stale sweep — release
+            # them now instead. release() is itself safe/idempotent (already-
+            # released ids are a no-op), so this can never double-free or
+            # mask the real error below.
+            if _won_ids:
+                try:
+                    clip_asset_claims.release(self.tenant_id, video_id, _won_ids)
+                except Exception:
+                    pass
             error_msg = str(e)
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
