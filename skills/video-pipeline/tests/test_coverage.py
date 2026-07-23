@@ -105,7 +105,7 @@ class _FakeImageClientForFrames:
     def __init__(self):
         self.calls = []
 
-    async def generate_scene_image_zimage(self, prompt, aspect_ratio="16:9"):
+    async def generate_scene_image_zimage(self, prompt, aspect_ratio="16:9", **_kwargs):
         self.calls.append(("generate_scene_image_zimage", prompt, aspect_ratio))
         return {"url": f"https://img/{len(self.calls)}.png"}
 
@@ -132,6 +132,31 @@ def test_generate_coverage_frames_honors_model_override():
     assert [fr["image_model"] for fr in frames] == ["z-image", "z-image"]
     # Both draws went through z-image, never fell back to GPT.
     assert [c[0] for c in ic.calls] == ["generate_scene_image_zimage", "generate_scene_image_zimage"]
+
+
+def test_generate_coverage_frames_reports_real_image_count_progress():
+    moment = {
+        "moment_number": 1,
+        "master": {"shot_type": "WS", "description": "wide shot of the rider at dawn"},
+        "angles": [{"shot_type": "MCU", "description": "close on the rider's face"}],
+    }
+    progress = []
+    frames = asyncio.run(generate_coverage_frames(
+        moment,
+        "https://cast.png",
+        _FakeImageClientForFrames(),
+        None,
+        aspect="16:9",
+        resolution="1K",
+        model_override="z-image",
+        progress_callback=progress.append,
+        progress_state={"done": 0, "total": 2, "prefix": "Scene 3: "},
+    ))
+    assert frames is not None and len(frames) == 2
+    assert progress == [
+        "Scene 3: drawing image 1/2…",
+        "Scene 3: drawing image 2/2…",
+    ]
 
 
 def test_generate_coverage_frames_propagates_routed_model_and_routing_reason():

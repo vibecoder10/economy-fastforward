@@ -3345,7 +3345,8 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 # has one — run_coverage appends it verbatim to every shot's
                 # draw prompt. None (no match, or the env has no manifest yet)
                 # is the existing behavior, unchanged.
-                props=(env or {}).get("props"))
+                props=(env or {}).get("props"),
+                progress_callback=_p)
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
             _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
             continue

@@ -558,6 +558,7 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
         image_style_override=image_style_override,
         visual_style_label=visual_style_label,
         style_preset_id=style_preset_id,
+        production_style_id=(spec.get("production_style_id") or None),
         lock_in_identity=bool(spec.get("lock_in_identity", False)),
         aspect_ratio=aspect,
         pipeline_stages=stages,
@@ -578,6 +579,22 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
     # "style" above; same authoritative-over-the-LLM's-spec treatment.
     if selections.get("look_engine"):
         spec = {**spec, "style_preset_id": selections["look_engine"]}
+    if selections.get("production_style"):
+        spec = {**spec, "production_style_id": selections["production_style"]}
+    if not spec.get("production_style_id"):
+        msg = (
+            "Choose one of the four video styles in the production plan first. "
+            "That required choice controls the script, pictures, voices, and motion."
+        )
+        transcript.append(_assistant_turn({"assistant_text": msg, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=msg,
+            plan={"spec": spec},
+            ready_to_create=True,
+            phase="plan",
+        )
     # Length slider sends SECONDS (5s..1800s). The pipeline length is int minutes,
     # so round (min 1) and keep the exact target in writer_guidance so short
     # videos aren't silently treated as a full minute.
@@ -4628,6 +4645,8 @@ async def chat_turn(
 
     # 3. Approval -> create the video + kick off the pipeline.
     if body.approve and state.get("last_spec"):
+        if body.selections:
+            state.setdefault("selections", {}).update(body.selections)
         return await _handle_approve(
             state["last_spec"], conversation_id, tenant_id, transcript, state, background_tasks
         )

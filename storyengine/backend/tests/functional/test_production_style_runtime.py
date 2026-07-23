@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import BackgroundTasks
@@ -11,6 +12,7 @@ from fastapi import BackgroundTasks
 import production_styles
 import routes.billing as billing_route
 import routes.characters as characters_route
+import routes.chat as chat_route
 import routes.projects as projects_route
 import routes.script_templates as script_templates_route
 import routes.videos as videos_route
@@ -395,3 +397,100 @@ def test_all_first_party_creation_surfaces_require_the_public_style_pick():
     assert "<ProductionStyleSelector" in pipeline
     assert "production_style_id: newProductionStyleId" in pipeline
     assert "!newProductionStyleId || createMutation.isPending" in pipeline
+
+
+def test_chat_approval_requires_and_forwards_the_public_style(monkeypatch):
+    persisted = []
+    created = []
+
+    async def fake_persist(*args, **kwargs):
+        persisted.append((args, kwargs))
+
+    async def fake_create_video(body, background_tasks, tenant_id):
+        created.append((body, tenant_id))
+        return SimpleNamespace(id="video-chat-a")
+
+    async def fake_fetch_one(*_args):
+        return {"render_mode": "coverage"}
+
+    async def fake_acquire(*_args, **_kwargs):
+        return True
+
+    async def fake_build():
+        return None
+
+    monkeypatch.setattr(chat_route, "_persist", fake_persist)
+    monkeypatch.setattr(videos_route, "create_video", fake_create_video)
+    monkeypatch.setattr(chat_route, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(chat_route.generation_claims, "acquire", fake_acquire)
+    monkeypatch.setattr(chat_route, "_make_autobuild_step", lambda *_args, **_kwargs: fake_build)
+
+    missing = asyncio.run(
+        chat_route._handle_approve(
+            {"title": "No hidden default"},
+            "conversation-a",
+            "tenant-a",
+            [],
+            {},
+            BackgroundTasks(),
+        )
+    )
+    assert missing.phase == "plan"
+    assert missing.ready_to_create is True
+    assert "Choose one of the four video styles" in missing.assistant_text
+    assert created == []
+
+    background = BackgroundTasks()
+    approved = asyncio.run(
+        chat_route._handle_approve(
+            {"title": "Public documentary"},
+            "conversation-a",
+            "tenant-a",
+            [],
+            {"selections": {"production_style": "photo_documentary"}},
+            background,
+        )
+    )
+    assert approved.phase == "created"
+    assert approved.video_id == "video-chat-a"
+    assert created[0][0].production_style_id == "photo_documentary"
+    assert len(background.tasks) == 1
+
+
+def test_chat_progress_map_surfaces_style_and_actual_pipeline_stages():
+    backend = Path(__file__).resolve().parents[2]
+    frontend = backend.parent / "frontend" / "src"
+    chat_core = (frontend / "components" / "chat" / "ChatCore.tsx").read_text()
+    progress_map = (
+        frontend / "components" / "chat" / "ChatPipelineMap.tsx"
+    ).read_text()
+    executor = (backend / "pipeline_executor.py").read_text()
+    actions = (backend / "actions.py").read_text()
+    coverage = (backend / "scripts" / "coverage_to_app.py").read_text()
+
+    assert "enabled: docked && !!videoId" in chat_core
+    assert "production_style: productionStyleId" in chat_core
+    assert "disabled={!productionStyleId}" in chat_core
+    assert "production_style_snapshot" in progress_map
+    assert "pipeline_stages" in progress_map
+    for label in (
+        "Research",
+        "Script",
+        "Voice",
+        "Characters",
+        "Environments",
+        "Storyboards",
+        "Pictures",
+        "Sound",
+        "Clips",
+        "Thumbnail",
+        "Render",
+    ):
+        assert f'label: "{label}"' in progress_map
+
+    assert "Preparing the script brief" in executor
+    assert "Checking the script against quality rules" in executor
+    assert "Preparing the voice track" in executor
+    assert "Recorded {result['voice_count']} narration track" in executor
+    assert "progress_callback=_progress" in actions
+    assert "progress_callback=_p" in coverage
