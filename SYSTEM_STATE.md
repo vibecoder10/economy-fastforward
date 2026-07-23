@@ -11398,3 +11398,15 @@ control writes without losing the video, approval, or confirmation.
   so a crash after submission stops instead of risking duplicate BYOK spend.
   Pictures, motion, clips, and camera intentionally stop before provider work
   pending M2-4B2c.
+- A section voice stage is a local idempotent parent aggregate, not one
+  provider operation pretending to cover multiple scenes. Every assigned
+  scene receives a deterministic child operation derived from
+  `(parent operation, scene ID)`, with its own immutable request hash, provider
+  task ID, result, and reconciliation path. Children run in assignment order;
+  each child result is durable before the next child identity can be created.
+- Voice artifacts use an operation-derived filename and `voice_status`
+  checkpoint. Recovery first reuses the exact DB checkpoint, then searches
+  Drive for that stable filename before any upload. This closes both crash
+  windows: an uploaded file can be found and checkpointed without a second
+  upload, and a checkpointed artifact can complete its child/parent operation
+  without a second provider query or Drive write.

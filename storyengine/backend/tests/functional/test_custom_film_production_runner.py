@@ -78,19 +78,33 @@ class _FakeSeams:
         mode=operations.RECONCILIATION_QUERY,
         *,
         provider_task_id: str | None = None,
+        task_id_per_scene: bool = False,
+        fail_after_submit_scene: str | None = None,
     ):
         self.mode = mode
         self.provider_task_id = provider_task_id
+        self.task_id_per_scene = task_id_per_scene
+        self.fail_after_submit_scene = fail_after_submit_scene
         self.requests = []
         self.queries = []
+        self.checkpoints = {}
 
     def operation_metadata(self, request):
         return f"fake-{request.stage}", self.mode
 
     async def submit(self, request, *, on_submitted):
         self.requests.append(request)
-        if self.provider_task_id:
-            await on_submitted(self.provider_task_id)
+        task_id = self.provider_task_id
+        if task_id and self.task_id_per_scene:
+            task_id = f"{task_id}:{request.scene_ids[0]}"
+        if task_id:
+            await on_submitted(task_id)
+        if (
+            self.fail_after_submit_scene
+            and request.scene_ids == (self.fail_after_submit_scene,)
+        ):
+            self.fail_after_submit_scene = None
+            raise RuntimeError("synthetic crash after provider submission")
         result = {
             "exact_seconds": request.exact_seconds,
             "section_id": request.section_id,
@@ -100,7 +114,7 @@ class _FakeSeams:
             result["scene_ids"] = [f"{request.section_id}-scene"]
         return production.SectionProductionResult(
             result,
-            self.provider_task_id,
+            task_id,
         )
 
     async def query(self, request, provider_operation_id):
@@ -109,6 +123,106 @@ class _FakeSeams:
         if request.stage == "script":
             result["scene_ids"] = [f"{request.section_id}-scene"]
         return production.SectionProductionResult(result, provider_operation_id)
+
+    async def checkpoint(self, request):
+        return copy.deepcopy(self.checkpoints.get(request.scene_ids))
+
+
+class _FakeJournal:
+    def __init__(self):
+        self.rows = {}
+        self.events = []
+
+    def seed_parent(self, operation_id, adapter):
+        self.rows[operation_id] = SimpleNamespace(
+            tenant_id="tenant-1",
+            video_id=adapter.video_id,
+            runtime_job_id="custom-film-runtime:" + adapter.runtime_hash,
+            runtime_hash=adapter.runtime_hash,
+            stage_key=adapter.stage_key,
+            operation_id=operation_id,
+            provider="storyengine-section-voice",
+            request_hash="0" * 64,
+            reconciliation_mode=operations.RECONCILIATION_IDEMPOTENCY,
+            state="prepared",
+            provider_operation_id=None,
+            result=None,
+        )
+
+    async def load_operation(self, operation_id):
+        row = self.rows.get(operation_id)
+        if row is None:
+            raise CustomFilmContractError(
+                "Custom Film provider reconciliation state is missing; retry is blocked"
+            )
+        return copy.deepcopy(row)
+
+    async def prepare_operation(self, **kwargs):
+        operation_id = kwargs["operation_id"]
+        spec = kwargs["spec"]
+        existing = self.rows.get(operation_id)
+        if existing is None:
+            existing = SimpleNamespace(
+                tenant_id=kwargs["tenant_id"],
+                video_id=kwargs["video_id"],
+                runtime_job_id=kwargs["runtime_job_id"],
+                runtime_hash=kwargs["runtime_hash"],
+                stage_key=kwargs["stage_key"],
+                operation_id=operation_id,
+                provider=spec.provider,
+                request_hash=spec.request_hash,
+                reconciliation_mode=spec.reconciliation_mode,
+                state="prepared",
+                provider_operation_id=None,
+                result=None,
+            )
+            self.rows[operation_id] = existing
+            self.events.append(("prepared", operation_id))
+        else:
+            assert existing.provider == spec.provider
+            assert existing.request_hash == spec.request_hash
+            assert existing.reconciliation_mode == spec.reconciliation_mode
+        return copy.deepcopy(existing)
+
+    async def mark_submitted(self, operation_id, task_id):
+        row = self.rows[operation_id]
+        assert row.provider_operation_id in {None, task_id}
+        row.provider_operation_id = task_id
+        row.state = "submitted"
+        self.events.append(("submitted", operation_id, task_id))
+        return copy.deepcopy(row)
+
+    async def mark_completed(self, operation_id, result, **_kwargs):
+        row = self.rows[operation_id]
+        assert row.result in {None, result} if not isinstance(result, dict) else (
+            row.result is None or row.result == result
+        )
+        row.result = copy.deepcopy(result)
+        row.state = "completed"
+        self.events.append(("completed", operation_id))
+
+    async def mark_reconciliation_required(self, operation_id, detail):
+        row = self.rows[operation_id]
+        row.state = "reconciliation_required"
+        row.reconciliation_detail = detail
+
+    @staticmethod
+    def reconciliation_action(record):
+        if record.state == "completed":
+            return "return_completed"
+        if record.state == "submitted":
+            if (
+                record.reconciliation_mode == operations.RECONCILIATION_QUERY
+                and record.provider_operation_id
+            ):
+                return "query_provider"
+        if (
+            record.state == "prepared"
+            and record.reconciliation_mode
+            == operations.RECONCILIATION_IDEMPOTENCY
+        ):
+            return "retry_same_operation"
+        raise CustomFilmContractError("automatic retry is blocked")
 
 
 class _AsyncContext:
@@ -186,8 +300,16 @@ async def test_voice_and_quality_receive_exact_assignments_behavior_and_laws(
         return None
 
     monkeypatch.setattr(production, "mark_submitted", mark_submitted)
-    seams = _FakeSeams(provider_task_id="provider-task-voice")
-    runner = production.CustomFilmProductionRunner("tenant-1", seams=seams)
+    seams = _FakeSeams(
+        provider_task_id="provider-task-voice",
+        task_id_per_scene=True,
+    )
+    journal = _FakeJournal()
+    runner = production.CustomFilmProductionRunner(
+        "tenant-1",
+        seams=seams,
+        journal=journal,
+    )
     scene_ids = ("scene-1", "scene-2")
     bilingual = _adapter(
         "voice",
@@ -195,28 +317,129 @@ async def test_voice_and_quality_receive_exact_assignments_behavior_and_laws(
         language_mode="bilingual",
         dubbing=True,
     )
+    parent_operation_id = "custom-film-op:" + "3" * 64
+    journal.seed_parent(parent_operation_id, bilingual)
     await runner(
         bilingual,
         scene_ids,
-        "custom-film-op:" + "3" * 64,
+        parent_operation_id,
     )
     await runner(
         _adapter("quality", seconds=19),
         scene_ids,
         "custom-film-op:" + "4" * 64,
     )
-    voice_request, quality_request = seams.requests
-    assert voice_request.scene_ids == scene_ids
-    assert voice_request.dialogue_audio == "voice_over"
-    assert voice_request.language["mode"] == "bilingual"
-    assert voice_request.dubbing["mode"] == "speech_to_speech"
-    assert voice_request.exact_seconds == 19
+    voice_one, voice_two, quality_request = seams.requests
+    assert voice_one.scene_ids == ("scene-1",)
+    assert voice_two.scene_ids == ("scene-2",)
+    assert voice_one.dialogue_audio == voice_two.dialogue_audio == "voice_over"
+    assert voice_one.language["mode"] == voice_two.language["mode"] == "bilingual"
+    assert voice_one.dubbing["mode"] == voice_two.dubbing["mode"] == "speech_to_speech"
+    assert voice_one.exact_seconds == voice_two.exact_seconds == 19
     assert quality_request.scene_ids == scene_ids
     assert quality_request.quality_laws == (
         "source_grounding",
         "visual_cue_fidelity",
     )
     assert quality_request.exact_seconds == 19
+    child_rows = [
+        row
+        for operation_id, row in journal.rows.items()
+        if operation_id != parent_operation_id
+    ]
+    assert len(child_rows) == 2
+    assert all(row.state == "completed" for row in child_rows)
+    assert {row.provider_operation_id for row in child_rows} == {
+        "provider-task-voice:scene-1",
+        "provider-task-voice:scene-2",
+    }
+
+
+@pytest.mark.asyncio
+async def test_multi_scene_voice_crash_queries_first_child_without_duplicate_create():
+    adapter = _adapter(
+        "voice",
+        seconds=19,
+        language_mode="bilingual",
+        dubbing=True,
+    )
+    parent_operation_id = "custom-film-op:" + "c" * 64
+    journal = _FakeJournal()
+    journal.seed_parent(parent_operation_id, adapter)
+    seams = _FakeSeams(
+        provider_task_id="provider-task",
+        task_id_per_scene=True,
+        fail_after_submit_scene="scene-1",
+    )
+    runner = production.CustomFilmProductionRunner(
+        "tenant-1",
+        seams=seams,
+        journal=journal,
+    )
+    with pytest.raises(RuntimeError, match="synthetic crash"):
+        await runner(
+            adapter,
+            ("scene-1", "scene-2"),
+            parent_operation_id,
+        )
+    assert [request.scene_ids for request in seams.requests] == [("scene-1",)]
+    assert len(
+        [event for event in journal.events if event[0] == "prepared"]
+    ) == 1
+
+    result = await runner(
+        adapter,
+        ("scene-1", "scene-2"),
+        parent_operation_id,
+    )
+    assert result["scene_ids"] == ["scene-1", "scene-2"]
+    assert [request.scene_ids for request in seams.requests] == [
+        ("scene-1",),
+        ("scene-2",),
+    ]
+    assert [(request.scene_ids, task_id) for request, task_id in seams.queries] == [
+        (("scene-1",), "provider-task:scene-1")
+    ]
+    assert len(
+        [event for event in journal.events if event[0] == "prepared"]
+    ) == 2
+    completed = [event for event in journal.events if event[0] == "completed"]
+    assert len(completed) == 2
+    first_completed_index = journal.events.index(completed[0])
+    second_prepared_index = [
+        index
+        for index, event in enumerate(journal.events)
+        if event[0] == "prepared"
+    ][1]
+    assert first_completed_index < second_prepared_index
+
+
+@pytest.mark.asyncio
+async def test_direct_voice_child_crash_fails_closed_without_duplicate_create():
+    adapter = _adapter("voice")
+    parent_operation_id = "custom-film-op:" + "d" * 64
+    journal = _FakeJournal()
+    journal.seed_parent(parent_operation_id, adapter)
+    seams = _FakeSeams(
+        mode=operations.RECONCILIATION_QUERY,
+        fail_after_submit_scene="scene-1",
+    )
+    runner = production.CustomFilmProductionRunner(
+        "tenant-1",
+        seams=seams,
+        journal=journal,
+    )
+    with pytest.raises(RuntimeError, match="synthetic crash"):
+        await runner(adapter, ("scene-1",), parent_operation_id)
+    with pytest.raises(CustomFilmContractError, match="automatic retry"):
+        await runner(adapter, ("scene-1",), parent_operation_id)
+    assert [request.scene_ids for request in seams.requests] == [("scene-1",)]
+    child = next(
+        row
+        for operation_id, row in journal.rows.items()
+        if operation_id != parent_operation_id
+    )
+    assert child.state == "reconciliation_required"
 
 
 def test_request_hash_binds_exact_values_assignments_and_operation_identity():
@@ -497,6 +720,8 @@ async def test_shared_voice_seam_filters_assigned_dialogue_and_journals_kie_task
                 "scene": 1,
                 "scene_text": "Narrator setup.\nAna: Hola, ¿cómo estás?",
                 "voice_id": "voice-1",
+                "voice_status": None,
+                "voice_over_url": None,
             }
         ]
 
@@ -520,15 +745,24 @@ async def test_shared_voice_seam_filters_assigned_dialogue_and_journals_kie_task
             return {"audio_content": b"fake-audio"}
 
     class Google:
+        def __init__(self):
+            self.files = {}
+
         def get_or_create_folder(self, name):
             assert name == "custom-film-video-1"
             return {"id": "folder-1"}
 
+        def search_file(self, filename, folder_id):
+            assert folder_id == "folder-1"
+            return self.files.get(filename)
+
         def upload_audio(self, content, filename, folder_id):
             assert content == b"fake-audio"
-            assert filename == "Section 1 Scene 1.mp3"
+            assert filename.startswith("custom-film-voice-")
             assert folder_id == "folder-1"
-            return {"id": "drive-audio-1"}
+            result = {"id": "drive-audio-1"}
+            self.files[filename] = result
+            return result
 
     class Executor:
         def __init__(self):
@@ -545,6 +779,7 @@ async def test_shared_voice_seam_filters_assigned_dialogue_and_journals_kie_task
             assert "UPDATE scripts" in sql
             assert args[2] == "scene-1"
             assert "drive-audio-1" in args[3]
+            assert args[4].startswith("custom-film-voice:")
             return "UPDATE 1"
 
     async def get_pool():
@@ -574,6 +809,96 @@ async def test_shared_voice_seam_filters_assigned_dialogue_and_journals_kie_task
     reconciled = await seams.query(request, "kie-task-section-1")
     assert reconciled.provider_operation_id == "kie-task-section-1"
     assert reconciled.result["voiced_scene_ids"] == ["scene-1"]
+
+
+@pytest.mark.asyncio
+async def test_voice_artifact_checkpoint_reuses_one_upload_after_outer_crash(
+    monkeypatch,
+):
+    request = production._request(
+        _adapter("voice", seconds=12),
+        ("scene-1",),
+        "custom-film-op:" + "9" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    row = {
+        "id": "scene-1",
+        "scene": 1,
+        "scene_text": "Narration that must survive recovery.",
+        "voice_id": "voice-1",
+        "voice_status": None,
+        "voice_over_url": None,
+    }
+    counts = {"provider": 0, "upload": 0, "search": 0, "db": 0}
+    drive_file = {}
+
+    async def rows(_request):
+        return [copy.deepcopy(row)]
+
+    class Voice:
+        async def generate_and_wait(
+            self, _text, voice_id=None, task_id_callback=None
+        ):
+            counts["provider"] += 1
+            await task_id_callback("kie-task-artifact")
+            return "/tmp/fake-artifact.mp3"
+
+        async def download_audio(self, _path):
+            return b"audio"
+
+    class Google:
+        def get_or_create_folder(self, _name):
+            return {"id": "folder-1"}
+
+        def search_file(self, _filename, _folder_id):
+            counts["search"] += 1
+            return copy.deepcopy(drive_file) or None
+
+        def upload_audio(self, _content, _filename, _folder_id):
+            counts["upload"] += 1
+            drive_file["id"] = "drive-stable-1"
+            return copy.deepcopy(drive_file)
+
+    class Executor:
+        def __init__(self):
+            self._pipeline = SimpleNamespace(
+                elevenlabs=Voice(),
+                google=Google(),
+            )
+
+        async def _ensure_initialized(self):
+            return None
+
+    class Connection:
+        async def execute(self, _sql, *args):
+            counts["db"] += 1
+            if counts["db"] == 1:
+                raise RuntimeError("synthetic crash after upload")
+            row["voice_over_url"] = args[3]
+            row["voice_status"] = args[4]
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def submitted(_task_id):
+        return None
+
+    monkeypatch.setattr(seams, "_scene_rows", rows)
+    seams._executor = Executor()
+    monkeypatch.setattr("database.get_pool", get_pool)
+    with pytest.raises(RuntimeError, match="synthetic crash after upload"):
+        await seams._voice(request, on_submitted=submitted)
+    # Recovery finds the stable operation-derived artifact by name and
+    # checkpoints it without a second provider request or upload.
+    recovered = await seams.checkpoint(request)
+    assert recovered is not None
+    assert recovered.result["reused_artifact"] is True
+    assert recovered.result["artifact_url"] == row["voice_over_url"]
+    # A later outer-operation retry reuses the DB checkpoint directly.
+    recovered_again = await seams.checkpoint(request)
+    assert recovered_again.result["artifact_url"] == row["voice_over_url"]
+    assert counts == {"provider": 1, "upload": 1, "search": 2, "db": 2}
 
 
 @pytest.mark.asyncio

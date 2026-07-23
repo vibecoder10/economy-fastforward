@@ -16,7 +16,7 @@ from __future__ import annotations
 import copy
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Mapping, Protocol
 
 from custom_film_contract import CustomFilmContractError, canonical_hash
@@ -28,6 +28,7 @@ from custom_film_provider_operations import (
     ProviderOperationSpec,
     mark_submitted,
 )
+import custom_film_provider_operations as provider_operations
 from custom_film_section_runtime import SectionStageAdapter
 
 
@@ -243,11 +244,13 @@ class CustomFilmProductionRunner:
         tenant_id: str,
         *,
         seams: SectionProductionSeams | None = None,
+        journal: Any = None,
     ):
         if not str(tenant_id or "").strip():
             raise CustomFilmContractError("Custom Film tenant identity is missing")
         self.tenant_id = str(tenant_id)
         self.seams = seams or SharedSectionProductionSeams(self.tenant_id)
+        self.journal = journal or provider_operations
 
     def operation_spec(
         self,
@@ -256,6 +259,12 @@ class CustomFilmProductionRunner:
         operation_id: str,
     ) -> ProviderOperationSpec:
         request = _request(adapter, scene_ids, operation_id)
+        if request.stage == "voice":
+            return ProviderOperationSpec(
+                provider="storyengine-section-voice",
+                request_hash=canonical_hash(request.payload()),
+                reconciliation_mode=RECONCILIATION_IDEMPOTENCY,
+            )
         provider, reconciliation_mode = self.seams.operation_metadata(request)
         return ProviderOperationSpec(
             provider=str(provider or "").strip(),
@@ -270,6 +279,8 @@ class CustomFilmProductionRunner:
         operation_id: str,
     ) -> Mapping[str, Any]:
         request = _request(adapter, scene_ids, operation_id)
+        if request.stage == "voice":
+            return await self._run_voice_children(adapter, request)
         submitted_ids: list[str] = []
 
         async def _submitted(provider_operation_id: str) -> None:
@@ -295,6 +306,157 @@ class CustomFilmProductionRunner:
             if not submitted_ids:
                 await _submitted(result.provider_operation_id)
         return copy.deepcopy(dict(result.result))
+
+    async def _load_optional_child(self, operation_id: str):
+        try:
+            return await self.journal.load_operation(operation_id)
+        except CustomFilmContractError as exc:
+            if "state is missing" in str(exc):
+                return None
+            raise
+
+    async def _call_child_seam(
+        self,
+        request: SectionProductionRequest,
+        *,
+        query_task_id: str | None = None,
+    ) -> SectionProductionResult:
+        submitted_ids: list[str] = []
+
+        async def _submitted(provider_operation_id: str) -> None:
+            value = str(provider_operation_id or "").strip()
+            if not value:
+                raise CustomFilmContractError(
+                    "Custom Film provider task identity is missing"
+                )
+            await self.journal.mark_submitted(request.operation_id, value)
+            submitted_ids.append(value)
+
+        if query_task_id:
+            result = _coerce_result(
+                await self.seams.query(request, query_task_id)
+            )
+        else:
+            result = _coerce_result(
+                await self.seams.submit(request, on_submitted=_submitted)
+            )
+        if result.provider_operation_id:
+            if (
+                submitted_ids
+                and submitted_ids[-1] != result.provider_operation_id
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film child provider task identity changed"
+                )
+            if not submitted_ids and not query_task_id:
+                await _submitted(result.provider_operation_id)
+        return result
+
+    async def _run_voice_children(
+        self,
+        adapter: SectionStageAdapter,
+        parent_request: SectionProductionRequest,
+    ) -> Mapping[str, Any]:
+        """Run one durable provider operation per assigned scene.
+
+        Children are strictly sequential.  Each request identity/result is
+        durable before the next child can be created, so a parent retry only
+        returns a completed child, queries its recorded provider task, retries
+        a declared-idempotent local child, or fails closed.
+        """
+        parent = await self.journal.load_operation(parent_request.operation_id)
+        if (
+            parent.runtime_hash != parent_request.runtime_hash
+            or parent.video_id != parent_request.video_id
+            or parent.stage_key != adapter.stage_key
+        ):
+            raise CustomFilmContractError(
+                "Custom Film parent voice operation identity changed"
+            )
+        child_results: list[dict[str, Any]] = []
+        for scene_index, scene_id in enumerate(parent_request.scene_ids):
+            child_operation_id = "custom-film-op:" + canonical_hash(
+                {
+                    "parent_operation_id": parent_request.operation_id,
+                    "scene_id": scene_id,
+                }
+            )
+            child_request = replace(
+                parent_request,
+                operation_id=child_operation_id,
+                scene_ids=(scene_id,),
+            )
+            provider, mode = self.seams.operation_metadata(child_request)
+            spec = ProviderOperationSpec(
+                provider=str(provider or "").strip(),
+                request_hash=canonical_hash(child_request.payload()),
+                reconciliation_mode=mode,
+            )
+            existing = await self._load_optional_child(child_operation_id)
+            child_stage_key = (
+                f"{adapter.stage_key}:scene:{scene_index}:"
+                f"{canonical_hash({'scene_id': scene_id})[:12]}"
+            )
+            record = await self.journal.prepare_operation(
+                tenant_id=self.tenant_id,
+                video_id=parent_request.video_id,
+                runtime_job_id=parent.runtime_job_id,
+                runtime_hash=parent_request.runtime_hash,
+                stage_key=child_stage_key,
+                operation_id=child_operation_id,
+                spec=spec,
+            )
+            result: SectionProductionResult | None = None
+            if existing is not None:
+                checkpoint = getattr(self.seams, "checkpoint", None)
+                if callable(checkpoint):
+                    recovered = await checkpoint(child_request)
+                    if recovered is not None:
+                        result = _coerce_result(recovered)
+                if result is None:
+                    try:
+                        action = self.journal.reconciliation_action(record)
+                    except CustomFilmContractError as exc:
+                        await self.journal.mark_reconciliation_required(
+                            child_operation_id,
+                            str(exc),
+                        )
+                        raise
+                    if action == "return_completed":
+                        result = SectionProductionResult(record.result or {})
+                    elif action == "query_provider":
+                        result = await self._call_child_seam(
+                            child_request,
+                            query_task_id=str(record.provider_operation_id),
+                        )
+                    elif action == "retry_same_operation":
+                        result = await self._call_child_seam(child_request)
+            else:
+                result = await self._call_child_seam(child_request)
+            if result is None:
+                raise CustomFilmContractError(
+                    "Custom Film child voice reconciliation did not resolve"
+                )
+            result_object = copy.deepcopy(dict(result.result))
+            await self.journal.mark_completed(
+                child_operation_id,
+                result_object,
+            )
+            child_results.append(
+                {
+                    "scene_id": scene_id,
+                    "operation_id": child_operation_id,
+                    "result": result_object,
+                }
+            )
+        return {
+            "scene_ids": list(parent_request.scene_ids),
+            "child_operations": child_results,
+            "exact_seconds": parent_request.exact_seconds,
+            "language": _plain(parent_request.language),
+            "dubbing": _plain(parent_request.dubbing),
+            "dialogue_audio": parent_request.dialogue_audio,
+        }
 
     async def reconcile(
         self,
@@ -407,6 +569,19 @@ class SharedSectionProductionSeams:
             )
         raise CustomFilmContractError(
             "This Custom Film provider has no query reconciliation seam"
+        )
+
+    async def checkpoint(
+        self,
+        request: SectionProductionRequest,
+    ) -> SectionProductionResult | None:
+        if request.stage != "voice" or request.dialogue_audio == "grok_native":
+            return None
+        recovered = await self._voice_artifact_checkpoint(request)
+        return (
+            SectionProductionResult(recovered)
+            if recovered is not None
+            else None
         )
 
     async def _script(self, request: SectionProductionRequest) -> dict[str, Any]:
@@ -549,7 +724,8 @@ class SharedSectionProductionSeams:
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """SELECT id, scene, scene_text, voice_id
+                """SELECT id, scene, scene_text, voice_id, voice_status,
+                          voice_over_url
                    FROM scripts
                    WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                      AND id = ANY($3::uuid[])
@@ -565,6 +741,107 @@ class SharedSectionProductionSeams:
                 "no provider work was started"
             )
         return ordered
+
+    @staticmethod
+    def _voice_artifact_identity(
+        request: SectionProductionRequest,
+        scene_id: str,
+    ) -> tuple[str, str, str]:
+        artifact_hash = canonical_hash(
+            {
+                "operation_id": request.operation_id,
+                "scene_id": scene_id,
+                "runtime_hash": request.runtime_hash,
+            }
+        )
+        return (
+            artifact_hash,
+            f"custom-film-voice:{artifact_hash}",
+            f"custom-film-voice-{artifact_hash}.mp3",
+        )
+
+    async def _checkpoint_voice_row(
+        self,
+        request: SectionProductionRequest,
+        scene_id: str,
+        persistent_url: str,
+        artifact_status: str,
+    ) -> None:
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            updated = await conn.execute(
+                """UPDATE scripts
+                   SET voice_over_url = $4, voice_status = $5,
+                       script_status = 'Finished', updated_at = now()
+                   WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                     AND id = $3::uuid
+                     AND (
+                       voice_status IS NULL
+                       OR voice_status = $5
+                     )""",
+                self.tenant_id,
+                request.video_id,
+                scene_id,
+                persistent_url,
+                artifact_status,
+            )
+        if not str(updated).endswith(" 1"):
+            raise CustomFilmContractError(
+                "Custom Film section voice artifact identity changed"
+            )
+
+    async def _voice_artifact_checkpoint(
+        self,
+        request: SectionProductionRequest,
+    ) -> dict[str, Any] | None:
+        rows = await self._scene_rows(request)
+        if len(rows) != 1:
+            raise CustomFilmContractError(
+                "Custom Film child voice operation must own exactly one scene"
+            )
+        row = rows[0]
+        scene_id = str(row["id"])
+        artifact_hash, artifact_status, filename = (
+            self._voice_artifact_identity(request, scene_id)
+        )
+        if (
+            str(row.get("voice_status") or "") == artifact_status
+            and str(row.get("voice_over_url") or "").strip()
+        ):
+            return {
+                "scene_ids": [scene_id],
+                "voiced_scene_ids": [scene_id],
+                "artifact_id": artifact_hash,
+                "artifact_url": str(row["voice_over_url"]),
+                "reused_artifact": True,
+                "exact_seconds": request.exact_seconds,
+            }
+        executor = await self._ready_executor()
+        folder = executor._pipeline.google.get_or_create_folder(
+            f"custom-film-{request.video_id}"
+        )
+        existing = executor._pipeline.google.search_file(filename, folder["id"])
+        if not existing or not existing.get("id"):
+            return None
+        persistent_url = (
+            f"https://drive.google.com/uc?id={existing['id']}&export=download"
+        )
+        await self._checkpoint_voice_row(
+            request,
+            scene_id,
+            persistent_url,
+            artifact_status,
+        )
+        return {
+            "scene_ids": [scene_id],
+            "voiced_scene_ids": [scene_id],
+            "artifact_id": artifact_hash,
+            "artifact_url": persistent_url,
+            "reused_artifact": True,
+            "exact_seconds": request.exact_seconds,
+        }
 
     async def _voice(
         self,
@@ -594,12 +871,30 @@ class SharedSectionProductionSeams:
             else ""
         )
         voiced: list[str] = []
+        artifacts: list[dict[str, Any]] = []
         total_chars = 0
-        if provider_operation_id and len(rows) != 1:
+        if len(rows) != 1:
             raise CustomFilmContractError(
-                "Custom Film voice reconciliation has ambiguous scene assignments"
+                "Custom Film child voice operation must own exactly one scene"
             )
         for row in rows:
+            artifact_hash, artifact_status, filename = (
+                self._voice_artifact_identity(request, str(row["id"]))
+            )
+            if (
+                str(row.get("voice_status") or "") == artifact_status
+                and str(row.get("voice_over_url") or "").strip()
+            ):
+                voiced.append(str(row["id"]))
+                artifacts.append(
+                    {
+                        "scene_id": str(row["id"]),
+                        "artifact_id": artifact_hash,
+                        "artifact_url": str(row["voice_over_url"]),
+                        "reused": True,
+                    }
+                )
+                continue
             text = narration_text(str(row.get("scene_text") or ""), dialogue_mode)
             if not text:
                 continue
@@ -624,10 +919,12 @@ class SharedSectionProductionSeams:
             folder = executor._pipeline.google.get_or_create_folder(
                 f"custom-film-{request.video_id}"
             )
-            uploaded = executor._pipeline.google.upload_audio(
-                audio_content,
-                f"Section {request.order_index + 1} Scene {row['scene']}.mp3",
+            existing = executor._pipeline.google.search_file(
+                filename,
                 folder["id"],
+            )
+            uploaded = existing or executor._pipeline.google.upload_audio(
+                audio_content, filename, folder["id"]
             )
             if not uploaded or not uploaded.get("id"):
                 raise CustomFilmContractError(
@@ -636,26 +933,21 @@ class SharedSectionProductionSeams:
             persistent_url = (
                 f"https://drive.google.com/uc?id={uploaded['id']}&export=download"
             )
-            import database
-
-            pool = await database.get_pool()
-            async with pool.acquire() as conn:
-                updated = await conn.execute(
-                    """UPDATE scripts
-                       SET voice_over_url = $4, script_status = 'Finished',
-                           updated_at = now()
-                       WHERE tenant_id = $1::uuid AND video_id = $2::uuid
-                         AND id = $3::uuid""",
-                    self.tenant_id,
-                    request.video_id,
-                    str(row["id"]),
-                    persistent_url,
-                )
-            if not str(updated).endswith(" 1"):
-                raise CustomFilmContractError(
-                    "Custom Film section voice could not be checkpointed"
-                )
+            await self._checkpoint_voice_row(
+                request,
+                str(row["id"]),
+                persistent_url,
+                artifact_status,
+            )
             voiced.append(str(row["id"]))
+            artifacts.append(
+                {
+                    "scene_id": str(row["id"]),
+                    "artifact_id": artifact_hash,
+                    "artifact_url": persistent_url,
+                    "reused": bool(existing),
+                }
+            )
             total_chars += len(text)
         return {
             "scene_ids": list(request.scene_ids),
@@ -670,6 +962,7 @@ class SharedSectionProductionSeams:
             "dialogue_audio": request.dialogue_audio,
             "exact_seconds": request.exact_seconds,
             "total_chars": total_chars,
+            "artifacts": artifacts,
         }
 
     async def _quality(self, request: SectionProductionRequest) -> dict[str, Any]:
