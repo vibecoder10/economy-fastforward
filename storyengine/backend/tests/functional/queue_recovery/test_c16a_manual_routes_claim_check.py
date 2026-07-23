@@ -35,6 +35,17 @@ import pytest
 import routes.pipeline as pipeline
 
 
+@pytest.fixture(autouse=True)
+def _normal_drain_state():
+    """These claim-lane tests isolate _is_task_active; drain is normal."""
+    with patch.object(
+        pipeline.drain_mode,
+        "assert_accepting_new_work",
+        new=AsyncMock(return_value=None),
+    ):
+        yield
+
+
 # --- 1. static regression lock: no unawaited _is_task_active( call sites ---
 
 def test_no_unawaited_is_task_active_call_sites():

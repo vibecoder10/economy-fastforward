@@ -297,6 +297,11 @@ def test_route_proceeds_past_channel_check_when_connected(monkeypatch):
     monkeypatch.setattr(pipeline_mod, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(pipeline_mod, "_is_task_active", fake_is_task_active)
     monkeypatch.setattr(pipeline_mod, "_set_task_status", fake_set_task_status)
+    monkeypatch.setattr(
+        pipeline_mod.drain_mode,
+        "assert_accepting_new_work",
+        AsyncMock(return_value=None),
+    )
 
     result = asyncio.run(pipeline_mod.run_upload(
         VIDEO, _FakeRequest(), _FakeBackgroundTasks(), force=False, tenant_id=TENANT))

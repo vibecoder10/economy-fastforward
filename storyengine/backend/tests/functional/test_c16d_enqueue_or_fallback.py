@@ -83,6 +83,16 @@ class _FakeBackgroundTasks:
         self.tasks.append((fn, a, kw))
 
 
+@pytest.fixture(autouse=True)
+def _normal_drain_state(monkeypatch):
+    """Queue mechanics are exercised with the application accepting work."""
+    monkeypatch.setattr(
+        pipeline_mod.drain_mode,
+        "assert_accepting_new_work",
+        AsyncMock(return_value=None),
+    )
+
+
 @pytest.mark.asyncio
 async def test_attempt_derived_from_prior_background_tasks_rows(monkeypatch):
     """2 prior rows recorded for (video, stage) -> the next enqueue uses

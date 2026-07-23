@@ -234,7 +234,6 @@ _BLOCKED_MUTATION_PREFIXES = (
     "/api/intelligence",
     "/api/model-video",
     "/api/channel-dna",
-    "/api/mcp",
     "/api/agents",
 )
 
