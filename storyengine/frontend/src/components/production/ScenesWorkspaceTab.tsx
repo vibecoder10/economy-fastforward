@@ -1776,7 +1776,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {scene.duration}
               </span>
-              {sceneCards.length > 0 && (
+              {videoStageEnabled && sceneCards.length > 0 && (
                 <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {sceneCards.length - scenePending.length} of {sceneCards.length} animated
                 </span>
@@ -2811,8 +2811,9 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
             </button>
           </div>
         </details>
-        {/* Motion prompt — click to fine-tune how this shot moves before animating.
-            stopPropagation so editing never triggers the card's tap-to-animate. */}
+        {/* A static/photo plan has no clip stage, so it must not read as if a
+            motion prompt is unfinished work. */}
+        {canAnimate && (
         <details className="mt-2" onClick={(e) => e.stopPropagation()}>
           <summary className="text-[10px] cursor-pointer select-none inline-flex items-center gap-1" style={{ color: "var(--text-tertiary)" }}>
             <Film size={10} /> Motion prompt{hasClip ? "" : " — edit before animating"}
@@ -2849,6 +2850,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
             </button>
           </div>
         </details>
+        )}
       </div>
     </GlassCard>
   );

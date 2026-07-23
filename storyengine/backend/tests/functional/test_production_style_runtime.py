@@ -515,6 +515,8 @@ def test_finish_and_creation_surfaces_tell_style_motion_voice_and_storage_truth(
     assert "{productionProfile.description}" in scenes
     assert "These still pictures are the final visual format." in scenes
     assert "You do not" in scenes and "need to animate clips" in scenes
+    assert "videoStageEnabled && sceneCards.length > 0" in scenes
+    assert "{canAnimate && (" in scenes
     assert "Finish order" in scenes
     assert "sound & voice" in scenes
     assert "Scene production progress" in scenes
