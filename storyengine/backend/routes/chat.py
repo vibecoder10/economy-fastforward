@@ -3642,6 +3642,28 @@ def _custom_film_duration_seconds(
     return 5 * 60
 
 
+def _custom_film_requested_budget_cap(
+    message: str,
+    prior_pending: Optional[dict[str, Any]] = None,
+) -> Optional[float]:
+    patterns = (
+        r"\b(?:budget|cap|limit)\b[^\d$]{0,20}\$?\s*(\d+(?:\.\d{1,2})?)",
+        r"\$\s*(\d+(?:\.\d{1,2})?)\s*(?:budget|cap|limit)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, message or "", re.I)
+        if match:
+            return round(max(0.01, float(match.group(1))), 2)
+    if (
+        prior_pending
+        and prior_pending.get("budget_cap_source") == "user"
+        and isinstance(prior_pending.get("quote_inputs"), dict)
+        and prior_pending["quote_inputs"].get("max_spend") is not None
+    ):
+        return round(float(prior_pending["quote_inputs"]["max_spend"]), 2)
+    return None
+
+
 def _custom_film_approval_card(quote: dict[str, Any]) -> dict[str, Any]:
     total = float(quote["totals"]["estimated_cost"])
     return {
@@ -3649,7 +3671,7 @@ def _custom_film_approval_card(quote: dict[str, Any]) -> dict[str, Any]:
         "label": "Approve this exact Custom Film plan and estimate",
         "type": "single",
         "options": [
-            {"value": "yes", "label": f"Approve and start · ~${total:.2f}"},
+            {"value": "yes", "label": f"Approve production start · ~${total:.2f}"},
             {"value": "no", "label": "Keep editing"},
         ],
     }
@@ -3679,6 +3701,7 @@ def _custom_film_estimate_text(quote: dict[str, Any]) -> str:
                 "accounts. Approving binds to this exact plan and estimate; any edit "
                 "clears it and produces a new approval."
             ),
+            f"Spending cap for this film: ${float(quote['max_spend']):.2f}.",
         ]
     )
 
@@ -3767,7 +3790,7 @@ async def _handle_custom_film_approval_turn(
     state: dict[str, Any],
     background_tasks: BackgroundTasks,
 ) -> ChatTurnResponse:
-    """Confirm and schedule one exact quote after every existing spend gate."""
+    """Confirm one exact quote into a durable no-provider start intention."""
     pending = state.get("pending_custom_film_plan")
     if selection != "yes":
         message = "No problem — the current Custom Film plan remains unapproved. Tell me what to edit."
@@ -3787,11 +3810,8 @@ async def _handle_custom_film_approval_turn(
     from custom_film_contract import (
         CustomFilmContractError,
         approval_binding_hash,
-        approve_current_plan,
-        consume_current_plan_approval,
-        create_plan_revision,
         plan_hash,
-        revision_input_from_normalized_plan,
+        reserve_approved_start_intent,
     )
     internal_plan = pending.get("internal_plan")
     quote_inputs = pending.get("quote_inputs")
@@ -3812,8 +3832,6 @@ async def _handle_custom_film_approval_turn(
             "That plan or estimate changed, so the old approval is no longer valid. "
             "Please review the refreshed plan and approve again."
         )
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="plan"
         )
@@ -3826,8 +3844,6 @@ async def _handle_custom_film_approval_turn(
         )
     except Exception as exc:  # noqa: BLE001 - helper text is creator-safe
         message = str(exc)
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="plan"
         )
@@ -3842,112 +3858,60 @@ async def _handle_custom_film_approval_turn(
         )
     except Exception as exc:  # drain mode carries a useful retryable response
         message = getattr(exc, "message", None) or str(exc)
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="plan"
         )
     if not claimed:
-        message = "This Custom Film start is already being handled. I did not schedule it twice."
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        message = "This Custom Film start is already being handled. I did not reserve it twice."
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="plan"
         )
 
-    video_id: Optional[str] = None
-    main_claimed = False
     try:
-        quote_total = float(quote_inputs["totals"]["estimated_cost"])
-        budget_warning = _budget_check(
-            {
-                "max_spend": state.get("custom_film_budget_cap"),
-                "total_cost": 0,
-            },
-            quote_total,
-        )
-        if budget_warning:
-            message = (
-                f"{budget_warning['message']} Nothing was scheduled; raise the "
-                "cap or revise the plan first."
-            )
-            transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-            await _persist(conversation_id, tenant_id, transcript, state, "plan")
-            return ChatTurnResponse(
-                conversation_id=conversation_id, assistant_text=message, phase="plan"
-            )
+        # Read-only account gates precede the durable intent transaction.
+        from routes.billing import check_plan_limits, enforce_video_length_cap
 
-        from routes.videos import create_video
-        proposal = pending.get("planner_proposal") or {}
-        proposal_sections = proposal.get("sections") or []
-        first = proposal_sections[0] if proposal_sections else {}
-        production_style_id = first.get("structure_source")
-        title = str(first.get("focus") or "Custom Film").strip()[:200]
-        minutes = max(
-            1,
-            round(float(quote_inputs["requested_duration_seconds"]) / 60),
+        await check_plan_limits(tenant_id, "video")
+        await enforce_video_length_cap(
+            tenant_id,
+            float(quote_inputs["requested_duration_seconds"]) / 60,
         )
-        summary = await create_video(
-            body=CreateVideoRequest(
-                title=title,
-                video_length_minutes=minutes,
-                production_style_id=production_style_id,
-                writer_guidance="Follow the approved Custom Film section contract.",
-            ),
-            background_tasks=background_tasks,
-            tenant_id=tenant_id,
-        )
-        video_id = str(summary.id)
         from custom_film_planner import load_capability_manifest
+
         manifest = await load_capability_manifest()
-        raw_plan_for_persistence = revision_input_from_normalized_plan(
-            internal_plan,
+        result = await reserve_approved_start_intent(
+            tenant_id,
+            conversation_id,
+            expected,
             manifest,
         )
-        await create_plan_revision(
-            tenant_id,
-            video_id,
-            raw_plan_for_persistence,
-            manifest,
-            quote_inputs=quote_inputs,
-        )
-        await approve_current_plan(tenant_id, video_id, expected)
-
-        if not await generation_claims.acquire(
-            tenant_id,
-            video_id,
-            "main",
-            claimed_by=f"chat:custom-film:{conversation_id}",
-        ):
-            raise CustomFilmContractError(
-                "This video is already being handled; no duplicate start was scheduled."
-            )
-        main_claimed = True
-        if not await consume_current_plan_approval(tenant_id, video_id, expected):
-            raise CustomFilmContractError(
-                "The approval was stale or already used; no work was scheduled."
-            )
-
-        # M2-3 stops at the established pre-runtime autobuild seam.  Section
-        # execution itself remains M2-4; no provider is called in this request.
-        background_tasks.add_task(
-            _make_autobuild_step(
-                tenant_id,
-                video_id,
-                target="pictures",
-                start_msg=f"Starting approved Custom Film “{title}”…",
-            )
-        )
-        pending["status"] = "scheduled"
-        pending.pop("approval_hash", None)
+        video_id = result["video_id"]
+        pending["status"] = "start_ready"
+        pending["start_intent_hash"] = expected
+        pending["video_id"] = video_id
+        quote_total = float(quote_inputs["totals"]["estimated_cost"])
         message = (
-            f"Approved — I scheduled “{title}” from the exact plan and "
-            f"~${quote_total:.2f} BYOK estimate. I won't accept that approval twice."
+            f"Approved — this exact ~${quote_total:.2f} BYOK plan is safely held "
+            "and ready for section-aware production. No generation has started "
+            "or been charged yet."
         )
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "created"}))
-        await _persist(
-            conversation_id, tenant_id, transcript, state, "created", video_id=video_id
-        )
+        if result.get("created"):
+            transcript.append(
+                _assistant_turn({"assistant_text": message, "phase": "created"})
+            )
+            # The reservation transaction already owns state/video_id. Update
+            # only the transcript under the durable intent CAS; never write the
+            # caller's stale state back over it.
+            await execute(
+                """UPDATE chat_conversations
+                   SET transcript = $1::jsonb, phase = 'created', updated_at = now()
+                   WHERE id = $2 AND tenant_id = $3
+                     AND state->'pending_custom_film_plan'->>'start_intent_hash' = $4""",
+                json.dumps(transcript),
+                conversation_id,
+                tenant_id,
+                expected,
+            )
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -3955,15 +3919,11 @@ async def _handle_custom_film_approval_turn(
             phase="created",
         )
     except (HTTPException, CustomFilmContractError) as exc:
-        if main_claimed and video_id:
-            await generation_claims.release(tenant_id, video_id, "main")
         message = (
             exc.detail
             if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
             else str(exc)
         )
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "plan")
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=message, phase="plan"
         )
@@ -4069,6 +4029,10 @@ async def _handle_custom_film_plan(
             user_message,
             prior_pending,
         )
+        requested_budget_cap = _custom_film_requested_budget_cap(
+            user_message,
+            prior_pending,
+        )
         compiled = await plan_custom_film(
             user_message,
             manifest,
@@ -4117,6 +4081,12 @@ async def _handle_custom_film_plan(
         quote_inputs = await _estimate_custom_film_plan(
             compiled.internal_plan,
             total_duration_seconds=total_duration_seconds,
+        )
+        quote_inputs["max_spend"] = round(
+            requested_budget_cap
+            if requested_budget_cap is not None
+            else float(quote_inputs["totals"]["estimated_cost"]),
+            2,
         )
         quote_rows = {
             row["section_id"]: row for row in quote_inputs["sections"]
@@ -4197,6 +4167,9 @@ async def _handle_custom_film_plan(
         "plan_hash": current_plan_hash,
         "quote_inputs": quote_inputs,
         "approval_hash": current_approval_hash,
+        "budget_cap_source": (
+            "user" if requested_budget_cap is not None else "quote"
+        ),
         "recipe_signature": compiled.recipe_signature,
         "novelty": novelty_payload,
         "status": "awaiting_approval",
@@ -5274,6 +5247,7 @@ async def chat_turn(
         state.get("mode") == "custom_film"
         and body.selections
         and "custom_film_approval" in body.selections
+        and not (body.message and body.message.strip())
     ):
         return await _handle_custom_film_approval_turn(
             str(body.selections["custom_film_approval"]),

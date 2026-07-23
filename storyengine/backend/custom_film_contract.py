@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from database import fetch_all, fetch_one, get_pool
+from database import execute, fetch_all, fetch_one, get_pool
 from production_styles import (
     PUBLIC_PRODUCTION_STYLE_IDS,
     REQUIRED_KNOB_KEYS,
@@ -854,6 +854,220 @@ async def consume_current_plan_approval(
     if isinstance(result, str):
         return result.rsplit(" ", 1)[-1] == "1"
     return bool(result)
+
+
+async def reserve_approved_start_intent(
+    tenant_id: str,
+    conversation_id: str,
+    expected_approval_hash: str,
+    manifest: CapabilityManifest,
+) -> dict[str, Any]:
+    """Atomically reserve one no-provider Custom Film start intention.
+
+    The locked conversation state is authoritative, not the caller's snapshot.
+    The transaction creates only a minimal ``custom_film_ready`` video row plus
+    its immutable approved contract and CAS-updates the conversation. It does
+    not increment usage, create a project, touch Drive, or schedule runtime.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            conversation = await conn.fetchrow(
+                """SELECT id, video_id, state
+                   FROM chat_conversations
+                   WHERE id = $1 AND tenant_id = $2
+                   FOR UPDATE""",
+                conversation_id,
+                tenant_id,
+            )
+            if not conversation:
+                raise CustomFilmContractError("Custom Film conversation not found")
+            state = _parse_json(conversation["state"])
+            if not isinstance(state, dict):
+                raise CustomFilmContractError("Custom Film conversation state is invalid")
+            pending = state.get("pending_custom_film_plan")
+            if not isinstance(pending, dict):
+                raise CustomFilmContractError("Current Custom Film plan not found")
+
+            # Durable replay convergence: a stale caller loaded before the first
+            # request committed still returns the one reserved video.
+            if (
+                pending.get("status") == "start_ready"
+                and pending.get("start_intent_hash") == expected_approval_hash
+                and pending.get("video_id")
+            ):
+                return {
+                    "video_id": str(pending["video_id"]),
+                    "created": False,
+                    "approval_hash": expected_approval_hash,
+                    "max_spend": float(pending["quote_inputs"]["max_spend"]),
+                }
+            if conversation.get("video_id"):
+                raise CustomFilmContractError(
+                    "This conversation is already attached to a different video."
+                )
+
+            if pending.get("status") != "awaiting_approval":
+                raise CustomFilmContractError(
+                    "This Custom Film no longer has a current approval."
+                )
+            normalized_plan = pending.get("internal_plan")
+            quote_inputs = pending.get("quote_inputs")
+            if not isinstance(normalized_plan, dict) or not isinstance(
+                quote_inputs, dict
+            ):
+                raise CustomFilmContractError("Custom Film estimate is incomplete")
+            current_plan_hash = plan_hash(normalized_plan)
+            current_binding = approval_binding_hash(
+                current_plan_hash,
+                quote_inputs,
+            )
+            if (
+                pending.get("approval_hash") != expected_approval_hash
+                or current_binding != expected_approval_hash
+            ):
+                raise CustomFilmContractError(
+                    "This Custom Film estimate changed. Review and approve again."
+                )
+
+            duration_seconds = int(quote_inputs.get("requested_duration_seconds") or 0)
+            if duration_seconds < 5:
+                raise CustomFilmContractError("Custom Film duration is invalid")
+            rows = quote_inputs.get("sections")
+            if (
+                not isinstance(rows, list)
+                or sum(int(row.get("duration_seconds") or 0) for row in rows)
+                != duration_seconds
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film section durations do not match the approved runtime"
+                )
+            max_spend = quote_inputs.get("max_spend")
+            if max_spend is None:
+                raise CustomFilmContractError(
+                    "Custom Film needs a durable spending cap before approval"
+                )
+            from actions import budget_check
+
+            budget_warning = budget_check(
+                {"max_spend": float(max_spend), "total_cost": 0},
+                float(quote_inputs["totals"]["estimated_cost"]),
+            )
+            if budget_warning:
+                raise CustomFilmContractError(
+                    f"{budget_warning['message']} Nothing was reserved."
+                )
+
+            raw_plan = revision_input_from_normalized_plan(
+                normalized_plan,
+                manifest,
+            )
+            # The round-trip above is the allowlist/compatibility validation;
+            # use its canonical normalized result for the immutable rows.
+            persisted_plan = normalize_plan(raw_plan, manifest)
+            quote_digest = canonical_hash(quote_inputs)
+            plan_id = str(uuid4())
+            proposal = pending.get("planner_proposal")
+            proposal_sections = (
+                proposal.get("sections")
+                if isinstance(proposal, dict)
+                and isinstance(proposal.get("sections"), list)
+                else []
+            )
+            first = proposal_sections[0] if proposal_sections else {}
+            title = str(first.get("focus") or "Custom Film").strip()[:200]
+            duration_minutes = (
+                Decimal(duration_seconds) / Decimal(60)
+            ).quantize(Decimal("0.000001"))
+            video = await conn.fetchrow(
+                """INSERT INTO videos
+                     (tenant_id, video_title, status, source,
+                      video_length_minutes, max_spend, writer_guidance)
+                   VALUES ($1, $2, 'custom_film_ready', 'custom_film',
+                           $3, $4, $5)
+                   RETURNING id""",
+                tenant_id,
+                title,
+                duration_minutes,
+                Decimal(str(max_spend)),
+                "Awaiting section-aware runtime execution.",
+            )
+            video_id = str(video["id"])
+            await conn.execute(
+                """INSERT INTO custom_film_plans
+                     (id, tenant_id, video_id, revision, compatibility_version,
+                      plan, plan_hash, quote_inputs, quote_inputs_hash,
+                      approval_hash, approved_at)
+                   VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6, $7::jsonb,
+                           $8, $9, now())""",
+                plan_id,
+                tenant_id,
+                video_id,
+                manifest.version,
+                canonical_json(persisted_plan),
+                current_plan_hash,
+                canonical_json(quote_inputs),
+                quote_digest,
+                expected_approval_hash,
+            )
+            for section in persisted_plan["sections"]:
+                await conn.execute(
+                    """INSERT INTO custom_film_sections
+                         (tenant_id, plan_id, video_id, section_id, order_index,
+                          role, purpose, duration_units, knobs, provenance,
+                          estimated_media)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                               $9::jsonb, $10::jsonb, $11::jsonb)""",
+                    tenant_id,
+                    plan_id,
+                    video_id,
+                    section["section_id"],
+                    section["order_index"],
+                    section["role"],
+                    section["purpose"],
+                    section["duration_units"],
+                    canonical_json(section["knobs"]),
+                    canonical_json(section["provenance"]),
+                    canonical_json(section["estimated_media"]),
+                )
+            await conn.execute(
+                """UPDATE videos
+                   SET custom_film_plan_id = $3,
+                       custom_film_plan_revision = 1,
+                       custom_film_plan_hash = $4,
+                       custom_film_quote_inputs_hash = $5,
+                       custom_film_approval_hash = $6,
+                       custom_film_approved_at = now(),
+                       updated_at = now()
+                   WHERE tenant_id = $1 AND id = $2""",
+                tenant_id,
+                video_id,
+                plan_id,
+                current_plan_hash,
+                quote_digest,
+                expected_approval_hash,
+            )
+            pending["status"] = "start_ready"
+            pending["start_intent_hash"] = expected_approval_hash
+            pending["video_id"] = video_id
+            state["pending_custom_film_plan"] = pending
+            await conn.execute(
+                """UPDATE chat_conversations
+                   SET state = $3::jsonb, video_id = $4, phase = 'created',
+                       updated_at = now()
+                   WHERE id = $1 AND tenant_id = $2""",
+                conversation_id,
+                tenant_id,
+                canonical_json(state),
+                video_id,
+            )
+            return {
+                "video_id": video_id,
+                "created": True,
+                "approval_hash": expected_approval_hash,
+                "max_spend": float(max_spend),
+                "duration_seconds": duration_seconds,
+            }
 
 
 def _parse_json(value: Any) -> Any:

@@ -11276,14 +11276,20 @@ plain-English BYOK plan/estimate and a generic approval card while keeping
 private knob/profile/model/provider identifiers in conversation state only.
 Every textual revision clears the prior approval before inference. Exact
 approval is bound with `custom_film_contract.approval_binding_hash`; the start
-path rechecks that binding and the tenant-owned Kie key, then uses the durable
-drain-aware generation claim, budget check, persisted plan approval, atomic
-approval consumption, and existing autobuild scheduling seam. Replays and
-double taps cannot schedule a second task. Section-aware provider execution
-remains M2-4.
+path rechecks that binding and the tenant-owned Kie key, then passes the durable
+drain-aware generation claim and shared budget check before one transaction
+locks the conversation and reserves a minimal `custom_film_ready` video plus
+its approved immutable plan. The transaction persists the exact runtime and a
+non-NULL per-video spending cap, then CAS-updates the conversation with the
+approval hash and reserved video. It does not use `create_video`, choose a
+single production profile, increment usage, create a project, queue Drive
+sync, schedule autobuild, or call a provider. Replays converge on the same
+reserved video. Approval remains held for M2-4 to consume at the actual
+section-aware runtime door.
 
 Focused no-network/no-provider coverage lives in the new
 `storyengine/backend/tests/functional/test_custom_film_estimate_approval.py`.
 It proves row/total reconciliation through the shared estimator, stale-hash and
-missing-key pre-spend stops, cap gating, ordered exact-hash approval, and
-exactly-once background scheduling.
+missing-key pre-spend stops, reachable cap gating, exact duration allocation,
+edit-over-approval precedence, transactional replay convergence, and the
+absence of any runtime/background scheduling.

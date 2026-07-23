@@ -806,6 +806,35 @@ async def estimate_custom_film_plan(
     sections = normalized_plan.get("sections")
     if not isinstance(sections, list) or not sections:
         raise ValueError("Custom Film plan has no sections")
+    if duration < len(sections):
+        raise ValueError("Custom Film duration is too short for its section count")
+    if sum(int(section.get("duration_units") or 0) for section in sections) != 1_000_000:
+        raise ValueError("Custom Film section durations are not normalized")
+
+    # Integer-second largest-remainder allocation.  Independent round() calls
+    # can drift above/below the approved runtime, especially for 5-second
+    # multi-section plans; this guarantees exact reconciliation.
+    exact_seconds = [
+        duration * max(1, int(section.get("duration_units") or 0)) / 1_000_000
+        for section in sections
+    ]
+    section_seconds = [math.floor(value) for value in exact_seconds]
+    remainder = duration - sum(section_seconds)
+    ranked = sorted(
+        range(len(sections)),
+        key=lambda index: (-(exact_seconds[index] - section_seconds[index]), index),
+    )
+    for index in ranked[:remainder]:
+        section_seconds[index] += 1
+    for zero_index in (
+        index for index, seconds in enumerate(section_seconds) if seconds == 0
+    ):
+        donor = min(
+            (index for index, seconds in enumerate(section_seconds) if seconds > 1),
+            key=lambda index: (-section_seconds[index], index),
+        )
+        section_seconds[zero_index] = 1
+        section_seconds[donor] -= 1
 
     rows: list[dict[str, Any]] = []
     capability_totals = {
@@ -814,9 +843,7 @@ async def estimate_custom_film_plan(
         "voice_generation": 0,
     }
     total_cost = 0.0
-    for section in sections:
-        units = max(1, int(section.get("duration_units") or 0))
-        seconds = max(1, round(duration * units / 1_000_000))
+    for section, seconds in zip(sections, section_seconds):
         knobs = section.get("knobs") if isinstance(section.get("knobs"), dict) else {}
         density = knobs.get("image_density") if isinstance(knobs.get("image_density"), dict) else {}
         animation = knobs.get("animation") if isinstance(knobs.get("animation"), dict) else {}

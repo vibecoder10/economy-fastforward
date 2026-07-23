@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,18 @@ import actions
 import custom_film_contract as contract
 import custom_film_planner as planner
 from routes import chat
+
+
+def test_m2_3_start_handler_has_no_runtime_or_create_video_seam():
+    source = inspect.getsource(chat._handle_custom_film_approval_turn)
+    for forbidden in (
+        "create_video",
+        "_make_autobuild_step",
+        "background_tasks.add_task",
+        "production_style_id",
+    ):
+        assert forbidden not in source
+    assert "reserve_approved_start_intent" in source
 
 
 def _plan() -> dict:
@@ -94,7 +107,26 @@ async def test_section_bom_reconciles_and_prices_only_through_shared_estimator(
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("seconds", "expected_rows"),
+    [(5, [2, 3]), (90, [36, 54])],
+)
+async def test_section_duration_allocation_reconciles_exact_runtime(
+    seconds,
+    expected_rows,
+):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=seconds
+    )
+    assert [row["duration_seconds"] for row in quote["sections"]] == expected_rows
+    assert quote["totals"]["duration_seconds"] == seconds
+    assert quote["requested_duration_seconds"] == seconds
+
+
 def _pending(quote: dict) -> dict:
+    quote = copy.deepcopy(quote)
+    quote.setdefault("max_spend", quote["totals"]["estimated_cost"])
     plan = _plan()
     digest = contract.plan_hash(plan)
     binding = contract.approval_binding_hash(digest, quote)
@@ -214,58 +246,206 @@ async def test_any_failed_revision_clears_the_previous_exact_approval(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_budget_cap_stops_after_claim_but_before_create_and_schedule(
+async def test_combined_yes_and_estimate_affecting_message_replans_first(
     monkeypatch,
 ):
     quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=300
+        _plan(), total_duration_seconds=90
     )
-    state = {
-        "mode": "custom_film",
-        "custom_film_budget_cap": 0.01,
-        "pending_custom_film_plan": _pending(quote),
-    }
-    import vault
-    order: list[str] = []
+    calls = []
 
-    async def key(*_args, **_kwargs):
-        order.append("key")
-        return "tenant-key"
+    async def load(*_args):
+        return {
+            "id": "conv",
+            "video_id": None,
+            "transcript": [],
+            "state": {
+                "mode": "custom_film",
+                "pending_custom_film_plan": _pending(quote),
+            },
+        }
 
-    async def claim(*_args, **_kwargs):
-        order.append("claim")
-        return True
-
-    async def release(*_args, **_kwargs):
-        order.append("release")
-
-    async def fake_persist(*_args, **_kwargs):
+    async def hydrate(*_args):
         return None
 
-    monkeypatch.setattr(vault, "get_required_tenant_secret", key)
-    monkeypatch.setattr(chat.generation_claims, "acquire_channel", claim)
-    monkeypatch.setattr(chat.generation_claims, "release_channel", release)
-    monkeypatch.setattr(chat, "_persist", fake_persist)
-    bg = BackgroundTasks()
-    response = await chat._handle_custom_film_approval_turn(
-        "yes", "conv", "tenant", [], state, bg
+    async def replan(*args):
+        calls.append(("replan", args[-1]))
+        return chat.ChatTurnResponse(
+            conversation_id="conv",
+            assistant_text="replanned",
+            phase="plan",
+        )
+
+    async def forbidden(*_args):
+        raise AssertionError("approval ran before estimate-affecting edit")
+
+    monkeypatch.setattr(chat, "_load_conversation", load)
+    monkeypatch.setattr(chat, "_hydrate_creator_brief", hydrate)
+    monkeypatch.setattr(chat, "_handle_custom_film_plan", replan)
+    monkeypatch.setattr(chat, "_handle_custom_film_approval_turn", forbidden)
+    response = await chat.chat_turn(
+        chat.ChatTurnRequest(
+            conversation_id="conv",
+            message="make it 1.5 minutes and cap the budget at $12",
+            selections={"custom_film_approval": "yes"},
+        ),
+        BackgroundTasks(),
+        tenant_id="tenant",
     )
-    assert order == ["key", "claim", "release"]
-    assert "Nothing was scheduled" in response.assistant_text
-    assert bg.tasks == []
+    assert response.assistant_text == "replanned"
+    assert calls == [
+        ("replan", "make it 1.5 minutes and cap the budget at $12")
+    ]
+
+
+class _AsyncContext:
+    def __init__(self, value=None):
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, *_args):
+        return False
+
+
+class _IntentConnection:
+    def __init__(self, state):
+        self.state = copy.deepcopy(state)
+        self.video_id = None
+        self.calls = []
+        self.video_inserts = 0
+
+    def transaction(self):
+        return _AsyncContext()
+
+    async def fetchrow(self, query, *args):
+        self.calls.append(("fetchrow", query, args))
+        if "FROM chat_conversations" in query:
+            return {
+                "id": "conv",
+                "video_id": self.video_id,
+                "state": copy.deepcopy(self.state),
+            }
+        if "INSERT INTO videos" in query:
+            self.video_inserts += 1
+            return {"id": "video-1"}
+        raise AssertionError(query)
+
+    async def execute(self, query, *args):
+        self.calls.append(("execute", query, args))
+        if "UPDATE chat_conversations" in query:
+            import json
+
+            self.state = json.loads(args[2])
+            self.video_id = args[3]
+        return "OK"
+
+
+class _IntentPool:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def acquire(self):
+        return _AsyncContext(self.connection)
+
+
+def _patch_intent_contract(monkeypatch, state):
+    connection = _IntentConnection(state)
+
+    async def pool():
+        return _IntentPool(connection)
+
+    monkeypatch.setattr(contract, "get_pool", pool)
+    monkeypatch.setattr(
+        contract,
+        "revision_input_from_normalized_plan",
+        lambda plan, _manifest: plan,
+    )
+    monkeypatch.setattr(
+        contract,
+        "normalize_plan",
+        lambda plan, _manifest: plan,
+    )
+    return connection
 
 
 @pytest.mark.asyncio
-async def test_exact_approval_schedules_once_after_all_gates(monkeypatch):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=300
+async def test_user_budget_cap_is_hashed_persisted_and_blocks_before_insert(
+    monkeypatch,
+):
+    assert (
+        chat._custom_film_requested_budget_cap(
+            "Keep this Custom Film budget capped at $0.01"
+        )
+        == 0.01
     )
-    state = {
-        "mode": "custom_film",
-        "pending_custom_film_plan": _pending(quote),
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    quote["max_spend"] = 0.01
+    pending = _pending(quote)
+    state = {"mode": "custom_film", "pending_custom_film_plan": pending}
+    connection = _patch_intent_contract(monkeypatch, state)
+
+    with pytest.raises(contract.CustomFilmContractError, match="Nothing was reserved"):
+        await contract.reserve_approved_start_intent(
+            "tenant", "conv", pending["approval_hash"], SimpleNamespace(version="test-v1")
+        )
+    assert connection.video_inserts == 0
+
+
+@pytest.mark.asyncio
+async def test_durable_intent_replay_converges_on_one_video_without_runtime(
+    monkeypatch,
+):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    pending = _pending(quote)
+    state = {"mode": "custom_film", "pending_custom_film_plan": pending}
+    connection = _patch_intent_contract(monkeypatch, state)
+    manifest = SimpleNamespace(version="test-v1")
+
+    first = await contract.reserve_approved_start_intent(
+        "tenant", "conv", pending["approval_hash"], manifest
+    )
+    # A second request may have loaded the pre-approval snapshot, but the
+    # transaction re-reads the locked durable state and returns the first row.
+    second = await contract.reserve_approved_start_intent(
+        "tenant", "conv", pending["approval_hash"], manifest
+    )
+    assert first == {
+        "video_id": "video-1",
+        "created": True,
+        "approval_hash": pending["approval_hash"],
+        "max_spend": quote["totals"]["estimated_cost"],
+        "duration_seconds": 90,
     }
+    assert second["video_id"] == "video-1"
+    assert second["created"] is False
+    assert connection.video_inserts == 1
+    video_insert = next(
+        call for call in connection.calls if "INSERT INTO videos" in call[1]
+    )
+    assert str(video_insert[2][2]) == "1.500000"
+    assert float(video_insert[2][3]) == quote["totals"]["estimated_cost"]
+    assert "production_style_id" not in video_insert[1]
+    assert not any(
+        token in call[1]
+        for call in connection.calls
+        for token in ("background_tasks", "Drive", "increment_usage")
+    )
+
+
+@pytest.mark.asyncio
+async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    state = {"mode": "custom_film", "pending_custom_film_plan": _pending(quote)}
     import vault
-    from routes import videos
+    from routes import billing
     order: list[str] = []
 
     async def key(*_args, **_kwargs):
@@ -279,83 +459,47 @@ async def test_exact_approval_schedules_once_after_all_gates(monkeypatch):
     async def release_channel(*_args, **_kwargs):
         order.append("channel_release")
 
-    async def create_video(*_args, **_kwargs):
-        order.append("create")
-        return SimpleNamespace(id="video-1")
-
     async def manifest():
         order.append("manifest")
         return SimpleNamespace(version="test-v1")
 
-    async def create_revision(*_args, **_kwargs):
-        order.append("revision")
-        return {}
+    async def check_limit(*_args, **_kwargs):
+        order.append("plan_limit")
 
-    async def approve(*_args, **_kwargs):
-        order.append("approve")
-        return {}
+    async def length_limit(*_args, **_kwargs):
+        order.append("length_limit")
 
-    async def acquire(*_args, **_kwargs):
-        order.append("main_claim")
-        return True
+    async def reserve(*_args, **_kwargs):
+        order.append("reserve")
+        return {"video_id": "video-1", "created": True}
 
-    async def consume(*_args, **_kwargs):
-        order.append("consume")
-        return True
-
-    async def persist(*_args, **_kwargs):
-        order.append("persist")
-
-    async def release(*_args, **_kwargs):
-        order.append("main_release")
-
-    def build(*_args, **_kwargs):
-        order.append("build_factory")
-
-        async def step():
-            return None
-
-        return step
+    async def transcript_write(*_args, **_kwargs):
+        order.append("transcript")
+        return "UPDATE 1"
 
     monkeypatch.setattr(vault, "get_required_tenant_secret", key)
     monkeypatch.setattr(chat.generation_claims, "acquire_channel", acquire_channel)
     monkeypatch.setattr(chat.generation_claims, "release_channel", release_channel)
-    monkeypatch.setattr(chat.generation_claims, "acquire", acquire)
-    monkeypatch.setattr(chat.generation_claims, "release", release)
-    monkeypatch.setattr(videos, "create_video", create_video)
+    monkeypatch.setattr(billing, "check_plan_limits", check_limit)
+    monkeypatch.setattr(billing, "enforce_video_length_cap", length_limit)
     monkeypatch.setattr(planner, "load_capability_manifest", manifest)
-    monkeypatch.setattr(contract, "create_plan_revision", create_revision)
-    monkeypatch.setattr(
-        contract,
-        "revision_input_from_normalized_plan",
-        lambda plan, _manifest: plan,
-    )
-    monkeypatch.setattr(contract, "approve_current_plan", approve)
-    monkeypatch.setattr(contract, "consume_current_plan_approval", consume)
-    monkeypatch.setattr(chat, "_make_autobuild_step", build)
-    monkeypatch.setattr(chat, "_persist", persist)
+    monkeypatch.setattr(contract, "reserve_approved_start_intent", reserve)
+    monkeypatch.setattr(chat, "execute", transcript_write)
 
     bg = BackgroundTasks()
     response = await chat._handle_custom_film_approval_turn(
         "yes", "conv", "tenant", [], state, bg
     )
     assert response.video_id == "video-1"
-    assert len(bg.tasks) == 1
+    assert bg.tasks == []
+    assert "No generation has started" in response.assistant_text
     assert order == [
         "key",
         "channel_claim",
-        "create",
+        "plan_limit",
+        "length_limit",
         "manifest",
-        "revision",
-        "approve",
-        "main_claim",
-        "consume",
-        "build_factory",
-        "persist",
+        "reserve",
+        "transcript",
         "channel_release",
     ]
-    replay = await chat._handle_custom_film_approval_turn(
-        "yes", "conv", "tenant", [], state, bg
-    )
-    assert "unapproved plan" in replay.assistant_text
-    assert len(bg.tasks) == 1
