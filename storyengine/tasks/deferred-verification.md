@@ -1,3 +1,21 @@
+# Deferred verification — Beta UX + four public production styles (Milestone 1)
+
+- [ ] **Paid four-style shape proof.**
+  - Proof reached now: Phase 0 design and code-surface review only; no provider call has been made. This entry must be updated with focused test, trace, and local browser evidence as M1–M6 land.
+  - Later recipe: after the draft PR passes no-spend review and Ryan approves a quoted budget, create one shortest-supported video with each public style using the tester’s own provider keys. Confirm Bilingual Character Animation uses two-language dialogue plus dubbing; Simple-Language Animation uses clear single-language animated dialogue; Photo Documentary uses the canonical shared static profile with multiple stills and Ken Burns motion; Animated Investigative Documentary produces roughly one image and clip per meaningful visual cue. Compare the displayed pre-spend estimate with the resulting generation ledger and record discrepancies.
+  - Expected result: all four videos retain the chosen label/description across creation, co-pilot, and finish; their asset shapes match the selected profile; no StoryEngine-owned credential pays for any provider call.
+  - Cross-reference: checklist M1–M4 and M6.
+
+- [ ] **Production deployment and first-user smoke.**
+  - Proof reached now: none; deployment is not authorized. Local builds and browser walkthrough evidence will be added during M6.
+  - Later recipe: after PR merge and Ryan’s separate approval, confirm a quiet production window with `scripts/se.sh drain-status`, deploy through `scripts/se.sh deploy <session-name> --with-frontend`, verify `scripts/se.sh health`, then run the first-user path from creation through finish without confirming a paid stage.
+  - Expected result: backend and frontend are healthy; the required style selector, docked live progress, finish-page clarification, and Drive warning are visible; no provider generation or upload begins.
+  - Cross-reference: checklist M3–M6.
+
+## Milestone 2 is intentionally separate
+
+Custom Film, per-section knob application, the chat-hidden planner, and its mixed-style stress render are out of Milestone 1. They require a new Maestro Definition of Complete and a separate PR after this one is reviewed.
+
 # Deferred verification — Application drain mode
 
 Nothing is deferred for drain mode. The no-spend live proof completed on 2026-07-23: draining preserved healthy reads, rejected a synthetic generation start with the structured retryable contract, left review traffic outside the drain, restored normal mode, and the automatic deploy wrapper completed drain/wait/restart/verify/undrain with no force and no active work.

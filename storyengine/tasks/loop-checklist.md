@@ -1,3 +1,64 @@
+# Loop checklist — Beta UX + four public production styles (Milestone 1)
+
+## Definition of Complete
+1. A new user must explicitly choose one of four generically named, clearly described production styles before creation: Bilingual Character Animation, Simple-Language Animation, Photo Documentary, or Animated Investigative Documentary. No customer or YouTube channel name appears as a public style.
+2. The chosen style is one persisted per-video contract covering render mode, script profile, image density, animation, language, dubbing, segmentation, camera, quality laws, and the future image-source dimension. Its label, description, media estimate, and BYOK cost warning follow the video through both creation flows, the finish page, and every co-pilot surface.
+3. All runtime AI use is BYOK. StoryEngine never silently falls back to a StoryEngine-funded provider key, and every paid generation path still requires the existing quote and explicit confirmation.
+4. The docked co-pilot never looks stalled: it acknowledges long work promptly, consumes live task progress, shows useful scene/image counters, and displays a compact sequential “you are here” pipeline map with the selected style.
+5. Each public style activates the intended existing pipeline shape. Photo Documentary safely mirrors the shared public documentary profile and retains its multi-image static/Ken Burns behavior; Animated Investigative Documentary targets roughly one visual per sentence or meaningful visual cue.
+6. The finish and onboarding surfaces tell the truth: static work is not pushed to animate, full-video and per-scene animation actions are visually distinct, voice timing and progress are clear, and users without Drive see that StoryEngine storage is not guaranteed long-term.
+7. Focused backend/frontend tests, stash-proof where new tests can prove causality, production builds, and a no-spend first-user browser walkthrough pass. The verified implementation is published as its own draft PR; paid four-style generations and production deployment remain explicit later approval gates.
+
+## Milestone 2 boundary — separate PR, not part of this loop
+- **Custom Film** is the later chat-hidden composer. A user describes the film in chat; StoryEngine privately composes the public profiles’ underlying knobs per section, explains the assembled plan and BYOK estimate in plain English, and asks for approval before generation. No exposed “advanced knobs” form and no Custom Film implementation belongs in Milestone 1.
+
+## Decisions
+- **DEC-CHOICE-COPY — resolved 2026-07-23**
+  - Decision: public labels are **Bilingual Character Animation**, **Simple-Language Animation**, **Photo Documentary**, and **Animated Investigative Documentary**. Milestone 2 is **Custom Film**.
+  - Descriptions:
+    - Bilingual Character Animation — “Animated character stories with dialogue in two languages and natural dubbed voices.”
+    - Simple-Language Animation — “Simple-language animated stories built for learners and clear comprehension.”
+    - Photo Documentary — “Item-by-item narration using still images, captions, and slow cinematic pan-and-zoom.”
+    - Animated Investigative Documentary — “Investigative narration with a fresh animated visual for nearly every sentence or visual cue.”
+    - Custom Film — “Describe the film in chat; StoryEngine assembles the right styles, voices, languages, and motion section by section.”
+  - Estimate copy: creation surfaces show calculated media counts and BYOK cost from duration/profile rather than freezing guessed counts into descriptions.
+  - Context: the original labels were customer/YouTube channel names and did not describe the production technique.
+  - Alternatives: retain channel brands; use marketing names unrelated to pipeline shape.
+  - Why this won: the labels explain what StoryEngine will actually make and remain safe as public reusable profiles.
+- **DEC-PUBLIC-PHOTO-PROFILE — resolved 2026-07-23**
+  - Decision: mirror the existing documentary configuration as a public profile style. The tenant-private DvsU row is not queried cross-tenant; a canonical shared profile is the public source, and the original channel references the same profile.
+  - Context: `channel_profiles` is tenant-isolated, while this style must be public and stay synchronized.
+  - Alternatives: copy a fixed snapshot; read another tenant’s row at runtime.
+  - Why this won: one public source stays current without violating tenant isolation.
+- **DEC-BYOK — resolved 2026-07-23**
+  - Decision: every user supplies their own provider credentials. No StoryEngine-funded inference fallback.
+  - Context: StoryEngine is software, not a subsidized generation service.
+  - Alternatives: StoryEngine-paid runtime inference; consumer-subscription reuse.
+  - Why this won: spend stays with the user who initiates it and the boundary is supportable in a multi-tenant SaaS.
+- **DEC-MILESTONE-SPLIT — resolved 2026-07-23**
+  - Decision: Milestone 1 gets its own PR before any Custom Film work. Milestone 1 surfaces the four existing pipeline shapes as required selectors and fixes the urgent co-pilot/finish/Drive UX. Milestone 2 composes those components invisibly through chat.
+  - Why this won: urgent first-user fixes and existing pipeline productization ship without being blocked by the new per-section composition engine.
+- **DEC-PAID-DEPLOY-GATES — resolved 2026-07-23**
+  - Decision: no paid generation and no production deployment without a fresh quote and Ryan’s explicit approval. Local no-spend work proceeds autonomously.
+
+## Assumptions
+- The shared public profile is versioned. New Photo Documentary videos resolve the latest public profile and persist a per-video snapshot so an in-flight or completed video cannot silently change later.
+- The four preset cards expose simple calculated media/cost summaries; implementation knobs remain internal.
+- Existing videos with no explicit style preserve their current inferred behavior. The required pick applies to new creation.
+- The implementation branch is `agent/storyengine-beta-ux-styles`, isolated at `/Users/ryanayler/economy-fastforward-beta-ux`; the dirty `feat/per-card-parallel-clips` checkout is untouched.
+
+## Chunks
+- [x] M0 SWEEP [D][B][U][V] Re-pin every quoted anchor against merged `origin/main`, trace all creation/chat/finish/runtime consumers, identify the migration and test seams, and record baseline checks before changing behavior.
+      Evidence: `origin/main` is the direct parent of plan commit `8cd501cc`; the isolated worktree contains no product edits. Finish-page anchors remain in `ScenesWorkspaceTab.tsx` (`No voice yet` ~1350, portal command bar ~1492, per-scene animation ~1801), but the merged UI already moved progress into the StageRail portal. `ChatCore.tsx` already imports `usePipelineSSE`, yet only home `CreatedCard` subscribes (~1919); the dock still explicitly assumes the surrounding page owns progress (~286–288). The onboarding creator still sends no style, while the returning-user modal exposes three separate optional axes (image look, look engine, script profile). Existing `style_preset_id` means a new high-level selector must use a distinct `production_style` name. The create route still infers `static_docu` from tenant identity and stores no unified per-video contract. Merged Photo Documentary code already targets three views with two required (`static_docu_contract.py`), superseding the plan's stale one-image claim. `_coverage_shape` still returns a generic three-moment plan for narration-only scenes before the eight-second dialogue branch, so investigative density must be style-aware rather than a global pacing change. Tenant-scoped `vault.get_secret` never falls back to server environment keys, and `get_text_client_for_tenant` fails without the tenant's Anthropic/Kie key, confirming BYOK is an existing invariant to preserve. Migration 121 is next after application-drain migration 120. Baseline focused backend suites passed 41/41, TypeScript passed, and the full 34-route Next production build passed.
+- [ ] M1 STYLE CONTRACT [D][B][V] Build the single public style/profile schema, versioned Photo Documentary mirror, BYOK provider contract, per-video style snapshot, API serialization, and compatibility behavior for legacy videos.
+- [ ] M2 RUNTIME PRESETS [B][V] Apply each preset through the existing render/script/dialogue/language/dubbing paths and tune Animated Investigative Documentary to sentence/visual-cue density without resurrecting the retired storyboard engine.
+- [ ] M3 CREATION UX [U][V] Add the required four-card selector, descriptions, calculated media/BYOK estimates, and no-default validation to both onboarding and main creation flows.
+- [ ] M4 CO-PILOT TRUTH [B][U][V] Wire docked SSE progress, improve script/voice/image messages and counters, add the sequential stage map, and keep the selected style visible in all co-pilot modes.
+- [ ] M5 FINISH + DRIVE UX [U][V] Clarify animation actions, progress placement, voice-at-the-end, static-video treatment, style identity, and honest no-Drive storage messaging.
+- [ ] M6 FINAL + PR [V][G] Re-grade all seven criteria as a first-time user, run relevant full regressions/builds and a no-spend browser walkthrough, update deferred proof recipes, commit the verified result, push, and open a draft PR to `main`.
+
+## Previous completed missions
+
 # Loop checklist — Application-level drain mode
 
 ## Definition of Complete
