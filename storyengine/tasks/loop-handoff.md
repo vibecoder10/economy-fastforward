@@ -1,2 +1,2 @@
-Last done: C5 deployed Anton DVsU through the guarded wrapper after the active customer run finished — production advanced 69ea7499 -> 3a980674, backend is healthy with active_tasks=0, frontend is HTTP 200, deployed constants report target=3/minimum=2, and no force/paid/upload action was used.
-Next chunk: none required; Ryan can create the new Anton video, with the first real three-view generation/render remaining the user-owned paid production proof in tasks/deferred-verification.md.
+Last done: Drain-mode mission accepted after the guarded Anton deployment exposed the real race: deploy.lock coordinates operators but does not stop users from starting new in-process paid work during a restart window.
+Next chunk: D0 sweep — map the durable task-start/claim seams, health and UI status flow, all generation entry points, and deploy failure paths before selecting the smallest authoritative guard.

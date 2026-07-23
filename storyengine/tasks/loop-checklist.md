@@ -1,4 +1,36 @@
-# Loop checklist — Anton DvsU launch-feedback refinement
+# Loop checklist — Application-level drain mode
+
+## Definition of Complete
+1. An operator can atomically place all StoryEngine generation into `draining` before checking active work, with durable state shared by every backend process and an explicit reason/owner/timestamp.
+2. While draining, reads, reviews, downloads, health checks, and existing task polling remain available, but every new research, image, voice, clip, render, upload, autopilot, and other provider/background start is rejected before cost or work begins with one retryable machine-readable response.
+3. Existing tasks continue and can persist their terminal state; the deploy path waits for `active_tasks = 0`, deploys, verifies health, and reliably restores `normal` on success or failure.
+4. Operators have clear `se drain`, `se drain-status`, and `se undrain` recovery commands, and the standard `se deploy` path uses them automatically without requiring Redis.
+5. Users see a global maintenance banner, generation actions are disabled where the shared production controls render them, and any remaining race is handled by the authoritative backend response.
+6. Focused stash-proof tests, relevant backend/frontend regressions, a production build, and a live no-spend drain/deploy/undrain proof pass without starting a paid pipeline or interrupting customer work.
+
+## Assumptions
+- Drain state is global across tenants and stored in PostgreSQL because production currently runs with Redis unavailable and in-process background tasks.
+- `draining` blocks only new work that can launch providers, uploads, or long-running background tasks; ordinary reads and non-generation metadata edits stay available.
+- The rejection contract is HTTP 503 with `code: "system_draining"`, a human message, and `Retry-After`; clients should treat it as temporary rather than a failed video.
+- Ryan’s “implement this” authorizes the tested production deployment and live no-spend drain toggle proof, but not any paid research/image/voice/video/render run or YouTube upload.
+
+## Chunks
+- [ ] D0 SWEEP [D][B][U][O][V] Map every new-work entry seam, active-task persistence law, frontend generation surface, deploy race, and migration convention before changing behavior.
+- [ ] D1 [D][B][V] Build one durable drain contract and authoritative pre-cost guard.
+      [D] Add the singleton control state with normal/draining, reason, owner, and timestamps.
+      [B] Expose status through health, preserve terminal writes for existing tasks, and reject every new provider/background claim before work begins.
+      [V] Focused fail-open/fail-closed, concurrency, response-contract, and route/claim coverage tests with stash-proof.
+- [ ] D2 [O][V] Make deployment drain, wait, recover, and reopen safely.
+      [O] Add status/drain/undrain operator commands and integrate them into the sanctioned deploy wrapper with traps, timeout, active-task detail, and no-force safety.
+      [V] Shell/static tests plus a local fake-control integration prove ordering and recovery when pull/build/health fails.
+- [ ] D3 [U][V] Make draining visible and non-confusing to users.
+      [U] Add a globally polled banner, disable shared generation controls, and normalize the backend 503 into a retryable message.
+      [V] Pure state/response tests, TypeScript, and the production frontend build.
+- [ ] D4 FINAL + DEPLOY [O][V] Re-grade all six criteria, fast-forward main, wait for a quiet window, deploy without force, and live-test drain blocks a no-cost claim while reads/health remain available before restoring normal.
+
+## Previous completed mission
+
+# Anton DVsU launch-feedback refinement
 
 ## Definition of Complete
 1. Every newly generated aircraft unit plans three complementary, historically grounded images and can still render when one view fails: a three-quarter identification view, an elevated/top-oblique view, and a narration-relevant detail view.

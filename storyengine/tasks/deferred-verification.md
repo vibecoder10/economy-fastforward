@@ -1,4 +1,8 @@
-# Deferred verification — Anton DvsU launch-feedback refinement
+# Deferred verification — Application drain mode
+
+Nothing is currently deferred for drain mode. The planned live proof is intentionally no-spend: turn draining on, verify reads stay healthy and a synthetic/no-provider task start receives `system_draining`, then turn draining off. If production is not quiet at deploy time, deployment must wait rather than force.
+
+## Previous Anton DVsU gates
 
 Nothing is being treated as silently skipped. These checks require Ryan’s later approval because they spend money or change production.
 
