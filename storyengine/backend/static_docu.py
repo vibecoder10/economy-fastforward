@@ -6,10 +6,10 @@ archival photos held with slow Ken Burns pans, narration, no animation) gets
 ``videos.render_mode = 'static_docu'`` at creation. Those videos:
 
   * skip the animate stages entirely (their stage plan drops video+sound);
-  * source ONE realistic representative image per scene instead of the
-    ~36-frame coverage flow — never-built prototypes have no real footage, so
-    the image is GENERATED from the segment's script (cheap: one image per
-    vehicle/segment);
+  * source THREE realistic complementary images per scene instead of the
+    ~36-frame coverage flow — a three-quarter identification view, an elevated
+    top-oblique view, and a narration-relevant engineering detail, with two
+    verified views as the minimum renderable set;
   * render via render_static.render_static_video (Remotion Ken Burns).
 """
 
@@ -26,6 +26,11 @@ from typing import Any, Optional
 import httpx
 
 from database import execute, fetch_all, fetch_one
+from static_docu_contract import (
+    STATIC_VIEW_PLANS,
+    STATIC_VIEWS_MINIMUM,
+    STATIC_VIEWS_TARGET,
+)
 from storage import upload_bytes
 
 _PIPELINE_PATH = Path(__file__).resolve().parents[2] / "skills" / "video-pipeline"
@@ -77,9 +82,10 @@ async def static_mode_for_tenant(tenant_id: str) -> bool:
 # --- image sourcing -----------------------------------------------------------
 #
 # The channel's real look (see @DesignedUsed): a clean, crisp STUDIO render of
-# the exact machine — restored condition, centered side/three-quarter profile
-# on a seamless white/light-gray background, soft even lighting, with an
-# elegant caption (name + "type • operator • years"). To keep the machine
+# the exact machine — restored condition, led by a three-quarter profile and
+# supported by an elevated view plus a narration-relevant detail view on a
+# seamless white/light-gray background, soft even lighting, with an elegant
+# title card (name + operator/service years + grounded specs). To keep the machine
 # ACCURATE we first find a REAL, VERIFIED photograph of it (Wikipedia lead
 # image / article body / Wikimedia Commons) and run GPT Image 2 image-to-
 # image from that reference. FAIL CLOSED: reference-free text-to-image
@@ -88,7 +94,7 @@ async def static_mode_for_tenant(tenant_id: str) -> bool:
 # from a guess (see the FAIL CLOSED block in _one_scene).
 
 _SUBJECT_HEADER = """You prepare the image plan for a static-image military-history documentary
-(one image per narration segment, held on screen).
+(three complementary images per narration segment, rotated under one voiceover).
 
 For EACH numbered segment below, identify the segment's PRIMARY machine and
 reply with a JSON array only:
@@ -98,13 +104,22 @@ reply with a JSON array only:
                "e.g. the MBT-70's German twin 'Kampfpanzer 70', a redesignation, "
                "or the manufacturer name — real names only>"],
    "caption_title": "<display name for the caption>",
-   "caption_sub": "<type> • <operator> • <years>, e.g. 'Pusher-propeller bomber • USAAF • 1944–1948'>",
+   "caption_sub": "<operator> • <service/test years>, e.g. 'USAAF • 1944–1948'>",
+   "caption_specs": ["<one short exact sourced spec>", "<optional second exact sourced spec>"],
+   "detail_focus": "<one distinctive visible feature explicitly supported by the segment or research>",
    "search_query": "<short Wikimedia Commons search for a real photo of it>"}}, ...]
 
 Rules:
 - Use ONLY machines, designations, operators and years that appear in the
   segment text or the research facts below. Never invent a designation.
-- caption_sub must be three parts joined by ' • '.
+- caption_sub must contain operator and service/test years joined by ' • '.
+- caption_specs must contain one or two concise, audience-readable specs with
+  both label and value, e.g. "Wingspan 185 ft" or "Maximum speed 650 mph".
+  Every number and unit must appear verbatim in the segment or research facts.
+  If only one exact spec is supported, return one. If none is supported, [].
+- detail_focus must be a visible engineering feature supported by the supplied
+  material. If none is explicit, use "overall airframe geometry" (or the
+  equivalent whole-machine form for a ship, tank, or helicopter).
 - search_query: designation + vehicle type works best (e.g. "XM2001 Crusader howitzer").
 
 RESEARCH FACTS (source of truth):
@@ -113,21 +128,35 @@ RESEARCH FACTS (source of truth):
 SEGMENTS:
 {segments}"""
 
-# Captions are NOT baked into the image — they render as a fixed Remotion
-# text overlay (assets.caption), so the Ken Burns pan can't crop them and the
-# model can't invent stencils/markings-as-text.
+# Title text is NOT baked into the image — it renders as one fixed Remotion
+# overlay per aircraft (assets.caption), so the Ken Burns move cannot crop it
+# and the model cannot invent stencils/markings-as-text.
 _STUDIO_PROMPT = (
     "Studio product photograph of the {machine}, THE EXACT SAME machine as in "
-    "the reference photo — keep its real proportions, configuration and "
-    "details precisely accurate. Restored museum condition, centered full "
-    "side profile on a seamless PURE WHITE studio background (clean bright "
-    "white, never gray, never off-white), soft even lighting, ultra crisp "
-    "and clean, only a subtle soft ground shadow directly beneath the "
-    "machine. "
+    "the verified reference photo. Preserve its real proportions, variant, "
+    "configuration, component count, markings, and distinctive details with "
+    "museum-catalogue accuracy. {view_direction} "
+    "{detail_direction}"
+    "Restored museum condition on a seamless PURE WHITE studio background "
+    "(clean bright white, never gray, never off-white), soft even lighting, "
+    "ultra crisp and photorealistic, with only a subtle soft ground shadow. "
     "ABSOLUTELY NO text, NO lettering, NO labels, NO watermark anywhere in "
-    "the image. No people. Neutral documentary presentation of a static "
-    "museum subject."
+    "the image. No people, no display stand, no dramatic environment. Neutral "
+    "engineering-documentary presentation, never a toy, illustration, or game render."
 )
+
+
+def _studio_prompt(machine: str, view_plan: dict, detail_focus: str) -> str:
+    """Build one historically locked prompt for a deliberate view role."""
+    detail_direction = ""
+    if view_plan.get("role") == "engineering_detail":
+        focus = (detail_focus or "overall machine geometry").strip()
+        detail_direction = f"VERIFIED DETAIL FOCUS: {focus}. "
+    return _STUDIO_PROMPT.format(
+        machine=machine,
+        view_direction=view_plan["direction"],
+        detail_direction=detail_direction,
+    )
 
 _COMMONS_API = "https://commons.wikimedia.org/w/api.php"
 _WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php"
@@ -1420,8 +1449,7 @@ async def _arbiter_confirms_render(tenant_id: str, render_url: str, ref_url: str
 
 async def _scene_subjects(tenant_id: str, scenes: list[dict],
                           research_payload: Optional[dict]) -> dict[int, dict]:
-    """One Claude call -> {scene: {machine, caption_title, caption_sub,
-    search_query}}, grounded in the research payload."""
+    """One Claude call -> grounded subject, title-card, and detail metadata."""
     from kie_unified import get_text_client_for_tenant
 
     facts = ""
@@ -1450,6 +1478,14 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
                             if str(a).strip()][:4],
                 "caption_title": str(item.get("caption_title") or "").strip(),
                 "caption_sub": str(item.get("caption_sub") or "").strip(),
+                "caption_specs": [
+                    str(spec).strip()
+                    for spec in (item.get("caption_specs") or [])
+                    if str(spec).strip()
+                ][:2],
+                "detail_focus": str(
+                    item.get("detail_focus") or "overall machine geometry"
+                ).strip(),
                 "search_query": str(item.get("search_query") or "").strip(),
             }
         except (KeyError, TypeError, ValueError):
@@ -1460,11 +1496,13 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
 async def generate_static_images_for_video(video_id: str, tenant_id: str,
                                            progress=None,
                                            only_scenes: Optional[set] = None) -> dict:
-    """One realistic archival image per scene, stored as the scene's asset.
+    """Create the static-documentary view set for every narration segment.
 
     The static analogue of generate_coverage_for_video: reads scripts, writes
-    assets rows (generation_method='static_docu', image_index=1, hero_shot).
-    Idempotent per scene — re-running replaces that scene's static image.
+    three ordered assets per scene (three-quarter, top-oblique, detail), all
+    grounded in one verified reference and independently QA checked. A scene
+    is render-ready with at least two approved views. Idempotent per scene —
+    re-running replaces only that scene's static-documentary assets.
     """
     def _p(msg):
         if progress:
@@ -1516,25 +1554,58 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         sub = subjects.get(sc) or {}
         machine = sub.get("machine") or (s["scene_text"] or "")[:80]
         caption_title = sub.get("caption_title") or machine
-        caption_sub = sub.get("caption_sub") or "Prototype • US Army • canceled"
+        caption_sub = sub.get("caption_sub") or ""
+        caption_specs = [
+            str(spec).strip() for spec in (sub.get("caption_specs") or [])
+            if str(spec).strip()
+        ][:2]
+        detail_focus = sub.get("detail_focus") or "overall machine geometry"
+
+        # The feedback requires operator/years + at least one key spec. Stop
+        # before the paid image door if the grounded metadata planner could
+        # not supply those fields; never fill a title card with invented facts.
+        if not caption_sub or "•" not in caption_sub or not caption_specs:
+            _p(
+                f"Segment {sc}: title-card metadata is incomplete for {machine} "
+                "(operator/service years and at least one sourced spec required) "
+                "— no images generated."
+            )
+            return {"scene": sc, "done": 0, "reason": "missing_title_metadata"}
+
+        def _caption(view_plan: dict) -> dict:
+            return {
+                "title": caption_title,
+                "sub": caption_sub,
+                "specs": caption_specs,
+                "view_role": view_plan["role"],
+                "view_label": view_plan["label"],
+                "target_views": STATIC_VIEWS_TARGET,
+                "minimum_views": STATIC_VIEWS_MINIMUM,
+            }
+
+        async def _insert_placeholder(view_index: int, view_plan: dict,
+                                      reference_url: Optional[str] = None) -> str:
+            new_id = str(uuid.uuid4())
+            await execute(
+                "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
+                "sentence_index, sentence_text, shot_type, video_title, aspect_ratio, "
+                "status, hero_shot, generation_method, caption, drive_image_url) "
+                "VALUES ($1,$2,$3,$4,$5,$5,$6,$7,$8,$9,'generating',$10,$11,$12,$13)",
+                new_id, tenant_id, video_id, sc, view_index,
+                (s["scene_text"] or "")[:500], view_plan["shot_type"],
+                v["video_title"], v["aspect"], view_index == 1,
+                STATIC_RENDER_MODE, json.dumps(_caption(view_plan)), reference_url,
+            )
+            return new_id
 
         # Placeholder row FIRST: the media proxy only serves file ids present
         # in allowlisted DB columns, and the self-hosted reference must be
         # proxy-fetchable during generation. image_url stays NULL until the
         # real image exists, so a concurrent render can't pick up the raw ref.
-        row_id = str(uuid.uuid4())
         await execute(
             "DELETE FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
             "AND generation_method=$4", video_id, tenant_id, sc, STATIC_RENDER_MODE)
-        await execute(
-            "INSERT INTO assets (id, tenant_id, video_id, scene, image_index, "
-            "sentence_index, sentence_text, shot_type, video_title, aspect_ratio, "
-            "status, hero_shot, generation_method, caption) "
-            "VALUES ($1,$2,$3,$4,1,1,$5,'wide',$6,$7,'generating',true,$8,$9)",
-            row_id, tenant_id, video_id, sc, (s["scene_text"] or "")[:500],
-            v["video_title"], v["aspect"], STATIC_RENDER_MODE,
-            json.dumps({"title": caption_title, "sub": caption_sub}),
-        )
+        row_id = await _insert_placeholder(1, STATIC_VIEW_PLANS[0])
 
         # 1) Find a REAL photo, SELF-HOST it (Wikimedia 403s Kie's fetcher),
         #    and vision-check it actually shows this machine (designation
@@ -1598,129 +1669,154 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             await execute(
                 "UPDATE assets SET status='blocked_no_reference', "
                 "image_url=NULL, drive_image_url=NULL WHERE id=$1", row_id)
-            return str(sc)
+            return {"scene": sc, "done": 0, "reason": "blocked_no_reference"}
 
-        # 2) Clean crisp studio render — image-to-image from the real photo.
-        #    Reference-free (text-to-image) generation is impossible for this
-        #    channel: ref_url is guaranteed non-None past the block above.
-        prompt = _STUDIO_PROMPT.format(machine=machine)
-        _p(f"Segment {sc}/{len(scenes)}: rendering the studio image "
-           "(from real reference)…")
-        # Accuracy policy ("a wrong image is worse than a missing one" — the
-        # static-docu channels' own standard): GPT Image 2 ONLY, never the
-        # nano fallback; a scene that can't produce a verified image FAILS
-        # for review instead of shipping a lookalike. Re-running the stage
-        # regenerates only the failed scenes (idempotent per scene).
-        # 1K resolution: the held Ken Burns frame doesn't need more, and 1K is
-        # ~3 cents per image vs the 2K price — the channel runs on volume.
-        res = await ic.generate_scene_image_gpt(
-            prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
-            resolution="1K")
-        url = (res or {}).get("url")
-        if not url:
-            _p(f"Segment {sc}: image generation failed — scene marked for re-run")
-            await execute("DELETE FROM assets WHERE id=$1", row_id)
-            return str(sc)
+        # 2) Generate the three deliberate views sequentially for this scene.
+        # Scene concurrency remains six, but a single aircraft never opens
+        # three provider calls at once. Every view keeps the same verified
+        # reference/variant lock and passes the same two-judge QA path.
+        row_ids = [row_id]
+        for view_index, view_plan in enumerate(STATIC_VIEW_PLANS[1:], start=2):
+            row_ids.append(
+                await _insert_placeholder(view_index, view_plan, reference_url=ref_url)
+            )
 
-        # Post-generation accuracy check: does the OUTPUT actually look like
-        # the machine? One bounded retry, then FAIL the scene — never ship an
-        # unverified machine on an audience that knows every rivet.
-        #
-        # C2h: this judges OUR OWN RENDER against the verified reference
-        # (ref_url, guaranteed non-None past the FAIL CLOSED block above),
-        # NOT a candidate reference photo — so it uses _render_matches_
-        # reference, not _vision_confirms. _vision_confirms's "is this a
-        # real photograph" bar reads a deliberately clean studio render as
-        # CGI/model and hard-rejects it every time (PROVEN live: 6 scenes,
-        # 12 generations, 100% rejected). _vision_confirms is still the
-        # right check for candidate REFERENCE photos above (unchanged).
-        qa_note = ""
-        if not await _render_matches_reference(tenant_id, url, ref_url, machine,
-                                               sub.get("aliases")):
-            _p(f"Segment {sc}: render doesn't match the {machine} — one retry…")
-            retry_prompt = prompt + (
-                " Reproduce the machine in the reference image EXACTLY — same "
-                "hull, turret, wheels and proportions.")
+        async def _generate_view(view_index: int, view_plan: dict,
+                                 view_row_id: str) -> bool:
+            await execute(
+                "UPDATE assets SET drive_image_url=$2 WHERE id=$1",
+                view_row_id, ref_url,
+            )
+            prompt = _studio_prompt(machine, view_plan, detail_focus)
+            _p(
+                f"Segment {sc}/{len(scenes)}, view {view_index}/"
+                f"{STATIC_VIEWS_TARGET}: {view_plan['label']}…"
+            )
+
+            # GPT Image 2 only, reference required, 1K. No fallback model can
+            # silently trade historical accuracy for completion.
             res = await ic.generate_scene_image_gpt(
-                retry_prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
-                resolution="1K")
-            url2 = (res or {}).get("url")
-            if url2 and await _render_matches_reference(tenant_id, url2, ref_url, machine,
-                                                        sub.get("aliases")):
-                url = url2
-            else:
-                # Both attempts failed the primary QA judge — but that judge
-                # has a PROVEN systematic failure mode (2026-07-22: one
-                # prompt-wording bug rejected 12 correct paid renders in a
-                # row, and the old DELETE here destroyed every one). The
-                # pipeline runs UNATTENDED, so the tie can't wait for a
-                # human: ask _arbiter_confirms_render — an independently
-                # worded second-opinion judge (MATCH/MISMATCH vocabulary, its
-                # own prompt) whose failure modes can't correlate with the
-                # primary's wording. Arbiter says MATCH -> the rejection is
-                # overruled and the render ships, stamped in image_prompt for
-                # the audit trail.
-                candidate = url2 or url
-                if await _arbiter_confirms_render(tenant_id, candidate, ref_url,
-                                                  machine, sub.get("aliases")):
-                    _p(f"Segment {sc}: second-opinion arbiter overruled the QA "
-                       f"rejection — shipping the render")
-                    url = candidate
-                    qa_note = "[qa: arbiter-approved after double reject] "
-                else:
-                    # TWO independently-worded judges both say this render
-                    # doesn't show the machine — fail the scene rather than
-                    # ship it. But the render is PAID FOR: PARK it instead of
-                    # deleting. status='qa_rejected' with image_url NULL keeps
-                    # it out of the rendered video (render_static.py ships
-                    # image_url IS NOT NULL only), while drive_image_url holds
-                    # the render self-hosted to durable storage — the audit
-                    # trail for tuning the judges, and manually approvable via
-                    # POST /api/pipeline/static-qa-approve/{asset_id} as the
-                    # rare-case back-door.
-                    _p(f"Segment {sc}: could not verify the render shows the "
-                       f"real {machine} (QA + arbiter agree) — parked, not "
-                       f"shipped")
-                    parked_url = candidate
-                    parked_prompt = retry_prompt if url2 else prompt
-                    try:
-                        async with httpx.AsyncClient(timeout=120.0) as c:
-                            r = await c.get(parked_url, follow_redirects=True)
-                            r.raise_for_status()
-                            data = r.content
-                        parked_url = await upload_bytes(
-                            data, f"{video_id}/static/S{sc:02d}_qa_rejected.png",
-                            "image/png", tenant_id)
-                    except Exception:  # noqa: BLE001 — the ephemeral provider
-                        pass           # URL still beats losing the render
-                    await execute(
-                        "UPDATE assets SET status='qa_rejected', image_url=NULL, "
-                        "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
-                        row_id, parked_url,
-                        (f"[ref: {ref_src}] " if ref_src else "") + parked_prompt[:900])
-                    return str(sc)
+                prompt, ref_url, aspect_ratio=v["aspect"], allow_fallback=False,
+                resolution="1K",
+            )
+            url = (res or {}).get("url")
+            if not url:
+                await execute("DELETE FROM assets WHERE id=$1", view_row_id)
+                return False
 
-        async with httpx.AsyncClient(timeout=120.0) as c:
-            r = await c.get(url, follow_redirects=True)
-            r.raise_for_status()
-            data = r.content
-        durable = await upload_bytes(
-            data, f"{video_id}/static/S{sc:02d}.png", "image/png", tenant_id)
-        await execute(
-            "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
-            "image_prompt=$3 WHERE id=$1",
-            row_id, durable,
-            (f"[ref: {ref_src}] " if ref_src else "") + qa_note + prompt[:900],
-        )
-        return None
+            qa_note = ""
+            if not await _render_matches_reference(
+                tenant_id, url, ref_url, machine, sub.get("aliases")
+            ):
+                _p(
+                    f"Segment {sc}, view {view_index}: render does not match "
+                    f"the {machine} — one retry…"
+                )
+                retry_prompt = (
+                    "Reproduce the machine in the verified reference EXACTLY: "
+                    "same airframe or hull form, component count and placement, "
+                    "proportions, variant, and distinctive engineering features. "
+                    "Change only the requested camera viewpoint. "
+                    + prompt
+                )
+                res = await ic.generate_scene_image_gpt(
+                    retry_prompt, ref_url, aspect_ratio=v["aspect"],
+                    allow_fallback=False, resolution="1K",
+                )
+                url2 = (res or {}).get("url")
+                if url2 and await _render_matches_reference(
+                    tenant_id, url2, ref_url, machine, sub.get("aliases")
+                ):
+                    url = url2
+                else:
+                    candidate = url2 or url
+                    if await _arbiter_confirms_render(
+                        tenant_id, candidate, ref_url, machine, sub.get("aliases")
+                    ):
+                        _p(
+                            f"Segment {sc}, view {view_index}: second-opinion "
+                            "arbiter overruled the QA rejection"
+                        )
+                        url = candidate
+                        qa_note = "[qa: arbiter-approved after double reject] "
+                    else:
+                        # The render is paid for, so park it for per-view human
+                        # approval instead of deleting it. It does not count
+                        # toward the minimum-two render gate while parked.
+                        parked_url = candidate
+                        parked_prompt = retry_prompt if url2 else prompt
+                        try:
+                            async with httpx.AsyncClient(timeout=120.0) as c:
+                                r = await c.get(parked_url, follow_redirects=True)
+                                r.raise_for_status()
+                                data = r.content
+                            parked_url = await upload_bytes(
+                                data,
+                                (
+                                    f"{video_id}/static/S{sc:02d}_"
+                                    f"{view_index:02d}_qa_rejected.png"
+                                ),
+                                "image/png", tenant_id,
+                            )
+                        except Exception:  # noqa: BLE001
+                            pass
+                        await execute(
+                            "UPDATE assets SET status='qa_rejected', image_url=NULL, "
+                            "drive_image_url=$2, image_prompt=$3 WHERE id=$1",
+                            view_row_id, parked_url,
+                            (
+                                (f"[ref: {ref_src}] " if ref_src else "")
+                                + parked_prompt[:900]
+                            ),
+                        )
+                        return False
+
+            async with httpx.AsyncClient(timeout=120.0) as c:
+                r = await c.get(url, follow_redirects=True)
+                r.raise_for_status()
+                data = r.content
+            durable = await upload_bytes(
+                data,
+                f"{video_id}/static/S{sc:02d}_{view_index:02d}.png",
+                "image/png", tenant_id,
+            )
+            await execute(
+                "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
+                "image_prompt=$3 WHERE id=$1",
+                view_row_id, durable,
+                (
+                    (f"[ref: {ref_src}] " if ref_src else "")
+                    + qa_note + prompt[:900]
+                ),
+            )
+            return True
+
+        approved = 0
+        for view_index, (view_plan, view_row_id) in enumerate(
+            zip(STATIC_VIEW_PLANS, row_ids), start=1
+        ):
+            if await _generate_view(view_index, view_plan, view_row_id):
+                approved += 1
+
+        if approved < STATIC_VIEWS_MINIMUM:
+            _p(
+                f"Segment {sc}: only {approved}/{STATIC_VIEWS_TARGET} verified "
+                f"views — needs at least {STATIC_VIEWS_MINIMUM}."
+            )
+        return {
+            "scene": sc,
+            "done": approved,
+            "reason": None if approved >= STATIC_VIEWS_MINIMUM else "insufficient_views",
+        }
 
     async def _bounded(s):
         async with sem:
             try:
-                # Per-scene ceiling: a hung provider call (seen live — a Kie
-                # render poll stuck 45+ min on a no-reference machine) fails
-                # this ONE scene instead of freezing the whole batch.
-                return await asyncio.wait_for(_one_scene(s), timeout=300)
+                # Three sequential view generations plus bounded QA retries
+                # need more room than the former single-image five-minute
+                # ceiling. A hung provider still fails this ONE scene instead
+                # of freezing the whole batch.
+                return await asyncio.wait_for(_one_scene(s), timeout=900)
             except Exception:  # noqa: BLE001 — timeout or any error: isolate this scene
                 try:
                     # Never sweep up a row _one_scene deliberately parked for
@@ -1735,18 +1831,40 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                         video_id, tenant_id, s["scene"], STATIC_RENDER_MODE)
                 except Exception:  # noqa: BLE001
                     pass
-                return str(s["scene"])
+                return {"scene": s["scene"], "done": 0, "reason": "exception"}
 
     outcomes = await asyncio.gather(*[_bounded(s) for s in scenes])
-    failed = [o for o in outcomes if o]
-    done = len(scenes) - len(failed)
-    if not done:
-        return {"status": "failed",
-                "error": f"no images generated (scenes failed: {', '.join(failed)})"}
-    msg = f"Generated {done}/{len(scenes)} segment images"
+    ready = [
+        o for o in outcomes
+        if int((o or {}).get("done") or 0) >= STATIC_VIEWS_MINIMUM
+    ]
+    failed = [
+        str((o or {}).get("scene"))
+        for o in outcomes
+        if int((o or {}).get("done") or 0) < STATIC_VIEWS_MINIMUM
+    ]
+    view_count = sum(int((o or {}).get("done") or 0) for o in outcomes)
+    if not ready:
+        return {
+            "status": "failed",
+            "error": (
+                f"no segment reached {STATIC_VIEWS_MINIMUM} verified views "
+                f"(scenes failed: {', '.join(failed)})"
+            ),
+        }
+    msg = (
+        f"Generated {view_count} verified views across "
+        f"{len(ready)}/{len(scenes)} segments"
+    )
     if failed:
         msg += f" (failed: {', '.join(failed)})"
-    return {"status": "completed", "message": msg}
+    return {
+        "status": "completed",
+        "message": msg,
+        "views_generated": view_count,
+        "segments_ready": len(ready),
+        "segments_total": len(scenes),
+    }
 
 
 # --- roster-time reference prefetch (C3) --------------------------------------

@@ -87,7 +87,8 @@ class _FakeDownloadResp:
 
 
 def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
-                  arbiter_verdicts=()):
+                  arbiter_verdicts=(), isolate_single_view=True,
+                  docu_module=None, image_client_module=None):
     """Fake DB + provider world for generate_static_images_for_video, modeled
     on test_static_docu_reference_fail_closed. One scene, a CACHED verified
     reference (so no Wikimedia lookup layers run), a scripted sequence of
@@ -96,6 +97,15 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
     anywhere."""
     video_id = str(uuid.uuid4())
     tenant_id = str(uuid.uuid4())
+    docu_module = docu_module or static_docu
+    image_client_module = image_client_module or image_client_mod
+    if isolate_single_view:
+        # These tests isolate the per-view QA/parking contract. The separate
+        # three-view contract suite exercises orchestration across all views.
+        monkeypatch.setattr(docu_module, "STATIC_VIEW_PLANS",
+                            docu_module.STATIC_VIEW_PLANS[:1])
+        monkeypatch.setattr(docu_module, "STATIC_VIEWS_TARGET", 1)
+        monkeypatch.setattr(docu_module, "STATIC_VIEWS_MINIMUM", 1)
 
     env = {
         "video_id": video_id,
@@ -129,7 +139,9 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
         if "INSERT INTO assets" in query:
             env["assets"][args[0]] = {
                 "status": "generating", "image_url": None,
-                "drive_image_url": None, "image_prompt": None,
+                "drive_image_url": args[12], "image_prompt": None,
+                "image_index": args[4], "shot_type": args[6],
+                "caption": args[11],
             }
         elif "UPDATE assets SET drive_image_url" in query:
             env["assets"].setdefault(args[0], {})["drive_image_url"] = args[1]
@@ -157,6 +169,8 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
             return ('[{"scene": 1, "machine": "Boeing XB-15", "aliases": [], '
                     '"caption_title": "XB-15", '
                     '"caption_sub": "Prototype • US Army • canceled", '
+                    '"caption_specs": ["Wingspan 149 ft"], '
+                    '"detail_focus": "four-engine wing", '
                     '"search_query": "Boeing XB-15 bomber"}]')
 
     async def fake_get_text_client_for_tenant(tid):
@@ -196,20 +210,20 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
             raise RuntimeError("storage down")
         return DURABLE
 
-    monkeypatch.setattr(static_docu, "fetch_one", fake_fetch_one)
-    monkeypatch.setattr(static_docu, "fetch_all", fake_fetch_all)
-    monkeypatch.setattr(static_docu, "execute", fake_execute)
-    monkeypatch.setattr(static_docu, "_render_matches_reference", fake_render_matches)
-    monkeypatch.setattr(static_docu, "_arbiter_confirms_render", fake_arbiter)
-    monkeypatch.setattr(static_docu, "upload_bytes", fake_upload_bytes)
-    monkeypatch.setattr(static_docu.httpx, "AsyncClient", _http_factory)
+    monkeypatch.setattr(docu_module, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(docu_module, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(docu_module, "execute", fake_execute)
+    monkeypatch.setattr(docu_module, "_render_matches_reference", fake_render_matches)
+    monkeypatch.setattr(docu_module, "_arbiter_confirms_render", fake_arbiter)
+    monkeypatch.setattr(docu_module, "upload_bytes", fake_upload_bytes)
+    monkeypatch.setattr(docu_module.httpx, "AsyncClient", _http_factory)
 
     import vault
     monkeypatch.setattr(vault, "get_secret", fake_get_secret)
     import kie_unified
     monkeypatch.setattr(kie_unified, "get_text_client_for_tenant",
                         fake_get_text_client_for_tenant)
-    monkeypatch.setattr(image_client_mod.ImageClient, "generate_scene_image_gpt",
+    monkeypatch.setattr(image_client_module.ImageClient, "generate_scene_image_gpt",
                         fake_generate)
     return env
 
@@ -251,7 +265,7 @@ async def test_double_qa_reject_parks_render_instead_of_deleting(monkeypatch):
     # The RETRY render (the newest paid attempt) is what gets parked, hosted
     # under a qa_rejected-tagged storage path.
     assert env["downloads"][-1] == RENDER_2
-    assert env["uploads"] == [f"{env['video_id']}/static/S01_qa_rejected.png"]
+    assert env["uploads"] == [f"{env['video_id']}/static/S01_01_qa_rejected.png"]
 
     # Both generations and both QA checks actually ran (unchanged flow), and
     # the arbiter got its say on the newest render before the park.
@@ -317,7 +331,7 @@ async def test_qa_pass_still_ships_done(monkeypatch):
     row = _the_row(env)
     assert row["status"] == "done"
     assert row["image_url"] == DURABLE
-    assert env["uploads"] == [f"{env['video_id']}/static/S01.png"]
+    assert env["uploads"] == [f"{env['video_id']}/static/S01_01.png"]
     assert env["arbiter_calls"] == []
     assert "[qa:" not in row["image_prompt"], (
         "a first-try pass must not carry the arbiter audit stamp")
@@ -344,9 +358,9 @@ async def test_arbiter_overrules_double_reject_and_ships(monkeypatch):
     row = _the_row(env)
     assert row["status"] == "done"
     assert row["image_url"] == DURABLE
-    # Shipped through the NORMAL success path (durable S01.png copy), from
+    # Shipped through the NORMAL success path (durable S01_01.png copy), from
     # the newest render, judged against the verified reference.
-    assert env["uploads"] == [f"{env['video_id']}/static/S01.png"]
+    assert env["uploads"] == [f"{env['video_id']}/static/S01_01.png"]
     assert env["downloads"][-1] == RENDER_2
     assert env["arbiter_calls"] == [(RENDER_2, REF_HOSTED)]
     # Audit trail: the row says the arbiter shipped it.

@@ -35,6 +35,7 @@ except ImportError:
     # exercise it monkeypatch this module attribute directly).
     fetch_all = None
 from status_map import is_at_or_past_stage
+from static_docu_contract import STATIC_VIEWS_TARGET
 
 # shared.channel_profile lives in the pipeline package, not the SaaS backend
 # (same sys.path pattern as routes/model_registry.py / pipeline_executor.py).
@@ -305,7 +306,7 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     """Compact, current state of the video for the classifier, the gate, the cost
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
-        "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style, "
+        "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style, render_mode, "
         "total_cost, max_spend "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
@@ -367,6 +368,7 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         # read by cost_breakdown/guardrail_note to explain a mixed or single-model
         # routing plan in the copilot's confirm text. None on any pre-C13b video.
         "render_style": v.get("render_style"),
+        "render_mode": v.get("render_mode"),
     }
 
 
@@ -697,9 +699,17 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
         costs = await _routed_clip_costs(tenant_id, video_id, None, model, only_scenes=approved) if approved else []
         cost = sum(costs)
     elif verb == "images":
-        n = summary["pics"] or max(1, summary["scenes"]) * 6  # ~6 shots/scene when none exist yet
-        if scene is not None:
-            n = 6
+        if summary.get("render_mode") == "static_docu":
+            # Anton's format always redraws a complete three-view unit set;
+            # existing rows do not lower the quote because the scene-scoped
+            # generator replaces them idempotently.
+            n = STATIC_VIEWS_TARGET * (
+                1 if scene is not None else max(1, summary["scenes"])
+            )
+        else:
+            n = summary["pics"] or max(1, summary["scenes"]) * 6
+            if scene is not None:
+                n = 6
         cost = n * PICTURE_COST
     elif verb == "storyboards":
         cost = (1 if scene is not None else max(1, summary["scenes"])) * PICTURE_COST
@@ -740,7 +750,12 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
         # clips. Scenes unknown on a fresh video -> assume ~5.
         scenes = summary["scenes"] or 5
         if summary["status"] in BUILD_TO_PICTURES:
-            cost = scenes * 6 * PICTURE_COST
+            pictures_per_scene = (
+                STATIC_VIEWS_TARGET
+                if summary.get("render_mode") == "static_docu"
+                else 6
+            )
+            cost = scenes * pictures_per_scene * PICTURE_COST
         elif summary["pics"]:
             # Pictures already exist -> the shot plan (and each row's
             # routed_model) was already computed before those pictures were
@@ -1088,11 +1103,15 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         "characters_approved_at = COALESCE(characters_approved_at, now()), "
                         "updated_at = now() WHERE id = $1 AND tenant_id = $2",
                         video_id, tenant_id)
-                    # STATIC-DOCU videos take one archival image per segment
-                    # (no cast, no story bible, no multi-angle coverage) — the
-                    # image is the whole shot, held over the narration.
+                    # STATIC-DOCU videos take a compact three-view set per
+                    # segment (no cast/story bible/full coverage): three-quarter,
+                    # top-oblique, and engineering detail under one narration.
                     if (video.get("render_mode") or "") == "static_docu":
-                        _set_task_status(video_id, "running", "Creating one image per segment…", tenant_id=tenant_id)
+                        _set_task_status(
+                            video_id, "running",
+                            "Creating three complementary views per segment…",
+                            tenant_id=tenant_id,
+                        )
 
                         def _static_progress(m):
                             _set_task_status(video_id, "running", m, tenant_id=tenant_id)

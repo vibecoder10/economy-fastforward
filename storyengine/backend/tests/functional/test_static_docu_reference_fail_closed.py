@@ -370,10 +370,12 @@ async def test_no_verified_reference_blocks_instead_of_generating(monkeypatch):
 
     class _FakeTextClient:
         async def generate(self, **kwargs):
-            return ('[{"scene": 1, "machine": "Northrop XB-35", "aliases": [], '
-                    '"caption_title": "XB-35", '
-                    '"caption_sub": "Flying wing bomber • USAAF • 1946-1949", '
-                    '"search_query": "Northrop XB-35 bomber"}]')
+                return ('[{"scene": 1, "machine": "Northrop XB-35", "aliases": [], '
+                        '"caption_title": "XB-35", '
+                        '"caption_sub": "Flying wing bomber • USAAF • 1946-1949", '
+                        '"caption_specs": ["Wingspan 172 ft"], '
+                        '"detail_focus": "flying-wing planform", '
+                        '"search_query": "Northrop XB-35 bomber"}]')
 
     async def fake_get_text_client_for_tenant(tenant_id):
         return _FakeTextClient()

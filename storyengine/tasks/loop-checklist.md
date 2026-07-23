@@ -3,7 +3,7 @@
 ## Definition of Complete
 1. Every newly generated aircraft unit plans three complementary, historically grounded images and can still render when one view fails: a three-quarter identification view, an elevated/top-oblique view, and a narration-relevant detail view.
 2. Every aircraft gets one animated on-screen title card with its name, operator/service years, and one or two sourced key specs; the card is composited in video assembly, never baked into the generated image.
-3. Ken Burns movement is smooth and cinematic across the full image hold: eased motion, no looping “breathing” wobble, and no pan/zoom that finishes early and freezes.
+3. Ken Burns movement alternates a slow push-in and slow pull-out, eased smoothly across the full image hold: no lateral wandering, looping “breathing” wobble, early finish, freeze, or direction reversal.
 4. The change is isolated to the `static_docu` channel style, preserves old one-image DvsU projects, and keeps the fail-closed verified-reference/QA laws intact.
 5. No paid research, image, voice, clip, or render-provider calls are made in this loop. Local no-spend tests plus a synthetic multi-image render prove the user-visible result; production deployment and paid regeneration remain explicit later gates.
 
@@ -23,7 +23,7 @@
       [V] Focused no-spend backend tests, including fail-closed reference behavior and partial-view success.
 - [ ] C2 [B][R][V] Render multiple views, the one-per-aircraft title card, and cinematic motion.
       [B] Gather 1–3 ordered static assets per scene and split the narration hold without duplicating audio.
-      [R] Enable the fixed overlay by default, add the specs line and one-time card animation, and use full-duration smoothstep Ken Burns with no wobble.
+      [R] Enable the fixed overlay by default, add the specs line and one-time card animation, and alternate full-duration smoothstep push-in/pull-out Ken Burns moves with no lateral drift or wobble.
       [V] Backend config tests, TypeScript check, and a short local synthetic Remotion render inspected at multiple frames.
 - [ ] C3 [U][V] Make the Pictures and Render UI tell the new truth.
       [U] Group 2–3 views into one aircraft card, show view roles/specs and per-view QA actions, compute readiness per unit, and update one-image copy/counts.
@@ -34,3 +34,4 @@
 ## Lessons
 - The prior “clean frames” toggle directly contradicted Anton’s launch feedback and the desktop DvsU on-screen-text standard; title metadata belongs in a fixed assembly overlay, not in the generated picture.
 - Multiple images do not require duplicating script/voice scenes: Remotion already supports several `image_index` entries under one `scene_number` and plays one scene audio track across them.
+- Ryan clarified the Ken Burns grammar as slow pan in / slow pan out; implement this as alternating cinematic push-in and pull-out moves, not lateral pans or tilts.
