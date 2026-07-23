@@ -1,5 +1,16 @@
 # System State — Economy FastForward
 
+## Custom Film section runtime
+
+- `storyengine/backend/custom_film_runtime.py` is the provider-neutral adapter
+  between an immutable approved plan and existing stage seams. It verifies
+  exact integer section seconds and every plan/quote/approval pointer, compiles
+  per-section runtime values, and owns the locked approval-consume plus unique
+  durable runtime-task insert.
+- `production_styles.runtime_values_from_knobs` is shared by public profile
+  snapshots and Custom Film sections, so provider callers receive resolved
+  values without branching on `custom_film` or public profile names.
+
 > Last updated: 2026-06-12
 
 ---

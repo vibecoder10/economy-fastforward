@@ -4013,9 +4013,52 @@ async def _handle_custom_film_approval_turn(
             ),
         )
         video_id = result["video_id"]
+        # M2-4 runtime door: the reservation above is intentionally inert.
+        # Immediately before the first durable runtime schedule, re-read every
+        # spend/safety gate instead of trusting the earlier pre-reservation
+        # result. The locked scheduler then recompiles the exact approved plan,
+        # verifies the current video cap, atomically consumes both approval
+        # pointers, and inserts one unique task row. M2-4B's general section
+        # adapters consume that task; no provider caller branches on this mode.
+        try:
+            await get_required_tenant_secret(
+                "kie_ai_api_key", tenant_id, provider_label="Kie.ai"
+            )
+            runtime_claimed = await generation_claims.acquire(
+                tenant_id,
+                video_id,
+                "main",
+                claimed_by=f"chat:custom-film-runtime:{conversation_id}",
+            )
+        except Exception as exc:  # drain/key failures must remain creator-safe
+            raise CustomFilmContractError(
+                getattr(exc, "message", None) or str(exc)
+            ) from exc
+        if not runtime_claimed:
+            raise CustomFilmContractError(
+                "This Custom Film runtime is already being scheduled."
+            )
+        try:
+            await check_plan_limits(tenant_id, "video")
+            await enforce_video_length_cap(
+                tenant_id,
+                float(quote_inputs["requested_duration_seconds"]) / 60,
+            )
+            from custom_film_runtime import consume_approval_and_schedule
+
+            scheduled = await consume_approval_and_schedule(
+                tenant_id,
+                video_id,
+                expected,
+            )
+        finally:
+            # M2-4A schedules only the durable runtime task. M2-4B's worker
+            # takes and holds the execution claim while stage adapters run.
+            await generation_claims.release(tenant_id, video_id, "main")
         pending["status"] = "start_ready"
         pending["start_intent_hash"] = expected
         pending["video_id"] = video_id
+        pending["runtime_job_id"] = scheduled["job_id"]
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,

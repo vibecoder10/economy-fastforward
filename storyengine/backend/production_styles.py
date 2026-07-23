@@ -134,7 +134,13 @@ def runtime_values(profile: dict[str, Any]) -> dict[str, str]:
     normalized = normalize_profile_row(profile)
     if normalized is None:
         raise ValueError("Invalid production-style profile")
-    knobs = normalized["knobs"]
+    return runtime_values_from_knobs(normalized["knobs"])
+
+
+def runtime_values_from_knobs(knobs: dict[str, Any]) -> dict[str, str]:
+    """Translate a validated knob snapshot onto existing runtime seams."""
+    if not isinstance(knobs, dict) or not REQUIRED_KNOB_KEYS.issubset(knobs):
+        raise ValueError("Invalid production-style knob contract")
     render_mode = str(knobs["render_mode"] or "").strip()
     if render_mode not in {"coverage", "static_docu"}:
         raise ValueError(f"Unsupported production render mode: {render_mode!r}")

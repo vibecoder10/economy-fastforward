@@ -13,7 +13,7 @@ import custom_film_planner as planner
 from routes import chat
 
 
-def test_m2_3_start_handler_has_no_runtime_or_create_video_seam():
+def test_m2_4_runtime_door_replaces_the_inert_m2_3_reservation_without_autobuild():
     source = inspect.getsource(chat._handle_custom_film_approval_turn)
     for forbidden in (
         "create_video",
@@ -23,6 +23,7 @@ def test_m2_3_start_handler_has_no_runtime_or_create_video_seam():
     ):
         assert forbidden not in source
     assert "reserve_approved_start_intent" in source
+    assert "consume_approval_and_schedule" in source
 
 
 def _plan() -> dict:
@@ -597,6 +598,13 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
     async def release_channel(*_args, **_kwargs):
         order.append("channel_release")
 
+    async def acquire_runtime(*_args, **_kwargs):
+        order.append("runtime_claim")
+        return True
+
+    async def release_runtime(*_args, **_kwargs):
+        order.append("runtime_release")
+
     async def manifest():
         order.append("manifest")
         return SimpleNamespace(version="test-v1")
@@ -614,16 +622,25 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
         captured.update(kwargs)
         return {"video_id": "video-1", "created": True}
 
+    import custom_film_runtime
+
+    async def schedule(*_args, **_kwargs):
+        order.append("schedule")
+        return {"scheduled": True, "job_id": "custom-film-runtime:test"}
+
     async def forbidden_late_write(*_args, **_kwargs):
         raise AssertionError("approval must not perform a post-commit UPDATE")
 
     monkeypatch.setattr(vault, "get_required_tenant_secret", key)
     monkeypatch.setattr(chat.generation_claims, "acquire_channel", acquire_channel)
     monkeypatch.setattr(chat.generation_claims, "release_channel", release_channel)
+    monkeypatch.setattr(chat.generation_claims, "acquire", acquire_runtime)
+    monkeypatch.setattr(chat.generation_claims, "release", release_runtime)
     monkeypatch.setattr(billing, "check_plan_limits", check_limit)
     monkeypatch.setattr(billing, "enforce_video_length_cap", length_limit)
     monkeypatch.setattr(planner, "load_capability_manifest", manifest)
     monkeypatch.setattr(contract, "reserve_approved_start_intent", reserve)
+    monkeypatch.setattr(custom_film_runtime, "consume_approval_and_schedule", schedule)
     monkeypatch.setattr(chat, "execute", forbidden_late_write)
 
     bg = BackgroundTasks()
@@ -642,5 +659,66 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
         "length_limit",
         "manifest",
         "reserve",
+        "key",
+        "runtime_claim",
+        "plan_limit",
+        "length_limit",
+        "schedule",
+        "runtime_release",
         "channel_release",
     ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_drain_recheck_stops_after_reservation_but_before_schedule(
+    monkeypatch,
+):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    state = {"mode": "custom_film", "pending_custom_film_plan": _pending(quote)}
+    import custom_film_runtime
+    import vault
+    from routes import billing
+
+    async def key(*_args, **_kwargs):
+        return "tenant-key"
+
+    async def channel_claim(*_args, **_kwargs):
+        return True
+
+    async def runtime_claim(*_args, **_kwargs):
+        raise RuntimeError("StoryEngine is draining; try again shortly.")
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    async def manifest():
+        return SimpleNamespace(version="test-v1")
+
+    async def reserve(*_args, **_kwargs):
+        return {"video_id": "video-1", "created": True}
+
+    async def forbidden_schedule(*_args, **_kwargs):
+        raise AssertionError("drain recheck must stop before durable scheduling")
+
+    monkeypatch.setattr(vault, "get_required_tenant_secret", key)
+    monkeypatch.setattr(chat.generation_claims, "acquire_channel", channel_claim)
+    monkeypatch.setattr(chat.generation_claims, "release_channel", noop)
+    monkeypatch.setattr(chat.generation_claims, "acquire", runtime_claim)
+    monkeypatch.setattr(billing, "check_plan_limits", noop)
+    monkeypatch.setattr(billing, "enforce_video_length_cap", noop)
+    monkeypatch.setattr(planner, "load_capability_manifest", manifest)
+    monkeypatch.setattr(contract, "reserve_approved_start_intent", reserve)
+    monkeypatch.setattr(
+        custom_film_runtime,
+        "consume_approval_and_schedule",
+        forbidden_schedule,
+    )
+
+    response = await chat._handle_custom_film_approval_turn(
+        "yes", "conv", "tenant", [], state, BackgroundTasks()
+    )
+    assert response.video_id is None
+    assert response.phase == "plan"
+    assert "draining" in response.assistant_text
