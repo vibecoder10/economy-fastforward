@@ -2792,6 +2792,13 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
         "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, scene)
     narration = ((srow or {}).get("scene_text") or "").strip()
 
+    # LAW 3 (video f00ea79a scene 1): zero tone/genre data reached the
+    # motion-writer before this — read the one-line tone hint (if the
+    # channel has been learned and carries one) and pass it through
+    # verbatim. Absent tone = no-op, never invented here.
+    from channel_format import get_channel_tone
+    channel_tone = await get_channel_tone(tenant)
+
     # Camera engine plans ("move_id|PURPOSE" or "static", stamped at compose
     # time): translate to a per-shot directive tag so the writer executes the
     # exact move the still was composed for. Unknown/legacy values = freeform.
@@ -2832,8 +2839,13 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
                 desc = r.get("image_prompt") or ""
         return f"{i+1}. [{(r['shot_type'] or 'MS')}] {tag}{_camera_tag(r)}{desc[:260]}"
     shots = "\n".join(_shot(i, r) for i, r in enumerate(rows))
+    # LAW 3: appended only when a tone is on file — byte-identical to today
+    # when absent.
+    tone_line = (f"\n\nCHANNEL TONE: {channel_tone} — all performance and delivery "
+                 f"directions must match this tone." if channel_tone else "")
     user = (f"SCENE NARRATION (context):\n{narration[:2000]}\n\n"
-            f"SHOTS (write ONE camera-motion line per shot, numbered, in order):\n{shots}")
+            f"SHOTS (write ONE camera-motion line per shot, numbered, in order):\n{shots}"
+            f"{tone_line}")
     kwargs = dict(prompt=user, system_prompt=_MOTION_SYSTEM, max_tokens=1800, temperature=0.6)
     if model:
         kwargs["model"] = model
