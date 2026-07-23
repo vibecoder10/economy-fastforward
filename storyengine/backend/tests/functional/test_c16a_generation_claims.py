@@ -343,7 +343,10 @@ async def test_handle_approve_denied_claim_does_not_schedule():
     autobuild chain when generation_claims.acquire() returns False, and must
     reply with the busy line instead."""
     bg = _FakeBackgroundTasks()
-    spec = {"title": "My Video"}
+    spec = {
+        "title": "My Video",
+        "production_style_id": "animated_investigative_documentary",
+    }
 
     async def _fake_create_video(body, background_tasks, tenant_id):
         return _FakeVideoSummary()
@@ -378,7 +381,10 @@ async def test_handle_approve_granted_claim_schedules_autobuild():
     plain sentinel here — this test is scoped to chat.py's OWN gating logic
     (acquire-then-schedule), not actions.py's internals (covered in Part 3)."""
     bg = _FakeBackgroundTasks()
-    spec = {"title": "My Video"}
+    spec = {
+        "title": "My Video",
+        "production_style_id": "animated_investigative_documentary",
+    }
 
     async def _fake_create_video(body, background_tasks, tenant_id):
         return _FakeVideoSummary()
