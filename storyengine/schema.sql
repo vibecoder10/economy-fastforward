@@ -1750,28 +1750,28 @@ VALUES
   (
     'bilingual_character_animation', 1, 'Bilingual Character Animation',
     'Animated character stories with dialogue in two languages and natural dubbed voices.',
-    '{"render_mode":"coverage","script_profile":"neutral_v1","image_density":{"mode":"dialogue_shape","target_per_minute":8},"animation":{"enabled":true,"mode":"grok_native"},"language":{"mode":"bilingual"},"dubbing":{"enabled":true,"mode":"speech_to_speech"},"segmentation":{"mode":"speaker_turn"},"camera":{"mode":"dialogue_coverage"},"quality_laws":["character_continuity","lip_sync","translation_fidelity"],"image_source":"generate"}'::jsonb,
+    '{"render_mode":"coverage","script_profile":"neutral_v1","visual_profile":"neutral_v1","image_density":{"mode":"dialogue_shape","target_per_minute":8},"animation":{"enabled":true,"mode":"grok_native"},"language":{"mode":"bilingual"},"dubbing":{"enabled":true,"mode":"speech_to_speech"},"segmentation":{"mode":"speaker_turn"},"camera":{"mode":"dialogue_coverage"},"quality_laws":["character_continuity","lip_sync","translation_fidelity"],"image_source":"generate"}'::jsonb,
     '{"cost_tier":"high","image_count_mode":"duration","images_per_minute":8,"clips_per_image":1,"copy":"Animated images + clips + bilingual dubbing. You pay providers directly with your keys."}'::jsonb,
     TRUE, TRUE, 10
   ),
   (
     'simple_language_animation', 1, 'Simple-Language Animation',
     'Simple-language animated stories built for learners and clear comprehension.',
-    '{"render_mode":"coverage","script_profile":"neutral_v1","image_density":{"mode":"dialogue_shape","target_per_minute":8},"animation":{"enabled":true,"mode":"grok_native"},"language":{"mode":"simple_single_language"},"dubbing":{"enabled":false,"mode":"none"},"segmentation":{"mode":"speaker_turn"},"camera":{"mode":"dialogue_coverage"},"quality_laws":["character_continuity","clear_language","lip_sync"],"image_source":"generate"}'::jsonb,
+    '{"render_mode":"coverage","script_profile":"neutral_v1","visual_profile":"neutral_v1","image_density":{"mode":"dialogue_shape","target_per_minute":8},"animation":{"enabled":true,"mode":"grok_native"},"language":{"mode":"simple_single_language"},"dubbing":{"enabled":false,"mode":"none"},"segmentation":{"mode":"speaker_turn"},"camera":{"mode":"dialogue_coverage"},"quality_laws":["character_continuity","clear_language","lip_sync"],"image_source":"generate"}'::jsonb,
     '{"cost_tier":"medium","image_count_mode":"duration","images_per_minute":8,"clips_per_image":1,"copy":"Animated images + clips in one clear language. You pay providers directly with your keys."}'::jsonb,
     TRUE, TRUE, 20
   ),
   (
     'photo_documentary', 1, 'Photo Documentary',
     'Item-by-item narration using still images, captions, and slow cinematic pan-and-zoom.',
-    '{"render_mode":"static_docu","script_profile":"neutral_v1","image_density":{"mode":"per_item","target":3,"minimum":2},"animation":{"enabled":false,"mode":"ken_burns"},"language":{"mode":"narrator"},"dubbing":{"enabled":false,"mode":"none"},"segmentation":{"mode":"item"},"camera":{"mode":"three_complementary_views"},"quality_laws":["verified_reference","variant_accuracy","caption_grounding"],"image_source":"generate"}'::jsonb,
+    '{"render_mode":"static_docu","script_profile":"neutral_v1","visual_profile":"neutral_v1","image_density":{"mode":"per_item","target":3,"minimum":2},"animation":{"enabled":false,"mode":"ken_burns"},"language":{"mode":"narrator"},"dubbing":{"enabled":false,"mode":"none"},"segmentation":{"mode":"item"},"camera":{"mode":"three_complementary_views"},"quality_laws":["verified_reference","variant_accuracy","caption_grounding"],"image_source":"generate"}'::jsonb,
     '{"cost_tier":"low","image_count_mode":"per_item","images_per_item":3,"clips_per_image":0,"copy":"Three still images per item, no generated animation clips. You pay providers directly with your keys."}'::jsonb,
     TRUE, TRUE, 30
   ),
   (
     'animated_investigative_documentary', 1, 'Animated Investigative Documentary',
     'Investigative narration with a fresh animated visual for nearly every sentence or visual cue.',
-    '{"render_mode":"coverage","script_profile":"power_doctrine_v2","image_density":{"mode":"visual_cue","target_per_minute":10},"animation":{"enabled":true,"mode":"grok_native"},"language":{"mode":"narrator"},"dubbing":{"enabled":false,"mode":"none"},"segmentation":{"mode":"visual_cue"},"camera":{"mode":"investigative_coverage"},"quality_laws":["source_grounding","visual_cue_fidelity","motion_prompt_presence"],"image_source":"generate"}'::jsonb,
+    '{"render_mode":"coverage","script_profile":"power_doctrine_v2","visual_profile":"cinematic_illustration","image_density":{"mode":"visual_cue","target_per_minute":10},"animation":{"enabled":true,"mode":"grok_native"},"language":{"mode":"narrator"},"dubbing":{"enabled":false,"mode":"none"},"segmentation":{"mode":"visual_cue"},"camera":{"mode":"investigative_coverage"},"quality_laws":["source_grounding","visual_cue_fidelity","motion_prompt_presence"],"image_source":"generate"}'::jsonb,
     '{"cost_tier":"highest","image_count_mode":"duration","images_per_minute":10,"clips_per_image":1,"copy":"About one image and clip per meaningful visual cue. You pay providers directly with your keys."}'::jsonb,
     TRUE, TRUE, 40
   )

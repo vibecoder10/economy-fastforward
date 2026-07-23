@@ -456,6 +456,12 @@ async def create_video(
     # full plan (or none) stores NULL → unchanged full-pipeline behavior.
     plan = normalize_stage_plan(body.pipeline_stages)
 
+    (
+        production_style_id,
+        production_style_version,
+        production_style_snapshot,
+    ) = await _resolve_production_style(body.production_style_id)
+
     # Static-documentary channels (identity says the format is held images +
     # Ken Burns over narration, e.g. Designed vs Used) never animate: their
     # videos get render_mode='static_docu' and a plan without video/sound.
@@ -463,13 +469,21 @@ async def create_video(
     from static_docu import static_mode_for_tenant, STATIC_RENDER_MODE
     from status_map import static_stage_plan
     render_mode = None
-    try:
-        if await static_mode_for_tenant(tenant_id):
-            render_mode = STATIC_RENDER_MODE
+    production_runtime = None
+    if production_style_snapshot:
+        from production_styles import runtime_values
+        production_runtime = runtime_values(production_style_snapshot)
+        render_mode = production_runtime["render_mode"]
+        if render_mode == STATIC_RENDER_MODE:
             plan = static_stage_plan(body.pipeline_stages)
-    except Exception as e:  # detection must never block creation
-        import logging
-        logging.getLogger(__name__).warning("static-mode detection failed: %s", e)
+    else:
+        try:
+            if await static_mode_for_tenant(tenant_id):
+                render_mode = STATIC_RENDER_MODE
+                plan = static_stage_plan(body.pipeline_stages)
+        except Exception as e:  # detection must never block legacy creation
+            import logging
+            logging.getLogger(__name__).warning("static-mode detection failed: %s", e)
 
     if plan is not None:
         skip_research = "research" not in plan
@@ -478,6 +492,12 @@ async def create_video(
         skip_research = body.skip_research
         skip_voice = body.skip_voice
     writer_guidance = body.writer_guidance
+    if production_style_snapshot:
+        from production_styles import merge_script_guidance
+        writer_guidance = merge_script_guidance(
+            writer_guidance,
+            production_style_snapshot,
+        )
     if render_mode == STATIC_RENDER_MODE:
         skip_voice = False
         # Exact-figures documentary voice: facts come from the research payload
@@ -556,17 +576,31 @@ async def create_video(
             if _preset:
                 render_style = render_style_for_preset(_preset)
                 break
-    style_preset_id = await _resolve_style_preset_id(body.style_preset_id)
-    script_profile = _resolve_script_profile(body.script_profile)
-    (
-        production_style_id,
-        production_style_version,
-        production_style_snapshot,
-    ) = await _resolve_production_style(body.production_style_id)
+    # The production profile supplies the canonical structural visual engine
+    # (Power Doctrine's desktop integration uses cinematic_illustration).
+    # A creator's explicit look-engine choice still wins as an override.
+    style_preset_id = await _resolve_style_preset_id(
+        body.style_preset_id
+        or (
+            production_runtime["visual_profile"]
+            if production_runtime
+            else None
+        )
+    )
+    script_profile = _resolve_script_profile(
+        production_runtime["script_profile"]
+        if production_runtime
+        else body.script_profile
+    )
+    dialogue_audio = (
+        production_runtime["dialogue_audio"]
+        if production_runtime
+        else None
+    )
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile, production_style_id, production_style_version, production_style_snapshot)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile, production_style_id, production_style_version, production_style_snapshot, dialogue_audio)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, title, initial_status, source_val, _strip_md(body.framework_angle),
@@ -576,6 +610,7 @@ async def create_video(
         render_mode, render_style, style_preset_id, script_profile,
         production_style_id, production_style_version,
         json.dumps(production_style_snapshot) if production_style_snapshot else None,
+        dialogue_audio,
     )
 
     await increment_usage(tenant_id, "videos_created")

@@ -63,6 +63,7 @@ VALUES
       '{
         "render_mode": "coverage",
         "script_profile": "neutral_v1",
+        "visual_profile": "neutral_v1",
         "image_density": {"mode": "dialogue_shape", "target_per_minute": 8},
         "animation": {"enabled": true, "mode": "grok_native"},
         "language": {"mode": "bilingual"},
@@ -85,6 +86,7 @@ VALUES
       '{
         "render_mode": "coverage",
         "script_profile": "neutral_v1",
+        "visual_profile": "neutral_v1",
         "image_density": {"mode": "dialogue_shape", "target_per_minute": 8},
         "animation": {"enabled": true, "mode": "grok_native"},
         "language": {"mode": "simple_single_language"},
@@ -107,6 +109,7 @@ VALUES
       '{
         "render_mode": "static_docu",
         "script_profile": "neutral_v1",
+        "visual_profile": "neutral_v1",
         "image_density": {"mode": "per_item", "target": 3, "minimum": 2},
         "animation": {"enabled": false, "mode": "ken_burns"},
         "language": {"mode": "narrator"},
@@ -129,6 +132,7 @@ VALUES
       '{
         "render_mode": "coverage",
         "script_profile": "power_doctrine_v2",
+        "visual_profile": "cinematic_illustration",
         "image_density": {"mode": "visual_cue", "target_per_minute": 10},
         "animation": {"enabled": true, "mode": "grok_native"},
         "language": {"mode": "narrator"},

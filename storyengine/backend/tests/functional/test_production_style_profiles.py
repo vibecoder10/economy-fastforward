@@ -18,6 +18,7 @@ import routes.videos as videos_route
 _KNOBS = {
     "render_mode": "coverage",
     "script_profile": "neutral_v1",
+    "visual_profile": "neutral_v1",
     "image_density": {"mode": "dialogue_shape"},
     "animation": {"enabled": True},
     "language": {"mode": "bilingual"},

@@ -221,6 +221,35 @@ async def get_secret(name: str, tenant_id: Optional[str] = None, user_id: Option
     return None
 
 
+async def get_required_tenant_secret(
+    name: str,
+    tenant_id: str,
+    *,
+    provider_label: Optional[str] = None,
+) -> str:
+    """Resolve a tenant-owned provider key and never use the process env.
+
+    Paid generation routes use this helper before constructing clients whose
+    own legacy constructors may fall back to environment variables. That
+    keeps StoryEngine a BYOK software product even when an operator key is
+    present in the service environment.
+    """
+    normalized_tenant = str(tenant_id or "").strip()
+    if not normalized_tenant:
+        raise ValueError("A tenant is required for BYOK generation.")
+    try:
+        value = await get_secret(name, normalized_tenant)
+    except KeyError:
+        value = None
+    if value:
+        return value
+    label = provider_label or SECRET_ENV_MAP.get(name, name).replace("_", " ")
+    raise RuntimeError(
+        f"Add your {label} key in Settings → API Keys before generating. "
+        "StoryEngine does not use a shared provider key."
+    )
+
+
 async def set_secret(
     name: str,
     value: str,

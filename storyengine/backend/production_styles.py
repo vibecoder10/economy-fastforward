@@ -3,7 +3,8 @@
 ``style_presets`` and ``visual_styles`` describe how generated pictures look.
 This module owns the higher-level production shape: render mode, editorial
 profile, coverage density, animation, language, dubbing, segmentation, camera
-grammar, quality laws, and the future image-source choice.
+grammar, quality laws, the structural visual profile, and the future
+image-source choice.
 
 The catalog is global and public to authenticated tenants. A selected row is
 snapshotted onto the video at creation so later catalog edits affect new videos
@@ -32,6 +33,7 @@ REQUIRED_KNOB_KEYS = frozenset(
     {
         "render_mode",
         "script_profile",
+        "visual_profile",
         "image_density",
         "animation",
         "language",
@@ -119,3 +121,110 @@ def snapshot_profile(profile: dict[str, Any]) -> dict[str, Any]:
     if not normalized["requires_byok"]:
         raise ValueError("Public production styles must require BYOK")
     return copy.deepcopy(normalized)
+
+
+def runtime_values(profile: dict[str, Any]) -> dict[str, str]:
+    """Translate named profile dimensions onto the existing runtime seams.
+
+    This deliberately branches on dimension values, not public profile IDs.
+    Milestone 2's Custom Film composer can therefore reuse the same mapping
+    for a validated per-section contract without teaching the runtime about
+    another branded preset.
+    """
+    normalized = normalize_profile_row(profile)
+    if normalized is None:
+        raise ValueError("Invalid production-style profile")
+    knobs = normalized["knobs"]
+    render_mode = str(knobs["render_mode"] or "").strip()
+    if render_mode not in {"coverage", "static_docu"}:
+        raise ValueError(f"Unsupported production render mode: {render_mode!r}")
+    script_profile = str(knobs["script_profile"] or "").strip()
+    if not script_profile:
+        raise ValueError("Production style has no script profile")
+    visual_profile = str(knobs["visual_profile"] or "").strip()
+    if not visual_profile:
+        raise ValueError("Production style has no visual profile")
+
+    animation = knobs.get("animation") if isinstance(knobs.get("animation"), dict) else {}
+    dubbing = knobs.get("dubbing") if isinstance(knobs.get("dubbing"), dict) else {}
+    segmentation = (
+        knobs.get("segmentation")
+        if isinstance(knobs.get("segmentation"), dict)
+        else {}
+    )
+    # Existing audio modes:
+    # - voice_over: narrator/per-segment ElevenLabs audio, including the
+    #   speech-to-speech voice lock used by bilingual character animation.
+    # - grok_native: performed single-language dialogue stays in the clips.
+    dialogue_audio = "voice_over"
+    if (
+        bool(animation.get("enabled"))
+        and str(segmentation.get("mode") or "") == "speaker_turn"
+        and str(dubbing.get("mode") or "") == "none"
+    ):
+        dialogue_audio = "grok_native"
+    return {
+        "render_mode": render_mode,
+        "script_profile": script_profile,
+        "visual_profile": visual_profile,
+        "dialogue_audio": dialogue_audio,
+    }
+
+
+def merge_script_guidance(
+    existing: Optional[str],
+    profile: dict[str, Any],
+) -> Optional[str]:
+    """Append the script-facing parts of a production profile.
+
+    The snapshot remains the machine source of truth; this text is the seam
+    the existing script engine already consumes. It names production
+    behavior, never the private channel that originally proved the format.
+    """
+    normalized = normalize_profile_row(profile)
+    if normalized is None:
+        raise ValueError("Invalid production-style profile")
+    knobs = normalized["knobs"]
+    language = knobs.get("language") if isinstance(knobs.get("language"), dict) else {}
+    segmentation = (
+        knobs.get("segmentation")
+        if isinstance(knobs.get("segmentation"), dict)
+        else {}
+    )
+    density = (
+        knobs.get("image_density")
+        if isinstance(knobs.get("image_density"), dict)
+        else {}
+    )
+    directives: list[str] = []
+    language_mode = str(language.get("mode") or "")
+    if language_mode == "bilingual":
+        directives.append(
+            "Write this as performed character dialogue that naturally teaches or "
+            "contrasts two languages. Honor any language pair in the topic or creator "
+            "guidance; when none is given, use English and Spanish. Keep translations "
+            "clear in context instead of repeating every sentence mechanically."
+        )
+    elif language_mode == "simple_single_language":
+        directives.append(
+            "Write this as performed character dialogue in one clear target language. "
+            "Use short, concrete, beginner-friendly sentences and make meaning obvious "
+            "from the action; do not add a second-language translation track."
+        )
+
+    segmentation_mode = str(segmentation.get("mode") or "")
+    if segmentation_mode == "item":
+        directives.append(
+            "Organize the narration item by item, with one clearly identified subject "
+            "per section and only source-grounded facts that its still images can prove."
+        )
+    elif segmentation_mode == "visual_cue" or str(density.get("mode") or "") == "visual_cue":
+        directives.append(
+            "Write concrete investigative narration with one dominant visual idea per "
+            "sentence or meaningful clause so the picture plan can illustrate each cue."
+        )
+
+    if not directives:
+        return (existing or "").strip() or None
+    block = "PRODUCTION STYLE:\n- " + "\n- ".join(directives)
+    return "\n\n".join(part for part in ((existing or "").strip(), block) if part)

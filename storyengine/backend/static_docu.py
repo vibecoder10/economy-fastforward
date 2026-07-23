@@ -67,7 +67,16 @@ def is_static_visual_format(visual_format: Optional[dict]) -> bool:
 async def static_mode_for_tenant(tenant_id: str) -> bool:
     """Should new videos for this tenant render as static documentaries?"""
     row = await fetch_one(
-        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1", tenant_id)
+        "SELECT production_style_id, channel_identity "
+        "FROM channel_profiles WHERE tenant_id=$1",
+        tenant_id,
+    )
+    # Migration 121 links the original channel to the same public profile new
+    # customers select. That catalog reference is now authoritative; the
+    # legacy identity fingerprint remains the compatibility fallback.
+    linked_profile = (row or {}).get("production_style_id")
+    if linked_profile:
+        return linked_profile == "photo_documentary"
     ci = (row or {}).get("channel_identity")
     if isinstance(ci, str):
         try:
@@ -1512,8 +1521,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 pass
 
     from shared.clients.image_client import ImageClient
-    from vault import get_secret
-    import os as _os
+    from vault import get_required_tenant_secret
 
     v = await fetch_one(
         "SELECT id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
@@ -1540,9 +1548,14 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     _p("Identifying each segment's machine…")
     subjects = await _scene_subjects(tenant_id, scenes, rp)
 
-    kie_key = await get_secret("kie_ai_api_key", tenant_id) or _os.getenv("KIE_AI_API_KEY")
-    if not kie_key:
-        return {"status": "failed", "error": "no image key on this workspace"}
+    try:
+        kie_key = await get_required_tenant_secret(
+            "kie_ai_api_key",
+            tenant_id,
+            provider_label="Kie.ai",
+        )
+    except RuntimeError as exc:
+        return {"status": "failed", "error": str(exc)}
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     await _ensure_ref_cache_schema()
 

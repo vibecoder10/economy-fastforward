@@ -88,6 +88,17 @@ from storyboard.coverage import (  # noqa: E402
     # matches what the floor validator will actually go looking for.
     _REACTION_TURNS_PER_SHOT, _INSERT_SHOTS_PER_ONE, _REESTABLISH_SHOTS_PER_ONE,
 )
+
+
+async def _require_tenant_kie_key(tenant_id: str) -> str:
+    """Resolve only this tenant's Kie key before constructing legacy clients."""
+    key = await get_secret("kie_ai_api_key", tenant_id)
+    if key:
+        return key
+    raise RuntimeError(
+        "Add your Kie.ai key in Settings → API Keys before generating. "
+        "StoryEngine does not use a shared provider key."
+    )
 # C4 prop manifest: the ONE renderer every consumer (beat prompt, real draw
 # prompt, redraw/repair prompt) uses, so the wording is byte-identical
 # everywhere — never a fresh LLM restatement. Lives in storyboard.bot (not
@@ -1575,12 +1586,14 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
         "image_style_override, visual_style, render_style, video_model, "
-        "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
+        "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio, "
+        "production_style_snapshot "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
+    production_style_snapshot = v.get("production_style_snapshot")
     # NOTE: videos.image_model_override is deliberately NOT selected here.
     # C25a-fix-nano-sheets (Ryan's ruling, 2026-07-21 — "previews move OFF
     # the filtered endpoint entirely"): every sheet board below draws on the
@@ -1605,7 +1618,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     claude = await get_text_client_for_tenant(tenant)
     claude_model = claude_model_for_direct_client(claude)
-    kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+    kie_key = await _require_tenant_kie_key(tenant)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Scene-aware bible so each scene's storyboard names ONLY its characters + the
     # locked environments (per-scene character lock + the prose background lock).
@@ -1756,7 +1769,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3", vid, tenant, sc)
         if not srow:
             continue
-        _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
+        _mm, _amin, _amax, _mframes = _coverage_shape(
+            s["scene_text"] or "",
+            dialogue_audio,
+            production_style_snapshot,
+        )
         if beat is not None:
             # PER-BOARD REDO: redraw ONE sheet from the SAVED plan — never
             # re-plan (that would silently change the other boards' panels).
@@ -2088,7 +2105,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         f"ART STYLE — the single most important instruction, every element of this frame is "
         f"rendered in it: {_style_dir} " if _style_dir else "")
 
-    kie_key = await get_secret("kie_ai_api_key", tenant_id) or os.getenv("KIE_AI_API_KEY")
+    kie_key = await _require_tenant_kie_key(tenant_id)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     crows = await fetch_all(
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
@@ -2539,7 +2556,52 @@ def _reconcile_moment_dialogue(moments, scene_text):
     return moments
 
 
-def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
+def _visual_cue_count(scene_text: str) -> int:
+    """Count meaningful sentence/cue units, folding trivial fragments.
+
+    Investigative narration often uses punchy one- or two-word fragments.
+    Treating every fragment as a paid picture makes the edit choppy; attach
+    fragments under five words to a neighboring cue while retaining normal
+    sentences and semicolon-separated visual turns as their own units.
+    """
+    pieces = re.split(r"(?<=[.!?;])\s+|\n+", (scene_text or "").strip())
+    count = 0
+    leading_fragment_words = 0
+    for piece in pieces:
+        words = re.findall(r"\b[\w'-]+\b", piece)
+        if not words:
+            continue
+        if len(words) < 5:
+            if count == 0:
+                leading_fragment_words += len(words)
+            continue
+        count += 1
+        leading_fragment_words = 0
+    return max(1, count if count else (1 if leading_fragment_words else 0))
+
+
+def _production_density_mode(production_style_snapshot) -> str:
+    """Read the persisted knob value from JSONB dict/string shapes."""
+    value = production_style_snapshot
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+    if not isinstance(value, dict):
+        return ""
+    knobs = value.get("knobs")
+    if not isinstance(knobs, dict):
+        return ""
+    density = knobs.get("image_density")
+    return str(density.get("mode") or "") if isinstance(density, dict) else ""
+
+
+def _coverage_shape(
+    scene_text: str,
+    dialogue_audio: str = "voice_over",
+    production_style_snapshot=None,
+):
     """(max_moments, angles_min, angles_max, max_frames) — THE per-scene shot
     budget (D1). Every image pathway funnels through here, so this one
     function is the pacing policy AND the cost ceiling. Two channel modes
@@ -2563,6 +2625,11 @@ def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
     Lines are never lost regardless of caps — _reconcile_moment_dialogue
     folds overflow turns onto that speaker's shot."""
     turns = _dialogue_turn_count(scene_text)
+    if _production_density_mode(production_style_snapshot) == "visual_cue":
+        cues = max(_visual_cue_count(scene_text), turns + (1 if turns else 0))
+        # One master and no cosmetic angles per meaningful cue: one planned
+        # frame becomes one image and one animated clip.
+        return cues, 0, 0, cues
     if turns < 2:
         return 3, 2, 3, None  # visual/narration scene — ≤12 frames (3 × master+3)
     narration_words = sum(
@@ -3112,12 +3179,14 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     v = await fetch_one(
         "SELECT id, tenant_id, video_title, COALESCE(aspect_ratio,'16:9') AS aspect, "
         "image_style_override, visual_style, image_model_override, render_style, video_model, "
-        "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio "
+        "COALESCE(dialogue_audio,'voice_over') AS dialogue_audio, "
+        "production_style_snapshot "
         "FROM videos WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not v:
         return {"status": "failed", "error": "video not found"}
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
+    production_style_snapshot = v.get("production_style_snapshot")
     model_override = v["image_model_override"]
     # C13b: threaded through to run_coverage -> plan_camera_moves -> route_shot_model
     # (mirrors generate_storyboard_sheet_for_scene's identical SELECT+assign above it in
@@ -3142,7 +3211,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
 
     claude = await get_text_client_for_tenant(tenant)
     claude_model = claude_model_for_direct_client(claude)
-    kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+    kie_key = await _require_tenant_kie_key(tenant)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
     # whole video renders in that style — not the realistic default.
@@ -3190,7 +3259,11 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
         # Size coverage to the dialogue + the channel's pacing policy (see
         # _coverage_shape): echo/voice_over paces to runtime with earned
         # angles; grok_native keeps the rich cinematic multi-angle coverage.
-        _mm, _amin, _amax, _mframes = _coverage_shape(s["scene_text"] or "", dialogue_audio)
+        _mm, _amin, _amax, _mframes = _coverage_shape(
+            s["scene_text"] or "",
+            dialogue_audio,
+            production_style_snapshot,
+        )
         # An explicit ask for THIS scene (the per-scene "regenerate scene N"
         # button, or this scene named in only_scenes) always redraws — an
         # explicit request means "redo this scene" regardless of skip-if-done.
@@ -3367,7 +3440,7 @@ async def main():
     if args.complete:
         claude = await get_text_client_for_tenant(tenant)
         claude_model = claude_model_for_direct_client(claude)
-        kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+        kie_key = await _require_tenant_kie_key(tenant)
         ic = ImageClient(api_key=kie_key, tenant_id=tenant)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
         nchar = await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script,
@@ -3386,7 +3459,7 @@ async def main():
     if args.redo_characters:
         claude = await get_text_client_for_tenant(tenant)
         claude_model = claude_model_for_direct_client(claude)
-        kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+        kie_key = await _require_tenant_kie_key(tenant)
         ic = ImageClient(api_key=kie_key, tenant_id=tenant)
         full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
         n = await redo_characters(vid, tenant, claude, claude_model, ic, full_script, only=args.character)
@@ -3402,7 +3475,7 @@ async def main():
         # A direct Anthropic client's built-in default model id can be stale (we hit a 404
         # on it); pass a current one. The Kie-routed client uses its own market model (None).
         claude_model = claude_model_for_direct_client(claude)
-        kie_key = await get_secret("kie_ai_api_key", tenant) or os.getenv("KIE_AI_API_KEY")
+        kie_key = await _require_tenant_kie_key(tenant)
         ic = ImageClient(api_key=kie_key, tenant_id=tenant)
         profile, _ = _resolve_style(v["image_style_override"], v["visual_style"])
         # ONE cast for the whole video so characters match ACROSS scenes: reuse the on-disk cast

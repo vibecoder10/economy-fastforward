@@ -443,6 +443,7 @@ export interface ProductionStyle {
   knobs: {
     render_mode: string;
     script_profile: string;
+    visual_profile: string;
     image_density: Record<string, unknown>;
     animation: Record<string, unknown>;
     language: Record<string, unknown>;
