@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import html as _html
 import json
+import logging
 import os
 import re
 import subprocess
@@ -94,6 +95,8 @@ from shared.channel_profile import (  # noqa: E402
     load_profile,
     claude_model_for_direct_client,
 )
+
+logger = logging.getLogger(__name__)
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
@@ -2175,7 +2178,12 @@ _MOTION_SYSTEM = (
     "reveals something (a window, the water, an object), keep the character in frame while it does — "
     "never pan or tilt away onto an empty detail and lose them. Name the character and the SPECIFIC, "
     "physical thing they do: an expression change, a gesture, a head turn, eyes lifting, a breath — "
-    "real and watchable, not a mood.\n"
+    "real and watchable, not a mood. ANY character described in the shot is ALREADY in the room — the "
+    "still was drawn with them there. This applies even on a SILENT/ESTABLISH beat 'before anyone "
+    "speaks': that phrase describes the TIMING of dialogue, not who is in the frame. NEVER write a "
+    "character as absent, arriving, or about to enter (no 'empty sofa where X will sit', no 'before X "
+    "arrives', no 'no one is here yet') — the camera may only move; it may never change who is in the "
+    "room.\n"
     "3) A shot tagged (SPEAKING: <Name>) shows that character delivering their line — frame their face "
     "or upper body and give a small, natural speaking gesture. DO NOT write the words; the line is added "
     "automatically. A shot with NO tag is silent — camera move + ONE small motion, NO people added.\n"
@@ -2466,6 +2474,212 @@ def _coverage_shape(scene_text: str, dialogue_audio: str = "voice_over"):
     return min(base, max_frames), 0, 2, max_frames
 
 
+# --- Motion-prompt presence gate (contract-triangle GATE half of the
+# SILENT/ESTABLISH absence bug, 2026-07-22 — found live: a beat's still shows
+# two characters already seated, but the LLM motion writer described the
+# shot ending "on the empty sofa where Ryan and Vanessa will sit"; Grok
+# followed the TEXT over the picture and rendered an empty room, wasting a
+# paid clip). _MOTION_SYSTEM (rule 2, above) already instructs against this;
+# this is the deterministic backstop for when the model ignores it anyway.
+# Pure Python, no LLM call — cheap enough to run on every shot, every time.
+
+# Words that read as Title Case in normal motion-prompt prose but are NOT
+# character names: camera vocabulary, connectives, pronouns, common set
+# dressing. Kept short on purpose — the verb-whitelist in the "unknown name"
+# check below is the real conservatism guard, not this list.
+_MOTION_NAME_STOPWORDS = {
+    "the", "a", "an", "and", "but", "or", "with", "without", "as", "at", "in",
+    "on", "of", "to", "for", "from", "by", "then", "while", "before", "after",
+    "during", "once", "now", "this", "that", "these", "those", "she", "he",
+    "they", "we", "you", "it", "i", "camera", "fixed", "unfixed", "lens",
+    "push", "pull", "slow", "slowly", "static", "dolly", "pan", "tilt",
+    "track", "tracking", "orbit", "handheld", "zoom", "crane", "scene",
+    "shot", "wide", "close", "medium", "master", "angle", "moment",
+    "speaking", "silent", "interior", "exterior", "int", "ext", "nothing",
+    "nobody", "no", "one", "room", "sofa", "couch", "chair", "table",
+    "bench", "seat", "bed", "window", "door", "kitchen", "sky", "ocean",
+    "coffee", "cup", "holds", "frame", "background", "foreground", "unfixed",
+}
+_MOTION_NAME_RE = re.compile(r"\b([A-Z][a-z]{2,14})\b")
+
+# Furniture/location words a camera can "land on" — an (empty|vacant|
+# unoccupied) hit near one of these describes the DESTINATION of the shot as
+# absent of anyone, which is exactly the "empty sofa" bug. A bare prop
+# ("empty coffee cup") is deliberately NOT in this list, so it passes.
+_MOTION_DEST_WORDS = (
+    "sofa", "couch", "chair", "room", "table", "bench", "seat", "bed",
+    "space", "doorway", "hallway",
+)
+_MOTION_FURNITURE_EMPTY_RE = re.compile(
+    r"\b(empty|vacant|unoccupied)\b[^.]{0,25}\b(" + "|".join(_MOTION_DEST_WORDS) + r")\b"
+    r"|\b(" + "|".join(_MOTION_DEST_WORDS) + r")\b[^.]{0,25}\b(?:is|sits?|stands?)\b"
+    r"[^.]{0,15}\b(empty|vacant|unoccupied)\b",
+    re.IGNORECASE)
+_MOTION_NO_ONE_RE = re.compile(r"\b(no\s*one|nobody)\b", re.IGNORECASE)
+_MOTION_ANTICIPATION_VERB = r"(?:sits?|sit down|arrives?|enters?|walks? in|joins?)"
+_MOTION_ACTING_VERBS = (
+    "says", "turns", "looks", "smiles", "sits", "walks", "enters", "waves",
+    "leans", "nods", "glances", "steps",
+)
+
+
+def _motion_names(text: str) -> set:
+    """Candidate character names (Title Case tokens minus common camera/
+    scene vocabulary) found in a prompt."""
+    return {m.group(1) for m in _MOTION_NAME_RE.finditer(text or "")
+            if m.group(1).lower() not in _MOTION_NAME_STOPWORDS}
+
+
+# REACTION-shot subject-swap (found live by a parallel audit, 2026-07-22,
+# 4/4 occurrences on the audited scene): storyboard.coverage's REACTION
+# placement (skills/video-pipeline/storyboard/coverage.py ~L1160) writes
+# `"(SETUP {fam})(REACTION) CU on {listener}, listening to {speaker}'s line,
+# same instant."` — the shot is a CU framed on the LISTENER (the reactor),
+# with the speaker off-frame. _write_motion_prompts's `_shot()` builder falls
+# back to this truncated image_prompt snippet whenever sentence_text is null
+# (true for REACTION rows), and the motion-writer LLM misreads "listening to
+# Vanessa's line" as an instruction to describe Vanessa — writing her hands/
+# gesture into a shot that is actually framed on Ryan.
+_REACTION_DESC_RE = re.compile(
+    r"\bCU on\s+([A-Za-z][A-Za-z .'-]{1,30}?),\s*listening to\s+"
+    r"([A-Za-z][A-Za-z .'-]{1,30}?)'s line\b", re.IGNORECASE)
+_REACTION_ACTION_VERBS = (
+    "press(?:es)?", "clasp(?:s)?", "reach(?:es)?", "grip(?:s)?", "tap(?:s)?",
+    "drum(?:s)?", "raise(?:s)?", "lower(?:s)?", "move(?:s)?", "gesture(?:s)?",
+    "wave(?:s)?", "lean(?:s)?", "shift(?:s)?", "curl(?:s)?", "tighten(?:s)?",
+    "flatten(?:s)?", "rest(?:s)?", "fold(?:s)?", "clench(?:es)?", "drop(?:s)?",
+    "run(?:s)?", "brush(?:es)?", "fidget(?:s)?", "grab(?:s)?", "squeeze(?:s)?",
+)
+
+
+def _reaction_pair(image_prompt: str):
+    """(reactor, speaker) from a "CU on X, listening to Y's line" REACTION-
+    shot description, or None if image_prompt isn't a reaction shot."""
+    m = _REACTION_DESC_RE.search(image_prompt or "")
+    return (m.group(1).strip(), m.group(2).strip()) if m else None
+
+
+def _is_gesture_actor(text: str, name: str) -> bool:
+    """True if `name` (or "name's <noun>") is the grammatical SUBJECT of a
+    physical gesture verb in `text` — e.g. "Vanessa's hands press flat on
+    the table" or "Vanessa reaches across". Naming someone as the OBJECT of
+    a gaze ("eyes locked on Vanessa") never matches — gaze verbs aren't in
+    the action-verb list, so watching the speaker stays legal."""
+    esc = re.escape(name)
+    verbs = "|".join(_REACTION_ACTION_VERBS)
+    return bool(re.search(rf"\b{esc}(?:'s\s+\w+)?\s+(?:{verbs})\b", text or "", re.IGNORECASE))
+
+
+def gate_motion_prompt(video_prompt: str, image_prompt: str) -> str | None:
+    """Deterministic check: does `video_prompt` contradict a character the
+    shot's `image_prompt` already shows in the frame? Returns a short
+    violation reason on a CLEAR contradiction, else None.
+
+    Conservative by design (task law: flag clear contradictions, don't
+    over-block legitimate text) — a prop mention ("empty coffee cup") or
+    plain camera-only language must always pass:
+      (a) absence/anticipation language tied to a character who is present
+          in image_prompt — "empty/vacant/unoccupied <furniture/room>",
+          "no one"/"nobody" (only when the image has people to contradict),
+          or a present character described as "will sit/arrive/enter",
+          "before <Name> arrives", "about to enter".
+      (b) video_prompt names a character not present in image_prompt at
+          all AND writes them acting (a verb like "turns"/"enters"/"says") —
+          the writer inventing a person the still never drew.
+      (c) REACTION-shot subject swap — image_prompt is a "CU on X, listening
+          to Y's line" reaction shot (X is framed, Y is off-frame), and
+          video_prompt makes Y the grammatical actor of a physical gesture
+          while X never acts at all. X may still be named as the gaze target
+          ("eyes locked on Y") — only Y acting instead of X is a violation.
+    """
+    vp = (video_prompt or "").strip()
+    if not vp:
+        return None
+    image_names = _motion_names(image_prompt or "")
+
+    pair = _reaction_pair(image_prompt or "")
+    if pair:
+        reactor, speaker = pair
+        if _is_gesture_actor(vp, speaker) and not _is_gesture_actor(vp, reactor):
+            return (f"REACTION shot framed on {reactor}, but the motion text describes "
+                     f"{speaker} (off-frame) acting instead")
+
+    m = _MOTION_FURNITURE_EMPTY_RE.search(vp)
+    if m and image_names:
+        return (f"describes an empty/vacant destination ({m.group(0)!r}) while the image "
+                 f"already shows {', '.join(sorted(image_names))} present")
+
+    if image_names and _MOTION_NO_ONE_RE.search(vp):
+        return (f"says {_MOTION_NO_ONE_RE.search(vp).group(0)!r} is present while the image "
+                 f"already shows {', '.join(sorted(image_names))}")
+
+    for name in image_names:
+        esc = re.escape(name)
+        pat = re.compile(
+            rf"\b{esc}\b[^.]{{0,60}}\bwill\s+{_MOTION_ANTICIPATION_VERB}\b"
+            rf"|\bwill\s+{_MOTION_ANTICIPATION_VERB}\b[^.]{{0,60}}\b{esc}\b"
+            rf"|\bbefore\s+{esc}\b[^.]{{0,20}}\b(?:arrives?|enters?|sits?|walks? in|joins?)\b"
+            rf"|\babout to\s+{_MOTION_ANTICIPATION_VERB}\b[^.]{{0,60}}\b{esc}\b"
+            rf"|\b{esc}\b[^.]{{0,60}}\babout to\s+{_MOTION_ANTICIPATION_VERB}\b",
+            re.IGNORECASE)
+        m2 = pat.search(vp)
+        if m2:
+            return (f"describes {name} as not-yet-arrived ({m2.group(0)!r}) while the image "
+                     f"already shows them present")
+
+    unknown = _motion_names(vp) - image_names
+    for name in unknown:
+        verb_pat = re.compile(rf"\b{re.escape(name)}\b\s+(?:{'|'.join(_MOTION_ACTING_VERBS)})\b",
+                               re.IGNORECASE)
+        if verb_pat.search(vp):
+            return f"names {name!r} acting in the shot, but the image_prompt has no {name}"
+    return None
+
+
+def _camera_lock_fallback_text(camera_movement: str) -> str:
+    """REPAIR fallback (contract-triangle third leg): when a motion line still
+    fails gate_motion_prompt after one repair retry, fall back to text that
+    can never claim who is/isn't in the room — the camera engine's own
+    planned move (if this shot was composed for one) or a neutral static
+    hold. Same lookup _camera_tag() above already trusts for CAMERA LOCKED
+    shots, so the fallback matches what the still was actually composed for."""
+    raw = (camera_movement or "").strip()
+    if raw and raw != "static" and "|" in raw:
+        try:
+            from image_prompts.engine.camera_moves import get_move
+            move = get_move(raw.partition("|")[0])
+            if move:
+                return move.motion_prompt.rstrip(".") + ", subject motion only."
+        except Exception:  # noqa: BLE001 — lookup must never break the fallback path
+            pass
+    return "Camera holds steady on the frame exactly as composed, subject motion only."
+
+
+async def _retry_motion_prompt(claude, model, shot_line: str, violation: str) -> str:
+    """REPAIR: one corrective LLM call for a SINGLE shot whose line failed the
+    presence gate. Cheap (one shot, not the whole scene) and scoped tight —
+    the violation reason is handed back verbatim so the model can see exactly
+    what it got wrong."""
+    correction = (
+        "Your camera-motion line for this shot was REJECTED: "
+        f"{violation}. Every character described in the shot below is ALREADY in the room — the "
+        "still was drawn with them there. Rewrite ONE corrected camera-motion line for this shot "
+        "only. Never describe a character as absent, arriving, or about to enter; the camera may "
+        "move, but it may never change who is in the room. Under 50 words. Output ONLY the "
+        "corrected line, numbered '1.'.\n\nSHOT:\n" + shot_line
+    )
+    kwargs = dict(prompt=correction, system_prompt=_MOTION_SYSTEM, max_tokens=200, temperature=0.4)
+    if model:
+        kwargs["model"] = model
+    try:
+        text = (await claude.generate(**kwargs)) or ""
+    except Exception as e:  # noqa: BLE001 — repair call failing must fall through to the template
+        logger.warning("motion-prompt repair call failed: %s", e)
+        return ""
+    lines = _parse_numbered(text, 1)
+    return _strip_embedded_line(lines[0]) if lines else ""
+
+
 async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     """One Claude call writes the per-shot CAMERA MOTION for the scene's coverage
     frames; the spoken line was already assigned by the coverage planner (stored on
@@ -2505,8 +2719,23 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     def _shot(i, r):
         spk, _txt = _split_assigned(r.get("assigned_dialogue"))
         tag = f"(SPEAKING: {spk}) " if spk else ""
-        return (f"{i+1}. [{(r['shot_type'] or 'MS')}] {tag}{_camera_tag(r)}"
-                f"{(r['sentence_text'] or r['image_prompt'] or '')[:200]}")
+        desc = r.get("sentence_text") or ""
+        if not desc:
+            # sentence_text is null on REACTION rows (root cause, 2026-07-22):
+            # falling back to the raw truncated image_prompt snippet handed
+            # the writer "CU on Ryan, listening to Vanessa's line" and it
+            # misread that as "describe Vanessa" — an explicit structured hint
+            # instead of the raw snippet stops the misread at the source.
+            pair = _reaction_pair(r.get("image_prompt") or "")
+            if pair:
+                reactor, speaker = pair
+                desc = (f"REACTION shot. SUBJECT ON CAMERA: {reactor} — describe {reactor}'s "
+                        f"face/body reacting. {speaker} is off-frame context only; you may say "
+                        f"{reactor} looks/glances toward {speaker}, but {speaker} must never be "
+                        f"the one doing anything.")
+            else:
+                desc = r.get("image_prompt") or ""
+        return f"{i+1}. [{(r['shot_type'] or 'MS')}] {tag}{_camera_tag(r)}{desc[:260]}"
     shots = "\n".join(_shot(i, r) for i, r in enumerate(rows))
     user = (f"SCENE NARRATION (context):\n{narration[:2000]}\n\n"
             f"SHOTS (write ONE camera-motion line per shot, numbered, in order):\n{shots}")
@@ -2516,8 +2745,25 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     text = (await claude.generate(**kwargs)) or ""
     motions = _parse_numbered(text, len(rows))
     written = 0
-    for r, motion in zip(rows, motions):
+    for i, (r, motion) in enumerate(zip(rows, motions)):
         motion = _strip_embedded_line(motion) or "Slow push-in on the main subject, keeping it in frame."
+        # GATE + REPAIR (contract-triangle 2nd/3rd legs): a motion line that
+        # narrates a character in image_prompt as absent/arriving must never
+        # be stored — Grok follows the text over the picture and renders an
+        # empty room (found live: "ending on the empty sofa where Ryan and
+        # Vanessa will sit" over a still that already shows them seated).
+        violation = gate_motion_prompt(motion, r.get("image_prompt"))
+        if violation:
+            retry = await _retry_motion_prompt(claude, model, _shot(i, r), violation)
+            retry_violation = gate_motion_prompt(retry, r.get("image_prompt")) if retry else "repair returned nothing"
+            if retry and not retry_violation:
+                motion = retry
+            else:
+                logger.warning(
+                    "motion-prompt gate: scene %s shot %s asset %s fell back to camera-lock "
+                    "template — original: %r (%s); repair: %r (%s)",
+                    scene, i + 1, r["id"], motion, violation, retry, retry_violation)
+                motion = _camera_lock_fallback_text(r.get("camera_movement"))
         spk, txt = _split_assigned(r.get("assigned_dialogue"))
         # "once, quickly ... then silence": Grok's 6s minimum stretched a
         # 1.5s line into slow-motion mouthing across the whole clip — the
