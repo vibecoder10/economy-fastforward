@@ -265,3 +265,165 @@ sandbox (no live DB, no live Kie image-gen API, no prod).
       this only affects what the polling UI displays mid-run. Same note as C1's own list;
       worth a look together when a frontend chunk for redraw coalescing (this chunk's C2
       counterpart) is built.
+
+# Deferred verification — C3 frontend image redraw coalescing + live cost counter (feat/per-card-parallel-clips)
+
+Frontend chunk, the redraw sibling of C2: `frontend/src/hooks/use-clip-trust-ladder.ts`
+gained a second, parallel track — `redrawOne`, `dispatchPendingRedraws`, `pendingRedrawRef`,
+`generatingRedrawIds`/`failedRedrawIds`/`queuedRedrawIds` — mirroring `animateOne`/
+`dispatchPendingClips`/`pendingClipRef` line for line (no `force` concept; every redraw call
+is inherently a redo). SegmentCard (ScenesWorkspaceTab.tsx) gained matching
+`isRedrawing`/`isRedrawQueued`/`isRedrawFailed` props and overlay states. Also added: a
+`dispatchInFlightRef` cross-track guard (clip and redraw dispatch now share one "a network
+call is mid-flight" ref, closing a same-tick race the running→idle effect could otherwise
+hit once two independently-dispatchable queues exist — see the hook's file-header comment
+for the full mechanics), and a live-cost-counter tweak (`onProgress` now also invalidates
+`["video", video.id]`, the SAME query key the existing header `CostLedgerChip` already reads
+`video.total_cost` from — no new component, no new endpoint). `npx tsc --noEmit` and
+`npm run build` (34 routes, same as C2) both pass clean. No live backend/DB/paid API was
+reachable in this sandbox — everything below needs a real browser against a real video.
+
+**Design note carried over from C1b's own deferred list (its last bullet, above):** the
+backend's `redraw_manual` lane genuinely does NOT block a concurrent `clip_manual` run (or
+vice versa) — C1b proved that server-side. This chunk deliberately does NOT let the
+frontend exploit that: `dispatchInFlightRef` serializes clip and redraw dispatch to at most
+one network call at a time, because `_running_tasks[(tenant,video_id)]` is a single slot
+that either call's progress callback can overwrite, and letting both race could misfire the
+shared `useSharedTaskWatcher`'s completion detection for whichever track is still working.
+Within EACH track, multiple cards still fire as one truly parallel `asset_ids=a,b,c` call —
+that's what this chunk asked for. A real cross-track proof (queue a redraw AND a clip batch
+at the same time and confirm they run back-to-back, not concurrently, without either one's
+state going stale) is in the live-browser list below.
+
+**What IS verified — a documented code trace:**
+
+- *N redraw clicks → one `asset_ids` call.* `redrawOne` (use-clip-trust-ladder.ts, added
+  after `animateOne`) never dials the network — it only adds the id to `pendingRedrawRef`
+  (a plain `Set<string>`, no `force` field needed) and (re)arms `redrawFlushTimerRef` via
+  `setTimeout(..., CLIP_BATCH_DEBOUNCE_MS)`, same 500ms/2000ms-cap shape as clip. When it
+  fires, `dispatchPendingRedraws` builds ONE params object:
+  `const params = ids.length > 1 ? { asset_ids: ids.join(",") } : { asset_id: ids[0] };`
+  then `void startRedrawTask(params, ids)` — one `runPipelineStage(videoId, "redraw-image",
+  params)` → one `fetch` call, regardless of how many cards were clicked inside the window.
+- *The old blocking gate is gone from the per-card path.* The PRE-C3 `redrawOne` (removed;
+  see git history) opened with
+  `if (running) { toast.info(...); return; }` before ever calling the backend — that
+  early-return is GONE from the new `redrawOne`. The only remaining `running`/`runningRef`
+  check on the redraw path lives inside `dispatchPendingRedraws`
+  (`if (runningRef.current || dispatchInFlightRef.current) return;`) and — exactly like
+  clip's — it does NOT toast or error, it just leaves the batch queued (`isRedrawQueued`)
+  for the running→idle effect to retry once the slot frees. `startRedrawTask` still carries
+  a `runningRef.current` guard + toast, but that path is unreachable from the coalesced
+  per-card click (the caller already checked the same ref synchronously); it exists only in
+  case a future direct caller (mirroring `animateScene`/`animateAll`'s relationship to
+  `startClipTask`) ever calls `startRedrawTask` without going through the queue — none does
+  today.
+- *Singular `asset_id=` still works for a lone click.* `dispatchPendingRedraws`'s
+  `ids.length > 1 ? {asset_ids: ...} : {asset_id: ids[0]}` branch is byte-identical in
+  shape to the PRE-C3 single-target call (`{ asset_id: asset.id }`) for the `ids.length ===
+  1` case — a lone Redraw tap still produces
+  `POST /api/pipeline/redraw-image/{video_id}?asset_id=<id>`, exactly the route's
+  documented "single-target passthrough" path (`routes/pipeline.py`'s
+  `run_redraw_image`/`_normalize_manual_redraw_ids`, confirmed by reading the route: `asset_id
+  = redraw one card (unchanged single-target path)`).
+- *queued → running → done/failed, mutually exclusive.* SegmentCard's overlay order
+  (ScenesWorkspaceTab.tsx, the "State overlays" block) now checks, in order: `(isQueued ||
+  isRedrawQueued) && !isGenerating && !isRecropping && !isRedrawing` (Clock, dimmed) →
+  `(isGenerating || isRecropping || isRedrawing)` (spinner, label swaps on which) →
+  `isFailed && !isGenerating` (clip's red "Try again") → `isRedrawFailed && !isFailed &&
+  !isGenerating && !isRecropping && !isRedrawing` (redraw's own red "Redraw failed — try
+  again", with its OWN `onClick={(e) => {e.stopPropagation(); onRedraw();}}` — deliberately
+  NOT folded into the clip overlay, since clicking through to the card's `onTap` would
+  wrongly trigger a clip animate instead of a redraw retry for a redrawn-but-failed
+  picture). `isRedrawQueued`/`isRedrawing`/`isRedrawFailed` are set/cleared by
+  `dispatchPendingRedraws` (clears queued before dispatch), `startRedrawTask` (sets
+  generating before the call, clears on failure), and ScenesWorkspaceTab's `onComplete`/
+  `onFailed` (clear generating, conditionally add to failed) — same lifecycle shape as
+  clip's three states, verified by reading each setter's call site.
+- *Partial-failure reconcile, via message parsing (NOT a DB diff — see why below).*
+  `redraw_asset_images` (coverage_to_app.py) reports overall `status: "completed" if
+  redrawn or not failed else "failed"` — same partial-failure gap C2 found for clips. Unlike
+  clip, redraw has no field like `video_clip_url` to diff a before/after fetch against — the
+  storage path is deterministic (`_stable_url` overwrites the same
+  `{video_id}/coverage/S{scene}_i{index}.png` path every time), so `image_url` stays
+  byte-identical whether the redraw succeeded or not, and `GET /{video_id}/assets` doesn't
+  select `updated_at` (confirmed by reading `routes/videos.py::get_video_assets`'s SQL).
+  Instead, ScenesWorkspaceTab's `onComplete(message)` now parses the completion message
+  redraw_asset_images itself builds — `errors.append(f"S{r['scene']}.{r['image_index']}:
+  {e}")` per failed picture, joined into the batch's message — via
+  `message.matchAll(/S(\d+)\.(\d+):/g)`, and matches the extracted (scene, image_index)
+  pairs against `finishedRedrawIds`' underlying assets (looked up in the already-fetched
+  `assets` array) to mark exactly those ids failed. Known, accepted gap: the backend
+  truncates that message at 400 chars (`errors[:400]`... `'; '.join(errors)[:400]`), so a
+  batch with enough failures could omit a later label — that card would then silently read
+  as succeeded. `onFailed` (overall-failure case, no partial parsing needed since `redrawn
+  === 0` there) marks every dispatched id failed directly.
+- *Cross-track guard closes a real synchronous race.* Before `dispatchInFlightRef` was
+  added, the running→idle effect could call `dispatchPendingClips()` then
+  `dispatchPendingRedraws()` in the SAME synchronous tick — `startClipTask`/`startRedrawTask`
+  don't call `markStarted()` (which is what flips `running`/`runningRef`) until AFTER their
+  `await runPipelineStage(...)` resolves, so `runningRef.current` is still `false` for the
+  whole synchronous portion of the first dispatch, meaning the second dispatch's own
+  `if (runningRef.current) return;` check would NOT have caught it — both could have fired
+  concurrently. `dispatchInFlightRef.current = true` is now set synchronously (before the
+  `await`), read by BOTH dispatch functions, and reset in a `finally` inside `start*Task`
+  once the call settles — confirmed by reading the exact sequencing (no test framework
+  available to exercise the timing directly; this is a static trace of the code, not a
+  run).
+
+**What is NOT verified (needs a live browser + real video + prod deploy — do NOT deploy
+from this chunk):**
+
+- [ ] **Redraw coalescing, visually, in the real UI.** Recipe: `se deploy` this branch
+      (after review — this chunk does not deploy), open a video with 3+ drawn pictures in
+      the Scenes tab, open Chrome DevTools → Network, expand 3 different cards' "Image
+      prompt" accordions and click "Redraw picture" on each within ~1s (or edit the prompt
+      text first — the save-then-redraw path via the same button). Expected: exactly ONE
+      `POST /api/pipeline/redraw-image/{video_id}?asset_ids=<A>,<B>,<C>` — NOT three
+      separate requests. Each card's picture should show "Queued…" (both the full-card
+      overlay and the button label) for under a second, then the spinner ("Redrawing…"),
+      then either the fresh picture or (if it genuinely fails) the red overlay/button
+      reading "Redraw failed — try again".
+- [ ] **Singular click still fires solo.** Redraw exactly ONE card with nothing else
+      queued; confirm the request is `?asset_id=<id>` (not `asset_ids=`) in the Network
+      tab, matching the pre-C3 shape exactly.
+- [ ] **Partial-failure reconcile, live.** Force one card in a multi-card redraw batch to
+      fail (e.g. temporarily blank its image_prompt server-side, or pick a scene/index
+      combo likely to trip a content-policy rejection) mixed with a normal card in the same
+      click-batch, and confirm ONLY the failing card gets "Redraw failed — try again" while
+      the other card shows its fresh picture — this is the message-parsing reconcile in
+      ScenesWorkspaceTab's `onComplete`. Watch the Network tab's `/api/pipeline/task/{id}`
+      poll responses for the completion message and manually confirm it contains
+      `S<scene>.<index>:` for the failing card.
+- [ ] **Redraw retry click calls the RIGHT action.** With a card in the `isRedrawFailed`
+      state, click anywhere on the red overlay (not just the button) and confirm the
+      Network tab shows a NEW `redraw-image` call for that asset — NOT a `clip` call. This
+      is the overlay's own `stopPropagation` + direct `onRedraw()` call, added specifically
+      because falling through to the card's `onTap` would have called `animateOne` instead
+      (wrong action) for a redraw failure.
+- [ ] **Cross-track serialization, live.** Queue a redraw batch (2+ cards) AND a clip batch
+      (2+ different cards) as close together as possible (e.g. two browser tabs, or very
+      fast alternating clicks). Expected: only ONE of the two batches' network calls fires
+      first; the other stays queued (`isQueued`/`isRedrawQueued` showing on its cards) until
+      the first batch's task-status poll reports done, at which point the running→idle
+      effect fires the second batch. Neither should ever show 0% progress forever or get
+      silently dropped. This is the `dispatchInFlightRef` behavior described above —
+      unverified live because it requires precise timing a sandbox can't reproduce without
+      a real network round-trip.
+- [ ] **Live cost counter, actually climbing.** Recipe: open a video's Scenes tab with the
+      header visible, note the "Est. → Actual" `CostLedgerChip` reading, kick off a
+      multi-card clip or redraw batch, and watch the "Actual" number over the next
+      10-15 seconds. Expected: it climbs incrementally (not just once at the very end of
+      the whole batch) — each individual clip/redraw that lands calls
+      `record_ledger_entry`, which bumps `videos.total_cost` immediately
+      (`routes/videos.py`'s `/ledger` endpoint docstring), and `onProgress`'s new
+      `invalidateQueries({queryKey: ["video", video.id]})` (added this chunk) refetches
+      that number on the same ~3s task-poll tick the asset thumbnails already refresh on —
+      so it should visibly tick up more than once per batch, not just jump at the end.
+      Compare against the ledger drawer (click the chip) to confirm the per-stage
+      breakdown matches.
+- [ ] **No test framework installed (same note as C2).** `frontend/package.json` has no
+      jest/vitest/RTL — a unit test for `dispatchPendingRedraws`'s coalescing, the
+      cross-track `dispatchInFlightRef` race, and the message-parsing reconcile would be
+      the natural first candidates if a harness is ever added (all three are pure,
+      ref/state-driven logic with no DOM dependency).
