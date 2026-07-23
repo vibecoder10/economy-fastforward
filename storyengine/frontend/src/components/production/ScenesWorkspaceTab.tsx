@@ -20,7 +20,7 @@ import {
   Check, Loader2, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
   MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, MapPin, Volume2, LayoutGrid, Download, Ratio,
-  Camera,
+  Camera, Clock,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -679,10 +679,35 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       }
       chainRef.current = null;
       setGeneratingScene(null);
+      // C2: a multi-card clip batch reports overall "completed" the instant
+      // ONE clip in it succeeds (pipeline_executor.run_clip_generation's
+      // status is only "failed" when NOTHING in the batch made it) — so a
+      // partial failure inside a coalesced asset_ids run would otherwise
+      // vanish silently instead of showing "Try again". Snapshot the ids
+      // this run covered, clear the normal way, then reconcile against a
+      // fresh fetch: anything still without a clip gets marked failed.
+      // Best-effort — a failed reconciliation fetch just skips the check,
+      // never blocks the happy path.
+      const finishedClipIds = generatingClipIds;
       setGeneratingClipIds(new Set());
       setConfirmKey(null);
       setRecropping(null);
       refreshAll();
+      if (finishedClipIds.size > 0) {
+        try {
+          const fresh = await getVideoAssets(video.id);
+          const stillMissing = new Set<string>();
+          finishedClipIds.forEach((id) => {
+            const a = fresh.find((x) => x.id === id);
+            if (a && !a.video_clip_url) stillMissing.add(id);
+          });
+          if (stillMissing.size > 0) {
+            setFailedClipIds((prev) => new Set([...prev, ...stillMissing]));
+          }
+        } catch {
+          // best-effort only — the next tap on a genuinely-missing card retries it anyway
+        }
+      }
     },
     onFailed: (error) => {
       chainRef.current = null;
@@ -707,6 +732,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const {
     generatingClipIds, setGeneratingClipIds,
     failedClipIds, setFailedClipIds,
+    queuedClipIds,
     confirmKey, setConfirmKey,
     animateOne, animateScene, animateAll,
     confirmable, cancelResume,
@@ -1999,6 +2025,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     isGenerating={generatingClipIds.has(asset.id) && running}
                     isRecropping={recropping === asset.id && running}
                     isFailed={failedClipIds.has(asset.id)}
+                    // C2: queued from a per-card click, not yet dispatched (still inside
+                    // the debounce window or waiting on an in-flight batch to free up).
+                    // Independent of `running` — a card can be queued whether or not
+                    // anything else is currently in flight.
+                    isQueued={queuedClipIds.has(asset.id)}
                     isPlaying={playingId === asset.id}
                     disabled={running}
                     videoDefaultModel={model}
@@ -2265,7 +2296,7 @@ function BoardLightbox({ items, index, onNavigate, onClose }: {
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.09). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset }: {
+function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isQueued, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -2274,6 +2305,9 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
   isGenerating: boolean;
   isRecropping: boolean;
   isFailed: boolean;
+  /** C2: clicked but not yet dispatched — still inside the coalescing
+   * debounce, or waiting for an in-flight batch to free up. */
+  isQueued: boolean;
   isPlaying: boolean;
   disabled: boolean;
   /** The video's own resolved clip model — the badge's last-resort fallback
@@ -2379,7 +2413,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
               alt={label}
               loading="lazy"
               className="absolute inset-0 w-full h-full object-cover"
-              style={{ opacity: isGenerating || isRecropping ? 0.4 : 0.85 }}
+              style={{ opacity: isGenerating || isRecropping ? 0.4 : isQueued ? 0.6 : 0.85 }}
             />
           )
         )}
@@ -2417,6 +2451,15 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
         )}
 
         {/* State overlays */}
+        {/* C2: queued — clicked but the coalescing debounce hasn't fired yet, or
+            waiting on another in-flight batch to free up. No spinner (nothing's
+            actually running for this card yet), just a held state. */}
+        {isQueued && !isGenerating && !isRecropping && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2" style={{ background: "rgba(0,0,0,0.25)" }}>
+            <Clock size={20} style={{ color: "var(--text-secondary)" }} />
+            <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>Queued…</span>
+          </div>
+        )}
         {(isGenerating || isRecropping) && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2">
             <Loader2 size={22} className="animate-spin" style={{ color: "var(--purple)" }} />
@@ -2433,7 +2476,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
             </span>
           </div>
         )}
-        {canAnimate && !hasClip && !isGenerating && !isRecropping && !isFailed && (
+        {canAnimate && !hasClip && !isGenerating && !isRecropping && !isFailed && !isQueued && (
           <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ background: "rgba(0,0,0,0.45)" }}>
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"

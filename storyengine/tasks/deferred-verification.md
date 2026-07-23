@@ -72,3 +72,115 @@ sandbox (no live DB, no live Kie/Grok API, no prod).
       — this only affects what the polling UI displays mid-run. Worth a look when the
       frontend chunk (fires several manual requests) lands, if the UI needs a truthful
       "N of M cards animating" indicator rather than one shared pill.
+      **C2 note:** the frontend chunk below deliberately sidesteps this for its OWN
+      dispatches — it coalesces into one call and never fires a second overlapping call
+      from the same tab (queues instead, see below) — but the pill-multiplexing risk
+      above still applies if a SECOND tab or an agent fires a manual run at the same time.
+      Flagged again in C2's own list below.
+
+# Deferred verification — C2 frontend per-card coalescing (feat/per-card-parallel-clips)
+
+Frontend chunk: `frontend/src/hooks/use-clip-trust-ladder.ts` (`animateOne`,
+`dispatchPendingClips`, `pendingClipRef`, `queuedClipIds`) + the SegmentCard wiring in
+`frontend/src/components/production/ScenesWorkspaceTab.tsx`. Per-card Run/Re-run now
+queues into a Map, debounces ~500ms (capped at 2000ms of continuous clicking), and fires
+ONE `POST /api/pipeline/clip/{video_id}?asset_ids=a,b,c` (or the original singular
+`asset_id=` for a lone click) instead of blocking a second click while the first is in
+flight. `npx tsc --noEmit` and `npm run build` both pass clean (see PR/commit for output).
+No live backend, DB, or paid API was reachable in this sandbox — everything below needs a
+real browser against a real video.
+
+**What IS verified — a documented code trace (no test framework installed; see note at
+bottom on why one wasn't added):**
+
+- *N clicks → one call.* `animateOne` (use-clip-trust-ladder.ts ~176-194) never dials the
+  network itself — it only mutates `pendingClipRef` (a plain `Map<id, force>`) and
+  (re)arms `clipFlushTimerRef` via `setTimeout(..., CLIP_BATCH_DEBOUNCE_MS)`. Every
+  additional click inside that window clears and re-arms the SAME timer
+  (`if (clipFlushTimerRef.current) clearTimeout(...)`), so only the LAST click's timer
+  ever fires. When it does, `dispatchPendingClips` (~149-170) drains the whole Map in one
+  shot: `Array.from(pendingClipRef.current.entries())`, builds one `params` object —
+  `asset_ids: ids.join(",")` for 2+, plain `asset_id: ids[0]` for exactly one — and makes
+  exactly one `startClipTask` → `runPipelineStage` → one `fetch` call. Clicking 3 cards
+  180ms apart produces 1 network call with 3 ids; clicking 1 card produces 1 call with the
+  original singular shape.
+- *queued → running → done/failed.* `queuedClipIds` (state, mirrors `pendingClipRef`'s
+  keys) is set the instant a card is clicked (~180) and cleared the instant a batch is
+  actually dispatched (~159, inside `dispatchPendingClips`, BEFORE the network call) —
+  so a card is "queued" from click until dispatch, then `generatingClipIds` takes over
+  (set inside `startClipTask` right before `runPipelineStage`, ~127) — so "running" from
+  dispatch until the shared task-status poll reports completed/failed. SegmentCard
+  (ScenesWorkspaceTab.tsx ~2018-2049) renders `isQueued` (Clock icon, dimmed picture, no
+  spinner) strictly before `isGenerating` (spinner) strictly before `isFailed` (red "Try
+  again") — the three are mutually exclusive by construction (dispatchPendingClips clears
+  queued before generatingClipIds is set; onFailed/the C2 reconciliation below only ever
+  add to failedClipIds AFTER generatingClipIds is cleared).
+- *Never blocked.* The old `if (running) { toast.info(...); return; }` gate that lived at
+  the top of `startClipTask` is GONE from the per-card path — `animateOne` has no `running`
+  check at all now; only `dispatchPendingClips` checks `runningRef.current`, and if true it
+  just leaves the batch queued (no toast, no error) for the running→idle effect (~237-252)
+  to retry. `animateScene`/`animateAll` are untouched and still show that toast (by design
+  — out of scope, see the C2 task brief).
+- *Follow-up batch on free.* The running→idle `useEffect` (~237-252) now has two branches:
+  resume-loop (unchanged, "Animate the rest") OR, if that's not active,
+  `pendingClipRef.current.size > 0` → `dispatchPendingClips()`. So clicking cards WHILE a
+  build is running (or while a previous per-card batch is still in flight) queues them
+  silently and they fire the instant the task-status poll observes the slot go idle.
+- *Stale-closure fix (found during self-review, fixed before commit):* `startClipTask`'s
+  own busy-check originally read the closed-over `running` state, which would have been
+  the value from the render that scheduled the `setTimeout`, not "now" — the debounce
+  callback fires outside React's render cycle. Fixed by reading `runningRef.current`
+  (updated synchronously every render) in both `dispatchPendingClips` and `startClipTask`,
+  so the two checks can never disagree. Left as an inline comment at both call sites.
+
+**What is NOT verified (needs a live browser + real video + prod deploy — do NOT deploy
+from this chunk):**
+
+- [ ] **Coalescing, visually, in the real UI.** Recipe: `se deploy` this branch's frontend
+      (after C2 is merged/reviewed — this chunk does not deploy), open a video with 3+
+      un-clipped final pictures in the Scenes tab, open Chrome DevTools → Network, tap
+      Run on card A then Re-run/Run on cards B and C within ~1s. Expected: exactly ONE
+      `POST /api/pipeline/clip/{video_id}?asset_ids=<A>,<B>,<C>` (or `&force=true` if any
+      of B/C already had a clip) — NOT three separate requests. Each of A/B/C should show
+      the Clock "Queued…" overlay for well under a second, then the spinner, then either
+      the clip or (if it genuinely fails) the red "Try again" overlay.
+- [ ] **Partial-failure reconciliation, live.** Force one card in a multi-card batch to
+      fail (e.g. a motion-gate-blocked shot with no video_prompt mixed into the same
+      click-batch as a normal card) and confirm the failing card gets the red "Try again"
+      overlay even though the OTHER card(s) in the same batch succeeded — this is the new
+      `onComplete` reconciliation in ScenesWorkspaceTab.tsx (fetches fresh assets after a
+      batch completes, marks any id from that batch still missing `video_clip_url` as
+      failed) since a mixed-result batch reports overall `status: "completed"` from the
+      backend (`pipeline_executor.run_clip_generation`: "completed" whenever `done > 0`,
+      never per-asset). Watch for a Network tab GET to `/api/assets` (or whatever
+      `getVideoAssets` hits) firing right after the batch's terminal poll.
+- [ ] **"Animate this scene" / "Animate the rest" still work unchanged.** Both were left
+      untouched code-wise (still call `startClipTask` directly, still toast+block on
+      `running`) — confirm this in the live UI: tap "Animate this scene" while nothing else
+      is running (should proceed immediately, unchanged), then tap it again immediately
+      after tapping a per-card Run elsewhere (should show the existing "Hang on — still
+      working" toast, unchanged behavior, since scene/all deliberately were NOT moved onto
+      the queue).
+- [ ] **Cross-tab / cross-agent overlap.** This chunk only serializes ITS OWN dispatches
+      (one call in flight per browser tab at a time — see the transition-effect retry
+      above). If a SECOND tab, or an agent via the MCP `animate` tool, fires a manual clip
+      run on the same video while this tab has one in flight, the shared single-slot
+      task-status pill (flagged in C1's own deferred list above) can still show a
+      misleading "done" while the other tab's run is still going. Not a spend/safety bug
+      (clip_asset_claims still protects against double-animating an asset) — just a
+      cosmetic multiplexing gap C1 already flagged and C2 doesn't fix. Worth a real
+      two-tabs-on-one-video test in C4 if that's a workflow anyone actually uses.
+- [ ] **Debounce/max-wait timing feel.** CLIP_BATCH_DEBOUNCE_MS=500,
+      CLIP_BATCH_MAX_WAIT_MS=2000 (use-clip-trust-ladder.ts) are reasoned defaults, not
+      user-tested — confirm 500ms feels responsive (not laggy) for a single-card tap
+      (worst case: one click waits 500ms before its own spinner appears, vs. instant
+      before C2) and that editing+re-running several cards in a realistic pace (a few
+      seconds apart while reading/typing) still coalesces as intended rather than firing
+      one request per card.
+- [ ] **No test framework installed.** `frontend/package.json` has no jest/vitest/RTL —
+      "test" is Playwright (e2e only, needs a live server). Adding one is a real dependency
+      change (blocked by the "ask before installing packages" rule this session runs
+      under) so C2 shipped a documented trace instead of a unit test, per the C2 brief's
+      explicit "test OR trace" option. If a unit-test harness is ever added to this repo,
+      `dispatchPendingClips`/`animateOne`'s debounce-and-coalesce logic (pure, ref-driven,
+      no DOM) would be a clean first candidate to cover.
