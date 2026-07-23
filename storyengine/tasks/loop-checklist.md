@@ -6,12 +6,14 @@
 3. Ken Burns movement alternates a slow push-in and slow pull-out, eased smoothly across the full image hold: no lateral wandering, looping “breathing” wobble, early finish, freeze, or direction reversal.
 4. The change is isolated to the `static_docu` channel style, preserves old one-image DvsU projects, and keeps the fail-closed verified-reference/QA laws intact.
 5. No paid research, image, voice, clip, or render-provider calls are made in this loop. Local no-spend tests plus a synthetic multi-image render prove the user-visible result; production deployment and paid regeneration remain explicit later gates.
+6. The verified branch is deployed through the normal StoryEngine production path, the live backend health check passes, and the production frontend serves the new build without triggering a paid pipeline run.
 
 ## Assumptions
 - Anton’s four numbered notes are the acceptance standard; no additional design decision is needed before implementation.
 - New units target three images and require at least two successful views. Existing one-image units remain renderable until Ryan chooses to regenerate them.
 - The canonical DvsU image law under `/Users/ryanayler/Desktop/Designed vs used/` remains authoritative for variant accuracy, verified references, photorealism, and clean source images.
 - Work stays on isolated branch `codex/anton-dvsu-feedback`; no deploy, push, database mutation, or paid pipeline run is authorized.
+- Ryan subsequently authorized production deployment on 2026-07-23. This authorizes the normal deploy/restart/smoke path only; it does not authorize a paid research, image, voice, clip, render, or YouTube run.
 
 ## Chunks
 - [x] C0 SWEEP [D][B][U][V] Trace Anton’s current static-documentary path from subject metadata through image generation, picture review, render config, Remotion composition, and motion math.
@@ -34,6 +36,9 @@
 - [x] C4 FINAL SWEEP [V] Re-grade all five Definition-of-Complete criteria from a first-time operator/viewer path.
       Run focused suites, full relevant backend baseline, Remotion and frontend builds, inspect git diff/blast radius, record any paid/live proof as deferred, and give an explicit Complete/Partial verdict.
       Evidence: all five criteria pass within the authorized no-spend scope. The combined static-documentary/render regression suite passed 131/131; the frontend readiness suite passed 4/4; Python compilation, frontend TypeScript, the full Next production build, and the Remotion bundle all passed. The synthetic 240-frame MP4 proves the three-view timing, continuous title card, and smooth alternating motion without provider calls. Final blast radius is 23 files, isolated to the static-documentary contract, renderer, Remotion overlay/motion, operator UI, tests, and Maestro state. Verdict: **Complete** for code and no-spend verification; the explicitly deferred production redraw/render remains a later paid/deploy approval gate, not hidden unfinished work.
+- [ ] C5 DEPLOY [O][V] Publish the verified branch through the standard StoryEngine deployment path.
+      [O] Deploy backend and frontend with the repository deployment wrapper; do not invoke any pipeline generation or upload action.
+      [V] Confirm the deploy command completes, the live backend health endpoint returns healthy, the production frontend responds, and the deployed checkout identifies the expected commit.
 
 ## Lessons
 - The prior “clean frames” toggle directly contradicted Anton’s launch feedback and the desktop DvsU on-screen-text standard; title metadata belongs in a fixed assembly overlay, not in the generated picture.
