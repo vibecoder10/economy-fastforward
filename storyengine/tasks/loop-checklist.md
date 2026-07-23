@@ -67,9 +67,17 @@ loop. Keeps the global cost/rate cap; never double-animates an asset; full-scene
       jest/vitest in repo -> documented trace (see deferred-verification.md). Live
       proof = C4. Backend asset-claim (C1) is the double-spend safety net regardless
       of FE behavior.
-- [ ] C3 (S) [U][V] — Frontend: same instant-parallel treatment for per-card image
-      redraw + a live cost counter on the page (video.total_cost / ledger delta,
-      updates on each completion).
+- [x] C3 (S) [U][V] — Frontend: same instant-parallel treatment for per-card image
+      redraw + a live cost counter. DONE @ commit 7dc6f00c on feat/per-card-parallel-clips.
+      redrawOne/dispatchPendingRedraws mirror C2's clip coalescing (Map + 500ms debounce
+      -> ONE asset_ids= call for 2+, singular asset_id= for 1); old if(running) redraw
+      gate removed. Cost counter reused existing CostLedgerChip (video.total_cost already
+      exposed) + onProgress now invalidates ["video", id] so it climbs on the ~3s task
+      tick — NO backend gap. Found+fixed a cross-track dispatch race (shared
+      dispatchInFlightRef). Cross-track serialization is a deliberate FE choice — backend
+      _is_task_active permits clip_manual+redraw_manual to overlap (each blocks only on
+      "main"); within each track cards fully parallelize. tsc clean, build 34 routes.
+      Live proof -> C4.
 - [ ] C4 (V, S Explore) — E2E: se devtoken + local dev vs prod API, drive UI:
       click 4-5 clip cards + 1-2 redraws, prove parallel run + cost counter climbs +
       no double-run + full-build exclusion; screenshots. THEN gated prod deploy —
