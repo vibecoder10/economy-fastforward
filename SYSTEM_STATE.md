@@ -11410,3 +11410,36 @@ control writes without losing the video, approval, or confirmation.
   windows: an uploaded file can be found and checkpointed without a second
   upload, and a checkpointed artifact can complete its child/parent operation
   without a second provider query or Drive write.
+
+# M2-4B2c Custom Film imagery, motion, and camera runner (2026-07-23)
+
+- The operation-aware Custom Film runner now handles the full ordered section
+  schedule: script, voice, pictures, motion, clips, then quality. Its immutable
+  request hash includes render mode, structural visual profile, image density
+  and source, animation, camera grammar, exact integer seconds, estimated
+  media, stable assignments, and the previously wired writing/audio/quality
+  values. Unsupported or tampered static/animated combinations stop before a
+  shared production seam is called.
+- Pictures route by resolved dimension to the existing static-documentary
+  three-view generator or the existing coverage generator. The shared static
+  seam validates per-item density, three complementary views, generated-image
+  source, Ken Burns-only animation, and exact section seconds. Coverage receives
+  the section's own visual profile and density snapshot; the camera engine
+  receives dialogue versus investigative coverage explicitly, with the
+  investigative grammar retaining up to three earned moves instead of
+  collapsing to the video-wide default.
+- Animated sections alone receive motion and clip stages. The shared motion
+  writer and clip generator receive the approved camera grammar and exact
+  section seconds; static sections never schedule these stages. Quality remains
+  the final ordered section stage, so imagery/motion artifacts exist before the
+  approved laws are evaluated.
+- Pictures, motion, and clips use deterministic per-scene child journal
+  operations and stable database asset IDs. Recovery returns completed child
+  results or checkpoints already durable image/prompt/clip artifacts before
+  any replay. The existing multi-provider image/clip wrappers do not expose one
+  safely queryable task for the whole scene, so their child operations declare
+  opaque reconciliation and fail closed if no durable checkpoint exists;
+  automatic retry is never used to guess across a possible BYOK spend.
+- All new shared-function parameters are optional. Legacy video-wide static,
+  coverage, camera, motion, and clip callers retain their previous inputs and
+  behavior.

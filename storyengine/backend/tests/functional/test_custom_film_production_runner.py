@@ -28,6 +28,7 @@ def _adapter(
     language_mode: str = "narrator",
     dialogue_audio: str = "voice_over",
     dubbing: bool = False,
+    static: bool = False,
 ) -> SectionStageAdapter:
     return SectionStageAdapter(
         runtime_hash="a" * 64,
@@ -43,17 +44,24 @@ def _adapter(
             if section_id == "section-a"
             else "Explain why the mechanism matters"
         ),
-        render_mode="coverage",
+        render_mode="static_docu" if static else "coverage",
         script_profile=profile,
         visual_profile="neutral_v1",
         dialogue_audio=dialogue_audio,
-        image_density={"mode": "visual_cue", "target_per_minute": 8},
+        image_density=(
+            {"mode": "per_item", "target": 3, "minimum": 2}
+            if static
+            else {"mode": "visual_cue", "target_per_minute": 8}
+        ),
         language={"mode": language_mode},
         dubbing={
             "enabled": dubbing,
             "mode": "speech_to_speech" if dubbing else "none",
         },
-        animation={"enabled": True, "mode": "grok_native"},
+        animation={
+            "enabled": not static,
+            "mode": "ken_burns" if static else "grok_native",
+        },
         segmentation={
             "mode": (
                 "speaker_turn"
@@ -61,7 +69,13 @@ def _adapter(
                 else "visual_cue"
             )
         },
-        camera={"mode": "investigative_coverage"},
+        camera={
+            "mode": (
+                "three_complementary_views"
+                if static
+                else "investigative_coverage"
+            )
+        },
         quality_laws=(
             "source_grounding",
             "visual_cue_fidelity",
@@ -113,6 +127,13 @@ class _FakeSeams:
         }
         if request.stage == "script":
             result["scene_ids"] = [f"{request.section_id}-scene"]
+        if request.stage in {"pictures", "motion", "clips"}:
+            result["artifacts"] = [
+                {
+                    "artifact_id": f"{request.stage}:{request.scene_ids[0]}",
+                    "artifact_url": f"fake://{request.stage}/{request.scene_ids[0]}",
+                }
+            ]
         return production.SectionProductionResult(
             result,
             task_id,
@@ -123,6 +144,13 @@ class _FakeSeams:
         result = {"reconciled": True}
         if request.stage == "script":
             result["scene_ids"] = [f"{request.section_id}-scene"]
+        if request.stage in {"pictures", "motion", "clips"}:
+            result["artifacts"] = [
+                {
+                    "artifact_id": f"{request.stage}:{request.scene_ids[0]}",
+                    "artifact_url": f"fake://{request.stage}/{request.scene_ids[0]}",
+                }
+            ]
         return production.SectionProductionResult(result, provider_operation_id)
 
     async def checkpoint(self, request):
@@ -606,12 +634,12 @@ async def test_missing_duplicate_or_unsupported_assignment_stops_before_seam():
             ("scene-1", "scene-1"),
             "custom-film-op:" + "8" * 64,
         )
-    with pytest.raises(CustomFilmContractError, match="next runtime chunk"):
-        runner.operation_spec(
-            _adapter("pictures"),
-            ("scene-1",),
-            "custom-film-op:" + "9" * 64,
-        )
+    picture_spec = runner.operation_spec(
+        _adapter("pictures"),
+        ("scene-1",),
+        "custom-film-op:" + "9" * 64,
+    )
+    assert picture_spec.provider == "storyengine-section-pictures"
     invalid_combo = _adapter(
         "voice",
         dialogue_audio="grok_native",
@@ -1111,3 +1139,220 @@ async def test_kie_voice_exposes_real_task_id_before_polling_without_network(
         "poll",
         "download",
     ]
+
+
+def test_visual_request_carries_exact_static_and_animated_contracts():
+    static = production._request(
+        _adapter("pictures", seconds=17, static=True),
+        ("static-scene",),
+        "custom-film-op:" + "1" * 64,
+    )
+    animated = production._request(
+        _adapter("clips", seconds=29),
+        ("animated-scene",),
+        "custom-film-op:" + "2" * 64,
+    )
+    assert static.render_mode == "static_docu"
+    assert static.visual_profile == "neutral_v1"
+    assert static.image_density == {
+        "mode": "per_item",
+        "target": 3,
+        "minimum": 2,
+    }
+    assert static.animation == {"enabled": False, "mode": "ken_burns"}
+    assert static.camera == {"mode": "three_complementary_views"}
+    assert static.exact_seconds == 17
+    assert animated.render_mode == "coverage"
+    assert animated.image_density["mode"] == "visual_cue"
+    assert animated.animation == {"enabled": True, "mode": "grok_native"}
+    assert animated.camera == {"mode": "investigative_coverage"}
+    assert animated.exact_seconds == 29
+
+
+def test_visual_request_rejects_tampered_static_motion_before_seam():
+    adapter = _adapter("motion", static=True)
+    with pytest.raises(
+        CustomFilmContractError,
+        match="Static Custom Film sections cannot schedule",
+    ):
+        production._request(
+            adapter,
+            ("scene-1",),
+            "custom-film-op:" + "3" * 64,
+        )
+    tampered = copy.copy(_adapter("pictures"))
+    object.__setattr__(tampered, "camera", {"mode": "three_complementary_views"})
+    with pytest.raises(
+        CustomFilmContractError,
+        match="Unsupported Custom Film imagery",
+    ):
+        production._request(
+            tampered,
+            ("scene-1",),
+            "custom-film-op:" + "4" * 64,
+        )
+
+
+@pytest.mark.asyncio
+async def test_media_children_record_tasks_and_reconcile_without_duplicate():
+    adapter = _adapter("pictures", seconds=23)
+    parent_id = "custom-film-op:" + "5" * 64
+    journal = _FakeJournal()
+    journal.seed_parent(parent_id, adapter)
+    seams = _FakeSeams(
+        operations.RECONCILIATION_QUERY,
+        provider_task_id="image-task",
+        task_id_per_scene=True,
+        fail_after_submit_scene="scene-b",
+    )
+    runner = production.CustomFilmProductionRunner(
+        "tenant-1",
+        seams=seams,
+        journal=journal,
+    )
+    with pytest.raises(RuntimeError, match="synthetic crash"):
+        await runner(adapter, ("scene-a", "scene-b"), parent_id)
+    result = await runner(adapter, ("scene-a", "scene-b"), parent_id)
+    assert [item["scene_id"] for item in result["child_operations"]] == [
+        "scene-a",
+        "scene-b",
+    ]
+    assert [request.scene_ids for request in seams.requests] == [
+        ("scene-a",),
+        ("scene-b",),
+    ]
+    assert seams.queries[0][1] == "image-task:scene-b"
+    child_states = [
+        row.state
+        for operation_id, row in journal.rows.items()
+        if operation_id != parent_id
+    ]
+    assert child_states == ["completed", "completed"]
+
+
+@pytest.mark.asyncio
+async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
+    monkeypatch,
+):
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    captured = []
+
+    async def scene_number(_request):
+        return 7
+
+    async def checkpoint(request):
+        return {
+            "scene_ids": list(request.scene_ids),
+            "artifacts": [
+                {"artifact_id": "asset-1", "artifact_url": "fake://asset-1"}
+            ],
+        }
+
+    async def static_call(video_id, tenant_id, **kwargs):
+        captured.append(("static", video_id, tenant_id, kwargs))
+        return {"status": "completed"}
+
+    async def coverage_call(video_id, tenant_id, **kwargs):
+        captured.append(("coverage", video_id, tenant_id, kwargs))
+        return {"status": "completed"}
+
+    monkeypatch.setattr(seams, "_scene_number", scene_number)
+    monkeypatch.setattr(seams, "_media_artifact_checkpoint", checkpoint)
+    monkeypatch.setattr(
+        "static_docu.generate_static_images_for_video",
+        static_call,
+    )
+    monkeypatch.setattr(
+        "scripts.coverage_to_app.generate_coverage_for_video",
+        coverage_call,
+    )
+    static_request = production._request(
+        _adapter("pictures", seconds=17, static=True),
+        ("scene-static",),
+        "custom-film-op:" + "6" * 64,
+    )
+    animated_request = production._request(
+        _adapter("pictures", seconds=31),
+        ("scene-animated",),
+        "custom-film-op:" + "7" * 64,
+    )
+    await seams._pictures(static_request)
+    await seams._pictures(animated_request)
+    assert captured[0][3]["only_scenes"] == {7}
+    assert captured[0][3]["section_contract"]["camera"] == {
+        "mode": "three_complementary_views"
+    }
+    assert captured[0][3]["section_contract"]["exact_seconds"] == 17
+    assert captured[1][3]["section_contract"]["visual_profile"] == "neutral_v1"
+    assert captured[1][3]["section_contract"]["image_density"]["mode"] == (
+        "visual_cue"
+    )
+    assert captured[1][3]["section_contract"]["exact_seconds"] == 31
+
+
+@pytest.mark.asyncio
+async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
+    monkeypatch,
+):
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    motion_calls = []
+    clip_calls = []
+
+    class Executor:
+        def __init__(self):
+            self._pipeline = SimpleNamespace(anthropic=object())
+
+        async def _ensure_initialized(self):
+            return None
+
+        async def run_clip_generation(self, video_id, **kwargs):
+            clip_calls.append((video_id, kwargs))
+            return {"status": "completed"}
+
+    async def scene_number(_request):
+        return 4
+
+    async def checkpoint(request):
+        return {
+            "scene_ids": list(request.scene_ids),
+            "artifacts": [
+                {
+                    "artifact_id": f"{request.stage}-asset",
+                    "artifact_url": f"fake://{request.stage}-asset",
+                }
+            ],
+        }
+
+    async def write_motion(*args, **kwargs):
+        motion_calls.append((args, kwargs))
+        return 2
+
+    monkeypatch.setattr(seams, "_scene_number", scene_number)
+    monkeypatch.setattr(seams, "_media_artifact_checkpoint", checkpoint)
+    seams._executor = Executor()
+    monkeypatch.setattr(
+        "scripts.coverage_to_app._write_motion_prompts",
+        write_motion,
+    )
+    request_motion = production._request(
+        _adapter("motion", seconds=37),
+        ("scene-1",),
+        "custom-film-op:" + "8" * 64,
+    )
+    request_clips = production._request(
+        _adapter("clips", seconds=37),
+        ("scene-1",),
+        "custom-film-op:" + "9" * 64,
+    )
+    await seams._motion(request_motion)
+    await seams._clips(request_clips)
+    assert motion_calls[0][1]["section_contract"]["camera"] == {
+        "mode": "investigative_coverage"
+    }
+    assert motion_calls[0][1]["section_contract"]["exact_seconds"] == 37
+    assert clip_calls[0][1]["only_scenes"] == [4]
+    assert clip_calls[0][1]["section_contract"]["animation"] == {
+        "enabled": True,
+        "mode": "grok_native",
+    }
+    assert clip_calls[0][1]["section_contract"]["exact_seconds"] == 37

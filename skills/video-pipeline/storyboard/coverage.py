@@ -1457,8 +1457,12 @@ def _scene_move_budget() -> int:
     return n if n >= 0 else 1
 
 
-def plan_camera_moves(moments: list, render_style: str | None = None,
-                       video_model_id: str | None = None) -> int:
+def plan_camera_moves(
+    moments: list,
+    render_style: str | None = None,
+    video_model_id: str | None = None,
+    camera_mode: str | None = None,
+) -> int:
     """Plan a camera move per shot across a scene's coverage moments, in shot
     order (master then angles, moment by moment). Mutates the shot dicts:
     appends the move's image_setup to the drawing description and stamps
@@ -1507,6 +1511,13 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
               f"subdirectories itself — see coverage_to_app.py's sys.path setup).", flush=True)
         return 0
 
+    if camera_mode not in {
+        None,
+        "",
+        "dialogue_coverage",
+        "investigative_coverage",
+    }:
+        raise ValueError(f"Unsupported camera grammar: {camera_mode}")
     planned = 0
     prev_ids: list = []
     prev_keys: list = []
@@ -1582,7 +1593,11 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
         # PAYOFF-tier beat — the most climactic moment to spend the move
         # budget on), then earned shots in original shot order, until the
         # budget is filled; downgrade everything past that back to static.
-        budget = _scene_move_budget()
+        budget = (
+            max(_scene_move_budget(), 3)
+            if camera_mode == "investigative_coverage"
+            else _scene_move_budget()
+        )
         if len(earned) > budget:
             priority = sorted(
                 range(len(earned)),
@@ -1892,7 +1907,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        max_moments=3, angles_min=2, angles_max=4, max_frames=None,
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
                        board_urls=None, board_panel_total=None, model_override=None,
-                       render_style=None, video_model_id=None,
+                       render_style=None, video_model_id=None, camera_mode=None,
                        props=None, progress_callback=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
@@ -2088,7 +2103,12 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # Camera Movement Engine: decide each shot's move NOW, before drawing, so
     # the stills are composed for their moves (storytelling formats only —
     # this path IS the storytelling pipeline; data formats never reach it).
-    planned = plan_camera_moves(moments, render_style=render_style, video_model_id=video_model_id)
+    planned = plan_camera_moves(
+        moments,
+        render_style=render_style,
+        video_model_id=video_model_id,
+        camera_mode=camera_mode,
+    )
     if planned:
         print(f"  🎥 camera engine: {planned} shots planned with a move", flush=True)
 

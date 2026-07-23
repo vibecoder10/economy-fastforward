@@ -1,9 +1,9 @@
-"""Concrete Script/Voice/Quality production runner for Custom Film sections.
+"""Concrete section production runner for Custom Film sections.
 
 The runtime consumer owns Custom Film interpretation.  This module receives
 only resolved :class:`SectionStageAdapter` values and converts them into the
-existing shared script, narration, and script-quality seams.  Provider-facing
-code therefore never branches on a ``custom_film`` mode.
+existing shared script, narration, imagery, motion, clip, and quality seams.
+Provider-facing code therefore never branches on a ``custom_film`` mode.
 
 The seam object is injectable so tests can prove the exact request without
 calling a provider.  The default seam uses tenant-owned clients initialized by
@@ -32,10 +32,15 @@ import custom_film_provider_operations as provider_operations
 from custom_film_section_runtime import SectionStageAdapter
 
 
-SUPPORTED_PRODUCTION_STAGES = frozenset({"script", "voice", "quality"})
+SUPPORTED_PRODUCTION_STAGES = frozenset(
+    {"script", "voice", "pictures", "motion", "clips", "quality"}
+)
 _LOCAL_PROVIDER = "storyengine-local"
 _TEXT_PROVIDER = "tenant-text-generation"
 _VOICE_PROVIDER = "tenant-voice-generation"
+_IMAGE_PROVIDER = "tenant-image-generation"
+_MOTION_PROVIDER = "tenant-motion-planning"
+_CLIP_PROVIDER = "tenant-clip-generation"
 
 
 def _plain(value: Any) -> Any:
@@ -72,12 +77,19 @@ class SectionProductionRequest:
     role: str
     purpose: str
     scene_ids: tuple[str, ...]
+    render_mode: str
     script_profile: str
+    visual_profile: str
     dialogue_audio: str
+    image_density: Mapping[str, Any]
     language: Mapping[str, Any]
     dubbing: Mapping[str, Any]
+    animation: Mapping[str, Any]
     segmentation: Mapping[str, Any]
+    camera: Mapping[str, Any]
     quality_laws: tuple[str, ...]
+    image_source: str
+    estimated_media: Mapping[str, Any]
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -92,12 +104,19 @@ class SectionProductionRequest:
             "role": self.role,
             "purpose": self.purpose,
             "scene_ids": list(self.scene_ids),
+            "render_mode": self.render_mode,
             "script_profile": self.script_profile,
+            "visual_profile": self.visual_profile,
             "dialogue_audio": self.dialogue_audio,
+            "image_density": _plain(self.image_density),
             "language": _plain(self.language),
             "dubbing": _plain(self.dubbing),
+            "animation": _plain(self.animation),
             "segmentation": _plain(self.segmentation),
+            "camera": _plain(self.camera),
             "quality_laws": list(self.quality_laws),
+            "image_source": self.image_source,
+            "estimated_media": _plain(self.estimated_media),
         }
 
 
@@ -147,10 +166,44 @@ def _request(
         raise CustomFilmContractError(
             "Custom Film section purpose is missing; no provider work was started"
         )
-    if not adapter.script_profile.strip() or not adapter.quality_laws:
+    if (
+        not adapter.script_profile.strip()
+        or not adapter.visual_profile.strip()
+        or not adapter.quality_laws
+        or adapter.image_source != "generate"
+    ):
         raise CustomFilmContractError(
-            "Custom Film section script or quality contract is missing; "
+            "Custom Film section production contract is missing or unsupported; "
             "no provider work was started"
+        )
+    animated = bool(adapter.animation.get("enabled"))
+    animation_mode = str(adapter.animation.get("mode") or "")
+    density_mode = str(adapter.image_density.get("mode") or "")
+    camera_mode = str(adapter.camera.get("mode") or "")
+    visual_contract_valid = (
+        (
+            adapter.render_mode == "static_docu"
+            and not animated
+            and animation_mode == "ken_burns"
+            and density_mode == "per_item"
+            and camera_mode == "three_complementary_views"
+        )
+        or (
+            adapter.render_mode == "coverage"
+            and animated
+            and animation_mode == "grok_native"
+            and density_mode in {"dialogue_shape", "visual_cue"}
+            and camera_mode in {"dialogue_coverage", "investigative_coverage"}
+        )
+    )
+    if not visual_contract_valid:
+        raise CustomFilmContractError(
+            "Unsupported Custom Film imagery, animation, density, or camera "
+            "combination; no provider work was started"
+        )
+    if adapter.stage in {"motion", "clips"} and not animated:
+        raise CustomFilmContractError(
+            "Static Custom Film sections cannot schedule motion or clips"
         )
     language_mode = str(adapter.language.get("mode") or "")
     dubbing_enabled = bool(adapter.dubbing.get("enabled"))
@@ -185,7 +238,7 @@ def _request(
         )
     scenes = _exact_scene_ids(
         scene_ids,
-        required=adapter.stage in {"voice", "quality"},
+        required=adapter.stage != "script",
     )
     if adapter.stage == "script" and scenes:
         raise CustomFilmContractError(
@@ -203,12 +256,19 @@ def _request(
         role=adapter.role,
         purpose=adapter.purpose,
         scene_ids=scenes,
+        render_mode=adapter.render_mode,
         script_profile=adapter.script_profile,
+        visual_profile=adapter.visual_profile,
         dialogue_audio=adapter.dialogue_audio,
+        image_density=adapter.image_density,
         language=adapter.language,
         dubbing=adapter.dubbing,
+        animation=adapter.animation,
         segmentation=adapter.segmentation,
+        camera=adapter.camera,
         quality_laws=adapter.quality_laws,
+        image_source=adapter.image_source,
+        estimated_media=adapter.estimated_media,
     )
 
 
@@ -259,9 +319,9 @@ class CustomFilmProductionRunner:
         operation_id: str,
     ) -> ProviderOperationSpec:
         request = _request(adapter, scene_ids, operation_id)
-        if request.stage == "voice":
+        if request.stage in {"voice", "pictures", "motion", "clips"}:
             return ProviderOperationSpec(
-                provider="storyengine-section-voice",
+                provider=f"storyengine-section-{request.stage}",
                 request_hash=canonical_hash(request.payload()),
                 reconciliation_mode=RECONCILIATION_IDEMPOTENCY,
             )
@@ -281,6 +341,8 @@ class CustomFilmProductionRunner:
         request = _request(adapter, scene_ids, operation_id)
         if request.stage == "voice":
             return await self._run_voice_children(adapter, request)
+        if request.stage in {"pictures", "motion", "clips"}:
+            return await self._run_media_children(adapter, request)
         submitted_ids: list[str] = []
 
         async def _submitted(provider_operation_id: str) -> None:
@@ -521,6 +583,136 @@ class CustomFilmProductionRunner:
             "dialogue_audio": parent_request.dialogue_audio,
         }
 
+    async def _run_media_children(
+        self,
+        adapter: SectionStageAdapter,
+        parent_request: SectionProductionRequest,
+    ) -> Mapping[str, Any]:
+        """Run one durable operation per assigned scene for media stages.
+
+        The shared seams are scene-scoped and must report a provider task
+        before polling whenever the provider exposes one.  A restart returns
+        a completed child, queries that exact task, retries only a seam that
+        explicitly declares idempotency, or stops closed.
+        """
+        parent = await self.journal.load_operation(parent_request.operation_id)
+        if (
+            parent.runtime_hash != parent_request.runtime_hash
+            or parent.video_id != parent_request.video_id
+            or parent.stage_key != adapter.stage_key
+        ):
+            raise CustomFilmContractError(
+                "Custom Film parent media operation identity changed"
+            )
+        child_results: list[dict[str, Any]] = []
+        for scene_index, scene_id in enumerate(parent_request.scene_ids):
+            child_operation_id = "custom-film-op:" + canonical_hash(
+                {
+                    "parent_operation_id": parent_request.operation_id,
+                    "stage": parent_request.stage,
+                    "scene_id": scene_id,
+                }
+            )
+            child_request = replace(
+                parent_request,
+                operation_id=child_operation_id,
+                scene_ids=(scene_id,),
+            )
+            provider, mode = self.seams.operation_metadata(child_request)
+            spec = ProviderOperationSpec(
+                provider=str(provider or "").strip(),
+                request_hash=canonical_hash(child_request.payload()),
+                reconciliation_mode=mode,
+            )
+            existing = await self._load_optional_child(child_operation_id)
+            child_stage_key = (
+                f"{adapter.stage_key}:scene:{scene_index}:"
+                f"{canonical_hash({'scene_id': scene_id})[:12]}"
+            )
+            record = await self.journal.prepare_operation(
+                tenant_id=self.tenant_id,
+                video_id=parent_request.video_id,
+                runtime_job_id=parent.runtime_job_id,
+                runtime_hash=parent_request.runtime_hash,
+                stage_key=child_stage_key,
+                operation_id=child_operation_id,
+                spec=spec,
+            )
+            if record.state == "completed":
+                if record.result is None:
+                    raise CustomFilmContractError(
+                        "Custom Film completed media child has no result"
+                    )
+                result_object = copy.deepcopy(dict(record.result))
+            else:
+                result: SectionProductionResult | None = None
+                if existing is not None:
+                    checkpoint = getattr(self.seams, "checkpoint", None)
+                    if callable(checkpoint):
+                        recovered = await checkpoint(child_request)
+                        if recovered is not None:
+                            result = _coerce_result(recovered)
+                    if result is None:
+                        try:
+                            action = self.journal.reconciliation_action(record)
+                        except CustomFilmContractError as exc:
+                            await self.journal.mark_reconciliation_required(
+                                child_operation_id,
+                                str(exc),
+                            )
+                            raise
+                        if action == "query_provider":
+                            result = await self._call_child_seam(
+                                child_request,
+                                query_task_id=str(record.provider_operation_id),
+                            )
+                        elif action == "retry_same_operation":
+                            result = await self._call_child_seam(child_request)
+                else:
+                    result = await self._call_child_seam(child_request)
+                if result is None:
+                    raise CustomFilmContractError(
+                        "Custom Film media child reconciliation did not resolve"
+                    )
+                result_object = copy.deepcopy(dict(result.result))
+                stable_assets = result_object.get("artifacts")
+                if not isinstance(stable_assets, list) or not stable_assets:
+                    raise CustomFilmContractError(
+                        "Custom Film media child returned no durable artifacts"
+                    )
+                for artifact in stable_assets:
+                    if (
+                        not isinstance(artifact, Mapping)
+                        or not str(artifact.get("artifact_id") or "").strip()
+                        or not str(artifact.get("artifact_url") or "").strip()
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film media artifact identity is incomplete"
+                        )
+                await self.journal.mark_completed(
+                    child_operation_id,
+                    result_object,
+                )
+            child_results.append(
+                {
+                    "scene_id": scene_id,
+                    "operation_id": child_operation_id,
+                    "result": result_object,
+                }
+            )
+        return {
+            "scene_ids": list(parent_request.scene_ids),
+            "stage": parent_request.stage,
+            "child_operations": child_results,
+            "exact_seconds": parent_request.exact_seconds,
+            "render_mode": parent_request.render_mode,
+            "visual_profile": parent_request.visual_profile,
+            "image_density": _plain(parent_request.image_density),
+            "animation": _plain(parent_request.animation),
+            "camera": _plain(parent_request.camera),
+            "quality_laws": list(parent_request.quality_laws),
+        }
+
     async def reconcile(
         self,
         adapter: SectionStageAdapter,
@@ -589,6 +781,12 @@ class SharedSectionProductionSeams:
             return _TEXT_PROVIDER, RECONCILIATION_NONE
         if request.stage == "quality":
             return _TEXT_PROVIDER, RECONCILIATION_NONE
+        if request.stage == "pictures":
+            return _IMAGE_PROVIDER, RECONCILIATION_NONE
+        if request.stage == "motion":
+            return _MOTION_PROVIDER, RECONCILIATION_NONE
+        if request.stage == "clips":
+            return _CLIP_PROVIDER, RECONCILIATION_NONE
         return _VOICE_PROVIDER, RECONCILIATION_QUERY
 
     async def _ready_executor(self):
@@ -613,6 +811,12 @@ class SharedSectionProductionSeams:
             )
         if request.stage == "quality":
             return SectionProductionResult(await self._quality(request))
+        if request.stage == "pictures":
+            return SectionProductionResult(await self._pictures(request))
+        if request.stage == "motion":
+            return SectionProductionResult(await self._motion(request))
+        if request.stage == "clips":
+            return SectionProductionResult(await self._clips(request))
         raise CustomFilmContractError(
             "Unsupported Custom Film production stage"
         )
@@ -638,14 +842,182 @@ class SharedSectionProductionSeams:
         self,
         request: SectionProductionRequest,
     ) -> SectionProductionResult | None:
-        if request.stage != "voice" or request.dialogue_audio == "grok_native":
-            return None
-        recovered = await self._voice_artifact_checkpoint(request)
+        if request.stage == "voice" and request.dialogue_audio != "grok_native":
+            recovered = await self._voice_artifact_checkpoint(request)
+        elif request.stage in {"pictures", "motion", "clips"}:
+            recovered = await self._media_artifact_checkpoint(request)
+        else:
+            recovered = None
         return (
             SectionProductionResult(recovered)
             if recovered is not None
             else None
         )
+
+    async def _scene_number(self, request: SectionProductionRequest) -> int:
+        rows = await self._scene_rows(request)
+        if len(rows) != 1 or type(rows[0].get("scene")) is not int:
+            raise CustomFilmContractError(
+                "Custom Film media child must own one numbered scene"
+            )
+        return int(rows[0]["scene"])
+
+    async def _asset_rows(
+        self,
+        request: SectionProductionRequest,
+    ) -> list[dict[str, Any]]:
+        scene = await self._scene_number(request)
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT id, image_url, drive_image_url, video_prompt,
+                          video_clip_url, generation_method
+                   FROM assets
+                   WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                     AND scene = $3
+                   ORDER BY image_index, id""",
+                self.tenant_id,
+                request.video_id,
+                scene,
+            )
+        return [dict(row) for row in rows]
+
+    async def _media_artifact_checkpoint(
+        self,
+        request: SectionProductionRequest,
+    ) -> dict[str, Any] | None:
+        rows = await self._asset_rows(request)
+        artifacts: list[dict[str, Any]] = []
+        for row in rows:
+            if request.stage == "pictures":
+                url = str(
+                    row.get("drive_image_url") or row.get("image_url") or ""
+                ).strip()
+            elif request.stage == "motion":
+                prompt = str(row.get("video_prompt") or "").strip()
+                url = (
+                    "motion-prompt:" + canonical_hash(
+                        {
+                            "asset_id": str(row.get("id") or ""),
+                            "prompt": prompt,
+                            "camera": _plain(request.camera),
+                        }
+                    )
+                    if prompt
+                    else ""
+                )
+            else:
+                url = str(row.get("video_clip_url") or "").strip()
+            if not url:
+                return None
+            artifacts.append(
+                {
+                    "artifact_id": str(row.get("id") or ""),
+                    "artifact_url": url,
+                    "generation_method": str(
+                        row.get("generation_method") or ""
+                    ),
+                    "reused": True,
+                }
+            )
+        if not artifacts:
+            return None
+        return {
+            "scene_ids": list(request.scene_ids),
+            "stage": request.stage,
+            "artifacts": artifacts,
+            "exact_seconds": request.exact_seconds,
+            "render_mode": request.render_mode,
+            "visual_profile": request.visual_profile,
+            "image_density": _plain(request.image_density),
+            "animation": _plain(request.animation),
+            "camera": _plain(request.camera),
+            "quality_laws": list(request.quality_laws),
+            "reused_artifacts": True,
+        }
+
+    async def _pictures(self, request: SectionProductionRequest) -> dict[str, Any]:
+        scene = await self._scene_number(request)
+        contract = request.payload()
+        if request.render_mode == "static_docu":
+            from static_docu import generate_static_images_for_video
+
+            result = await generate_static_images_for_video(
+                request.video_id,
+                self.tenant_id,
+                only_scenes={scene},
+                section_contract=contract,
+            )
+        else:
+            from scripts.coverage_to_app import generate_coverage_for_video
+
+            result = await generate_coverage_for_video(
+                request.video_id,
+                self.tenant_id,
+                only_scenes={scene},
+                section_contract=contract,
+            )
+        if not isinstance(result, Mapping) or result.get("status") != "completed":
+            raise CustomFilmContractError(
+                "Custom Film section pictures did not complete"
+            )
+        checkpoint = await self._media_artifact_checkpoint(request)
+        if checkpoint is None:
+            raise CustomFilmContractError(
+                "Custom Film section pictures have no durable artifacts"
+            )
+        return checkpoint
+
+    async def _motion(self, request: SectionProductionRequest) -> dict[str, Any]:
+        scene = await self._scene_number(request)
+        executor = await self._ready_executor()
+        client = getattr(executor._pipeline, "anthropic", None)
+        if client is None:
+            raise CustomFilmContractError(
+                "Tenant text-generation key is unavailable"
+            )
+        from scripts.coverage_to_app import _write_motion_prompts
+        from shared.channel_profile import claude_model_for_direct_client
+
+        written = await _write_motion_prompts(
+            request.video_id,
+            self.tenant_id,
+            scene,
+            client,
+            model=claude_model_for_direct_client(client),
+            section_contract=request.payload(),
+        )
+        if type(written) is not int or written < 1:
+            raise CustomFilmContractError(
+                "Custom Film section motion prompts did not complete"
+            )
+        checkpoint = await self._media_artifact_checkpoint(request)
+        if checkpoint is None:
+            raise CustomFilmContractError(
+                "Custom Film section motion prompts have no durable artifacts"
+            )
+        return checkpoint
+
+    async def _clips(self, request: SectionProductionRequest) -> dict[str, Any]:
+        scene = await self._scene_number(request)
+        executor = await self._ready_executor()
+        result = await executor.run_clip_generation(
+            request.video_id,
+            only_scenes=[scene],
+            section_contract=request.payload(),
+        )
+        if not isinstance(result, Mapping) or result.get("status") != "completed":
+            raise CustomFilmContractError(
+                "Custom Film section clips did not complete"
+            )
+        checkpoint = await self._media_artifact_checkpoint(request)
+        if checkpoint is None:
+            raise CustomFilmContractError(
+                "Custom Film section clips have no durable artifacts"
+            )
+        return checkpoint
 
     async def _script(self, request: SectionProductionRequest) -> dict[str, Any]:
         executor = await self._ready_executor()

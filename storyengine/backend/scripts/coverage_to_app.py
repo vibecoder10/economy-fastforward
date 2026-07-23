@@ -2996,7 +2996,14 @@ async def _retry_motion_prompt(claude, model, shot_line: str, violation: str) ->
     return _strip_embedded_line(lines[0]) if lines else ""
 
 
-async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
+async def _write_motion_prompts(
+    vid,
+    tenant,
+    scene,
+    claude,
+    model=None,
+    section_contract=None,
+) -> int:
     """One Claude call writes the per-shot CAMERA MOTION for the scene's coverage
     frames; the spoken line was already assigned by the coverage planner (stored on
     assets.assigned_dialogue), so we append it deterministically — no LLM re-mapping
@@ -3010,6 +3017,26 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     blocked/promptless row rather than spend on it. Best-effort otherwise —
     a Claude-call failure for the whole scene still leaves rows' video_prompt
     NULL, same as before."""
+    camera_mode = ""
+    exact_seconds = None
+    if section_contract is not None:
+        animation = section_contract.get("animation")
+        camera = section_contract.get("camera")
+        if (
+            section_contract.get("render_mode") != "coverage"
+            or not isinstance(animation, dict)
+            or animation.get("enabled") is not True
+            or animation.get("mode") != "grok_native"
+            or not isinstance(camera, dict)
+            or camera.get("mode")
+            not in {"dialogue_coverage", "investigative_coverage"}
+            or type(section_contract.get("exact_seconds")) is not int
+            or section_contract["exact_seconds"] < 1
+        ):
+            raise ValueError("Unsupported animated section motion contract")
+        camera_mode = str(camera["mode"])
+        exact_seconds = int(section_contract["exact_seconds"])
+
     rows = await fetch_all(
         "SELECT id, shot_type, image_prompt, sentence_text, assigned_dialogue, camera_movement "
         "FROM assets "
@@ -3074,7 +3101,14 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
                  f"directions must match this tone." if channel_tone else "")
     user = (f"SCENE NARRATION (context):\n{narration[:2000]}\n\n"
             f"SHOTS (write ONE camera-motion line per shot, numbered, in order):\n{shots}"
-            f"{tone_line}")
+            + (
+                f"\n\nAPPROVED SECTION CAMERA: {camera_mode}; exact section "
+                f"runtime: {exact_seconds} seconds. Every move must obey this "
+                "camera grammar and fit inside that section runtime."
+                if camera_mode
+                else ""
+            )
+            + tone_line)
     kwargs = dict(prompt=user, system_prompt=_MOTION_SYSTEM, max_tokens=1800, temperature=0.6)
     if model:
         kwargs["model"] = model
@@ -3145,7 +3179,14 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     return written
 
 
-async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=None, only_scenes=None):
+async def generate_coverage_for_video(
+    video_id,
+    tenant_id,
+    scene=None,
+    progress=None,
+    only_scenes=None,
+    section_contract=None,
+):
     """Backend stage entry point: generate the burger-style COVERAGE for a video's scene(s) and
     store it in the app (frames as assets + the storyboard board), anchored on the LOCKED character
     sheets. THIS is the live path the Scenes-page "Generate all pictures" button and the chat
@@ -3187,6 +3228,31 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     vid, tenant, title, aspect = str(v["id"]), str(v["tenant_id"]), v["video_title"], v["aspect"]
     dialogue_audio = v["dialogue_audio"]  # channel pacing mode for _coverage_shape
     production_style_snapshot = v.get("production_style_snapshot")
+    visual_profile_override = None
+    camera_mode_override = None
+    if section_contract is not None:
+        density = section_contract.get("image_density")
+        animation = section_contract.get("animation")
+        camera = section_contract.get("camera")
+        if (
+            section_contract.get("render_mode") != "coverage"
+            or section_contract.get("image_source") != "generate"
+            or not isinstance(density, dict)
+            or density.get("mode") not in {"dialogue_shape", "visual_cue"}
+            or not isinstance(animation, dict)
+            or animation.get("enabled") is not True
+            or animation.get("mode") != "grok_native"
+            or not isinstance(camera, dict)
+            or camera.get("mode")
+            not in {"dialogue_coverage", "investigative_coverage"}
+            or not str(section_contract.get("visual_profile") or "").strip()
+            or type(section_contract.get("exact_seconds")) is not int
+            or section_contract["exact_seconds"] < 1
+        ):
+            raise ValueError("Unsupported coverage section production contract")
+        production_style_snapshot = {"knobs": {"image_density": density}}
+        visual_profile_override = str(section_contract["visual_profile"])
+        camera_mode_override = str(camera["mode"])
     model_override = v["image_model_override"]
     # C13b: threaded through to run_coverage -> plan_camera_moves -> route_shot_model
     # (mirrors generate_storyboard_sheet_for_scene's identical SELECT+assign above it in
@@ -3215,7 +3281,11 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
     ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Carry the creator's chosen visual style (e.g. 3D Pixar) into the cast sheet + director so the
     # whole video renders in that style — not the realistic default.
-    profile, style_dir = _resolve_style(v["image_style_override"], v["visual_style"])
+    profile, style_dir = (
+        _resolve_style(None, visual_profile_override)
+        if visual_profile_override
+        else _resolve_style(v["image_style_override"], v["visual_style"])
+    )
     # Scene-aware bible: each scene's directive gets ONLY the characters in that scene
     # (the 1-character-per-scene lock), via the existing _format_story_bible_for_beat.
     bible = await scene_aware_bible(vid, tenant, scenes, claude, claude_model)
@@ -3341,6 +3411,7 @@ async def generate_coverage_for_video(video_id, tenant_id, scene=None, progress=
                 board_urls=board_urls or None, board_panel_total=board_panel_total,
                 model_override=model_override,
                 render_style=render_style, video_model_id=video_model_id,
+                camera_mode=camera_mode_override,
                 # C4: the matched environment's canonical prop manifest, if it
                 # has one — run_coverage appends it verbatim to every shot's
                 # draw prompt. None (no match, or the env has no manifest yet)

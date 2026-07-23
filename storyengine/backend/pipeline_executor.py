@@ -12458,6 +12458,7 @@ separate scenes."""
         only_scenes: list = None,
         force_model_id: str = None,
         asset_ids: list = None,
+        section_contract: dict = None,
     ) -> dict:
         """Generate motion clips from final pictures — one card, several
         cards, one scene, or all.
@@ -12533,6 +12534,25 @@ separate scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+            section_camera_mode = ""
+            section_exact_seconds = None
+            if section_contract is not None:
+                animation = section_contract.get("animation")
+                camera = section_contract.get("camera")
+                if (
+                    section_contract.get("render_mode") != "coverage"
+                    or not isinstance(animation, dict)
+                    or animation.get("enabled") is not True
+                    or animation.get("mode") != "grok_native"
+                    or not isinstance(camera, dict)
+                    or camera.get("mode")
+                    not in {"dialogue_coverage", "investigative_coverage"}
+                    or type(section_contract.get("exact_seconds")) is not int
+                    or section_contract["exact_seconds"] < 1
+                ):
+                    raise ValueError("Unsupported animated section clip contract")
+                section_camera_mode = str(camera["mode"])
+                section_exact_seconds = int(section_contract["exact_seconds"])
 
             from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL
             from shared.model_router import resolve_clip_model
@@ -12780,6 +12800,11 @@ separate scenes."""
                 if style_note:
                     p += f" Art style: {style_note}"
                 p += f" Motion: {core_prompt}"
+                if section_camera_mode:
+                    p += (
+                        f" Use the approved {section_camera_mode} camera grammar "
+                        f"for this exact {section_exact_seconds}-second section."
+                    )
                 return p
 
             # 💬 cards speak: map this video's tagged dialogue lines to cards.
