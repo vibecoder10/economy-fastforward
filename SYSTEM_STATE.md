@@ -11261,3 +11261,29 @@ entirely from one public profile as a public clone even when it is cosmetically
 split across multiple roles or sections. Focused fake-client, injection,
 novelty, stable-ID, stale-approval, no-key, and intent-routing coverage lives in
 `storyengine/backend/tests/functional/test_custom_film_planner.py`.
+
+## Custom Film M2-3 — section estimate and exact approval (added 2026-07-23)
+
+`storyengine/backend/actions.py::estimate_custom_film_plan` deterministically
+turns the compiled section durations and density/animation/dubbing knobs into
+still, clip, voice, and provider-capability counts. Every section row is priced
+by the existing shared `estimate_cost` law (`custom_film_section`), so the BOM
+does not introduce a second pricing table and its itemized rows reconcile
+exactly with the total.
+
+`storyengine/backend/routes/chat.py` now renders that compiler-owned BOM as one
+plain-English BYOK plan/estimate and a generic approval card while keeping
+private knob/profile/model/provider identifiers in conversation state only.
+Every textual revision clears the prior approval before inference. Exact
+approval is bound with `custom_film_contract.approval_binding_hash`; the start
+path rechecks that binding and the tenant-owned Kie key, then uses the durable
+drain-aware generation claim, budget check, persisted plan approval, atomic
+approval consumption, and existing autobuild scheduling seam. Replays and
+double taps cannot schedule a second task. Section-aware provider execution
+remains M2-4.
+
+Focused no-network/no-provider coverage lives in the new
+`storyengine/backend/tests/functional/test_custom_film_estimate_approval.py`.
+It proves row/total reconciliation through the shared estimator, stale-hash and
+missing-key pre-spend stops, cap gating, ordered exact-hash approval, and
+exactly-once background scheduling.

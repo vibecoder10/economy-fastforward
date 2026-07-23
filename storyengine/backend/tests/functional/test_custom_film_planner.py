@@ -593,13 +593,24 @@ def test_chat_custom_film_handler_persists_distinct_pending_plan_without_approva
     ):
         assert stale_key not in persisted["state"]
     pending = persisted["state"]["pending_custom_film_plan"]
-    assert pending["plan_hash"] == compiled.plan_hash
+    from custom_film_contract import approval_binding_hash, plan_hash
+    assert pending["plan_hash"] == plan_hash(compiled.internal_plan)
+    assert pending["approval_hash"] == approval_binding_hash(
+        pending["plan_hash"], pending["quote_inputs"]
+    )
+    revision_input = contract.revision_input_from_normalized_plan(
+        pending["internal_plan"], manifest
+    )
+    assert contract.normalize_plan(revision_input, manifest) == pending["internal_plan"]
+    assert pending["status"] == "awaiting_approval"
     assert pending["internal_plan"] == compiled.internal_plan
     assert pending["display_plan"] == compiled.display_plan
     assert pending["planner_proposal"] == compiled.planner_proposal
     assert pending["novelty"] == {"is_novel": True}
     assert "plan" not in json.loads(persisted["transcript"][-1]["content"])
     assert "1. **Opening**" in response.assistant_text
+    assert "BYOK estimate" in response.assistant_text
+    assert response.cards and response.cards[0]["id"] == "custom_film_approval"
     assert "render_mode" not in response.assistant_text
     assert "photo_documentary" not in response.assistant_text
 

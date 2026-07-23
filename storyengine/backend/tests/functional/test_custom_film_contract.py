@@ -464,6 +464,70 @@ def test_create_plan_revision_is_atomic_tenant_scoped_and_clears_approval(
     assert pointer_update[2][0:2] == ("tenant-a", "video-a")
 
 
+def test_approve_current_plan_locks_and_binds_exact_plan_quote(monkeypatch):
+    quote = {"totals": {"estimated_cost": 4.2}}
+    digest = "a" * 64
+    binding = contract.approval_binding_hash(digest, quote)
+    calls = []
+
+    class AsyncContext:
+        def __init__(self, value=None):
+            self.value = value
+
+        async def __aenter__(self):
+            return self.value
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class FakeConnection:
+        def transaction(self):
+            return AsyncContext()
+
+        async def fetchrow(self, query, *args):
+            calls.append(("fetchrow", query, args))
+            return {
+                "custom_film_plan_id": "plan-a",
+                "custom_film_plan_hash": digest,
+                "custom_film_quote_inputs_hash": contract.canonical_hash(quote),
+                "custom_film_approval_hash": None,
+                "plan_hash": digest,
+                "quote_inputs": json.dumps(quote),
+                "quote_inputs_hash": contract.canonical_hash(quote),
+                "approval_hash": None,
+            }
+
+        async def execute(self, query, *args):
+            calls.append(("execute", query, args))
+            return "UPDATE 1"
+
+    class FakePool:
+        def acquire(self):
+            return AsyncContext(FakeConnection())
+
+    async def fake_pool():
+        return FakePool()
+
+    async def fake_load(*_args):
+        return {"approval_hash": binding}
+
+    monkeypatch.setattr(contract, "get_pool", fake_pool)
+    monkeypatch.setattr(contract, "load_current_plan", fake_load)
+    approved = asyncio.run(
+        contract.approve_current_plan("tenant-a", "video-a", binding)
+    )
+    assert approved["approval_hash"] == binding
+    assert "FOR UPDATE OF v, p" in calls[0][1]
+    writes = [call for call in calls if call[0] == "execute"]
+    assert len(writes) == 2
+    assert all(call[2][-1] == binding for call in writes)
+
+    with pytest.raises(contract.CustomFilmContractError, match="changed"):
+        asyncio.run(
+            contract.approve_current_plan("tenant-a", "video-a", "b" * 64)
+        )
+
+
 def test_migration_122_and_fresh_schema_match_security_and_scene_foundation():
     root = Path(__file__).resolve().parents[3]
     migration = (root / "backend" / "migrations" / "122_custom_film_contract.sql").read_text()

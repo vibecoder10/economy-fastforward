@@ -481,6 +481,33 @@ def plan_hash(normalized_plan: Mapping[str, Any]) -> str:
     return canonical_hash(normalized_plan)
 
 
+def revision_input_from_normalized_plan(
+    normalized_plan: Mapping[str, Any],
+    manifest: CapabilityManifest,
+) -> dict[str, Any]:
+    """Convert a compiler-normalized plan to revision input without hash drift."""
+    raw = {
+        "compatibility_version": normalized_plan["compatibility_version"],
+        "sections": [
+            {
+                "section_id": section["section_id"],
+                "role": section["role"],
+                "purpose": section["purpose"],
+                "duration_weight": section["duration_units"],
+                "knobs": section["knobs"],
+                "estimated_media": section["estimated_media"],
+            }
+            for section in normalized_plan["sections"]
+        ],
+    }
+    round_tripped = normalize_plan(raw, manifest)
+    if canonical_json(round_tripped) != canonical_json(dict(normalized_plan)):
+        raise CustomFilmContractError(
+            "Compiled Custom Film plan changed while preparing persistence"
+        )
+    return raw
+
+
 def recipe_signature(normalized_recipe: Mapping[str, Any]) -> str:
     """Hash only role, proportions, knobs, and compatibility version."""
     return canonical_hash(
@@ -735,6 +762,98 @@ async def create_plan_revision(
                 quote_digest,
             )
     return await load_current_plan(tenant_id, video_id)  # type: ignore[return-value]
+
+
+async def approve_current_plan(
+    tenant_id: str,
+    video_id: str,
+    expected_approval_hash: str,
+) -> dict[str, Any]:
+    """Bind one explicit approval to the exact locked plan and quote inputs.
+
+    The video and plan rows are locked together.  Replays, stale quotes, and
+    already-approved revisions fail closed without changing either pointer.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                """SELECT v.custom_film_plan_id, v.custom_film_plan_hash,
+                          v.custom_film_quote_inputs_hash,
+                          v.custom_film_approval_hash,
+                          p.plan_hash, p.quote_inputs, p.quote_inputs_hash,
+                          p.approval_hash
+                   FROM videos v
+                   JOIN custom_film_plans p
+                     ON p.id = v.custom_film_plan_id
+                    AND p.tenant_id = v.tenant_id
+                    AND p.video_id = v.id
+                   WHERE v.tenant_id = $1 AND v.id = $2
+                     AND v.deleted_at IS NULL
+                   FOR UPDATE OF v, p""",
+                tenant_id,
+                video_id,
+            )
+            if not row:
+                raise CustomFilmContractError("Current Custom Film plan not found")
+            quote_inputs = _parse_json(row["quote_inputs"])
+            current = approval_binding_hash(str(row["plan_hash"]), quote_inputs)
+            pointers_match = (
+                str(row["custom_film_plan_hash"]) == str(row["plan_hash"])
+                and str(row["custom_film_quote_inputs_hash"])
+                == str(row["quote_inputs_hash"])
+            )
+            if not pointers_match or current != str(expected_approval_hash):
+                raise CustomFilmContractError(
+                    "This Custom Film estimate changed. Review the current plan and approve again."
+                )
+            if row.get("approval_hash") or row.get("custom_film_approval_hash"):
+                raise CustomFilmContractError(
+                    "This Custom Film approval was already used or recorded."
+                )
+            await conn.execute(
+                """UPDATE custom_film_plans
+                   SET approval_hash = $3, approved_at = now()
+                   WHERE tenant_id = $1 AND id = $2""",
+                tenant_id,
+                str(row["custom_film_plan_id"]),
+                current,
+            )
+            await conn.execute(
+                """UPDATE videos
+                   SET custom_film_approval_hash = $3,
+                       custom_film_approved_at = now(),
+                       updated_at = now()
+                   WHERE tenant_id = $1 AND id = $2""",
+                tenant_id,
+                video_id,
+                current,
+            )
+    return await load_current_plan(tenant_id, video_id)  # type: ignore[return-value]
+
+
+async def consume_current_plan_approval(
+    tenant_id: str,
+    video_id: str,
+    expected_approval_hash: str,
+) -> bool:
+    """Atomically consume approval immediately before exactly-once scheduling."""
+    result = await execute(
+        """UPDATE videos
+           SET custom_film_approval_hash = NULL,
+               custom_film_approved_at = NULL,
+               updated_at = now()
+           WHERE tenant_id = $1 AND id = $2
+             AND custom_film_approval_hash = $3
+             AND custom_film_plan_id IS NOT NULL""",
+        tenant_id,
+        video_id,
+        expected_approval_hash,
+    )
+    # asyncpg returns e.g. "UPDATE 1"; fakes commonly return bool/int.
+    if isinstance(result, str):
+        return result.rsplit(" ", 1)[-1] == "1"
+    return bool(result)
 
 
 def _parse_json(value: Any) -> Any:

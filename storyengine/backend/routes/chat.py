@@ -48,6 +48,7 @@ from actions import (
     budget_check as _budget_check,
     cost_breakdown as _cost_breakdown,
     estimate_cost as _estimate_cost,
+    estimate_custom_film_plan as _estimate_custom_film_plan,
     estimate_plan_cost as _estimate_plan_cost,
     guardrail_note as _guardrail_note,
     make_action_step as _make_copilot_step,
@@ -3620,6 +3621,68 @@ def _custom_film_plan_text(display_plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _custom_film_duration_seconds(
+    message: str,
+    prior_pending: Optional[dict[str, Any]] = None,
+) -> int:
+    """Resolve an explicit runtime edit; otherwise retain it or use five minutes."""
+    match = re.search(
+        r"\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?)\b",
+        message or "",
+        re.I,
+    )
+    if match:
+        value = float(match.group(1))
+        seconds = value if match.group(2).lower().startswith(("s",)) else value * 60
+        return max(5, min(24 * 60 * 60, int(round(seconds))))
+    if prior_pending:
+        quote = prior_pending.get("quote_inputs")
+        if isinstance(quote, dict) and quote.get("requested_duration_seconds"):
+            return int(quote["requested_duration_seconds"])
+    return 5 * 60
+
+
+def _custom_film_approval_card(quote: dict[str, Any]) -> dict[str, Any]:
+    total = float(quote["totals"]["estimated_cost"])
+    return {
+        "id": "custom_film_approval",
+        "label": "Approve this exact Custom Film plan and estimate",
+        "type": "single",
+        "options": [
+            {"value": "yes", "label": f"Approve and start · ~${total:.2f}"},
+            {"value": "no", "label": "Keep editing"},
+        ],
+    }
+
+
+def _custom_film_estimate_text(quote: dict[str, Any]) -> str:
+    total = quote["totals"]
+    rows = [
+        (
+            f"Section {row['order_index'] + 1}: {row['still_images']} stills, "
+            f"{row['animation_clips']} clips, {row['voice_tracks']} voice "
+            f"track{'s' if row['voice_tracks'] != 1 else ''} — "
+            f"~${row['estimated_cost']:.2f}"
+        )
+        for row in quote["sections"]
+    ]
+    return "\n".join(
+        [
+            *rows,
+            (
+                f"\nTotal: {total['still_images']} stills, "
+                f"{total['animation_clips']} clips, {total['voice_tracks']} voice "
+                f"tracks — ~${total['estimated_cost']:.2f}."
+            ),
+            (
+                "This is a BYOK estimate: production uses only your connected AI "
+                "accounts. Approving binds to this exact plan and estimate; any edit "
+                "clears it and produces a new approval."
+            ),
+        ]
+    )
+
+
 _CUSTOM_FILM_STALE_STATE_KEYS = (
     "last_spec",
     "pending_action",
@@ -3652,9 +3715,9 @@ async def _handle_custom_film_control_turn(
     """Hold approve/selection-only taps inside the planning-only M2-2 boundary."""
     _quarantine_custom_film_state(state)
     message = (
-        "This Custom Film is still an unapproved plan. Tell me what to revise in "
-        "words; a section-aware estimate and explicit approval come in the next "
-        "Custom Film step. Nothing was generated or charged."
+        "This Custom Film is an unapproved plan with no current approval. Tell me what to revise "
+        "in words and I'll show the refreshed section-aware BYOK estimate for an "
+        "explicit approval. Nothing was generated or charged."
     )
     data = {
         "assistant_text": message,
@@ -3696,6 +3759,218 @@ async def _handle_custom_film_cancel_turn(
     )
 
 
+async def _handle_custom_film_approval_turn(
+    selection: str,
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+    background_tasks: BackgroundTasks,
+) -> ChatTurnResponse:
+    """Confirm and schedule one exact quote after every existing spend gate."""
+    pending = state.get("pending_custom_film_plan")
+    if selection != "yes":
+        message = "No problem — the current Custom Film plan remains unapproved. Tell me what to edit."
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            ready_to_create=False,
+            phase="plan",
+        )
+    if not isinstance(pending, dict) or pending.get("status") != "awaiting_approval":
+        return await _handle_custom_film_control_turn(
+            conversation_id, tenant_id, transcript, state
+        )
+
+    from custom_film_contract import (
+        CustomFilmContractError,
+        approval_binding_hash,
+        approve_current_plan,
+        consume_current_plan_approval,
+        create_plan_revision,
+        plan_hash,
+        revision_input_from_normalized_plan,
+    )
+    internal_plan = pending.get("internal_plan")
+    quote_inputs = pending.get("quote_inputs")
+    expected = str(pending.get("approval_hash") or "")
+    if not isinstance(internal_plan, dict) or not isinstance(quote_inputs, dict):
+        message = "That estimate is incomplete. Please revise the plan so I can quote it again."
+        state.pop("pending_custom_film_plan", None)
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "asking"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=message, phase="asking"
+        )
+    current = approval_binding_hash(plan_hash(internal_plan), quote_inputs)
+    if not expected or current != expected:
+        pending["status"] = "stale"
+        pending.pop("approval_hash", None)
+        message = (
+            "That plan or estimate changed, so the old approval is no longer valid. "
+            "Please review the refreshed plan and approve again."
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=message, phase="plan"
+        )
+
+    # BYOK first: never let a process environment/operator key satisfy this gate.
+    try:
+        from vault import get_required_tenant_secret
+        await get_required_tenant_secret(
+            "kie_ai_api_key", tenant_id, provider_label="Kie.ai"
+        )
+    except Exception as exc:  # noqa: BLE001 - helper text is creator-safe
+        message = str(exc)
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=message, phase="plan"
+        )
+
+    # Tenant-scoped pre-create claim is both the drain gate and the retry /
+    # double-tap idempotency gate before a video id exists.
+    try:
+        claimed = await generation_claims.acquire_channel(
+            tenant_id,
+            "custom_film_start",
+            claimed_by=f"chat:custom-film:{conversation_id}",
+        )
+    except Exception as exc:  # drain mode carries a useful retryable response
+        message = getattr(exc, "message", None) or str(exc)
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=message, phase="plan"
+        )
+    if not claimed:
+        message = "This Custom Film start is already being handled. I did not schedule it twice."
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=message, phase="plan"
+        )
+
+    video_id: Optional[str] = None
+    main_claimed = False
+    try:
+        quote_total = float(quote_inputs["totals"]["estimated_cost"])
+        budget_warning = _budget_check(
+            {
+                "max_spend": state.get("custom_film_budget_cap"),
+                "total_cost": 0,
+            },
+            quote_total,
+        )
+        if budget_warning:
+            message = (
+                f"{budget_warning['message']} Nothing was scheduled; raise the "
+                "cap or revise the plan first."
+            )
+            transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+            await _persist(conversation_id, tenant_id, transcript, state, "plan")
+            return ChatTurnResponse(
+                conversation_id=conversation_id, assistant_text=message, phase="plan"
+            )
+
+        from routes.videos import create_video
+        proposal = pending.get("planner_proposal") or {}
+        proposal_sections = proposal.get("sections") or []
+        first = proposal_sections[0] if proposal_sections else {}
+        production_style_id = first.get("structure_source")
+        title = str(first.get("focus") or "Custom Film").strip()[:200]
+        minutes = max(
+            1,
+            round(float(quote_inputs["requested_duration_seconds"]) / 60),
+        )
+        summary = await create_video(
+            body=CreateVideoRequest(
+                title=title,
+                video_length_minutes=minutes,
+                production_style_id=production_style_id,
+                writer_guidance="Follow the approved Custom Film section contract.",
+            ),
+            background_tasks=background_tasks,
+            tenant_id=tenant_id,
+        )
+        video_id = str(summary.id)
+        from custom_film_planner import load_capability_manifest
+        manifest = await load_capability_manifest()
+        raw_plan_for_persistence = revision_input_from_normalized_plan(
+            internal_plan,
+            manifest,
+        )
+        await create_plan_revision(
+            tenant_id,
+            video_id,
+            raw_plan_for_persistence,
+            manifest,
+            quote_inputs=quote_inputs,
+        )
+        await approve_current_plan(tenant_id, video_id, expected)
+
+        if not await generation_claims.acquire(
+            tenant_id,
+            video_id,
+            "main",
+            claimed_by=f"chat:custom-film:{conversation_id}",
+        ):
+            raise CustomFilmContractError(
+                "This video is already being handled; no duplicate start was scheduled."
+            )
+        main_claimed = True
+        if not await consume_current_plan_approval(tenant_id, video_id, expected):
+            raise CustomFilmContractError(
+                "The approval was stale or already used; no work was scheduled."
+            )
+
+        # M2-3 stops at the established pre-runtime autobuild seam.  Section
+        # execution itself remains M2-4; no provider is called in this request.
+        background_tasks.add_task(
+            _make_autobuild_step(
+                tenant_id,
+                video_id,
+                target="pictures",
+                start_msg=f"Starting approved Custom Film “{title}”…",
+            )
+        )
+        pending["status"] = "scheduled"
+        pending.pop("approval_hash", None)
+        message = (
+            f"Approved — I scheduled “{title}” from the exact plan and "
+            f"~${quote_total:.2f} BYOK estimate. I won't accept that approval twice."
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "created"}))
+        await _persist(
+            conversation_id, tenant_id, transcript, state, "created", video_id=video_id
+        )
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            video_id=video_id,
+            phase="created",
+        )
+    except (HTTPException, CustomFilmContractError) as exc:
+        if main_claimed and video_id:
+            await generation_claims.release(tenant_id, video_id, "main")
+        message = (
+            exc.detail
+            if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
+            else str(exc)
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=message, phase="plan"
+        )
+    finally:
+        await generation_claims.release_channel(tenant_id, "custom_film_start")
+
+
 async def _handle_custom_film_plan(
     conversation_id: str,
     tenant_id: str,
@@ -3722,7 +3997,10 @@ async def _handle_custom_film_plan(
         if (
             state.get("mode") == "custom_film"
             and isinstance(existing_pending, dict)
-            and existing_pending.get("status") == "planned_unapproved"
+            and existing_pending.get("status") in {
+                "planned_unapproved",
+                "awaiting_approval",
+            }
             and isinstance(existing_pending.get("planner_proposal"), dict)
             and isinstance(existing_pending.get("internal_plan"), dict)
             and isinstance(existing_pending["internal_plan"].get("sections"), list)
@@ -3738,6 +4016,12 @@ async def _handle_custom_film_plan(
         if prior_pending is not None
         else None
     )
+    # Any textual edit is estimate-affecting until the deterministic compiler
+    # proves otherwise.  Clear consent before inference/key/validation so even
+    # a failed revision can never leave an old spend approval live.
+    if prior_pending is not None:
+        prior_pending["status"] = "planned_unapproved"
+        prior_pending.pop("approval_hash", None)
     # Entering the Custom Film composer quarantines any old generic create or
     # co-pilot confirmation. Even a key/planner failure must not leave a stale
     # approval payload that a later approve=True/yes tap could consume.
@@ -3781,10 +4065,15 @@ async def _handle_custom_film_plan(
 
     try:
         manifest = await load_capability_manifest()
+        total_duration_seconds = _custom_film_duration_seconds(
+            user_message,
+            prior_pending,
+        )
         compiled = await plan_custom_film(
             user_message,
             manifest,
             client,
+            total_duration_seconds=total_duration_seconds,
             prior_proposal=(
                 prior_pending.get("planner_proposal")
                 if prior_pending is not None
@@ -3824,6 +4113,61 @@ async def _handle_custom_film_plan(
             phase=phase,
         )
 
+    try:
+        quote_inputs = await _estimate_custom_film_plan(
+            compiled.internal_plan,
+            total_duration_seconds=total_duration_seconds,
+        )
+        quote_rows = {
+            row["section_id"]: row for row in quote_inputs["sections"]
+        }
+        for section in compiled.internal_plan["sections"]:
+            row = quote_rows[section["section_id"]]
+            section["estimated_media"] = {
+                "still_images": row["still_images"],
+                "animation_clips": row["animation_clips"],
+                "voice_tracks": row["voice_tracks"],
+                # EstimatedMedia's canonical JSON contract serializes Decimal
+                # durations as strings; preserve that shape so the persisted
+                # normalized revision hashes identically to the approved plan.
+                "duration_seconds": str(row["duration_seconds"]),
+            }
+        for display_section in compiled.display_plan["sections"]:
+            row = quote_inputs["sections"][display_section["order"] - 1]
+            display_section["expected_media"] = (
+                f"{row['still_images']} stills, {row['animation_clips']} animated "
+                f"clips, and {row['voice_tracks']} voice "
+                f"track{'s' if row['voice_tracks'] != 1 else ''}."
+            )
+        compiled.display_plan["byok_notice"] = (
+            "Any production uses only your connected AI accounts."
+        )
+        compiled.display_plan["status"] = (
+            "Planning is complete; generation has not started. Review the one "
+            "itemized estimate below and explicitly approve this exact version."
+        )
+        from custom_film_contract import approval_binding_hash, plan_hash
+        current_plan_hash = plan_hash(compiled.internal_plan)
+        current_approval_hash = approval_binding_hash(
+            current_plan_hash,
+            quote_inputs,
+        )
+    except Exception as exc:  # noqa: BLE001 - estimation must fail before approval
+        logger.warning("custom-film estimate failed: %s", exc)
+        message = (
+            "I couldn't produce a safe estimate for that plan. Nothing was "
+            "approved, generated, or charged; please try the edit again."
+        )
+        data = {"assistant_text": message, "phase": "plan"}
+        transcript.append(_assistant_turn(data))
+        await _persist(conversation_id, tenant_id, transcript, state, "plan")
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            ready_to_create=False,
+            phase="plan",
+        )
+
     # Novelty is classified now for later save eligibility, but M2-2 does not
     # expose or persist a recipe and never shows a save action. A lookup failure
     # fails closed to "unverified" instead of masquerading as novel.
@@ -3850,14 +4194,21 @@ async def _handle_custom_film_plan(
         "internal_plan": compiled.internal_plan,
         "display_plan": compiled.display_plan,
         "planner_proposal": compiled.planner_proposal,
-        "plan_hash": compiled.plan_hash,
+        "plan_hash": current_plan_hash,
+        "quote_inputs": quote_inputs,
+        "approval_hash": current_approval_hash,
         "recipe_signature": compiled.recipe_signature,
         "novelty": novelty_payload,
-        "status": "planned_unapproved",
+        "status": "awaiting_approval",
     }
-    assistant_text = _custom_film_plan_text(compiled.display_plan)
+    assistant_text = (
+        _custom_film_plan_text(compiled.display_plan)
+        + "\n\n"
+        + _custom_film_estimate_text(quote_inputs)
+    )
     data = {
         "assistant_text": assistant_text,
+        "cards": [_custom_film_approval_card(quote_inputs)],
         "ready_to_create": False,
         "phase": "plan",
     }
@@ -3866,6 +4217,7 @@ async def _handle_custom_film_plan(
     return ChatTurnResponse(
         conversation_id=conversation_id,
         assistant_text=assistant_text,
+        cards=[_custom_film_approval_card(quote_inputs)],
         plan=None,
         ready_to_create=False,
         phase="plan",
@@ -4918,6 +5270,19 @@ async def chat_turn(
     # 2.5 Custom Film interception must precede legacy approval. A combined
     # approve=True + Custom Film message can otherwise consume an old last_spec
     # before the composer has a chance to quarantine it.
+    if (
+        state.get("mode") == "custom_film"
+        and body.selections
+        and "custom_film_approval" in body.selections
+    ):
+        return await _handle_custom_film_approval_turn(
+            str(body.selections["custom_film_approval"]),
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            background_tasks,
+        )
     if state.get("mode") == "custom_film" and not (
         body.message and body.message.strip()
     ):
