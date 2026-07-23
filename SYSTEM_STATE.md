@@ -11316,3 +11316,16 @@ edit-over-approval precedence, transactional replay convergence, and the
 absence of any runtime/background scheduling. Causal interleaving coverage
 also proves a committed reservation wins over stale planner, cancel, and
 control writes without losing the video, approval, or confirmation.
+# M2-4B1 Custom Film durable section consumer (2026-07-23)
+
+- `storyengine/backend/custom_film_section_runtime.py` is the single restart-safe
+  interpreter for the immutable Custom Film runtime envelope. It validates the
+  complete ordered stage plan before any stage callback, resolves every
+  section-scoped production dimension into an immutable adapter, holds the
+  existing `main` generation claim throughout consumption, and persists stable
+  script-to-section assignments in `custom_film_section_scenes`.
+- Migration 124 adds `background_tasks.runtime_progress`, allowing a restarted
+  worker to resume at the first incomplete section stage without replaying
+  accepted work. `worker.py` and `job_queue.py` register the durable runtime job.
+  The default runner deliberately fails closed until M2-4B2 wires the existing
+  production-stage/provider seams; it cannot call a provider or spend.

@@ -182,6 +182,19 @@ async def arq_run_upload(ctx: dict, video_id: str, tenant_id: str, attempt: int,
     return await _run_stage(ctx, "upload", "run_upload", video_id, tenant_id, attempt, force=force)
 
 
+async def arq_run_custom_film_runtime(
+    ctx: dict,
+    video_id: str,
+    tenant_id: str,
+    attempt: int,
+    runtime_job_id: str,
+) -> dict:
+    """Consume the durable section schedule; B2 installs provider stage runners."""
+    from custom_film_section_runtime import consume_runtime_schedule
+
+    return await consume_runtime_schedule(tenant_id, video_id, runtime_job_id)
+
+
 # -- WorkerSettings -----------------------------------------------------------
 
 _parsed = _urlparse(REDIS_URL)
@@ -209,6 +222,7 @@ class WorkerSettings:
         func(arq_run_thumbnail,        name="arq_run_thumbnail",        timeout=1800, max_tries=3),
         func(arq_run_render,           name="arq_run_render",           timeout=7200, max_tries=2),  # long render
         func(arq_run_upload,           name="arq_run_upload",           timeout=1800, max_tries=3),
+        func(arq_run_custom_film_runtime, name="arq_run_custom_film_runtime", timeout=7200, max_tries=3),
     ]
 
     max_jobs = 5

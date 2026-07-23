@@ -23,6 +23,7 @@ _STAGE_HANDLERS: dict[str, str] = {
     "thumbnail":        "arq_run_thumbnail",
     "render":           "arq_run_render",
     "upload":           "arq_run_upload",
+    "custom_film_runtime": "arq_run_custom_film_runtime",
 }
 
 
@@ -50,6 +51,8 @@ async def enqueue_stage(
     handler = _STAGE_HANDLERS.get(stage)
     if not handler:
         raise ValueError(f"Unknown stage: {stage!r}. Valid: {list(_STAGE_HANDLERS)}")
+    if stage == "custom_film_runtime" and not stage_kwargs.get("runtime_job_id"):
+        raise ValueError("custom_film_runtime requires its durable runtime_job_id")
 
     job_id = make_job_id(stage, video_id, attempt)
     job = await arq_pool.enqueue_job(

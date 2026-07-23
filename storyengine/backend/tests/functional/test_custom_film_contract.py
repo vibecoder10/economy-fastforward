@@ -554,5 +554,5 @@ def test_migration_122_and_fresh_schema_match_security_and_scene_foundation():
         int(path.name.split("_", 1)[0])
         for path in (root / "backend" / "migrations").glob("[0-9][0-9][0-9]_*.sql")
     ]
-    # M2-4A's durable runtime envelope is the next additive migration.
-    assert max(migration_numbers) == 123
+    # M2-4A's envelope and M2-4B1's restart progress are additive migrations.
+    assert max(migration_numbers) == 124

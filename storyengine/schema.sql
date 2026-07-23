@@ -1056,6 +1056,7 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     job_id TEXT,
     attempt INTEGER NOT NULL DEFAULT 1,
     runtime_envelope JSONB,
+    runtime_progress JSONB,
     CONSTRAINT background_tasks_custom_film_runtime_envelope_check CHECK (
       task_type <> 'custom_film_runtime'
       OR (
@@ -1066,6 +1067,15 @@ CREATE TABLE IF NOT EXISTS background_tasks (
         AND runtime_envelope->>'approval_hash' ~ '^[0-9a-f]{64}$'
         AND jsonb_typeof(runtime_envelope->'sections') = 'array'
         AND jsonb_typeof(runtime_envelope->'stage_plan') = 'array'
+      )
+    ),
+    CONSTRAINT background_tasks_custom_film_runtime_progress_check CHECK (
+      runtime_progress IS NULL
+      OR (
+        task_type = 'custom_film_runtime'
+        AND jsonb_typeof(runtime_progress) = 'object'
+        AND runtime_progress->>'runtime_hash' ~ '^[0-9a-f]{64}$'
+        AND jsonb_typeof(runtime_progress->'completed_stage_keys') = 'array'
       )
     )
 );
