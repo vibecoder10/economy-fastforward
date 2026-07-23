@@ -31,8 +31,9 @@
       [U] Group 2–3 views into one aircraft card, show view roles/specs and per-view QA actions, compute readiness per unit, and update one-image copy/counts.
       [V] Frontend typecheck/build plus focused state tests or extracted pure helpers where practical.
       Evidence: commit `d1be7660`; the extracted readiness contract passed 4/4 focused tests and failed without the new helper during stash-proof. Pictures now groups ordered view tiles per aircraft, exposes view roles/specs and per-view approval, and distinguishes a render-ready 2/3 set from a blocked 1/3 set. Stage and Render gating use the same helper, TypeScript passed with no errors, and the complete Next production build passed with the required local `NEXT_PUBLIC_API_URL`.
-- [ ] C4 FINAL SWEEP [V] Re-grade all five Definition-of-Complete criteria from a first-time operator/viewer path.
+- [x] C4 FINAL SWEEP [V] Re-grade all five Definition-of-Complete criteria from a first-time operator/viewer path.
       Run focused suites, full relevant backend baseline, Remotion and frontend builds, inspect git diff/blast radius, record any paid/live proof as deferred, and give an explicit Complete/Partial verdict.
+      Evidence: all five criteria pass within the authorized no-spend scope. The combined static-documentary/render regression suite passed 131/131; the frontend readiness suite passed 4/4; Python compilation, frontend TypeScript, the full Next production build, and the Remotion bundle all passed. The synthetic 240-frame MP4 proves the three-view timing, continuous title card, and smooth alternating motion without provider calls. Final blast radius is 23 files, isolated to the static-documentary contract, renderer, Remotion overlay/motion, operator UI, tests, and Maestro state. Verdict: **Complete** for code and no-spend verification; the explicitly deferred production redraw/render remains a later paid/deploy approval gate, not hidden unfinished work.
 
 ## Lessons
 - The prior “clean frames” toggle directly contradicted Anton’s launch feedback and the desktop DvsU on-screen-text standard; title metadata belongs in a fixed assembly overlay, not in the generated picture.
