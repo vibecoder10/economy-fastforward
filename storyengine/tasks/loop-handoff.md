@@ -1,2 +1,2 @@
-Last done: D1 durable drain contract is implemented and stash-proven: PostgreSQL state plus a shared advisory lock blocks new claims atomically while reads and existing terminal writes remain available.
-Next chunk: D2 — finish and integration-test the operator drain/status/undrain commands and fail-safe sanctioned deploy ordering, then proceed to the frontend banner and live no-spend proof.
+Last done: D2 operator workflow passes fake-VPS integration: deploy drains before waiting, force cannot skip active work, and every success/failure path undrains and removes the operator lock.
+Next chunk: D3 — finish the global maintenance banner and shared generation-control state, verify TypeScript/production build, then run the final live no-spend deploy proof.

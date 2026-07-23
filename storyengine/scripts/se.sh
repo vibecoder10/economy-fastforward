@@ -11,6 +11,9 @@
 #   se db "SQL"                                run SQL (read-only by default)
 #   se db --write "SQL"                        allow INSERT/UPDATE/etc.
 #   se deploy <session-name> [--with-frontend] [--force]   sanctioned deploy
+#   se drain [reason]                          pause new generation safely
+#   se drain-status                            show drain + active-work state
+#   se undrain [reason]                        reopen new generation
 #   se restart [backend|frontend]              restart one service, no git pull
 #   se token                                   print API token from /tmp/se_token
 #   se devtoken                                pull token into frontend/.env.local
@@ -22,6 +25,7 @@ HOST="storyengine-vps"
 RREPO='$HOME/projects/economy-fastforward'
 RPY="$RREPO/storyengine/backend/venv/bin/python3"
 DBHELPER="$RREPO/storyengine/scripts/se_db.py"
+DRAINHELPER="$RREPO/storyengine/scripts/drain_control.py"
 
 cmd="${1:-help}"; shift || true
 
@@ -68,6 +72,23 @@ case "$cmd" in
     ssh "$HOST" "$RREPO/storyengine/scripts/vps-deploy.sh $who $*"
     echo "-- post-deploy health --"
     "$0" health
+    ;;
+  drain)
+    owner="${SE_DRAIN_OWNER:-manual:${USER:-operator}}"
+    reason="${*:-manual maintenance}"
+    printf -v owner_q '%q' "$owner"
+    printf -v reason_q '%q' "$reason"
+    ssh "$HOST" "$RPY $DRAINHELPER drain --owner $owner_q --reason $reason_q"
+    ;;
+  drain-status)
+    ssh "$HOST" "$RPY $DRAINHELPER status"
+    ;;
+  undrain)
+    owner="${SE_DRAIN_OWNER:-manual:${USER:-operator}}"
+    reason="${*:-manual maintenance complete}"
+    printf -v owner_q '%q' "$owner"
+    printf -v reason_q '%q' "$reason"
+    ssh "$HOST" "$RPY $DRAINHELPER undrain --owner $owner_q --reason $reason_q"
     ;;
   restart)
     svc="${1:-backend}"; u="$(unit "$svc")"

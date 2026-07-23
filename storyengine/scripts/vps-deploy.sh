@@ -14,7 +14,8 @@
 #     proof run, a paid pipeline run) writes its name + task + timestamp into
 #     ~/deploy.lock, and removes it when done.
 #   - This script REFUSES to run while the lock exists (unless --force, which
-#     you use only when the lock is clearly stale — older than ~2 hours).
+#     only overrides a known-stale operator lock). --force NEVER bypasses the
+#     active-work drain/wait.
 set -euo pipefail
 
 LOCK="$HOME/deploy.lock"
@@ -23,6 +24,7 @@ LOG="$HOME/deploys.log"
 WHO="${1:?usage: vps-deploy.sh <session-name> [--with-frontend] [--force]}"
 shift || true
 ARGS="${*:-}"
+DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-7200}"
 
 if [ -f "$LOCK" ] && [[ "$ARGS" != *--force* ]]; then
   echo "DEPLOY BLOCKED — another session holds the lock:"
@@ -31,23 +33,44 @@ if [ -f "$LOCK" ] && [[ "$ARGS" != *--force* ]]; then
   exit 1
 fi
 
-# Active-generation guard (docs/SHEET-MODERATION-LAW.md, Operations rules):
-# the backend restart below is a kill -9 — it takes every in-process
-# background task down with it, including a paid picture/video run
-# mid-flight. That happened for real on 2026-07-21. Refuse to deploy while
-# the backend reports active work, unless --force.
-HEALTH=$(curl -s --max-time 5 http://localhost:8001/api/health 2>/dev/null || true)
-ACTIVE=$(printf '%s' "$HEALTH" | grep -o '"active_tasks":[0-9-]*' | sed 's/[^0-9-]*//g' || true)
-if [ -n "$ACTIVE" ] && [ "$ACTIVE" -gt 0 ] && [[ "$ARGS" != *--force* ]]; then
-  echo "DEPLOY BLOCKED — active-generation guard: $ACTIVE task(s) running on this box right now."
-  echo "$HEALTH"
-  echo "A deploy kill -9's the backend and strands any in-flight run (paid work included)."
-  echo "Wait for it to finish, or rerun with --force ONLY if you accept killing active work."
-  exit 1
-fi
-
 printf '%s deploying, started %s\n' "$WHO" "$(date -u +%FT%TZ)" > "$LOCK"
-trap 'rm -f "$LOCK"' EXIT
+DRAIN_SET=0
+
+# Python runtime used by the backend and the direct-to-Postgres drain control.
+PYTHON="python3"
+for v in "$REPO/storyengine/backend/.venv" "$REPO/storyengine/backend/venv" "$HOME/.venv" "$HOME/venv"; do
+  [ -x "$v/bin/python3" ] && PYTHON="$v/bin/python3"
+done
+DRAIN="$REPO/storyengine/scripts/drain_control.py"
+
+cleanup() {
+  code=$?
+  trap - EXIT INT TERM
+  if [ "$DRAIN_SET" = "1" ]; then
+    if ! "$PYTHON" "$DRAIN" undrain \
+      --owner "deploy:$WHO" \
+      --reason "deploy command exited with status $code"; then
+      echo "CRITICAL — automatic undrain failed. Recover with: se undrain --owner deploy:$WHO" >&2
+    fi
+  fi
+  rm -f "$LOCK"
+  exit "$code"
+}
+trap cleanup EXIT INT TERM
+
+# Close the race BEFORE looking at active work. The DB transition and every
+# generation claim share one advisory transaction lock, so once this returns,
+# no later paid claim can enter. Existing work is not cancelled.
+"$PYTHON" "$DRAIN" drain \
+  --owner "deploy:$WHO" \
+  --reason "safe production deploy"
+DRAIN_SET=1
+
+echo "drain: enabled; waiting for active work to finish (timeout ${DRAIN_TIMEOUT_SECONDS}s)"
+"$PYTHON" "$DRAIN" wait \
+  --timeout "$DRAIN_TIMEOUT_SECONDS" \
+  --interval 5 \
+  --settle 2
 
 cd "$REPO"
 BEFORE=$(git rev-parse --short HEAD)
@@ -75,13 +98,35 @@ for _ in 1 2 3 4 5; do
 done
 echo "backend: $(systemctl is-active storyengine-backend.service)"
 
+BACKEND_OK=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  HEALTH=$(curl -sf --max-time 5 http://localhost:8001/api/health 2>/dev/null || true)
+  if [[ "$HEALTH" == *'"status":"healthy"'* ]] && [[ "$HEALTH" == *'"draining":true'* ]]; then
+    BACKEND_OK=1
+    break
+  fi
+  sleep 3
+done
+if [ "$BACKEND_OK" != "1" ]; then
+  echo "DEPLOY FAILED — backend did not become healthy while drain stayed enabled." >&2
+  echo "${HEALTH:-no health response}" >&2
+  exit 1
+fi
+echo "backend health: verified (drain still enabled)"
+
 if [[ "$ARGS" == *--with-frontend* ]]; then
   (cd storyengine/frontend && npm run build)
   FPID=$(systemctl show -p MainPID --value storyengine-frontend.service)
   if [ -n "$FPID" ] && [ "$FPID" != "0" ]; then kill -9 "$FPID"; fi
   sleep 4
   echo "frontend: $(systemctl is-active storyengine-frontend.service)"
+  FRONTEND_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:3001)
+  if [ "$FRONTEND_HTTP" != "200" ]; then
+    echo "DEPLOY FAILED — frontend returned HTTP $FRONTEND_HTTP" >&2
+    exit 1
+  fi
+  echo "frontend health: HTTP 200"
 fi
 
 printf '%s %s deployed %s -> %s %s\n' "$(date -u +%FT%TZ)" "$WHO" "$BEFORE" "$AFTER" "$ARGS" >> "$LOG"
-echo "DONE — deployed $AFTER (log: $LOG)"
+echo "DONE — deployed $AFTER; automatic undrain follows (log: $LOG)"
