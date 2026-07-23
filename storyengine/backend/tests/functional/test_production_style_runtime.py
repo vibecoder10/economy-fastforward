@@ -494,3 +494,43 @@ def test_chat_progress_map_surfaces_style_and_actual_pipeline_stages():
     assert "Recorded {result['voice_count']} narration track" in executor
     assert "progress_callback=_progress" in actions
     assert "progress_callback=_p" in coverage
+
+
+def test_finish_and_creation_surfaces_tell_style_motion_voice_and_storage_truth():
+    backend = Path(__file__).resolve().parents[2]
+    frontend = backend.parent / "frontend" / "src"
+    scenes = (
+        frontend / "components" / "production" / "ScenesWorkspaceTab.tsx"
+    ).read_text()
+    selector = (
+        frontend / "components" / "production" / "ProductionStyleSelector.tsx"
+    ).read_text()
+    drive_notice = (
+        frontend / "components" / "storage" / "DriveStorageNotice.tsx"
+    ).read_text()
+    settings = (frontend / "app" / "settings" / "page.tsx").read_text()
+
+    assert "production_style_snapshot" in scenes
+    assert "{productionProfile.label}" in scenes
+    assert "{productionProfile.description}" in scenes
+    assert "These still pictures are the final visual format." in scenes
+    assert "You do not" in scenes and "need to animate clips" in scenes
+    assert "Finish order" in scenes
+    assert "sound & voice" in scenes
+    assert "Scene production progress" in scenes
+    assert "Animate everything" in scenes
+    assert "Animate this scene" in scenes
+    assert 'background: "transparent", color: "var(--green)"' in scenes
+    assert "<DriveStorageNotice />" in scenes
+
+    # The shared selector is present on classic onboarding, first-video,
+    # returning-user, and home-chat creation surfaces, so putting the notice
+    # here closes all creation paths with one non-drifting implementation.
+    assert "<DriveStorageNotice compact />" in selector
+    assert "getDriveStatus" in drive_notice
+    assert "StoryEngine storage isn&apos;t guaranteed long-term" in drive_notice
+    assert "/settings#google-drive-storage" in drive_notice
+
+    assert 'id="google-drive-storage"' in settings
+    assert "Your media is currently stored on StoryEngine." in settings
+    assert "Connect your Drive" in settings

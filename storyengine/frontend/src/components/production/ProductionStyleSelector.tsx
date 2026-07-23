@@ -14,6 +14,7 @@ import {
   type ProductionStyle,
   type ProductionStyleId,
 } from "@/lib/api";
+import { DriveStorageNotice } from "@/components/storage/DriveStorageNotice";
 import { cn } from "@/lib/utils";
 
 const STYLE_ICON = {
@@ -173,6 +174,8 @@ export function ProductionStyleSelector({
           shows a quote and asks you to confirm before paid generation.
         </p>
       </div>
+
+      <DriveStorageNotice compact />
 
       {!selectedId && !isLoading && !isError && (
         <p className="text-[10px]" style={{ color: "var(--gold)" }}>
