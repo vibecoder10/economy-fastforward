@@ -7,9 +7,9 @@
   - Cross-reference: checklist M1–M4 and M6.
 
 - [ ] **Production deployment and first-user smoke.**
-  - Proof reached now: none; deployment is not authorized. Local builds and browser walkthrough evidence will be added during M6.
-  - Later recipe: after PR merge and Ryan’s separate approval, confirm a quiet production window with `scripts/se.sh drain-status`, deploy through `scripts/se.sh deploy <session-name> --with-frontend`, verify `scripts/se.sh health`, then run the first-user path from creation through finish without confirming a paid stage.
-  - Expected result: backend and frontend are healthy; the required style selector, docked live progress, finish-page clarification, and Drive warning are visible; no provider generation or upload begins.
+  - Proof reached now: migration 121 and the fresh schema pass focused schema-drift checks, but the migration has deliberately not been applied to a live database and deployment is not authorized. Local builds and browser walkthrough evidence will be added during M6.
+  - Later recipe: after PR merge and Ryan’s separate approval, confirm a quiet production window with `scripts/se.sh drain-status`, deploy through `scripts/se.sh deploy <session-name> --with-frontend`, verify migration 121 created `production_style_profiles` plus all three `videos.production_style_*` columns, verify `scripts/se.sh health`, then run the first-user path from creation through finish without confirming a paid stage.
+  - Expected result: all four catalog rows are active and BYOK-only; backend and frontend are healthy; the required style selector, docked live progress, finish-page clarification, and Drive warning are visible; no provider generation or upload begins.
   - Cross-reference: checklist M3–M6.
 
 ## Milestone 2 is intentionally separate

@@ -426,6 +426,47 @@ export const resetSystemPrompt = (key: string) =>
     method: "DELETE",
   });
 
+export const PRODUCTION_STYLE_IDS = [
+  "bilingual_character_animation",
+  "simple_language_animation",
+  "photo_documentary",
+  "animated_investigative_documentary",
+] as const;
+
+export type ProductionStyleId = (typeof PRODUCTION_STYLE_IDS)[number];
+
+export interface ProductionStyle {
+  id: ProductionStyleId;
+  version: number;
+  label: string;
+  description: string;
+  knobs: {
+    render_mode: string;
+    script_profile: string;
+    image_density: Record<string, unknown>;
+    animation: Record<string, unknown>;
+    language: Record<string, unknown>;
+    dubbing: Record<string, unknown>;
+    segmentation: Record<string, unknown>;
+    camera: Record<string, unknown>;
+    quality_laws: string[];
+    image_source: string;
+  };
+  estimate: {
+    cost_tier?: string;
+    image_count_mode?: string;
+    images_per_minute?: number;
+    images_per_item?: number;
+    clips_per_image?: number;
+    copy?: string;
+  };
+  requires_byok: true;
+  sort: number;
+}
+
+export const getProductionStyles = () =>
+  fetchApi<{ styles: ProductionStyle[] }>("/api/production-styles");
+
 export const createVideo = (data: {
   title: string;
   source_url?: string;
@@ -460,6 +501,9 @@ export const createVideo = (data: {
   // shared.profiles.script profile id, e.g. "power_doctrine_v2". Omit for
   // the neutral default; opt-in only.
   script_profile?: string;
+  // High-level pipeline shape. A required first-party selection, separate
+  // from style_preset_id (image engine) and image_style_override (aesthetic).
+  production_style_id?: ProductionStyleId;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",
@@ -1852,6 +1896,9 @@ export interface VideoDetail extends VideoSummary {
   // null (undeclared — "Auto", the router's money-safe default). Drives
   // the Scenes workspace's "Channel look" control.
   render_style?: string | null;
+  production_style_id?: ProductionStyleId | null;
+  production_style_version?: number | null;
+  production_style_snapshot?: ProductionStyle | null;
   // Optional per-video spend ceiling (migration 103, checklist §3.3/C36).
   // null = no cap (default). The money gate (backend actions.budget_check)
   // reads the SAME total_cost above against this before every paid verb.

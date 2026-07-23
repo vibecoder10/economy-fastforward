@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces, queue, script_templates, model_registry, style_presets, style_descriptions, camera_presets, script_profiles, agent_access, channel_dna, quality_rules, channel_patterns, feature_board
+from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces, queue, script_templates, model_registry, style_presets, production_styles, style_descriptions, camera_presets, script_profiles, agent_access, channel_dna, quality_rules, channel_patterns, feature_board
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
 from job_queue import enqueue_stage
@@ -742,6 +742,7 @@ app.include_router(niche.router)
 app.include_router(channel_profile.router)
 app.include_router(projects.router)
 app.include_router(visual_styles.router)
+app.include_router(production_styles.router)
 app.include_router(discovery.router)
 app.include_router(learning_extraction.router)
 app.include_router(youtube_sync.router)

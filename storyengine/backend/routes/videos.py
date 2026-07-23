@@ -344,6 +344,30 @@ async def _resolve_style_preset_id(style_preset_id: Optional[str]) -> Optional[s
     return style_preset_id
 
 
+async def _resolve_production_style(
+    production_style_id: Optional[str],
+) -> tuple[Optional[str], Optional[int], Optional[dict]]:
+    """Validate and snapshot the high-level public production profile.
+
+    Omitted stays a no-op for pre-migration callers. First-party creation
+    surfaces enforce the required pick; the API keeps legacy chat/MCP clients
+    releasable while those callers are upgraded in this milestone.
+    """
+    normalized_id = (production_style_id or "").strip() or None
+    if not normalized_id:
+        return None, None, None
+    from production_styles import get_public_profile, snapshot_profile
+
+    profile = await get_public_profile(normalized_id)
+    if not profile:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown production style: {normalized_id!r}",
+        )
+    snapshot = snapshot_profile(profile)
+    return normalized_id, int(snapshot["version"]), snapshot
+
+
 def _resolve_script_profile(script_profile: Optional[str]) -> Optional[str]:
     """Validate an explicit script_profile (checklist §2.3, C24 — the
     editorial-voice engines in shared.profiles.script) against the real
@@ -534,10 +558,15 @@ async def create_video(
                 break
     style_preset_id = await _resolve_style_preset_id(body.style_preset_id)
     script_profile = _resolve_script_profile(body.script_profile)
+    (
+        production_style_id,
+        production_style_version,
+        production_style_snapshot,
+    ) = await _resolve_production_style(body.production_style_id)
 
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile, production_style_id, production_style_version, production_style_snapshot)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, title, initial_status, source_val, _strip_md(body.framework_angle),
@@ -545,6 +574,8 @@ async def create_video(
         body.aspect_ratio, body.video_resolution, skip_voice, skip_voice_source,
         json.dumps(plan) if plan is not None else None, reference_url,
         render_mode, render_style, style_preset_id, script_profile,
+        production_style_id, production_style_version,
+        json.dumps(production_style_snapshot) if production_style_snapshot else None,
     )
 
     await increment_usage(tenant_id, "videos_created")
@@ -629,7 +660,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   present_parallel, future_prediction, writer_guidance, thesis, executive_hook,
                   research_payload, original_dna, script, script_validation, story_bible,
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
-                  accent_color, visual_style, image_style_override, style_preset_id, script_profile, image_model_override, video_model,
+                  accent_color, visual_style, image_style_override, style_preset_id, script_profile,
+                  production_style_id, production_style_version, production_style_snapshot,
+                  image_model_override, video_model,
                   dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
                   video_length_minutes, youtube_url, final_video_url, total_cost, max_spend, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
@@ -692,6 +725,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         image_style_override=r.get("image_style_override"),
         style_preset_id=r.get("style_preset_id"),
         script_profile=r.get("script_profile"),
+        production_style_id=r.get("production_style_id"),
+        production_style_version=r.get("production_style_version"),
+        production_style_snapshot=_parse_json_field(r.get("production_style_snapshot")),
         image_model_override=r.get("image_model_override"),
         video_model=r.get("video_model"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,

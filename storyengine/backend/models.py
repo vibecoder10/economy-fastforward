@@ -92,6 +92,12 @@ class VideoDetail(VideoSummary):
     visual_style: Optional[str] = None
     image_style_override: Optional[str] = None
     style_preset_id: Optional[str] = None
+    # High-level production shape (migration 121). Distinct from the visual
+    # style/look fields above. The snapshot is the immutable contract used by
+    # every downstream surface and runtime path.
+    production_style_id: Optional[str] = None
+    production_style_version: Optional[int] = None
+    production_style_snapshot: Optional[dict] = None
     # Editorial-voice engine pick (checklist §2.3, C24) — a
     # shared.profiles.script profile id (e.g. "power_doctrine_v2"). NULL =
     # no explicit pick; the executor's SCRIPT_PROFILE seam falls back to
@@ -283,6 +289,11 @@ class CreateVideoRequest(BaseModel):
     # style_preset_id's validation just above). Opt-in only: omitted /
     # None keeps the neutral default.
     script_profile: Optional[str] = None
+    # Required by first-party creation surfaces after Milestone 1. Kept
+    # optional at the API boundary for legacy/MCP/chat callers until they are
+    # upgraded; when supplied it must name an active public profile and is
+    # snapshotted onto the video.
+    production_style_id: Optional[str] = None
 
 
 # --- Scripts ---
