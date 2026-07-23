@@ -43,6 +43,20 @@ import pytest
 import routes.pipeline as pipeline
 
 
+@pytest.fixture(autouse=True)
+def _normal_drain_state():
+    """These lane tests predate drain-mode's merge into _is_task_active and
+    never exercise the drain gate itself — keep drain "normal" so the
+    pre-existing lane assertions run unchanged. Mirrors
+    test_c16a_manual_routes_claim_check.py's identical fixture."""
+    with patch.object(
+        pipeline.drain_mode,
+        "assert_accepting_new_work",
+        new=AsyncMock(return_value=None),
+    ):
+        yield
+
+
 # --- 1. _normalize_manual_clip_ids ------------------------------------------
 
 def test_normalize_returns_none_when_neither_param_given():
