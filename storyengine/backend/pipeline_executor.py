@@ -12466,6 +12466,11 @@ separate scenes."""
 
             from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL
             from shared.model_router import resolve_clip_model
+            # LAW 3: one channel-tone hint, fetched once per run and threaded
+            # into every speaking_prompt() call below — None (no-op) for a
+            # channel that hasn't set channel_identity.voice_tone.
+            from channel_format import get_channel_tone
+            channel_tone = await get_channel_tone(self.tenant_id)
             model_id = (video.get("video_model") or "").strip() or DEFAULT_VIDEO_MODEL
             profile = MODEL_REGISTRY.get(model_id)
             # Only models with a live generation path are selectable — the
@@ -12494,7 +12499,7 @@ separate scenes."""
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
                 f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue, "
-                f"routed_model, model_override, camera_preset_id "
+                f"routed_model, model_override, camera_preset_id, generation_method "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
@@ -12528,6 +12533,7 @@ separate scenes."""
             from storage import upload_bytes
             from clip_dialogue import (load_dialogue_lines, match_lines, match_assigned,
                                        speaking_prompt, native_speaking_prompt, motion_guard,
+                                       NO_SPEECH_CLAUSE,
                                        duck_audio, download_voice, mux_voice,
                                        DIALOGUE_VOICE_LEAD_SECONDS, speech_seconds,
                                        spoken_word_count, pick_clip_duration, clip_cost_for)
@@ -12772,10 +12778,31 @@ separate scenes."""
                     # assigned_dialogue (match_assigned). Without the second
                     # check, coverage speaking masters shipped with NO voice
                     # muxed and were sized/ducked as silent B-roll.
-                    lines = ([] if (native_voices and vp) else
-                             [l for l in (match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
-                                          or match_assigned(r.get("assigned_dialogue"), dialogue_by_scene.get(sc)))
-                              if native_voices or l.get("audio_url")])
+                    #
+                    # LAW 1 (root cause, video f00ea79a scene 1): a coverage
+                    # row's assigned_dialogue is the SINGLE SOURCE OF TRUTH for
+                    # whether it speaks — NULL means non-speaking, period.
+                    # match_lines is a substring match against sentence_text,
+                    # and a reaction card's beat label ("T16 — Vanessa softens:
+                    # \"Flores. Flowers. Okay. That is sweet.\"") embeds the
+                    # full quoted line, so match_lines was silently promoting a
+                    # silent reaction card to speaking — discarding its own
+                    # motion prompt and (via the spk fallback below) handing it
+                    # the SPEAKER's ElevenLabs voice instead of staying mute.
+                    # match_lines only ever runs for legacy non-coverage cards
+                    # now (their words live in sentence_text, per the comment
+                    # above); a coverage row goes through match_assigned alone,
+                    # which already returns [] when assigned_dialogue is NULL.
+                    is_coverage = r.get("generation_method") == "coverage"
+                    if is_coverage:
+                        lines = ([] if (native_voices and vp) else
+                                 [l for l in match_assigned(r.get("assigned_dialogue"), dialogue_by_scene.get(sc))
+                                  if native_voices or l.get("audio_url")])
+                    else:
+                        lines = ([] if (native_voices and vp) else
+                                 [l for l in (match_lines(r.get("sentence_text"), dialogue_by_scene.get(sc))
+                                              or match_assigned(r.get("assigned_dialogue"), dialogue_by_scene.get(sc)))
+                                  if native_voices or l.get("audio_url")])
                     # Speaking = a matched line, or (native) an embedded line.
                     is_speaking = bool(lines) or (native_voices and embedded_words > 0)
 
@@ -12827,7 +12854,7 @@ separate scenes."""
                             elif vp and embedded_words > 0:
                                 core = vp
                             else:
-                                core = speaking_prompt(lines)
+                                core = speaking_prompt(lines, tone=channel_tone)
                             prompt = _decorate(core)
                             # The whole spoken line has to fit inside the clip,
                             # or Grok cuts it off. native = Grok times its own
@@ -12865,6 +12892,11 @@ separate scenes."""
                         # nobody-NEW. Decision table lives in motion_guard.
                         prompt = motion_guard(r.get("image_prompt"),
                                               r.get("sentence_text"), cast_names) + prompt
+                        # LAW 2: the people-rule polices who's in frame, not
+                        # whether they speak — nothing stopped a silent
+                        # reaction card from mouthing words on its own. Say it
+                        # explicitly for every non-speaking clip.
+                        prompt = f"{prompt} {NO_SPEECH_CLAUSE}"
                         # A coverage shot carries its spoken line INSIDE the
                         # motion prompt (<Name> says ...: "line") — size the clip
                         # to exactly how long that line takes to say, so the video
@@ -12916,10 +12948,14 @@ separate scenes."""
                             # voice_over to the overlay-mux fallback below
                             # (never lose a paid clip over the polish pass).
                             spk = (r.get("assigned_dialogue") or "").split(":", 1)[0].strip()
-                            if not spk and lines:
+                            if not spk and lines and not is_coverage:
                                 # Legacy non-coverage cards have no
                                 # assigned_dialogue — without this fallback
                                 # the swap silently no-ops (mapped 2026-07-22).
+                                # LAW 1: a coverage row's speaker lives ONLY in
+                                # assigned_dialogue — never borrow a matched
+                                # line's speaker for one, or a silent reactor's
+                                # clip can inherit the SPEAKER's voice lock.
                                 spk = (lines[0].get("speaker") or "").strip()
                             voice_id = cast_voice_by_name.get(spk.casefold())
                             # A Grok take can chain SEVERAL speakers' lines

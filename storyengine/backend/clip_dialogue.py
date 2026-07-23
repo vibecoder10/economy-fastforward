@@ -267,6 +267,15 @@ NO_NEW_PEOPLE_PREFIX = (
     "frame, never reveal their face or body. "
 )
 
+# LAW 2 (video f00ea79a scene 1): CUTAWAY_PREFIX/NO_NEW_PEOPLE_PREFIX police
+# WHO is in frame on a non-speaking card, but say nothing about speech itself
+# — nothing stopped Grok from having a silent reaction card mouth words on
+# its own. Appended (not prepended, so the people-rule still leads) to every
+# non-speaking motion prompt. Never used on the speaking branch.
+NO_SPEECH_CLAUSE = (
+    "No one speaks in this shot; mouths stay closed; no mouthing of words."
+)
+
 
 def motion_guard(image_prompt: Optional[str], sentence_text: Optional[str],
                  cast_names: str) -> str:
@@ -288,16 +297,24 @@ def motion_guard(image_prompt: Optional[str], sentence_text: Optional[str],
     return NO_NEW_PEOPLE_PREFIX if has_cast else CUTAWAY_PREFIX
 
 
-def speaking_prompt(lines: list) -> str:
-    """Grok direction for a full-scene speaking shot."""
+def speaking_prompt(lines: list, tone: Optional[str] = None) -> str:
+    """Grok direction for a full-scene speaking shot.
+
+    LAW 3 (video f00ea79a scene 1): `tone` is the channel's one-line
+    delivery-tone hint (channel_identity.voice_tone, via
+    channel_format.get_channel_tone) — None when the channel hasn't set one,
+    in which case the output is byte-identical to before this law shipped.
+    """
     parts = [
         f'{(l.get("speaker") or "The character")} speaks with clear natural mouth '
         f'movement, saying: "{l["text"]}"'
         for l in lines
     ]
     spoken = ". Then ".join(parts)
+    delivery = (f" The line is delivered once, quickly and clearly, in a {tone} tone."
+                if tone else "")
     return (
-        f"{spoken}. The character starts speaking right away. Expressive face, "
+        f"{spoken}.{delivery} The character starts speaking right away. Expressive face, "
         "natural small gestures; other characters react subtly but do not talk. "
         "Keep the characters, art style and scene exactly as shown in the image. "
         + OFF_SCREEN_SPEAKER_RULE

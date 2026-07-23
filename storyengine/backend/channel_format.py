@@ -40,6 +40,34 @@ async def get_channel_format(tenant_id) -> tuple[dict, bool]:
     return (fmt if isinstance(fmt, dict) else {}), bool(ci.get("format_locked"))
 
 
+async def get_channel_tone(tenant_id) -> Optional[str]:
+    """LAW 3 (video f00ea79a scene 1): a single tone hint that reaches every
+    delivery instruction (motion-writer + speaking_prompt), read from the
+    SAME field identity_builder.build_channel_identity already writes —
+    channel_identity.voice_tone ("short phrase for the narration voice").
+    No new field invented: a channel that hasn't been learned yet (or was
+    learned before voice_tone existed) simply has none, and this no-ops —
+    callers must never invent a tone when this returns None.
+
+    Best-effort like the rest of this module's reads: a tone hint is pure
+    enrichment, so a DB hiccup here must never break clip generation — it
+    just no-ops the same as "no tone set" (mirrors _write_motion_prompts'
+    own "leaves video_prompt NULL on failure" contract just above)."""
+    try:
+        row = await fetch_one(
+            "SELECT channel_identity FROM channel_profiles WHERE tenant_id = $1", tenant_id
+        )
+    except Exception as e:  # noqa: BLE001 — enrichment lookup must fail soft
+        logger.warning("get_channel_tone: lookup failed for tenant %s: %s", tenant_id, e)
+        return None
+    ci = _identity(row)
+    tone = ci.get("voice_tone")
+    if isinstance(tone, str) and tone.strip():
+        return tone.strip()[:200]
+    logger.info("get_channel_tone: no voice_tone set for tenant %s — no-op", tenant_id)
+    return None
+
+
 async def set_channel_format(tenant_id, fields: dict[str, Any]) -> dict:
     """Merge the given format fields into visual_format and lock it. Returns
     the merged visual_format."""
