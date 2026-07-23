@@ -71,6 +71,12 @@ from generation_ledger import record_ledger_entry             # noqa: E402
 from storage import upload_bytes                              # noqa: E402
 from vault import get_secret                                  # noqa: E402
 from kie_unified import get_text_client_for_tenant            # noqa: E402
+# C1b (feat/per-card-parallel-clips): the per-asset claim guard for
+# redraw_asset_images' concurrent fan-out below — the image-redraw sibling
+# of pipeline_executor.py's clip_asset_claims. See redraw_asset_claims.py's
+# module docstring for why this is a SEPARATE module/dict from
+# clip_asset_claims, not a shared one.
+import redraw_asset_claims                                    # noqa: E402
 from storyboard.coverage import (  # noqa: E402
     run_coverage, resolve_cast_url, generate_coverage_directive,
     parse_set_dressing, parse_axis_line, parse_setups_line, panels_per_sheet_for,
@@ -2159,7 +2165,155 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         units=1, unit_cost=picture_cost, actual_cost=picture_cost,
         kie_task_id=(task_id_box[0] if task_id_box else None),
     )
-    return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn"}
+    # `cost` (C1b, feat/per-card-parallel-clips): additive field so
+    # redraw_asset_images' fan-out below can sum a real total for its own
+    # completion message, same way run_clip_generation totals `cost` across
+    # its per-clip results — existing callers only ever read `status`/
+    # `message`/`error` (test_redraw_style_parity.py, routes/pipeline.py,
+    # routes/chat.py, pipeline_executor.py's content-policy retry), so this
+    # is a pure addition, never a behavior change for any of them.
+    return {"status": "completed", "message": f"Picture S{a['scene']}.{a['image_index']} redrawn",
+            "cost": picture_cost}
+
+
+# --- C1b (feat/per-card-parallel-clips): concurrent multi-picture redraw ----
+# fan-out. Mirrors pipeline_executor.run_clip_generation's asset-level claim
+# + Semaphore(CONCURRENCY) + asyncio.gather pattern (chunk C1), applied to
+# redraw_asset_image instead of clip generation. routes/pipeline.py's
+# "redraw_manual" lane (mirroring "clip_manual") is what lets several of
+# these run concurrently on one video without 409-ing each other; THIS
+# function is what stops two overlapping runs from both redrawing (and
+# double-charging for) the SAME picture — see redraw_asset_claims.py's
+# module docstring for the full reasoning.
+IMAGE_CONCURRENCY_DEFAULT = 6
+
+
+async def redraw_asset_images(video_id, tenant_id, asset_ids, progress=None):
+    """Redraw one OR several pictures — the manual-run entry point every
+    caller (route) uses regardless of how many ids were requested, so the
+    claim guard below applies UNCONDITIONALLY (mirrors
+    ``run_clip_generation``: the clip-side claim always runs whether the
+    caller passed a singular ``asset_id`` or a multi-id ``asset_ids``, never
+    only for 2+). Every id is scoped to THIS (video_id, tenant_id) via
+    ``id = ANY($3::uuid[])`` (never trusts a caller-supplied id list
+    blindly — same scoping ``run_clip_generation``'s candidate query uses),
+    claimed via ``redraw_asset_claims`` before any paid call, and each row
+    calls the UNCHANGED single-asset ``redraw_asset_image`` — no redraw
+    logic is duplicated here, only the claim/fan-out/aggregate wrapper
+    around it.
+
+    A single requested id that clears the claim is a direct passthrough:
+    calls ``redraw_asset_image`` once and returns its result UNCHANGED (no
+    aggregate wrapping), so a lone Redraw tap gets the exact same
+    status/message/error/cost shape it always has — the claim step is the
+    ONLY new thing in that path. 2+ ids fan out concurrently under an
+    ``IMAGE_CONCURRENCY`` semaphore (default 6, same default value as
+    clips' ``CLIP_CONCURRENCY`` — Kie queues server-side on the same
+    account) and return an aggregate result.
+
+    One asset already claimed by another in-flight redraw (this call or a
+    different overlapping one) is silently skipped, never redrawn twice —
+    reported back as ``in_progress_elsewhere``, not as a failure. A genuine
+    per-picture error (bad prompt, generation failure) is caught so it
+    never aborts the other pictures in the same batch — reported as
+    ``failed``, same shape ``run_clip_generation`` uses for its own
+    per-clip failures.
+    """
+    def _p(msg):
+        if progress:
+            try:
+                progress(msg)
+            except Exception:
+                pass
+
+    ids = list(dict.fromkeys(a for a in (asset_ids or []) if a))
+    if not ids:
+        return {"status": "failed", "error": "no picture ids given to redraw"}
+
+    rows = await fetch_all(
+        "SELECT id, scene, image_index FROM assets WHERE video_id=$1 AND tenant_id=$2 "
+        "AND id = ANY($3::uuid[])", video_id, tenant_id, ids)
+    if not rows:
+        return {"status": "failed",
+                "error": ("picture not found" if len(ids) == 1
+                           else "no matching pictures found for the requested ids")}
+
+    # --- asset-level claim guard (redraw_asset_claims) ----------------------
+    # Claimed synchronously, before any paid call — the window where two
+    # overlapping calls could both believe they own the same id is zero
+    # (see redraw_asset_claims.py's module docstring for why this needs no
+    # lock inside one process). Applies even for a single id: two SEPARATE
+    # lone-card taps racing on the SAME asset must not both redraw it, now
+    # that the route's "redraw_manual" lane no longer 409s a second manual
+    # redraw against the first.
+    candidate_ids = [r["id"] for r in rows]
+    won_ids = set(redraw_asset_claims.claim(tenant_id, video_id, candidate_ids))
+    already = [r for r in rows if r["id"] not in won_ids]
+    todo = [r for r in rows if r["id"] in won_ids]
+    if already:
+        already_labels = ", ".join(f"S{r['scene']}.{r['image_index']}" for r in already)
+        _p(f"Skipping {len(already)} picture(s) already redrawing in another run: {already_labels}")
+    if not todo:
+        msg = ("This picture is already being redrawn by another in-flight run."
+               if len(ids) == 1 else
+               "Already redrawing — every requested picture here is already being "
+               "generated by another in-flight run.")
+        return {"status": "completed", "message": msg, "redrawn": 0, "failed": 0,
+                "cost": 0.0, "in_progress_elsewhere": len(already)}
+
+    if len(ids) == 1 and len(todo) == 1:
+        # Single-target passthrough — see docstring. Still went through the
+        # claim step above; only the RESULT SHAPE is byte-identical to the
+        # pre-C1b solo redraw, not the safety story (which is now guarded).
+        only = todo[0]
+        try:
+            return await redraw_asset_image(video_id, tenant_id, only["id"], progress=progress)
+        finally:
+            redraw_asset_claims.release(tenant_id, video_id, [only["id"]])
+
+    sem = asyncio.Semaphore(int(os.getenv("IMAGE_CONCURRENCY", str(IMAGE_CONCURRENCY_DEFAULT))))
+    redrawn = 0
+    failed = 0
+    cost_total = 0.0
+    errors: list = []
+
+    async def _one(r):
+        nonlocal redrawn, failed, cost_total
+        try:
+            async with sem:
+                res = await redraw_asset_image(video_id, tenant_id, r["id"], progress=progress)
+            if res.get("status") == "completed":
+                redrawn += 1
+                cost_total += res.get("cost") or 0.0
+            else:
+                failed += 1
+                errors.append(f"S{r['scene']}.{r['image_index']}: {res.get('error') or 'redraw failed'}")
+        except Exception as e:  # noqa: BLE001 — one bad row must never abort the batch
+            failed += 1
+            errors.append(f"S{r['scene']}.{r['image_index']}: {e}")
+        finally:
+            # Release THIS row's claim the instant its own work finishes
+            # (success, failure, or exception) — not at the end of the
+            # whole batch — so an overlapping run can pick it up again as
+            # soon as possible. Idempotent; the batch-level release below
+            # is a no-op backstop in the normal case.
+            redraw_asset_claims.release(tenant_id, video_id, [r["id"]])
+
+    try:
+        await asyncio.gather(*[_one(r) for r in todo])
+    finally:
+        # Backstop: every row above already released its own claim; this
+        # only matters if something aborts the gather itself before every
+        # _one() runs (e.g. a cancellation).
+        redraw_asset_claims.release(tenant_id, video_id, won_ids)
+
+    msg = (f"Redrew {redrawn} picture(s) (${cost_total:.2f})"
+           + (f" — {failed} failed: {'; '.join(errors)[:400]}" if failed else "")
+           + (f" — {len(already)} already redrawing in another run" if already else ""))
+    return {"status": "completed" if redrawn or not failed else "failed",
+            "message": msg, "redrawn": redrawn, "failed": failed, "cost": cost_total,
+            "in_progress_elsewhere": len(already),
+            "error": msg if failed and not redrawn else None}
 
 
 _MOTION_SYSTEM = (

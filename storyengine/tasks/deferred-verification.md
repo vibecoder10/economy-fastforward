@@ -184,3 +184,84 @@ from this chunk):**
       explicit "test OR trace" option. If a unit-test harness is ever added to this repo,
       `dispatchPendingClips`/`animateOne`'s debounce-and-coalesce logic (pure, ref-driven,
       no DOM) would be a clean first candidate to cover.
+
+# Deferred verification — C1b backend parallel image redraw (feat/per-card-parallel-clips)
+
+Backend enabler chunk, the image-redraw sibling of C1: POST /api/pipeline/redraw-image/
+{video_id} now accepts a SET of asset ids (`asset_ids`, comma-separated or repeated,
+alongside the pre-existing `asset_id`) and runs them concurrently via a new
+IMAGE_CONCURRENCY fan-out (`scripts/coverage_to_app.py::redraw_asset_images`), guarded by
+a new `redraw_asset_claims.py` per-asset claim (sibling of C1's `clip_asset_claims.py`) and
+a new "redraw_manual" lane (sibling of C1's "clip_manual") in routes/pipeline.py's
+`_is_task_active`. This resolves the C3 note C1 left in this file (§"image redraw fan-out,
+requirement 5, deliberately NOT built here") — built as its own chunk (C1b) rather than the
+originally-numbered C3, since the parent loop resequenced it. Full detail, the exact
+concurrency mechanism, and unit/functional test proof are in the branch's commit message
+and SYSTEM_STATE.md's §C1b entry — this file only tracks what CANNOT be proven in the
+sandbox (no live DB, no live Kie image-gen API, no prod).
+
+- [ ] **Live multi-card proof (real spend, ~$0.10-0.15 for 2-3 GPT Image 2 redraws at the
+      2K tier, $0.05 each).** After `se deploy`: open a video with 3+ drawn pictures in the
+      Scenes tab, tap Redraw on 2-3 different cards in quick succession (this chunk is
+      BACKEND only — the UI doesn't fire multiple requests yet; use curl or the browser
+      devtools network tab to fire 2-3 concurrent
+      `POST /api/pipeline/redraw-image/{video_id}?asset_id=<id>` requests, one per id, back
+      to back). Expected: NONE of the 2nd/3rd requests return 409; all requested cards end
+      up with a fresh image_url (and video_clip_url cleared); `se db "SELECT id, video_id,
+      created_at FROM generation_ledger WHERE video_id='<id>' AND stage='image' ORDER BY
+      created_at DESC LIMIT 10"` shows exactly one ledger row per redrawn asset (no
+      duplicates = no double-spend).
+      Recipe (replace VIDEO/TOKEN/ASSET_A/ASSET_B):
+      ```
+      TOKEN=$(cat /tmp/se_token)
+      curl -s -X POST "https://storyengine.dev/api/pipeline/redraw-image/VIDEO?asset_id=ASSET_A" \
+        -H "Authorization: Bearer $TOKEN" &
+      curl -s -X POST "https://storyengine.dev/api/pipeline/redraw-image/VIDEO?asset_id=ASSET_B" \
+        -H "Authorization: Bearer $TOKEN" &
+      wait
+      ```
+      Neither call should return `{"detail":"Task already running"}`. Also try the NEW
+      multi-id shape in one call: `POST .../redraw-image/VIDEO?asset_ids=ASSET_A,ASSET_B`
+      and confirm both redraw and the ledger still shows exactly 2 rows (not 1 shared row,
+      not 0).
+- [ ] **Full-build-vs-manual-redraw live proof.** While a manual redraw (above) is still
+      in flight, try "Redo Scene N's pictures" or any full-scene/full-video build on the
+      SAME video in the UI → must 409 ("Task already running"), proving a full build still
+      waits for an in-flight manual redraw rather than racing it (the "redraw_manual
+      blocks/blocked-by main" half of the lane rule — see routes/pipeline.py's
+      `_is_task_active` "redraw_manual" branch and `_manual_redraw_begin`/
+      `_manual_redraw_finish`).
+- [ ] **Clip run vs. redraw run independence, live.** With a manual clip animate (C1) in
+      flight on a video, fire a manual redraw on the SAME video (a DIFFERENT asset) →
+      must NOT 409 (the two lanes are independent — see SYSTEM_STATE.md §C1b). Then the
+      reverse: redraw in flight, fire a clip animate → must also not 409.
+- [ ] **Cross-process gap (inherited from C1, not new to this chunk):** the
+      `redraw_manual` lane and the `redraw_asset_claims` per-asset guard are BOTH
+      in-process only (module-level Python dicts), same limitation as C1's `clip_manual`/
+      `clip_asset_claims`. If StoryEngine ever runs more than one API server process/pod
+      without a shared cache (Redis, or a `generation_claims`-style DB table), two manual
+      redraw requests landing on DIFFERENT processes would not see each other's claims and
+      could both redraw the same asset. Today's deploy is single-process (`se deploy`
+      kills+revives one uvicorn), so this is inert — flag if that ever changes. If it does,
+      the fix is the same pattern `generation_claims.py` already uses (a DB-backed
+      advisory-lock claim) applied per-asset instead of per-stage — same fix C1's own note
+      already calls for on the clip side; if this is ever done, do BOTH claim modules at
+      once rather than fixing one and leaving the other stale.
+- [ ] **Message-text edge case (known, deliberate, low-risk):** a redraw for an
+      asset_id that doesn't exist under this (video_id, tenant_id) now returns
+      `{"status": "failed", "error": "picture not found"}` for a single id via
+      `redraw_asset_images`' own candidate-scoping check, same literal string the old
+      direct call produced — but a MULTI-id request where every id is bogus returns the
+      new generic `"no matching pictures found for the requested ids"` instead (there is
+      no pre-C1b precedent for that shape, since a multi-id redraw request didn't exist
+      before). Never reachable from the current UI (which only ever sends a real
+      `asset_id` for one card); worth a glance if C3 (frontend) ever surfaces a raw error
+      string to the user for this path.
+- [ ] **UI status-pill accuracy during overlapping manual redraws (cosmetic, not a spend/
+      safety issue) — same pre-existing gap C1 flagged for clips:** `routes/pipeline.py`'s
+      `_running_tasks` dict is one slot per (tenant, video) — when 2+ manual redraw runs
+      overlap, whichever run's `_set_task_status` write landed last "owns" the status-poll
+      pill. The underlying spend/clobber safety (`redraw_asset_claims`) is unaffected —
+      this only affects what the polling UI displays mid-run. Same note as C1's own list;
+      worth a look together when a frontend chunk for redraw coalescing (this chunk's C2
+      counterpart) is built.
