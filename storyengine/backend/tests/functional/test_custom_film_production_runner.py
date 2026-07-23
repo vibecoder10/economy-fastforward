@@ -88,6 +88,7 @@ class _FakeSeams:
         self.requests = []
         self.queries = []
         self.checkpoints = {}
+        self.checkpoint_requests = []
 
     def operation_metadata(self, request):
         return f"fake-{request.stage}", self.mode
@@ -125,6 +126,7 @@ class _FakeSeams:
         return production.SectionProductionResult(result, provider_operation_id)
 
     async def checkpoint(self, request):
+        self.checkpoint_requests.append(request)
         return copy.deepcopy(self.checkpoints.get(request.scene_ids))
 
 
@@ -440,6 +442,103 @@ async def test_direct_voice_child_crash_fails_closed_without_duplicate_create():
         if operation_id != parent_operation_id
     )
     assert child.state == "reconciliation_required"
+
+
+@pytest.mark.asyncio
+async def test_completed_voice_child_retry_returns_journal_result_without_seam_work():
+    adapter = _adapter("voice")
+    parent_operation_id = "custom-film-op:" + "e" * 64
+
+    class CrashAfterCompletionJournal(_FakeJournal):
+        def __init__(self):
+            super().__init__()
+            self.crash_once = True
+            self.completed_writes = 0
+
+        async def mark_completed(self, operation_id, result, **kwargs):
+            self.completed_writes += 1
+            await super().mark_completed(operation_id, result, **kwargs)
+            if self.crash_once:
+                self.crash_once = False
+                raise RuntimeError("synthetic crash after child completion")
+
+    journal = CrashAfterCompletionJournal()
+    journal.seed_parent(parent_operation_id, adapter)
+    seams = _FakeSeams(provider_task_id="provider-task-scene-1")
+    runner = production.CustomFilmProductionRunner(
+        "tenant-1",
+        seams=seams,
+        journal=journal,
+    )
+    with pytest.raises(RuntimeError, match="after child completion"):
+        await runner(adapter, ("scene-1",), parent_operation_id)
+
+    child = next(
+        row
+        for operation_id, row in journal.rows.items()
+        if operation_id != parent_operation_id
+    )
+    completed_result = copy.deepcopy(child.result)
+    assert child.state == "completed"
+    assert len(seams.requests) == 1
+    assert seams.checkpoint_requests == []
+
+    result = await runner(adapter, ("scene-1",), parent_operation_id)
+    assert result["child_operations"][0]["result"] == completed_result
+    assert len(seams.requests) == 1
+    assert seams.queries == []
+    assert seams.checkpoint_requests == []
+    assert journal.completed_writes == 1
+
+
+@pytest.mark.asyncio
+async def test_unresolved_voice_child_checkpoint_is_completed_with_canonical_result():
+    adapter = _adapter("voice", seconds=13)
+    parent_operation_id = "custom-film-op:" + "f" * 64
+    journal = _FakeJournal()
+    journal.seed_parent(parent_operation_id, adapter)
+    seams = _FakeSeams(
+        provider_task_id="provider-task-scene-1",
+        fail_after_submit_scene="scene-1",
+    )
+    runner = production.CustomFilmProductionRunner(
+        "tenant-1",
+        seams=seams,
+        journal=journal,
+    )
+    with pytest.raises(RuntimeError, match="after provider submission"):
+        await runner(adapter, ("scene-1",), parent_operation_id)
+    seams.checkpoints[("scene-1",)] = {
+        "artifact_id": "artifact-1",
+        "artifact_url": "https://drive.test/artifact-1",
+        "reused_artifact": True,
+    }
+
+    result = await runner(adapter, ("scene-1",), parent_operation_id)
+    child_result = result["child_operations"][0]["result"]
+    assert child_result["scene_ids"] == ["scene-1"]
+    assert child_result["voiced_scene_ids"] == ["scene-1"]
+    assert child_result["voice_behavior"] == "narration"
+    assert child_result["language"] == adapter.language
+    assert child_result["dubbing"] == adapter.dubbing
+    assert child_result["dialogue_audio"] == "voice_over"
+    assert child_result["exact_seconds"] == 13
+    assert child_result["artifacts"] == [
+        {
+            "scene_id": "scene-1",
+            "artifact_id": "artifact-1",
+            "artifact_url": "https://drive.test/artifact-1",
+            "reused": True,
+        }
+    ]
+    assert seams.queries == []
+    child = next(
+        row
+        for operation_id, row in journal.rows.items()
+        if operation_id != parent_operation_id
+    )
+    assert child.state == "completed"
+    assert child.result == child_result
 
 
 def test_request_hash_binds_exact_values_assignments_and_operation_identity():

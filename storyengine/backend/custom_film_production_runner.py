@@ -406,13 +406,78 @@ class CustomFilmProductionRunner:
                 operation_id=child_operation_id,
                 spec=spec,
             )
+            if record.state == "completed":
+                if record.result is None:
+                    raise CustomFilmContractError(
+                        "Custom Film completed child voice operation has no result"
+                    )
+                child_results.append(
+                    {
+                        "scene_id": scene_id,
+                        "operation_id": child_operation_id,
+                        "result": copy.deepcopy(dict(record.result)),
+                    }
+                )
+                continue
             result: SectionProductionResult | None = None
             if existing is not None:
                 checkpoint = getattr(self.seams, "checkpoint", None)
-                if callable(checkpoint):
+                if (
+                    record.state in {"prepared", "submitted"}
+                    and callable(checkpoint)
+                ):
                     recovered = await checkpoint(child_request)
                     if recovered is not None:
-                        result = _coerce_result(recovered)
+                        recovered_result = copy.deepcopy(
+                            dict(_coerce_result(recovered).result)
+                        )
+                        artifact_url = str(
+                            recovered_result.get("artifact_url") or ""
+                        ).strip()
+                        recovered_result.setdefault(
+                            "scene_ids", list(child_request.scene_ids)
+                        )
+                        recovered_result.setdefault(
+                            "voiced_scene_ids", list(child_request.scene_ids)
+                        )
+                        recovered_result.setdefault(
+                            "voice_behavior",
+                            (
+                                "narration_plus_clip_speech_to_speech"
+                                if bool(child_request.dubbing.get("enabled"))
+                                else "narration"
+                            ),
+                        )
+                        recovered_result.setdefault(
+                            "language", _plain(child_request.language)
+                        )
+                        recovered_result.setdefault(
+                            "dubbing", _plain(child_request.dubbing)
+                        )
+                        recovered_result.setdefault(
+                            "dialogue_audio", child_request.dialogue_audio
+                        )
+                        recovered_result.setdefault(
+                            "exact_seconds", child_request.exact_seconds
+                        )
+                        recovered_result.setdefault("total_chars", 0)
+                        if artifact_url:
+                            recovered_result.setdefault(
+                                "artifacts",
+                                [
+                                    {
+                                        "scene_id": scene_id,
+                                        "artifact_id": recovered_result.get(
+                                            "artifact_id"
+                                        ),
+                                        "artifact_url": artifact_url,
+                                        "reused": True,
+                                    }
+                                ],
+                            )
+                        else:
+                            recovered_result.setdefault("artifacts", [])
+                        result = SectionProductionResult(recovered_result)
                 if result is None:
                     try:
                         action = self.journal.reconciliation_action(record)
@@ -422,9 +487,7 @@ class CustomFilmProductionRunner:
                             str(exc),
                         )
                         raise
-                    if action == "return_completed":
-                        result = SectionProductionResult(record.result or {})
-                    elif action == "query_provider":
+                    if action == "query_provider":
                         result = await self._call_child_seam(
                             child_request,
                             query_task_id=str(record.provider_operation_id),
