@@ -11,7 +11,7 @@ Task tracking uses a dual-layer approach:
 import asyncio
 import json
 import logging
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -167,6 +167,109 @@ def _lane_finish(video_id: str, tenant_id: str, lane: str) -> None:
         lanes.pop(lane, None)
         if not lanes:
             _side_lanes.pop((tenant_id, video_id), None)
+
+
+# --- "clip_manual" lane (C1, feat/per-card-parallel-clips) --------------------
+# A manual per-card/multi-card clip run ("tap a card", or tap several) is a
+# SIDE lane like voice/characters/environments/thumbnail in one respect —
+# it's blocked by "main" (a full pipeline stage in flight) and blocks "main"
+# in turn, so a full-video/full-scene build can never race a manual run —
+# but it deliberately does NOT block a SECOND call to itself: several manual
+# runs must be able to animate different (or overlapping) cards on the same
+# video AT THE SAME TIME. That's the whole point of this chunk.
+#
+# _lane_begin/_lane_finish (above) can't be reused as-is for this: they're a
+# single {lane: timestamp} slot per video, and every existing side lane
+# assumes at most one instance of itself runs at a time (its own route's 409
+# check already enforces that). Two manual clip runs are explicitly allowed
+# to overlap, so a plain _lane_finish from the FIRST one to complete would
+# pop("clip_manual") out of _side_lanes entirely — even though a SECOND
+# manual run is still going — which would wrongly let a new "main" full
+# build start while that second run is still animating (exactly the
+# double-run-an-asset risk this feature has to avoid). A small ref count
+# fixes that: the "clip_manual" entry in _side_lanes only disappears once
+# the LAST concurrent manual run finishes, so "main" stays correctly blocked
+# for as long as ANY manual run is in flight. Same-asset safety ACROSS
+# overlapping manual runs (never animate the same asset twice) is a
+# different concern, handled separately at the ASSET level by
+# clip_asset_claims.py inside pipeline_executor.run_clip_generation — this
+# ref count only ever answers the coarser "is any manual clip work
+# happening on this video at all" question that the "main" lane needs.
+_manual_clip_refcount: dict[tuple[str, str], int] = {}
+
+
+def _manual_clip_begin(video_id: str, tenant_id: str) -> None:
+    key = (tenant_id, video_id)
+    _manual_clip_refcount[key] = _manual_clip_refcount.get(key, 0) + 1
+    # Tags this request's status writes with lane="clip_manual" (same
+    # mechanism _lane_begin uses) so _is_task_active's "main" check never
+    # mistakes a manual clip run's _running_tasks entry for a main-lane one.
+    _task_lane.set("clip_manual")
+    _side_lanes.setdefault(key, {})["clip_manual"] = _time.time()
+
+
+def _manual_clip_finish(video_id: str, tenant_id: str) -> None:
+    key = (tenant_id, video_id)
+    remaining = _manual_clip_refcount.get(key, 0) - 1
+    if remaining <= 0:
+        _manual_clip_refcount.pop(key, None)
+        lanes = _side_lanes.get(key)
+        if lanes:
+            lanes.pop("clip_manual", None)
+            if not lanes:
+                _side_lanes.pop(key, None)
+    else:
+        _manual_clip_refcount[key] = remaining
+        # Keep the shared timestamp fresh so the OTHER still-running
+        # manual run's entry doesn't get swept as stale (>10min) by
+        # _is_task_active's staleness cleanup while it's still working.
+        lanes = _side_lanes.get(key)
+        if lanes:
+            lanes["clip_manual"] = _time.time()
+
+
+# --- "redraw_manual" lane (C1b, feat/per-card-parallel-clips) ----------------
+# The image-redraw sibling of "clip_manual" directly above — same ref-counted
+# "blocks/blocked-by main, never blocks itself" shape, applied to a manual
+# per-card/multi-card picture REDRAW instead of a clip animate. Kept as its
+# own separate lane name/refcount dict (not reusing "clip_manual") rather
+# than a generalized helper: a redraw run and a clip run are different
+# resources with independent concurrency stories, and this repo's own
+# precedent (C1 added clip_manual as new code alongside the pre-existing
+# single-slot _lane_begin/_lane_finish rather than refactoring them) is to
+# add the new named pair rather than parametrize — cheaper to reason about
+# and to test in isolation than a shared abstraction two call sites lean on.
+# See _manual_clip_begin/_manual_clip_finish's comments above for the full
+# reasoning; not repeated verbatim here.
+_manual_redraw_refcount: dict[tuple[str, str], int] = {}
+
+
+def _manual_redraw_begin(video_id: str, tenant_id: str) -> None:
+    key = (tenant_id, video_id)
+    _manual_redraw_refcount[key] = _manual_redraw_refcount.get(key, 0) + 1
+    _task_lane.set("redraw_manual")
+    _side_lanes.setdefault(key, {})["redraw_manual"] = _time.time()
+
+
+def _manual_redraw_finish(video_id: str, tenant_id: str) -> None:
+    key = (tenant_id, video_id)
+    remaining = _manual_redraw_refcount.get(key, 0) - 1
+    if remaining <= 0:
+        _manual_redraw_refcount.pop(key, None)
+        lanes = _side_lanes.get(key)
+        if lanes:
+            lanes.pop("redraw_manual", None)
+            if not lanes:
+                _side_lanes.pop(key, None)
+    else:
+        _manual_redraw_refcount[key] = remaining
+        # Keep the shared timestamp fresh so the OTHER still-running manual
+        # redraw's entry doesn't get swept as stale (>10min) while it's
+        # still working.
+        lanes = _side_lanes.get(key)
+        if lanes:
+            lanes["redraw_manual"] = _time.time()
+
 
 # Tasks older than 10 minutes are considered stale (server restart, crash, etc.)
 _STALE_TASK_SECONDS = 600
@@ -376,6 +479,22 @@ async def _is_task_active(video_id: str, tenant_id: str, lane: str = "main") -> 
     blocked only by themselves or by main - so voice can run while
     environments generate.
 
+    lane="clip_manual" (C1, feat/per-card-parallel-clips): a manual per-
+    card/multi-card clip run. Blocked by "main" exactly like every other
+    side lane (a full pipeline stage in flight always wins), but — unlike
+    every other side lane — NEVER by another "clip_manual" run: several
+    manual clip runs are meant to be in flight on the same video at once.
+    Same-asset safety across those overlapping runs is enforced separately
+    at the ASSET level (clip_asset_claims.py, inside
+    pipeline_executor.run_clip_generation), not here.
+
+    lane="redraw_manual" (C1b, feat/per-card-parallel-clips): the
+    image-redraw sibling of "clip_manual" — same relaxation (blocked by
+    "main", never by another "redraw_manual" run), applied to a manual
+    per-card/multi-card picture redraw. Same-asset safety across those
+    overlapping runs is enforced at the ASSET level by
+    redraw_asset_claims.py, inside scripts.coverage_to_app.redraw_asset_images.
+
     C16a (S7-6): the in-process dict below is a fast, same-process check
     only — it's wiped on every restart and (before this chunk) chat's
     dispatch never consulted it at all. The generation_claims DB table is
@@ -401,6 +520,18 @@ async def _is_task_active(video_id: str, tenant_id: str, lane: str = "main") -> 
     )
     if lane == "main":
         if main_running or bool(lanes):
+            return True
+    elif lane == "clip_manual":
+        # Deliberately skips the `lane in lanes` self-block every other
+        # side lane applies below — that's the one line that lets several
+        # manual clip runs overlap instead of 409-ing each other.
+        if main_running:
+            return True
+    elif lane == "redraw_manual":
+        # Same relaxation as "clip_manual" above, applied to manual
+        # picture redraws — several redraw_manual runs must overlap
+        # instead of 409-ing each other; only "main" still blocks them.
+        if main_running:
             return True
     elif (lane in lanes) or main_running:
         return True
@@ -1537,27 +1668,64 @@ async def run_stitch_scene(
 async def run_redraw_image(
     video_id: str,
     background_tasks: BackgroundTasks,
-    asset_id: str,
+    asset_id: Optional[str] = None,
+    asset_ids: Optional[List[str]] = Query(None),
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """Redraw ONE picture from its (edited) image_prompt, anchored on the locked cast
-    sheets. Clears the picture's stale clip. GPT Image 2."""
+    """Redraw ONE OR SEVERAL pictures from their (edited) image_prompt(s), anchored on
+    the locked cast sheets. Clears each picture's stale clip. GPT Image 2 (or the
+    video's image_model_override).
+
+    asset_id = redraw one card (unchanged single-target path); asset_ids = redraw
+    SEVERAL cards at once (C1b, feat/per-card-parallel-clips — comma-separated
+    `?asset_ids=a,b,c` or repeated `?asset_ids=a&asset_ids=b`), mirroring how C1 added
+    `asset_ids` to the clip route. Unlike clip, redraw has no "redraw everything"
+    mode — at least one of asset_id/asset_ids is required.
+
+    Every targeted redraw (one id or several) runs in the "redraw_manual" lane: still
+    blocked by a full pipeline stage ("main") in flight, but — unlike every other lane —
+    does NOT 409 against ANOTHER targeted redraw on this same video, so several per-card
+    Redraw clicks fire concurrently instead of queueing one-at-a-time. Same-asset safety
+    across those overlapping runs (never redraw one picture twice) is enforced at the
+    ASSET level inside scripts.coverage_to_app.redraw_asset_images (redraw_asset_claims.py),
+    not by this lane check. A full-scene/full-video build still runs in "main" —
+    exclusive against every other full build, and against any manual redraw in flight
+    (see _is_task_active's "redraw_manual" branch).
+    """
     video = await fetch_one(
         "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if await _is_task_active(video_id, tenant_id):
+
+    requested_ids = _normalize_manual_redraw_ids(asset_id, asset_ids)
+    if requested_ids is None:
+        raise HTTPException(status_code=400, detail="asset_id or asset_ids is required")
+
+    if await _is_task_active(video_id, tenant_id, lane="redraw_manual"):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Redrawing picture...", tenant_id=tenant_id)
+    # Single-target label keeps the ORIGINAL literal wording ("Redrawing
+    # picture...") byte-for-byte — only a genuine 2+-card manual run gets
+    # the new plural wording.
+    label = f"Redrawing {len(requested_ids)} pictures" if len(requested_ids) > 1 else "Redrawing picture"
+
+    _manual_redraw_begin(video_id, tenant_id)
+    _set_task_status(video_id, "running", f"{label}...", tenant_id=tenant_id)
 
     def progress_callback(msg: str):
         _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
 
     async def _run():
         try:
-            from scripts.coverage_to_app import redraw_asset_image
-            result = await redraw_asset_image(video_id, tenant_id, asset_id, progress=progress_callback)
+            # ALWAYS the claim-guarded entry point, whether 1 or several ids
+            # were requested — redraw_asset_images itself passes a lone
+            # winning id straight through to redraw_asset_image UNCHANGED
+            # (see its docstring), so a single-target call gets the exact
+            # pre-C1b result shape while still being claim-protected against
+            # a second overlapping tap on the SAME asset.
+            from scripts.coverage_to_app import redraw_asset_images
+            result = await redraw_asset_images(
+                video_id, tenant_id, requested_ids, progress=progress_callback)
             _set_task_status(
                 video_id, result.get("status", "unknown"),
                 result.get("message") or result.get("error"), result.get("error"),
@@ -1566,11 +1734,12 @@ async def run_redraw_image(
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
+            _manual_redraw_finish(video_id, tenant_id)
             await asyncio.sleep(15)
             _clear_task_status(video_id, tenant_id)
 
     background_tasks.add_task(_run)
-    return PipelineResponse(video_id=video_id, status="running", message="Redrawing picture")
+    return PipelineResponse(video_id=video_id, status="running", message=label)
 
 
 @router.post("/storyboard-extract/{video_id}", response_model=PipelineResponse)
@@ -1697,20 +1866,89 @@ async def run_dialogue_voice(
     return PipelineResponse(video_id=video_id, status="running", message=f"Dialogue voice synthesis started{scene_label}")
 
 
+def _normalize_multi_asset_ids(
+    asset_id: Optional[str], asset_ids: Optional[List[str]]
+) -> Optional[List[str]]:
+    """Shared parsing behind both `_normalize_manual_clip_ids` (C1) and
+    `_normalize_manual_redraw_ids` (C1b) — unifies a singular id param and
+    C1's `asset_ids` shape into one deduped, order-preserving list.
+    `asset_ids` accepts EITHER shape: a single comma-separated query value
+    (`?asset_ids=a,b,c`) or repeated query params (`?asset_ids=a&asset_ids=b`),
+    or both mixed together; FastAPI's `Query(None)` already collects repeats
+    into a list, so this just also splits each item on commas. Returns None
+    when NEITHER param is given. Nothing here is clip- or image-specific —
+    both call sites just need "which ids did this manual request target".
+    """
+    ids: List[str] = []
+    seen: set = set()
+
+    def _add(v: Optional[str]):
+        v = (v or "").strip()
+        if v and v not in seen:
+            seen.add(v)
+            ids.append(v)
+
+    _add(asset_id)
+    for raw in (asset_ids or []):
+        for part in (raw or "").split(","):
+            _add(part)
+    return ids or None
+
+
+def _normalize_manual_clip_ids(
+    asset_id: Optional[str], asset_ids: Optional[List[str]]
+) -> Optional[List[str]]:
+    """Normalize the two ways a manual clip run can name its targets — the
+    original singular `asset_id` and C1's new `asset_ids` — into one
+    deduped, order-preserving list. Returns None when NEITHER param is
+    given — the caller uses that to mean "not a targeted run" (the
+    scene/full-video paths), matching `asset_id is None` exactly for every
+    caller that only ever passed the old singular param. See
+    `_normalize_multi_asset_ids` for the actual (shared) parsing rules."""
+    return _normalize_multi_asset_ids(asset_id, asset_ids)
+
+
+def _normalize_manual_redraw_ids(
+    asset_id: Optional[str], asset_ids: Optional[List[str]]
+) -> Optional[List[str]]:
+    """C1b (feat/per-card-parallel-clips) counterpart of
+    `_normalize_manual_clip_ids` for the image-redraw route. Identical
+    parsing rules (see `_normalize_multi_asset_ids`) — unlike clip's route,
+    every redraw call is a targeted run (there is no "redraw everything"
+    mode), so `run_redraw_image` treats a None return as a 400, not a
+    fallback to some untargeted behavior."""
+    return _normalize_multi_asset_ids(asset_id, asset_ids)
+
+
 @router.post("/clip/{video_id}", response_model=PipelineResponse)
 async def run_clip(
     video_id: str,
     background_tasks: BackgroundTasks,
     asset_id: Optional[str] = None,
+    asset_ids: Optional[List[str]] = Query(None),
     scene: Optional[int] = None,
     force: bool = False,
     tenant_id: str = Depends(get_tenant_id),
 ):
     """Animate final pictures into motion clips.
 
-    The trust ladder's single entry point: asset_id = tap one card,
-    scene = Animate this scene, neither = Animate everything.
+    The trust ladder's entry point: asset_id = tap one card, asset_ids =
+    tap SEVERAL cards at once (C1, feat/per-card-parallel-clips — comma-
+    separated `?asset_ids=a,b,c` or repeated `?asset_ids=a&asset_ids=b`),
+    scene = Animate this scene, none of the three = Animate everything.
     force=true regenerates a card that already has a clip (Redo).
+
+    A targeted run (asset_id and/or asset_ids given) runs in the
+    "clip_manual" lane: it's still blocked by a full pipeline stage
+    ("main") in flight, but — unlike every other lane — does NOT 409
+    against ANOTHER targeted clip run on this same video, so several
+    per-card clicks fire concurrently instead of queueing one-at-a-time.
+    Same-asset safety across those overlapping runs (never animate one
+    asset twice) is enforced at the ASSET level inside
+    pipeline_executor.run_clip_generation (clip_asset_claims.py), not by
+    this lane check. A scene-wide or full-video build still runs in
+    "main" — exclusive against every other full build, and against any
+    manual run in flight (see _is_task_active's "clip_manual" branch).
     """
     video = await fetch_one(
         "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
@@ -1721,22 +1959,36 @@ async def run_clip(
 
     _require_stage_enabled(video, "video")
 
+    requested_ids = _normalize_manual_clip_ids(asset_id, asset_ids)
+    is_manual = requested_ids is not None
+
     # Relaxed gate (the lessons pattern): finals can exist from extraction onward —
     # the executor itself only animates assets that HAVE a picture. A TARGETED animate
-    # (one card via asset_id, or one scene) only needs that picture to exist, so it
+    # (one or more cards, or one scene) only needs that picture to exist, so it
     # bypasses the global status gate — same as the other per-scene stage gates. The
     # status check applies only to "animate everything" (coverage leaves the status at
     # ready_for_image_prompts even though the pictures exist).
-    if asset_id is None and scene is None and not is_at_or_past_stage(video["status"], "ready_for_images"):
+    if not is_manual and scene is None and not is_at_or_past_stage(video["status"], "ready_for_images"):
         raise HTTPException(
             status_code=400,
             detail=f"Final pictures must exist before clips (status: {video['status']})",
         )
 
-    if await _is_task_active(video_id, tenant_id):
+    lane = "clip_manual" if is_manual else "main"
+    if await _is_task_active(video_id, tenant_id, lane=lane):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    label = "Animating a clip" if asset_id else f"Animating scene {scene}" if scene is not None else "Animating all clips"
+    if requested_ids and len(requested_ids) > 1:
+        label = f"Animating {len(requested_ids)} clips"
+    elif requested_ids:
+        label = "Animating a clip"
+    elif scene is not None:
+        label = f"Animating scene {scene}"
+    else:
+        label = "Animating all clips"
+
+    if is_manual:
+        _manual_clip_begin(video_id, tenant_id)
     _set_task_status(video_id, "running", f"{label}...", tenant_id=tenant_id)
 
     async def _run():
@@ -1747,7 +1999,13 @@ async def run_clip(
                 _set_task_status(video_id, "running", msg, tenant_id=tenant_id)
 
             result = await executor.run_clip_generation(
-                video_id, asset_id=asset_id, scene=scene, force=force,
+                video_id,
+                # Single-target calls keep passing the ORIGINAL singular
+                # asset_id param (byte-identical to pre-C1 behavior); only
+                # a genuine 2+-card manual run uses the new asset_ids param.
+                asset_id=(requested_ids[0] if requested_ids and len(requested_ids) == 1 else None),
+                asset_ids=(requested_ids if requested_ids and len(requested_ids) > 1 else None),
+                scene=scene, force=force,
                 progress_callback=_progress,
             )
             _set_task_status(
@@ -1760,6 +2018,8 @@ async def run_clip(
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), str(e), tenant_id=tenant_id)
         finally:
+            if is_manual:
+                _manual_clip_finish(video_id, tenant_id)
             await asyncio.sleep(30)
             _clear_task_status(video_id, tenant_id)
 

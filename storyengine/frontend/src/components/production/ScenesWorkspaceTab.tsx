@@ -20,7 +20,7 @@ import {
   Check, Loader2, Image as ImageIcon, RefreshCw,
   Lock, Unlock, ArrowLeft, X, MoreHorizontal, Play, Pause,
   MessageCircle, AlertTriangle, Film, Sparkles, RotateCcw, Scissors, MapPin, Volume2, LayoutGrid, Download, Ratio,
-  Camera,
+  Camera, Clock,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -652,8 +652,19 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     bridge: taskWatcher,
     onProgress: () => {
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      // C3 (live cost counter): the page header's CostLedgerChip reads
+      // video.total_cost, which generation_ledger.record_ledger_entry bumps
+      // on EVERY paid clip/redraw as it lands (routes/videos.py's ledger
+      // endpoint docstring) — well before a whole batch's task-status flips
+      // to "completed". page.tsx's own ["video", videoId] query already
+      // polls every 5s independent of this tab, but invalidating it on the
+      // SAME ~3s task-poll tick this line already rides for video-assets
+      // means the chip climbs on the same cadence cards do, not a separate
+      // unrelated timer. No new endpoint — same query key page.tsx already
+      // owns and refetches from.
+      queryClient.invalidateQueries({ queryKey: ["video", video.id] });
     },
-    onComplete: async () => {
+    onComplete: async (message) => {
       const chain = chainRef.current;
       if (chain && chain.queue.length > 0) {
         const step = chain.queue.shift()!;
@@ -679,20 +690,87 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
       }
       chainRef.current = null;
       setGeneratingScene(null);
+      // C2: a multi-card clip batch reports overall "completed" the instant
+      // ONE clip in it succeeds (pipeline_executor.run_clip_generation's
+      // status is only "failed" when NOTHING in the batch made it) — so a
+      // partial failure inside a coalesced asset_ids run would otherwise
+      // vanish silently instead of showing "Try again". Snapshot the ids
+      // this run covered, clear the normal way, then reconcile against a
+      // fresh fetch: anything still without a clip gets marked failed.
+      // Best-effort — a failed reconciliation fetch just skips the check,
+      // never blocks the happy path.
+      const finishedClipIds = generatingClipIds;
       setGeneratingClipIds(new Set());
+      // C3: same partial-failure gap as clip's above (redraw_asset_images
+      // also reports overall "completed" the instant ONE picture in the
+      // batch succeeds — coverage_to_app.py: `status: "completed" if
+      // redrawn or not failed else "failed"`), but redraw has no field like
+      // video_clip_url to diff a before/after fetch against — a redrawn
+      // picture's storage PATH is deterministic (coverage_to_app.py's
+      // _stable_url overwrites the same path every time), so image_url
+      // stays byte-identical whether the redraw succeeded or not, and the
+      // assets endpoint doesn't expose updated_at. Instead, parse the
+      // batch's own completion message — redraw_asset_images builds it as
+      // `S{scene}.{image_index}: <error>` per failed picture — and match
+      // those labels back to the dispatched ids by (scene, image_index),
+      // the one thing every asset already carries. Best-effort: the
+      // backend truncates that message at 400 chars, so a large batch with
+      // many failures could omit a label past the cutoff — that card would
+      // then read as succeeded. Known gap, not a crash risk (see
+      // deferred-verification.md's C3 section).
+      const finishedRedrawIds = generatingRedrawIds;
+      setGeneratingRedrawIds(new Set());
       setConfirmKey(null);
       setRecropping(null);
       refreshAll();
+      if (finishedClipIds.size > 0) {
+        try {
+          const fresh = await getVideoAssets(video.id);
+          const stillMissing = new Set<string>();
+          finishedClipIds.forEach((id) => {
+            const a = fresh.find((x) => x.id === id);
+            if (a && !a.video_clip_url) stillMissing.add(id);
+          });
+          if (stillMissing.size > 0) {
+            setFailedClipIds((prev) => new Set([...prev, ...stillMissing]));
+          }
+        } catch {
+          // best-effort only — the next tap on a genuinely-missing card retries it anyway
+        }
+      }
+      if (finishedRedrawIds.size > 0 && message) {
+        const failedLabels = new Set(
+          Array.from(message.matchAll(/S(\d+)\.(\d+):/g)).map((m) => `${m[1]}.${m[2]}`),
+        );
+        if (failedLabels.size > 0) {
+          const stillFailed = new Set<string>();
+          finishedRedrawIds.forEach((id) => {
+            const a = (assets ?? []).find((x) => x.id === id);
+            if (a && failedLabels.has(`${a.scene}.${a.image_index}`)) stillFailed.add(id);
+          });
+          if (stillFailed.size > 0) {
+            setFailedRedrawIds((prev) => new Set([...prev, ...stillFailed]));
+          }
+        }
+      }
     },
     onFailed: (error) => {
       chainRef.current = null;
       setGeneratingScene(null);
       setFailedClipIds((prev) => new Set([...prev, ...generatingClipIds]));
       setGeneratingClipIds(new Set());
+      // C3: redraw_asset_images only reports overall "failed" when NOTHING
+      // in the batch made it — at that point every dispatched id genuinely
+      // failed, so (unlike onComplete's partial case above) no message
+      // parsing is needed here.
+      setFailedRedrawIds((prev) => new Set([...prev, ...generatingRedrawIds]));
+      setGeneratingRedrawIds(new Set());
       setConfirmKey(null);
       setRecropping(null);
       if (generatingClipIds.size > 0) {
         toast.error(error || "Clip generation hit a problem — tap the card to try again.");
+      } else if (generatingRedrawIds.size > 0) {
+        toast.error(error || "Picture redraw hit a problem — try again.");
       }
       refreshAll();
     },
@@ -707,6 +785,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const {
     generatingClipIds, setGeneratingClipIds,
     failedClipIds, setFailedClipIds,
+    queuedClipIds,
+    // C3: redraw's own three-state track (mirrors clip's above).
+    generatingRedrawIds, setGeneratingRedrawIds,
+    failedRedrawIds, setFailedRedrawIds,
+    queuedRedrawIds,
+    redrawOne,
     confirmKey, setConfirmKey,
     animateOne, animateScene, animateAll,
     confirmable, cancelResume,
@@ -725,14 +809,15 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     const onStop = (e: Event) => {
       if ((e as CustomEvent).detail?.videoId === video.id) {
         chainRef.current = null;
-        cancelResume();  // Stop halts the clip auto-resume loop too
+        cancelResume();  // Stop halts the clip auto-resume loop too (and now the redraw queue)
         setGeneratingScene(null);
         setGeneratingClipIds(new Set());
+        setGeneratingRedrawIds(new Set());
       }
     };
     window.addEventListener("se:stop-requested", onStop);
     return () => window.removeEventListener("se:stop-requested", onStop);
-  }, [video.id, cancelResume, setGeneratingClipIds]);
+  }, [video.id, cancelResume, setGeneratingClipIds, setGeneratingRedrawIds]);
 
   useEffect(() => {
     setImageModel(video.image_model_override || "gpt-image-2");
@@ -1185,20 +1270,14 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     }
   }, [video.id, running, taskMessage, markStarted, toast, perClip]);
 
-  const redrawOne = useCallback(async (asset: Asset) => {
-    if (running) {
-      toast.info(`Hang on — still working: ${taskMessage || "finishing the current step"}.`);
-      return;
-    }
-    setRecropping(asset.id);  // reuse the per-card "working" dim until onComplete clears it
-    try {
-      await runStageWith409Retry("redraw-image", { asset_id: asset.id });
-      toast.info(`Redrawing this picture from your prompt (~$${picturePrice.toFixed(2)}), anchored on the locked cast. Re-animate after.`);
-    } catch (err) {
-      setRecropping(null);
-      toast.error((err as Error).message || "Couldn't start the redraw.");
-    }
-  }, [running, taskMessage, toast, runStageWith409Retry, picturePrice]);
+  // C3 (feat/per-card-parallel-clips): redrawOne now lives in
+  // useClipTrustLadder, coalescing several per-card Redraw clicks into ONE
+  // `asset_ids=a,b,c` call the exact way animateOne does for clips — see the
+  // hook's file header. It no longer blocks on `running`, no longer reuses
+  // `recropping` for its "working" dim (that state is genuinely shared with
+  // recrop and would misattribute one action's overlay to the other now that
+  // redraw can run for several cards independently), and no longer needs
+  // runStageWith409Retry directly (the hook has its own inline retry).
 
   // confirmable() now lives in useClipTrustLadder too.
 
@@ -1999,6 +2078,15 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                     isGenerating={generatingClipIds.has(asset.id) && running}
                     isRecropping={recropping === asset.id && running}
                     isFailed={failedClipIds.has(asset.id)}
+                    // C2: queued from a per-card click, not yet dispatched (still inside
+                    // the debounce window or waiting on an in-flight batch to free up).
+                    // Independent of `running` — a card can be queued whether or not
+                    // anything else is currently in flight.
+                    isQueued={queuedClipIds.has(asset.id)}
+                    // C3: same three-state shape, redraw's own track.
+                    isRedrawing={generatingRedrawIds.has(asset.id) && running}
+                    isRedrawQueued={queuedRedrawIds.has(asset.id)}
+                    isRedrawFailed={failedRedrawIds.has(asset.id)}
                     isPlaying={playingId === asset.id}
                     disabled={running}
                     videoDefaultModel={model}
@@ -2265,7 +2353,7 @@ function BoardLightbox({ items, index, onNavigate, onClose }: {
 /** One story segment: shows the clip when it exists (tap = play), else the
  * final picture (tap = animate, ~$0.09). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically. */
-function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset }: {
+function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isQueued, isRedrawing, isRedrawQueued, isRedrawFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -2274,6 +2362,16 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
   isGenerating: boolean;
   isRecropping: boolean;
   isFailed: boolean;
+  /** C2: clicked but not yet dispatched — still inside the coalescing
+   * debounce, or waiting for an in-flight batch to free up. */
+  isQueued: boolean;
+  /** C3: redraw's own three-state track — same shape as isGenerating/
+   * isQueued/isFailed above, kept separate because a card's picture redraw
+   * and its clip animate are independent actions that can each be mid-flight
+   * (or queued, or failed) without the other. */
+  isRedrawing: boolean;
+  isRedrawQueued: boolean;
+  isRedrawFailed: boolean;
   isPlaying: boolean;
   disabled: boolean;
   /** The video's own resolved clip model — the badge's last-resort fallback
@@ -2379,7 +2477,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
               alt={label}
               loading="lazy"
               className="absolute inset-0 w-full h-full object-cover"
-              style={{ opacity: isGenerating || isRecropping ? 0.4 : 0.85 }}
+              style={{ opacity: isGenerating || isRecropping || isRedrawing ? 0.4 : isQueued || isRedrawQueued ? 0.6 : 0.85 }}
             />
           )
         )}
@@ -2405,7 +2503,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
         )}
 
         {/* Bad crop badge — one tap fixes it for free */}
-        {badCrop && !isGenerating && !isRecropping && (
+        {badCrop && !isGenerating && !isRecropping && !isRedrawing && (
           <button
             onClick={(e) => { e.stopPropagation(); onRecrop(); }}
             disabled={disabled}
@@ -2417,11 +2515,23 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
         )}
 
         {/* State overlays */}
-        {(isGenerating || isRecropping) && (
+        {/* C2: queued — clicked but the coalescing debounce hasn't fired yet, or
+            waiting on another in-flight batch to free up. No spinner (nothing's
+            actually running for this card yet), just a held state.
+            C3: isRedrawQueued shares this same visual — a card is only ever
+            queued on ONE track at a time in practice (the two Redraw/Run
+            buttons are separate affordances), so no separate label is needed. */}
+        {(isQueued || isRedrawQueued) && !isGenerating && !isRecropping && !isRedrawing && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2" style={{ background: "rgba(0,0,0,0.25)" }}>
+            <Clock size={20} style={{ color: "var(--text-secondary)" }} />
+            <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>Queued…</span>
+          </div>
+        )}
+        {(isGenerating || isRecropping || isRedrawing) && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2">
             <Loader2 size={22} className="animate-spin" style={{ color: "var(--purple)" }} />
             <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
-              {isRecropping ? "Re-cropping…" : "Bringing it to life…"}
+              {isRecropping ? "Re-cropping…" : isRedrawing ? "Redrawing…" : "Bringing it to life…"}
             </span>
           </div>
         )}
@@ -2433,7 +2543,26 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
             </span>
           </div>
         )}
-        {canAnimate && !hasClip && !isGenerating && !isRecropping && !isFailed && (
+        {/* C3: redraw's own "Try again" — a SEPARATE overlay (not folded into
+            isFailed above) because its retry action is different: clicking
+            anywhere on the card falls through to the GlassCard's onClick=
+            {onTap}, which for a clip failure happens to BE the retry
+            (animateOne, since !video_clip_url) — but for a redraw failure
+            that would wrongly trigger a clip animate instead. This overlay
+            stops that propagation and calls onRedraw() directly. */}
+        {isRedrawFailed && !isFailed && !isGenerating && !isRecropping && !isRedrawing && (
+          <div
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2"
+            style={{ background: "rgba(40,0,0,0.45)" }}
+            onClick={(e) => { e.stopPropagation(); onRedraw(); }}
+          >
+            <AlertTriangle size={18} style={{ color: "rgb(255,120,120)" }} />
+            <span className="px-2 py-1 rounded-md text-[11px] font-semibold" style={{ background: "rgba(255,90,90,0.9)", color: "white" }}>
+              Redraw failed — try again
+            </span>
+          </div>
+        )}
+        {canAnimate && !hasClip && !isGenerating && !isRecropping && !isRedrawing && !isFailed && !isQueued && !isRedrawQueued && !isRedrawFailed && (
           <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ background: "rgba(0,0,0,0.45)" }}>
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
@@ -2455,7 +2584,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
         )}
 
         {/* Hover actions: clip level when a clip exists, picture level otherwise */}
-        {!isGenerating && !isRecropping && (
+        {!isGenerating && !isRecropping && !isRedrawing && (
           <>
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               {asset.image_url && (
@@ -2576,10 +2705,24 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
                 try { await updateImagePrompt(asset.id, imgPrompt); onRedraw(); setImgState("idle"); }
                 catch { setImgState("error"); }
               }}
-              disabled={imgState === "saving"}
+              disabled={imgState === "saving" || isRedrawing}
+              title={isRedrawQueued ? "Queued — will fire as soon as the current batch clears, coalesced with any other cards you've clicked." : undefined}
               className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-md transition-all hover:brightness-110 disabled:opacity-40"
               style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
-              <RotateCcw size={11} /> {imgState === "saving" ? "Starting…" : imgState === "error" ? "Failed — retry" : `Redraw picture · ~$${picturePrice.toFixed(2)}`}
+              <RotateCcw size={11} />{" "}
+              {
+                // C3: the button's own label now also reflects the ASYNC
+                // redraw state (isRedrawing/isRedrawQueued/isRedrawFailed come
+                // from the parent's hook-backed track), not just this card's
+                // local `imgState` (which only covers the prompt-save call
+                // that fires just before onRedraw()).
+                imgState === "saving" ? "Starting…"
+                  : isRedrawQueued ? "Queued…"
+                  : isRedrawing ? "Redrawing…"
+                  : isRedrawFailed ? "Redraw failed — try again"
+                  : imgState === "error" ? "Failed — retry"
+                  : `Redraw picture · ~$${picturePrice.toFixed(2)}`
+              }
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); improve("image"); }}

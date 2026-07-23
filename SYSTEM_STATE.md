@@ -11109,3 +11109,80 @@ behavior change, but additive/informational only — no client relies on
 the CURRENT instructions text being frozen). The only non-additive edit is
 the tool-count 91→96 bump in an existing lock test, tracking a real
 (intended) count increase. No frontend touched.
+
+## C1b — Backend PARALLEL image redraw (feat/per-card-parallel-clips, added 2026-07-23)
+
+Image-redraw sibling of chunk C1 (backend multi-asset manual clip run —
+this same branch, no SYSTEM_STATE entry was added for C1/C2 at the time;
+noted here so this doesn't look like a gap). `POST
+/api/pipeline/redraw-image/{video_id}` (`storyengine/backend/routes/
+pipeline.py`) fans out to a SET of asset ids instead of one-at-a-time.
+
+### New module: `storyengine/backend/redraw_asset_claims.py`
+
+In-process per-asset claim guard, structurally identical to C1's
+`clip_asset_claims.py` but a SEPARATE module/dict — a clip claim and a
+redraw claim on the same asset id must never collide (they guard different
+paid operations). `claim()`/`release()`/`claimed_ids()`, same
+`STALE_SECONDS = 600` self-heal sweep.
+
+### New "redraw_manual" lane (`routes/pipeline.py`)
+
+Mirrors C1's "clip_manual" lane exactly: `_manual_redraw_begin`/
+`_manual_redraw_finish` (ref-counted, own `_manual_redraw_refcount` dict)
+and a new `elif lane == "redraw_manual":` branch in `_is_task_active` —
+blocked by "main" (a full pipeline stage in flight), never by another
+"redraw_manual" run. "clip_manual" and "redraw_manual" are independent of
+each other (a manual clip run does not block a manual redraw run on the
+same video, and vice versa).
+
+### Route change: `POST /api/pipeline/redraw-image/{video_id}`
+
+`asset_id` is now `Optional[str] = None` (was a required `str`); new
+`asset_ids: Optional[List[str]] = Query(None)` (comma-separated or
+repeated, same shape as C1's clip route). At least one of the two is
+required (400 otherwise) — unlike clip, redraw has no "redraw everything"
+mode. Both normalize through `_normalize_manual_redraw_ids` (a thin
+wrapper, alongside `_normalize_manual_clip_ids`, over a new shared
+`_normalize_multi_asset_ids` helper — the parsing itself was never clip- or
+image-specific).
+
+### New function: `scripts/coverage_to_app.py::redraw_asset_images`
+
+The claim-guarded, concurrency-fanned-out entry point every redraw call
+now goes through (1 id or several) — mirrors
+`pipeline_executor.run_clip_generation`'s claim step running
+unconditionally regardless of caller shape. Candidate rows scoped via
+`id = ANY($3::uuid[])`; claims taken via `redraw_asset_claims.claim()`
+before any paid call; 2+ ids fan out under `asyncio.gather` bounded by a
+new `Semaphore(IMAGE_CONCURRENCY, default 6)` (env `IMAGE_CONCURRENCY`,
+same default as clips' `CLIP_CONCURRENCY`). A single winning id is a
+direct passthrough to the UNCHANGED `redraw_asset_image` — same result
+shape as before this chunk, claim-protected. `redraw_asset_image`'s return
+dict gained one additive `cost` key (existing callers only read
+status/message/error, unaffected).
+
+### Tests
+
+33 new: `tests/functional/test_redraw_asset_claims.py` (10),
+`tests/functional/test_per_card_parallel_redraws_executor.py` (7),
+`tests/functional/queue_recovery/test_per_card_parallel_redraws_lane.py`
+(16). Full suite: 14F/2561P/1E = baseline (14F/2528P/1E, pre-C1b on this
+branch) + 33, same 14 pre-existing failures by name, same 1 pre-existing
+error — zero regressions.
+
+### Cross-process caveat (inherited from C1, same limitation)
+
+`redraw_asset_claims` and the `redraw_manual` lane are in-process only
+(module-level Python dicts) — safe ONLY because prod runs a single uvicorn
+worker. See `tasks/deferred-verification.md` §C1b.
+
+### Deploy-safety assessment
+
+**NOT deployed by this chunk (per brief).** Backend-only, additive:
+existing single-`asset_id` callers (frontend still calls this route with
+only `asset_id=`) get the exact pre-chunk result shape end-to-end, now
+claim-guarded against a same-asset race that could not previously happen
+(the old exclusive "main" lane already prevented it, at the cost of
+serializing every redraw). No DB migration, no new table, no frontend
+change in this chunk.
