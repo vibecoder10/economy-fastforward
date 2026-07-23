@@ -11186,3 +11186,33 @@ claim-guarded against a same-asset race that could not previously happen
 (the old exclusive "main" lane already prevented it, at the cost of
 serializing every redraw). No DB migration, no new table, no frontend
 change in this chunk.
+
+## Custom Film M2-1 — contract and persistence foundation (added 2026-07-23)
+
+Migration `storyengine/backend/migrations/122_custom_film_contract.sql`
+adds three immutable tenant-owned contract stores:
+`custom_film_recipes` (topic-free versioned recipes),
+`custom_film_plans` (per-video immutable revisions with plan/quote/approval
+hash fields), and `custom_film_sections` (stable UUID sections independent
+of scene numbering). `custom_film_section_scenes` is a separate future
+assignment table: one section may map to one or more `scripts` rows, and
+scene replanning can remap those rows without mutating the section contract.
+All four tables have tenant-consistent composite foreign keys and RLS.
+
+`storyengine/backend/custom_film_contract.py` derives the allowed values and
+per-knob public-profile provenance from exactly the four
+`production_style_profiles`, then applies explicit semantic compatibility
+domains. Static-documentary and dialogue structures stay cohesive while the
+already-independent script/visual runtime seams can safely cross profiles and
+visual-cue coverage can use supported simple-language performance. The module
+normalizes section weights deterministically, rejects unknown/incompatible
+values, hashes canonical plans and topic-free recipe signatures, detects
+public/tenant duplicates, and provides tenant-scoped persistence/load helpers.
+It contains no planner, provider call, approval action, generation dispatch,
+or runtime wiring.
+
+`videos` has additive nullable current-plan/hash/approval columns. They remain
+NULL for legacy and ordinary single-profile videos. The video detail model
+omits the entire Custom Film field group when no plan pointer exists, preserving
+the legacy response key set, and the route loads section details only when a
+Custom Film plan pointer exists.

@@ -697,6 +697,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   thumbnail_url, thumbnail_prompt, thumbnail_style_override,
                   accent_color, visual_style, image_style_override, style_preset_id, script_profile,
                   production_style_id, production_style_version, production_style_snapshot,
+                  custom_film_plan_id, custom_film_plan_revision,
+                  custom_film_plan_hash, custom_film_quote_inputs_hash,
+                  custom_film_approval_hash, custom_film_approved_at::text,
                   image_model_override, video_model,
                   dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
                   video_length_minutes, youtube_url, final_video_url, total_cost, max_spend, views, ctr, avg_retention,
@@ -727,6 +730,10 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
     research_payload = await enrich_research_payload_readiness(
         tenant_id, video_id, _parse_json_field(r.get("research_payload"))
     )
+    custom_film_plan = None
+    if r.get("custom_film_plan_id"):
+        from custom_film_contract import load_current_plan
+        custom_film_plan = await load_current_plan(tenant_id, video_id)
 
     return VideoDetail(
         id=str(r["id"]),
@@ -763,6 +770,15 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         production_style_id=r.get("production_style_id"),
         production_style_version=r.get("production_style_version"),
         production_style_snapshot=_parse_json_field(r.get("production_style_snapshot")),
+        custom_film_plan_id=(
+            str(r["custom_film_plan_id"]) if r.get("custom_film_plan_id") else None
+        ),
+        custom_film_plan_revision=r.get("custom_film_plan_revision"),
+        custom_film_plan_hash=r.get("custom_film_plan_hash"),
+        custom_film_quote_inputs_hash=r.get("custom_film_quote_inputs_hash"),
+        custom_film_approval_hash=r.get("custom_film_approval_hash"),
+        custom_film_approved_at=r.get("custom_film_approved_at"),
+        custom_film_plan=custom_film_plan,
         image_model_override=r.get("image_model_override"),
         video_model=r.get("video_model"),
         video_length_minutes=float(r["video_length_minutes"]) if r.get("video_length_minutes") else None,
