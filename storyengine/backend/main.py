@@ -294,7 +294,7 @@ async def _auto_check_trial_expired():
         await asyncio.sleep(21600)  # Run every 6 hours
 
 
-async def _auto_reap_stale_tasks():
+async def _auto_reap_stale_tasks(app: FastAPI | None = None):
     """Background task: fail tasks stuck 'running'/'pending' past the stale
     threshold (a dead worker leaves a zombie row that blocks a 1-job-plan
     tenant's whole pipeline). recover_stale_tasks() only runs at startup; this
@@ -306,6 +306,9 @@ async def _auto_reap_stale_tasks():
     await asyncio.sleep(210)  # Offset from the other startup tasks
     while True:
         try:
+            dispatch_app = app or globals().get("app")
+            if dispatch_app is not None:
+                await _dispatch_pending_custom_film_runtime(dispatch_app)
             reaped = await reap_stale_running_tasks()
             if reaped:
                 logger.info("[Reaper] Failed %d stale background task(s)", reaped)
@@ -598,6 +601,50 @@ async def _recover_stale_tasks_to_queue(app: FastAPI) -> int:
     return recovered
 
 
+async def _dispatch_pending_custom_film_runtime(app: FastAPI) -> int:
+    """Dispatch the durable Custom Film outbox without changing its identity.
+
+    A pending row is authoritative even if Redis was unavailable or the API
+    crashed after the scheduling transaction committed. Repeated startup/timer
+    passes use the row's same attempt and therefore the same arq worker key;
+    arq returning ``None`` is successful duplicate convergence.
+    """
+    arq_pool = getattr(app.state, "arq", None)
+    if arq_pool is None:
+        return 0
+    dispatched = 0
+    try:
+        rows = await fetch_all(
+            "SELECT tenant_id, video_id, job_id, COALESCE(attempt, 1) AS attempt "
+            "FROM background_tasks "
+            "WHERE task_type = 'custom_film_runtime' AND status = 'pending' "
+            "ORDER BY created_at"
+        )
+        for row in rows or []:
+            runtime_job_id = str(row.get("job_id") or "")
+            try:
+                await enqueue_stage(
+                    arq_pool,
+                    "custom_film_runtime",
+                    str(row["video_id"]),
+                    str(row["tenant_id"]),
+                    int(row.get("attempt") or 1),
+                    runtime_job_id=runtime_job_id,
+                )
+                dispatched += 1
+            except Exception as exc:
+                # The row remains pending: the next safe timer/startup pass
+                # retries this exact queue identity, never a second spend.
+                logger.warning(
+                    "Could not dispatch pending Custom Film runtime %s: %s",
+                    runtime_job_id,
+                    exc,
+                )
+    except Exception as exc:
+        logger.warning("Custom Film outbox dispatch error (non-blocking): %s", exc)
+    return dispatched
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -630,6 +677,7 @@ async def lifespan(app: FastAPI):
 
     # Recover tasks that were running when the server last stopped.
     await _recover_stale_tasks_to_queue(app)
+    await _dispatch_pending_custom_film_runtime(app)
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())

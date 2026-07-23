@@ -71,6 +71,7 @@ from actions import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+_QUEUE_CONTEXT_UNSET = object()
 
 # Workflow card value -> raw pipeline_stages handed to create_video, which runs
 # normalize_stage_plan (status_map.py:283) and pulls in prerequisites. None = the
@@ -553,7 +554,7 @@ async def _schedule_reserved_custom_film_runtime(
     state: dict[str, Any],
     video_id: str,
     *,
-    arq_pool: Any = None,
+    arq_pool: Any = _QUEUE_CONTEXT_UNSET,
 ) -> dict[str, Any]:
     """Resume-safe scheduling for one already-reserved Custom Film video."""
     from custom_film_contract import CustomFilmContractError
@@ -639,7 +640,13 @@ async def _schedule_reserved_custom_film_runtime(
             "custom film runtime scheduled but conversation cache update failed",
             exc_info=True,
         )
-    if arq_pool is not None:
+    if arq_pool is not _QUEUE_CONTEXT_UNSET:
+        if arq_pool is None:
+            raise CustomFilmContractError(
+                "The approved Custom Film schedule is safely saved, but the "
+                "worker queue is unavailable. Retry later; StoryEngine will "
+                "reuse this same exact job without another charge."
+            )
         try:
             from job_queue import enqueue_stage
 
@@ -4035,7 +4042,7 @@ async def _handle_custom_film_approval_turn(
     background_tasks: BackgroundTasks,
     expected_state: dict[str, Any] | None = None,
     *,
-    arq_pool: Any = None,
+    arq_pool: Any = _QUEUE_CONTEXT_UNSET,
 ) -> ChatTurnResponse:
     """Confirm one exact quote into a durable no-provider start intention."""
     pending = state.get("pending_custom_film_plan")
@@ -4150,7 +4157,11 @@ async def _handle_custom_film_approval_turn(
             ),
         )
         video_id = result["video_id"]
-        schedule_kwargs = {"arq_pool": arq_pool} if arq_pool is not None else {}
+        schedule_kwargs = (
+            {"arq_pool": arq_pool}
+            if arq_pool is not _QUEUE_CONTEXT_UNSET
+            else {}
+        )
         await _schedule_reserved_custom_film_runtime(
             conversation_id,
             tenant_id,
@@ -5518,7 +5529,9 @@ async def chat_turn(
         and str(pending_custom_film.get("video_id") or "") == video_id
     ):
         try:
-            schedule_kwargs = {"arq_pool": arq_pool} if arq_pool is not None else {}
+            schedule_kwargs = (
+                {"arq_pool": arq_pool} if request is not None else {}
+            )
             await _schedule_reserved_custom_film_runtime(
                 conversation_id,
                 tenant_id,
@@ -5569,7 +5582,7 @@ async def chat_turn(
         and "custom_film_approval" in body.selections
         and not (body.message and body.message.strip())
     ):
-        approval_kwargs = {"arq_pool": arq_pool} if arq_pool is not None else {}
+        approval_kwargs = {"arq_pool": arq_pool} if request is not None else {}
         return await _handle_custom_film_approval_turn(
             str(body.selections["custom_film_approval"]),
             conversation_id,

@@ -39,6 +39,34 @@ OPERATION_STATES = frozenset(
         "reconciliation_required",
     }
 )
+_IDENTITY_FIELDS = (
+    "operation_id",
+    "tenant_id",
+    "video_id",
+    "runtime_job_id",
+    "runtime_hash",
+    "stage_key",
+    "provider",
+    "request_hash",
+    "reconciliation_mode",
+)
+_ALLOWED_STATE_TRANSITIONS = {
+    "prepared": frozenset(
+        {
+            "prepared",
+            "submitted",
+            "completed",
+            "failed",
+            "reconciliation_required",
+        }
+    ),
+    "submitted": frozenset(
+        {"submitted", "completed", "failed", "reconciliation_required"}
+    ),
+    "completed": frozenset({"completed"}),
+    "failed": frozenset({"failed"}),
+    "reconciliation_required": frozenset({"reconciliation_required"}),
+}
 _OPERATION_ID_RE = re.compile(r"^custom-film-op:[0-9a-f]{64}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -180,6 +208,72 @@ def _assert_exact(
         raise CustomFilmContractError(
             "Custom Film provider operation identity changed; no provider "
             "work was started"
+        )
+
+
+def validate_operation_binding(
+    row: Mapping[str, Any],
+    *,
+    video_identity: tuple[str, str],
+    task_identity: tuple[str, str, str],
+) -> None:
+    """Local executable model of migration 125's composite foreign keys."""
+    tenant_id = str(row.get("tenant_id") or "")
+    video_id = str(row.get("video_id") or "")
+    runtime_job_id = str(row.get("runtime_job_id") or "")
+    if (tenant_id, video_id) != video_identity:
+        raise CustomFilmContractError(
+            "Custom Film provider operation does not belong to this tenant video"
+        )
+    if (tenant_id, video_id, runtime_job_id) != task_identity:
+        raise CustomFilmContractError(
+            "Custom Film provider operation does not belong to this runtime task"
+        )
+
+
+def validate_operation_transition(
+    previous: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> None:
+    """Local executable model of the migration 125 protection trigger."""
+    for field in _IDENTITY_FIELDS:
+        if previous.get(field) != current.get(field):
+            raise CustomFilmContractError(
+                "Custom Film provider operation identity is immutable"
+            )
+    for field, label in (
+        ("provider_operation_id", "provider task identity"),
+        ("result", "provider result"),
+        ("reconciliation_detail", "reconciliation detail"),
+    ):
+        if previous.get(field) is not None and previous.get(field) != current.get(field):
+            raise CustomFilmContractError(
+                f"Custom Film {label} is write-once"
+            )
+    old_state = str(previous.get("state") or "")
+    new_state = str(current.get("state") or "")
+    if old_state in {"completed", "failed", "reconciliation_required"} and any(
+        previous.get(field) != current.get(field)
+        for field in (
+            "provider_operation_id",
+            "result",
+            "reconciliation_detail",
+        )
+    ):
+        raise CustomFilmContractError(
+            "Custom Film terminal provider operation is immutable"
+        )
+    if new_state not in _ALLOWED_STATE_TRANSITIONS.get(old_state, frozenset()):
+        raise CustomFilmContractError(
+            "Custom Film provider operation state cannot regress"
+        )
+    if new_state == "submitted" and not current.get("provider_operation_id"):
+        raise CustomFilmContractError(
+            "Custom Film submitted provider operation has no task identity"
+        )
+    if new_state == "completed" and current.get("result") is None:
+        raise CustomFilmContractError(
+            "Custom Film completed provider operation has no result"
         )
 
 

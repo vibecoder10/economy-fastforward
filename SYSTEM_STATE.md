@@ -11339,16 +11339,24 @@ control writes without losing the video, approval, or confirmation.
 
 # M2-4B2a Custom Film enqueue and provider reconciliation (2026-07-23)
 
-- The Custom Film approval/resume path immediately enqueues the exact durable
-  `custom-film-runtime:<runtime_hash>` job when the application Redis pool is
-  available. The arq worker key is deterministic, so a reload/double tap
-  converges on the same queued work instead of minting a second attempt.
+- The Custom Film approval/resume path treats the pending
+  `custom-film-runtime:<runtime_hash>` background-task row as a durable outbox.
+  It immediately enqueues the exact row when Redis is available and returns a
+  useful safely-held response when Redis is absent or enqueue fails. Startup
+  and the periodic stale-task loop dispatch all pending rows with their
+  original attempt; the deterministic arq worker key makes duplicate passes
+  converge instead of minting a second attempt. The stale reaper never fails a
+  pending Custom Film outbox row merely because Redis was unavailable.
 - Migration 125 and matching `schema.sql` create
   `custom_film_provider_operations`, a backend-only journal keyed by the
   B1 `custom-film-op:<sha256>` identity. Each row immutably binds tenant,
   video, runtime job/hash, stage key, provider, canonical request hash, and one
   declared reconciliation mode; provider task IDs and completed results are
-  durable.
+  durable. Composite foreign keys bind every operation to the exact
+  tenant-owned video and exact `(tenant, video, runtime job)` background task.
+  A database trigger makes operation/provider/request identity immutable,
+  provider task IDs/results write-once, and completed/failed/reconciliation
+  states terminal.
 - `custom_film_provider_operations.py` permits exactly three restart outcomes:
   return an already completed result, query a persisted provider task, or
   repeat a provider-idempotent request with the same operation ID. Missing,

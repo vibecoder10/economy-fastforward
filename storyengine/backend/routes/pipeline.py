@@ -360,6 +360,7 @@ async def reap_stale_running_tasks(max_age_minutes: int = STALE_TASK_THRESHOLD_M
             "error_message = 'Timed out — the worker didn''t finish this stage. Run it again.', "
             "completed_at = now() "
             "WHERE status IN ('running', 'pending') "
+            "  AND NOT (task_type = 'custom_film_runtime' AND status = 'pending') "
             "  AND started_at < now() - make_interval(mins => $1)",
             max_age_minutes,
         )

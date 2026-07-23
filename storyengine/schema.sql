@@ -1057,6 +1057,8 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     attempt INTEGER NOT NULL DEFAULT 1,
     runtime_envelope JSONB,
     runtime_progress JSONB,
+    CONSTRAINT background_tasks_tenant_video_job_uidx
+      UNIQUE (tenant_id, video_id, job_id),
     CONSTRAINT background_tasks_custom_film_runtime_envelope_check CHECK (
       task_type <> 'custom_film_runtime'
       OR (
@@ -1672,8 +1674,8 @@ ALTER TABLE director_preferences ENABLE ROW LEVEL SECURITY;
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS generation_claims (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL,
+  video_id UUID NOT NULL,
   stage TEXT NOT NULL,
   claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   claimed_by TEXT
@@ -1983,11 +1985,70 @@ CREATE TABLE IF NOT EXISTS custom_film_provider_operations (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, video_id, runtime_job_id, stage_key),
-  CHECK (state <> 'completed' OR result IS NOT NULL)
+  CHECK (state <> 'completed' OR result IS NOT NULL),
+  CHECK (state <> 'submitted' OR provider_operation_id IS NOT NULL),
+  FOREIGN KEY (tenant_id, video_id)
+    REFERENCES videos(tenant_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, video_id, runtime_job_id)
+    REFERENCES background_tasks(tenant_id, video_id, job_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS custom_film_provider_operations_runtime_idx
   ON custom_film_provider_operations (tenant_id, video_id, runtime_job_id);
+
+CREATE OR REPLACE FUNCTION protect_custom_film_provider_operation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (
+    NEW.operation_id, NEW.tenant_id, NEW.video_id, NEW.runtime_job_id,
+    NEW.runtime_hash, NEW.stage_key, NEW.provider, NEW.request_hash,
+    NEW.reconciliation_mode
+  ) IS DISTINCT FROM (
+    OLD.operation_id, OLD.tenant_id, OLD.video_id, OLD.runtime_job_id,
+    OLD.runtime_hash, OLD.stage_key, OLD.provider, OLD.request_hash,
+    OLD.reconciliation_mode
+  ) THEN
+    RAISE EXCEPTION 'Custom Film provider operation identity is immutable';
+  END IF;
+  IF OLD.provider_operation_id IS NOT NULL
+     AND NEW.provider_operation_id IS DISTINCT FROM OLD.provider_operation_id THEN
+    RAISE EXCEPTION 'Custom Film provider task identity is write-once';
+  END IF;
+  IF OLD.result IS NOT NULL AND NEW.result IS DISTINCT FROM OLD.result THEN
+    RAISE EXCEPTION 'Custom Film provider result is write-once';
+  END IF;
+  IF OLD.reconciliation_detail IS NOT NULL
+     AND NEW.reconciliation_detail IS DISTINCT FROM OLD.reconciliation_detail THEN
+    RAISE EXCEPTION 'Custom Film reconciliation detail is write-once';
+  END IF;
+  IF OLD.state IN ('completed', 'failed', 'reconciliation_required')
+     AND (
+       NEW.provider_operation_id, NEW.result, NEW.reconciliation_detail
+     ) IS DISTINCT FROM (
+       OLD.provider_operation_id, OLD.result, OLD.reconciliation_detail
+     ) THEN
+    RAISE EXCEPTION 'Custom Film terminal provider operation is immutable';
+  END IF;
+  IF (
+    (OLD.state = 'prepared' AND NEW.state NOT IN (
+      'prepared', 'submitted', 'completed', 'failed',
+      'reconciliation_required'
+    ))
+    OR (OLD.state = 'submitted' AND NEW.state NOT IN (
+      'submitted', 'completed', 'failed', 'reconciliation_required'
+    ))
+    OR (OLD.state IN ('completed', 'failed', 'reconciliation_required')
+        AND NEW.state <> OLD.state)
+  ) THEN
+    RAISE EXCEPTION 'Custom Film provider operation state cannot regress';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER custom_film_provider_operation_protect
+  BEFORE UPDATE ON custom_film_provider_operations
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_provider_operation();
 
 ALTER TABLE videos
   ADD CONSTRAINT videos_custom_film_plan_fkey
