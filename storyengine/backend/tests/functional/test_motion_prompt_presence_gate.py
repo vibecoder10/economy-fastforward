@@ -31,9 +31,14 @@ The fix ships as a contract triangle in the SAME commit:
      structured hint on REACTION rows instead of the raw snippet.
   2. GATE — gate_motion_prompt(video_prompt, image_prompt): pure, cheap,
      deterministic, now covering BOTH failure classes. THIS FILE pins it.
-  3. REPAIR — _write_motion_prompts retries once on a gate failure, then
-     falls back to the camera-lock template text (_camera_lock_fallback_text)
-     and logs a warning. A gate-failing prompt must never reach the DB.
+  3. REPAIR — _write_motion_prompts retries once on a gate failure. If the
+     retry ALSO fails, FAIL CLOSED (code law, 2026-07-22): the shot is
+     BLOCKED — video_prompt left NULL, motion_gate_status='blocked'
+     (migration 118), a bot_activity row logged — never auto-substituted
+     with the camera-lock template text (_camera_lock_fallback_text, which
+     stays in the codebase for an explicit manual path only). A
+     gate-failing prompt must never reach the DB, and neither may a
+     silently-downgraded fallback.
 
 Run: cd storyengine/backend && ./venv/bin/python -m pytest tests/functional/test_motion_prompt_presence_gate.py -q
 """
@@ -302,21 +307,42 @@ def test_repair_retry_succeeds_stores_the_repaired_line():
     assert "empty" not in stored_prompt.lower()
 
 
-def test_repair_retry_fails_falls_back_to_camera_lock_template():
-    """Both the original AND the repair retry violate the gate — the stored
-    value must be the neutral fallback template, never a gate-failing line."""
+def test_repair_retry_fails_blocks_the_shot_no_fallback_stored():
+    """FAIL CLOSED (code law, 2026-07-22): both the original AND the repair
+    retry violate the gate. The shot must be BLOCKED — video_prompt left
+    NULL, motion_gate_status='blocked' — never auto-substituted with
+    fallback text and shipped. A visible bot_activity row must record why,
+    so a human knows to open the shot and write the line themselves."""
     responses = iter([
         f"1. {REAL_BUG_VIDEO_PROMPT}",  # initial batch write
         "1. Camera lands on the empty sofa where Ryan and Vanessa will sit.",  # repair still fails
     ])
     written, execute_mock = _run_write_motion_prompts(lambda **kw: next(responses))
-    assert written == 1
-    stored_prompt = execute_mock.await_args_list[-1].args[1]
-    assert gate_motion_prompt(stored_prompt, REAL_BUG_IMAGE_PROMPT) is None
-    # The shot's image has characters -> class-(d) rule: the fallback must be
-    # the first-frame-visibility hold, never a camera-lock traverse template.
-    assert stored_prompt == _camera_lock_fallback_text(None, REAL_BUG_IMAGE_PROMPT)
-    assert "fully visible from the very first frame" in stored_prompt
+    assert written == 0  # blocked shots are never counted as written
+
+    calls = execute_mock.await_args_list
+    asset_update = next(c for c in calls if "video_prompt=NULL" in c.args[0])
+    assert "motion_gate_status='blocked'" in asset_update.args[0]
+    assert asset_update.args[1] == ROW["id"]
+
+    activity_insert = next(c for c in calls if "INSERT INTO bot_activity" in c.args[0])
+    assert activity_insert.args[1] == TENANT_ID
+    assert activity_insert.args[2] == "Motion Bot"
+    assert activity_insert.args[3] == VIDEO_ID
+    assert activity_insert.args[4] == "failed"
+    assert "Motion prompt blocked by gate" in activity_insert.args[5]
+    assert "needs human edit" in activity_insert.args[5]
+
+    # No call ever stores fallback template text (or any other text) into
+    # video_prompt for this row — the only assets UPDATE is the NULL/blocked
+    # one asserted above.
+    prompt_writes = [c for c in calls if "SET video_prompt=$1" in c.args[0]]
+    assert not prompt_writes
+
+    # _camera_lock_fallback_text must still exist (a manual repair path may
+    # still call it explicitly) — it's just unreachable from this automated
+    # writer now.
+    assert _camera_lock_fallback_text(None, REAL_BUG_IMAGE_PROMPT)
 
 
 def test_clean_first_write_never_triggers_repair_call():

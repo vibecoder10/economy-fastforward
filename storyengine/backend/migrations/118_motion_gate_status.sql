@@ -1,0 +1,31 @@
+-- Motion-prompt gate BLOCK marker (fail-closed code law, 2026-07-22 — "the
+-- prompt is the prompt; we can't be downgrading prompts under automation"):
+-- when scripts/coverage_to_app.py::_write_motion_prompts's gate
+-- (gate_motion_prompt) rejects a shot's camera-motion line TWICE (the
+-- original write + the one corrective repair retry), the shot must not get
+-- a fallback line auto-substituted and shipped — video_prompt is left NULL
+-- and this column records WHY, so downstream stages can see the shot needs
+-- a human before it spends anything.
+--
+-- motion_gate_status: NULL = no block (the default for every row — every
+--                      existing shot and every shot whose gate never fires
+--                      stays byte-identical). 'blocked' = the writer's two
+--                      attempts both contradicted the shot's still and
+--                      video_prompt was left unset; the block reason itself
+--                      lives in the bot_activity row _write_motion_prompts
+--                      writes at the same time (assets carries only the
+--                      marker, not the free-text reason).
+--
+-- Consumers:
+--   - pipeline_executor.py run_clip_generation: a row with NULL/empty
+--     video_prompt OR motion_gate_status='blocked' is skipped before any
+--     Grok call or ledger spend (no fallback text is composed for it here
+--     either — same fail-closed rule).
+--   - routes/assets.py update_video_prompt (PATCH /api/assets/{id}/video-
+--     prompt): saving a human-written prompt clears motion_gate_status back
+--     to NULL — the manual edit IS the unblock.
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS) — same convention as migrations
+-- 090/097.
+
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS motion_gate_status TEXT;

@@ -432,6 +432,15 @@ CREATE TABLE assets (
   carries_own_line BOOLEAN NOT NULL DEFAULT false,
   clip_speech_start REAL,
   clip_speech_end REAL,
+  -- Motion-prompt gate BLOCK marker (migration 118, fail-closed code law):
+  -- 'blocked' when scripts/coverage_to_app.py's motion-prompt gate rejected
+  -- this shot's line twice (write + one repair retry) and video_prompt was
+  -- left NULL rather than auto-substituting fallback text — the reason
+  -- lives in a bot_activity row, not here. NULL = no block (default).
+  -- run_clip_generation (pipeline_executor.py) skips a 'blocked' or
+  -- promptless row with zero spend; saving a human-edited video_prompt via
+  -- PATCH /api/assets/{id}/video-prompt clears this back to NULL.
+  motion_gate_status TEXT,
 
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()

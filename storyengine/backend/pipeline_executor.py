@@ -12499,20 +12499,51 @@ separate scenes."""
             rows = await fetch_all(
                 f"SELECT id, scene, image_index, image_url, drive_image_url, video_prompt, "
                 f"video_clip_url, duration_seconds, sentence_text, image_prompt, assigned_dialogue, "
-                f"routed_model, model_override, camera_preset_id, generation_method "
+                f"routed_model, model_override, camera_preset_id, generation_method, "
+                f"motion_gate_status "
                 f"FROM assets WHERE {where} ORDER BY scene, image_index",
                 *params,
             )
-            todo = [
+            candidates = [
                 r for r in rows
                 if (r.get("image_url") or r.get("drive_image_url"))
                 and (force or not r.get("video_clip_url"))
             ]
+            # FAIL CLOSED (code law, 2026-07-22): a shot the motion-prompt
+            # gate blocked (motion_gate_status='blocked', migration 118) — or
+            # any row that simply has no video_prompt at all — must never be
+            # animated on a silent default. Skip it here, before any Grok
+            # call or ledger write; the batch still proceeds for every other
+            # valid shot (partial progress, never a silent full-stop).
+            def _motion_blocked(r):
+                return (not (r.get("video_prompt") or "").strip()
+                        or (r.get("motion_gate_status") or "") == "blocked")
+
+            blocked_rows = [r for r in candidates if _motion_blocked(r)]
+            todo = [r for r in candidates if not _motion_blocked(r)]
+            if blocked_rows:
+                shot_labels = ", ".join(
+                    f"S{r['scene']}.{r['image_index']}" for r in blocked_rows)
+                # user_facing(): this is a plain warning, not a raw
+                # exception — without the marker, _log_activity's
+                # status=="failed" humanize_error() pass would replace the
+                # shot list with a generic "Something went wrong" string.
+                await self._log_activity(
+                    bot_name, video_id, "failed",
+                    user_facing(
+                        (f"Skipped {len(blocked_rows)} shot(s) with no usable motion prompt — "
+                         f"needs a human edit before animating: {shot_labels}")[:900]),
+                )
+
             if not todo:
-                msg = "Nothing to animate — every picture here already has a clip."
+                msg = ("Nothing to animate — every drawable shot here is blocked at the "
+                       "motion-prompt gate and needs a human edit."
+                       if blocked_rows else
+                       "Nothing to animate — every picture here already has a clip.")
                 await self._log_activity(bot_name, video_id, "completed", msg)
                 return {"status": "completed", "video_id": video_id, "message": msg,
-                        "clips_generated": 0, "clips_failed": 0, "cost": 0.0}
+                        "clips_generated": 0, "clips_failed": 0, "cost": 0.0,
+                        "clips_blocked": len(blocked_rows)}
 
             label = (f"clip S{todo[0]['scene']}.{todo[0]['image_index']}" if asset_id
                      else f"scene {scene}" if scene is not None else f"{len(todo)} clips")
@@ -13155,11 +13186,23 @@ separate scenes."""
                     from render_stitch import stitch_video
                     # Dialogue voice_over scenes preview via the performance-
                     # track assembler (segment audio + timed muted shots) so
-                    # the preview sounds like the final render; plain stitch
-                    # stays the fallback so a preview never dead-ends.
+                    # the preview sounds like the final render.
+                    #
+                    # FAIL CLOSED (code law, 2026-07-22 — "the prompt is the
+                    # prompt; we can't be downgrading prompts under
+                    # automation," same rule applied to render quality):
+                    # plain stitch is a REAL quality downgrade (no dialogue
+                    # timing, no lip-sync), so an assembly failure no longer
+                    # auto-runs it. Default: stop, log the failure, leave
+                    # this scene's preview stale. SE_ALLOW_FALLBACK_STITCH=1
+                    # is the explicit opt-in that restores the old
+                    # auto-fallback behavior for a human who's consciously
+                    # chosen it (0fb33de6's original fallback + its
+                    # bot_activity warning both still exist, just gated).
                     use_perform = (
                         (video.get("dialogue_mode") or "") == "character_dialogue"
                         and (video.get("dialogue_audio") or "voice_over") != "grok_native")
+                    allow_fallback_stitch = os.getenv("SE_ALLOW_FALLBACK_STITCH", "0") == "1"
                     for sc in consider:
                         comp = await fetch_one(
                             "SELECT COUNT(*) AS pics, COUNT(video_clip_url) AS clips FROM assets "
@@ -13169,6 +13212,7 @@ separate scenes."""
                         if comp and comp["pics"] > 0 and comp["clips"] == comp["pics"]:
                             try:
                                 scene_url = None
+                                assembly_blocked = False
                                 if use_perform:
                                     try:
                                         from render_perform import assemble_scene
@@ -13177,17 +13221,36 @@ separate scenes."""
                                         print(f"[stitch] scene {sc} performance-assembled "
                                               f"({pres['shots']} shots, {pres['duration_seconds']}s)", flush=True)
                                     except Exception as pe:
+                                        assembly_blocked = not allow_fallback_stitch
                                         print(f"[stitch] scene {sc} performance assembly failed "
-                                              f"({str(pe)[:150]}) — falling back to plain stitch", flush=True)
+                                              f"({str(pe)[:150]}) — "
+                                              + ("falling back to plain stitch "
+                                                 "(SE_ALLOW_FALLBACK_STITCH=1)" if allow_fallback_stitch
+                                                 else "BLOCKED, no auto-fallback stitch "
+                                                 "(set SE_ALLOW_FALLBACK_STITCH=1 to allow it)"),
+                                              flush=True)
                                         # A silent downgrade must never be silent again: the
                                         # performance track carries dialogue timing/lip-sync,
-                                        # plain stitch does not — surface the quality drop on
-                                        # the visible bot_activity feed, not just stdout.
+                                        # plain stitch does not — surface the quality drop (or
+                                        # the block) on the visible bot_activity feed, not just
+                                        # stdout.
+                                        # user_facing(): a plain warning, not a raw exception —
+                                        # without the marker, _log_activity's status=="failed"
+                                        # humanize_error() pass replaces this with a generic
+                                        # "Something went wrong" string, losing the scene number
+                                        # and the fallback-vs-blocked distinction.
                                         await self._log_activity(
                                             "Render Bot", video_id, "failed",
-                                            f"Scene {sc}: performance-track assembly failed — "
-                                            f"fell back to plain stitch (lower quality, no "
-                                            f"dialogue timing/lip sync): {str(pe)[:300]}")
+                                            user_facing(
+                                                f"Scene {sc}: performance-track assembly failed — "
+                                                + (f"fell back to plain stitch (lower quality, no "
+                                                   f"dialogue timing/lip sync): {str(pe)[:300]}"
+                                                   if allow_fallback_stitch else
+                                                   f"blocked, needs a human decision (no auto-fallback "
+                                                   f"to plain stitch — set SE_ALLOW_FALLBACK_STITCH=1 to "
+                                                   f"allow the lower-quality stitch): {str(pe)[:300]}")))
+                                if assembly_blocked:
+                                    continue
                                 if not scene_url:
                                     res = await stitch_video(video_id, self.tenant_id, scene=sc)
                                     scene_url = res["final_video_url"]
@@ -13202,11 +13265,14 @@ separate scenes."""
                 print(f"[stitch] auto-stitch scan failed: {str(e)[:150]}", flush=True)
 
             msg = (f"Animated {done} clip(s) (${cost:.2f})"
-                   + (f" — {failed} failed, tap them to retry" if failed else ""))
+                   + (f" — {failed} failed, tap them to retry" if failed else "")
+                   + (f" — {len(blocked_rows)} blocked at the motion gate, needs a human edit"
+                      if blocked_rows else ""))
             await self._log_activity(bot_name, video_id, "completed" if not failed else "completed", msg, cost=cost)
             return {"status": "completed" if done or not failed else "failed",
                     "video_id": video_id, "message": msg,
                     "clips_generated": done, "clips_failed": failed, "cost": cost,
+                    "clips_blocked": len(blocked_rows),
                     "error": msg if failed and not done else None}
 
         except Exception as e:

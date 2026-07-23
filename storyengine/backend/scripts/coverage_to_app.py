@@ -2780,7 +2780,15 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
     frames; the spoken line was already assigned by the coverage planner (stored on
     assets.assigned_dialogue), so we append it deterministically — no LLM re-mapping
     that drops/duplicates/reorders lines. Stores video_prompt = motion + line.
-    Best-effort — leaves video_prompt NULL on failure (the clip gen has a default)."""
+
+    FAIL CLOSED (2026-07-22): a shot whose line still contradicts its still
+    after the one corrective repair retry (gate_motion_prompt) is BLOCKED,
+    not downgraded — video_prompt is left NULL, assets.motion_gate_status is
+    set to 'blocked', and a bot_activity row names the reason. Clip
+    generation (pipeline_executor.py run_clip_generation) must skip a
+    blocked/promptless row rather than spend on it. Best-effort otherwise —
+    a Claude-call failure for the whole scene still leaves rows' video_prompt
+    NULL, same as before."""
     rows = await fetch_all(
         "SELECT id, shot_type, image_prompt, sentence_text, assigned_dialogue, camera_movement "
         "FROM assets "
@@ -2866,11 +2874,36 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
             if retry and not retry_violation:
                 motion = retry
             else:
+                # FAIL CLOSED (code law, 2026-07-22 — "the prompt is the
+                # prompt; we can't be downgrading prompts under automation"):
+                # a line that STILL contradicts the still after one
+                # corrective retry must never be auto-substituted with
+                # fallback text and shipped to Grok. Block the shot instead
+                # of storing anything: video_prompt stays NULL and
+                # motion_gate_status='blocked' so run_clip_generation
+                # (pipeline_executor.py) skips it and spends nothing, and a
+                # visible bot_activity row tells a human which shot needs a
+                # hand-written line. _camera_lock_fallback_text/
+                # _CHARACTER_SAFE_FALLBACK stay in the codebase — they're
+                # just no longer reachable from this automated writer; a
+                # manual repair path may still call them explicitly.
+                reason = retry_violation or violation
                 logger.warning(
-                    "motion-prompt gate: scene %s shot %s asset %s fell back to camera-lock "
-                    "template — original: %r (%s); repair: %r (%s)",
+                    "motion-prompt gate: scene %s shot %s asset %s BLOCKED (no fallback "
+                    "stored) — original: %r (%s); repair: %r (%s)",
                     scene, i + 1, r["id"], motion, violation, retry, retry_violation)
-                motion = _camera_lock_fallback_text(r.get("camera_movement"), r.get("image_prompt"))
+                await execute(
+                    "UPDATE assets SET video_prompt=NULL, motion_gate_status='blocked', "
+                    "updated_at=now() WHERE id=$1",
+                    r["id"],
+                )
+                await execute(
+                    "INSERT INTO bot_activity (tenant_id, bot_name, video_id, status, message) "
+                    "VALUES ($1, $2, $3, $4, $5)",
+                    tenant, "Motion Bot", vid, "failed",
+                    (f"Motion prompt blocked by gate — needs human edit: {reason}")[:900],
+                )
+                continue
         spk, txt = _split_assigned(r.get("assigned_dialogue"))
         # "once, quickly ... then silence": Grok's 6s minimum stretched a
         # 1.5s line into slow-motion mouthing across the whole clip — the
@@ -2880,7 +2913,13 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
         prompt = (f'{motion}. {spk} says once, quickly and clearly: "{txt}" — then '
                   f'closes their mouth and holds the moment in silence.'
                   if (spk and txt) else motion)
-        await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2", prompt, r["id"])
+        # motion_gate_status=NULL: a clean write on a re-run (redo/regenerate)
+        # must clear any stale 'blocked' marker a prior pass left on this row.
+        await execute(
+            "UPDATE assets SET video_prompt=$1, motion_gate_status=NULL, updated_at=now() "
+            "WHERE id=$2",
+            prompt, r["id"],
+        )
         written += 1
     return written
 

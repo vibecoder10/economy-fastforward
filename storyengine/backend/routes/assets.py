@@ -92,14 +92,23 @@ async def update_video_prompt(
     asset_id: str, body: VideoPromptUpdate, tenant_id: str = Depends(get_tenant_id)
 ):
     """Edit a clip's motion prompt before animating (the box under each picture).
-    The clip stage reads assets.video_prompt, so this override drives the next animate."""
+    The clip stage reads assets.video_prompt, so this override drives the next animate.
+
+    Clears motion_gate_status (migration 118): a shot the automated motion
+    writer BLOCKED (gate rejected it twice — video_prompt left NULL,
+    motion_gate_status='blocked') is unblocked the moment a human saves their
+    own prompt here — the manual edit IS the unblock, and run_clip_generation
+    (pipeline_executor.py) reads motion_gate_status to decide whether to skip
+    the row. A row that was never blocked has motion_gate_status already
+    NULL, so this is a no-op for every existing save."""
     asset = await fetch_one(
         "SELECT id FROM assets WHERE id = $1 AND tenant_id = $2", asset_id, tenant_id,
     )
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
     await execute(
-        "UPDATE assets SET video_prompt = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
+        "UPDATE assets SET video_prompt = $1, motion_gate_status = NULL, updated_at = now() "
+        "WHERE id = $2 AND tenant_id = $3",
         body.video_prompt.strip(), asset_id, tenant_id,
     )
     return {"status": "saved"}
