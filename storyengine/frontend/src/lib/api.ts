@@ -480,7 +480,26 @@ export const getImageVariants = (videoId: string, scene: number, index: number) 
     `/api/videos/${videoId}/assets/variants?scene=${scene}&index=${index}`
   );
 
-export const getVideoScript = (id: string) => fetchApi<ScriptScene[]>(`/api/videos/${id}/script`);
+export const getVideoScript = async (id: string): Promise<ScriptScene[]> => {
+  const rows = await fetchApi<ScriptScene[]>(`/api/videos/${id}/script`);
+  // A retried script write can leave two rows with the same scene number
+  // (no unique constraint on scripts(video_id, scene)). The whole app
+  // addresses scenes by number — keys, state, stage calls, asset joins — so
+  // duplicates render twice (React duplicate-key error) and make every
+  // per-scene action ambiguous. Keep one row per scene: the most recently
+  // updated, matching the row backend stage work actually lands on.
+  const byScene = new Map<number, ScriptScene>();
+  for (const row of rows) {
+    const n = row.scene ?? 0;
+    const prev = byScene.get(n);
+    if (!prev) { byScene.set(n, row); continue; }
+    const prevT = Date.parse(prev.updated_at || "") || 0;
+    const rowT = Date.parse(row.updated_at || "") || 0;
+    // Ties keep the later row — the backend orders by created_at, so later = newer.
+    if (rowT >= prevT) byScene.set(n, row);
+  }
+  return [...byScene.values()];
+};
 
 export const getAudioToken = (videoId: string) =>
   fetchApi<{ token: string }>(`/api/videos/${videoId}/audio-token`, { method: "POST" });

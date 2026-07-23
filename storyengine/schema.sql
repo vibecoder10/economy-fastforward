@@ -876,6 +876,9 @@ CREATE INDEX idx_videos_airtable ON videos(airtable_record_id);
 CREATE INDEX idx_scripts_video ON scripts(video_id);
 CREATE INDEX idx_scripts_tenant ON scripts(tenant_id);
 CREATE INDEX idx_scripts_airtable ON scripts(airtable_record_id);
+-- One scripts row per (video, scene) — migration 117. Partial: Airtable-era
+-- rows may have scene NULL (backfilled at read time), so those stay exempt.
+CREATE UNIQUE INDEX scripts_video_scene_unique ON scripts(video_id, scene) WHERE scene IS NOT NULL;
 CREATE INDEX idx_assets_video ON assets(video_id);
 CREATE INDEX idx_assets_tenant ON assets(tenant_id);
 CREATE INDEX idx_assets_airtable ON assets(airtable_record_id);
