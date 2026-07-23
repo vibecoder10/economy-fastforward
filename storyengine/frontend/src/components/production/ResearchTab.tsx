@@ -1394,6 +1394,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
           This video is at the &ldquo;{video.status?.replace(/_/g, " ") || "idea logged"}&rdquo; stage.
         </p>
         <ActionButton
+          startsGeneration
           variant="filled"
           icon={isResearching || taskRunning ? Loader2 : RefreshCw}
           onClick={handleReResearch}
@@ -1609,6 +1610,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
             </div>
             <div className="flex w-full flex-col gap-2 lg:w-auto">
               <ActionButton
+                startsGeneration
                 variant="filled"
                 icon={orchestratorStarting || taskRunning ? Loader2 : ShieldCheck}
                 onClick={handleRosterOrchestrate}
@@ -1619,6 +1621,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                 {taskRunning ? (taskMessage || "Orchestrating...") : orchestratorStarting ? "Starting..." : "Repair All (Orchestrator)"}
               </ActionButton>
               <ActionButton
+                startsGeneration
                 variant="outline"
                 icon={allMachineResearchRunning ? Loader2 : RefreshCw}
                 onClick={handleRunAllMachineResearch}
@@ -1739,6 +1742,7 @@ export function ResearchTab({ video, onApproved, taskWatcher }: ResearchTabProps
                   })}
                 </select>
                 <ActionButton
+                  startsGeneration
                   variant="outline"
                   icon={singleMachineRunning ? Loader2 : RefreshCw}
                   onClick={() => handleOneMachineResearch(selectedMachineLabel)}

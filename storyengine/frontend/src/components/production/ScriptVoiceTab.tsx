@@ -2265,6 +2265,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
           </div>
         </div>
         <ActionButton
+          startsGeneration
           variant="filled"
           icon={regeneratingScript || scriptTaskRunning ? Loader2 : Pencil}
           onClick={handleRegenerateScript}
@@ -3726,6 +3727,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
                     {usingAnyway ? "Advancing…" : "Use it anyway"}
                   </ActionButton>
                   <ActionButton
+                    startsGeneration
                     variant="warning"
                     icon={(regeneratingScript || scriptTaskRunning) ? Loader2 : Wand2}
                     onClick={handleRegenerateScript}
@@ -3820,6 +3822,7 @@ export function ScriptVoiceTab({ video, onAdvanced, taskWatcher }: ScriptVoiceTa
             {/* Generate All Voice — U3: hidden when voiceSkipped */}
             {!voiceSkipped && (
               <ActionButton
+                startsGeneration
                 variant="outline"
                 icon={isVoiceBusy ? Loader2 : Mic}
                 className="w-full"

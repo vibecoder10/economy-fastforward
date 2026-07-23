@@ -11,6 +11,7 @@ import { Sidebar } from "@/components/nav/sidebar";
 import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { PipelineNotificationProvider } from "@/components/notifications/PipelineNotificationProvider";
+import { DrainModeBanner } from "@/components/system/DrainModeProvider";
 
 const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/privacy", "/demo"];
 
@@ -72,6 +73,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen relative z-10">
         <Sidebar />
         <main className="flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden">
+          <DrainModeBanner />
           <VerifyEmailBanner />
           <TrialBanner />
           <div className="mx-auto max-w-[1400px] px-4 pt-20 pb-6 sm:px-6 md:px-12 md:py-10">

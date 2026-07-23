@@ -176,3 +176,33 @@ def test_migration_and_deploy_wrapper_pin_the_safety_order():
     assert "trap cleanup EXIT INT TERM" in deploy
     assert "--force NEVER bypasses" in deploy
     assert "'\"draining\":true'" in deploy
+
+
+def test_frontend_polls_banner_and_disables_shared_generation_actions():
+    frontend = STORYENGINE / "frontend" / "src"
+    provider = (frontend / "components" / "system" / "DrainModeProvider.tsx").read_text()
+    action_button = (frontend / "components" / "ui" / "ActionButton.tsx").read_text()
+    api = (frontend / "lib" / "api.ts").read_text()
+
+    assert 'refetchInterval: 5_000' in provider
+    assert "New generation is briefly paused for a safe update." in provider
+    assert "startsGeneration && draining" in action_button
+    assert 'DRAIN_MODE_EVENT = "storyengine:drain-mode"' in api
+    assert 'parsedBody?.code === "system_draining"' in api
+
+    production_files = (
+        "CharactersTab.tsx",
+        "EnvironmentsTab.tsx",
+        "ResearchTab.tsx",
+        "ScriptVoiceTab.tsx",
+        "SoundTab.tsx",
+        "ThumbnailTab.tsx",
+        "RenderTab.tsx",
+    )
+    marked = sum(
+        (frontend / "components" / "production" / filename)
+        .read_text()
+        .count("startsGeneration")
+        for filename in production_files
+    )
+    assert marked >= 13

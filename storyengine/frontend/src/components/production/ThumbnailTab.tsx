@@ -368,6 +368,7 @@ export function ThumbnailTab({ video, onAdvanced, taskWatcher }: ThumbnailTabPro
         {/* Actions */}
         <div className="space-y-2">
           <ActionButton
+            startsGeneration
             variant="filled"
             icon={(isRegenerating || taskRunning) ? Loader2 : thumbnailUrl ? RefreshCw : ImageIcon}
             className="w-full"

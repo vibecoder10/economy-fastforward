@@ -1,2 +1,2 @@
-Last done: D2 operator workflow passes fake-VPS integration: deploy drains before waiting, force cannot skip active work, and every success/failure path undrains and removes the operator lock.
-Next chunk: D3 — finish the global maintenance banner and shared generation-control state, verify TypeScript/production build, then run the final live no-spend deploy proof.
+Last done: D3 user-facing drain state is complete: global polling/event banner, structured retryable client errors, and the main generation/upload controls disable while reads and reviews remain available; TypeScript and the production build pass.
+Next chunk: D4 — run the relevant/full regressions and blast-radius audit, publish the commits, deploy during a zero-work window, then prove live drain/read/reject/undrain without provider spend.

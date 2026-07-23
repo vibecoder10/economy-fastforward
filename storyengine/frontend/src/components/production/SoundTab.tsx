@@ -378,6 +378,7 @@ export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
         <div className="space-y-2">
           {!hasAnyPrompts ? (
             <ActionButton
+              startsGeneration
               variant="filled"
               icon={generating || taskRunning ? Loader2 : Zap}
               className="w-full"
@@ -389,6 +390,7 @@ export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
           ) : (
             <>
               <ActionButton
+                startsGeneration
                 variant="filled"
                 icon={generating || taskRunning ? Loader2 : Zap}
                 className="w-full"

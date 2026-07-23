@@ -214,6 +214,7 @@ export function EnvironmentsTab({ video, onApproved, taskWatcher }: Environments
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <ActionButton
+              startsGeneration
               icon={taskRunning && !approving ? Loader2 : MapPin}
               onClick={() => designMutation.mutate()}
               disabled={taskRunning || designMutation.isPending}

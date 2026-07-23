@@ -524,6 +524,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
                     : "This will stitch your clips into the final video. Continue?"}
               </p>
               <ActionButton
+                startsGeneration
                 variant="warning"
                 icon={isRendering ? Loader2 : undefined}
                 className="w-full"

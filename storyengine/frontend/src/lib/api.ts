@@ -1,5 +1,26 @@
 import { API_URL, RUBRIC_URL } from "./env";
 
+export const DRAIN_MODE_EVENT = "storyengine:drain-mode";
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  retryable: boolean;
+  retryAfter?: number;
+
+  constructor(
+    message: string,
+    options: { status: number; code?: string; retryable?: boolean; retryAfter?: number }
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = options.status;
+    this.code = options.code;
+    this.retryable = options.retryable ?? false;
+    this.retryAfter = options.retryAfter;
+  }
+}
+
 // Auto-report failed API calls to RUBRIC dashboard (silent, non-blocking)
 function reportError(path: string, status: number, body: string, method: string) {
   if (typeof window === "undefined") return;
@@ -69,6 +90,12 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.text();
+    let parsedBody: any = null;
+    try {
+      parsedBody = JSON.parse(body);
+    } catch {
+      // Non-JSON errors keep the original body below.
+    }
     // On 401 (invalid/expired token), clear auth and redirect to login
     if (res.status === 401 && typeof window !== "undefined" && !path.includes("/api/auth/")) {
       localStorage.removeItem("token");
@@ -78,7 +105,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     // On 402 (plan limit reached), show upgrade prompt
     if (res.status === 402 && typeof window !== "undefined") {
       try {
-        const detail = JSON.parse(body)?.detail || JSON.parse(body);
+        const detail = parsedBody?.detail || parsedBody;
         if (detail?.error === "plan_limit_reached") {
           const goToPricing = window.confirm(
             `${detail.message}\n\nWould you like to view upgrade options?`
@@ -92,21 +119,32 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
       }
       throw new Error("Plan limit reached");
     }
+    if (parsedBody?.code === "system_draining" && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(DRAIN_MODE_EVENT, { detail: parsedBody.drain || { mode: "draining" } })
+      );
+    }
     // Only report non-auth errors to RUBRIC (skip dev-token and expected auth 401s)
     if (storedToken && storedToken !== "dev-token" && !(res.status === 401 && path.includes("/api/auth/"))) {
       reportError(path, res.status, body, options?.method || "GET");
     }
     // Extract descriptive detail from JSON error responses
     let errorMessage = `API error ${res.status}: ${body}`;
-    try {
-      const parsed = JSON.parse(body);
-      if (parsed?.detail) {
-        errorMessage = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
-      }
-    } catch {
-      // body wasn't JSON, use raw text
+    if (parsedBody?.message) {
+      errorMessage = parsedBody.message;
+    } else if (parsedBody?.detail) {
+      errorMessage =
+        typeof parsedBody.detail === "string"
+          ? parsedBody.detail
+          : JSON.stringify(parsedBody.detail);
     }
-    throw new Error(errorMessage);
+    const retryAfterHeader = Number(res.headers.get("Retry-After"));
+    throw new ApiError(errorMessage, {
+      status: res.status,
+      code: parsedBody?.code,
+      retryable: Boolean(parsedBody?.retryable),
+      retryAfter: Number.isFinite(retryAfterHeader) ? retryAfterHeader : undefined,
+    });
   }
 
   return res.json();
@@ -2712,7 +2750,22 @@ export interface HealthStatus {
   service: string;
   database: boolean;
   active_tasks: number;
+  active_work?: {
+    background_tasks: number;
+    generation_claims: number;
+    total: number;
+  };
+  drain?: DrainState;
   storage: boolean;
+}
+
+export interface DrainState {
+  mode: "normal" | "draining";
+  draining: boolean;
+  reason?: string | null;
+  owner?: string | null;
+  changed_at?: string | null;
+  known?: boolean;
 }
 
 export const getHealthStatus = () =>

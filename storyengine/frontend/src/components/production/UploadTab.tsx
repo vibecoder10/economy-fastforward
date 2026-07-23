@@ -10,6 +10,7 @@ import type { VideoDetail } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/toast";
+import { useDrainMode } from "@/components/system/DrainModeProvider";
 
 const PIPELINE_ORDER = [
   "idea_logged", "approved", "researching", "ready_for_scripting", "scripting",
@@ -57,6 +58,7 @@ function extractVideoId(url: string | null | undefined): string | null {
 export function UploadTab({ video, onAdvanced }: UploadTabProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { draining } = useDrainMode();
   // The YouTube channel this upload will land on, for the ACTIVE workspace. Names
   // the destination in the confirm so an operator never posts to the wrong client.
   const { data: ytStatus } = useQuery({ queryKey: ["youtube-status"], queryFn: getYouTubeStatus });
@@ -265,7 +267,9 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleRegenerate}
-                disabled={generating}
+                disabled={generating || draining}
+                title={draining ? "Generation is briefly paused for a safe update" : undefined}
+                data-generation-action
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold disabled:opacity-50 transition-all hover:brightness-110"
                 style={{ color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.3)" }}
               >
@@ -505,7 +509,9 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
                   border: "1px solid var(--gold)",
                 }}
                 onClick={handleUpload}
-                disabled={isUploading || !destChannel}
+                disabled={isUploading || !destChannel || draining}
+                title={draining ? "Uploads are briefly paused for a safe update" : undefined}
+                data-generation-action
               >
                 <Upload size={16} />
                 {isUploading ? "Uploading..." : "Confirm Upload"}
@@ -527,7 +533,9 @@ export function UploadTab({ video, onAdvanced }: UploadTabProps) {
                 border: "1px solid var(--gold)",
               }}
               onClick={() => setConfirmUpload(true)}
-              disabled={uploadComplete && !!youtubeUrl}
+              disabled={(uploadComplete && !!youtubeUrl) || draining}
+              title={draining ? "Uploads are briefly paused for a safe update" : undefined}
+              data-generation-action
             >
               <Upload size={16} />
               {uploadComplete && youtubeUrl ? "Uploaded" : "Upload to YouTube"}

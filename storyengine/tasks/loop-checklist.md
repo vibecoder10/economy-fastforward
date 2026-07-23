@@ -26,9 +26,10 @@
       [O] Add status/drain/undrain operator commands and integrate them into the sanctioned deploy wrapper with traps, timeout, active-task detail, and no-force safety.
       [V] Shell/static tests plus a local fake-control integration prove ordering and recovery when pull/build/health fails.
       Evidence: `drain_control.py` operates directly against PostgreSQL even when the API is down and exposes status/drain/undrain/wait with two-zero settle checks. `se.sh` exposes `drain`, `drain-status`, and `undrain`. `vps-deploy.sh` now acquires the operator lock, drains before inspecting active work, never lets `--force` bypass the wait, verifies backend health while drain remains on, verifies the frontend when requested, and undrains/releases the lock from an EXIT/INT/TERM trap. Shell syntax and static ordering pass; the fake-VPS integration passes 2/2, including a simulated `git pull` failure that exits nonzero but still undrains and removes the lock.
-- [ ] D3 [U][V] Make draining visible and non-confusing to users.
+- [x] D3 [U][V] Make draining visible and non-confusing to users.
       [U] Add a globally polled banner, disable shared generation controls, and normalize the backend 503 into a retryable message.
       [V] Pure state/response tests, TypeScript, and the production frontend build.
+      Evidence: the root provider polls health every five seconds and reacts immediately to a structured drain 503; authenticated users see the global safe-update banner with active-work context. `ApiError` preserves status/code/retryability/Retry-After, shared `ActionButton` supports a drain-aware generation marker, the Anton static-documentary Run All control and 13 core research/script/voice/image/sound/render controls are marked, and YouTube generation/upload controls are disabled without disabling review/edit actions. The focused frontend wiring contract passes, TypeScript passes, and the complete Next production build succeeds across all 34 static/dynamic routes.
 - [ ] D4 FINAL + DEPLOY [O][V] Re-grade all six criteria, fast-forward main, wait for a quiet window, deploy without force, and live-test drain blocks a no-cost claim while reads/health remain available before restoring normal.
 
 ## Previous completed mission

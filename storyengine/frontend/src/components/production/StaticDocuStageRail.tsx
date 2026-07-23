@@ -15,6 +15,7 @@ import {
   type VideoDetail, type VideoActions, type RosterDashboard, type Asset,
 } from "@/lib/api";
 import { getStaticDocuReadiness } from "@/lib/static-docu";
+import { useDrainMode } from "@/components/system/DrainModeProvider";
 
 export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "pictures" | "video";
 export type StageStatus = "done" | "in_progress" | "blocked" | "not_started";
@@ -203,6 +204,7 @@ export function StaticDocuStageRail({
   video, videoActions, rosterDashboard, assets, activeStage, onSelectStage, taskWatcher,
 }: StaticDocuStageRailProps) {
   const toast = useToast();
+  const { draining } = useDrainMode();
   const confirmDialog = useConfirm();
   const queryClient = useQueryClient();
   const [taskRunning, setTaskRunning] = useState(false);
@@ -389,8 +391,15 @@ export function StaticDocuStageRail({
           <div className="ml-auto pl-3 shrink-0">
             <button
               onClick={handleRunAll}
-              disabled={busy}
-              title={allGreen ? "Every stage is already done." : "Run the whole pipeline automatically, stopping on any error."}
+              disabled={busy || draining}
+              title={
+                draining
+                  ? "Generation is briefly paused for a safe update"
+                  : allGreen
+                    ? "Every stage is already done."
+                    : "Run the whole pipeline automatically, stopping on any error."
+              }
+              data-generation-action
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-40"
               style={{ background: "var(--gold)", color: "var(--bg-void)" }}
             >
