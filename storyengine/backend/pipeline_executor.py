@@ -9662,7 +9662,7 @@ class PipelineExecutor:
                 f"{machine_scope_line}\n"
                 "HARD CONTRACT:\n"
                 "- The roster is locked. Do not add, remove, replace, or relitigate machines.\n"
-                f"- Research/enrich only THIS machine enough to support one Anton-quality {_ANTON_PARAGRAPH_WORD_RANGE} word DVsU paragraph and one image brief.\n"
+                f"- Research/enrich only THIS machine enough to support one Anton-quality {_ANTON_PARAGRAPH_WORD_RANGE} word DVsU paragraph and its three-view image brief.\n"
                 "- Do not use facts, model numbers, predecessor/successor names, competitor names, or comparison claims about any other machine.\n"
                 "- If an excerpt mentions a different aircraft or machine designation, ignore that excerpt.\n"
                 "- HUNT THE GAP: DVsU runs on built-as-X-actually-used-as-Y. Prioritize evidence for how the machine was ACTUALLY used or ended - combat, service, conversion, redesignation, cancellation, scrapping - not its delivery, acceptance, or first flight. A card whose actual-use story merely restates the design intent fails review.\n"
@@ -9966,8 +9966,8 @@ class PipelineExecutor:
 
         The script bot writes one scripts row per ACT (pipeline_control), which
         for a static docu collapses a 24-30 machine video into ~6 scenes = ~6
-        held images (seen live on DvsU 2026-07-07). The channel format is one
-        machine / one paragraph / one image / one caption, so re-split the
+        held image set (seen live on DVsU 2026-07-07). The channel format is one
+        machine / one paragraph / one caption / two-to-three views, so re-split the
         narration into paragraph scenes. Also strips non-spoken junk (act
         markers, markdown headings, dividers, meta notes) so nothing that is
         not narration can reach TTS. Fail-open: a resplit error keeps the
@@ -12120,7 +12120,7 @@ separate scenes."""
             # can't be traced. (Advisory-only elsewhere; a GATE here.)
             if (video.get("render_mode") or "") == "static_docu":
                 await self._factual_gate_static(video_id)
-                # One machine / one paragraph / one image: scene rows must be
+                # One machine / one paragraph / one view set: scene rows must be
                 # unit paragraphs, not acts (the bot writes one row per act).
                 await self._resplit_static_scenes(video_id)
                 roster_check = await self._validate_static_script_roster(video_id)
@@ -13488,7 +13488,7 @@ separate scenes."""
             "approved": self.run_research,
             "ready_for_scripting": self.run_script,
             # Static documentaries route their image stage to run_coverage_stage,
-            # whose static branch creates one image per segment; the legacy
+            # whose static branch creates the verified aircraft view set; the legacy
             # prompt bot must never run for them.
             "ready_for_image_prompts": (
                 self.run_coverage_stage
@@ -13688,7 +13688,7 @@ separate scenes."""
     async def run_coverage_images(self, video_id: str, scene: int = None) -> dict:
         """Draw the real per-shot, multi-angle pictures for a scene (or all scenes)
         via coverage — the live image path. Replaces the old grid run_prompts+run_images.
-        STATIC-DOCU videos take one archival image per segment instead, so route them
+        STATIC-DOCU videos take a verified aircraft view set per segment instead, so route them
         to the static path (scene-scoped when a scene is given — lets a review-gate
         re-roll fix ONE segment without re-rolling the others)."""
         video = await self._get_video(video_id)
@@ -13701,14 +13701,14 @@ separate scenes."""
     async def run_storyboard_sheet(self, video_id: str, scene: int = None) -> dict:
         """Draw the cheap single-image storyboard SHEET preview for a scene via
         coverage. Replaces the old grid run_storyboard_prompts+run_storyboard_images.
-        Static-documentary videos have no storyboard stage (one archival image per
-        segment, no multi-angle coverage), so refuse cleanly instead of running the
+        Static-documentary videos have no generic storyboard stage (their 2–3
+        aircraft views use the format-specific path), so refuse cleanly instead of running the
         wrong generic-coverage path."""
         video = await self._get_video(video_id)
         if video and (video.get("render_mode") or "") == "static_docu":
             return {"status": "skipped",
-                    "message": "This is a static-documentary channel — it uses one "
-                               "archival image per segment, not multi-angle storyboards."}
+                    "message": "This static-documentary channel generates its own "
+                               "verified aircraft view set, not generic storyboards."}
         from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
         return await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
 
@@ -13725,12 +13725,12 @@ separate scenes."""
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
-        # STATIC-DOCU videos take one archival image per segment instead of
-        # multi-angle coverage (no cast, no story bible) — same branch as the
+        # STATIC-DOCU videos take 2–3 verified aircraft views per segment instead
+        # of generic coverage (no cast, no story bible) — same branch as the
         # chat auto-build, so every entry point produces the same result.
         if (video.get("render_mode") or "") == "static_docu":
             await self._log_activity(bot_name, video_id, "started",
-                                     "Creating one image per segment (static documentary)")
+                                     "Creating three aircraft views per segment (static documentary)")
             from static_docu import generate_static_images_for_video
             st = await generate_static_images_for_video(
                 video_id, self.tenant_id, only_scenes=only_scenes) or {}
@@ -15869,9 +15869,9 @@ separate scenes."""
     async def _run_static_render(
         self, video_id: str, video: dict, current_status: str,
     ) -> dict:
-        """Static-documentary render (render_mode='static_docu') — one image
-        per narration segment held with a Ken Burns pan over the voiceover,
-        rendered with the existing Remotion composition. No animated clips.
+        """Static-documentary render (render_mode='static_docu') — one to three
+        verified views per narration segment, with a continuous title/spec card
+        and smooth alternating push-in/pull-out motion. No animated clips.
         See render_static.py."""
         bot_name = "Render Bot"
         await self._log_activity(
@@ -15905,7 +15905,7 @@ separate scenes."""
 
         await self._log_activity(
             bot_name, video_id, "completed",
-            f"Rendered {result['scene_count']} held segments "
+            f"Rendered {result['scene_count']} aircraft segments "
             f"({result['duration_seconds']:.0f}s, {result.get('resolution', '?')}) "
             f"into the final documentary",
         )

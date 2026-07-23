@@ -9,6 +9,7 @@ import { ActionButton } from "@/components/ui/ActionButton";
 import { getVideoAssets, getVideoScript, runPipelineStage, clearStaleTask, advanceVideo } from "@/lib/api";
 import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
+import { getStaticDocuReadiness } from "@/lib/static-docu";
 import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
 import type { VideoDetail, Asset } from "@/lib/api";
 
@@ -120,12 +121,22 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
   const totalScenes = scriptScenes.length;
   const isPartial = clipCount > 0 && totalScenes > 0 && clipScenes.length < totalScenes;
 
-  // Static documentaries render held images over the narration (no clips ever),
-  // so readiness = images + voiceover instead of clips.
+  // Static documentaries render 1–3 views over one narration scene. New units
+  // need two verified views; the helper preserves legacy one-image projects.
   const isStaticDocu = video.render_mode === "static_docu";
-  const staticImageCount = assets.filter((a) => a.image_url).length;
+  const staticReadiness = getStaticDocuReadiness(
+    assets,
+    scriptScenes
+      .map((scene) => scene.scene)
+      .filter((scene): scene is number => typeof scene === "number" && scene > 0),
+  );
+  const staticImageCount = staticReadiness.readyViews;
   const voicedScenes = scriptScenes.filter((s) => s.voice_over_url).length;
-  const staticReady = staticImageCount > 0 && voicedScenes > 0;
+  const staticReady = (
+    totalScenes > 0
+    && staticReadiness.allReady
+    && voicedScenes >= totalScenes
+  );
   const canRender = isStaticDocu ? staticReady : clipCount > 0;
 
   const resLabel = isStaticDocu
@@ -441,11 +452,14 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
               { label: "Resolution", value: resLabel },
               { label: "FPS", value: fpsLabel },
               isStaticDocu
-                ? { label: "Images ready", value: String(staticImageCount) }
+                ? { label: "Aircraft ready", value: totalScenes > 0 ? `${staticReadiness.readyUnits}/${totalScenes}` : "0" }
                 : { label: "Clips ready", value: String(clipCount) },
               isStaticDocu
-                ? { label: "Scenes voiced", value: totalScenes > 0 ? `${voicedScenes}/${totalScenes}` : String(voicedScenes) }
+                ? { label: "Verified views", value: String(staticImageCount) }
                 : { label: "Scenes", value: totalScenes > 0 ? `${clipScenes.length}/${totalScenes}` : String(clipScenes.length) },
+              ...(isStaticDocu
+                ? [{ label: "Scenes voiced", value: totalScenes > 0 ? `${voicedScenes}/${totalScenes}` : String(voicedScenes) }]
+                : []),
               { label: isStaticDocu ? "Length" : "Stitched length", value: stitchSeconds > 0 ? `≈ ${fmtSecs(stitchSeconds)}` : duration },
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between">
@@ -474,11 +488,11 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
                 staticReady ? (
                   <span style={{ color: "var(--text-secondary)" }}>
                     Renders <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{staticImageCount} held images</span>{" "}
-                    over the narration ({voicedScenes}/{totalScenes} scenes voiced) with a slow documentary pan.
+                    across {staticReadiness.readyUnits} aircraft, with one name/service/spec card per aircraft and alternating smooth slow push-in/pull-out motion.
                   </span>
                 ) : (
                   <span style={{ color: "var(--text-tertiary)" }}>
-                    Needs the segment images and the voiceover first — this format holds one image per segment over the narration.
+                    Needs narration for every aircraft and at least the required verified views ({staticReadiness.readyUnits}/{totalScenes} aircraft ready).
                   </span>
                 )
               ) : clipCount > 0 ? (
@@ -504,7 +518,7 @@ export function RenderTab({ video, onAdvanced, taskWatcher }: RenderTabProps) {
             <>
               <p className="text-[11px] text-center mb-2" style={{ color: "var(--text-secondary)" }}>
                 {isStaticDocu
-                  ? `Render the ${staticImageCount} held images over the narration into the final documentary?`
+                  ? `Render ${staticImageCount} verified views across ${staticReadiness.readyUnits} aircraft with title cards and smooth push-in/pull-out motion?`
                   : isPartial
                     ? `Stitch the ${clipCount} clips you've generated into a final video? Scenes without clips are skipped.`
                     : "This will stitch your clips into the final video. Continue?"}

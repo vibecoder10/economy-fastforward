@@ -14,6 +14,7 @@ import {
   runPipelineStage, runBuild, getRosterDashboard, clearStaleTask,
   type VideoDetail, type VideoActions, type RosterDashboard, type Asset,
 } from "@/lib/api";
+import { getStaticDocuReadiness } from "@/lib/static-docu";
 
 export type StaticDocuStageKey = "roster" | "research" | "script" | "voice" | "pictures" | "video";
 export type StageStatus = "done" | "in_progress" | "blocked" | "not_started";
@@ -33,12 +34,6 @@ const STAGE_META: Record<StaticDocuStageKey, { label: string; icon: typeof Searc
 };
 
 const STAGE_ORDER: StaticDocuStageKey[] = ["roster", "research", "script", "voice", "pictures", "video"];
-
-// C6: a scene's static-documentary image is "blocked" the same way roster
-// treats a missing reference photo — a state the operator must go fix (Roster
-// tab's Add photo, or the qa_rejected Approve/Redraw in the Pictures panel),
-// never something a re-run alone clears.
-const PICTURE_BLOCKED_STATUSES = new Set(["blocked_no_reference", "qa_rejected"]);
 
 const RENDER_DONE_STATUSES = new Set(["rendered", "uploaded_draft", "uploaded", "done", "published"]);
 
@@ -89,30 +84,20 @@ export function computeStaticDocuStages(
       ? { status: "in_progress", detail: `${voiced}/${scenes} segment(s) voiced.` }
       : { status: "not_started", detail: "No narration yet." };
 
-  // C6: one archival image per scene (backend/static_docu.py) — pictures are
-  // gated on Voice being green, same chain every other stage follows.
-  // done/blocked/gray only (no live "in_progress" color here beyond the
-  // 'generating' pulse the Pictures panel itself shows per-card) — a scene
-  // whose generation row never landed (a total-failure case that DELETES the
-  // placeholder row) is neither done nor blocked, just still to do.
-  const staticAssets = (assets ?? []).filter((a) => !a.generation_method || a.generation_method === "static_docu");
-  const picByScene = new Map<number, Asset>();
-  for (const a of staticAssets) {
-    if (a.scene != null) picByScene.set(a.scene, a);
-  }
-  const picDone = Array.from(picByScene.values()).filter((a) => a.status === "done").length;
-  const picBlocked = Array.from(picByScene.values()).filter((a) => PICTURE_BLOCKED_STATUSES.has(a.status || "")).length;
-  const picGenerating = Array.from(picByScene.values()).filter((a) => a.status === "generating").length;
+  // New aircraft target three views and become render-ready at two approved
+  // views. Legacy one-image rows remain valid through the shared helper.
+  const sceneNumbers = Array.from({ length: scenes }, (_, index) => index + 1);
+  const pictureReadiness = getStaticDocuReadiness(assets ?? [], sceneNumbers);
   const pictures: StageInfo =
     scenes === 0
       ? { status: "not_started", detail: "No scenes yet — write the script first." }
-      : picBlocked > 0
-        ? { status: "blocked", detail: `${picBlocked} scene(s) need attention (no reference photo, or a rejected render).` }
-        : picDone >= scenes
-          ? { status: "done", detail: `All ${scenes} segment picture(s) made.` }
-          : picGenerating > 0
-            ? { status: "in_progress", detail: `${picDone}/${scenes} done — drawing more now…` }
-            : { status: "not_started", detail: `${picDone}/${scenes} segment picture(s) made.` };
+      : pictureReadiness.blockedUnits > 0
+        ? { status: "blocked", detail: `${pictureReadiness.blockedUnits} aircraft need more verified views or a reference fix.` }
+        : pictureReadiness.allReady
+          ? { status: "done", detail: `All ${scenes} aircraft ready (${pictureReadiness.readyViews} verified views).` }
+          : pictureReadiness.generatingUnits > 0
+            ? { status: "in_progress", detail: `${pictureReadiness.readyUnits}/${scenes} aircraft ready — drawing more views now…` }
+            : { status: "not_started", detail: `${pictureReadiness.readyUnits}/${scenes} aircraft ready (${pictureReadiness.readyViews} verified views).` };
 
   const renderDone = RENDER_DONE_STATUSES.has(video.status || "");
   const hasThumb = Boolean(video.thumbnail_url);
@@ -182,7 +167,7 @@ function lockReason(key: StaticDocuStageKey, stages: Record<StaticDocuStageKey, 
     if (stages.research.status !== "done") return "Locked until Research is done.";
     if (stages.script.status !== "done") return "Locked until the Script is written.";
     if (stages.voice.status !== "done") return "Locked until Voice is recorded.";
-    if (stages.pictures.status !== "done") return "Locked until every segment's picture is drawn.";
+    if (stages.pictures.status !== "done") return "Locked until every aircraft has at least its required verified views.";
   }
   return null;
 }
@@ -209,9 +194,9 @@ interface StaticDocuStageRailProps {
 /**
  * C3c/C6: the 6-stage pipeline rail for static-documentary (render_mode ===
  * 'static_docu') videos — Roster, Research, Script, Voice, Pictures, Video
- * (render+thumbnail). No storyboard stage: static docs draw ONE archival
- * image per segment via static_docu.py, never the multi-angle coverage
- * flow. Each stage is locked until the previous is green (see
+ * (render+thumbnail). No storyboard stage: static docs draw their own
+ * verified three-view aircraft set via static_docu.py, never the regular
+ * multi-angle coverage flow. Each stage is locked until the previous is green (see
  * computeCanRun), and "Run All" chains the whole build automatically.
  */
 export function StaticDocuStageRail({

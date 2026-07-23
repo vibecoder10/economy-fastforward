@@ -103,10 +103,10 @@ const LEGACY_TAB_IDS: Record<string, string> = {
 /** C3c/C6: static-documentary videos (render_mode === 'static_docu') get a
  * purpose-built stage flow instead of the general 10-tab production
  * workspace — no Characters/Environments/Scenes/Sound tabs (static docs
- * never build a cast, never design environments, and draw ONE archival
- * image per segment via static_docu.py rather than the multi-angle
- * coverage flow those tabs assume). "Pictures" (C6) is the roster-style
- * grid of those generated segment images, its own gated stage between
+ * never build a cast, never design environments, and draw their own verified
+ * 2–3-view aircraft set per segment via static_docu.py rather than the generic
+ * coverage flow those tabs assume). "Pictures" is the roster-style
+ * grid of those generated aircraft views, its own gated stage between
  * Voice and Video. "Video" combines Thumbnail + Render — since static docs
  * have no separate animate stage between them. */
 const STATIC_DOCU_TABS = [

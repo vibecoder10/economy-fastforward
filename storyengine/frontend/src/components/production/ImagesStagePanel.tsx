@@ -12,6 +12,9 @@ import { useSharedTaskWatcher, type TaskWatcherBridge } from "@/hooks/use-task-p
 import {
   getVideoAssets, getVideoScript, sendChatTurn, approveStaticQaRender, type Asset, type ScriptScene,
 } from "@/lib/api";
+import {
+  getStaticDocuReadiness, parseStaticDocuCaption, staticDocuViewLabel,
+} from "@/lib/static-docu";
 import { toDisplayImageUrl } from "@/lib/utils";
 
 interface ImagesStagePanelProps {
@@ -22,7 +25,7 @@ interface ImagesStagePanelProps {
 type CardStatus = "done" | "generating" | "qa_rejected" | "blocked_no_reference" | "missing" | "other";
 
 const STATUS_META: Record<CardStatus, { label: string; color: string; pulse?: boolean }> = {
-  done: { label: "Done", color: "var(--green)" },
+  done: { label: "Ready", color: "var(--green)" },
   generating: { label: "Generating…", color: "var(--gold)", pulse: true },
   qa_rejected: { label: "Needs review", color: "var(--gold)" },
   blocked_no_reference: { label: "No reference", color: "var(--red)" },
@@ -42,26 +45,11 @@ function cardStatusFor(status: string | null | undefined): CardStatus {
   return "other";
 }
 
-/** Static-documentary caption is stored as JSONB but the /assets route casts it
- * to text (`caption::text`) so it always arrives as a plain string here — parse
- * defensively, never throw on an odd/legacy row. */
-function parseCaption(raw: string | null | undefined): { title?: string; sub?: string } | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") return parsed as { title?: string; sub?: string };
-  } catch {
-    // legacy/odd row — fall through
-  }
-  return null;
-}
-
 /**
- * C6: roster-style grid of the GENERATED scene images for a static-documentary
- * video — one card per SCENE (driven off the script rows, not the assets, so a
- * scene whose image generation never produced a row still shows a "missing"
- * card instead of silently vanishing from the grid). Modeled directly on
- * RosterStagePanel's card layout.
+ * Roster-style grid of generated static-documentary views — one card per
+ * aircraft/scene, with 1–3 ordered view tiles inside it. Script rows still
+ * drive the cards so a unit whose generation never produced an asset remains
+ * visible as missing instead of silently vanishing.
  *
  * Redraw has no clean REST path today: /api/pipeline/coverage-images calls
  * generate_coverage_for_video directly (the regular multi-angle path), not
@@ -107,34 +95,22 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
     },
   });
 
-  // One card per scene, driven off the script (not the assets) — a scene whose
-  // image generation blew up so hard the placeholder row got deleted (a real
-  // failure mode: generate_static_images_for_video deletes the row on a total
-  // provider failure) still needs a "missing" card, not a gap in the grid.
-  const rows = useMemo(() => {
-    const assetByScene = new Map<number, Asset>();
-    for (const a of assets ?? []) {
-      if (a.scene == null) continue;
-      // Static-documentary assets are generation_method='static_docu'; older
-      // rows that predate this column being selected carry null — keep those
-      // too rather than hiding a real picture behind a strict equality check.
-      if (a.generation_method && a.generation_method !== "static_docu") continue;
-      assetByScene.set(a.scene, a);
-    }
+  const pictureReadiness = useMemo(() => {
     const sceneNumbers = new Set<number>();
     for (const s of (scenes ?? []) as ScriptScene[]) {
       if (s.scene != null) sceneNumbers.add(s.scene);
     }
-    for (const scene of assetByScene.keys()) sceneNumbers.add(scene);
-    return Array.from(sceneNumbers).sort((a, b) => a - b).map((scene) => {
-      const scriptRow = (scenes ?? []).find((s) => s.scene === scene);
-      const asset = assetByScene.get(scene) || null;
-      const caption = parseCaption(asset?.caption);
-      return { scene, scriptRow, asset, caption };
-    });
+    return getStaticDocuReadiness(assets ?? [], Array.from(sceneNumbers));
   }, [assets, scenes]);
 
-  const doneCount = rows.filter((r) => cardStatusFor(r.asset?.status) === "done").length;
+  const rows = pictureReadiness.units.map((unit) => {
+    const scriptRow = (scenes ?? []).find((scene) => scene.scene === unit.scene);
+    const caption = unit.assets
+      .map((asset) => parseStaticDocuCaption(asset.caption))
+      .find((value) => value?.title);
+    return { ...unit, scriptRow, caption };
+  });
+  const doneCount = pictureReadiness.readyUnits;
 
   const handleRedraw = async (scene: number) => {
     setRedrawingScene(scene);
@@ -193,19 +169,16 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
       <GlassCard className="p-12 text-center">
         <Images size={32} className="mx-auto mb-3" style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
         <p className="text-lg font-display mb-2" style={{ color: "var(--text-secondary)" }}>
-          No Segments Yet
+          No Aircraft Yet
         </p>
         <p className="text-sm max-w-md mx-auto" style={{ color: "var(--text-tertiary)" }}>
-          Write the script first — this video draws one archival picture per segment.
+          Write the script first — each aircraft will receive a three-quarter, top-oblique, and detail view.
         </p>
       </GlassCard>
     );
   }
 
-  const blockedCount = rows.filter((r) => {
-    const s = cardStatusFor(r.asset?.status);
-    return s === "blocked_no_reference" || s === "qa_rejected";
-  }).length;
+  const blockedCount = pictureReadiness.blockedUnits;
 
   return (
     <div className="space-y-6">
@@ -213,60 +186,41 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
             <p className="text-lg font-display flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-              <Images size={20} style={{ color: "var(--turquoise)" }} /> Segment Pictures
+              <Images size={20} style={{ color: "var(--turquoise)" }} /> Aircraft Views
             </p>
             <p className="text-sm mt-1 max-w-xl" style={{ color: "var(--text-tertiary)" }}>
-              One real archival image per segment — held over the narration, no animation.
+              Two verified views make an aircraft ready; three are targeted: three-quarter, top-oblique, and detail.
             </p>
             <p
               className="text-sm mt-2 font-semibold"
               style={{ color: doneCount === rows.length ? "var(--green)" : blockedCount > 0 ? "var(--red)" : "var(--gold)" }}
             >
-              {doneCount}/{rows.length} done
+              {doneCount}/{rows.length} aircraft ready · {pictureReadiness.readyViews} views approved
               {blockedCount > 0 ? ` — ${blockedCount} need${blockedCount === 1 ? "s" : ""} attention below.` : ""}
             </p>
           </div>
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {rows.map(({ scene, scriptRow, asset, caption }) => {
-          const status = cardStatusFor(asset?.status);
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+        {rows.map(({
+          scene, scriptRow, assets: unitAssets, caption, status: unitState,
+          readyViews, minimumViews, targetViews,
+        }) => {
+          const status: CardStatus = unitState === "ready"
+            ? "done"
+            : unitState === "generating"
+              ? "generating"
+              : unitState === "blocked"
+                ? "qa_rejected"
+                : "missing";
           const meta = STATUS_META[status];
-          const displayLabel = status === "other" ? (asset?.status || "unknown") : meta.label;
-          // qa_rejected keeps the render on drive_image_url (image_url is
-          // cleared so render_static.py never ships an unreviewed picture) —
-          // show it anyway so the operator can actually judge it before
-          // approving or redrawing.
-          const imgUrl = asset?.image_url
-            || (status === "qa_rejected" ? asset?.drive_image_url : null);
           const title = caption?.title || scriptRow?.scene_text?.slice(0, 60) || `Scene ${scene}`;
           const sub = caption?.sub;
+          const specs = caption?.specs ?? [];
           const busy = redrawingScene === scene;
           return (
             <GlassCard key={scene} className="p-4 flex flex-col gap-3">
-              <div
-                className="w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center relative"
-                style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
-              >
-                {imgUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={toDisplayImageUrl(imgUrl)}
-                    alt={title}
-                    className="w-full h-full object-cover"
-                  />
-                ) : status === "blocked_no_reference" ? (
-                  <ImageOff size={28} style={{ color: "var(--red)", opacity: 0.5 }} />
-                ) : (
-                  <Images
-                    size={28}
-                    className={meta.pulse ? "animate-pulse" : undefined}
-                    style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
-                  />
-                )}
-              </div>
-
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }} title={`Scene ${scene}: ${title}`}>
                   {scene} · {title}
@@ -275,8 +229,8 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
                   className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${meta.pulse ? "animate-pulse" : ""}`}
                   style={{ color: meta.color, border: `1px solid ${meta.color}` }}
                 >
-                  {status === "done" ? <CheckCircle2 size={11} /> : status === "blocked_no_reference" ? <ImageOff size={11} /> : status === "qa_rejected" ? <AlertTriangle size={11} /> : status === "generating" ? <Loader2 size={11} className="animate-spin" /> : null}
-                  {displayLabel}
+                  {status === "done" ? <CheckCircle2 size={11} /> : status === "qa_rejected" ? <AlertTriangle size={11} /> : status === "generating" ? <Loader2 size={11} className="animate-spin" /> : null}
+                  {meta.label} · {readyViews}/{minimumViews} min
                 </span>
               </div>
               {sub && (
@@ -284,12 +238,95 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
                   {sub}
                 </p>
               )}
-              {status === "blocked_no_reference" && (
+              {specs.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {specs.slice(0, 2).map((spec) => (
+                    <span
+                      key={spec}
+                      className="text-[10px] px-2 py-1 rounded-full"
+                      style={{ color: "var(--gold)", background: "rgba(168,131,69,0.1)", border: "1px solid rgba(168,131,69,0.28)" }}
+                    >
+                      {spec}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {unitAssets.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {unitAssets.map((asset) => {
+                    const viewStatus = cardStatusFor(asset.status);
+                    const viewMeta = STATUS_META[viewStatus];
+                    const viewCaption = parseStaticDocuCaption(asset.caption);
+                    const viewLabel = staticDocuViewLabel(viewCaption, asset.image_index);
+                    // Rejected renders are parked in drive_image_url so the
+                    // operator can inspect them without letting render_static
+                    // ship them before explicit approval.
+                    const imgUrl = asset.image_url
+                      || (viewStatus === "qa_rejected" ? asset.drive_image_url : null);
+                    return (
+                      <div key={asset.id} className="min-w-0">
+                        <div
+                          className="aspect-[4/3] rounded-lg overflow-hidden flex items-center justify-center relative"
+                          style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+                        >
+                          {imgUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={toDisplayImageUrl(imgUrl)}
+                              alt={`${title} — ${viewLabel}`}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : viewStatus === "blocked_no_reference" ? (
+                            <ImageOff size={20} style={{ color: "var(--red)", opacity: 0.55 }} />
+                          ) : (
+                            <Images
+                              size={20}
+                              className={viewMeta.pulse ? "animate-pulse" : undefined}
+                              style={{ color: "var(--text-tertiary)", opacity: 0.4 }}
+                            />
+                          )}
+                        </div>
+                        <p className="text-[9px] mt-1 truncate font-semibold" style={{ color: "var(--text-secondary)" }} title={viewLabel}>
+                          {viewLabel}
+                        </p>
+                        <p className="text-[9px] truncate" style={{ color: viewMeta.color }}>
+                          {viewStatus === "other" ? asset.status : viewMeta.label}
+                        </p>
+                        {viewStatus === "qa_rejected" && asset.id && (
+                          <button
+                            onClick={() => handleApprove(asset.id, scene)}
+                            disabled={approvingId === asset.id}
+                            className="w-full mt-1 px-1 py-1 rounded text-[9px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
+                            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+                          >
+                            {approvingId === asset.id ? <Loader2 size={9} className="animate-spin" /> : <ThumbsUp size={9} />}
+                            {approvingId === asset.id ? "Approving…" : "Approve"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className="w-full aspect-video rounded-lg flex items-center justify-center"
+                  style={{ background: "var(--bg-elevated)", border: "1px dashed var(--border)" }}
+                >
+                  <Images size={28} style={{ color: "var(--text-tertiary)", opacity: 0.4 }} />
+                </div>
+              )}
+
+              {unitState === "blocked" && unitAssets.some((asset) => asset.status === "blocked_no_reference") && (
                 <p className="text-[10px] leading-snug" style={{ color: "var(--red)" }}>
                   No verified reference photo — fix it on the Roster tab, then redraw.
                 </p>
               )}
-
+              {unitState === "ready" && readyViews < targetViews && (
+                <p className="text-[10px] leading-snug" style={{ color: "var(--gold)" }}>
+                  Render-ready with {readyViews} verified views; one optional view still needs attention.
+                </p>
+              )}
               <div className="flex gap-2 mt-auto">
                 <button
                   onClick={() => handleRedraw(scene)}
@@ -298,19 +335,8 @@ export function ImagesStagePanel({ videoId, taskWatcher }: ImagesStagePanelProps
                   style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
                 >
                   {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                  {busy ? "Redrawing…" : "Redraw"}
+                  {busy ? "Redrawing views…" : "Redraw all views"}
                 </button>
-                {status === "qa_rejected" && asset?.id && (
-                  <button
-                    onClick={() => handleApprove(asset.id, scene)}
-                    disabled={approvingId === asset.id}
-                    className="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-40 flex items-center justify-center gap-1"
-                    style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
-                  >
-                    {approvingId === asset.id ? <Loader2 size={12} className="animate-spin" /> : <ThumbsUp size={12} />}
-                    {approvingId === asset.id ? "Approving…" : "Approve"}
-                  </button>
-                )}
               </div>
             </GlassCard>
           );

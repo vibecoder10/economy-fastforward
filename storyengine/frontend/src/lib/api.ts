@@ -1953,12 +1953,13 @@ export interface Asset {
    * migration 065). Non-null is the proxy for "this shot performs dialogue"
    * used by the Performance Track voice-lock rollup. */
   assigned_dialogue?: string | null;
-  /** Which generator wrote this row — 'static_docu' for the one-archival-image-
-   * per-scene documentary format (backend/static_docu.py); null/other values
+  /** Which generator wrote this row — 'static_docu' for the verified multi-view
+   * aircraft documentary format (backend/static_docu.py); null/other values
    * are the regular multi-angle coverage path. Null for assets that predate
    * this column being selected. */
   generation_method?: string | null;
-  /** Static-documentary display caption (migration 072): {"title", "sub"},
+  /** Static-documentary display/view metadata (title, sub, specs, view role,
+   * target/minimum view counts; migration 072),
    * JSON-stringified by the route (`caption::text`) so it always arrives as a
    * string here — parse before use, and handle parse failure (older/odd rows). */
   caption?: string | null;
