@@ -12,11 +12,21 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActionButton } from "@/components/ui/ActionButton";
-import { suggestTitles, type TitleSuggestion } from "@/lib/api";
+import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
+import {
+  suggestTitles,
+  type ProductionStyleId,
+  type TitleSuggestion,
+} from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
 
 interface FirstVideoFlowProps {
-  onCreateVideo: (title: string, videoLength: number, angle?: string) => void;
+  onCreateVideo: (
+    title: string,
+    videoLength: number,
+    productionStyleId: ProductionStyleId,
+    angle?: string,
+  ) => void;
   onClose: () => void;
   initialTopic?: string;
 }
@@ -33,6 +43,7 @@ export function FirstVideoFlow({
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState("");
   const [videoLength, setVideoLength] = useState(10);
+  const [productionStyleId, setProductionStyleId] = useState<ProductionStyleId | "">("");
   const [angle, setAngle] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -63,9 +74,14 @@ export function FirstVideoFlow({
   };
 
   const handleCreate = () => {
-    if (!selectedTitle.trim()) return;
+    if (!selectedTitle.trim() || !productionStyleId) return;
     setCreating(true);
-    onCreateVideo(selectedTitle.trim(), videoLength, angle.trim() || undefined);
+    onCreateVideo(
+      selectedTitle.trim(),
+      videoLength,
+      productionStyleId,
+      angle.trim() || undefined,
+    );
   };
 
   const lengthOptions = [
@@ -314,6 +330,12 @@ export function FirstVideoFlow({
                   </div>
                 </div>
 
+                <ProductionStyleSelector
+                  selectedId={productionStyleId}
+                  onSelect={setProductionStyleId}
+                  durationMinutes={videoLength}
+                />
+
                 {/* Video length */}
                 <div>
                   <label
@@ -381,7 +403,7 @@ export function FirstVideoFlow({
                 <ActionButton
                   variant="filled"
                   onClick={handleCreate}
-                  disabled={creating}
+                  disabled={creating || !productionStyleId}
                   icon={creating ? Loader2 : undefined}
                   className={cn("w-full justify-center", creating && "[&_svg]:animate-spin")}
                 >

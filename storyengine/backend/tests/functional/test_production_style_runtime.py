@@ -358,3 +358,40 @@ def test_create_and_generation_sources_consume_the_snapshot_not_profile_names():
     assert "UPDATE assets SET video_prompt=$1" in coverage_source
     assert 'vp = (r.get("video_prompt") or "").strip()' in pipeline_source
     assert "or os.getenv(\"KIE_AI_API_KEY\")" not in coverage_source
+
+
+def test_all_first_party_creation_surfaces_require_the_public_style_pick():
+    backend = Path(__file__).resolve().parents[2]
+    frontend = backend.parent / "frontend" / "src"
+    selector = (
+        frontend
+        / "components"
+        / "production"
+        / "ProductionStyleSelector.tsx"
+    ).read_text()
+    onboarding = (
+        frontend / "components" / "onboarding" / "CreateVideoStep.tsx"
+    ).read_text()
+    first_video = (
+        frontend / "components" / "pipeline" / "FirstVideoFlow.tsx"
+    ).read_text()
+    pipeline = (frontend / "app" / "pipeline" / "page.tsx").read_text()
+
+    assert "getProductionStyles" in selector
+    assert "Nothing is preselected" in selector
+    assert "images_per_minute * durationMinutes" in selector
+    assert "Bring your own provider keys" in selector
+    assert "Design Your Own" not in selector and "Custom Film" not in selector
+
+    assert "<ProductionStyleSelector" in onboarding
+    assert "production_style_id: productionStyleId" in onboarding
+    assert "if (!selectedTitle.trim() || !productionStyleId) return" in onboarding
+    assert "disabled={creating || !productionStyleId}" in onboarding
+
+    assert "<ProductionStyleSelector" in first_video
+    assert "productionStyleId: ProductionStyleId" in first_video
+    assert "disabled={creating || !productionStyleId}" in first_video
+
+    assert "<ProductionStyleSelector" in pipeline
+    assert "production_style_id: newProductionStyleId" in pipeline
+    assert "!newProductionStyleId || createMutation.isPending" in pipeline
