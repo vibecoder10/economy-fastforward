@@ -189,13 +189,15 @@ async def arq_run_custom_film_runtime(
     attempt: int,
     runtime_job_id: str,
 ) -> dict:
-    """Consume the durable section schedule; B2 installs provider stage runners."""
+    """Consume the durable section schedule through operation-aware seams."""
+    from custom_film_production_runner import CustomFilmProductionRunner
     from custom_film_section_runtime import consume_runtime_schedule
 
     return await consume_runtime_schedule(
         tenant_id,
         video_id,
         runtime_job_id,
+        stage_runner=CustomFilmProductionRunner(tenant_id),
         attempt=attempt,
     )
 

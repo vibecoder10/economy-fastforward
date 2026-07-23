@@ -15,6 +15,12 @@
   version; approval, runtime, plan, and quote hashes; exact section values and
   seconds; and the ordered stage plan. Restart consumers must validate its hash
   through `custom_film_runtime.validate_runtime_envelope` before use.
+- `storyengine/backend/custom_film_production_runner.py` is the concrete,
+  operation-aware bridge for section script, voice, and quality stages. It
+  hands resolved profile, role/purpose, exact seconds, scene assignments,
+  language/dubbing/audio behavior, and quality laws to the shared production
+  seams without provider-level Custom Film branches. Imagery, motion, and
+  camera remain fail-closed until M2-4B2c.
 
 > Last updated: 2026-06-12
 
@@ -11366,3 +11372,29 @@ control writes without losing the video, approval, or confirmation.
   marker. Their completed provider result is committed in the same transaction
   as section assignment/progress. Legacy synthetic function runners retain
   B1's original explicit reconciliation stop.
+
+# M2-4B2b Custom Film script, voice, and quality runner (2026-07-23)
+
+- `custom_film_production_runner.py` converts each immutable section adapter
+  into one explicit provider request whose canonical hash binds runtime/plan,
+  operation, section role and purpose, exact integer seconds, stable scene
+  assignments, script profile, language/dubbing/dialogue-audio behavior, and
+  quality laws. The real worker installs this operation-aware runner; ordinary
+  `arq_run_script` and `arq_run_voice` legacy handlers are unchanged.
+- The default script seam uses the tenant's initialized text client, the shared
+  script-profile loader, and `brief_translator.generate_script` with an
+  exact-seconds config. It saves one deterministic stable script UUID per
+  approved section. The voice seam reads only the assigned scene IDs, reuses
+  the shared narrator-text filter and tenant voice client, skips separate
+  narration for `grok_native`, and truthfully leaves bilingual
+  speech-to-speech performance to the existing clip dialogue seam. The quality
+  seam sends only the assigned section text and approved laws through
+  `script_quality.critique_script`, failing closed when those laws cannot be
+  evaluated or do not pass.
+- Any provider task ID exposed by a seam is written immediately with
+  `mark_submitted`; recovery may query only that same task or replay only a
+  declared same-operation idempotent request. Kie narration exposes and queries
+  its durable task ID; direct Anthropic/ElevenLabs calls have no query handle,
+  so a crash after submission stops instead of risking duplicate BYOK spend.
+  Pictures, motion, clips, and camera intentionally stop before provider work
+  pending M2-4B2c.
