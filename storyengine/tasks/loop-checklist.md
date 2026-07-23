@@ -22,10 +22,11 @@
       [M] Honest three-image cost estimates for static-documentary picture/build confirmations.
       [V] Focused no-spend backend tests, including fail-closed reference behavior and partial-view success.
       Evidence: commit `9c05cb8a`; stash-proof new suite failed 4/4 against the old implementation and passed 4/4 restored; static-docu/render-static suite passed 127/127. No provider call, database write, deploy, or paid run occurred.
-- [ ] C2 [B][R][V] Render multiple views, the one-per-aircraft title card, and cinematic motion.
+- [x] C2 [B][R][V] Render multiple views, the one-per-aircraft title card, and cinematic motion.
       [B] Gather 1–3 ordered static assets per scene and split the narration hold without duplicating audio.
       [R] Enable the fixed overlay by default, add the specs line and one-time card animation, and alternate full-duration smoothstep push-in/pull-out Ken Burns moves with no lateral drift or wobble.
       [V] Backend config tests, TypeScript check, and a short local synthetic Remotion render inspected at multiple frames.
+      Evidence: commit `56efe09c`; stash-proof new tests failed 4/4 against the old renderer and passed 12/12 restored; the broader render-static suite passed 42/42. A local 240-frame Remotion proof rendered successfully and was inspected across all three view changes. The title card remains continuous over view rotation, the movement alternates centered push-in/pull-out with smoothstep easing, and the final scale is reached only at the last frame. Remotion bundling succeeded; the full TypeScript check reaches only the unchanged pre-existing `MusicBed.tsx:153` `startFrom` error, reproduced on the base checkout.
 - [ ] C3 [U][V] Make the Pictures and Render UI tell the new truth.
       [U] Group 2–3 views into one aircraft card, show view roles/specs and per-view QA actions, compute readiness per unit, and update one-image copy/counts.
       [V] Frontend typecheck/build plus focused state tests or extracted pure helpers where practical.
