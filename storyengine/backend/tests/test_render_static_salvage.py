@@ -176,35 +176,37 @@ async def test_happy_path_still_cleans_up_fully_no_salvage_file(monkeypatch, tmp
 
 
 # ---------------------------------------------------------------------------
-# 2. Clean frames: no caption text on static-docu renders by default
+# 2. Anton title cards are on by default, with a legacy opt-out
 # ---------------------------------------------------------------------------
 
 def _caption_segments():
     return [{
         "scene": 1, "scene_text": "hello", "voice_url": "http://x/v.mp3",
         "voice_duration": 5.0, "duration": 5.0, "image_url": "http://x/i.png",
-        "caption": {"title": "B-52 STRATOFORTRESS", "sub": "1955 — present"},
+        "caption": {
+            "title": "B-52 STRATOFORTRESS",
+            "sub": "USAF • 1955–present",
+            "specs": ["Wingspan 185 ft", "Maximum speed 650 mph"],
+        },
     }]
 
 
-def test_render_config_has_no_caption_text_by_default(monkeypatch):
-    """DvsU clean-frames rule: even when the asset rows carry caption JSON,
-    the renderConfig hands Scene.tsx empty caption fields — Scene.tsx only
-    draws its text block when caption_title is non-empty."""
-    assert render_static.DRAW_CAPTIONS is False  # default off
+def test_render_config_carries_anton_title_card_by_default():
+    assert render_static.DRAW_CAPTIONS is True
+    rc = render_static._build_render_config("vid-1", _caption_segments())
+    scene = rc["scenes"][0]
+    assert scene["caption_title"] == "B-52 STRATOFORTRESS"
+    assert scene["caption_sub"] == "USAF • 1955–present"
+    assert scene["caption_specs"] == ["Wingspan 185 ft", "Maximum speed 650 mph"]
+
+
+def test_render_config_allows_explicit_legacy_title_card_opt_out(monkeypatch):
+    monkeypatch.setattr(render_static, "DRAW_CAPTIONS", False)
     rc = render_static._build_render_config("vid-1", _caption_segments())
     scene = rc["scenes"][0]
     assert scene["caption_title"] == ""
     assert scene["caption_sub"] == ""
-
-
-def test_render_config_carries_captions_when_flag_enabled(monkeypatch):
-    """The drawing plumbing stays: flipping the flag restores captions."""
-    monkeypatch.setattr(render_static, "DRAW_CAPTIONS", True)
-    rc = render_static._build_render_config("vid-1", _caption_segments())
-    scene = rc["scenes"][0]
-    assert scene["caption_title"] == "B-52 STRATOFORTRESS"
-    assert scene["caption_sub"] == "1955 — present"
+    assert scene["caption_specs"] == []
 
 
 # ---------------------------------------------------------------------------

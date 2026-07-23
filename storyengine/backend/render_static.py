@@ -1,10 +1,10 @@
 """Static-image documentary render (Remotion).
 
 For **static_docu** videos (``videos.render_mode = 'static_docu'``) the final
-video is the original Power Doctrine format: one generated image per narration
-segment, HELD for the whole segment with a slow Ken Burns pan, over the
-per-scene voiceover. No animated clips, no captions, no Whisper — the segment
-duration IS the narration mp3's duration, so timing comes from
+video is Anton's DvsU format: two or three complementary images per aircraft,
+rotated under one narration segment with alternating slow push-in/pull-out
+motion and one fixed identifying title card. No animated clips or Whisper —
+the segment duration IS the narration mp3's duration, so timing comes from
 ``scripts.voice_duration_seconds`` (ffprobe fallback) instead of a
 transcription pass.
 
@@ -60,16 +60,16 @@ from shared.channel_profile import CLAUDE_MODELS  # noqa: E402
 # fighting for cores. Env-tunable like the stitch semaphore.
 _REMOTION_SEM = asyncio.Semaphore(int(os.getenv("STATIC_RENDER_CONCURRENCY", "1")))
 
-# Rotate composition hints so assign_ken_burns varies the pan direction from
-# image to image (its direction map keys off the composition).
-_COMPOSITION_CYCLE = ["wide", "environmental", "medium", "wide", "overhead", "medium"]
+# Anton's title-card overlay is part of the channel format. It remains
+# env-disableable for an exceptional legacy render, but the safe/default path
+# now follows the DvsU standard instead of silently suppressing it.
+DRAW_CAPTIONS = os.getenv("STATIC_DRAW_CAPTIONS", "1") != "0"
 
-# Text overlay switch — DvsU wants clean frames: machine images only, no
-# caption title/sub burned in (the narration already says it). Scene.tsx only
-# draws its caption block when caption_title is non-empty, so blanking the
-# fields here disables all on-frame text. Env-tunable without a code change
-# (STATIC_DRAW_CAPTIONS=1 turns it back on); the drawing plumbing stays.
-DRAW_CAPTIONS = os.getenv("STATIC_DRAW_CAPTIONS", "0") == "1"
+_VIEW_COMPOSITIONS = {
+    "three_quarter": "wide",
+    "top_oblique": "overhead",
+    "engineering_detail": "medium",
+}
 
 
 def _safe_filename(title: str, fallback: str) -> str:
@@ -108,10 +108,11 @@ async def _normalize_audio(path: Path) -> None:
 
 
 async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
-    """One entry per scene: narration mp3 + the single image that holds it.
+    """One entry per narration scene with its ordered 1–3 image set.
 
-    Image preference: static_docu asset (this mode's generator) -> coverage
-    master/hero frame -> any image for the scene (lowest index).
+    New DvsU rows contribute all available static-docu views (up to three).
+    Legacy projects remain renderable: when no static-docu row exists, fall
+    back to the coverage hero/first image exactly as before.
     """
     scenes = await fetch_all(
         "SELECT scene, scene_text, voice_over_url, voice_duration_seconds FROM scripts "
@@ -134,36 +135,53 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
     for row in images:
         by_scene.setdefault(row["scene"], []).append(row)
 
-    def _pick(scene: int):
+    def _parse_caption(raw):
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (ValueError, TypeError):
+                return None
+        return raw if isinstance(raw, dict) else None
+
+    def _pick_many(scene: int) -> list[dict]:
         rows = by_scene.get(scene) or []
-        for r in rows:
-            if r.get("generation_method") == "static_docu":
-                return r
+        static_rows = [
+            r for r in rows if r.get("generation_method") == "static_docu"
+        ][:3]
+        if static_rows:
+            return static_rows
         for r in rows:
             if r.get("hero_shot"):
-                return r
-        return rows[0] if rows else None
+                return [r]
+        return rows[:1]
 
     segments = []
     missing = []
     for s in scenes:
-        img = _pick(s["scene"])
-        if not img:
+        picked = _pick_many(s["scene"])
+        if not picked:
             missing.append(str(s["scene"]))
             continue
-        caption = img.get("caption")
-        if isinstance(caption, str):
-            try:
-                caption = json.loads(caption)
-            except (ValueError, TypeError):
-                caption = None
+        images = [
+            {
+                "image_url": img["image_url"],
+                "source_index": int(img.get("image_index") or local_index),
+                "caption": _parse_caption(img.get("caption")),
+            }
+            for local_index, img in enumerate(picked, start=1)
+        ]
+        caption = next(
+            (img["caption"] for img in images if img.get("caption")), None
+        )
         segments.append({
             "scene": s["scene"],
             "scene_text": s.get("scene_text") or "",
             "voice_url": s["voice_over_url"],
             "voice_duration": float(s["voice_duration_seconds"] or 0),
-            "image_url": img["image_url"],
-            "caption": caption if isinstance(caption, dict) else None,
+            # image_url stays for old tests/callers; images is authoritative.
+            "image_url": images[0]["image_url"],
+            "images": images,
+            "caption": caption,
         })
     if missing:
         raise RuntimeError(
@@ -173,60 +191,110 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
     return segments
 
 
+def _images_for_segment(segment: dict) -> list[dict]:
+    """Normalized image list with a one-image legacy fallback."""
+    images = segment.get("images")
+    if isinstance(images, list) and images:
+        return [img for img in images if isinstance(img, dict) and img.get("image_url")]
+    if segment.get("image_url"):
+        return [{
+            "image_url": segment["image_url"],
+            "source_index": 1,
+            "caption": segment.get("caption"),
+        }]
+    return []
+
+
 def _build_render_config(video_id: str, segments: list[dict]) -> dict:
     """The renderConfig the Remotion composition reads (embedded in --props).
 
-    One entry per scene, image held for the narration's full duration. Ken
-    Burns + transitions come from the proven legacy calculators (pure, no
-    Airtable).
+    One render entry per image, grouped under its narration scene. Audio still
+    plays once per scene; the image entries divide that scene's hold evenly.
+    Motion alternates a slow cinematic push-in/pull-out and is eased over the
+    full hold (never finishes early).
     """
-    from render.audio_sync.ken_burns_calculator import assign_ken_burns
     from render.audio_sync.transition_engine import assign_transitions
 
-    n = len(segments)
+    scene_count = len(segments)
     scenes = []
     cursor = 0.0
-    for i, seg in enumerate(segments):
-        dur = round(seg["duration"], 4)
-        # Caption fields feed Scene.tsx's fixed text overlay; blank them when
-        # captions are off (default) so frames show only the image.
+    motion_index = 0
+    for scene_position, seg in enumerate(segments):
+        duration = round(float(seg["duration"]), 4)
+        images = _images_for_segment(seg)
+        if not images:
+            continue
         cap = (seg.get("caption") or {}) if DRAW_CAPTIONS else {}
-        scenes.append({
-            "scene_number": seg["scene"],
-            "image_path": f"Scene_{seg['scene']:02d}_01.png",
-            "image_index": 1,
-            "display_start": round(cursor, 4),
-            "display_end": round(cursor + dur, 4),
-            "display_duration": dur,
-            "narration_start": round(cursor, 4),
-            "narration_end": round(cursor + dur, 4),
-            "style": "",
-            "composition": _COMPOSITION_CYCLE[i % len(_COMPOSITION_CYCLE)],
-            # 6-act split — drives dip-to-black transitions at act boundaries
-            # (the format's "music swell" beats) via the transition engine.
-            "act": min(6, (i * 6) // max(n, 1) + 1),
-            "type": "image",
-            # Fixed text overlay (Scene.tsx) — never moves with the pan.
-            "caption_title": cap.get("title") or "",
-            "caption_sub": cap.get("sub") or "",
-        })
-        cursor += dur
-    assign_ken_burns(scenes)
+        scene_start = cursor
+        part = duration / len(images)
+        elapsed = 0.0
+        for local_index, image in enumerate(images, start=1):
+            # Put rounding residue into the final view so the parts sum to the
+            # exact narration duration and audio never drifts.
+            view_duration = (
+                round(duration - elapsed, 4)
+                if local_index == len(images)
+                else round(part, 4)
+            )
+            view_start = round(scene_start + elapsed, 4)
+            view_end = round(view_start + view_duration, 4)
+            image_cap = (image.get("caption") or cap) if DRAW_CAPTIONS else {}
+            role = (image_cap or {}).get("view_role") or ""
+            push_in = motion_index % 2 == 0
+            scenes.append({
+                "scene_number": seg["scene"],
+                "image_path": f"Scene_{seg['scene']:02d}_{local_index:02d}.png",
+                "image_index": local_index,
+                "source_image_index": image.get("source_index") or local_index,
+                "display_start": view_start,
+                "display_end": view_end,
+                "display_duration": view_duration,
+                # Narration spans the whole aircraft scene and is played once
+                # by Scene.tsx, not restarted for each image entry.
+                "narration_start": round(scene_start, 4),
+                "narration_end": round(scene_start + duration, 4),
+                "style": "static_docu",
+                "composition": _VIEW_COMPOSITIONS.get(role, "wide"),
+                "act": min(
+                    6,
+                    (scene_position * 6) // max(scene_count, 1) + 1,
+                ),
+                "type": "image",
+                # Only the first image carries the metadata. Scene.tsx lifts
+                # it outside the image sequences and animates one card for the
+                # whole aircraft, so it never repeats at image changes.
+                "caption_title": (
+                    (image_cap or {}).get("title") or ""
+                    if local_index == 1 else ""
+                ),
+                "caption_sub": (
+                    (image_cap or {}).get("sub") or ""
+                    if local_index == 1 else ""
+                ),
+                "caption_specs": (
+                    list((image_cap or {}).get("specs") or [])[:2]
+                    if local_index == 1 else []
+                ),
+                "ken_burns": {
+                    "direction": (
+                        "slow_push_in" if push_in else "slow_pull_out"
+                    ),
+                    "start_scale": 1.025 if push_in else 1.085,
+                    "end_scale": 1.085 if push_in else 1.025,
+                    "start_x_offset": 0,
+                    "end_x_offset": 0,
+                    "start_y_offset": 0,
+                    "end_y_offset": 0,
+                    "speed_multiplier": 1.0,
+                    "motion_curve": "cinematic_smoothstep",
+                    "disable_breathe": True,
+                },
+            })
+            elapsed = round(elapsed + view_duration, 4)
+            motion_index += 1
+        cursor = round(scene_start + duration, 4)
+
     assign_transitions(scenes)
-    # Coverage guarantee: the legacy pan presets translate at scale 1.0, which
-    # exposes black canvas at the frame edge (Scene.tsx also adds a ±3px
-    # "breathing" wobble). Make sure every image is zoomed enough that the pan
-    # never runs off the picture: scale s covers ~(s-1)*960px of horizontal
-    # travel; offsets are scaled by the transform too, so 1.08 comfortably
-    # covers the ±40px presets + breathing.
-    for s in scenes:
-        kb = s.get("ken_burns") or {}
-        has_pan = any(kb.get(k) for k in (
-            "start_x_offset", "end_x_offset", "start_y_offset", "end_y_offset"))
-        floor = 1.08 if has_pan else 1.02
-        kb["start_scale"] = max(float(kb.get("start_scale") or 1.0), floor)
-        kb["end_scale"] = max(float(kb.get("end_scale") or 1.0), floor)
-        s["ken_burns"] = kb
     return {
         "video_id": video_id,
         "audio_path": "",
@@ -361,6 +429,21 @@ async def _run_remotion(public_dir: Path, props_file: Path, out_file: Path,
         raise RuntimeError("Remotion finished but produced no output file")
 
 
+def _requires_remotion(rc: dict) -> bool:
+    """Does this config use DvsU features the legacy FFmpeg path cannot draw?
+
+    FFmpeg's optional speed experiment still assumes one image/audio pair per
+    scene and has no title-card compositor. Never silently drop multi-view
+    rotation or overlays merely because an environment flag selected it.
+    """
+    scenes = rc.get("scenes") or []
+    scene_numbers = [scene.get("scene_number") for scene in scenes]
+    return (
+        len(scene_numbers) != len(set(scene_numbers))
+        or any(scene.get("caption_title") for scene in scenes)
+    )
+
+
 async def render_static_video(
     video_id: str,
     tenant_id: str,
@@ -381,13 +464,23 @@ async def render_static_video(
     public_dir.mkdir()
     try:
         gc = _google_client()
-        await _emit(on_progress, f"Downloading {len(segments)} segment assets")
+        image_count = sum(len(_images_for_segment(seg)) for seg in segments)
+        await _emit(
+            on_progress,
+            f"Downloading {len(segments)} narration tracks and {image_count} images",
+        )
         for seg in segments:
             voice_path = public_dir / f"Scene {seg['scene']}.mp3"
             await _download_to(seg["voice_url"], voice_path, gc)
             await _normalize_audio(voice_path)
-            await _download_to(
-                seg["image_url"], public_dir / f"Scene_{seg['scene']:02d}_01.png", gc)
+            for local_index, image in enumerate(
+                _images_for_segment(seg), start=1
+            ):
+                await _download_to(
+                    image["image_url"],
+                    public_dir / f"Scene_{seg['scene']:02d}_{local_index:02d}.png",
+                    gc,
+                )
 
         # Segment duration = the narration's real length. Trust the stored
         # figure only when it matches the file (stale rows happen); ffprobe is
@@ -409,6 +502,12 @@ async def render_static_video(
 
         out_file = workdir / "out.mp4"
         engine = render_static_ffmpeg.render_engine()
+        if engine == "ffmpeg" and _requires_remotion(rc):
+            engine = "remotion"
+            await _emit(
+                on_progress,
+                "Using the DvsU compositor for multi-view motion and title cards",
+            )
         async with _REMOTION_SEM:
             if engine == "ffmpeg":
                 await _emit(on_progress, "Rendering the documentary (ffmpeg engine)")

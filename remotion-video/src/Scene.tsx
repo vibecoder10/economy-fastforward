@@ -5,6 +5,7 @@ import {
     useCurrentFrame,
     useVideoConfig,
     interpolate,
+    Easing,
     OffthreadVideo,
     Sequence,
 } from "remotion";
@@ -145,6 +146,7 @@ export const Scene: React.FC<SceneProps> = ({
         () => getRenderScenesForScene(sceneNumber),
         [sceneNumber],
     );
+    const titleScene = renderScenes.find((rs) => rs.caption_title);
 
     return (
         <AbsoluteFill>
@@ -169,8 +171,6 @@ export const Scene: React.FC<SceneProps> = ({
                             kenBurns={rs?.ken_burns}
                             transitionIn={rs?.transition_in}
                             transitionOut={rs?.transition_out}
-                            captionTitle={rs?.caption_title}
-                            captionSub={rs?.caption_sub}
                         />
                         {/* Per-image sound effect — plays for exactly the image duration */}
                         {img?.sfx && (
@@ -185,6 +185,17 @@ export const Scene: React.FC<SceneProps> = ({
                 );
             })}
 
+            {/* One aircraft title card for the narration scene. It sits above
+                every image Sequence, so rotating views never restart it. */}
+            {titleScene && (
+                <DocumentaryTitleCard
+                    title={titleScene.caption_title ?? ""}
+                    sub={titleScene.caption_sub ?? ""}
+                    specs={titleScene.caption_specs ?? []}
+                    sceneDurationFrames={durationInFrames}
+                />
+            )}
+
             {/* Karaoke captions — word-level highlight synced to audio */}
             {/* Uses character-based chunking (max 38 chars) to prevent overflow */}
             {hasTranscript && transcript?.words && transcript.words.length > 0 && (
@@ -194,6 +205,102 @@ export const Scene: React.FC<SceneProps> = ({
                 />
             )}
         </AbsoluteFill>
+    );
+};
+
+const DocumentaryTitleCard: React.FC<{
+    title: string;
+    sub: string;
+    specs: string[];
+    sceneDurationFrames: number;
+}> = ({ title, sub, specs, sceneDurationFrames }) => {
+    const frame = useCurrentFrame();
+    const { fps } = useVideoConfig();
+
+    const enterFrames = Math.max(1, Math.round(fps * 0.55));
+    const exitFrames = Math.max(1, Math.round(fps * 0.5));
+    const desiredExit = Math.round(fps * 6.5);
+    const exitStart = Math.max(
+        enterFrames + 1,
+        Math.min(desiredExit, sceneDurationFrames - exitFrames - 1),
+    );
+    const enter = interpolate(frame, [0, enterFrames], [0, 1], {
+        easing: Easing.out(Easing.cubic),
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+    });
+    const exit = interpolate(
+        frame,
+        [exitStart, Math.min(sceneDurationFrames - 1, exitStart + exitFrames)],
+        [1, 0],
+        {
+            easing: Easing.in(Easing.cubic),
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+        },
+    );
+    const opacity = Math.min(enter, exit);
+    const translateY = interpolate(enter, [0, 1], [22, 0]);
+
+    return (
+        <div
+            style={{
+                position: "absolute",
+                left: 76,
+                bottom: 68,
+                maxWidth: 940,
+                padding: "22px 30px 23px 28px",
+                background: "rgba(250, 249, 246, 0.92)",
+                borderLeft: "7px solid #a88345",
+                boxShadow: "0 16px 40px rgba(0, 0, 0, 0.16)",
+                color: "#252525",
+                opacity,
+                transform: `translateY(${translateY}px)`,
+                fontFamily: "Georgia, 'Times New Roman', serif",
+            }}
+        >
+            <div
+                style={{
+                    fontSize: 58,
+                    fontWeight: 600,
+                    letterSpacing: 0.4,
+                    lineHeight: 1.05,
+                }}
+            >
+                {title}
+            </div>
+            {sub && (
+                <div
+                    style={{
+                        fontSize: 25,
+                        marginTop: 10,
+                        color: "#54504a",
+                        letterSpacing: 0.5,
+                    }}
+                >
+                    {sub}
+                </div>
+            )}
+            {specs.length > 0 && (
+                <div
+                    style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "9px 24px",
+                        marginTop: 13,
+                        fontFamily: "Arial, Helvetica, sans-serif",
+                        fontSize: 22,
+                        fontWeight: 700,
+                        color: "#765b2e",
+                        letterSpacing: 0.3,
+                    }}
+                >
+                    {specs.slice(0, 2).map((spec) => (
+                        <span key={spec}>{spec}</span>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -279,9 +386,7 @@ const DynamicImage: React.FC<{
     kenBurns?: Record<string, unknown>;
     transitionIn?: Record<string, unknown>;
     transitionOut?: Record<string, unknown>;
-    captionTitle?: string;
-    captionSub?: string;
-}> = ({ imageFile, motionIndex, segmentDurationFrames, kenBurns, transitionIn, transitionOut, captionTitle, captionSub }) => {
+}> = ({ imageFile, motionIndex, segmentDurationFrames, kenBurns, transitionIn, transitionOut }) => {
     // Inside Sequence: frame is already relative to segment start
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
@@ -321,7 +426,10 @@ const DynamicImage: React.FC<{
     );
 
     // Progress through FULL segment - motion NEVER stops
-    const progress = Math.min(localFrame / segmentDurationFrames, 1);
+    const progress = Math.min(
+        localFrame / Math.max(segmentDurationFrames - 1, 1),
+        1,
+    );
 
     let scale = 1;
     let translateX = 0;
@@ -340,8 +448,13 @@ const DynamicImage: React.FC<{
         const startYOffset = (kenBurns.start_y_offset as number) ?? 0;
         const endYOffset = (kenBurns.end_y_offset as number) ?? 0;
 
-        // Adjusted progress accounts for speed multiplier
-        const adjustedProgress = Math.min(progress * speedMultiplier, 1);
+        // DvsU motion uses a full-duration smoothstep: zero velocity at both
+        // ends, monotonic in between, and exactly complete on the last frame.
+        // Legacy configs retain their previous speed-multiplier behavior.
+        const motionCurve = kenBurns.motion_curve as string | undefined;
+        const adjustedProgress = motionCurve === "cinematic_smoothstep"
+            ? progress * progress * (3 - 2 * progress)
+            : Math.min(progress * speedMultiplier, 1);
 
         // Scale interpolation
         scale = startScale + (endScale - startScale) * adjustedProgress;
@@ -386,10 +499,12 @@ const DynamicImage: React.FC<{
         }
     }
 
-    // Add subtle organic "breathing" motion on top of everything
-    const breathe = Math.sin(localFrame * 0.08) * 3;
-    translateX += breathe;
-    translateY += breathe * 0.6;
+    if (!kenBurns?.disable_breathe) {
+        // Legacy non-static compositions keep their existing organic motion.
+        const breathe = Math.sin(localFrame * 0.08) * 3;
+        translateX += breathe;
+        translateY += breathe * 0.6;
+    }
 
     return (
         <AbsoluteFill style={{ opacity }}>
@@ -400,34 +515,9 @@ const DynamicImage: React.FC<{
                     height: "100%",
                     objectFit: "cover",
                     transform: `scale(${scale}) translate(${translateX}px, ${translateY}px)`,
+                    transformOrigin: "center center",
                 }}
             />
-            {/* Static-documentary caption — FIXED position (sibling of the
-                transformed image, so it never moves with the Ken Burns pan),
-                inherits this segment's fade transitions via the parent. */}
-            {captionTitle && (
-                <div
-                    style={{
-                        position: "absolute",
-                        right: 90,
-                        bottom: 70,
-                        textAlign: "right",
-                        fontFamily: "Georgia, 'Times New Roman', serif",
-                        color: "#6e6e6e",
-                        textShadow: "0 0 14px rgba(255,255,255,0.85)",
-                        lineHeight: 1.25,
-                    }}
-                >
-                    <div style={{ fontSize: 74, fontWeight: 400, letterSpacing: 1 }}>
-                        {captionTitle}
-                    </div>
-                    {captionSub && (
-                        <div style={{ fontSize: 30, fontWeight: 400, opacity: 0.9, marginTop: 6 }}>
-                            {captionSub}
-                        </div>
-                    )}
-                </div>
-            )}
         </AbsoluteFill>
     );
 };
