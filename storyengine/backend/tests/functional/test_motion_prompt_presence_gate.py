@@ -17,6 +17,13 @@ falls back to the raw truncated image_prompt snippet whenever sentence_text
 is null (true for REACTION rows), and the writer LLM misread "listening to
 Vanessa's line" as "describe Vanessa."
 
+A THIRD class from prod real-frames feedback (same day): reveal-traverse /
+delayed entrance — a camera path starting on scenery ("sweeping past the
+balloons... before settling on Ryan and Vanessa") made Grok stage the start
+without the characters and pop them in ghost-style on arrival. Gate class (d)
+rejects traverse-start + arrival-on-present-character; the fallback for
+character shots is a first-frame-visibility hold, never a traverse template.
+
 The fix ships as a contract triangle in the SAME commit:
   1. PROMPT — _MOTION_SYSTEM rule 2 now says a character in the shot is
      ALREADY there; "before anyone speaks" describes dialogue timing, not
@@ -169,12 +176,82 @@ def test_reaction_shot_reactor_also_described_passes_gate():
     assert gate_motion_prompt(video_prompt, REACTION_IMAGE_PROMPT) is None
 
 
+# --- Class (d): reveal-traverse / delayed character entrance (prod real
+# frames, 2026-07-22) — camera path starting on scenery and arriving on a
+# present character makes Grok ghost the characters in mid-shot. ---
+
+PARTY_IMAGE_PROMPT = (
+    "Wide shot of a decorated living room: balloons and party decor along the "
+    "wall, Ryan and Vanessa standing together at the coffee table."
+)
+# The exact prompt that failed on prod (shot 1's earlier gate-corrected line).
+REVEAL_TRAVERSE_PROMPT = (
+    "Camera trucks right on a straight horizontal track, sweeping past the "
+    "balloons and party decor before settling on Ryan and Vanessa already "
+    "standing at the coffee table."
+)
+# The replacement that fixed it on prod.
+REVEAL_SAFE_REPLACEMENT = (
+    "Camera drifts right in a slow, gentle glide. Ryan and Vanessa are fully "
+    "visible from the very first frame, standing at the coffee table as Vanessa "
+    "adjusts a plate and Ryan looks toward her. No one enters or exits the frame."
+)
+
+
+def test_reveal_traverse_exact_prod_prompt_fails_gate():
+    violation = gate_motion_prompt(REVEAL_TRAVERSE_PROMPT, PARTY_IMAGE_PROMPT)
+    assert violation is not None
+    assert "reveal" in violation.lower()
+    assert "ryan" in violation.lower() or "vanessa" in violation.lower()
+
+
+def test_reveal_safe_replacement_passes_gate():
+    """The prod replacement — first-frame visibility clause, 'no one enters or
+    exits' presence-PRESERVING language — must pass, including its 'no one'
+    wording (the no-one check exempts change-of-state verbs)."""
+    assert gate_motion_prompt(REVEAL_SAFE_REPLACEMENT, PARTY_IMAGE_PROMPT) is None
+
+
+def test_scenery_only_traverse_passes_gate():
+    """A traverse over a shot with NO characters in image_prompt (the balloon
+    insert) is legitimate coverage and must never be blocked."""
+    image_prompt = "INSERT: balloons and streamers taped along the living room wall, party decor."
+    video_prompt = ("Camera trucks right, sweeping past the balloons and streamers "
+                     "before settling on the stacked gift boxes at the wall's end.")
+    assert gate_motion_prompt(video_prompt, image_prompt) is None
+
+
+def test_traverse_arriving_on_object_passes_gate():
+    """Arrival on an OBJECT in a character shot is legal — only arrival on a
+    present character is the ghost-entrance trigger."""
+    video_prompt = ("Camera pans across the table, settling on the cake as Ryan and "
+                     "Vanessa stay in frame laughing through the whole move.")
+    assert gate_motion_prompt(video_prompt, PARTY_IMAGE_PROMPT) is None
+
+
+def test_character_shot_fallback_has_first_frame_clause_not_traverse():
+    """Class-(d) REPAIR: a shot WITH characters must fall back to the static
+    hold with the explicit first-frame-visibility clause — never a camera-lock
+    traverse template (truck_right's own 'pan across the scene' wording is
+    what seeded the prod failure)."""
+    for camera_movement in [None, "static", "truck_right|reveal", "push_in|x"]:
+        text = _camera_lock_fallback_text(camera_movement, PARTY_IMAGE_PROMPT)
+        assert "fully visible from the very first frame" in text
+        assert "no one enters or exits" in text
+        assert "pan across" not in text.lower()
+        assert "trucks" not in text.lower()
+        assert gate_motion_prompt(text, PARTY_IMAGE_PROMPT) is None
+
+
 def test_camera_lock_fallback_never_trips_its_own_gate():
     """The REPAIR fallback text itself must always pass the gate it's the
-    escape hatch for — otherwise a fallback could recursively fail."""
+    escape hatch for — otherwise a fallback could recursively fail. Both
+    forms: scenery-only (template/static path) and character shots (the
+    class-(d) first-frame-visibility hold)."""
     for camera_movement in [None, "", "static", "push_in|reveal", "not_a_real_move|x"]:
-        text = _camera_lock_fallback_text(camera_movement)
-        assert gate_motion_prompt(text, REAL_BUG_IMAGE_PROMPT) is None
+        for image_prompt in ["A quiet empty kitchen at dawn.", REAL_BUG_IMAGE_PROMPT, PARTY_IMAGE_PROMPT]:
+            text = _camera_lock_fallback_text(camera_movement, image_prompt)
+            assert gate_motion_prompt(text, image_prompt) is None
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +313,10 @@ def test_repair_retry_fails_falls_back_to_camera_lock_template():
     assert written == 1
     stored_prompt = execute_mock.await_args_list[-1].args[1]
     assert gate_motion_prompt(stored_prompt, REAL_BUG_IMAGE_PROMPT) is None
-    assert stored_prompt == _camera_lock_fallback_text(None)
+    # The shot's image has characters -> class-(d) rule: the fallback must be
+    # the first-frame-visibility hold, never a camera-lock traverse template.
+    assert stored_prompt == _camera_lock_fallback_text(None, REAL_BUG_IMAGE_PROMPT)
+    assert "fully visible from the very first frame" in stored_prompt
 
 
 def test_clean_first_write_never_triggers_repair_call():

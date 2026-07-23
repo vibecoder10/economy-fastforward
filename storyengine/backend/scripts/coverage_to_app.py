@@ -2183,7 +2183,10 @@ _MOTION_SYSTEM = (
     "speaks': that phrase describes the TIMING of dialogue, not who is in the frame. NEVER write a "
     "character as absent, arriving, or about to enter (no 'empty sofa where X will sit', no 'before X "
     "arrives', no 'no one is here yet') — the camera may only move; it may never change who is in the "
-    "room.\n"
+    "room. Characters in the frame must be VISIBLE FROM THE FIRST FRAME TO THE LAST: never write a "
+    "move that arrives at, reveals, or settles on a character (no 'sweeping past the decor before "
+    "settling on X') — a camera path that starts on scenery and travels toward a character makes the "
+    "video model stage the start without them and pop them in mid-shot.\n"
     "3) A shot tagged (SPEAKING: <Name>) shows that character delivering their line — frame their face "
     "or upper body and give a small, natural speaking gesture. DO NOT write the words; the line is added "
     "automatically. A shot with NO tag is silent — camera move + ONE small motion, NO people added.\n"
@@ -2499,6 +2502,7 @@ _MOTION_NAME_STOPWORDS = {
     "nobody", "no", "one", "room", "sofa", "couch", "chair", "table",
     "bench", "seat", "bed", "window", "door", "kitchen", "sky", "ocean",
     "coffee", "cup", "holds", "frame", "background", "foreground", "unfixed",
+    "everyone", "everything", "every",
 }
 _MOTION_NAME_RE = re.compile(r"\b([A-Z][a-z]{2,14})\b")
 
@@ -2515,12 +2519,66 @@ _MOTION_FURNITURE_EMPTY_RE = re.compile(
     r"|\b(" + "|".join(_MOTION_DEST_WORDS) + r")\b[^.]{0,25}\b(?:is|sits?|stands?)\b"
     r"[^.]{0,15}\b(empty|vacant|unoccupied)\b",
     re.IGNORECASE)
-_MOTION_NO_ONE_RE = re.compile(r"\b(no\s*one|nobody)\b", re.IGNORECASE)
+# "no one"/"nobody" claims the frame is peopleless — EXCEPT when followed by a
+# change-of-state verb ("no one enters or exits", "no one leaves"): that's a
+# presence-PRESERVING clause (the class-(d) safe fallback text uses it
+# verbatim) and must never trip the gate.
+_MOTION_NO_ONE_RE = re.compile(
+    r"\b(no\s*one|nobody)\b"
+    r"(?!\s+(?:else\b|new\b|enters?\b|exits?\b|leaves?\b|arrives?\b|joins?\b|"
+    r"steps?\b|comes?\b|walks?\b|is\s+added\b))",
+    re.IGNORECASE)
 _MOTION_ANTICIPATION_VERB = r"(?:sits?|sit down|arrives?|enters?|walks? in|joins?)"
 _MOTION_ACTING_VERBS = (
     "says", "turns", "looks", "smiles", "sits", "walks", "enters", "waves",
     "leans", "nods", "glances", "steps",
 )
+
+# Class (d) — reveal-traverse / delayed entrance (found live on prod real
+# frames, 2026-07-22): shot 1's gate-corrected prompt read "Camera trucks
+# right... sweeping past the balloons and party decor before settling on
+# Ryan and Vanessa already standing at the coffee table." Grok (image+text
+# conditioned) staged the camera-start portion WITHOUT the characters and
+# popped them in ghost-style when the camera arrived. Lesson: when the still
+# shows characters, ANY camera path whose START is scenery and whose END is
+# a character is a reveal, and it will ghost — the characters must be
+# visible from frame 1. Conservative trigger = BOTH halves present:
+# traverse-start language AND an arrival phrase targeting a PRESENT
+# character. A traverse over a scenery-only shot (no characters in
+# image_prompt), or a drift with no arrival phrase, passes untouched.
+_MOTION_TRAVERSE_START_RE = re.compile(
+    r"\b(?:sweep(?:s|ing)?\s+(?:past|across|over)|pan(?:s|ning)?\s+across|"
+    r"track(?:s|ing)?\s+across|truck(?:s|ing)?\s+(?:left|right)|"
+    r"start(?:s|ing)?\s+(?:on|from|at)|begin(?:s|ning)?\s+(?:on|from|at)|"
+    r"open(?:s|ing)?\s+on|glid(?:es|ing)\s+(?:past|across|over)|"
+    r"drift(?:s|ing)?\s+(?:past|across)|mov(?:es|ing)\s+(?:past|across))\b",
+    re.IGNORECASE)
+_MOTION_ARRIVAL_PHRASE = (
+    r"(?:(?:before\s+)?settl(?:es?|ing)\s+(?:on|upon)|end(?:s|ing)\s+on|"
+    r"land(?:s|ing)\s+on|arriv(?:es?|ing)\s+(?:at|on)|to\s+reveal|"
+    r"reveal(?:s|ing)?|toward)"
+)
+
+
+def _reveal_arrival(vp: str, image_names: set):
+    """(name, matched_text) when the motion text's camera path ARRIVES on a
+    character the image already shows — 'before settling on Ryan', 'ending
+    on Vanessa', 'revealing Marco', 'toward Priya'. None when every arrival
+    target is scenery/props (arriving on an object is legal): the gap between
+    the arrival phrase and the name must not cross a clause boundary (as/
+    while/when/where), so 'settling on the cake as Ryan ... stays in frame'
+    keeps the CAKE as the target and passes."""
+    # No sentence-end and no clause-boundary word between the arrival phrase
+    # and the character name — the name must be the arrival's own target.
+    gap = r"(?:(?!\b(?:as|while|when|where)\b)[^.;,]){0,40}"
+    for name in image_names:
+        pat = re.compile(
+            rf"\b{_MOTION_ARRIVAL_PHRASE}\b\s{gap}\b{re.escape(name)}\b",
+            re.IGNORECASE)
+        m = pat.search(vp)
+        if m:
+            return name, m.group(0)
+    return None
 
 
 def _motion_names(text: str) -> set:
@@ -2591,6 +2649,13 @@ def gate_motion_prompt(video_prompt: str, image_prompt: str) -> str | None:
           video_prompt makes Y the grammatical actor of a physical gesture
           while X never acts at all. X may still be named as the gaze target
           ("eyes locked on Y") — only Y acting instead of X is a violation.
+      (d) reveal-traverse / delayed entrance — image_prompt has characters,
+          and video_prompt writes a camera path that STARTS on scenery
+          (sweeping past / panning across / starting on ...) and ARRIVES on
+          a present character (before settling on / ending on / revealing /
+          toward <char>). Grok ghosts the characters in mid-shot. Both
+          halves must be present to trigger; a traverse over a
+          scenery-only shot, or arrival on an object, always passes.
     """
     vp = (video_prompt or "").strip()
     if not vp:
@@ -2603,6 +2668,13 @@ def gate_motion_prompt(video_prompt: str, image_prompt: str) -> str | None:
         if _is_gesture_actor(vp, speaker) and not _is_gesture_actor(vp, reactor):
             return (f"REACTION shot framed on {reactor}, but the motion text describes "
                      f"{speaker} (off-frame) acting instead")
+
+    if image_names and _MOTION_TRAVERSE_START_RE.search(vp):
+        hit = _reveal_arrival(vp, image_names)
+        if hit:
+            return (f"reveal-traverse: camera starts on scenery and arrives on {hit[0]} "
+                     f"({hit[1]!r}) — characters in the still must be visible from the "
+                     f"very first frame, never revealed by the move")
 
     m = _MOTION_FURNITURE_EMPTY_RE.search(vp)
     if m and image_names:
@@ -2636,13 +2708,34 @@ def gate_motion_prompt(video_prompt: str, image_prompt: str) -> str | None:
     return None
 
 
-def _camera_lock_fallback_text(camera_movement: str) -> str:
+# Class-(d) safe fallback for shots whose still has CHARACTERS: an explicit
+# first-frame-visibility clause, never a traverse. The truck_right camera-lock
+# template's own "pan across the scene" wording is what SEEDED the live
+# ghost-entrance failure — a traverse template must never be handed to a shot
+# with people in it.
+_CHARACTER_SAFE_FALLBACK = (
+    "Camera holds nearly still with the slightest drift. Everyone in the still is "
+    "fully visible from the very first frame and remains in frame for the entire "
+    "shot; no one enters or exits the frame. Subject motion only."
+)
+
+
+def _camera_lock_fallback_text(camera_movement: str, image_prompt: str = "") -> str:
     """REPAIR fallback (contract-triangle third leg): when a motion line still
     fails gate_motion_prompt after one repair retry, fall back to text that
-    can never claim who is/isn't in the room — the camera engine's own
-    planned move (if this shot was composed for one) or a neutral static
-    hold. Same lookup _camera_tag() above already trusts for CAMERA LOCKED
-    shots, so the fallback matches what the still was actually composed for."""
+    can never claim who is/isn't in the room.
+
+    Shot WITH characters in image_prompt: a static-hold/drift line carrying an
+    explicit "fully visible from the very first frame, no one enters or exits"
+    clause — NEVER the camera engine's traverse template (class (d): the
+    truck_right template's "pan across the scene" phrasing ghosted the
+    characters on prod real frames, 2026-07-22).
+
+    Scenery-only shot: the camera engine's own planned move (if this shot was
+    composed for one — same lookup _camera_tag() trusts for CAMERA LOCKED
+    shots) or a neutral static hold."""
+    if _motion_names(image_prompt or ""):
+        return _CHARACTER_SAFE_FALLBACK
     raw = (camera_movement or "").strip()
     if raw and raw != "static" and "|" in raw:
         try:
@@ -2664,8 +2757,10 @@ async def _retry_motion_prompt(claude, model, shot_line: str, violation: str) ->
         "Your camera-motion line for this shot was REJECTED: "
         f"{violation}. Every character described in the shot below is ALREADY in the room — the "
         "still was drawn with them there. Rewrite ONE corrected camera-motion line for this shot "
-        "only. Never describe a character as absent, arriving, or about to enter; the camera may "
-        "move, but it may never change who is in the room. Under 50 words. Output ONLY the "
+        "only. Never describe a character as absent, arriving, or about to enter, and never write "
+        "a camera path that travels toward, reveals, or settles on a character — they must be "
+        "fully visible from the very first frame to the last. The camera may move, but it may "
+        "never change who is in the room. Under 50 words. Output ONLY the "
         "corrected line, numbered '1.'.\n\nSHOT:\n" + shot_line
     )
     kwargs = dict(prompt=correction, system_prompt=_MOTION_SYSTEM, max_tokens=200, temperature=0.4)
@@ -2763,7 +2858,7 @@ async def _write_motion_prompts(vid, tenant, scene, claude, model=None) -> int:
                     "motion-prompt gate: scene %s shot %s asset %s fell back to camera-lock "
                     "template — original: %r (%s); repair: %r (%s)",
                     scene, i + 1, r["id"], motion, violation, retry, retry_violation)
-                motion = _camera_lock_fallback_text(r.get("camera_movement"))
+                motion = _camera_lock_fallback_text(r.get("camera_movement"), r.get("image_prompt"))
         spk, txt = _split_assigned(r.get("assigned_dialogue"))
         # "once, quickly ... then silence": Grok's 6s minimum stretched a
         # 1.5s line into slow-motion mouthing across the whole clip — the
