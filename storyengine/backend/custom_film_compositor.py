@@ -1139,7 +1139,28 @@ def _write_visible_overlay(
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
     font_size = max(18, width // (34 if card else 30))
-    font = ImageFont.load_default(size=font_size)
+    # Pillow's bitmap fallback renders common creator punctuation (notably the
+    # bullet used by evidence-card subtitles) as a missing-glyph box. Require a
+    # Unicode-capable system font so burned-in production text never silently
+    # claims to be readable when it is not.
+    font = None
+    for font_source in (
+        "DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+    ):
+        try:
+            font = ImageFont.truetype(font_source, size=font_size)
+            break
+        except OSError:
+            continue
+    if font is None:
+        raise CustomFilmContractError(
+            "Custom Film cannot burn readable captions because no Unicode font "
+            "is available"
+        )
     max_chars = max(18, width // max(10, font_size // 2))
     lines = textwrap.wrap(text, width=max_chars)[:4 if card else 3]
     rendered_text = "\n".join(lines)
