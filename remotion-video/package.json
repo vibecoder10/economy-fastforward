@@ -4,14 +4,20 @@
     "description": "Remotion video for The 2030 Currency Collapse",
     "scripts": {
         "studio": "remotion studio",
+        "prestudio": "npm run generate:motion-audio",
         "render": "remotion render Main out/final.mp4",
         "build": "remotion bundle",
+        "prebuild": "npm run generate:motion-audio",
         "typecheck": "tsc --noEmit",
-        "test": "npm run test:custom-film",
+        "test": "npm run test:custom-film && npm run test:motion-library",
         "test:custom-film": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/custom-film.test.cjs",
+        "test:motion-library": "npm run generate:motion-audio && rm -rf .motion-test-build && tsc -p tsconfig.motion-test.json && node --test tests/motion-library.test.cjs",
+        "generate:motion-audio": "node scripts/generate-motion-audio.mjs",
+        "render:motion-preview": "npm run generate:motion-audio && remotion render MotionLibraryPreview out/motion-library-preview.mp4 --concurrency=1",
         "transcribe": "node scripts/transcribe.mjs"
     },
     "dependencies": {
+        "@fontsource/noto-sans": "5.2.5",
         "@remotion/captions": "^4.0.0",
         "@remotion/cli": "^4.0.0",
         "@remotion/media": "^4.0.0",

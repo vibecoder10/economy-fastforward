@@ -1,6 +1,8 @@
 import { Composition } from "remotion";
 import { Main } from "./Main";
 import { getSceneDurationFromConfig, getTotalDurationFromConfig, getSceneNumbers } from "./renderConfig";
+import {MotionLibraryPreview} from "./motion-library/MotionLibraryPreview";
+import {PREVIEW_PRIMITIVES, PREVIEW_SECONDS_PER_PRIMITIVE} from "./motion-library/contracts";
 
 const FPS = 24;
 // Buffer after last spoken word to let audio trail off naturally
@@ -64,6 +66,14 @@ export const RemotionRoot: React.FC = () => {
                 defaultProps={{
                     totalScenes: 1,
                 }}
+            />
+            <Composition
+                id="MotionLibraryPreview"
+                component={MotionLibraryPreview}
+                durationInFrames={PREVIEW_PRIMITIVES.length * PREVIEW_SECONDS_PER_PRIMITIVE * FPS}
+                fps={FPS}
+                width={1920}
+                height={1080}
             />
         </>
     );

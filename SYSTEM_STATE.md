@@ -1,5 +1,26 @@
 # System State — Economy FastForward
 
+## Custom Film Remotion motion library (M3-2, 2026-07-23)
+
+- `remotion-video/src/motion-library/` contains nine reusable deterministic
+  finishing primitives plus a dedicated `MotionLibraryPreview`. Every visual
+  change is driven by Remotion frames; all Sequences are premounted.
+- The turquoise story signal is one absolute-timeline 11-second, seven-burst
+  motif. `MotionTimelineProvider` preserves its phase through nested section
+  Sequences instead of resetting it at each edit.
+- The map is fictional inline SVG and has no token dependency. Caption fixtures
+  use measured half-open word timings and local Noto Sans 5.2.5 under OFL-1.1.
+  Synthetic PCM audio is generated locally, SHA-256 checked, and includes a
+  measured silence/drop/pulse-entry law.
+- Centered 9:16 crop bounds are explicit (`x=656..1264`, critical content
+  `x=680..1240`, `y=120..930`). The request, approved four-section plan,
+  critical evidence/caption/network state, brand, and verified master remain
+  legible there while peripheral production lanes may extend across 16:9.
+- Component proof is 864 video frames / 36.000 seconds at 1920x1080 and 24fps
+  with stereo 48kHz AAC. Tests, typecheck, bundle, wide stills, center crops,
+  deterministic still hashing, and independent review pass. The exact
+  five-minute composition and final renderer invocation remain later chunks.
+
 ## Custom Film Remotion finishing contract (M3-1, 2026-07-23)
 
 - `storyengine/backend/custom_film_remotion.py` derives one strict,

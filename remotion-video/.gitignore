@@ -2,6 +2,7 @@
 out/
 dist/
 .test-build/
+.motion-test-build/
 
 # Dependencies
 node_modules/
