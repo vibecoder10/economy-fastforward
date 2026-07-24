@@ -885,6 +885,10 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
 
     async def _run():
         _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
+
+        async def _progress(message: str):
+            _set_task_status(video_id, "running", message, tenant_id=tenant_id)
+
         try:
             if any(name == "run_script" for name, _ in calls):
                 try:
@@ -906,6 +910,8 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
                 # as the run_script branch above.
                 if name == "run_thumbnail":
                     kwargs["force"] = True
+                if name in {"run_script", "run_voice"}:
+                    kwargs["progress_callback"] = _progress
                 result = await method(video_id, **kwargs) or {}
                 if result.get("error"):
                     break
@@ -959,6 +965,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
 
     async def _run():
         _set_task_status(video_id, "running", start_msg, tenant_id=tenant_id)
+
+        async def _progress(message: str):
+            _set_task_status(video_id, "running", message, tenant_id=tenant_id)
+
         try:
             ex = PipelineExecutor(tenant_id)
             # Build-to-pictures skips the voiceover; if we're now finishing, lay it down first
@@ -988,7 +998,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                                 tenant_id=tenant_id)
                             return
                         _set_task_status(video_id, "running", "Recording the voiceover…", tenant_id=tenant_id)
-                        await ex.run_voice(video_id)
+                        await ex.run_voice(
+                            video_id,
+                            progress_callback=_progress,
+                        )
                         if vrow and vrow.get("status"):
                             await _advance(vrow["status"])
                 except Exception:  # noqa: BLE001
@@ -1087,6 +1100,20 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         pass
                     await _advance("ready_for_scripting")
                     continue
+                if status == "ready_for_scripting":
+                    script_result = await ex.run_script(
+                        video_id,
+                        progress_callback=_progress,
+                    ) or {}
+                    if script_result.get("status") == "failed":
+                        _set_task_status(
+                            video_id,
+                            "failed",
+                            script_result.get("error") or "Script generation failed.",
+                            tenant_id=tenant_id,
+                        )
+                        return
+                    continue
                 # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the
                 # Scenes-page "pictures" button uses (generate_coverage_for_video). Coverage
                 # builds its own cast sheet from the script when no characters are locked
@@ -1150,7 +1177,10 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         # the voiceover down before the render (see the finish guard in _run).
                         if target != "pictures":
                             try:
-                                await ex.run_voice(video_id)  # best-effort; no voice key -> skip
+                                await ex.run_voice(
+                                    video_id,
+                                    progress_callback=_progress,
+                                )  # best-effort; no voice key -> skip
                             except Exception:  # noqa: BLE001
                                 pass
                         nxt = get_next_status_supabase(status)

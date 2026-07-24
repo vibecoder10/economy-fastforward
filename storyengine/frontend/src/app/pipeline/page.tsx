@@ -28,13 +28,14 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
 import { useToast } from "@/components/ui/toast";
 import { StylePresetGallery } from "@/components/style/StylePresetGallery";
+import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
 import {
   getVideos, createVideo, deleteVideo,
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
   launchIdea, dismissIdea, getUserPreferences, setUserPreference,
   getReadinessStatus, setApiKey, testApiKey,
   getNicheChannels, suggestTitles, getStyleDefault,
-  type VideoSummary, type DiscoveryIdea, type TitleOption, type TitleSuggestion,
+  type VideoSummary, type DiscoveryIdea, type ProductionStyleId, type TitleOption, type TitleSuggestion,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -318,6 +319,7 @@ export default function VideosPage() {
   const [newSourceUrl, setNewSourceUrl] = useState("");
   const [newFramework, setNewFramework] = useState("");
   const [newLength, setNewLength] = useState(10);
+  const [newProductionStyleId, setNewProductionStyleId] = useState<ProductionStyleId | "">("");
   const [newGuidance, setNewGuidance] = useState("");
   const [newAccentColor, setNewAccentColor] = useState("");
   // Unified Visual style step: one of reference (clone), preset, custom, or none.
@@ -490,6 +492,7 @@ export default function VideosPage() {
       setNewSourceUrl("");
       setNewFramework("");
       setNewLength(10);
+      setNewProductionStyleId("");
       setNewGuidance("");
       setNewAccentColor("");
       setNewStages(ALL_STAGES_ON);
@@ -594,7 +597,7 @@ export default function VideosPage() {
   };
 
   const handleCreate = () => {
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim() || !newProductionStyleId) return;
     // The stage panel is the source of truth for what runs. Send the enabled
     // steps (omit when it's the full pipeline) and derive the legacy skip flags.
     const enabled = STAGE_KEYS.filter((k) => newStages[k]);
@@ -626,6 +629,7 @@ export default function VideosPage() {
       reference_url: newReferenceUrl.trim() || undefined,
       style_preset_id: styleEngineId || undefined,
       script_profile: newScriptProfile || undefined,
+      production_style_id: newProductionStyleId,
     });
   };
 
@@ -691,11 +695,17 @@ export default function VideosPage() {
     }
   };
 
-  const handleFirstVideoCreate = (title: string, videoLength: number, angle?: string) => {
+  const handleFirstVideoCreate = (
+    title: string,
+    videoLength: number,
+    productionStyleId: ProductionStyleId,
+    angle?: string,
+  ) => {
     createMutation.mutate({
       title,
       video_length_minutes: videoLength,
       writer_guidance: angle || undefined,
+      production_style_id: productionStyleId,
     });
     setActiveModal(null);
   };
@@ -1145,7 +1155,7 @@ export default function VideosPage() {
       </Modal>
 
       {/* === NEW VIDEO MODAL (existing — for returning users) === */}
-      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setStyleEngineId(""); setNewScriptProfile(""); setLockInIdentity(false); }} title="New Video" size="md">
+      <Modal open={activeModal === "existingCreate" || showCreateModal} onClose={() => { setActiveModal(null); setShowCreateModal(false); setSeedSuggestions(null); setSeedError(""); setShowChannelManager(false); setStyleMode(""); setStylePresetId(""); setStyleCustom(""); setStyleEngineId(""); setNewScriptProfile(""); setNewProductionStyleId(""); setLockInIdentity(false); }} title="New Video" size="md">
         <div className="space-y-4">
           {/* Primary: Topic / Title (optional — a title can be generated below) */}
           <div>
@@ -1183,6 +1193,12 @@ export default function VideosPage() {
               <p className="text-[10px] mt-1 text-right" style={{ color: "var(--red)" }}>{seedError}</p>
             )}
           </div>
+
+          <ProductionStyleSelector
+            selectedId={newProductionStyleId}
+            onSelect={setNewProductionStyleId}
+            durationMinutes={newLength}
+          />
 
           {/* === Title generator: ready ideas from your example channels === */}
           <div className="rounded-lg p-3" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-subtle)" }}>
@@ -1664,7 +1680,7 @@ export default function VideosPage() {
 
           <button
             onClick={handleCreate}
-            disabled={!newTitle.trim() || createMutation.isPending}
+            disabled={!newTitle.trim() || !newProductionStyleId || createMutation.isPending}
             className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:brightness-110 disabled:opacity-40"
             style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
           >

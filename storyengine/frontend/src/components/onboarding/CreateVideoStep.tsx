@@ -7,10 +7,12 @@ import { Sparkles, Loader2, ArrowRight, ArrowLeft, Clock, Crop, Search, Mic } fr
 import { cn } from "@/lib/utils";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
+import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
 import {
   suggestTitles,
   createVideo,
   completeOnboarding,
+  type ProductionStyleId,
   type TitleSuggestion,
 } from "@/lib/api";
 import { humanizeError } from "@/lib/errors";
@@ -109,6 +111,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestError, setSuggestError] = useState("");
   const [videoLength, setVideoLength] = useState(10);
+  const [productionStyleId, setProductionStyleId] = useState<ProductionStyleId | "">("");
   const [aspectRatio, setAspectRatio] = useState<"16:9" | "9:16">("16:9");
   const [resolution, setResolution] = useState<"480p" | "720p">("720p");
   const [needsResearch, setNeedsResearch] = useState(true);
@@ -143,7 +146,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
   };
 
   const handleCreate = async () => {
-    if (!selectedTitle.trim()) return;
+    if (!selectedTitle.trim() || !productionStyleId) return;
     setCreating(true);
     setCreateError("");
     try {
@@ -155,6 +158,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
         skip_research: !needsResearch,
         skip_voice: !voiceOver,
         framework_angle: angle.trim() || undefined,
+        production_style_id: productionStyleId,
       });
       await completeOnboarding();
       onComplete(video.id);
@@ -413,6 +417,12 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
                 </div>
               </div>
 
+              <ProductionStyleSelector
+                selectedId={productionStyleId}
+                onSelect={setProductionStyleId}
+                durationMinutes={videoLength}
+              />
+
               <div>
                 <label
                   className="flex items-center gap-1.5 text-sm font-body font-medium mb-3"
@@ -623,7 +633,7 @@ export function CreateVideoStep({ onComplete, niche }: CreateVideoStepProps) {
               <ActionButton
                 variant="filled"
                 onClick={handleCreate}
-                disabled={creating}
+                disabled={creating || !productionStyleId}
                 icon={creating ? Loader2 : undefined}
                 className={cn("w-full justify-center", creating && "[&_svg]:animate-spin")}
               >

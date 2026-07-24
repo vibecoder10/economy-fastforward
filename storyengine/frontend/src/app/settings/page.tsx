@@ -435,7 +435,7 @@ export default function SettingsPage() {
       </motion.div>
 
       {/* Google Drive Storage */}
-      <motion.div variants={item}>
+      <motion.div variants={item} id="google-drive-storage" className="scroll-mt-24">
         <div className="flex items-center gap-3 mb-4" style={{ borderLeft: "3px solid var(--green)", paddingLeft: 16 }}>
           <HardDrive size={18} style={{ color: "var(--green)" }} />
           <h2 className="text-lg font-semibold font-body" style={{ color: "var(--text-primary)" }}>
@@ -517,14 +517,29 @@ export default function SettingsPage() {
               </div>
             </div>
           ) : (
-            <button
-              onClick={connectGoogleDrive}
-              className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all hover:brightness-110 w-full justify-center"
-              style={{ background: "var(--green-dim, rgba(34,197,94,0.1))", color: "var(--green)", border: "1px solid rgba(34, 197, 94, 0.3)" }}
-            >
-              <HardDrive size={16} />
-              Connect Google Drive
-            </button>
+            <div className="space-y-3">
+              <div
+                className="flex items-start gap-3 px-4 py-3 rounded-lg"
+                style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)" }}
+              >
+                <HardDrive size={18} className="shrink-0 mt-0.5" style={{ color: "var(--gold)" }} />
+                <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                  <strong style={{ color: "var(--text-primary)" }}>
+                    Your media is currently stored on StoryEngine.
+                  </strong>{" "}
+                  StoryEngine storage isn&apos;t guaranteed long-term. Connect your Drive
+                  to own and keep voice files, pictures, clips, and final renders.
+                </p>
+              </div>
+              <button
+                onClick={connectGoogleDrive}
+                className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all hover:brightness-110 w-full justify-center"
+                style={{ background: "var(--green-dim, rgba(34,197,94,0.1))", color: "var(--green)", border: "1px solid rgba(34, 197, 94, 0.3)" }}
+              >
+                <HardDrive size={16} />
+                Connect Google Drive
+              </button>
+            </div>
           )}
         </GlassCard>
       </motion.div>

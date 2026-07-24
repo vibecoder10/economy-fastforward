@@ -48,6 +48,7 @@ import { toDisplayImageUrl, toDisplayVideoUrl, appendQueryParam } from "@/lib/ut
 import { API_URL } from "@/lib/env";
 import { AnimaticPlayer } from "@/components/production/AnimaticPlayer";
 import { StopGenerationButton } from "@/components/production/StopGenerationButton";
+import { DriveStorageNotice } from "@/components/storage/DriveStorageNotice";
 
 /** Network-failure safety net ONLY — if GET /api/models can't be reached, the
  * clip-model selector still needs something selectable instead of rendering
@@ -389,6 +390,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     if (!Array.isArray(plan) || plan.length === 0) return true;
     return plan.includes("video");
   }, [video.pipeline_stages]);
+  const isStaticProduction = (
+    video.render_mode === "static_docu"
+    || video.production_style_id === "photo_documentary"
+  );
+  const productionProfile = video.production_style_snapshot;
 
   // ── Data ──
   const { data: scriptScenes, isLoading: loadingScripts } = useQuery({
@@ -1336,6 +1342,74 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   // ── Render ──
   return (
     <div className="flex flex-col gap-4">
+      {productionProfile && (
+        <section
+          aria-label="Selected video style"
+          className="rounded-xl px-4 py-3 flex items-start gap-3"
+          style={{
+            background: "rgba(0,212,170,0.06)",
+            border: "1px solid rgba(0,212,170,0.22)",
+          }}
+        >
+          <span
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "rgba(0,212,170,0.12)", color: "var(--turquoise)" }}
+          >
+            {isStaticProduction ? <ImageIcon size={17} /> : <Film size={17} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                {productionProfile.label}
+              </p>
+              <span
+                className="text-[9px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: isStaticProduction ? "rgba(245,158,11,0.10)" : "rgba(139,92,246,0.12)",
+                  color: isStaticProduction ? "var(--gold)" : "var(--purple)",
+                }}
+              >
+                {isStaticProduction ? "Photo format" : "Animated format"}
+              </span>
+            </div>
+            <p className="text-xs leading-relaxed mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              {productionProfile.description}
+            </p>
+          </div>
+        </section>
+      )}
+      {isStaticProduction && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-start gap-3"
+          style={{
+            background: "rgba(245,158,11,0.07)",
+            border: "1px solid rgba(245,158,11,0.24)",
+          }}
+        >
+          <ImageIcon size={16} className="shrink-0 mt-0.5" style={{ color: "var(--gold)" }} />
+          <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>
+              These still pictures are the final visual format.
+            </strong>{" "}
+            Finish adds slow cinematic pan-and-zoom during the render. You do not
+            need to animate clips, and StoryEngine will not push that extra spend.
+          </p>
+        </div>
+      )}
+      <div
+        className="rounded-xl px-4 py-3 flex items-center gap-2 flex-wrap"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+      >
+        <Volume2 size={15} style={{ color: "var(--turquoise)" }} />
+        <span className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-tertiary)" }}>
+          Finish order
+        </span>
+        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+          {isStaticProduction
+            ? `Review stills → ${voiceSkipped ? "voice off → " : "sound & voice → "}pan-and-zoom render`
+            : `Review pictures → ${voiceSkipped ? "" : "sound & voice → "}animated clips → render${voiceSkipped ? " · voice is off" : ""}`}
+        </span>
+      </div>
       {/* C36 (checklist §3.3 item 1): set the expectation instead of implying
           audio exists — this is the exact "pictures are ready, review them"
           checkpoint the auto-build chat message points to, and at this point
@@ -1348,11 +1422,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           <Volume2 size={16} style={{ color: "var(--orange)" }} className="shrink-0" />
           <p className="text-sm flex-1 min-w-[12rem]" style={{ color: "var(--text-secondary)" }}>
             <strong style={{ color: "var(--text-primary)" }}>No voice yet — that&apos;s expected here.</strong>{" "}
-            These pictures were timed from the script text. Voice-over generates in the finish step,
-            right before rendering — review the visuals now, audio comes next.
+            These pictures were timed from the script text. Voice-over generates during
+            Finish, before the final render — review the visuals now, audio comes next.
           </p>
         </div>
       )}
+      <DriveStorageNotice />
       {/* Cast gate: characters were DESIGNED (often by the chat auto-build)
           but not approved — without this banner the stage strip lands here
           and the step looks silently skipped. */}
@@ -1399,6 +1474,61 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
           )}
         </div>
       )}
+      <section
+        aria-label="Scene production progress"
+        className="rounded-xl px-4 py-3 space-y-2"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+      >
+        {running && (
+          <div className="flex items-start gap-2 text-xs font-medium" style={{ color: "var(--purple)" }}>
+            <Loader2 size={13} className="animate-spin shrink-0 mt-0.5" />
+            <span>{(taskMessage || "Working…").replace(/[*_]/g, "").slice(0, 140)}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-xs">
+          <span style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>{scenes.length}</strong> scenes
+          </span>
+          <span style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: boardsDone >= boardsTotal ? "var(--green)" : "var(--text-primary)" }}>
+              {boardsDone}/{boardsTotal}
+            </strong>{" "}
+            boards
+          </span>
+          {extractedCount > 0 && (
+            <span style={{ color: "var(--text-secondary)" }}>
+              <strong style={{ color: extractedCount >= totalSegments ? "var(--green)" : "var(--text-primary)" }}>
+                {extractedCount}/{totalSegments}
+              </strong>{" "}
+              pictures
+            </span>
+          )}
+          {videoStageEnabled && extractedCount > 0 && (
+            <span style={{ color: "var(--text-secondary)" }}>
+              <strong style={{ color: clipsDone === clipCards.length ? "var(--green)" : "var(--text-primary)" }}>
+                {clipsDone}/{clipCards.length}
+              </strong>{" "}
+              animated
+            </span>
+          )}
+          {videoStageEnabled && clipsPending > 0 && (
+            <span style={{ color: "var(--text-tertiary)" }}>
+              ≈ ${remainingCost.toFixed(2)} remaining · {modelLabel}
+            </span>
+          )}
+          {badCropCount > 0 && (
+            <span className="font-semibold" style={{ color: "rgb(255,110,110)" }}>
+              <AlertTriangle size={11} className="inline mr-0.5 -mt-0.5" />
+              {badCropCount} bad crop{badCropCount === 1 ? "" : "s"}
+            </span>
+          )}
+          {storyLocked && (
+            <span className="font-semibold" style={{ color: "var(--green)" }}>
+              <Lock size={11} className="inline mr-0.5 -mt-0.5" /> Story locked
+            </span>
+          )}
+        </div>
+      </section>
       {/* Model controls — always visible at the top (no longer buried in the Advanced menu). */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
@@ -1481,28 +1611,11 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
         </p>
       )}
 
-      {/* Command bar — progress at a glance + the one big bulk action. Used to
-          be a full-width green banner between the stage rail and the model-
-          settings row; Ryan asked to declutter (2026-07-22) by moving it up
-          into the StageRail card's empty right-hand side instead, via a
-          portal into the slot div StageRail renders for it. Same conditional
-          as before governs whether it renders at all: this whole block only
-          exists in the tree while ScenesWorkspaceTab is mounted, i.e. the
-          Scenes stage is active — it never leaks into other stages. */}
+      {/* Keep only the primary action in the StageRail portal. Live status and
+          counts use the full-width progress row above the model controls, so
+          long messages no longer stretch this narrow slot. */}
       {commandBarSlot && createPortal(
-        /* Ryan's mockup (2026-07-22 v2): a vertical stack in the card's
-           right-side column — action row (bulk button + helpers) on TOP,
-           progress summary BELOW it. The slot div itself is shrink-0 and
-           vertically centered against the icon rail (see StageRail). */
-        <div className="flex flex-col items-end gap-2">
         <div className="flex items-center gap-2 justify-end flex-wrap">
-        {running && (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-            style={{ background: "rgba(139, 92, 246, 0.15)", color: "var(--purple)", border: "1px solid rgba(139, 92, 246, 0.35)" }}>
-            <Loader2 size={12} className="animate-spin" />
-            {(taskMessage || "Working…").replace(/[*_]/g, "").slice(0, 80)}
-          </span>
-        )}
         {/* ONE stage-aware bulk button: storyboards → pictures → animate everything. */}
         {!running && !storyLocked && environmentsReady && bulk && (
           bulk.kind === "animate" ? (
@@ -1622,42 +1735,6 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
             </>
           )}
         </div>
-        </div>
-        {/* Progress summary — sits UNDER the action row per the mockup. */}
-        <p className="text-sm font-medium text-right" style={{ color: "var(--text-secondary)" }}>
-          <strong style={{ color: "var(--text-primary)" }}>{scenes.length} scenes</strong>
-          {" · "}
-          <strong style={{ color: boardsDone >= boardsTotal ? "var(--green)" : "var(--text-primary)" }}>
-            {boardsDone}/{boardsTotal} boards
-          </strong>
-          {extractedCount > 0 && (
-            <>
-              {" · "}
-              <strong style={{ color: "var(--green)" }}>{extractedCount}/{totalSegments} pictures</strong>
-              {videoStageEnabled && (
-                <>
-                  {" · "}
-                  <strong style={{ color: clipsDone === clipCards.length ? "var(--green)" : "var(--text-primary)" }}>
-                    {clipsDone}/{clipCards.length} animated
-                  </strong>
-                  {clipsPending > 0 && (
-                    <span style={{ color: "var(--text-tertiary)" }}> · ≈ ${remainingCost.toFixed(2)} to finish · {modelLabel}</span>
-                  )}
-                </>
-              )}
-            </>
-          )}
-          {badCropCount > 0 && (
-            <span className="ml-2 text-xs font-semibold" style={{ color: "rgb(255,110,110)" }}>
-              <AlertTriangle size={11} className="inline mr-0.5 -mt-0.5" /> {badCropCount} bad crop{badCropCount === 1 ? "" : "s"}
-            </span>
-          )}
-          {storyLocked && (
-            <span className="ml-2 text-xs font-semibold" style={{ color: "var(--green)" }}>
-              <Lock size={11} className="inline mr-0.5 -mt-0.5" /> Story locked
-            </span>
-          )}
-        </p>
         </div>,
         commandBarSlot
       )}
@@ -1699,7 +1776,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               <span className="text-[10px] font-mono" style={{ color: "var(--text-tertiary)" }}>
                 {scene.duration}
               </span>
-              {sceneCards.length > 0 && (
+              {videoStageEnabled && sceneCards.length > 0 && (
                 <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>
                   {sceneCards.length - scenePending.length} of {sceneCards.length} animated
                 </span>
@@ -1793,12 +1870,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
                             <button
                               onClick={() => confirmable(sceneKey, sceneCost, () => animateScene(scene.sceneNumber, scenePending.map((a) => a.id)))}
                               disabled={running}
-                              className="inline-flex items-center gap-2 text-sm font-semibold px-5 py-2.5 rounded-lg disabled:opacity-40 transition-all hover:brightness-110"
+                              className="inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-40 transition-all hover:bg-white/5"
                               style={confirmKey === sceneKey
                                 ? { background: "var(--gold)", color: "var(--bg-void)" }
-                                : { background: "var(--green)", color: "var(--bg-void)" }}>
+                                : { background: "transparent", color: "var(--green)", border: "1px solid rgba(0,230,138,0.45)" }}>
                               <Play size={15} />
-                              {confirmKey === sceneKey ? `Confirm — $${sceneCost.toFixed(2)}` : `Animate scene · $${sceneCost.toFixed(2)}`}
+                              {confirmKey === sceneKey ? `Confirm — $${sceneCost.toFixed(2)}` : `Animate this scene · $${sceneCost.toFixed(2)}`}
                             </button>
                           </>
                         )}
@@ -2734,8 +2811,9 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
             </button>
           </div>
         </details>
-        {/* Motion prompt — click to fine-tune how this shot moves before animating.
-            stopPropagation so editing never triggers the card's tap-to-animate. */}
+        {/* A static/photo plan has no clip stage, so it must not read as if a
+            motion prompt is unfinished work. */}
+        {canAnimate && (
         <details className="mt-2" onClick={(e) => e.stopPropagation()}>
           <summary className="text-[10px] cursor-pointer select-none inline-flex items-center gap-1" style={{ color: "var(--text-tertiary)" }}>
             <Film size={10} /> Motion prompt{hasClip ? "" : " — edit before animating"}
@@ -2772,6 +2850,7 @@ function SegmentCard({ asset, speaker, perClip, picturePrice, canAnimate, isGene
             </button>
           </div>
         </details>
+        )}
       </div>
     </GlassCard>
   );

@@ -11926,7 +11926,7 @@ separate scenes."""
             save_target_script=True,
         )
 
-    async def run_script(self, video_id: str) -> dict:
+    async def run_script(self, video_id: str, progress_callback=None) -> dict:
         """Generate script for a video.
 
         Args:
@@ -11935,6 +11935,15 @@ separate scenes."""
         Returns:
             Dict with status and result
         """
+        async def _report(message: str):
+            if progress_callback:
+                try:
+                    result = progress_callback(message)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    pass
+
         await self._ensure_initialized()
         bot_name = "Script Bot"
 
@@ -11942,6 +11951,7 @@ separate scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+            await _report("Preparing the script brief…")
 
             current_status = video.get("status")
             if not is_at_or_past_stage(current_status, "ready_for_scripting"):
@@ -11988,6 +11998,7 @@ separate scenes."""
             # writer_guidance), generate, then grade + maybe re-roll via the MODELED
             # generator (not the documentary brief_translator).
             if video.get("source") == "modeled" and video.get("script_system_prompt"):
+                await _report("Writing the script from the modeled format…")
                 await self._inject_learnings_into_writer_guidance(video_id)
                 video = await self._get_video(video_id)
                 result = await self._run_modeled_script(video_id, video)
@@ -11997,6 +12008,7 @@ separate scenes."""
                 # flags the script needs_review after its bounded edit/reroll
                 # loop, this reverts status rather than leaving an unresolved
                 # script silently on ready_for_voice.
+                await _report("Checking the script against quality rules…")
                 grade_result = await self._grade_and_maybe_revise_script(
                     video_id, regenerate=lambda: self._regen_modeled_script(video_id),
                     hold_status=current_status,
@@ -12082,6 +12094,9 @@ separate scenes."""
             # script path keeps the existing full-script generator untouched.
             roster = _machine_documentary_hold_roster(video)
             if roster:
+                await _report(
+                    f"Writing one sourced section for each of {len(roster)} items…"
+                )
                 hold_result = await self._run_static_script_hold(video_id, video, roster)
                 # C46a additivity: this path already runs its OWN hard-gate
                 # harness (_validate_machine_story_sentences + its bounded
@@ -12095,6 +12110,7 @@ separate scenes."""
 
             # Run normal global script generation for animation/narrative videos,
             # and for static docs without an explicit locked machine roster.
+            await _report("Writing the script…")
             result = await self._pipeline.run_brief_translator()
 
             if result.get("error"):
@@ -12105,6 +12121,7 @@ separate scenes."""
             # failure (script_quality.run_critique_and_edit). Status has NOT
             # advanced yet at this point, so a still-failing verdict simply
             # short-circuits below instead of needing to revert anything.
+            await _report("Checking the script against quality rules…")
             grade_result = await self._grade_and_maybe_revise_script(video_id)
             if grade_result and grade_result.get("needs_review"):
                 violations = grade_result.get("violations") or []
@@ -12135,6 +12152,7 @@ separate scenes."""
             # narrator-only. Best-effort: a tagging hiccup must not fail the
             # stage (manual retro trigger: POST .../script/tag-dialogue).
             try:
+                await _report("Mapping speakers and dialogue…")
                 from dialogue_intelligence import tag_video_dialogue, cast_character_voices
                 tag_result = await tag_video_dialogue(video_id, self.tenant_id)
                 if tag_result.get("dialogue_mode") == "character_dialogue":
@@ -12184,7 +12202,12 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "failed", error_msg)
             return {"status": "failed", "error": error_msg}
 
-    async def run_voice(self, video_id: str, scene: int = None) -> dict:
+    async def run_voice(
+        self,
+        video_id: str,
+        scene: int = None,
+        progress_callback=None,
+    ) -> dict:
         """Generate voice narration for a video.
 
         Args:
@@ -12194,6 +12217,15 @@ separate scenes."""
         Returns:
             Dict with status and result
         """
+        async def _report(message: str):
+            if progress_callback:
+                try:
+                    result = progress_callback(message)
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    pass
+
         await self._ensure_initialized()
         bot_name = "Voice Bot"
 
@@ -12201,6 +12233,7 @@ separate scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+            await _report("Preparing the voice track…")
 
             current_status = video.get("status")
             if scene is None and not is_at_or_past_stage(current_status, "ready_for_voice"):
@@ -12227,7 +12260,12 @@ separate scenes."""
 
             # Run voice generation
             await self._install_cancel_support(video_id)
+            await _report("Recording narration…")
             result = await self._pipeline.run_voice_bot()
+            if result.get("voice_count"):
+                await _report(
+                    f"Recorded {result['voice_count']} narration track(s)…"
+                )
 
             # generation_ledger (checklist §0.3b/C08, metered in §0.3c/C09):
             # one row per run_voice() call that actually synthesized
@@ -12284,6 +12322,7 @@ separate scenes."""
             # tag-dialogue hook: best-effort, never fails the voice stage.
             if scene is None and (video.get("dialogue_mode") or "") == "character_dialogue":
                 try:
+                    await _report("Matching character voices to dialogue…")
                     seg_result = await self.run_dialogue_voice(video_id)
                     print(f"[dialogue-voice] {video_id}: {seg_result}", flush=True)
                 except Exception as e:

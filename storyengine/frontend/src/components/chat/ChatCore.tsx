@@ -10,7 +10,7 @@
 // ChatHome is a thin wrapper over <ChatCore /> so the home flow is unchanged.
 
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign, Dna, RotateCcw, MinusCircle, XCircle, PencilLine } from "lucide-react";
@@ -20,6 +20,8 @@ import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
 import { useStyleDescriptions, styleDescriptionIcon, styleDescriptionById } from "@/hooks/use-style-descriptions";
 import type { StyleDescription } from "@/lib/api";
 import { StylePresetGallery } from "@/components/style/StylePresetGallery";
+import { ChatPipelineMap } from "@/components/chat/ChatPipelineMap";
+import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
 import {
   sendChatTurn,
   uploadChatAsset,
@@ -31,6 +33,7 @@ import {
   getSuggestedModels,
   listChatConversations,
   getChatConversationById,
+  getVideo,
   type ChatCard,
   type ChatCardImage,
   type ChatDnaFieldRow,
@@ -38,6 +41,7 @@ import {
   type ChatDnaPatternRow,
   type ChatTurnRequest,
   type ProductionPlan,
+  type ProductionStyleId,
   type SuggestedModels,
   type SuggestedModelVideo,
   type ChatConversationSummary,
@@ -52,15 +56,6 @@ const CHAT_CID_KEY = "se_chat_cid";
 // The dock caches a SEPARATE conversation id per video (instant reload). Never
 // reuse the tenant-level home thread for a video's co-pilot, and vice versa.
 const dockCidKey = (videoId: string) => `se_chat_cid_${videoId}`;
-
-// The 5 plain-English progress states, in order (mirrors status_map.FRIENDLY_STATE_ORDER).
-const FRIENDLY_ORDER = [
-  "Story Approved",
-  "Script Ready",
-  "Visuals Creating",
-  "Video Rendering",
-  "Ready for Review",
-];
 
 type Msg = {
   role: "user" | "assistant";
@@ -208,6 +203,23 @@ export function ChatCore({
   uiContext?: { tab?: string; scene?: number; index?: number } | null;
 }) {
   const queryClient = useQueryClient();
+  const { data: dockedVideo } = useQuery({
+    queryKey: ["video", videoId],
+    queryFn: () => getVideo(videoId!),
+    enabled: docked && !!videoId,
+  });
+  const dockProgress = usePipelineSSE({
+    enabled: docked && !!videoId,
+    videoId,
+    onStageChange: () => {
+      if (videoId) queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+    },
+    onTaskProgress: (event) => {
+      if (videoId && event.status !== "running") {
+        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      }
+    },
+  });
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -553,7 +565,14 @@ export function ChatCore({
         <SelectorCards cards={activeCards} picks={picks} onToggle={togglePick} onSetValue={setPickValue} onSubmit={submitPicks} canSubmit={allCardsAnswered} styleDescriptions={styleDescriptions} />
       )}
       {activePlan && !sending && (
-        <ProductionPlanCard plan={activePlan} onApprove={() => turn({ approve: true }, "Make it ✨")} styleDescriptions={styleDescriptions} />
+        <ProductionPlanCard
+          plan={activePlan}
+          onApprove={(productionStyleId) => turn(
+            { approve: true, selections: { production_style: productionStyleId } },
+            "Make it ✨",
+          )}
+          styleDescriptions={styleDescriptions}
+        />
       )}
       {!docked && createdVideoId && (
         <CreatedCard videoId={createdVideoId} />
@@ -574,6 +593,14 @@ export function ChatCore({
   if (docked) {
     return (
       <div className="relative h-full flex flex-col">
+        <div className="px-3 pt-3 shrink-0">
+          <ChatPipelineMap
+            video={dockedVideo}
+            stageChange={dockProgress.lastStageChange}
+            taskProgress={dockProgress.lastTaskProgress}
+            connected={dockProgress.isConnected}
+          />
+        </div>
         {/* pb-44: the confirm/prompt action cards render at the thread's end —
             with pb-28 their buttons could sit under the pinned composer overlay
             (creators saw the card label but no Do it button). */}
@@ -1809,13 +1836,20 @@ function ProductionPlanCard({
   styleDescriptions,
 }: {
   plan: ProductionPlan;
-  onApprove: () => void;
+  onApprove: (productionStyleId: ProductionStyleId) => void;
   styleDescriptions: StyleDescription[];
 }) {
   // Surface the visual style so the creator confirms what will actually generate.
   // An explicit pick WINS over the reference (modeling no longer clobbers it), so
   // show the picked look first; only fall back to "matched from reference".
-  const spec = (plan.spec ?? {}) as { reference_url?: string; visual_style_label?: string; visual_style?: string; detected_style_label?: string };
+  const spec = (plan.spec ?? {}) as {
+    reference_url?: string;
+    visual_style_label?: string;
+    visual_style?: string;
+    detected_style_label?: string;
+    video_length_minutes?: number;
+  };
+  const [productionStyleId, setProductionStyleId] = useState<ProductionStyleId | "">("");
   // Server-sourced label lookup (checklist §C21b) — was a hardcoded
   // PRESET_LABELS dict here, a THIRD copy of the same six ids/labels.
   const picked = spec.visual_style_label
@@ -1843,6 +1877,12 @@ function ProductionPlanCard({
           {styleText}
         </p>
       </Section>
+
+      <ProductionStyleSelector
+        selectedId={productionStyleId}
+        onSelect={setProductionStyleId}
+        durationMinutes={Number(spec.video_length_minutes || 10)}
+      />
 
       {plan.story_concept && (
         <Section title="The story">
@@ -1890,7 +1930,11 @@ function ProductionPlanCard({
 
       <div className="flex items-center justify-end gap-3 pt-1">
         <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>Want changes? Just tell me below.</span>
-        <ActionButton onClick={onApprove} icon={Sparkles}>
+        <ActionButton
+          onClick={() => productionStyleId && onApprove(productionStyleId)}
+          disabled={!productionStyleId}
+          icon={Sparkles}
+        >
           Make it
         </ActionButton>
       </div>
@@ -1912,29 +1956,27 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // --- created confirmation + live friendly progress tracker ----------------
 
 function CreatedCard({ videoId }: { videoId: string }) {
-  const [current, setCurrent] = useState("Story Approved");
-  const [failed, setFailed] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
-
-  usePipelineSSE({
+  const queryClient = useQueryClient();
+  const { data: video } = useQuery({
+    queryKey: ["video", videoId],
+    queryFn: () => getVideo(videoId),
+  });
+  const progress = usePipelineSSE({
     videoId,
-    onStageChange: (e) => {
-      if (e.friendly) setCurrent(e.friendly);
-      if (e.error_message) setFailed(e.error_message);
+    onStageChange: () => {
+      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
     },
     onTaskProgress: (e) => {
-      if (e.status === "failed") setFailed(e.error || e.message || "Something needs a look.");
-      else if (e.status === "running") {
-        setFailed(null);
-        if (e.message) setNote(e.message); // live "Drawing the pictures…" / "Recording the voiceover…"
-      } else if (e.status === "completed" && e.message) {
-        setNote(e.message);
+      if (e.status !== "running") {
+        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
       }
     },
   });
 
-  const currentIdx = Math.max(0, FRIENDLY_ORDER.indexOf(current));
-  const isDone = current === "Ready for Review";
+  const currentStatus = progress.lastStageChange?.current_status || video?.status;
+  const isDone = ["rendered", "uploaded", "uploaded_draft", "published", "done"].includes(
+    String(currentStatus || ""),
+  );
 
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
@@ -1951,55 +1993,18 @@ function CreatedCard({ videoId }: { videoId: string }) {
         </Link>
       </div>
 
-      <div className="flex flex-col gap-2.5">
-        {FRIENDLY_ORDER.map((label, i) => {
-          const done = isDone || i < currentIdx;
-          const active = !isDone && i === currentIdx;
-          const isFailedStep = active && !!failed;
-          return (
-            <div key={label} className="flex items-center gap-3">
-              <span className="shrink-0 w-5 h-5 flex items-center justify-center">
-                {done ? (
-                  <CheckCircle2 size={18} style={{ color: "var(--green)" }} />
-                ) : isFailedStep ? (
-                  <AlertTriangle size={16} style={{ color: "var(--orange)" }} />
-                ) : active ? (
-                  <Loader2 size={16} className="animate-spin" style={{ color: "var(--turquoise)" }} />
-                ) : (
-                  <span className="w-2 h-2 rounded-full" style={{ background: "var(--text-tertiary)", opacity: 0.5 }} />
-                )}
-              </span>
-              <span
-                className="text-sm"
-                style={{
-                  color: done
-                    ? "var(--text-primary)"
-                    : active
-                      ? "var(--turquoise)"
-                      : "var(--text-tertiary)",
-                  fontWeight: active ? 600 : 400,
-                }}
-              >
-                {label}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <ChatPipelineMap
+        video={video}
+        stageChange={progress.lastStageChange}
+        taskProgress={progress.lastTaskProgress}
+        connected={progress.isConnected}
+      />
 
-      {failed ? (
-        <div
-          className="text-xs rounded-lg px-3 py-2 flex items-start gap-2"
-          style={{ background: "rgba(255, 120, 73, 0.1)", color: "var(--orange)", border: "1px solid rgba(255,120,73,0.2)" }}
-        >
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>{failed} — you can ask me to try again below.</span>
-        </div>
-      ) : (
+      {!progress.lastTaskProgress?.message && (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
           {isDone
             ? "Take a look and tell me if you want any changes."
-            : note || "I'll keep working — follow along here or ask for a change anytime."}
+            : "I'll keep working — follow along here or ask for a change anytime."}
         </div>
       )}
     </GlassCard>

@@ -30,6 +30,7 @@ directive_text; optional video_title / beat_scenes / env_url / image_prompts / m
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -1642,7 +1643,8 @@ def plan_camera_moves(moments: list, render_style: str | None = None,
 
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
                                    env_url=None, aspect="16:9", resolution="1K", sem=None,
-                                   model_override=None, setup_anchors=None) -> list[dict] | None:
+                                   model_override=None, setup_anchors=None,
+                                   progress_callback=None, progress_state=None) -> list[dict] | None:
     """Master frame (anchored on cast) -> each angle (anchored on cast + master).
     Returns frames [{role, shot_type, description, url, image_model}] or None if the master
     fails. The master MUST be drawn first (angles reference it), but the angles only depend on
@@ -1673,8 +1675,27 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
 
     async def _gen(prompt, refs):
         async with sem:
-            return await _gen_ref(image_client, prompt, refs, aspect, resolution,
-                                  model_override=model_override)
+            result = await _gen_ref(
+                image_client,
+                prompt,
+                refs,
+                aspect,
+                resolution,
+                model_override=model_override,
+            )
+            if progress_callback and progress_state is not None:
+                progress_state["done"] = int(progress_state.get("done") or 0) + 1
+                message = (
+                    f"{progress_state.get('prefix') or ''}drawing image "
+                    f"{progress_state['done']}/{progress_state['total']}…"
+                )
+                try:
+                    callback_result = progress_callback(message)
+                    if inspect.isawaitable(callback_result):
+                        await callback_result
+                except Exception:
+                    pass
+            return result
 
     def _resolve_owned(shot, url):
         """Resolve the setup future this shot owns (idempotent, never raises).
@@ -1872,7 +1893,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
                        board_urls=None, board_panel_total=None, model_override=None,
                        render_style=None, video_model_id=None,
-                       props=None) -> dict:
+                       props=None, progress_callback=None) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
     bible (or cast_prompt) so coverage always has something to lock characters to.
@@ -2104,12 +2125,43 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # strictly-serial frames into ~2 sequential steps — scene coverage goes from ~20 min
     # to a few minutes. Set COVERAGE_CONCURRENCY to tune.
     sem = asyncio.Semaphore(_COVERAGE_CONCURRENCY)
+    progress_state = {
+        "done": 0,
+        "total": sum(1 + len(moment.get("angles") or []) for moment in moments),
+        "prefix": (
+            f"Scene {beat_scenes[0]}: "
+            if beat_scenes and len(beat_scenes) == 1
+            else ""
+        ),
+    }
+
+    async def _draw_moment(moment):
+        kwargs = {
+            "env_url": env_url,
+            "aspect": aspect,
+            "resolution": resolution,
+            "sem": sem,
+            "model_override": model_override,
+            "setup_anchors": setup_anchors,
+        }
+        # Keep the legacy call shape when nobody is listening. Several
+        # internal callers patch this seam with a narrow fake, and progress
+        # reporting should be a zero-behavior-change addition when disabled.
+        if progress_callback:
+            kwargs["progress_callback"] = progress_callback
+            kwargs["progress_state"] = progress_state
+        return await generate_coverage_frames(
+            moment,
+            cast_url,
+            image_client,
+            profile,
+            **kwargs,
+        )
+
     # return_exceptions: one moment blowing up must not kill the sibling
     # moments' gather — the scene keeps every moment that finished.
     moment_results = await asyncio.gather(*[
-        generate_coverage_frames(moment, cast_url, image_client, profile,
-                                 env_url=env_url, aspect=aspect, resolution=resolution, sem=sem,
-                                 model_override=model_override, setup_anchors=setup_anchors)
+        _draw_moment(moment)
         for moment in moments
     ], return_exceptions=True)
 
