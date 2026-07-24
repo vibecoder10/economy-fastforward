@@ -12,7 +12,7 @@
 | Thumbnail field not updating | Thumbnail appears generated but not linked | Field name/format mismatch in Airtable | Known issue - code tries 3 fallback formats. Check `airtable_client.py` |
 | Style clustering | Multiple consecutive scenes look identical | Sequencer anti-clustering not triggering | Check `image_prompt_engine/sequencer.py`, verify max 4 consecutive same-style rule |
 | Airtable field mismatch | `UnknownField` error on create | New field added to code but not to Airtable UI | Add the field in Airtable first, then update code. The graceful degradation pattern will drop unknown fields. |
-| YouTube quota exceeded | 403 on upload | >6 uploads/day (10,000 units/day, ~1,600 per upload) | Wait until next day. Quota resets at midnight Pacific. |
+| YouTube quota exceeded | Upload or search is refused before the API call | The shared project reached 100 video uploads, 100 searches, or its general-unit safety ceiling | Wait until midnight Pacific, or verify/request the relevant Google quota increase. |
 | Veo 3.1 still processing | `upgrade_veo_to_1080p()` returns None | HD upscale takes longer than expected | Retry after 90 seconds. The API returns the URL once processing finishes. |
 | ElevenLabs timeout | Voice generation poll hits 30 attempts | Audio too long or API backlogged | Increase `max_attempts` in `elevenlabs_client.py` or split text into smaller chunks |
 | Google Docs unavailable | 503 on document creation | Google Docs API intermittent outage | Code returns `GoogleDocsUnavailableError` gracefully. Non-blocking - pipeline continues without Docs backup. |

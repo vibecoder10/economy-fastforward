@@ -50,7 +50,9 @@ async def call_external_api(...):
 
 ## YouTube Upload
 
-- YouTube API quota: 10,000 units/day, ~1,600 units per upload (max ~6 uploads/day)
+- YouTube project quota uses separate daily buckets: 100 video uploads, 100
+  searches, and 10,000 general API units. StoryEngine reserves one upload call
+  per attempt and 50 general units only when setting a custom thumbnail.
 - Always upload as **unlisted** draft, never public
 - Thumbnail upload failures are warnings (non-blocking) - the video still uploads
 

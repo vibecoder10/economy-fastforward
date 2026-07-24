@@ -150,10 +150,12 @@ def _install_upload_plumbing(monkeypatch, video_row, captured):
     async def fake_execute(query, *args):
         return "UPDATE 1"
 
-    async def fake_check_quota_available(units_needed):
-        return True, {"units_used": 0}
+    async def fake_reserve_upload(*, has_thumbnail):
+        return True, {"reservation": {"tracked": False}}
 
-    async def fake_record_units(units, operation):
+    async def fake_release_upload_reservation(
+        reservation, *, release_upload, release_general
+    ):
         return None
 
     async def fake_download_to_local(url, dest):
@@ -165,12 +167,17 @@ def _install_upload_plumbing(monkeypatch, video_row, captured):
                                 description, tags, category_id, privacy, made_for_kids):
         captured["category_id"] = category_id
         return {"youtube_video_id": "abc12345678",
-                "youtube_url": "https://www.youtube.com/watch?v=abc12345678"}
+                "youtube_url": "https://www.youtube.com/watch?v=abc12345678",
+                "thumbnail_succeeded": False}
 
     monkeypatch.setattr(youtube_publish, "fetch_one", fake_fetch_one)
     monkeypatch.setattr(youtube_publish, "execute", fake_execute)
-    monkeypatch.setattr(youtube_publish, "check_quota_available", fake_check_quota_available)
-    monkeypatch.setattr(youtube_publish, "record_units", fake_record_units)
+    monkeypatch.setattr(youtube_publish, "reserve_upload", fake_reserve_upload)
+    monkeypatch.setattr(
+        youtube_publish,
+        "release_upload_reservation",
+        fake_release_upload_reservation,
+    )
     monkeypatch.setattr(youtube_publish, "_download_to_local", fake_download_to_local)
     monkeypatch.setattr(youtube_publish, "_do_youtube_upload", fake_do_youtube_upload)
 

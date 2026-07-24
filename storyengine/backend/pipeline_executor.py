@@ -16289,7 +16289,7 @@ separate scenes."""
         every one of this method's callers previously re-ran the full upload
         unconditionally on a second invocation, which mints a genuine SECOND
         YouTube draft (recoverable by deleting it in Studio, but burns
-        ~1,600 of the 10,000/day quota units and confuses the creator with
+        another one of the shared project's 100 daily upload calls and confuses the creator with
         two drafts). force=True (the ONLY way to bypass the guard) is not
         yet threaded from any caller by default — every real caller (the
         autobuild finish chain via run_next_step, the arq/queue stage

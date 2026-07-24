@@ -1,33 +1,13 @@
-"""Tests for C33 (checklist §3.4, docs/reports/2026-07-17-storyengine-agent-
-audit-findings.md Sweep 3 finding #4): "YouTube quota (10k units/day ~ 6
-uploads) documented but not enforced in code."
+"""Regression tests for StoryEngine's granular YouTube quota guard.
 
-No network, no real DB: `database` is stubbed with an in-memory
-{day -> units_used} dict that mirrors exactly what youtube_quota.py's two SQL
-statements do (SELECT units_used WHERE day=..., an upsert-add). Pins:
-
-  1. Units accumulate correctly across multiple record_units() calls for the
-     same (Pacific) day.
-  2. Ceiling refusal — reproduces the checklist's own illustrative scenario
-     ("simulated 6-upload day -> 7th blocked gracefully") with an explicit
-     10,000-unit ceiling (env var), while confirming the shipped DEFAULT
-     ceiling is the more conservative 9,000 (headroom, per this chunk's
-     spec) so a real deployment blocks even earlier than the checklist's
-     illustrative number.
-  3. Fail-soft: a tracker (DB) error on read OR write never raises and never
-     blocks a real upload — it's bookkeeping, not the source of truth.
-  4. Midnight-PT reset semantics: two different Pacific-day keys are
-     tracked as two independent counters (a new day starts at 0), proven by
-     monkeypatching `_pt_today()` rather than waiting for a real midnight.
-  5. /api/health and /api/health/detailed both carry a `youtube_quota` field
-     built from get_quota_status() (fail-soft itself, so this also proves
-     the endpoints never break when DATABASE_URL is unset in this suite).
-
-Run: cd storyengine/backend && ./venv/bin/python -m pytest tests/functional/test_c33_youtube_quota.py -q
+No network and no real database. The fake intentionally requires
+``datetime.date`` parameters to match asyncpg's DATE codec.
 """
 import asyncio
 import os
 import sys
+from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -35,205 +15,337 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 import youtube_quota  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# In-memory fake of the two SQL statements youtube_quota.py issues
-# ---------------------------------------------------------------------------
-
 class _FakeQuotaDB:
     def __init__(self):
-        self.rows: dict[str, int] = {}
+        self.rows: dict[date, dict[str, int]] = {}
         self.raise_on_read = False
         self.raise_on_write = False
+        self.seen_days: list[date] = []
+        self.lock = asyncio.Lock()
 
     async def fetch_one(self, query, *args):
-        assert "SELECT units_used FROM youtube_quota_usage" in query
+        assert "video_uploads_used" in query and "search_calls_used" in query
         if self.raise_on_read:
-            raise RuntimeError("simulated DB outage on quota read")
+            raise RuntimeError("simulated quota read outage")
+        if "INSERT INTO youtube_quota_usage" in query:
+            if len(args) == 2:
+                day, search_limit = args
+                assert type(day) is date
+                async with self.lock:
+                    row = self.rows.setdefault(
+                        day,
+                        {"units_used": 0, "video_uploads_used": 0, "search_calls_used": 0},
+                    )
+                    if row["search_calls_used"] + 1 > search_limit:
+                        return None
+                    row["search_calls_used"] += 1
+                    return dict(row)
+            day, general, general_ceiling, upload_limit = args
+            assert type(day) is date
+            async with self.lock:
+                row = self.rows.setdefault(
+                    day,
+                    {"units_used": 0, "video_uploads_used": 0, "search_calls_used": 0},
+                )
+                if (
+                    row["units_used"] + general > general_ceiling
+                    or row["video_uploads_used"] + 1 > upload_limit
+                ):
+                    return None
+                row["units_used"] += general
+                row["video_uploads_used"] += 1
+                return dict(row)
         day = args[0]
-        used = self.rows.get(day)
-        return {"units_used": used} if used is not None else None
+        assert type(day) is date
+        self.seen_days.append(day)
+        return self.rows.get(day)
 
     async def execute(self, query, *args):
-        assert "INSERT INTO youtube_quota_usage" in query
         if self.raise_on_write:
-            raise RuntimeError("simulated DB outage on quota write")
-        day, units = args
-        self.rows[day] = self.rows.get(day, 0) + units
+            raise RuntimeError("simulated quota write outage")
+        if "UPDATE youtube_quota_usage SET" in query:
+            day, general, uploads = args
+            row = self.rows[day]
+            row["units_used"] = max(row["units_used"] - general, 0)
+            row["video_uploads_used"] = max(
+                row["video_uploads_used"] - uploads, 0
+            )
+            return "UPDATE 1"
+        assert "INSERT INTO youtube_quota_usage" in query
+        day, general, uploads, searches = args
+        assert type(day) is date
+        self.seen_days.append(day)
+        row = self.rows.setdefault(
+            day,
+            {"units_used": 0, "video_uploads_used": 0, "search_calls_used": 0},
+        )
+        row["units_used"] += general
+        row["video_uploads_used"] += uploads
+        row["search_calls_used"] += searches
         return "INSERT 0 1"
 
 
-def _install(monkeypatch, fake: _FakeQuotaDB, day: str = "2026-07-19"):
+def _install(monkeypatch, fake: _FakeQuotaDB, day: date = date(2026, 7, 19)):
     monkeypatch.setattr(youtube_quota, "fetch_one", fake.fetch_one)
     monkeypatch.setattr(youtube_quota, "execute", fake.execute)
     monkeypatch.setattr(youtube_quota, "_pt_today", lambda: day)
 
 
-# ---------------------------------------------------------------------------
-# 1. Units accumulate
-# ---------------------------------------------------------------------------
+def _record_upload(monkeypatch, fake: _FakeQuotaDB, *, thumbnail=False):
+    _install(monkeypatch, fake)
+    asyncio.run(youtube_quota.record_video_upload(thumbnail_succeeded=thumbnail))
 
-def test_units_accumulate_across_multiple_calls(monkeypatch):
+
+def test_date_parameter_is_date_but_api_json_is_iso_string(monkeypatch):
     fake = _FakeQuotaDB()
     _install(monkeypatch, fake)
-
-    asyncio.run(youtube_quota.record_units(1600, "videos.insert"))
-    asyncio.run(youtube_quota.record_units(50, "thumbnails.set"))
-    asyncio.run(youtube_quota.record_units(9, "channels.list+playlistItems.list+videos.list (sync)"))
-
+    asyncio.run(youtube_quota.record_units(1, "videos.list"))
     status = asyncio.run(youtube_quota.get_quota_status())
-    assert status["units_used"] == 1659
+    assert fake.seen_days and all(type(day) is date for day in fake.seen_days)
     assert status["date_pt"] == "2026-07-19"
+    assert isinstance(status["date_pt"], str)
 
 
-def test_record_units_zero_or_negative_is_a_noop(monkeypatch):
+def test_independent_buckets_and_backward_compatible_general_fields(monkeypatch):
     fake = _FakeQuotaDB()
     _install(monkeypatch, fake)
-    asyncio.run(youtube_quota.record_units(0, "noop"))
-    asyncio.run(youtube_quota.record_units(-5, "noop"))
-    assert fake.rows == {}
-
-
-# ---------------------------------------------------------------------------
-# 2. Ceiling refusal — the checklist's own "6 uploads then 7th blocked" shape
-# ---------------------------------------------------------------------------
-
-def test_default_ceiling_is_9000_not_the_full_10000(monkeypatch):
-    """This chunk's spec asks for headroom under Google's real 10,000/day
-    project limit — confirms the shipped default is the more conservative
-    number, not the checklist's illustrative "10k" figure verbatim."""
-    monkeypatch.delenv("YOUTUBE_DAILY_QUOTA_CEILING", raising=False)
-    assert youtube_quota._ceiling() == 9000
-
-
-def test_sixth_upload_ok_seventh_blocked_at_10k_ceiling(monkeypatch):
-    """Reproduces checklist §3.4's own illustrative scenario exactly: a
-    10,000-unit ceiling (set explicitly here via the env var this chunk
-    added), 1,600 units/upload (no thumbnail) -> 6 fit (9,600 <= 10,000),
-    the 7th (11,200) does not."""
-    monkeypatch.setenv("YOUTUBE_DAILY_QUOTA_CEILING", "10000")
-    fake = _FakeQuotaDB()
-    _install(monkeypatch, fake)
-
-    for i in range(6):
-        ok, status = asyncio.run(youtube_quota.check_quota_available(youtube_quota.upload_cost(False)))
-        assert ok is True, f"upload {i + 1} should have fit under the ceiling"
-        asyncio.run(youtube_quota.record_units(youtube_quota.upload_cost(False), "videos.insert"))
-
-    assert fake.rows["2026-07-19"] == 6 * 1600 == 9600
-
-    ok, status = asyncio.run(youtube_quota.check_quota_available(youtube_quota.upload_cost(False)))
-    assert ok is False, "the 7th upload must be refused — it would push 11,200 units past the 10,000 ceiling"
-    assert status["units_used"] == 9600 and status["remaining"] == 400
-    msg = youtube_quota.quota_exceeded_message(status)
-    assert "9600/10000" in msg and "midnight" in msg.lower() and "pacific" in msg.lower()
-
-
-def test_upload_cost_includes_thumbnail_set_when_present():
-    assert youtube_quota.upload_cost(has_thumbnail=False) == 1600
-    assert youtube_quota.upload_cost(has_thumbnail=True) == 1650
-
-
-# ---------------------------------------------------------------------------
-# 3. Fail-soft: tracker errors never block real work
-# ---------------------------------------------------------------------------
-
-def test_status_read_failure_is_fail_soft_to_zero_used(monkeypatch):
-    fake = _FakeQuotaDB()
-    fake.raise_on_read = True
-    _install(monkeypatch, fake)
+    asyncio.run(youtube_quota.record_units(7, "list calls"))
+    asyncio.run(youtube_quota.record_video_upload(thumbnail_succeeded=True))
+    asyncio.run(youtube_quota.record_search_call())
 
     status = asyncio.run(youtube_quota.get_quota_status())
-    assert status["units_used"] == 0  # never raises, never guesses "full"
+    assert status["units_used"] == 57
+    assert status["ceiling"] == status["general"]["limit"] == 9000
+    assert status["remaining"] == 8943
+    assert status["general"]["project_limit"] == 10_000
+    assert status["video_uploads"]["used"] == 1
+    assert status["search_calls"]["used"] == 1
 
 
-def test_check_quota_available_passes_through_on_tracker_read_error(monkeypatch):
-    """A broken quota tracker must never itself become the reason an upload
-    is blocked: fail-soft treats a read error as "0 used today", so a normal
-    upload cost (well within the default ceiling from a 0 baseline) comes
-    back ok=True instead of the check raising or refusing on principle. This
-    is NOT "ignore the ceiling" — an operation whose own cost exceeds the
-    ceiling outright is still refused even under fail-soft (0 + cost >
-    ceiling is still > ceiling); only the *unknowable prior usage* is
-    assumed benign."""
-    monkeypatch.delenv("YOUTUBE_DAILY_QUOTA_CEILING", raising=False)  # default 9000
+def test_default_limits_and_env_overrides(monkeypatch):
+    for name in (
+        "YOUTUBE_GENERAL_DAILY_LIMIT",
+        "YOUTUBE_GENERAL_QUOTA_CEILING",
+        "YOUTUBE_DAILY_QUOTA_CEILING",
+        "YOUTUBE_VIDEO_UPLOAD_DAILY_LIMIT",
+        "YOUTUBE_SEARCH_DAILY_LIMIT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert youtube_quota._general_limit() == 10_000
+    assert youtube_quota._ceiling() == 9_000
+    assert youtube_quota._video_upload_limit() == 100
+    assert youtube_quota._search_call_limit() == 100
+
+    monkeypatch.setenv("YOUTUBE_GENERAL_DAILY_LIMIT", "12000")
+    monkeypatch.setenv("YOUTUBE_GENERAL_QUOTA_CEILING", "11000")
+    monkeypatch.setenv("YOUTUBE_VIDEO_UPLOAD_DAILY_LIMIT", "150")
+    monkeypatch.setenv("YOUTUBE_SEARCH_DAILY_LIMIT", "125")
+    assert youtube_quota._general_limit() == 12_000
+    assert youtube_quota._ceiling() == 11_000
+    assert youtube_quota._video_upload_limit() == 150
+    assert youtube_quota._search_call_limit() == 125
+
+
+def test_general_ceiling_is_clamped_to_lower_project_limit(monkeypatch):
+    monkeypatch.setenv("YOUTUBE_GENERAL_DAILY_LIMIT", "8000")
+    monkeypatch.setenv("YOUTUBE_GENERAL_QUOTA_CEILING", "9000")
+    assert youtube_quota._configured_ceiling() == 9000
+    assert youtube_quota._ceiling() == 8000
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    asyncio.run(youtube_quota.record_units(7990, "fixture"))
+    ok, status = asyncio.run(youtube_quota.check_quota_available(11))
+    assert ok is False
+    assert status["ceiling"] == status["general"]["limit"] == 8000
+    assert status["general"]["configured_ceiling"] == 9000
+
+
+def test_100th_upload_allowed_and_101st_blocked(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    fake.rows[date(2026, 7, 19)] = {
+        "units_used": 0,
+        "video_uploads_used": 99,
+        "search_calls_used": 0,
+    }
+    ok, _ = asyncio.run(youtube_quota.reserve_upload(False))
+    assert ok is True
+    ok, status = asyncio.run(youtube_quota.reserve_upload(False))
+    assert ok is False
+    assert status["exhausted_bucket"] == "video_uploads"
+    assert status["video_uploads"] == {"used": 100, "limit": 100, "remaining": 0}
+    msg = youtube_quota.quota_exceeded_message(status)
+    assert "video upload quota" in msg
+    assert "100/100" in msg
+    assert "midnight Pacific" in msg
+
+
+def test_search_exhaustion_does_not_block_upload_bucket(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    for _ in range(100):
+        asyncio.run(youtube_quota.record_search_call())
+
+    upload_ok, _ = asyncio.run(
+        youtube_quota.check_quota_available(video_uploads_needed=1)
+    )
+    search_ok, status = asyncio.run(
+        youtube_quota.check_quota_available(search_calls_needed=1)
+    )
+    assert upload_ok is True
+    assert search_ok is False
+    assert status["exhausted_bucket"] == "search_calls"
+    assert "YouTube search quota" in youtube_quota.quota_exceeded_message(status)
+
+
+def test_general_exhaustion_does_not_block_upload_without_thumbnail(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    asyncio.run(youtube_quota.record_units(9000, "list calls"))
+    upload_ok, _ = asyncio.run(
+        youtube_quota.check_quota_available(0, video_uploads_needed=1)
+    )
+    thumbnail_ok, status = asyncio.run(
+        youtube_quota.check_quota_available(50, video_uploads_needed=1)
+    )
+    assert upload_ok is True
+    assert thumbnail_ok is False
+    assert status["exhausted_bucket"] == "general"
+    assert "general API unit quota" in youtube_quota.quota_exceeded_message(status)
+
+
+def test_thumbnail_general_units_record_only_when_succeeded(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    asyncio.run(youtube_quota.record_video_upload(thumbnail_succeeded=False))
+    asyncio.run(youtube_quota.record_video_upload(thumbnail_succeeded=True))
+    row = fake.rows[date(2026, 7, 19)]
+    assert row == {
+        "units_used": 50,
+        "video_uploads_used": 2,
+        "search_calls_used": 0,
+    }
+
+
+def test_concurrent_upload_reservations_at_99_allow_exactly_one(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    fake.rows[date(2026, 7, 19)] = {
+        "units_used": 0,
+        "video_uploads_used": 99,
+        "search_calls_used": 0,
+    }
+
+    async def race():
+        return await asyncio.gather(
+            youtube_quota.reserve_upload(False),
+            youtube_quota.reserve_upload(False),
+        )
+
+    results = asyncio.run(race())
+    assert sorted(ok for ok, _ in results) == [False, True]
+    assert fake.rows[date(2026, 7, 19)]["video_uploads_used"] == 100
+
+
+def test_concurrent_search_reservations_at_99_allow_exactly_one(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    fake.rows[date(2026, 7, 19)] = {
+        "units_used": 0,
+        "video_uploads_used": 0,
+        "search_calls_used": 99,
+    }
+
+    async def race():
+        return await asyncio.gather(
+            youtube_quota.reserve_search_call(),
+            youtube_quota.reserve_search_call(),
+        )
+
+    results = asyncio.run(race())
+    assert sorted(ok for ok, _ in results) == [False, True]
+    assert fake.rows[date(2026, 7, 19)]["search_calls_used"] == 100
+
+
+def test_release_reservation_is_once_only_and_cannot_underflow(monkeypatch):
+    fake = _FakeQuotaDB()
+    _install(monkeypatch, fake)
+    ok, status = asyncio.run(youtube_quota.reserve_upload(True))
+    assert ok is True
+    reservation = status["reservation"]
+    asyncio.run(
+        youtube_quota.release_upload_reservation(
+            reservation, release_upload=True, release_general=True
+        )
+    )
+    asyncio.run(
+        youtube_quota.release_upload_reservation(
+            reservation, release_upload=True, release_general=True
+        )
+    )
+    assert fake.rows[date(2026, 7, 19)]["units_used"] == 0
+    assert fake.rows[date(2026, 7, 19)]["video_uploads_used"] == 0
+
+
+def test_read_and_write_failures_are_soft(monkeypatch):
     fake = _FakeQuotaDB()
     fake.raise_on_read = True
     _install(monkeypatch, fake)
-
-    ok, status = asyncio.run(youtube_quota.check_quota_available(youtube_quota.upload_cost(False)))
+    ok, status = asyncio.run(
+        youtube_quota.check_quota_available(50, video_uploads_needed=1)
+    )
     assert ok is True
     assert status["units_used"] == 0
 
-
-def test_record_units_write_failure_never_raises(monkeypatch):
-    fake = _FakeQuotaDB()
     fake.raise_on_write = True
-    _install(monkeypatch, fake)
-    asyncio.run(youtube_quota.record_units(1600, "videos.insert"))  # must not raise
+    asyncio.run(youtube_quota.record_video_upload(thumbnail_succeeded=True))
+    asyncio.run(youtube_quota.record_search_call())
 
 
-# ---------------------------------------------------------------------------
-# 4. Midnight-PT reset: a new Pacific day is an independent counter
-# ---------------------------------------------------------------------------
-
-def test_new_pacific_day_starts_at_zero(monkeypatch):
+def test_new_pacific_day_resets_all_buckets(monkeypatch):
     fake = _FakeQuotaDB()
-    _install(monkeypatch, fake, day="2026-07-19")
-    asyncio.run(youtube_quota.record_units(8000, "videos.insert"))
-    status_day1 = asyncio.run(youtube_quota.get_quota_status())
-    assert status_day1["units_used"] == 8000
-
-    # Cross into the next Pacific day (this is exactly what happens at real
-    # midnight PT — _pt_today() ticking over — modeled here by repointing
-    # the monkeypatched clock rather than sleeping until midnight).
-    monkeypatch.setattr(youtube_quota, "_pt_today", lambda: "2026-07-20")
-    status_day2 = asyncio.run(youtube_quota.get_quota_status())
-    assert status_day2["units_used"] == 0
-    assert status_day2["date_pt"] == "2026-07-20"
-    # The prior day's usage is untouched, not merged into the new day.
-    assert fake.rows["2026-07-19"] == 8000
+    _install(monkeypatch, fake, date(2026, 7, 19))
+    asyncio.run(
+        youtube_quota.record_quota_usage(
+            general_units=100, video_uploads=2, search_calls=3, operation="fixture"
+        )
+    )
+    monkeypatch.setattr(youtube_quota, "_pt_today", lambda: date(2026, 7, 20))
+    status = asyncio.run(youtube_quota.get_quota_status())
+    assert status["date_pt"] == "2026-07-20"
+    assert status["units_used"] == 0
+    assert status["video_uploads"]["used"] == 0
+    assert status["search_calls"]["used"] == 0
 
 
-def test_pt_today_uses_pacific_not_utc_around_the_utc_midnight_boundary():
-    """A concrete cross-check that _pt_today() really computes in
-    America/Los_Angeles: 2026-07-19T06:00:00Z is 2026-07-18 23:00 PDT
-    (UTC-7 in July) — still July 18th in Pacific time, a full day behind UTC."""
-    from datetime import datetime, timezone
-    from zoneinfo import ZoneInfo
-    utc_instant = datetime(2026, 7, 19, 6, 0, 0, tzinfo=timezone.utc)
-    pacific = utc_instant.astimezone(ZoneInfo("America/Los_Angeles"))
-    assert pacific.strftime("%Y-%m-%d") == "2026-07-18"
+def test_pt_today_returns_date_in_pacific_timezone():
+    assert type(youtube_quota._pt_today()) is date
 
 
-# ---------------------------------------------------------------------------
-# 5. Health endpoints carry the field
-# ---------------------------------------------------------------------------
-
-def test_health_endpoint_carries_youtube_quota_field(monkeypatch):
-    import main  # noqa: E402 — imported here so this file's isolation owns it
+def test_health_endpoints_keep_top_level_general_fields(monkeypatch):
+    import main
 
     fake = _FakeQuotaDB()
     _install(monkeypatch, fake)
     main.app.state.arq = None
-    try:
-        result = asyncio.run(main.health())
-    finally:
-        main.app.state.arq = None
-    assert "youtube_quota" in result
-    assert result["youtube_quota"]["ceiling"] == youtube_quota._ceiling()
+    health = asyncio.run(main.health())
+    assert health["youtube_quota"]["units_used"] == 0
+    assert health["youtube_quota"]["ceiling"] == 9000
+    assert health["youtube_quota"]["video_uploads"]["limit"] == 100
 
-
-def test_health_detailed_carries_youtube_quota_field(monkeypatch):
-    import main  # noqa: E402
-
-    fake = _FakeQuotaDB()
-    _install(monkeypatch, fake)
     monkeypatch.setenv("HEALTH_TOKEN", "test-token")
-    main.app.state.arq = None
     request = SimpleNamespace(headers={"authorization": "Bearer test-token"})
-    try:
-        result = asyncio.run(main.health_detailed(request))
-    finally:
-        main.app.state.arq = None
-    assert "youtube_quota" in result
-    assert result["youtube_quota"]["units_used"] == 0
+    detailed = asyncio.run(main.health_detailed(request))
+    assert detailed["youtube_quota"]["search_calls"]["limit"] == 100
+
+
+def test_migration_129_is_additive_idempotent_and_fresh_schema_matches():
+    backend = Path(__file__).resolve().parents[2]
+    migration = (backend / "migrations/129_youtube_granular_quota.sql").read_text()
+    schema = (backend.parent / "schema.sql").read_text()
+    assert "ADD COLUMN IF NOT EXISTS video_uploads_used" in migration
+    assert "ADD COLUMN IF NOT EXISTS search_calls_used" in migration
+    assert "UPDATE youtube_quota_usage" not in migration
+    assert "DROP " not in migration
+    assert "video_uploads_used INTEGER NOT NULL DEFAULT 0" in schema
+    assert "search_calls_used INTEGER NOT NULL DEFAULT 0" in schema

@@ -2562,10 +2562,12 @@ ALTER TABLE mcp_confirm_tokens ENABLE ROW LEVEL SECURITY;
 -- YOUTUBE_QUOTA_USAGE (migration 101 — checklist P3.4, chunk C33)
 -- =============================================================================
 -- The YouTube Data API quota guard's counter. GLOBAL scope, no tenant_id:
--- the 10,000-units/day quota is billed to a Google Cloud PROJECT, and every
+-- all daily quota buckets are billed to a Google Cloud PROJECT, and every
 -- tenant's OAuth token in this app is minted from the SAME OAuth client (one
 -- shared GOOGLE_OAUTH_CLIENT_ID/SECRET env-var pair), so every tenant's Data
--- API calls draw down the SAME pool. One row per Pacific-Time calendar day
+-- API call draws down the SAME project buckets. units_used is the general
+-- bucket; video_uploads_used and search_calls_used are separate call counters
+-- added by migration 129. One row per Pacific-Time calendar day
 -- (YouTube resets at midnight PT, not UTC). See
 -- migrations/101_youtube_quota_usage.sql and backend/youtube_quota.py for
 -- the full design rationale.
@@ -2573,6 +2575,8 @@ ALTER TABLE mcp_confirm_tokens ENABLE ROW LEVEL SECURITY;
 CREATE TABLE IF NOT EXISTS youtube_quota_usage (
   day DATE PRIMARY KEY,
   units_used INTEGER NOT NULL DEFAULT 0,
+  video_uploads_used INTEGER NOT NULL DEFAULT 0,
+  search_calls_used INTEGER NOT NULL DEFAULT 0,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
