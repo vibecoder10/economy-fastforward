@@ -1,6 +1,23 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
-## Active mission — M5 LIVE REMOTION ACTIVATION
+## Active mission — M6 LAYERED CUSTOM FILM ORCHESTRATION
+
+### Definition of Complete
+1. Story sections remain narrative timing boundaries only. No act or cue is owned by Remotion, generated video, still imagery, captions, or audio; every rendered scene is one deterministic layered recipe over approved media.
+2. A versioned, approval-hashed orchestration contract can combine a primary approved image/video, optional secondary approved media, multiple simultaneous motion primitives, bilingual/word-timed captions, transitions, camera treatment, and frame-driven audio behavior with explicit blend, layout, intensity, safe-zone, and z-order rules.
+3. A deterministic decision engine resolves each recipe from approved scene signals—media kind, dialogue/captions, evidence/map/timeline/network/product intent, energy, and handoff—not from provider/model internals or a single hard-coded technology slot. The exact flagship recipe is stored and independently validated as the reference result.
+4. Visual continuity is expressed as transformations and shared state: pulse → route/connector → waveform/key → network/master line; graphics can overlay animation, images can be animated under graphics, captions and audio can react inside the same cue, and transitions may carry ingredients across cue/section boundaries without changing approved duration.
+5. Schema, renderer identity, exact frame math, section/media/caption/cost/provenance bindings, durable retries, artifact verification, and FFmpeg fallback remain fail-closed. Mutation tests prove layer/order/signal/blend/audio/caption drift cannot pass silently.
+6. A no-provider reference render visibly proves simultaneous orchestration in every act and the 4:45–5:00 reveal, with direct 16:9 and 9:16 inspection. Relevant backend/Remotion suites pass before any safe deployment.
+7. Deployment uses the zero-active-work drain and production-host proof. Paid flagship generation, rerolls, upload, and publication remain separately gated by Ryan’s exact refreshed quote approval at no more than $15.
+
+### Chunks
+- [ ] M6-0 CONTRACT + GAP AUDIT: map current single-lead cue behavior, freeze the semantic-signal recipe contract, and define simultaneous-layer/transform acceptance.
+- [ ] M6-1 DECISION ENGINE + RENDERER: implement shared deterministic recipe resolution, layered media/motion/caption/audio rendering, exact identity, and fail-closed Python validation.
+- [ ] M6-2 TEST + VISUAL PROOF: pass mutation/regression suites and render/inspect multi-system scenes across all acts and crops; repair high-impact collisions or weak integrations.
+- [ ] M6-3 SAFE DEPLOY + HOST PROOF: deploy behind the drain, repeat no-provider proof on the VPS, inspect live identity, update the runbook, and stop at the paid BYOK gate.
+
+## Accepted mission — M5 LIVE REMOTION ACTIVATION
 
 ### Definition of Complete
 1. The exact approved flagship runtime automatically selects the real Remotion renderer; no production caller can silently fall back to FFmpeg after a Remotion assembly is journaled.
