@@ -102,6 +102,8 @@ def test_migration_126_and_fresh_schema_bind_backend_owned_asset_provenance():
         assert "operation_id, tenant_id, video_id, runtime_hash" in text
         assert "asset provenance identity is immutable" in text
         assert "asset provenance status cannot regress" in text
+        assert "'prepared', 'submitted', 'completed', 'failed'" in text
+        assert "asset provider model is write-once" in text
         assert "ENABLE ROW LEVEL SECURITY" in text
         assert "REVOKE ALL" in text
 
@@ -149,6 +151,7 @@ async def test_picture_provenance_rejects_placeholder_and_count_overflow():
         "image_url": "fake://generated",
         "drive_image_url": "fake://generated",
         "generation_method": "static_docu",
+        "image_model": "gpt-image-2",
     }
     placeholder = {**valid, "status": "pending", "image_url": None}
     with pytest.raises(CustomFilmContractError, match="approved estimate"):
@@ -193,8 +196,20 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
     seams = production.SharedSectionProductionSeams("tenant-1")
     stage_rows = {
         "pictures": [
-            {"asset_id": "a", "image_url": "i:a", "status": "done"},
-            {"asset_id": "b", "image_url": "i:b", "status": "done"},
+            {
+                "asset_id": "a",
+                "image_url": "i:a",
+                "drive_image_url": "i:a",
+                "image_model": "image-test",
+                "status": "done",
+            },
+            {
+                "asset_id": "b",
+                "image_url": "i:b",
+                "drive_image_url": "i:b",
+                "image_model": "image-test",
+                "status": "done",
+            },
         ],
         "motion": [
             {
@@ -212,15 +227,41 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
             {
                 "asset_id": "a",
                 "video_clip_url": "c:a",
+                "model_used": "clip-test",
                 "exact_duration_seconds": Decimal("3.5"),
+                "duration_seconds": Decimal("3.5"),
+                "assigned_video_duration": Decimal("3.5"),
             },
             {
                 "asset_id": "b",
                 "video_clip_url": "c:b",
+                "model_used": "clip-test",
                 "exact_duration_seconds": Decimal("3.5"),
+                "duration_seconds": Decimal("3.5"),
+                "assigned_video_duration": Decimal("3.5"),
             },
         ],
     }
+    provider_models = {
+        "pictures": "image-test",
+        "motion": "claude-test",
+        "clips": "clip-test",
+    }
+    for stage, rows in stage_rows.items():
+        request_hash = production.canonical_hash({"stage": stage, "test": True})
+        for row in rows:
+            row["provenance_provider_model"] = provider_models[stage]
+            row["provenance_request_hash"] = request_hash
+            row["provenance_artifact_hash"] = seams._artifact_identity_hash(
+                request,
+                row,
+                stage=stage,
+                request_hash=request_hash,
+                provider_model=provider_models[stage],
+                exact_duration=(
+                    row.get("exact_duration_seconds") if stage == "clips" else None
+                ),
+            )
 
     class Conn:
         async def fetch(self, _sql, *args):
@@ -232,9 +273,280 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
     monkeypatch.setattr("database.get_pool", get_pool)
     await seams._quality_media_preflight(request)
     stage_rows["motion"][1]["asset_id"] = "stale-legacy"
-    with pytest.raises(CustomFilmContractError, match="same approved asset"):
+    with pytest.raises(CustomFilmContractError, match="tampered motion"):
         await seams._quality_media_preflight(request)
     stage_rows["motion"][1]["asset_id"] = "b"
     stage_rows["clips"][1]["exact_duration_seconds"] = Decimal("3.4")
+    stage_rows["clips"][1]["duration_seconds"] = Decimal("3.4")
+    stage_rows["clips"][1]["assigned_video_duration"] = Decimal("3.4")
+    clip_row = stage_rows["clips"][1]
+    clip_row["provenance_artifact_hash"] = seams._artifact_identity_hash(
+        request,
+        clip_row,
+        stage="clips",
+        request_hash=clip_row["provenance_request_hash"],
+        provider_model=clip_row["provenance_provider_model"],
+        exact_duration=clip_row["exact_duration_seconds"],
+    )
     with pytest.raises(CustomFilmContractError, match="exact section seconds"):
         await seams._quality_media_preflight(request)
+
+
+def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    request = production._request(
+        _adapter("quality", seconds=7),
+        ("scene-1",),
+        "custom-film-op:" + "4" * 64,
+    )
+    rows = {
+        "pictures": {
+            "asset_id": "asset-1",
+            "image_url": "fake://image",
+            "drive_image_url": "fake://image",
+            "image_model": "image-test",
+        },
+        "motion": {
+            "asset_id": "asset-1",
+            "video_prompt": "exact motion",
+        },
+        "clips": {
+            "asset_id": "asset-1",
+            "video_clip_url": "fake://clip",
+            "model_used": "clip-test",
+            "exact_duration_seconds": Decimal("7"),
+            "duration_seconds": Decimal("7"),
+            "assigned_video_duration": Decimal("7"),
+        },
+    }
+    models = {
+        "pictures": "image-test",
+        "motion": "claude-test",
+        "clips": "clip-test",
+    }
+    for stage, row in rows.items():
+        request_hash = production.canonical_hash({"stage": stage})
+        row["provenance_provider_model"] = models[stage]
+        row["provenance_request_hash"] = request_hash
+        row["provenance_artifact_hash"] = seams._artifact_identity_hash(
+            request,
+            row,
+            stage=stage,
+            request_hash=request_hash,
+            provider_model=models[stage],
+            exact_duration=row.get("exact_duration_seconds"),
+        )
+        assert seams._completed_provenance_is_exact(request, row, stage=stage)
+
+    changed = copy.deepcopy(rows["pictures"])
+    changed["image_url"] = "fake://substituted"
+    assert not seams._completed_provenance_is_exact(
+        request, changed, stage="pictures"
+    )
+    changed = copy.deepcopy(rows["motion"])
+    changed["video_prompt"] = "concurrent rewrite"
+    assert not seams._completed_provenance_is_exact(
+        request, changed, stage="motion"
+    )
+    changed = copy.deepcopy(rows["clips"])
+    changed["video_clip_url"] = "fake://substituted"
+    assert not seams._completed_provenance_is_exact(
+        request, changed, stage="clips"
+    )
+    changed = copy.deepcopy(rows["clips"])
+    changed["provenance_provider_model"] = "wrong-model"
+    assert not seams._completed_provenance_is_exact(
+        request, changed, stage="clips"
+    )
+    changed = copy.deepcopy(rows["clips"])
+    changed["assigned_video_duration"] = Decimal("6.9")
+    assert not seams._completed_provenance_is_exact(
+        request, changed, stage="clips"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stage", "field"),
+    (("motion", "video_prompt"), ("clips", "video_clip_url")),
+)
+async def test_preexisting_unprovenanced_target_fails_before_provider_claim(
+    monkeypatch,
+    stage,
+    field,
+):
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    request = production._request(
+        _adapter(stage),
+        ("scene-1",),
+        "custom-film-op:" + "5" * 64,
+        asset_ids=("asset-1",),
+    )
+
+    async def forbidden_pool():
+        raise AssertionError("pre-existing artifact must fail before DB/provider")
+
+    monkeypatch.setattr("database.get_pool", forbidden_pool)
+    row = {
+        "id": "asset-1",
+        "generation_method": "coverage",
+        field: "unexplained-existing-result",
+    }
+    with pytest.raises(
+        CustomFilmContractError,
+        match="unexplained pre-existing artifacts",
+    ):
+        await seams._prepare_media_provenance(
+            request,
+            [row],
+            provider_models={"asset-1": "provider-test"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_exact_asset_claim_is_submitted_before_provider_and_race_rejects(
+    monkeypatch,
+):
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    request = production._request(
+        _adapter("motion"),
+        ("scene-1",),
+        "custom-film-op:" + "6" * 64,
+        asset_ids=("asset-1",),
+    )
+
+    class Conn:
+        def __init__(self, *, loses_race=False):
+            self.loses_race = loses_race
+            self.queries = []
+
+        async def execute(self, sql, *_args):
+            self.queries.append(sql)
+            if "INSERT INTO custom_film_asset_provenance" in sql:
+                return "INSERT 0 0" if self.loses_race else "INSERT 0 1"
+            return "UPDATE 1"
+
+        def transaction(self):
+            return _Context(None)
+
+    conn = Conn()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    monkeypatch.setattr("database.get_pool", get_pool)
+    await seams._prepare_media_provenance(
+        request,
+        [
+            {
+                "id": "asset-1",
+                "generation_method": "coverage",
+                "video_prompt": None,
+            }
+        ],
+        provider_models={"asset-1": "claude-test"},
+    )
+    assert "status, exact_duration_seconds" in conn.queries[0]
+    assert "'prepared'" in conn.queries[0]
+    assert "SET status = 'submitted'" in conn.queries[1]
+
+    losing_conn = Conn(loses_race=True)
+
+    async def losing_pool():
+        return _Pool(losing_conn)
+
+    monkeypatch.setattr("database.get_pool", losing_pool)
+    with pytest.raises(CustomFilmContractError, match="already claimed or changed"):
+        await seams._prepare_media_provenance(
+            request,
+            [
+                {
+                    "id": "asset-1",
+                    "generation_method": "coverage",
+                    "video_prompt": None,
+                }
+            ],
+            provider_models={"asset-1": "claude-test"},
+        )
+
+
+def test_provider_result_validators_reject_partial_wrong_or_failed_outputs():
+    asset_ids = ("a", "b")
+    motion = {
+        "written": 2,
+        "asset_ids": ["a", "b"],
+        "artifacts": [
+            {"asset_id": "a", "video_prompt": "move a"},
+            {"asset_id": "b", "video_prompt": "move b"},
+        ],
+    }
+    assert set(production._exact_motion_result(motion, asset_ids)) == set(asset_ids)
+    for changed in (
+        {**motion, "written": 1},
+        {**motion, "asset_ids": ["a", "wrong"]},
+        {**motion, "artifacts": motion["artifacts"][:1]},
+    ):
+        with pytest.raises(CustomFilmContractError):
+            production._exact_motion_result(changed, asset_ids)
+
+    clips = {
+        "status": "completed",
+        "requested_asset_ids": ["a", "b"],
+        "generated_asset_ids": ["a", "b"],
+        "generated_artifacts": [
+            {
+                "asset_id": "a",
+                "video_clip_url": "clip:a",
+                "provider_model": "grok",
+            },
+            {
+                "asset_id": "b",
+                "video_clip_url": "clip:b",
+                "provider_model": "grok",
+            },
+        ],
+        "clips_generated": 2,
+        "clips_failed": 0,
+        "clips_blocked": 0,
+        "clips_in_progress_elsewhere": 0,
+    }
+    assert set(production._exact_clip_result(clips, asset_ids)) == set(asset_ids)
+    for changed in (
+        {**clips, "clips_generated": 1},
+        {**clips, "generated_asset_ids": ["a", "wrong"]},
+        {**clips, "clips_failed": 1},
+        {**clips, "clips_blocked": 1},
+        {**clips, "clips_in_progress_elsewhere": 1},
+        {**clips, "generated_artifacts": clips["generated_artifacts"][:1]},
+    ):
+        with pytest.raises(CustomFilmContractError):
+            production._exact_clip_result(changed, asset_ids)
+
+
+def test_concurrent_artifact_write_cannot_be_adopted():
+    asset_ids = ("a",)
+    with pytest.raises(CustomFilmContractError, match="changed concurrently"):
+        production._assert_current_provider_artifacts(
+            "motion",
+            [{"id": "a", "video_prompt": "concurrent rewrite"}],
+            asset_ids,
+            {"a": "provider-returned prompt"},
+        )
+    with pytest.raises(CustomFilmContractError, match="changed concurrently"):
+        production._assert_current_provider_artifacts(
+            "clips",
+            [
+                {
+                    "id": "a",
+                    "video_clip_url": "clip:concurrent",
+                    "model_used": "wrong-model",
+                }
+            ],
+            asset_ids,
+            {
+                "a": {
+                    "video_clip_url": "clip:provider",
+                    "provider_model": "grok",
+                }
+            },
+        )

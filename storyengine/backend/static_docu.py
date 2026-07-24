@@ -1818,7 +1818,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             )
             await execute(
                 "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
-                "image_prompt=$3 WHERE id=$1",
+                "image_prompt=$3, image_model='gpt-image-2' WHERE id=$1",
                 view_row_id, durable,
                 (
                     (f"[ref: {ref_src}] " if ref_src else "")

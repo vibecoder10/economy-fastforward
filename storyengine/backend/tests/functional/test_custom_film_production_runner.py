@@ -1358,7 +1358,23 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
 
         async def run_clip_generation(self, video_id, **kwargs):
             clip_calls.append((video_id, kwargs))
-            return {"status": "completed"}
+            return {
+                "status": "completed",
+                "requested_asset_ids": ["asset-1"],
+                "generated_asset_ids": ["asset-1"],
+                "generated_artifacts": [
+                    {
+                        "asset_id": "asset-1",
+                        "video_clip_url": "fake://clip/1",
+                        "provider_model": "grok-imagine",
+                        "duration_seconds": "6",
+                    }
+                ],
+                "clips_generated": 1,
+                "clips_failed": 0,
+                "clips_blocked": 0,
+                "clips_in_progress_elsewhere": 0,
+            }
 
     async def scene_number(_request):
         return 4
@@ -1376,7 +1392,16 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
 
     async def write_motion(*args, **kwargs):
         motion_calls.append((args, kwargs))
-        return 1
+        return {
+            "written": 1,
+            "asset_ids": ["asset-1"],
+            "artifacts": [
+                {
+                    "asset_id": "asset-1",
+                    "video_prompt": "Locked camera move",
+                }
+            ],
+        }
 
     async def completed_rows(*_args, **_kwargs):
         return [
@@ -1389,20 +1414,26 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
             }
         ]
 
-    async def raw_rows(_request):
+    raw_calls = {"motion": 0, "clips": 0}
+
+    async def raw_rows(request):
+        raw_calls[request.stage] += 1
+        motion_done = request.stage == "clips" or raw_calls[request.stage] > 1
+        clip_done = request.stage == "clips" and raw_calls[request.stage] > 1
         return [
             {
                 "id": "asset-1",
                 "status": "done",
                 "image_url": "fake://image/1",
                 "drive_image_url": "fake://image/1",
-                "video_prompt": "Locked camera move",
-                "video_clip_url": "fake://clip/1",
+                "video_prompt": "Locked camera move" if motion_done else None,
+                "video_clip_url": "fake://clip/1" if clip_done else None,
+                "model_used": "grok-imagine" if clip_done else None,
                 "generation_method": "coverage",
             }
         ]
 
-    async def record(*_args, **_kwargs):
+    async def provenance_transition(*_args, **_kwargs):
         return None
 
     class Conn:
@@ -1419,12 +1450,25 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
     monkeypatch.setattr(seams, "_media_artifact_checkpoint", checkpoint)
     monkeypatch.setattr(seams, "_section_completed_rows", completed_rows)
     monkeypatch.setattr(seams, "_raw_asset_rows", raw_rows)
-    monkeypatch.setattr(seams, "_record_media_provenance", record)
+    monkeypatch.setattr(
+        seams,
+        "_prepare_media_provenance",
+        provenance_transition,
+    )
+    monkeypatch.setattr(
+        seams,
+        "_complete_media_provenance",
+        provenance_transition,
+    )
     monkeypatch.setattr("database.get_pool", get_pool)
     seams._executor = Executor()
     monkeypatch.setattr(
         "scripts.coverage_to_app._write_motion_prompts",
         write_motion,
+    )
+    monkeypatch.setattr(
+        "shared.channel_profile.claude_model_for_direct_client",
+        lambda _client: "claude-test",
     )
     request_motion = production._request(
         _adapter("motion", seconds=37),

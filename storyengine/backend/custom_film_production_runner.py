@@ -86,6 +86,92 @@ def _allocate_seconds(exact_seconds: int, count: int) -> tuple[Decimal, ...]:
     return values
 
 
+def _exact_motion_result(
+    result: Any,
+    asset_ids: tuple[str, ...],
+) -> dict[str, str]:
+    artifacts = result.get("artifacts") if isinstance(result, Mapping) else None
+    if (
+        not isinstance(result, Mapping)
+        or result.get("written") != len(asset_ids)
+        or tuple(result.get("asset_ids") or ()) != asset_ids
+        or not isinstance(artifacts, list)
+        or len(artifacts) != len(asset_ids)
+    ):
+        raise CustomFilmContractError(
+            "Custom Film section motion prompts did not complete"
+        )
+    values = {
+        str(row.get("asset_id") or ""): str(row.get("video_prompt") or "")
+        for row in artifacts
+        if isinstance(row, Mapping)
+    }
+    if set(values) != set(asset_ids) or any(not values[asset_id] for asset_id in asset_ids):
+        raise CustomFilmContractError(
+            "Custom Film motion result did not match exact requested assets"
+        )
+    return values
+
+
+def _exact_clip_result(
+    result: Any,
+    asset_ids: tuple[str, ...],
+) -> dict[str, Mapping[str, Any]]:
+    artifacts = result.get("generated_artifacts") if isinstance(result, Mapping) else None
+    if (
+        not isinstance(result, Mapping)
+        or result.get("status") != "completed"
+        or tuple(result.get("requested_asset_ids") or ()) != asset_ids
+        or set(result.get("generated_asset_ids") or ()) != set(asset_ids)
+        or result.get("clips_generated") != len(asset_ids)
+        or result.get("clips_failed") != 0
+        or result.get("clips_blocked") != 0
+        or result.get("clips_in_progress_elsewhere") != 0
+        or not isinstance(artifacts, list)
+        or len(artifacts) != len(asset_ids)
+    ):
+        raise CustomFilmContractError("Custom Film section clips did not complete")
+    values = {
+        str(row.get("asset_id") or ""): row
+        for row in artifacts
+        if isinstance(row, Mapping)
+    }
+    if set(values) != set(asset_ids):
+        raise CustomFilmContractError(
+            "Custom Film clip result did not match exact requested assets"
+        )
+    return values
+
+
+def _assert_current_provider_artifacts(
+    stage: str,
+    rows: list[dict[str, Any]],
+    asset_ids: tuple[str, ...],
+    returned: Mapping[str, Any],
+) -> None:
+    if tuple(str(row.get("id") or "") for row in rows) != asset_ids:
+        raise CustomFilmContractError(
+            f"Custom Film {stage} current asset IDs changed"
+        )
+    if stage == "motion":
+        changed = any(
+            str(row.get("video_prompt") or "") != str(returned.get(str(row["id"])) or "")
+            for row in rows
+        )
+    else:
+        changed = any(
+            str(row.get("video_clip_url") or "")
+            != str(returned.get(str(row["id"]), {}).get("video_clip_url") or "")
+            or str(row.get("model_used") or "")
+            != str(returned.get(str(row["id"]), {}).get("provider_model") or "")
+            for row in rows
+        )
+    if changed:
+        raise CustomFilmContractError(
+            f"Custom Film {stage} artifacts changed concurrently"
+        )
+
+
 @dataclass(frozen=True)
 class SectionProductionRequest:
     operation_id: str
@@ -936,7 +1022,7 @@ class SharedSectionProductionSeams:
                 """SELECT id, image_url, drive_image_url, video_prompt,
                           video_clip_url, generation_method, image_model,
                           model_used, status, motion_gate_status,
-                          duration_seconds
+                          duration_seconds, assigned_video_duration
                    FROM assets
                    WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                      AND scene = $3
@@ -968,6 +1054,17 @@ class SharedSectionProductionSeams:
         return str(row.get("video_clip_url") or "").strip()
 
     @staticmethod
+    def _asset_provider_model(
+        stage: str,
+        row: Mapping[str, Any],
+    ) -> str:
+        if stage == "pictures":
+            return str(row.get("image_model") or row.get("model_used") or "").strip()
+        if stage == "clips":
+            return str(row.get("model_used") or "").strip()
+        return ""
+
+    @staticmethod
     def _section_contract_hash(
         request: SectionProductionRequest,
         *,
@@ -980,6 +1077,96 @@ class SharedSectionProductionSeams:
         payload.pop("expected_animation_clips", None)
         payload["stage"] = stage or request.stage
         return canonical_hash(payload)
+
+    def _artifact_identity_hash(
+        self,
+        request: SectionProductionRequest,
+        row: Mapping[str, Any],
+        *,
+        stage: str,
+        request_hash: str,
+        provider_model: str,
+        exact_duration: Decimal | None,
+    ) -> str:
+        if stage == "pictures":
+            artifact = {
+                "image_url": str(row.get("image_url") or "").strip(),
+                "drive_image_url": str(row.get("drive_image_url") or "").strip(),
+            }
+        elif stage == "motion":
+            artifact = {"video_prompt": str(row.get("video_prompt") or "").strip()}
+        else:
+            duration_seconds = (
+                str(Decimal(str(row["duration_seconds"])))
+                if row.get("duration_seconds") is not None
+                else None
+            )
+            assigned_duration = (
+                str(Decimal(str(row["assigned_video_duration"])))
+                if row.get("assigned_video_duration") is not None
+                else None
+            )
+            artifact = {
+                "video_clip_url": str(row.get("video_clip_url") or "").strip(),
+                "exact_duration_seconds": (
+                    str(exact_duration) if exact_duration is not None else None
+                ),
+                "asset_duration_seconds": duration_seconds,
+                "assigned_video_duration": assigned_duration,
+            }
+        return canonical_hash(
+            {
+                "stage": stage,
+                "asset_id": str(row.get("id") or row.get("asset_id") or ""),
+                "artifact": artifact,
+                "provider_model": provider_model,
+                "camera": _plain(request.camera),
+                "request_hash": request_hash,
+                "section_contract_hash": self._section_contract_hash(
+                    request,
+                    stage=stage,
+                ),
+            }
+        )
+
+    def _completed_provenance_is_exact(
+        self,
+        request: SectionProductionRequest,
+        row: Mapping[str, Any],
+        *,
+        stage: str,
+    ) -> bool:
+        stored_hash = str(row.get("provenance_artifact_hash") or "")
+        stored_model = str(row.get("provenance_provider_model") or "")
+        stored_request_hash = str(row.get("provenance_request_hash") or "")
+        if not stored_hash or not stored_model or not stored_request_hash:
+            return False
+        current_model = self._asset_provider_model(stage, row)
+        if stage in {"pictures", "clips"} and (
+            not current_model or current_model != stored_model
+        ):
+            return False
+        exact_duration = (
+            Decimal(str(row["exact_duration_seconds"]))
+            if row.get("exact_duration_seconds") is not None
+            else None
+        )
+        if stage == "clips" and (
+            exact_duration is None
+            or row.get("duration_seconds") is None
+            or row.get("assigned_video_duration") is None
+            or Decimal(str(row["duration_seconds"])) != exact_duration
+            or Decimal(str(row["assigned_video_duration"])) != exact_duration
+        ):
+            return False
+        return stored_hash == self._artifact_identity_hash(
+            request,
+            row,
+            stage=stage,
+            request_hash=stored_request_hash,
+            provider_model=stored_model,
+            exact_duration=exact_duration,
+        )
 
     async def _record_media_provenance(
         self,
@@ -998,7 +1185,9 @@ class SharedSectionProductionSeams:
                 f"Custom Film {request.stage} count does not match the approved estimate"
             )
         request_hash = canonical_hash(request.payload())
-        prepared_rows: list[tuple[dict[str, Any], str, str, Decimal | None]] = []
+        prepared_rows: list[
+            tuple[dict[str, Any], str, str, str, Decimal | None]
+        ] = []
         for row in rows:
             asset_id = str(row.get("id") or "")
             artifact_url = self._artifact_url(request, row)
@@ -1023,14 +1212,29 @@ class SharedSectionProductionSeams:
             exact_duration = (
                 durations.get(asset_id) if durations is not None else None
             )
-            prepared_rows.append((row, asset_id, artifact_url, exact_duration))
+            provider_model = self._asset_provider_model(request.stage, row)
+            if not provider_model:
+                raise CustomFilmContractError(
+                    f"Custom Film {request.stage} provider model is missing"
+                )
+            identity_hash = self._artifact_identity_hash(
+                request,
+                row,
+                stage=request.stage,
+                request_hash=request_hash,
+                provider_model=provider_model,
+                exact_duration=exact_duration,
+            )
+            prepared_rows.append(
+                (row, asset_id, provider_model, identity_hash, exact_duration)
+            )
         import database
 
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                for row, asset_id, artifact_url, exact_duration in prepared_rows:
-                    await conn.execute(
+                for row, asset_id, provider_model, identity_hash, exact_duration in prepared_rows:
+                    inserted = await conn.execute(
                         """INSERT INTO custom_film_asset_provenance
                              (tenant_id, video_id, asset_id, plan_id, section_id,
                               runtime_hash, stage, operation_id, request_hash,
@@ -1056,15 +1260,189 @@ class SharedSectionProductionSeams:
                         request_hash,
                         self._section_contract_hash(request),
                         str(row.get("generation_method") or ""),
-                        str(
-                            row.get("image_model")
-                            or row.get("model_used")
-                            or ""
-                        )
-                        or None,
-                        canonical_hash({"artifact_url": artifact_url}),
+                        provider_model,
+                        identity_hash,
                         exact_duration,
                     )
+                    if not str(inserted).endswith(" 1"):
+                        raise CustomFilmContractError(
+                            "Custom Film artifact provenance was already claimed"
+                        )
+
+    async def _prepare_media_provenance(
+        self,
+        request: SectionProductionRequest,
+        rows: list[dict[str, Any]],
+        *,
+        provider_models: Mapping[str, str] | None = None,
+        durations: Mapping[str, Decimal] | None = None,
+    ) -> None:
+        expected = (
+            request.expected_still_images
+            if request.stage == "motion"
+            else request.expected_animation_clips
+        )
+        if (
+            request.stage not in {"motion", "clips"}
+            or len(rows) != expected
+        ):
+            raise CustomFilmContractError(
+                f"Custom Film {request.stage} claim is invalid"
+            )
+        expected_ids = tuple(request.asset_ids)
+        row_ids = tuple(str(row.get("id") or "") for row in rows)
+        if row_ids != expected_ids:
+            raise CustomFilmContractError(
+                f"Custom Film {request.stage} claim asset IDs changed"
+            )
+        target_field = "video_prompt" if request.stage == "motion" else "video_clip_url"
+        if any(str(row.get(target_field) or "").strip() for row in rows):
+            raise CustomFilmContractError(
+                f"Custom Film {request.stage} found unexplained pre-existing artifacts"
+            )
+        request_hash = canonical_hash(request.payload())
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for row in rows:
+                    asset_id = str(row["id"])
+                    exact_duration = (
+                        durations.get(asset_id) if durations is not None else None
+                    )
+                    provider_model = str(
+                        (provider_models or {}).get(asset_id) or ""
+                    ).strip() or None
+                    inserted = await conn.execute(
+                        """INSERT INTO custom_film_asset_provenance
+                             (tenant_id, video_id, asset_id, plan_id, section_id,
+                              runtime_hash, stage, operation_id, request_hash,
+                              section_contract_hash, generation_method,
+                              provider_model, status, exact_duration_seconds)
+                           SELECT
+                             $1::uuid, $2::uuid, a.id, $4::uuid, $5::uuid,
+                             $6, $7, $8, $9, $10, a.generation_method,
+                             $11, 'prepared', $12
+                           FROM assets a
+                           WHERE a.tenant_id = $1::uuid AND a.video_id = $2::uuid
+                             AND a.id = $3::uuid
+                             AND CASE WHEN $7 = 'motion'
+                               THEN NULLIF(trim(a.video_prompt), '') IS NULL
+                               ELSE NULLIF(trim(a.video_clip_url), '') IS NULL
+                             END
+                           ON CONFLICT
+                             (tenant_id, video_id, asset_id, runtime_hash, stage)
+                           DO NOTHING""",
+                        self.tenant_id,
+                        request.video_id,
+                        asset_id,
+                        request.plan_id,
+                        request.section_id,
+                        request.runtime_hash,
+                        request.stage,
+                        request.operation_id,
+                        request_hash,
+                        self._section_contract_hash(request),
+                        provider_model,
+                        exact_duration,
+                    )
+                    if not str(inserted).endswith(" 1"):
+                        raise CustomFilmContractError(
+                            f"Custom Film {request.stage} asset is already claimed or changed"
+                        )
+                submitted = await conn.execute(
+                    """UPDATE custom_film_asset_provenance
+                       SET status = 'submitted', updated_at = now()
+                       WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                         AND runtime_hash = $3 AND stage = $4
+                         AND operation_id = $5 AND request_hash = $6
+                         AND asset_id = ANY($7::uuid[]) AND status = 'prepared'""",
+                    self.tenant_id,
+                    request.video_id,
+                    request.runtime_hash,
+                    request.stage,
+                    request.operation_id,
+                    request_hash,
+                    list(expected_ids),
+                )
+                if not str(submitted).endswith(f" {expected}"):
+                    raise CustomFilmContractError(
+                        f"Custom Film {request.stage} claims could not be submitted"
+                    )
+
+    async def _complete_media_provenance(
+        self,
+        request: SectionProductionRequest,
+        rows: list[dict[str, Any]],
+        *,
+        provider_models: Mapping[str, str],
+        durations: Mapping[str, Decimal] | None = None,
+    ) -> None:
+        request_hash = canonical_hash(request.payload())
+        if tuple(str(row.get("id") or "") for row in rows) != request.asset_ids:
+            raise CustomFilmContractError(
+                f"Custom Film {request.stage} provider result asset IDs changed"
+            )
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for row in rows:
+                    asset_id = str(row["id"])
+                    provider_model = str(
+                        provider_models.get(asset_id) or ""
+                    ).strip()
+                    if not provider_model:
+                        raise CustomFilmContractError(
+                            f"Custom Film {request.stage} provider model is missing"
+                        )
+                    exact_duration = (
+                        durations.get(asset_id) if durations is not None else None
+                    )
+                    if request.stage == "clips" and (
+                        exact_duration is None
+                        or row.get("duration_seconds") is None
+                        or row.get("assigned_video_duration") is None
+                        or Decimal(str(row["duration_seconds"])) != exact_duration
+                        or Decimal(str(row["assigned_video_duration"]))
+                        != exact_duration
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film clip duration allocation changed"
+                        )
+                    identity_hash = self._artifact_identity_hash(
+                        request,
+                        row,
+                        stage=request.stage,
+                        request_hash=request_hash,
+                        provider_model=provider_model,
+                        exact_duration=exact_duration,
+                    )
+                    updated = await conn.execute(
+                        """UPDATE custom_film_asset_provenance
+                           SET status = 'completed', artifact_url_hash = $8,
+                               provider_model = $9,
+                               completed_at = now(), updated_at = now()
+                           WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                             AND asset_id = $3::uuid AND runtime_hash = $4
+                             AND stage = $5 AND operation_id = $6
+                             AND request_hash = $7 AND status = 'submitted'""",
+                        self.tenant_id,
+                        request.video_id,
+                        asset_id,
+                        request.runtime_hash,
+                        request.stage,
+                        request.operation_id,
+                        request_hash,
+                        identity_hash,
+                        provider_model,
+                    )
+                    if not str(updated).endswith(" 1"):
+                        raise CustomFilmContractError(
+                            f"Custom Film {request.stage} provenance completion changed"
+                        )
 
     async def _section_completed_rows(
         self,
@@ -1083,7 +1461,11 @@ class SharedSectionProductionSeams:
                 """SELECT a.id, a.image_url, a.drive_image_url, a.video_prompt,
                           a.video_clip_url, a.generation_method, a.image_model,
                           a.model_used, a.status, a.motion_gate_status,
-                          p.exact_duration_seconds
+                          a.duration_seconds, a.assigned_video_duration,
+                          p.exact_duration_seconds,
+                          p.artifact_url_hash AS provenance_artifact_hash,
+                          p.provider_model AS provenance_provider_model,
+                          p.request_hash AS provenance_request_hash
                    FROM custom_film_asset_provenance p
                    JOIN assets a
                      ON (a.tenant_id, a.video_id, a.id)
@@ -1108,6 +1490,13 @@ class SharedSectionProductionSeams:
             raise CustomFilmContractError(
                 f"Custom Film {stage} provenance/count is incomplete"
             )
+        if any(
+            not self._completed_provenance_is_exact(request, row, stage=stage)
+            for row in values
+        ):
+            raise CustomFilmContractError(
+                f"Custom Film {stage} artifact provenance was tampered"
+            )
         return values
 
     async def _provenance_rows(
@@ -1129,7 +1518,11 @@ class SharedSectionProductionSeams:
                 """SELECT a.id, a.image_url, a.drive_image_url, a.video_prompt,
                           a.video_clip_url, a.generation_method, a.image_model,
                           a.model_used, a.status, a.motion_gate_status,
-                          p.exact_duration_seconds
+                          a.duration_seconds, a.assigned_video_duration,
+                          p.exact_duration_seconds,
+                          p.artifact_url_hash AS provenance_artifact_hash,
+                          p.provider_model AS provenance_provider_model,
+                          p.request_hash AS provenance_request_hash
                    FROM custom_film_asset_provenance p
                    JOIN assets a
                      ON (a.tenant_id, a.video_id, a.id)
@@ -1154,6 +1547,15 @@ class SharedSectionProductionSeams:
         if len(values) != expected:
             return []
         if request.asset_ids and tuple(str(row["id"]) for row in values) != request.asset_ids:
+            return []
+        if any(
+            not self._completed_provenance_is_exact(
+                request,
+                row,
+                stage=request.stage,
+            )
+            for row in values
+        ):
             return []
         return values
 
@@ -1275,23 +1677,40 @@ class SharedSectionProductionSeams:
         )
         asset_ids = tuple(str(row["id"]) for row in picture_rows)
         request = replace(request, asset_ids=asset_ids)
+        rows = await self._raw_asset_rows(request)
+        rows_by_id = {str(row["id"]): row for row in rows}
+        exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
+        provider_model = claude_model_for_direct_client(client)
+        provider_models = {asset_id: provider_model for asset_id in asset_ids}
+        await self._prepare_media_provenance(
+            request,
+            exact_rows,
+            provider_models=provider_models,
+        )
         written = await _write_motion_prompts(
             request.video_id,
             self.tenant_id,
             scene,
             client,
-            model=claude_model_for_direct_client(client),
+            model=provider_model,
             section_contract=request.payload(),
             asset_ids=list(asset_ids),
         )
-        if type(written) is not int or written != request.expected_still_images:
-            raise CustomFilmContractError(
-                "Custom Film section motion prompts did not complete"
-            )
+        returned_prompts = _exact_motion_result(written, asset_ids)
         rows = await self._raw_asset_rows(request)
         rows_by_id = {str(row["id"]): row for row in rows}
         exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
-        await self._record_media_provenance(request, exact_rows)
+        _assert_current_provider_artifacts(
+            "motion",
+            exact_rows,
+            asset_ids,
+            returned_prompts,
+        )
+        await self._complete_media_provenance(
+            request,
+            exact_rows,
+            provider_models=provider_models,
+        )
         checkpoint = await self._media_artifact_checkpoint(request)
         if checkpoint is None:
             raise CustomFilmContractError(
@@ -1313,6 +1732,16 @@ class SharedSectionProductionSeams:
                 "Custom Film approved clip count does not match picture assets"
             )
         request = replace(request, asset_ids=asset_ids)
+        motion_request = replace(request, stage="motion")
+        motion_rows = await self._section_completed_rows(
+            motion_request,
+            stage="motion",
+            expected=request.expected_still_images,
+        )
+        if tuple(str(row["id"]) for row in motion_rows) != asset_ids:
+            raise CustomFilmContractError(
+                "Custom Film clip inputs do not match exact motion assets"
+            )
         durations = _allocate_seconds(request.exact_seconds, len(asset_ids))
         duration_by_id = dict(zip(asset_ids, durations))
         import database
@@ -1337,22 +1766,38 @@ class SharedSectionProductionSeams:
                         raise CustomFilmContractError(
                             "Custom Film clip timing could not be persisted"
                         )
+        rows = await self._raw_asset_rows(request)
+        rows_by_id = {str(row["id"]): row for row in rows}
+        exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
+        await self._prepare_media_provenance(
+            request,
+            exact_rows,
+            durations=duration_by_id,
+        )
         executor = await self._ready_executor()
         result = await executor.run_clip_generation(
             request.video_id,
             asset_ids=list(asset_ids),
             section_contract=request.payload(),
         )
-        if not isinstance(result, Mapping) or result.get("status") != "completed":
-            raise CustomFilmContractError(
-                "Custom Film section clips did not complete"
-            )
+        returned = _exact_clip_result(result, asset_ids)
         rows = await self._raw_asset_rows(request)
         rows_by_id = {str(row["id"]): row for row in rows}
         exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
-        await self._record_media_provenance(
+        provider_models = {
+            asset_id: str(returned.get(asset_id, {}).get("provider_model") or "")
+            for asset_id in asset_ids
+        }
+        _assert_current_provider_artifacts(
+            "clips",
+            exact_rows,
+            asset_ids,
+            returned,
+        )
+        await self._complete_media_provenance(
             request,
             exact_rows,
+            provider_models=provider_models,
             durations=duration_by_id,
         )
         checkpoint = await self._media_artifact_checkpoint(request)
@@ -1806,7 +2251,12 @@ class SharedSectionProductionSeams:
                 rows = await conn.fetch(
                     """SELECT p.asset_id, p.exact_duration_seconds,
                               a.image_url, a.status, a.video_prompt,
-                              a.motion_gate_status, a.video_clip_url
+                              a.drive_image_url, a.motion_gate_status,
+                              a.video_clip_url, a.image_model, a.model_used,
+                              a.duration_seconds, a.assigned_video_duration,
+                              p.artifact_url_hash AS provenance_artifact_hash,
+                              p.provider_model AS provenance_provider_model,
+                              p.request_hash AS provenance_request_hash
                        FROM custom_film_asset_provenance p
                        JOIN assets a
                          ON (a.tenant_id, a.video_id, a.id)
@@ -1837,6 +2287,17 @@ class SharedSectionProductionSeams:
                 if len(values) != expected:
                     raise CustomFilmContractError(
                         f"Custom Film quality preflight found incomplete {stage}"
+                    )
+                if any(
+                    not self._completed_provenance_is_exact(
+                        request,
+                        row,
+                        stage=stage,
+                    )
+                    for row in values
+                ):
+                    raise CustomFilmContractError(
+                        f"Custom Film quality preflight found tampered {stage}"
                     )
                 if stage == "pictures" and any(
                     str(row.get("status") or "") != "done"

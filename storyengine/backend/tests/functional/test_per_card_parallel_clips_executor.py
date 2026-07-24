@@ -191,6 +191,18 @@ def test_multi_asset_ids_animates_every_requested_asset(monkeypatch):
 
     assert result["status"] == "completed", result
     assert result["clips_generated"] == 3
+    assert result["requested_asset_ids"] == ["asset-A", "asset-B", "asset-C"]
+    assert set(result["generated_asset_ids"]) == {
+        "asset-A", "asset-B", "asset-C"
+    }
+    assert {
+        row["asset_id"] for row in result["generated_artifacts"]
+    } == {"asset-A", "asset-B", "asset-C"}
+    assert all(
+        row["video_clip_url"].startswith("https://fake-storage.example/")
+        and row["provider_model"] == "grok-imagine"
+        for row in result["generated_artifacts"]
+    )
     assert {c[1] for c in client.calls} == {
         "https://fake/img-asset-A.png", "https://fake/img-asset-B.png", "https://fake/img-asset-C.png",
     }, "every requested asset must have been animated exactly once"

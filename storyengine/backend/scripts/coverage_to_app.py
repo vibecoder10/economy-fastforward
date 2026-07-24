@@ -27,7 +27,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 from io import BytesIO
-from typing import Optional
+from typing import Any, Optional
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BACKEND = os.path.dirname(_HERE)
@@ -3022,7 +3022,7 @@ async def _write_motion_prompts(
     model=None,
     section_contract=None,
     asset_ids=None,
-) -> int:
+) -> int | dict[str, Any]:
     """One Claude call writes the per-shot CAMERA MOTION for the scene's coverage
     frames; the spoken line was already assigned by the coverage planner (stored on
     assets.assigned_dialogue), so we append it deterministically — no LLM re-mapping
@@ -3146,6 +3146,7 @@ async def _write_motion_prompts(
     text = (await claude.generate(**kwargs)) or ""
     motions = _parse_numbered(text, len(rows))
     written = 0
+    written_artifacts = []
     for i, (r, motion) in enumerate(zip(rows, motions)):
         motion = _strip_embedded_line(motion) or "Slow push-in on the main subject, keeping it in frame."
         # GATE + REPAIR (contract-triangle 2nd/3rd legs): a motion line that
@@ -3207,6 +3208,13 @@ async def _write_motion_prompts(
             prompt, r["id"],
         )
         written += 1
+        written_artifacts.append({"asset_id": str(r["id"]), "video_prompt": prompt})
+    if section_contract is not None:
+        return {
+            "written": written,
+            "asset_ids": [row["asset_id"] for row in written_artifacts],
+            "artifacts": written_artifacts,
+        }
     return written
 
 

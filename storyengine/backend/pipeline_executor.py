@@ -12837,6 +12837,7 @@ separate scenes."""
             done = failed = 0
             cost = 0.0
             total = len(todo)
+            generated_artifacts: list[dict] = []
             # Clips fan out concurrently; CLIP_CONCURRENCY tunes the width
             # (Kie queues server-side — same account the coverage image gens
             # already hit concurrently).
@@ -13239,6 +13240,14 @@ separate scenes."""
                         print(f"[clips] S{sc}.{idx} model_used write failed "
                               f"(clip itself succeeded): {str(mu_err)[:150]}", flush=True)
                     done += 1
+                    generated_artifacts.append(
+                        {
+                            "asset_id": str(r["id"]),
+                            "video_clip_url": drive_url,
+                            "provider_model": effective_model_id,
+                            "duration_seconds": str(clip_dur),
+                        }
+                    )
                     cost += clip_cost
                     # generation_ledger: one row per completed clip, single source
                     # of truth for videos.total_cost (checklist §0.3a / C07).
@@ -13442,6 +13451,11 @@ separate scenes."""
                     "clips_generated": done, "clips_failed": failed, "cost": cost,
                     "clips_blocked": len(blocked_rows),
                     "clips_in_progress_elsewhere": len(already_animating),
+                    "requested_asset_ids": list(_ids or []),
+                    "generated_asset_ids": [
+                        row["asset_id"] for row in generated_artifacts
+                    ],
+                    "generated_artifacts": generated_artifacts,
                     "error": msg if failed and not done else None}
 
         except Exception as e:

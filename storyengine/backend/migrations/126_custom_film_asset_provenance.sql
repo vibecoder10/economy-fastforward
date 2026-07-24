@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS custom_film_asset_provenance (
   generation_method TEXT NOT NULL CHECK (generation_method <> ''),
   provider_model TEXT,
   status TEXT NOT NULL DEFAULT 'prepared'
-    CHECK (status IN ('prepared', 'completed', 'failed')),
+    CHECK (status IN ('prepared', 'submitted', 'completed', 'failed')),
   artifact_url_hash TEXT CHECK (
     artifact_url_hash IS NULL OR artifact_url_hash ~ '^[0-9a-f]{64}$'
   ),
@@ -99,7 +99,12 @@ BEGIN
     RAISE EXCEPTION 'Custom Film asset duration is write-once';
   END IF;
   IF (
-    (OLD.status = 'prepared' AND NEW.status NOT IN ('prepared', 'completed', 'failed'))
+    (OLD.status = 'prepared' AND NEW.status NOT IN (
+      'prepared', 'submitted', 'completed', 'failed'
+    ))
+    OR (OLD.status = 'submitted' AND NEW.status NOT IN (
+      'submitted', 'completed', 'failed'
+    ))
     OR (OLD.status IN ('completed', 'failed') AND NEW.status <> OLD.status)
   ) THEN
     RAISE EXCEPTION 'Custom Film asset provenance status cannot regress';

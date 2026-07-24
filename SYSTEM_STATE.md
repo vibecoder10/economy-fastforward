@@ -11453,9 +11453,19 @@ control writes without losing the video, approval, or confirmation.
   millisecond precision.
 - Recovery returns completed child results or checkpoints only when real
   image/prompt/clip artifacts match the exact runtime, operation, request, and
-  immutable section contract. Quality runs only after provenance proves exact
-  counts, the same asset IDs across all required media stages, valid motion,
-  and an exact clip-duration sum. The existing multi-provider image/clip
+  immutable section contract. The stored artifact identity is recomputed from
+  the current image URLs, motion prompt, clip URL, actual provider model,
+  camera grammar, request, and exact clip allocation, so a completed row cannot
+  bless a later manual or concurrent replacement.
+- Motion and clip assets are claimed in backend-only provenance as
+  `prepared`, then `submitted`, before provider entry. Their target prompt/clip
+  fields must still be empty in the same claim statement; a pre-existing
+  unprovenanced result or competing claim fails before provider work. Completion
+  requires the provider seam to report exactly the requested asset IDs and
+  count, zero failures/blocks/competing work, and artifacts byte-for-byte
+  matching the current database rows. Quality runs only after provenance
+  proves exact counts, the same asset IDs across all required media stages,
+  valid motion, and an exact clip-duration sum. The existing multi-provider image/clip
   wrappers do not expose one safely queryable task for the whole scene, so
   their child operations declare opaque reconciliation and fail closed if no
   exact durable checkpoint exists; automatic retry is never used to guess
