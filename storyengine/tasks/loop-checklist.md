@@ -14,8 +14,8 @@
 - [x] M5-0 GAP AUDIT: proved the live caller omitted both `render_engine="remotion"` and `run_remotion_renderer`, and the VPS Chromium path was absent from the adapter.
 - [x] M5-1 MOTION PLAN + ACTIVATION: added the shared exact-frame insertion plan, deterministic flagship-only auto policy, real production renderer injection, explicit returned renderer identity, stale-proof rejection, VPS browser support, and a `--with-remotion` deploy mode.
 - [x] M5-2 LOCAL FULL PROOF: verified the fresh renderer-identity-bound 300-second master, all nine primitives, exact media/audio/subtitle probes, wide and 9:16 contacts, title-safe repairs, and the collision-free 4:45–5:00 reveal. Final SHA-256: `b158748f7c6cb70d50ce468e7ddd86325b72a20017dbe2e4e06cd8ab0d035117`.
-- [ ] M5-3 LIVE MIGRATION + DEPLOY: apply migrations 130–131 and deploy the pinned Remotion runtime behind the zero-work drain.
-- [ ] M5-4 PRODUCTION-HOST PROOF + FINAL VERDICT: run zero-provider proof on the VPS, inspect outputs, verify health and exact live identity, and publish the truthful paid-run handoff.
+- [x] M5-3 LIVE MIGRATION + DEPLOY: deployed `a2bdcb25` behind the zero-work drain; backend, frontend, Redis/arq, Chromium, the pinned Remotion runtime, Unicode fonts, and all 140 migrations are healthy with zero pending.
+- [x] M5-4 PRODUCTION-HOST PROOF + FINAL VERDICT: the VPS completed the zero-provider 300.000-second proof at 7,200 frames, 1920x1080, 24 fps with AAC stereo and Unicode subtitles. Wide/9:16 inspection and the repaired Evidence Board/reveal pass. Production master SHA-256: `99a65f2a0db9c9a3b725b857c5e5f56bdce9c4254a596b22b2b9b6e1cca27f3e`. Paid flagship footage remains separately gated.
 
 ## Accepted mission — M4 FLAGSHIP BYOK PREFLIGHT + CREATOR BLUEPRINT
 

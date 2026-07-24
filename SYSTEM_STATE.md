@@ -18,6 +18,17 @@
   and applies strict migrations before restarting the backend.
 - Renderer results expose the exact props and bundle hashes, and the full-proof
   harness refuses to reuse a master made by an older adapter or motion plan.
+- Production deployed commit `a2bdcb25` through the zero-active-work drain.
+  All 140 migrations are applied, Chromium and the pinned Remotion runtime are
+  present, and deploys now fail closed unless the exact local Noto Sans Unicode
+  CSS weights and font binaries are installed.
+- The production host independently completed the no-provider reference render:
+  exactly 300.000 seconds, 7,200 frames, 1920x1080 at 24 fps, AAC 48 kHz stereo,
+  `mul` Unicode subtitles, and SHA-256
+  `99a65f2a0db9c9a3b725b857c5e5f56bdce9c4254a596b22b2b9b6e1cca27f3e`.
+  Its wide and 9:16 contacts confirm the centered Evidence Board title and clean
+  final StoryEngine reveal. The differing Linux delivery-container hash is
+  recorded honestly; source-frame/audio determinism is the engineering basis.
 
 ## Custom Film Remotion motion library (M3-2, 2026-07-23)
 
