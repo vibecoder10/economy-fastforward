@@ -20,7 +20,11 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any, Awaitable, Callable, Mapping, Protocol
 
-from custom_film_contract import CustomFilmContractError, canonical_hash
+from custom_film_contract import (
+    CustomFilmContractError,
+    canonical_caption_card,
+    canonical_hash,
+)
 from custom_film_provider_operations import (
     RECONCILIATION_IDEMPOTENCY,
     RECONCILIATION_NONE,
@@ -1087,7 +1091,7 @@ class SharedSectionProductionSeams:
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """SELECT id, image_url, drive_image_url, video_prompt,
+                """SELECT id, image_url, drive_image_url, video_prompt, caption,
                           video_clip_url, generation_method, image_model,
                           model_used, status, motion_gate_status,
                           duration_seconds, assigned_video_duration,
@@ -1164,9 +1168,12 @@ class SharedSectionProductionSeams:
         timing_transform: Mapping[str, Any] | None = None,
     ) -> str:
         if stage == "pictures":
+            caption_card = canonical_caption_card(row.get("caption"))
             artifact = {
                 "image_url": str(row.get("image_url") or "").strip(),
                 "drive_image_url": str(row.get("drive_image_url") or "").strip(),
+                "caption_card": caption_card,
+                "caption_hash": canonical_hash({"caption_card": caption_card}),
             }
         elif stage == "motion":
             artifact = {"video_prompt": str(row.get("video_prompt") or "").strip()}
@@ -1583,6 +1590,7 @@ class SharedSectionProductionSeams:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT a.id, a.image_url, a.drive_image_url, a.video_prompt,
+                          a.caption,
                           a.video_clip_url, a.generation_method, a.image_model,
                           a.model_used, a.status, a.motion_gate_status,
                           a.duration_seconds, a.assigned_video_duration,
@@ -1642,6 +1650,7 @@ class SharedSectionProductionSeams:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT a.id, a.image_url, a.drive_image_url, a.video_prompt,
+                          a.caption,
                           a.video_clip_url, a.generation_method, a.image_model,
                           a.model_used, a.status, a.motion_gate_status,
                           a.duration_seconds, a.assigned_video_duration,
@@ -1707,26 +1716,31 @@ class SharedSectionProductionSeams:
                 or not str(row.get("video_prompt") or "").strip()
             ):
                 return None
-            artifacts.append(
-                {
-                    "artifact_id": str(row.get("id") or ""),
-                    "artifact_url": url,
-                    "generation_method": str(
-                        row.get("generation_method") or ""
-                    ),
-                    "reused": True,
-                    "actual_duration_ms": row.get("actual_duration_ms"),
-                    "assigned_duration_ms": row.get("assigned_duration_ms"),
-                    "timing_transform": _plain(row.get("timing_transform")),
-                    "timing_status": (
-                        "exact"
-                        if request.stage != "clips"
-                        or row.get("actual_duration_ms")
-                        == row.get("assigned_duration_ms")
-                        else "needs_compositor"
-                    ),
-                }
-            )
+            artifact = {
+                "artifact_id": str(row.get("id") or ""),
+                "artifact_url": url,
+                "generation_method": str(
+                    row.get("generation_method") or ""
+                ),
+                "reused": True,
+                "actual_duration_ms": row.get("actual_duration_ms"),
+                "assigned_duration_ms": row.get("assigned_duration_ms"),
+                "timing_transform": _plain(row.get("timing_transform")),
+                "timing_status": (
+                    "exact"
+                    if request.stage != "clips"
+                    or row.get("actual_duration_ms")
+                    == row.get("assigned_duration_ms")
+                    else "needs_compositor"
+                ),
+            }
+            if request.stage == "pictures":
+                caption_card = canonical_caption_card(row.get("caption"))
+                artifact["caption_card"] = caption_card
+                artifact["caption_hash"] = canonical_hash(
+                    {"caption_card": caption_card}
+                )
+            artifacts.append(artifact)
         if not artifacts:
             return None
         return {
@@ -2408,7 +2422,7 @@ class SharedSectionProductionSeams:
                 rows = await conn.fetch(
                     """SELECT p.asset_id, p.actual_duration_ms,
                               p.assigned_duration_ms, p.timing_transform,
-                              a.image_url, a.status, a.video_prompt,
+                              a.image_url, a.status, a.video_prompt, a.caption,
                               a.drive_image_url, a.motion_gate_status,
                               a.video_clip_url, a.image_model, a.model_used,
                               a.duration_seconds, a.assigned_video_duration,

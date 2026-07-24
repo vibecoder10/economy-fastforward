@@ -194,44 +194,46 @@ def _fixture() -> dict:
                     "title": "Evidence card",
                     "sub": "Synthetic • 2026",
                     "specs": ["Verified fixture"],
+                    "view_role": "three_quarter",
+                    "label": "Primary evidence",
                 }
                 if not animated
                 else None
             ),
         }
         assets.append(asset)
-        stage = "clips" if animated else "pictures"
-        row = {
-            "tenant_id": TENANT,
-            "video_id": VIDEO,
-            "asset_id": asset_id,
-            "plan_id": PLAN,
-            "section_id": section["section_id"],
-            "runtime_hash": envelope["runtime_hash"],
-            "stage": stage,
-            "request_hash": f"{index + 1:064x}",
-            "section_contract_hash": f"{index + 10:064x}",
-            "generation_method": asset["generation_method"],
-            "provider_model": "synthetic-v1",
-            "status": "completed",
-            "actual_duration_ms": 1000 if animated else None,
-            "assigned_duration_ms": 2000 if animated else None,
-            "timing_transform": (
-                {
-                    "mode": "repeat_then_trim",
-                    "source_duration_ms": 1000,
-                    "repeat_count": 2,
-                    "final_repeat_duration_ms": 1000,
-                    "output_duration_ms": 2000,
-                }
-                if animated
-                else None
-            ),
-        }
-        row["artifact_url_hash"] = compositor._asset_identity_hash(
-            section, asset, row, stage=stage
-        )
-        provenance.append(row)
+        for stage in (("pictures", "clips") if animated else ("pictures",)):
+            row = {
+                "tenant_id": TENANT,
+                "video_id": VIDEO,
+                "asset_id": asset_id,
+                "plan_id": PLAN,
+                "section_id": section["section_id"],
+                "runtime_hash": envelope["runtime_hash"],
+                "stage": stage,
+                "request_hash": f"{index + 1:064x}",
+                "section_contract_hash": f"{index + 10:064x}",
+                "generation_method": asset["generation_method"],
+                "provider_model": "synthetic-v1",
+                "status": "completed",
+                "actual_duration_ms": 1000 if stage == "clips" else None,
+                "assigned_duration_ms": 2000 if stage == "clips" else None,
+                "timing_transform": (
+                    {
+                        "mode": "repeat_then_trim",
+                        "source_duration_ms": 1000,
+                        "repeat_count": 2,
+                        "final_repeat_duration_ms": 1000,
+                        "output_duration_ms": 2000,
+                    }
+                    if stage == "clips"
+                    else None
+                ),
+            }
+            row["artifact_url_hash"] = compositor._asset_identity_hash(
+                section, asset, row, stage=stage
+            )
+            provenance.append(row)
         supplements[section["section_id"]] = {
             "voice_over_urls": (
                 [f"fixture://voice-{index}"]
@@ -260,8 +262,8 @@ def _fixture() -> dict:
     asset_by_section = {
         str(row["section_id"]): row for row in assets
     }
-    provenance_by_section = {
-        str(row["section_id"]): row for row in provenance
+    provenance_by_section_stage = {
+        (str(row["section_id"]), str(row["stage"])): row for row in provenance
     }
     for adapter in adapters:
         parent_id = compositor._parent_operation_id(
@@ -298,7 +300,11 @@ def _fixture() -> dict:
                 f"{contract.canonical_hash({'scene_id': scene_id})[:12]}"
             )
             asset = asset_by_section[adapter.section_id]
-            provenance_row = provenance_by_section[adapter.section_id]
+            provenance_row = provenance_by_section_stage.get(
+                (adapter.section_id, adapter.stage)
+            ) or provenance_by_section_stage[
+                (adapter.section_id, "pictures")
+            ]
             if adapter.stage == "voice":
                 if adapter.dialogue_audio == "voice_over":
                     artifact_id = f"{adapter.order_index + 50:064x}"
@@ -315,10 +321,15 @@ def _fixture() -> dict:
                 else:
                     artifacts = []
             elif adapter.stage == "pictures":
+                caption_card = contract.canonical_caption_card(asset["caption"])
                 artifacts = [
                     {
                         "artifact_id": asset["asset_id"],
                         "artifact_url": asset["image_url"],
+                        "caption_card": caption_card,
+                        "caption_hash": contract.canonical_hash(
+                            {"caption_card": caption_card}
+                        ),
                     }
                 ]
             elif adapter.stage == "motion":
@@ -430,6 +441,13 @@ def test_manifest_is_exact_ordered_versioned_and_executes_6s_to_37s():
     manifest = _build(values)
     assert manifest["total_frames"] == 8 * 24
     assert manifest["transition_accounting"]["overlap_frames_total"] == 0
+    assert manifest["sections"][0]["assets"][0]["caption_card"] == {
+        "label": "Primary evidence",
+        "specs": ["Verified fixture"],
+        "sub": "Synthetic • 2026",
+        "title": "Evidence card",
+        "view_role": "three_quarter",
+    }
     assert all(
         sum(asset["duration_frames"] for asset in section["assets"])
         == section["duration_frames"]
@@ -535,6 +553,7 @@ async def test_repeat_then_trim_really_executes_six_seconds_to_thirty_seven(
         "asset_drift",
         "provenance_gap",
         "transform",
+        "caption",
     ],
 )
 def test_manifest_fails_closed_on_stale_or_incomplete_current_rows(tamper):
@@ -549,8 +568,12 @@ def test_manifest_fails_closed_on_stale_or_incomplete_current_rows(tamper):
         values["asset_rows"][1]["video_clip_url"] = "fixture://changed"
     elif tamper == "provenance_gap":
         values["provenance_rows"].pop()
+    elif tamper == "transform":
+        next(
+            row for row in values["provenance_rows"] if row["stage"] == "clips"
+        )["timing_transform"]["repeat_count"] = 3
     else:
-        values["provenance_rows"][1]["timing_transform"]["repeat_count"] = 3
+        values["asset_rows"][0]["caption"]["label"] = "mutated after completion"
     with pytest.raises(contract.CustomFilmContractError):
         _build(values)
 
@@ -623,8 +646,13 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
     assert result["section_count"] == 4
     assert probe["has_video"] and probe["has_audio"] and probe["has_subtitles"]
     assert probe["width"] == 1920 and probe["height"] == 1080
+    assert probe["subtitle_languages"] == ["mul"]
     assert abs(probe["duration_seconds"] - 8) <= 1 / 24 + 0.002
     assert len(result["captions"]) == 4
+    assert result["captions"][2]["language"] == {
+        "mode": "bilingual",
+        "languages": ["en", "es"],
+    }
     assert len(result["section_provenance"]) == 4
     assert len({row["section_sha256"] for row in result["section_provenance"]}) == 4
     assert rerender_result["artifact_sha256"] == result["artifact_sha256"]

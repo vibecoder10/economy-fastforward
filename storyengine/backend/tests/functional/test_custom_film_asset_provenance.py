@@ -196,6 +196,61 @@ async def test_checkpoint_rejects_stale_or_wrong_contract_rows(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_picture_checkpoint_binds_complete_canonical_card(monkeypatch):
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    request = production._request(
+        _adapter("pictures", static=True),
+        ("scene-1",),
+        "custom-film-op:" + "8" * 64,
+    )
+    card = {
+        "title": "Aircraft",
+        "sub": "Verified",
+        "specs": ["Range 8,800 mi"],
+        "view_role": "engineering_detail",
+        "label": "Evidence A",
+        "rendered_note": {"line": 2},
+    }
+    row = {
+        "id": "asset-1",
+        "status": "done",
+        "image_url": "fake://generated",
+        "drive_image_url": "fake://generated",
+        "generation_method": "static_docu",
+        "caption": copy.deepcopy(card),
+    }
+
+    async def rows(_request):
+        return [copy.deepcopy(row)]
+
+    monkeypatch.setattr(seams, "_provenance_rows", rows)
+    checkpoint = await seams._media_artifact_checkpoint(request)
+    artifact = checkpoint["artifacts"][0]
+    expected = production.canonical_caption_card(card)
+    assert artifact["caption_card"] == expected
+    assert artifact["caption_hash"] == production.canonical_hash(
+        {"caption_card": expected}
+    )
+    request_hash = production.canonical_hash(request.payload())
+    original_hash = seams._artifact_identity_hash(
+        request,
+        row,
+        stage="pictures",
+        request_hash=request_hash,
+        provider_model="image-test",
+    )
+    mutated = copy.deepcopy(row)
+    mutated["caption"]["label"] = "Changed"
+    assert seams._artifact_identity_hash(
+        request,
+        mutated,
+        stage="pictures",
+        request_hash=request_hash,
+        provider_model="image-test",
+    ) != original_hash
+
+
+@pytest.mark.asyncio
 async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
     monkeypatch,
 ):

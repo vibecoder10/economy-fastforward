@@ -85,6 +85,28 @@ def canonical_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def canonical_caption_card(value: Any) -> dict[str, Any] | None:
+    """Return the complete JSON card payload, or an explicit canonical null."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise CustomFilmContractError(
+                "Custom Film asset caption is not canonical JSON"
+            ) from exc
+    if not isinstance(value, Mapping):
+        raise CustomFilmContractError(
+            "Custom Film asset caption must be a JSON object or null"
+        )
+    if not value:
+        return None
+    # Preserve every rendered field (title/sub/specs/view_role/label and any
+    # future additions) under one canonical JSON representation.
+    return json.loads(canonical_json(dict(value)))
+
+
 def _json_object(value: Any, field_name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CustomFilmContractError(f"{field_name} must be a JSON object")

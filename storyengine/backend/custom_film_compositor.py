@@ -26,7 +26,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
-from custom_film_contract import CustomFilmContractError, canonical_hash
+from custom_film_contract import (
+    CustomFilmContractError,
+    canonical_caption_card,
+    canonical_hash,
+)
 from custom_film_section_runtime import compile_stage_adapters
 from error_utils import humanize_error
 
@@ -187,9 +191,12 @@ def _asset_identity_hash(
     stage: str,
 ) -> str:
     if stage == "pictures":
+        caption_card = canonical_caption_card(asset.get("caption"))
         artifact = {
             "image_url": str(asset.get("image_url") or "").strip(),
             "drive_image_url": str(asset.get("drive_image_url") or "").strip(),
+            "caption_card": caption_card,
+            "caption_hash": canonical_hash({"caption_card": caption_card}),
         }
     else:
         artifact = {
@@ -648,6 +655,58 @@ def build_assembly_manifest(
                     "Custom Film asset points outside assigned section scenes"
                 )
             owning_scene_id = assigned_scene_ids[asset_slot[0]]
+            caption_card = canonical_caption_card(asset.get("caption"))
+            caption_hash = canonical_hash({"caption_card": caption_card})
+            picture_adapter = adapters_by_stage[(section_id, "pictures")]
+            picture_parent_id = _parent_operation_id(
+                tenant_id, runtime_job_id, picture_adapter
+            )
+            picture_child_id = "custom-film-op:" + canonical_hash(
+                {
+                    "parent_operation_id": picture_parent_id,
+                    "stage": "pictures",
+                    "scene_id": owning_scene_id,
+                }
+            )
+            picture_result = _mapping(
+                operations_by_id[picture_child_id]["result"],
+                "picture child result",
+            )
+            picture_artifacts = picture_result.get("artifacts")
+            if not isinstance(picture_artifacts, list):
+                raise CustomFilmContractError(
+                    "Custom Film picture child has no durable artifacts"
+                )
+            exact_picture_artifacts = [
+                _mapping(value, "picture artifact")
+                for value in picture_artifacts
+                if isinstance(value, Mapping)
+                and str(value.get("artifact_id") or "") == asset_id
+            ]
+            if len(exact_picture_artifacts) != 1 or (
+                exact_picture_artifacts[0].get("caption_card") != caption_card
+                or exact_picture_artifacts[0].get("caption_hash")
+                != caption_hash
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film current caption card drifted from its picture operation"
+                )
+            picture_provenance = provenance_by_key.get((asset_id, "pictures"))
+            if (
+                picture_provenance is None
+                or str(picture_provenance.get("operation_id") or "")
+                != picture_child_id
+                or str(picture_provenance.get("artifact_url_hash") or "")
+                != _asset_identity_hash(
+                    section,
+                    asset,
+                    picture_provenance,
+                    stage="pictures",
+                )
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film caption card drifted from picture provenance"
+                )
             media_adapter = adapters_by_stage[(section_id, required_stage)]
             media_parent_id = _parent_operation_id(
                 tenant_id, runtime_job_id, media_adapter
@@ -752,11 +811,8 @@ def build_assembly_manifest(
                     "timing_transform": transform,
                     "camera": _mapping(section["camera"], "section camera"),
                     "provenance_hash": str(row["artifact_url_hash"]),
-                    "caption_card": (
-                        _mapping(asset.get("caption"), "static caption card")
-                        if asset.get("caption")
-                        else None
-                    ),
+                        "caption_card": caption_card,
+                        "caption_hash": caption_hash,
                 }
             )
 
@@ -878,7 +934,9 @@ def build_assembly_manifest(
                     "text": str(
                         scene_rows_by_id[scene_id].get("scene_text") or ""
                     ).strip(),
-                        "language": str(section["language"]),
+                        "language": copy.deepcopy(
+                            _mapping(section["language"], "section language")
+                        ),
                     "section_start_ms": start_ms,
                     "section_end_ms": end_ms,
                     "start_frame": film_frame + (start_ms * fps // 1000),
@@ -990,7 +1048,7 @@ async def probe_media(path: Path) -> dict[str, Any]:
         "-v",
         "error",
         "-show_entries",
-        "format=duration:stream=codec_type,width,height,nb_frames",
+        "format=duration:stream=codec_type,width,height,nb_frames:stream_tags=language",
         "-of",
         "json",
         str(path),
@@ -1017,6 +1075,11 @@ async def probe_media(path: Path) -> dict[str, Any]:
         "has_subtitles": any(
             row.get("codec_type") == "subtitle" for row in streams
         ),
+        "subtitle_languages": [
+            str((row.get("tags") or {}).get("language") or "und")
+            for row in streams
+            if row.get("codec_type") == "subtitle"
+        ],
     }
 
 
@@ -1026,6 +1089,30 @@ def _srt_timestamp(frame: int, fps: int) -> str:
     minutes, milliseconds = divmod(milliseconds, 60_000)
     seconds, milliseconds = divmod(milliseconds, 1000)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+
+def _subtitle_language_metadata(captions: Sequence[Mapping[str, Any]]) -> str:
+    languages: set[str] = set()
+    mixed = False
+    for caption in captions:
+        language = _mapping(caption.get("language"), "caption language")
+        mode = str(language.get("mode") or "")
+        declared = language.get("languages")
+        if mode == "bilingual":
+            mixed = True
+        if isinstance(declared, list):
+            languages.update(
+                str(value).strip().lower()
+                for value in declared
+                if str(value).strip()
+            )
+        single = str(language.get("language") or "").strip().lower()
+        if single:
+            languages.add(single)
+    if mixed or len(languages) > 1:
+        return "mul"
+    # Do not guess ISO-639 metadata from narrator/profile modes.
+    return next(iter(languages), "und")
 
 
 def _write_visible_overlay(
@@ -1502,12 +1589,14 @@ async def render_local_manifest(
                 encoding="utf-8",
             )
             captioned = workdir / "film_captioned.mp4"
+            subtitle_language = _subtitle_language_metadata(captions)
             await _run(
                 [
                     "ffmpeg", "-y", "-i", str(burned), "-i", str(srt),
                     "-map", "0:v", "-map", "0:a", "-map", "1:0",
                     "-c:v", "copy", "-c:a", "copy", "-c:s", "mov_text",
-                    "-metadata:s:s:0", "language=eng", str(captioned),
+                    "-metadata:s:s:0", f"language={subtitle_language}",
+                    str(captioned),
                 ]
             )
             final_source = captioned
