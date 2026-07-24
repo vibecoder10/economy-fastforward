@@ -42,9 +42,13 @@ CREATE TABLE IF NOT EXISTS custom_film_asset_provenance (
   artifact_url_hash TEXT CHECK (
     artifact_url_hash IS NULL OR artifact_url_hash ~ '^[0-9a-f]{64}$'
   ),
-  exact_duration_seconds NUMERIC(12,3) CHECK (
-    exact_duration_seconds IS NULL OR exact_duration_seconds > 0
+  actual_duration_ms BIGINT CHECK (
+    actual_duration_ms IS NULL OR actual_duration_ms > 0
   ),
+  assigned_duration_ms BIGINT CHECK (
+    assigned_duration_ms IS NULL OR assigned_duration_ms > 0
+  ),
+  timing_transform JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -63,6 +67,16 @@ CREATE TABLE IF NOT EXISTS custom_film_asset_provenance (
      AND completed_at IS NOT NULL)
     OR
     (status <> 'completed' AND completed_at IS NULL)
+  ),
+  CHECK (
+    (stage = 'clips' AND assigned_duration_ms IS NOT NULL)
+    OR
+    (stage <> 'clips' AND actual_duration_ms IS NULL
+      AND assigned_duration_ms IS NULL AND timing_transform IS NULL)
+  ),
+  CHECK (
+    stage <> 'clips' OR status <> 'completed'
+    OR (actual_duration_ms IS NOT NULL AND timing_transform IS NOT NULL)
   )
 );
 
@@ -94,9 +108,17 @@ BEGIN
      AND NEW.artifact_url_hash IS DISTINCT FROM OLD.artifact_url_hash THEN
     RAISE EXCEPTION 'Custom Film asset URL identity is write-once';
   END IF;
-  IF OLD.exact_duration_seconds IS NOT NULL
-     AND NEW.exact_duration_seconds IS DISTINCT FROM OLD.exact_duration_seconds THEN
-    RAISE EXCEPTION 'Custom Film asset duration is write-once';
+  IF OLD.actual_duration_ms IS NOT NULL
+     AND NEW.actual_duration_ms IS DISTINCT FROM OLD.actual_duration_ms THEN
+    RAISE EXCEPTION 'Custom Film asset actual duration is write-once';
+  END IF;
+  IF OLD.assigned_duration_ms IS NOT NULL
+     AND NEW.assigned_duration_ms IS DISTINCT FROM OLD.assigned_duration_ms THEN
+    RAISE EXCEPTION 'Custom Film asset assigned duration is write-once';
+  END IF;
+  IF OLD.timing_transform IS NOT NULL
+     AND NEW.timing_transform IS DISTINCT FROM OLD.timing_transform THEN
+    RAISE EXCEPTION 'Custom Film asset timing transform is write-once';
   END IF;
   IF (
     (OLD.status = 'prepared' AND NEW.status NOT IN (

@@ -725,7 +725,7 @@ async def test_shared_quality_seam_passes_approved_laws_to_real_critic_contract(
 
     monkeypatch.setattr(seams, "_scene_rows", rows)
     async def media_preflight(_request):
-        return None
+        return {"timing_status": "exact", "timing_transforms": []}
     monkeypatch.setattr(seams, "_quality_media_preflight", media_preflight)
     seams._executor = Executor()
     monkeypatch.setattr("script_quality.critique_script", critique)
@@ -1367,7 +1367,7 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
                         "asset_id": "asset-1",
                         "video_clip_url": "fake://clip/1",
                         "provider_model": "grok-imagine",
-                        "duration_seconds": "37",
+                        "duration_seconds": "6",
                     }
                 ],
                 "clips_generated": 1,
@@ -1429,6 +1429,9 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
                 "video_prompt": "Locked camera move" if motion_done else None,
                 "video_clip_url": "fake://clip/1" if clip_done else None,
                 "model_used": "grok-imagine" if clip_done else None,
+                "video_duration": "6" if clip_done else None,
+                "duration_seconds": "37",
+                "assigned_video_duration": "37",
                 "generation_method": "coverage",
             }
         ]

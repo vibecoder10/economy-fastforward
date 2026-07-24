@@ -11465,7 +11465,16 @@ control writes without losing the video, approval, or confirmation.
   count, zero failures/blocks/competing work, and artifacts byte-for-byte
   matching the current database rows. Quality runs only after provenance
   proves exact counts, the same asset IDs across all required media stages,
-  valid motion, and an exact clip-duration sum. The existing multi-provider image/clip
+  valid motion, and an exact assigned-duration sum.
+- Clip provenance keeps provider reality separate from the approved film
+  timeline: `actual_duration_ms` matches the provider result and current
+  `assets.video_duration`, while `assigned_duration_ms` matches the immutable
+  section allocation and current target fields. Equal durations use a `none`
+  transform; longer source clips use a deterministic leading trim; shorter
+  source clips use an exact repeat-then-final-trim recipe. Unequal media is
+  reported as `timing_status=needs_compositor`, not as normalized or exact.
+  M2-4 records the recipe only; M2-5 remains responsible for executing it and
+  proving final assembled timing. The existing multi-provider image/clip
   wrappers do not expose one safely queryable task for the whole scene, so
   their child operations declare opaque reconciliation and fail closed if no
   exact durable checkpoint exists; automatic retry is never used to guess

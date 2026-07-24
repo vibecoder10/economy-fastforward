@@ -104,6 +104,12 @@ def test_migration_126_and_fresh_schema_bind_backend_owned_asset_provenance():
         assert "asset provenance status cannot regress" in text
         assert "'prepared', 'submitted', 'completed', 'failed'" in text
         assert "asset provider model is write-once" in text
+        assert "actual_duration_ms BIGINT" in text
+        assert "assigned_duration_ms BIGINT" in text
+        assert "timing_transform JSONB" in text
+        assert "asset actual duration is write-once" in text
+        assert "asset assigned duration is write-once" in text
+        assert "asset timing transform is write-once" in text
         assert "'prepared', 'submitted', 'failed'" in text
         assert "'prepared', 'submitted', 'completed', 'failed'" not in text[
             text.index("OLD.status = 'prepared'"):
@@ -237,18 +243,24 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
                 "asset_id": "a",
                 "video_clip_url": "c:a",
                 "model_used": "clip-test",
-                "exact_duration_seconds": Decimal("3.5"),
+                "video_duration": Decimal("3.5"),
                 "duration_seconds": Decimal("3.5"),
                 "assigned_video_duration": Decimal("3.5"),
+                "actual_duration_ms": 3500,
+                "assigned_duration_ms": 3500,
+                "timing_transform": production._timing_transform(3500, 3500),
                 "generation_method": "coverage",
             },
             {
                 "asset_id": "b",
                 "video_clip_url": "c:b",
                 "model_used": "clip-test",
-                "exact_duration_seconds": Decimal("3.5"),
+                "video_duration": Decimal("3.5"),
                 "duration_seconds": Decimal("3.5"),
                 "assigned_video_duration": Decimal("3.5"),
+                "actual_duration_ms": 3500,
+                "assigned_duration_ms": 3500,
+                "timing_transform": production._timing_transform(3500, 3500),
                 "generation_method": "coverage",
             },
         ],
@@ -268,11 +280,11 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
                 request,
                 row,
                 stage=stage,
-                request_hash=request_hash,
-                provider_model=provider_models[stage],
-                exact_duration=(
-                    row.get("exact_duration_seconds") if stage == "clips" else None
-                ),
+                    request_hash=request_hash,
+                    provider_model=provider_models[stage],
+                    actual_duration_ms=row.get("actual_duration_ms"),
+                    assigned_duration_ms=row.get("assigned_duration_ms"),
+                    timing_transform=row.get("timing_transform"),
             )
 
     class Conn:
@@ -288,9 +300,12 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
     with pytest.raises(CustomFilmContractError, match="tampered motion"):
         await seams._quality_media_preflight(request)
     stage_rows["motion"][1]["asset_id"] = "b"
-    stage_rows["clips"][1]["exact_duration_seconds"] = Decimal("3.4")
+    stage_rows["clips"][1]["assigned_duration_ms"] = 3400
     stage_rows["clips"][1]["duration_seconds"] = Decimal("3.4")
     stage_rows["clips"][1]["assigned_video_duration"] = Decimal("3.4")
+    stage_rows["clips"][1]["timing_transform"] = production._timing_transform(
+        3500, 3400
+    )
     clip_row = stage_rows["clips"][1]
     clip_row["provenance_artifact_hash"] = seams._artifact_identity_hash(
         request,
@@ -298,7 +313,9 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
         stage="clips",
         request_hash=clip_row["provenance_request_hash"],
         provider_model=clip_row["provenance_provider_model"],
-        exact_duration=clip_row["exact_duration_seconds"],
+        actual_duration_ms=clip_row["actual_duration_ms"],
+        assigned_duration_ms=clip_row["assigned_duration_ms"],
+        timing_transform=clip_row["timing_transform"],
     )
     with pytest.raises(CustomFilmContractError, match="exact section seconds"):
         await seams._quality_media_preflight(request)
@@ -328,9 +345,12 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
             "asset_id": "asset-1",
             "video_clip_url": "fake://clip",
             "model_used": "clip-test",
-            "exact_duration_seconds": Decimal("7"),
+            "video_duration": Decimal("7"),
             "duration_seconds": Decimal("7"),
             "assigned_video_duration": Decimal("7"),
+            "actual_duration_ms": 7000,
+            "assigned_duration_ms": 7000,
+            "timing_transform": production._timing_transform(7000, 7000),
             "generation_method": "coverage",
         },
     }
@@ -350,7 +370,9 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
             stage=stage,
             request_hash=request_hash,
             provider_model=models[stage],
-            exact_duration=row.get("exact_duration_seconds"),
+            actual_duration_ms=row.get("actual_duration_ms"),
+            assigned_duration_ms=row.get("assigned_duration_ms"),
+            timing_transform=row.get("timing_transform"),
         )
         assert seams._completed_provenance_is_exact(request, row, stage=stage)
 
@@ -467,7 +489,7 @@ async def test_exact_asset_claim_is_submitted_before_provider_and_race_rejects(
         ],
         provider_models={"asset-1": "claude-test"},
     )
-    assert "status, exact_duration_seconds" in conn.queries[0]
+    assert "status, assigned_duration_ms" in conn.queries[0]
     assert "'prepared'" in conn.queries[0]
     assert "SET status = 'submitted'" in conn.queries[1]
 
@@ -533,8 +555,7 @@ def test_provider_result_validators_reject_partial_wrong_or_failed_outputs():
         "clips_blocked": 0,
         "clips_in_progress_elsewhere": 0,
     }
-    durations = {"a": Decimal("3.5"), "b": Decimal("3.5")}
-    assert set(production._exact_clip_result(clips, asset_ids, durations)) == set(
+    assert set(production._exact_clip_result(clips, asset_ids)) == set(
         asset_ids
     )
     for changed in (
@@ -555,12 +576,12 @@ def test_provider_result_validators_reject_partial_wrong_or_failed_outputs():
         },
     ):
         with pytest.raises(CustomFilmContractError):
-            production._exact_clip_result(changed, asset_ids, durations)
-    for wrong_duration in (None, "wrong", "3.4"):
+            production._exact_clip_result(changed, asset_ids)
+    for wrong_duration in (None, "wrong", "0"):
         changed = copy.deepcopy(clips)
         changed["generated_artifacts"][1]["duration_seconds"] = wrong_duration
         with pytest.raises(CustomFilmContractError, match="duration"):
-            production._exact_clip_result(changed, asset_ids, durations)
+            production._exact_clip_result(changed, asset_ids)
 
 
 def test_concurrent_artifact_write_cannot_be_adopted():
@@ -580,6 +601,7 @@ def test_concurrent_artifact_write_cannot_be_adopted():
                     "id": "a",
                     "video_clip_url": "clip:concurrent",
                     "model_used": "wrong-model",
+                    "video_duration": "6",
                 }
             ],
             asset_ids,
@@ -587,6 +609,154 @@ def test_concurrent_artifact_write_cannot_be_adopted():
                 "a": {
                     "video_clip_url": "clip:provider",
                     "provider_model": "grok",
+                    "duration_seconds": "6",
                 }
             },
         )
+
+
+@pytest.mark.asyncio
+async def test_actual_six_target_thirty_seven_is_honest_needs_compositor(
+    monkeypatch,
+):
+    request = production._request(
+        _adapter("quality", seconds=37),
+        ("scene-1",),
+        "custom-film-op:" + "7" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    transform = production._timing_transform(6000, 37000)
+    assert transform == {
+        "mode": "repeat_then_trim",
+        "source_duration_ms": 6000,
+        "repeat_count": 7,
+        "final_repeat_duration_ms": 1000,
+        "output_duration_ms": 37000,
+    }
+    stage_rows = {
+        "pictures": [
+            {
+                "asset_id": "asset-1",
+                "image_url": "image:1",
+                "drive_image_url": "image:1",
+                "image_model": "image-test",
+                "generation_method": "coverage",
+                "status": "done",
+            }
+        ],
+        "motion": [
+            {
+                "asset_id": "asset-1",
+                "video_prompt": "move",
+                "motion_gate_status": None,
+                "generation_method": "coverage",
+            }
+        ],
+        "clips": [
+            {
+                "asset_id": "asset-1",
+                "video_clip_url": "clip:1",
+                "model_used": "clip-test",
+                "video_duration": Decimal("6"),
+                "duration_seconds": Decimal("37"),
+                "assigned_video_duration": Decimal("37"),
+                "actual_duration_ms": 6000,
+                "assigned_duration_ms": 37000,
+                "timing_transform": transform,
+                "generation_method": "coverage",
+            }
+        ],
+    }
+    models = {
+        "pictures": "image-test",
+        "motion": "claude-test",
+        "clips": "clip-test",
+    }
+    for stage, rows in stage_rows.items():
+        request_hash = production.canonical_hash({"stage": stage, "37v6": True})
+        for row in rows:
+            row["provenance_provider_model"] = models[stage]
+            row["provenance_request_hash"] = request_hash
+            row["provenance_generation_method"] = row["generation_method"]
+            row["provenance_artifact_hash"] = seams._artifact_identity_hash(
+                request,
+                row,
+                stage=stage,
+                request_hash=request_hash,
+                provider_model=models[stage],
+                actual_duration_ms=row.get("actual_duration_ms"),
+                assigned_duration_ms=row.get("assigned_duration_ms"),
+                timing_transform=row.get("timing_transform"),
+            )
+
+    class Conn:
+        async def fetch(self, _sql, *args):
+            return copy.deepcopy(stage_rows[args[5]])
+
+    async def get_pool():
+        return _Pool(Conn())
+
+    monkeypatch.setattr("database.get_pool", get_pool)
+    evidence = await seams._quality_media_preflight(request)
+    assert evidence["timing_status"] == "needs_compositor"
+    assert evidence["timing_transforms"][0]["actual_duration_ms"] == 6000
+    assert evidence["timing_transforms"][0]["assigned_duration_ms"] == 37000
+
+    stage_rows["clips"][0]["timing_transform"]["repeat_count"] = 6
+    with pytest.raises(CustomFilmContractError, match="tampered clips"):
+        await seams._quality_media_preflight(request)
+
+
+@pytest.mark.asyncio
+async def test_completion_persists_actual_target_and_transform_separately(
+    monkeypatch,
+):
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    request = production._request(
+        _adapter("clips", seconds=37),
+        ("scene-1",),
+        "custom-film-op:" + "8" * 64,
+        asset_ids=("asset-1",),
+    )
+
+    class Conn:
+        def __init__(self):
+            self.args = None
+            self.sql = ""
+
+        async def execute(self, sql, *args):
+            self.sql = sql
+            self.args = args
+            return "UPDATE 1"
+
+        def transaction(self):
+            return _Context(None)
+
+    conn = Conn()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    monkeypatch.setattr("database.get_pool", get_pool)
+    await seams._complete_media_provenance(
+        request,
+        [
+            {
+                "id": "asset-1",
+                "video_clip_url": "clip:1",
+                "model_used": "grok",
+                "video_duration": Decimal("6"),
+                "duration_seconds": Decimal("37"),
+                "assigned_video_duration": Decimal("37"),
+                "generation_method": "coverage",
+            }
+        ],
+        provider_models={"asset-1": "grok"},
+        durations={"asset-1": Decimal("37")},
+        actual_durations={"asset-1": Decimal("6")},
+    )
+    assert "actual_duration_ms = $10" in conn.sql
+    assert conn.args[9] == 6000
+    assert conn.args[10] == 37000
+    assert '"mode": "repeat_then_trim"' in conn.args[11]
+    assert '"repeat_count": 7' in conn.args[11]
