@@ -2,9 +2,10 @@
 
 Replaces yt-dlp scraping for metadata (views, publish dates, titles, etc.).
 The official API is not bot-blocked on datacenter IPs and is free within quota.
-Cost per channel refresh ≈ 3 units (channels.list + playlistItems.list +
-videos.list), or ≈ 103 if a search.list fallback is needed to resolve the
-channel id. Default project quota is 10,000 units/day (≈ 3,000 refreshes).
+Ordinary list calls consume the general-unit bucket. ``search.list`` uses
+YouTube's separate daily search-call bucket. This module records each call
+after it is issued; routes/youtube_sync.py has separate aggregation and does
+not call this module, so the counters are not duplicated.
 
 A single server-side API key (env YOUTUBE_API_KEY) reads PUBLIC data for every
 tenant — competitor videos are public, so no per-user OAuth is needed.
@@ -17,6 +18,20 @@ from typing import Optional
 import httpx
 
 API_BASE = "https://www.googleapis.com/youtube/v3"
+
+
+async def _record_general_call(operation: str) -> None:
+    from youtube_quota import record_units
+
+    await record_units(1, operation)
+
+
+async def _reserve_search_call() -> None:
+    from youtube_quota import quota_exceeded_message, reserve_search_call
+
+    ok, status = await reserve_search_call()
+    if not ok:
+        raise RuntimeError(quota_exceeded_message(status))
 
 
 def _parse_iso8601_duration(s: str) -> int:
@@ -46,6 +61,7 @@ async def _resolve_channel_id(
             f"{API_BASE}/channels",
             params={"part": "id", "forHandle": m.group(1), "key": api_key},
         )
+        await _record_general_call("youtube_data_api.channels.list")
         items = r.json().get("items") if r.status_code == 200 else None
         if items:
             return items[0]["id"]
@@ -56,6 +72,7 @@ async def _resolve_channel_id(
             f"{API_BASE}/channels",
             params={"part": "id", "forUsername": m.group(1), "key": api_key},
         )
+        await _record_general_call("youtube_data_api.channels.list")
         items = r.json().get("items") if r.status_code == 200 else None
         if items:
             return items[0]["id"]
@@ -63,6 +80,10 @@ async def _resolve_channel_id(
     # Last resort: search by the /c/<name> segment (or trailing path / raw text).
     m = re.search(r"/c/([\w.\-]+)", url) or re.search(r"/([\w.\-]+)/?$", url)
     q = m.group(1) if m else url
+    # Reserve atomically before invoking client.get. Once client.get begins,
+    # retain the reservation even on an HTTP error because the request may
+    # have reached YouTube and consumed the call bucket.
+    await _reserve_search_call()
     r = await client.get(
         f"{API_BASE}/search",
         params={"part": "id", "q": q, "type": "channel", "maxResults": 1, "key": api_key},
@@ -93,6 +114,7 @@ async def fetch_single_video(youtube_id: str, api_key: str) -> Optional[dict]:
             f"{API_BASE}/videos",
             params={"part": "snippet,statistics,contentDetails", "id": yid, "key": api_key},
         )
+        await _record_general_call("youtube_data_api.videos.list")
         r.raise_for_status()
         items = r.json().get("items") or []
         if not items:
@@ -150,6 +172,7 @@ async def fetch_live_video_ids(youtube_ids, api_key: str) -> set:
                     f"{API_BASE}/videos",
                     params={"part": "id", "id": ",".join(batch), "key": api_key},
                 )
+                await _record_general_call("youtube_data_api.videos.list")
                 r.raise_for_status()
                 for v in r.json().get("items", []):
                     if v.get("id"):
@@ -177,6 +200,7 @@ async def fetch_channel_videos(
             f"{API_BASE}/channels",
             params={"part": "contentDetails,snippet", "id": channel_id, "key": api_key},
         )
+        await _record_general_call("youtube_data_api.channels.list")
         r.raise_for_status()
         items = r.json().get("items") or []
         if not items:
@@ -198,6 +222,7 @@ async def fetch_channel_videos(
             if page:
                 params["pageToken"] = page
             r = await client.get(f"{API_BASE}/playlistItems", params=params)
+            await _record_general_call("youtube_data_api.playlistItems.list")
             r.raise_for_status()
             data = r.json()
             for it in data.get("items", []):
@@ -222,6 +247,7 @@ async def fetch_channel_videos(
                     "key": api_key,
                 },
             )
+            await _record_general_call("youtube_data_api.videos.list")
             r.raise_for_status()
             for v in r.json().get("items", []):
                 sn = v.get("snippet", {})

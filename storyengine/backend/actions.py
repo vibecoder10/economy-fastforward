@@ -276,8 +276,8 @@ async def already_uploaded_reply(tenant_id, video_id) -> Optional[str]:
     autobuild finish chain having already uploaded moments earlier) than a
     genuine "make a second draft" intent — unlike "redo the thumbnail", which
     is unambiguous because there is no other way to say "regenerate" in this
-    codebase. A duplicate draft is real quota burn (~1,600 of the 10,000/day
-    YouTube units) for a mistake that's easy to make and easy to prevent, so
+    codebase. A duplicate draft consumes another one of the shared project's
+    100 daily upload calls for a mistake that's easy to make and prevent, so
     the safer default is: the explicit verb ALSO skips, same as every other
     caller. `PipelineExecutor.run_upload`'s own `force=` guard (checked again,
     independently, at the executor layer) is the actual money-safety

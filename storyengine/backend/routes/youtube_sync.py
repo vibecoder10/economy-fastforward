@@ -201,16 +201,15 @@ async def _run_sync(tenant_id: str):
 
             _sync_tasks[tenant_id]["videos_total"] = len(details)
 
-            # Quota bookkeeping (checklist §3.4, C33): record the Data API
-            # units this sync actually spent — 1/channels.list call (step 1
+            # Quota bookkeeping: record general Data API units this sync
+            # actually spent — 1/channels.list call (step 1
             # above) + 1/playlistItems.list page (50 ids each) +
             # 1/videos.list batch (50 ids each), per Google's published
             # per-call cost (youtube_quota.UNIT_COSTS). This sync path never
             # calls videos.insert/search.list, so it's cheap (single digits
             # to low tens of units/tenant/day) and is recorded for an
-            # honest running total, not gated — the upload guard in
-            # youtube_publish.py is where refusal actually matters (a
-            # 1,600-unit call vs. this ~1-10 unit one).
+            # honest running total, not gated. Uploads have a separate daily
+            # videos.insert bucket and are gated in youtube_publish.py.
             import math
             from youtube_quota import record_units
             list_units = 1  # channels.list (step 1, fetch_channel_summary)

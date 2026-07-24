@@ -1124,8 +1124,8 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     # C16e (S7-9 follow-up): "upload it"/"publish" on a video that's already
     # uploaded is far more likely a double-tap (a repeated turn, or the
     # autobuild finish chain having just uploaded it) than genuine intent to
-    # mint a SECOND YouTube draft — real quota burn (~1,600 of the 10,000/day
-    # units). Check + reply BEFORE claiming a lane or scheduling anything, so
+    # mint a SECOND YouTube draft — it consumes another one of the shared
+    # project's 100 daily upload calls. Check + reply BEFORE claiming a lane, so
     # a double-tap never even starts a background task. Design choice
     # (deliberately unlike C16d's thumbnail verb, which ALWAYS forces): see
     # actions.already_uploaded_reply's docstring for the full rationale.

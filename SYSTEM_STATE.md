@@ -576,7 +576,9 @@ Vectorization pipeline that distills raw data (transcripts, research) into struc
 - Never add unnecessary API calls in loops. Batch where possible.
 - Use `--dry-run` flags or mock API responses for testing. Don't burn $15 on a test run.
 - Budget alerts exist at 80% threshold (animation pipeline).
-- YouTube upload quota: 10,000 units/day, ~1,600 per upload (max ~6 uploads/day).
+- YouTube project quota uses separate daily buckets: 100 video uploads, 100
+  searches, and 10,000 general units with StoryEngine's 9,000-unit safety
+  ceiling. A successful custom thumbnail consumes 50 general units.
 
 ---
 
@@ -3738,8 +3740,8 @@ native upload path (`youtube_publish.upload_video_to_youtube`) or the legacy
 from-scratch bot. A second invocation (a routine status-machine resume, an
 arq retry, a chat "upload it" double-tap, claude_orchestrator's skill
 dispatch re-firing) minted a genuine SECOND YouTube draft — recoverable
-(delete it in Studio) but messy, and burns ~1,600 of the 10,000/day YouTube
-API quota units for nothing.
+(delete it in Studio) but messy, and unnecessarily consumes another one of
+the shared project's 100 daily video-upload calls.
 
 **Fix — mirrors C16d's `run_thumbnail` guard exactly, at the executor layer:**
 
@@ -6308,8 +6310,9 @@ reality. Safe to ff-merge; no VPS coordination needed.
 
 ## C33 — P3.4 quota guard + own-video VPH (added 2026-07-19)
 
-Checklist §3.4's two audit findings: (1) "YouTube quota (10k units/day ~ 6 uploads) documented but
-not enforced in code" — the upload path had zero guard, a bad day just eats a raw 403; (2) "VPH
+Checklist §3.4's historical audit language (superseded by the granular model
+documented below) said: (1) "YouTube quota (10k units/day ~ 6 uploads) documented but
+not enforced in code" — the upload path then had zero guard; (2) "VPH
 computed for competitors only, never for own videos — scorecards compare apples to oranges."
 
 ### Quota guard
@@ -6333,21 +6336,43 @@ from `secrets`/`static_reference_cache`/`channel_video_retention` (migration 083
 as `postgres`, bypasses RLS via `rolbypassrls=true`).
 ```sql
 CREATE TABLE IF NOT EXISTS youtube_quota_usage (
-  day DATE PRIMARY KEY, units_used INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ DEFAULT now()
+  day DATE PRIMARY KEY,
+  units_used INTEGER NOT NULL DEFAULT 0,
+  video_uploads_used INTEGER NOT NULL DEFAULT 0,
+  search_calls_used INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 ```
 
-**New module `storyengine/backend/youtube_quota.py`** — unit costs from Google's published YouTube
-Data API v3 quota-cost table (`videos.insert`=1600, `thumbnails.set`=50, `videos.update`=50,
-`search.list`=100, `videos.list`/`channels.list`/`playlistItems.list`=1 each; cross-checked against
-`youtube_data_api.py`'s pre-existing header comment, which already documented the list-call costs).
-YouTube Analytics API (separate quota system) is deliberately NOT counted. `DEFAULT_CEILING = 9000`
-(env `YOUTUBE_DAILY_QUOTA_CEILING`), leaving ~1,000 units headroom under the real 10,000/day limit —
-more conservative than the checklist's illustrative "10k, 6 uploads" framing, by design. Reset key:
-`_pt_today()` via `zoneinfo.ZoneInfo("America/Los_Angeles")` (stdlib, no new dependency) — matches
-YouTube's real midnight-PT reset, not UTC midnight. `get_quota_status()` / `record_units()` /
-`check_quota_available()` are all fail-soft: any DB error is logged and treated as "0 used today" —
-a broken tracker must never itself block a real upload.
+### YouTube granular quota correction (migration 129, 2026-07-23)
+
+YouTube upload and search capacity are tracked independently from the general
+Data API units pool. Migration 129 additively extends `youtube_quota_usage`
+with `video_uploads_used` and `search_calls_used`; existing `units_used`
+remains the general bucket and historical rows are not reinterpreted.
+
+Default project-wide daily limits are 100 `videos.insert` calls, 100
+`search.list` calls, and 10,000 general units with a 9,000-unit application
+safety ceiling. They reset at midnight Pacific. Environment overrides:
+`YOUTUBE_VIDEO_UPLOAD_DAILY_LIMIT`, `YOUTUBE_SEARCH_DAILY_LIMIT`,
+`YOUTUBE_GENERAL_DAILY_LIMIT`, and `YOUTUBE_GENERAL_QUOTA_CEILING` (the
+legacy `YOUTUBE_DAILY_QUOTA_CEILING` remains accepted).
+
+The upload preflight atomically reserves one upload call and, when a thumbnail
+is present, 50 general units in PostgreSQL before provider work. Unused
+capacity is released without underflow: the upload reservation is retained
+once `videos.insert` reaches the wire, while thumbnail units are retained only
+when `thumbnails.set` succeeds. Public-data list calls are recorded against
+general units. The channel-resolution search fallback atomically reserves its
+search call before invoking YouTube. The separate `routes/youtube_sync.py`
+aggregation remains unchanged and is not double-counted by that instrumentation.
+
+**Module `storyengine/backend/youtube_quota.py`** — originally introduced in C33 and corrected by
+migration 129 to model the current three buckets described above. General-unit costs remain
+`thumbnails.set`=50, `videos.update`=50, and list calls=1. `videos.insert` and `search.list` are
+call counters, not general-unit costs. YouTube Analytics API (a separate quota system) is
+deliberately not counted. `_pt_today()` returns a real `datetime.date` in
+`America/Los_Angeles`; status JSON exposes its ISO string. All reads/writes/checks remain fail-soft.
 
 **Wired:**
 - `youtube_publish.py::upload_video_to_youtube` — the ONLY `videos().insert` call site in the
@@ -6355,17 +6380,15 @@ a broken tracker must never itself block a real upload.
   BEFORE downloading the render/thumbnail (fail fast, no wasted bandwidth on a blocked upload);
   refusal returns `{"error": <quota_exceeded_message>, "quota_exceeded": True}`, which
   `pipeline_executor.py`'s existing `if up.get("error"): raise Exception(up["error"])` already turns
-  into a clean failed-stage message — no raw 403 ever reaches the user. Actual spend recorded AFTER
-  a successful upload (re-derived from whether the thumbnail actually shipped, not the pre-flight
-  estimate), never before, so a failed upload never falsely counts against the budget.
+  into a clean failed-stage message — no raw 403 ever reaches the user. The atomic reservation
+  closes concurrent over-admission; attempted inserts retain one call and failed thumbnails release
+  their 50 reserved general units.
 - `routes/youtube_sync.py::_run_sync` — records the Data API list-call cost (channels.list +
   playlistItems.list pages + videos.list batches, ~1-10 units/tenant/day) for an honest running
-  total. NOT gated — cheap enough (single digits to low tens of units) that adding a refusal path
-  here would risk breaking analytics sync for negligible quota protection; the upload guard above is
-  where refusal actually matters (1,600+ units vs. ~1-10).
+  total. It is not gated; the upload path separately gates the upload-call bucket.
 - `main.py` — both `/api/health` and `/api/health/detailed` now carry a `youtube_quota:
-  {date_pt, units_used, ceiling, remaining}` field (C16d/C25b pattern: each check wrapped in its own
-  try/except so a broken quota read can't sink the rest of the health response).
+  {date_pt, general, video_uploads, search_calls, units_used, ceiling, remaining}` field. The last
+  three fields remain backward-compatible aliases for the general bucket.
 
 ### Own-video VPH
 
@@ -6411,17 +6434,18 @@ Restored, re-ran green.
 
 `python -m py_compile` clean on every touched/new backend file.
 
-21 new tests across 3 files:
-- `tests/functional/test_c33_youtube_quota.py` (12 tests) — units accumulate across calls;
-  default ceiling is 9000 (not the checklist's illustrative 10k); the checklist's own "6 uploads
-  fit, 7th refused" scenario reproduced exactly with an explicit 10,000-unit ceiling env override
-  (6×1600=9600≤10000 passes, 7th would be 11,200>10,000, refused, message names the exact
-  used/ceiling numbers + "midnight Pacific"); `upload_cost()` thumbnail math; fail-soft on read AND
-  write DB errors (read failure never blocks a normal-cost check, write failure never raises after a
-  real upload); midnight-PT reset (two different Pacific-day keys are independent counters, proven
-  by monkeypatching `_pt_today()`); a direct cross-check that `_pt_today()` really uses
-  America/Los_Angeles (`2026-07-19T06:00:00Z` == `2026-07-18` Pacific, not `2026-07-19`); both health
-  endpoints carry the field.
+Current quota correction verification (2026-07-23):
+- Focused quota/upload/search/schema suite: 48 passed. Coverage includes real
+  `datetime.date` database parameters with ISO JSON, independent 100-upload,
+  100-search, and general 10,000/9,000-safety buckets, conflicting environment
+  limits, atomic concurrent reservations at the 99→100 boundary, refusal before
+  provider calls, midnight-Pacific reset, fail-soft database outages,
+  reservation release without underflow, and thumbnail SDK success/failure.
+- Neighboring upload/chat/sync/MCP regression suite: 69 passed.
+- Migration 129 and its fresh-schema representation are tested additively but
+  have not been applied to production in this correction branch.
+
+The original C33 also introduced these VPH tests, which remain applicable:
 - `tests/functional/test_c33_own_vph.py` (6 tests) — unpublished → None; zero/near-zero-hours guard
   → None (both "published this instant" and a future/clock-skew timestamp); known fixture (1,200
   views / 24h → 50.0 VPH, matching the checklist's own worked example) from both a `datetime` and an
@@ -6432,12 +6456,10 @@ Restored, re-ran green.
   `_aggregate_clip_model`'s dict-building AND survives FastAPI's `response_model` filtering (the
   exact failure mode of adding a field to SQL/dict but forgetting the Pydantic model).
 
-**Full backend suite:** `./venv/bin/python -m pytest tests/ -q` → **1241 passed / 15 failed / 1
-error** (baseline 1220/15/1 + this chunk's 21 new tests, zero new failures — the same 15
-pre-existing failures, none touching any file this chunk modified). Discovered and fixed one
-drift-checker regression along the way: `test_schema_sql_migrations_drift.py` failed until
-`youtube_quota_usage` was also added to `schema.sql` (migration alone isn't enough — that test
-enforces schema.sql stays the fresh-install source of truth).
+**Historical original-C33 full backend run:** `1241 passed / 15 failed / 1
+error`. This is retained as historical evidence, not presented as the current
+correction-branch result. The current correction used the focused and
+neighboring suites above.
 
 **Autopilot suite (untouched — confirmed via `git status`, zero files under `skills/video-pipeline/`
 changed this chunk):** `cd skills/video-pipeline && python3 -m pytest autopilot/tests/ -q` → **146

@@ -19,7 +19,11 @@ from typing import Optional
 
 from database import fetch_one, fetch_all, execute
 from kie_unified import get_text_client_for_tenant
-from youtube_quota import check_quota_available, quota_exceeded_message, record_units, upload_cost
+from youtube_quota import (
+    quota_exceeded_message,
+    release_upload_reservation,
+    reserve_upload,
+)
 # Single Claude tier source (checklist §3.4 / C35) — see shared.channel_profile.
 from actions import claude_model_for_direct_client
 
@@ -158,9 +162,35 @@ async def save_seo(video_id: str, tenant_id: str, *, title: Optional[str] = None
     return {"status": "saved"}
 
 
-def _do_youtube_upload(refresh_token: str, video_path: str, thumb_path: Optional[str],
-                       title: str, description: str, tags: list, category_id: str,
-                       privacy: str, made_for_kids: bool) -> dict:
+class YouTubeUploadAttemptError(RuntimeError):
+    """Upload failure annotated with whether videos.insert reached the wire."""
+
+    def __init__(self, message: str, *, video_insert_attempted: bool):
+        super().__init__(message)
+        self.video_insert_attempted = video_insert_attempted
+
+
+def _youtube_upload_result(yt_id: str, thumbnail_succeeded: bool) -> dict:
+    """Pure result seam used by the blocking SDK adapter and unit tests."""
+    return {
+        "youtube_video_id": yt_id,
+        "youtube_url": f"https://www.youtube.com/watch?v={yt_id}",
+        "thumbnail_succeeded": thumbnail_succeeded,
+    }
+
+
+def _do_youtube_upload_impl(
+    refresh_token: str,
+    video_path: str,
+    thumb_path: Optional[str],
+    title: str,
+    description: str,
+    tags: list,
+    category_id: str,
+    privacy: str,
+    made_for_kids: bool,
+    attempt_state: dict,
+) -> dict:
     """Blocking YouTube upload (googleapiclient is sync) — run via asyncio.to_thread.
     Uses the tenant's OWN refresh token + the OAuth app creds that minted it."""
     from google.oauth2.credentials import Credentials
@@ -190,17 +220,45 @@ def _do_youtube_upload(refresh_token: str, video_path: str, thumb_path: Optional
     req = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     resp = None
     while resp is None:
+        # next_chunk performs the resumable videos.insert HTTP request.
+        attempt_state["video_insert_attempted"] = True
         _status, resp = req.next_chunk()
     yt_id = resp["id"]
+    thumbnail_succeeded = False
     if thumb_path and os.path.exists(thumb_path):
         try:
             youtube.thumbnails().set(
                 videoId=yt_id,
                 media_body=MediaFileUpload(thumb_path, mimetype="image/jpeg")).execute()
+            thumbnail_succeeded = True
         except Exception:
             pass  # thumbnail is best-effort; the upload itself succeeded
-    return {"youtube_video_id": yt_id,
-            "youtube_url": f"https://www.youtube.com/watch?v={yt_id}"}
+    return _youtube_upload_result(yt_id, thumbnail_succeeded)
+
+
+def _do_youtube_upload(refresh_token: str, video_path: str, thumb_path: Optional[str],
+                       title: str, description: str, tags: list, category_id: str,
+                       privacy: str, made_for_kids: bool) -> dict:
+    """Blocking adapter with precise videos.insert attempt semantics."""
+    attempt_state = {"video_insert_attempted": False}
+    try:
+        return _do_youtube_upload_impl(
+            refresh_token,
+            video_path,
+            thumb_path,
+            title,
+            description,
+            tags,
+            category_id,
+            privacy,
+            made_for_kids,
+            attempt_state,
+        )
+    except Exception as exc:
+        raise YouTubeUploadAttemptError(
+            str(exc),
+            video_insert_attempted=attempt_state["video_insert_attempted"],
+        ) from exc
 
 
 async def _download_to_local(url: str, dest: str) -> None:
@@ -237,19 +295,15 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
     if not (cp and cp["youtube_refresh_token"]):
         return {"error": "No YouTube channel connected. Connect one in Settings → first."}
 
-    # Quota guard (checklist §3.4, C33): an upload is ~1,600-1,650 units out
-    # of the shared 10,000/day Data API budget (one Google Cloud project
-    # behind every tenant's OAuth token — see youtube_quota.py's module
-    # docstring for why this check is GLOBAL, not per-tenant). Checked
-    # BEFORE downloading the render/thumbnail so a blocked upload fails
-    # fast instead of burning bandwidth on files it can't send. Fail-soft
-    # by construction: check_quota_available() only ever returns ok=False
-    # from a real counted total, never from a tracker error (that case
-    # reads as "0 used" and passes through).
-    est_cost = upload_cost(has_thumbnail=bool(v["thumbnail_url"]))
-    quota_ok, quota_status = await check_quota_available(est_cost)
+    # Atomically reserve one videos.insert call plus optional thumbnail units.
+    # PostgreSQL performs the limit check and increment together, closing the
+    # concurrent check-then-increment race.
+    quota_ok, quota_status = await reserve_upload(
+        has_thumbnail=bool(v["thumbnail_url"])
+    )
     if not quota_ok:
         return {"error": quota_exceeded_message(quota_status), "quota_exceeded": True}
+    reservation = quota_status.get("reservation")
 
     title = (v["video_title"] or "Untitled")[:100]
     description = v["seo_description"] or title
@@ -262,6 +316,8 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
     workdir = tempfile.mkdtemp(prefix=f"ytup_{video_id[:8]}_")
     vpath = os.path.join(workdir, "final.mp4")
     tpath = os.path.join(workdir, "thumb.jpg")
+    release_upload = True
+    release_general = bool(v["thumbnail_url"])
     try:
         await _download_to_local(v["final_video_url"], vpath)
         thumb = None
@@ -271,14 +327,17 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
                 thumb = tpath
             except Exception:
                 thumb = None
-        result = await asyncio.to_thread(
-            _do_youtube_upload, cp["youtube_refresh_token"], vpath, thumb,
-            title, description, tags, category_id, privacy, made_for_kids)
-        # Record ACTUAL spend (thumb may have failed to download and been
-        # dropped above, so re-derive the real cost from what shipped rather
-        # than the pre-flight estimate) after the upload succeeds — never
-        # before, so a failed upload never falsely counts against the budget.
-        await record_units(upload_cost(has_thumbnail=bool(thumb)), "videos.insert")
+        try:
+            result = await asyncio.to_thread(
+                _do_youtube_upload, cp["youtube_refresh_token"], vpath, thumb,
+                title, description, tags, category_id, privacy, made_for_kids)
+        except YouTubeUploadAttemptError as exc:
+            # An attempted videos.insert consumes the reserved upload call even
+            # when YouTube rejects/fails it. No thumbnail call succeeded.
+            release_upload = not exc.video_insert_attempted
+            raise
+        release_upload = False
+        release_general = not bool(result.get("thumbnail_succeeded"))
         await execute(
             "UPDATE videos SET youtube_video_id=$1, youtube_url=$2, upload_status='uploaded', "
             "upload_date=now(), status='uploaded_draft', updated_at=now() "
@@ -290,3 +349,8 @@ async def upload_video_to_youtube(video_id: str, tenant_id: str, *,
     finally:
         import shutil
         shutil.rmtree(workdir, ignore_errors=True)
+        await release_upload_reservation(
+            reservation,
+            release_upload=release_upload,
+            release_general=release_general,
+        )

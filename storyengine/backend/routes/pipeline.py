@@ -2494,7 +2494,8 @@ async def run_upload(
     PipelineExecutor.run_upload's skip-if-done guard for a genuinely-new
     upload. Default False skips a video that already has a recorded YouTube
     id/URL — this prevents a re-invoke (a resumed status machine, a retried
-    click) from minting a second YouTube draft and burning ~1,600 quota units.
+    click) from minting a second YouTube draft and consuming another one of
+    the shared project's 100 daily upload calls.
 
     S10-1 (C34a): belt-and-suspenders precondition — reject here, at the
     route, before any task lock is claimed, if the tenant has no connected

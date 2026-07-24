@@ -7,7 +7,7 @@ all — every call unconditionally ran the per-tenant native upload path (or
 the legacy from-scratch bot), so a second invocation (a routine
 status-machine resume, an arq retry, a chat "upload it" double-tap) minted
 a genuine SECOND YouTube draft: recoverable (delete it in Studio) but messy,
-and it burns ~1,600 of the 10,000/day YouTube API quota units for nothing.
+and it consumes another one of the shared project's 100 daily upload calls.
 Contrast: C16d already added this exact skip-if-done shape for the
 thumbnail stage.
 

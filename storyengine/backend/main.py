@@ -900,8 +900,8 @@ async def health():
     checks["queue"] = "arq" if getattr(app.state, "arq", None) else "degraded-inprocess"
 
     # YouTube Data API quota (checklist §3.4, C33): remaining units in the
-    # shared 10,000/day pool (see youtube_quota.py for why this is GLOBAL,
-    # not per-tenant). Fail-soft — get_quota_status() never raises.
+    # Shared project-wide daily buckets (see youtube_quota.py for why these
+    # are GLOBAL, not per-tenant). Fail-soft — status never raises.
     try:
         from youtube_quota import get_quota_status
         checks["youtube_quota"] = await get_quota_status()

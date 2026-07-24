@@ -551,14 +551,13 @@ def test_migration_122_and_fresh_schema_match_security_and_scene_foundation():
     assert "scripts_tenant_video_id_uidx" in migration
     assert "custom_film_sections(tenant_id, plan_id, video_id, section_id)" in migration
     assert "protect_custom_film_immutable_contract" in migration
-    migration_numbers = [
-        int(path.name.split("_", 1)[0])
-        for path in (root / "backend" / "migrations").glob("[0-9][0-9][0-9]_*.sql")
-    ]
-    # M2-4A's envelope, B1 restart progress, B2a provider-operation
-    # reconciliation journal, B2c per-asset provenance, and M2-5's durable
-    # assembly/upload journal and M2-6 recipe lifecycle are additive migrations.
-    assert max(migration_numbers) == 128
+    # This contract owns migration 128 specifically; unrelated future
+    # migrations must not make the Custom Film test brittle.
+    recipe_lifecycle = (
+        root / "backend" / "migrations" / "128_custom_film_recipe_lifecycle.sql"
+    )
+    assert recipe_lifecycle.exists()
+    assert "protect_custom_film_immutable_contract" in recipe_lifecycle.read_text()
 
 
 def test_recipe_name_and_plan_projection_are_topic_free(manifest):
