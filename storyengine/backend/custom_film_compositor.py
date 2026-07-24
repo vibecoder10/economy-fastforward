@@ -38,6 +38,9 @@ from error_utils import humanize_error
 
 ASSEMBLY_VERSION_V1 = "custom-film-assembly-v1"
 ASSEMBLY_VERSION_V2 = "custom-film-assembly-v2"
+ASSEMBLY_VERSION_V3 = "custom-film-assembly-v3"
+# Compatibility default for direct callers; production selects v3 only when
+# Remotion is explicitly requested before journaling.
 ASSEMBLY_VERSION = ASSEMBLY_VERSION_V2
 DEFAULT_FPS = 24
 SUPPORTED_TRANSFORMS = frozenset({"none", "trim", "repeat_then_trim"})
@@ -426,11 +429,19 @@ def build_assembly_manifest(
 
     if render_engine not in SUPPORTED_RENDER_ENGINES:
         raise CustomFilmContractError("Custom Film render engine is unsupported")
-    if assembly_version not in {ASSEMBLY_VERSION_V1, ASSEMBLY_VERSION_V2}:
+    if assembly_version not in {
+        ASSEMBLY_VERSION_V1,
+        ASSEMBLY_VERSION_V2,
+        ASSEMBLY_VERSION_V3,
+    }:
         raise CustomFilmContractError("Custom Film assembly version is unsupported")
     if assembly_version == ASSEMBLY_VERSION_V1 and render_engine != "ffmpeg":
         raise CustomFilmContractError(
             "Custom Film assembly v1 only supports its original FFmpeg renderer"
+        )
+    if assembly_version == ASSEMBLY_VERSION_V3 and render_engine != "remotion":
+        raise CustomFilmContractError(
+            "Custom Film assembly v3 is reserved for Remotion"
         )
 
     scenes = _rows(scene_rows, "section scenes")
@@ -1049,7 +1060,7 @@ def build_assembly_manifest(
         },
         "sections": manifest_sections,
     }
-    if assembly_version == ASSEMBLY_VERSION_V2:
+    if assembly_version in {ASSEMBLY_VERSION_V2, ASSEMBLY_VERSION_V3}:
         body.update(
             {
                 "plan_hash": str(envelope["plan_hash"]),
@@ -1057,6 +1068,20 @@ def build_assembly_manifest(
                 "approval_hash": str(envelope["approval_hash"]),
                 "max_spend": envelope["max_spend"],
                 "render_engine": render_engine,
+            }
+        )
+    if assembly_version == ASSEMBLY_VERSION_V3:
+        from custom_film_remotion import (
+            REMOTION_RENDERER_CONTRACT_VERSION,
+            renderer_bundle_hash,
+        )
+
+        body.update(
+            {
+                "renderer_contract_version": (
+                    REMOTION_RENDERER_CONTRACT_VERSION
+                ),
+                "renderer_bundle_hash": renderer_bundle_hash(),
             }
         )
     body["manifest_hash"] = canonical_hash(body)
@@ -1849,7 +1874,7 @@ async def render_manifest_with_engine(
                 "Custom Film assembly v1 renderer identity changed"
             )
         engine = "ffmpeg"
-    elif assembly_version == ASSEMBLY_VERSION_V2:
+    elif assembly_version in {ASSEMBLY_VERSION_V2, ASSEMBLY_VERSION_V3}:
         engine = str(manifest.get("render_engine") or "")
     else:
         raise CustomFilmContractError("Custom Film assembly version is unsupported")
@@ -2218,7 +2243,11 @@ async def render_custom_film_video(
             remotion_available=remotion_renderer is not None,
             pre_journal_fallback=pre_journal_fallback,
         )
-        selected_assembly_version = ASSEMBLY_VERSION
+        selected_assembly_version = (
+            ASSEMBLY_VERSION_V3
+            if selected_render_engine == "remotion"
+            else ASSEMBLY_VERSION_V2
+        )
     preliminary = build_assembly_manifest(
         tenant_id=tenant_id,
         envelope_value=inputs["envelope"],

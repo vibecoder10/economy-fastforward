@@ -30,7 +30,7 @@
   provenance hashes, caption/audio timing, and its own canonical SHA-256.
 - `custom-film-assembly-v1` remains the original FFmpeg-only shape.
   `custom-film-assembly-v2` adds the immutable render-engine and approval
-  identity required by the alternate renderer. Migration 129 and the matching
+  identity required by the alternate renderer. Migration 130 and the matching
   fresh schema accept both versions without rewriting v1 rows.
 - Durable assembly rows own renderer selection before any source download:
   resumable v1 rows remain FFmpeg, resumable v2 rows require their recorded
@@ -11683,3 +11683,34 @@ control writes without losing the video, approval, or confirmation.
   limited to comprehensive still inspection plus short exact source and audio
   renders; M3-5 owns the complete render, rerender, hash, probe, audio, caption,
   and visual acceptance.
+
+# M3-4 Custom Film Remotion renderer boundary (added 2026-07-23)
+
+- Remotion uses `custom-film-assembly-v3`. Before journaling, the manifest binds
+  `custom-film-remotion-renderer-v1` and a deterministic bundle hash over the
+  exact composition/config/package sources, generated motion-audio bytes, and
+  local Noto Sans font bytes. Existing v1/v2 assemblies remain compatible;
+  FFmpeg stays the default renderer.
+- A selected v3 render revalidates the complete provider-opaque props tree,
+  exact identities, frame layout, transforms, captions, source-key set, raw
+  source hashes, media stream types, and approved source durations before the
+  pinned local Remotion CLI runs. Source files are copied into a private
+  temporary public directory under deterministic SHA-256-derived names.
+- The adapter writes approved Unicode SRT, renders with no shell or network
+  helper, then deterministically normalizes to the approved 7,200 frames,
+  24 fps, 1920x1080, 48 kHz stereo audio, and mov_text subtitles. Exact probe
+  and artifact hash checks precede atomic output promotion and the unchanged
+  storage/readback/finalization boundary.
+- Real durationless PNG/JPEG sources are supported. Video identity follows the
+  exact video-stream duration rather than padded container duration.
+  `source_clip` requires native audio coverage of the complete video and allows
+  only bounded AAC packet padding; silent, wrong-type, wrong-duration, missing,
+  extra, or hash-drifted sources fail terminally.
+- Local executable/process/I/O/timeout failures remain retryable, cancellation
+  kills and awaits child processes, and temporary source/props/SRT/raw/partial
+  artifacts are always cleaned. A journaled Remotion failure never invokes
+  FFmpeg; changing engines requires a new approved runtime/assembly identity.
+- Migration 131 and fresh schema permit and constrain v3, but no live migration
+  or production configuration has been applied. The normal pipeline remains on
+  FFmpeg unless a later approved caller explicitly supplies
+  `render_engine="remotion"` and `run_remotion_renderer`.

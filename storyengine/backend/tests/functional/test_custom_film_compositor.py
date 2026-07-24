@@ -934,7 +934,7 @@ def test_schema_and_render_door_are_durable_and_isolated():
         root / "backend/migrations/127_custom_film_assemblies.sql"
     ).read_text()
     migration_v2 = (
-        root / "backend/migrations/129_custom_film_assembly_v2.sql"
+        root / "backend/migrations/130_custom_film_assembly_v2.sql"
     ).read_text()
     schema = (root / "schema.sql").read_text()
     executor = (root / "backend/pipeline_executor.py").read_text()

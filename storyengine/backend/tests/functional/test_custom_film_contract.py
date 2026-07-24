@@ -558,6 +558,10 @@ def test_migration_122_and_fresh_schema_match_security_and_scene_foundation():
     )
     assert recipe_lifecycle.exists()
     assert "protect_custom_film_immutable_contract" in recipe_lifecycle.read_text()
+    assert (root / "backend" / "migrations" / "130_custom_film_assembly_v2.sql").exists()
+    assert (
+        root / "backend" / "migrations" / "131_custom_film_remotion_renderer_v3.sql"
+    ).exists()
 
 
 def test_recipe_name_and_plan_projection_are_topic_free(manifest):
