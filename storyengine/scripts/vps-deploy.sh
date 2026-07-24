@@ -120,9 +120,21 @@ if [[ "$ARGS" == *--with-frontend* ]]; then
   if [ -n "$FPID" ] && [ "$FPID" != "0" ]; then kill -9 "$FPID"; fi
   sleep 4
   echo "frontend: $(systemctl is-active storyengine-frontend.service)"
-  FRONTEND_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:3001)
-  if [ "$FRONTEND_HTTP" != "200" ]; then
-    echo "DEPLOY FAILED — frontend returned HTTP $FRONTEND_HTTP" >&2
+  # Poll like the backend section above. Next.js cold-starts slower than the 4s
+  # pause, so a single bare curl (exit 7 under `set -e`, no `|| true`) used to
+  # abort the whole script before the deploys.log append — a green deploy
+  # reported dead. Retry until it answers 200, only fail after the full window.
+  FRONTEND_OK=0
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    FRONTEND_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:3001 2>/dev/null || true)
+    if [ "$FRONTEND_HTTP" = "200" ]; then
+      FRONTEND_OK=1
+      break
+    fi
+    sleep 3
+  done
+  if [ "$FRONTEND_OK" != "1" ]; then
+    echo "DEPLOY FAILED — frontend did not return HTTP 200 (last: ${FRONTEND_HTTP:-no response})." >&2
     exit 1
   fi
   echo "frontend health: HTTP 200"
