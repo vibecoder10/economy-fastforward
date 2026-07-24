@@ -556,5 +556,173 @@ def test_migration_122_and_fresh_schema_match_security_and_scene_foundation():
     ]
     # M2-4A's envelope, B1 restart progress, B2a provider-operation
     # reconciliation journal, B2c per-asset provenance, and M2-5's durable
-    # assembly/upload journal are additive migrations.
-    assert max(migration_numbers) == 127
+    # assembly/upload journal and M2-6 recipe lifecycle are additive migrations.
+    assert max(migration_numbers) == 128
+
+
+def test_recipe_name_and_plan_projection_are_topic_free(manifest):
+    assert contract.normalize_recipe_name("  My   Recipe  ") == (
+        "My Recipe",
+        "my recipe",
+    )
+    normalized_plan = contract.normalize_plan(_plan(manifest), manifest)
+    recipe = contract.recipe_from_normalized_plan(normalized_plan, manifest)
+    encoded = contract.canonical_json(recipe)
+    assert recipe["sections"][0]["role"] == "explanation"
+    assert recipe["sections"][0]["duration_units"] == 333333
+    assert "Establish the evidence" not in encoded
+    assert "purpose" not in encoded
+    assert "section_id" not in encoded
+    for forbidden in ("topic", "title", "provider", "model", "price", "quote", "asset"):
+        assert forbidden not in recipe
+
+
+def test_migration_128_enforces_active_name_lifecycle_without_deleting_history():
+    root = Path(__file__).resolve().parents[3]
+    migration = (
+        root / "backend" / "migrations" / "128_custom_film_recipe_lifecycle.sql"
+    ).read_text()
+    schema = (root / "schema.sql").read_text()
+    for sql in (migration, schema):
+        assert "name_key TEXT" in sql
+        assert "custom_film_recipes_active_name_uidx" in sql
+        assert "WHERE archived_at IS NULL" in sql
+    assert "DELETE FROM custom_film_recipes" not in migration
+    assert "NEW.recipe" in migration
+    assert "NEW.signature" in migration
+
+
+@pytest.mark.asyncio
+async def test_save_approved_recipe_revalidates_durable_contract_and_is_atomic(
+    monkeypatch, manifest
+):
+    normalized_plan = contract.normalize_plan(_plan(manifest), manifest)
+    recipe = contract.recipe_from_normalized_plan(normalized_plan, manifest)
+    signature = contract.recipe_signature(recipe)
+    recipe_hash = contract.canonical_hash(recipe)
+    digest = contract.plan_hash(normalized_plan)
+    approval = "a" * 64
+    state = {
+        "pending_custom_film_plan": {
+            "status": "start_ready",
+            "video_id": "video-a",
+            "novelty": {"is_novel": True},
+            "save_candidate": {
+                "video_id": "video-a",
+                "plan_id": "plan-a",
+                "plan_hash": digest,
+                "approval_hash": approval,
+                "recipe_signature": signature,
+                "recipe_hash": recipe_hash,
+            },
+        }
+    }
+    calls = []
+
+    class Transaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Conn:
+        def transaction(self):
+            return Transaction()
+
+        async def execute(self, sql, *args):
+            calls.append(("execute", sql, args))
+
+        async def fetchrow(self, sql, *args):
+            calls.append(("fetchrow", sql, args))
+            if "FROM chat_conversations" in sql:
+                return {"video_id": "video-a", "state": state}
+            if "JOIN custom_film_plans" in sql:
+                return {
+                    "plan_id": "plan-a",
+                    "plan": normalized_plan,
+                    "plan_hash": digest,
+                    "approval_hash": approval,
+                    "approved_at": "now",
+                    "custom_film_plan_id": "plan-a",
+                    "custom_film_plan_hash": digest,
+                    "custom_film_approval_hash": approval,
+                }
+            if "INSERT INTO custom_film_recipes" in sql:
+                return {
+                    "id": "recipe-a",
+                    "tenant_id": "tenant-a",
+                    "recipe_family_id": "family-a",
+                    "version": 1,
+                    "name": "My Recipe",
+                    "compatibility_version": manifest.version,
+                    "recipe": recipe,
+                    "signature": signature,
+                    "archived_at": None,
+                    "created_at": "now",
+                    "updated_at": "now",
+                }
+            return None
+
+    class Acquire:
+        async def __aenter__(self):
+            return Conn()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def fake_pool():
+        return Pool()
+
+    monkeypatch.setattr(contract, "get_pool", fake_pool)
+    saved = await contract.save_approved_recipe(
+        "tenant-a", "conversation-a", "  My   Recipe ", manifest
+    )
+    assert saved["name"] == "My Recipe"
+    assert saved["recipe"] == recipe
+    assert sum("INSERT INTO custom_film_recipes" in call[1] for call in calls) == 1
+    assert "custom-film-recipes:tenant-a" in calls[0][2]
+    assert any("FOR UPDATE OF v, p" in call[1] for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_save_stale_or_unverified_candidate_never_inserts(monkeypatch, manifest):
+    state = {
+        "pending_custom_film_plan": {
+            "status": "start_ready",
+            "video_id": "video-a",
+            "novelty": {"is_novel": None, "status": "unverified"},
+            "save_candidate": {},
+        }
+    }
+    calls = []
+
+    class Tx:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): return False
+
+    class Conn:
+        def transaction(self): return Tx()
+        async def execute(self, sql, *args): calls.append(sql)
+        async def fetchrow(self, sql, *args):
+            calls.append(sql)
+            return {"video_id": "video-a", "state": state}
+
+    class Acquire:
+        async def __aenter__(self): return Conn()
+        async def __aexit__(self, *_args): return False
+
+    class Pool:
+        def acquire(self): return Acquire()
+
+    async def fake_pool(): return Pool()
+    monkeypatch.setattr(contract, "get_pool", fake_pool)
+    with pytest.raises(contract.CustomFilmContractError, match="not verified"):
+        await contract.save_approved_recipe(
+            "tenant-a", "conversation-a", "Unsafe", manifest
+        )
+    assert not any("INSERT INTO custom_film_recipes" in sql for sql in calls)

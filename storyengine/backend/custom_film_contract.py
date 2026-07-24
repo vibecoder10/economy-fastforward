@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_FLOOR
 from typing import Any, Mapping
@@ -610,6 +611,86 @@ async def find_recipe_duplicate(
     return ("saved_recipe", str(row["id"])) if row else None
 
 
+def normalize_recipe_name(name: str) -> tuple[str, str]:
+    """Return creator-facing and comparison forms for one recipe name."""
+    display = re.sub(r"\s+", " ", str(name or "").strip())
+    if not display or len(display) > 120:
+        raise CustomFilmContractError("Recipe name must be 1-120 characters")
+    return display, display.lower()
+
+
+def recipe_from_normalized_plan(
+    normalized_plan: Mapping[str, Any],
+    manifest: CapabilityManifest,
+) -> dict[str, Any]:
+    """Project an immutable plan onto its deliberately topic-free recipe."""
+    sections = normalized_plan.get("sections")
+    if not isinstance(sections, list):
+        raise CustomFilmContractError("Custom Film plan sections are invalid")
+    return normalize_recipe(
+        {
+            "compatibility_version": normalized_plan.get("compatibility_version"),
+            "sections": [
+                {
+                    "role": section.get("role"),
+                    "duration_weight": section.get("duration_units"),
+                    "knobs": section.get("knobs"),
+                }
+                for section in sections
+                if isinstance(section, Mapping)
+            ],
+        },
+        manifest,
+    )
+
+
+def validate_normalized_recipe(
+    stored_recipe: Mapping[str, Any],
+    manifest: CapabilityManifest,
+) -> dict[str, Any]:
+    """Revalidate the canonical persistence shape without accepting extra prose."""
+    if not isinstance(stored_recipe, Mapping):
+        raise CustomFilmContractError("Saved recipe is invalid")
+    sections = stored_recipe.get("sections")
+    if not isinstance(sections, list):
+        raise CustomFilmContractError("Saved recipe sections are invalid")
+    normalized = normalize_recipe(
+        {
+            "compatibility_version": stored_recipe.get("compatibility_version"),
+            "sections": [
+                {
+                    "role": section.get("role"),
+                    "duration_weight": section.get("duration_units"),
+                    "knobs": section.get("knobs"),
+                }
+                for section in sections
+                if isinstance(section, Mapping)
+            ],
+        },
+        manifest,
+    )
+    if canonical_json(normalized) != canonical_json(stored_recipe):
+        raise CustomFilmContractError("Saved recipe failed canonical validation")
+    return normalized
+
+
+def _public_recipe_duplicate(
+    normalized_recipe: Mapping[str, Any],
+    manifest: CapabilityManifest,
+) -> tuple[str, str] | None:
+    signature = recipe_signature(normalized_recipe)
+    sections = normalized_recipe["sections"]
+    for style_id, profile in manifest.profiles.items():
+        profile_knobs = canonical_json(profile["knobs"])
+        if sections and all(
+            canonical_json(section["knobs"]) == profile_knobs
+            for section in sections
+        ):
+            return ("public_profile", style_id)
+    public_match = public_recipe_signatures(manifest).get(signature)
+    return ("public_profile", public_match) if public_match else None
+
+
 async def create_recipe_version(
     tenant_id: str,
     name: str,
@@ -621,29 +702,76 @@ async def create_recipe_version(
     """Persist one immutable tenant recipe version after duplicate checks."""
     normalized = normalize_recipe(raw_recipe, manifest)
     signature = recipe_signature(normalized)
-    duplicate = await find_recipe_duplicate(tenant_id, normalized, manifest)
-    if duplicate:
-        raise DuplicateRecipeError(*duplicate)
-    normalized_name = name.strip()
-    if not normalized_name or len(normalized_name) > 120:
-        raise CustomFilmContractError("Recipe name must be 1-120 characters")
+    public_duplicate = _public_recipe_duplicate(normalized, manifest)
+    if public_duplicate:
+        raise DuplicateRecipeError(*public_duplicate)
+    normalized_name, name_key = normalize_recipe_name(name)
     family_id = recipe_family_id or str(uuid4())
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # Serialize version allocation per tenant/family without requiring
-            # a mutable counter row. The unique constraint remains the backstop.
+            # One tenant lock makes active signature, active name, family/version,
+            # archive, and concurrent save decisions a single serial history.
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-                f"custom-film-recipe:{tenant_id}:{family_id}",
+                f"custom-film-recipes:{tenant_id}",
             )
+            if recipe_family_id is not None:
+                family = await conn.fetchrow(
+                    """SELECT recipe_family_id
+                       FROM custom_film_recipes
+                       WHERE tenant_id = $1 AND recipe_family_id = $2::uuid
+                       ORDER BY version DESC
+                       LIMIT 1
+                       FOR UPDATE""",
+                    tenant_id,
+                    family_id,
+                )
+                if not family:
+                    raise CustomFilmContractError(
+                        "Saved recipe family not found for tenant."
+                    )
+            duplicate = await conn.fetchrow(
+                """SELECT id, recipe_family_id FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND signature = $2
+                     AND archived_at IS NULL
+                   LIMIT 1""",
+                tenant_id,
+                signature,
+            )
+            if duplicate:
+                raise DuplicateRecipeError("saved_recipe", str(duplicate["id"]))
+            name_duplicate = await conn.fetchrow(
+                """SELECT id, recipe_family_id FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND name_key = $2
+                     AND archived_at IS NULL
+                   LIMIT 1""",
+                tenant_id,
+                name_key,
+            )
+            if (
+                name_duplicate
+                and str(name_duplicate["recipe_family_id"]) != family_id
+            ):
+                raise CustomFilmContractError(
+                    "An active saved recipe already uses that name."
+                )
+            if recipe_family_id is not None:
+                await conn.execute(
+                    """UPDATE custom_film_recipes
+                       SET archived_at = now(), updated_at = now()
+                       WHERE tenant_id = $1 AND recipe_family_id = $2::uuid
+                         AND archived_at IS NULL""",
+                    tenant_id,
+                    family_id,
+                )
             row = await conn.fetchrow(
                 """INSERT INTO custom_film_recipes
-                     (tenant_id, recipe_family_id, version, name,
+                     (tenant_id, recipe_family_id, version, name, name_key,
                       compatibility_version, recipe, signature)
                    SELECT $1, $2::uuid,
                           COALESCE(MAX(version), 0) + 1,
-                          $3, $4, $5::jsonb, $6
+                          $3, $4, $5, $6::jsonb, $7
                    FROM custom_film_recipes
                    WHERE tenant_id = $1 AND recipe_family_id = $2::uuid
                    RETURNING id, tenant_id, recipe_family_id, version, name,
@@ -652,12 +780,156 @@ async def create_recipe_version(
                 tenant_id,
                 family_id,
                 normalized_name,
+                name_key,
                 manifest.version,
                 canonical_json(normalized),
                 signature,
             )
     if not row:
         raise RuntimeError("Recipe insert returned no row")
+    return _serialize_recipe_row(row)
+
+
+async def save_approved_recipe(
+    tenant_id: str,
+    conversation_id: str,
+    name: str,
+    manifest: CapabilityManifest,
+) -> dict[str, Any]:
+    """Atomically save only the exact recipe from a durable approved plan."""
+    display_name, name_key = normalize_recipe_name(name)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"custom-film-recipes:{tenant_id}",
+            )
+            conversation = await conn.fetchrow(
+                """SELECT id, video_id, state
+                   FROM chat_conversations
+                   WHERE id = $1 AND tenant_id = $2
+                   FOR UPDATE""",
+                conversation_id,
+                tenant_id,
+            )
+            if not conversation:
+                raise CustomFilmContractError("Custom Film conversation not found")
+            state = _parse_json(conversation["state"])
+            pending = (
+                state.get("pending_custom_film_plan")
+                if isinstance(state, dict)
+                else None
+            )
+            if (
+                not isinstance(pending, dict)
+                or pending.get("status") != "start_ready"
+                or not conversation.get("video_id")
+                or str(pending.get("video_id") or "")
+                != str(conversation["video_id"])
+            ):
+                raise CustomFilmContractError(
+                    "Save is available only after this exact Custom Film was approved."
+                )
+            novelty = pending.get("novelty")
+            candidate = pending.get("save_candidate")
+            if not isinstance(novelty, dict) or novelty.get("is_novel") is not True:
+                raise CustomFilmContractError(
+                    "This recipe was not verified as new, so it was not saved."
+                )
+            if not isinstance(candidate, dict):
+                raise CustomFilmContractError(
+                    "This approved film does not have a verified recipe candidate."
+                )
+            plan_row = await conn.fetchrow(
+                """SELECT p.id AS plan_id, p.plan, p.plan_hash, p.approval_hash,
+                          p.approved_at, v.custom_film_plan_id,
+                          v.custom_film_plan_hash, v.custom_film_approval_hash
+                   FROM videos v
+                   JOIN custom_film_plans p
+                     ON p.tenant_id = v.tenant_id
+                    AND p.id = v.custom_film_plan_id
+                   WHERE v.tenant_id = $1 AND v.id = $2
+                     AND v.source = 'custom_film'
+                     AND v.deleted_at IS NULL
+                   FOR UPDATE OF v, p""",
+                tenant_id,
+                conversation["video_id"],
+            )
+            if not plan_row or not plan_row.get("approved_at"):
+                raise CustomFilmContractError(
+                    "The approved Custom Film contract could not be verified."
+                )
+            if (
+                str(plan_row["plan_id"]) != str(candidate.get("plan_id") or "")
+                or str(plan_row["plan_id"])
+                != str(plan_row["custom_film_plan_id"])
+                or str(plan_row["plan_hash"])
+                != str(candidate.get("plan_hash") or "")
+                or str(plan_row["plan_hash"])
+                != str(plan_row["custom_film_plan_hash"])
+                or str(plan_row["approval_hash"])
+                != str(candidate.get("approval_hash") or "")
+                or str(plan_row["approval_hash"])
+                != str(plan_row["custom_film_approval_hash"])
+            ):
+                raise CustomFilmContractError(
+                    "The approved Custom Film changed, so no recipe was saved."
+                )
+            raw_plan = _parse_json(plan_row["plan"])
+            normalized_plan = normalize_plan(
+                revision_input_from_normalized_plan(raw_plan, manifest),
+                manifest,
+            )
+            normalized = recipe_from_normalized_plan(normalized_plan, manifest)
+            signature = recipe_signature(normalized)
+            if (
+                signature != str(candidate.get("recipe_signature") or "")
+                or canonical_hash(normalized)
+                != str(candidate.get("recipe_hash") or "")
+            ):
+                raise CustomFilmContractError(
+                    "The approved recipe snapshot no longer matches, so it was not saved."
+                )
+            public_duplicate = _public_recipe_duplicate(normalized, manifest)
+            if public_duplicate:
+                raise DuplicateRecipeError(*public_duplicate)
+            duplicate = await conn.fetchrow(
+                """SELECT id FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND signature = $2
+                     AND archived_at IS NULL LIMIT 1""",
+                tenant_id,
+                signature,
+            )
+            if duplicate:
+                raise DuplicateRecipeError("saved_recipe", str(duplicate["id"]))
+            same_name = await conn.fetchrow(
+                """SELECT id FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND name_key = $2
+                     AND archived_at IS NULL LIMIT 1""",
+                tenant_id,
+                name_key,
+            )
+            if same_name:
+                raise CustomFilmContractError(
+                    "An active saved recipe already uses that name."
+                )
+            row = await conn.fetchrow(
+                """INSERT INTO custom_film_recipes
+                     (tenant_id, recipe_family_id, version, name, name_key,
+                      compatibility_version, recipe, signature)
+                   VALUES ($1, $2, 1, $3, $4, $5, $6::jsonb, $7)
+                   RETURNING id, tenant_id, recipe_family_id, version, name,
+                             compatibility_version, recipe, signature,
+                             archived_at::text, created_at::text, updated_at::text""",
+                tenant_id,
+                str(uuid4()),
+                display_name,
+                name_key,
+                manifest.version,
+                canonical_json(normalized),
+                signature,
+            )
     return _serialize_recipe_row(row)
 
 
@@ -696,6 +968,125 @@ async def list_recipe_versions(
         recipe_family_id,
     )
     return [_serialize_recipe_row(row) for row in rows]
+
+
+async def list_active_recipes(tenant_id: str) -> list[dict[str, Any]]:
+    rows = await fetch_all(
+        """SELECT DISTINCT ON (recipe_family_id)
+                  id, tenant_id, recipe_family_id, version, name,
+                  compatibility_version, recipe, signature,
+                  archived_at::text, created_at::text, updated_at::text
+           FROM custom_film_recipes
+           WHERE tenant_id = $1 AND archived_at IS NULL
+           ORDER BY recipe_family_id, version DESC""",
+        tenant_id,
+    )
+    return [_serialize_recipe_row(row) for row in rows]
+
+
+async def load_active_recipe(
+    tenant_id: str,
+    name: str,
+    manifest: CapabilityManifest,
+) -> dict[str, Any]:
+    _display, name_key = normalize_recipe_name(name)
+    row = await fetch_one(
+        """SELECT id, tenant_id, recipe_family_id, version, name,
+                  compatibility_version, recipe, signature,
+                  archived_at::text, created_at::text, updated_at::text
+           FROM custom_film_recipes
+           WHERE tenant_id = $1 AND name_key = $2 AND archived_at IS NULL
+           ORDER BY version DESC
+           LIMIT 1""",
+        tenant_id,
+        name_key,
+    )
+    if not row:
+        raise CustomFilmContractError("I couldn't find an active saved recipe with that name.")
+    result = _serialize_recipe_row(row)
+    if result["compatibility_version"] != manifest.version:
+        raise CustomFilmContractError(
+            f"“{result['name']}” uses an older recipe format and cannot be reused "
+            "safely yet. Keep it archived for history or create a fresh Custom Film."
+        )
+    normalized = validate_normalized_recipe(result["recipe"], manifest)
+    if recipe_signature(normalized) != result["signature"]:
+        raise CustomFilmContractError("That saved recipe failed its integrity check.")
+    return result
+
+
+async def rename_active_recipe(
+    tenant_id: str,
+    old_name: str,
+    new_name: str,
+) -> dict[str, Any]:
+    _old_display, old_key = normalize_recipe_name(old_name)
+    new_display, new_key = normalize_recipe_name(new_name)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"custom-film-recipes:{tenant_id}",
+            )
+            conflict = await conn.fetchrow(
+                """SELECT id FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND name_key = $2
+                     AND archived_at IS NULL AND name_key <> $3
+                   LIMIT 1""",
+                tenant_id,
+                new_key,
+                old_key,
+            )
+            if conflict:
+                raise CustomFilmContractError(
+                    "An active saved recipe already uses that name."
+                )
+            row = await conn.fetchrow(
+                """UPDATE custom_film_recipes
+                   SET name = $3, name_key = $4, updated_at = now()
+                   WHERE tenant_id = $1 AND name_key = $2
+                     AND archived_at IS NULL
+                   RETURNING id, tenant_id, recipe_family_id, version, name,
+                             compatibility_version, recipe, signature,
+                             archived_at::text, created_at::text, updated_at::text""",
+                tenant_id,
+                old_key,
+                new_display,
+                new_key,
+            )
+            if not row:
+                raise CustomFilmContractError(
+                    "I couldn't find an active saved recipe with that name."
+                )
+    return _serialize_recipe_row(row)
+
+
+async def archive_active_recipe(tenant_id: str, name: str) -> dict[str, Any]:
+    _display, name_key = normalize_recipe_name(name)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"custom-film-recipes:{tenant_id}",
+            )
+            row = await conn.fetchrow(
+                """UPDATE custom_film_recipes
+                   SET archived_at = now(), updated_at = now()
+                   WHERE tenant_id = $1 AND name_key = $2
+                     AND archived_at IS NULL
+                   RETURNING id, tenant_id, recipe_family_id, version, name,
+                             compatibility_version, recipe, signature,
+                             archived_at::text, created_at::text, updated_at::text""",
+                tenant_id,
+                name_key,
+            )
+            if not row:
+                raise CustomFilmContractError(
+                    "I couldn't find an active saved recipe with that name."
+                )
+    return _serialize_recipe_row(row)
 
 
 async def create_plan_revision(
@@ -930,6 +1321,7 @@ async def reserve_approved_start_intent(
                     "created": False,
                     "approval_hash": expected_approval_hash,
                     "max_spend": float(pending["quote_inputs"]["max_spend"]),
+                    "pending_custom_film_plan": copy.deepcopy(pending),
                 }
             if conversation.get("video_id"):
                 raise CustomFilmContractError(
@@ -1079,6 +1471,20 @@ async def reserve_approved_start_intent(
             pending["status"] = "start_ready"
             pending["start_intent_hash"] = expected_approval_hash
             pending["video_id"] = video_id
+            if (
+                isinstance(pending.get("novelty"), dict)
+                and pending["novelty"].get("is_novel") is True
+                and pending.get("recipe_signature")
+                and pending.get("recipe_hash")
+            ):
+                pending["save_candidate"] = {
+                    "video_id": video_id,
+                    "plan_id": plan_id,
+                    "plan_hash": current_plan_hash,
+                    "approval_hash": expected_approval_hash,
+                    "recipe_signature": pending["recipe_signature"],
+                    "recipe_hash": pending["recipe_hash"],
+                }
             state["pending_custom_film_plan"] = pending
             transcript.append(copy.deepcopy(dict(confirmation_turn)))
             await conn.execute(
@@ -1099,6 +1505,7 @@ async def reserve_approved_start_intent(
                 "approval_hash": expected_approval_hash,
                 "max_spend": float(max_spend),
                 "duration_seconds": duration_seconds,
+                "pending_custom_film_plan": copy.deepcopy(pending),
             }
 
 

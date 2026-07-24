@@ -3947,6 +3947,224 @@ def _custom_film_estimate_text(quote: dict[str, Any]) -> str:
     )
 
 
+def _custom_film_recipe_command(message: str) -> tuple[str, tuple[str, ...]] | None:
+    """Parse the small, deterministic public chat vocabulary for saved recipes."""
+    text = re.sub(r"\s+", " ", str(message or "").strip())
+    if not text:
+        return None
+    quoted = tuple(re.findall(r'["“]([^"”]+)["”]', text))
+    if re.search(r"\b(?:list|show)\b.{0,30}\b(?:saved )?recipes?\b", text, re.I):
+        return ("list", ())
+    if re.search(r"\brename\b", text, re.I):
+        if len(quoted) == 2:
+            return ("rename", quoted)
+        match = re.fullmatch(
+            r"(?:please )?rename (?:recipe )?(.+?) to (.+?)[.!]?",
+            text,
+            re.I,
+        )
+        return ("rename", (match.group(1), match.group(2))) if match else ("rename", ())
+    if re.search(r"\barchive\b", text, re.I):
+        if len(quoted) == 1:
+            return ("archive", quoted)
+        match = re.fullmatch(
+            r"(?:please )?archive (?:recipe )?(.+?)[.!]?", text, re.I
+        )
+        return ("archive", (match.group(1),)) if match else ("archive", ())
+    if re.search(r"\bsave\b", text, re.I) and re.search(
+        r"\brecipe\b|\bthis\b|\bit\b", text, re.I
+    ):
+        if re.fullmatch(
+            r"(?:please )?save (?:this recipe|the recipe|this|it)[.!]?",
+            text,
+            re.I,
+        ):
+            return ("save", ())
+        if len(quoted) == 1:
+            return ("save", quoted)
+        match = re.fullmatch(
+            r"(?:please )?save (?:this recipe|the recipe|this|it) as (.+?)[.!]?",
+            text,
+            re.I,
+        )
+        return ("save", (match.group(1),)) if match else ("save", ())
+    if re.search(r"\b(?:reuse|use)\b.{0,30}\brecipe\b", text, re.I):
+        if len(quoted) == 1:
+            topic_match = re.search(
+                r"\b(?:for|about)\b\s+(.+?)\s*$", text, re.I
+            )
+            return (
+                "reuse",
+                (quoted[0], topic_match.group(1)) if topic_match else (quoted[0],),
+            )
+        match = re.fullmatch(
+            r"(?:please )?(?:reuse|use) (?:the )?(?:recipe )?(.+?) "
+            r"(?:for|about) (.+?)[.!]?",
+            text,
+            re.I,
+        )
+        return ("reuse", (match.group(1), match.group(2))) if match else ("reuse", ())
+    return None
+
+
+async def _append_custom_film_recipe_turn(
+    conversation_id: str,
+    tenant_id: str,
+    message: str,
+    *,
+    video_id: str | None = None,
+    phase: str = "asking",
+) -> ChatTurnResponse:
+    turn = _assistant_turn({"assistant_text": message, "phase": phase})
+    await execute(
+        """UPDATE chat_conversations
+           SET transcript = COALESCE(transcript, '[]'::jsonb) || $3::jsonb,
+               updated_at = now()
+           WHERE id = $1 AND tenant_id = $2""",
+        conversation_id,
+        tenant_id,
+        json.dumps([turn]),
+    )
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=message,
+        video_id=video_id,
+        phase=phase,
+    )
+
+
+async def _handle_custom_film_recipe_command(
+    command: tuple[str, tuple[str, ...]],
+    *,
+    conversation_id: str,
+    tenant_id: str,
+    state: dict[str, Any],
+    video_id: str | None,
+    user_message: str,
+    transcript: list[dict[str, Any]],
+    expected_state: dict[str, Any],
+) -> ChatTurnResponse:
+    """Execute recipe metadata actions without touching production runtime."""
+    from custom_film_contract import (
+        CustomFilmContractError,
+        DuplicateRecipeError,
+        archive_active_recipe,
+        list_active_recipes,
+        load_active_recipe,
+        rename_active_recipe,
+        save_approved_recipe,
+    )
+    from custom_film_planner import load_capability_manifest
+
+    action, args = command
+    if action == "list":
+        recipes = await list_active_recipes(tenant_id)
+        message = (
+            "You have no active saved Custom Film recipes."
+            if not recipes
+            else "Your active saved recipes are: " + ", ".join(
+                f"“{recipe['name']}”" for recipe in recipes
+            ) + "."
+        )
+        return await _append_custom_film_recipe_turn(
+            conversation_id, tenant_id, message, video_id=video_id,
+            phase="created" if video_id else "asking",
+        )
+    if action == "save":
+        if len(args) != 1:
+            return await _append_custom_film_recipe_turn(
+                conversation_id,
+                tenant_id,
+                "What name should I use? Say “Save this recipe as My Recipe.”",
+                video_id=video_id,
+                phase="created" if video_id else "asking",
+            )
+        try:
+            manifest = await load_capability_manifest()
+            recipe = await save_approved_recipe(
+                tenant_id, conversation_id, args[0], manifest
+            )
+            message = (
+                f"Saved “{recipe['name']}” as a reusable Custom Film recipe. "
+                "Only the section roles, proportions, safe production settings, "
+                "and their provenance were stored—none of this film’s topic or assets."
+            )
+        except DuplicateRecipeError:
+            message = (
+                "That production recipe already exists as an active saved or public "
+                "recipe, so I did not create a duplicate."
+            )
+        except CustomFilmContractError as exc:
+            message = str(exc)
+        return await _append_custom_film_recipe_turn(
+            conversation_id, tenant_id, message, video_id=video_id,
+            phase="created" if video_id else "asking",
+        )
+    if action == "rename":
+        if len(args) != 2:
+            message = "Name both recipes, for example: Rename “Old Name” to “New Name”."
+        else:
+            try:
+                recipe = await rename_active_recipe(tenant_id, args[0], args[1])
+                message = f"Renamed the active recipe to “{recipe['name']}”."
+            except CustomFilmContractError as exc:
+                message = str(exc)
+        return await _append_custom_film_recipe_turn(
+            conversation_id, tenant_id, message, video_id=video_id,
+            phase="created" if video_id else "asking",
+        )
+    if action == "archive":
+        if len(args) != 1:
+            message = "Which recipe should I archive? Put its exact name in quotes."
+        else:
+            try:
+                recipe = await archive_active_recipe(tenant_id, args[0])
+                message = (
+                    f"Archived “{recipe['name']}”. It is hidden from list and reuse, "
+                    "but its immutable history remains. A future identical recipe may "
+                    "be saved again because archived recipes do not block active saves."
+                )
+            except CustomFilmContractError as exc:
+                message = str(exc)
+        return await _append_custom_film_recipe_turn(
+            conversation_id, tenant_id, message, video_id=video_id,
+            phase="created" if video_id else "asking",
+        )
+    # reuse
+    if video_id:
+        return await _append_custom_film_recipe_turn(
+            conversation_id,
+            tenant_id,
+            "Start a fresh chat to reuse a saved recipe for a new film; this chat "
+            "is already attached to the approved film.",
+            video_id=video_id,
+            phase="created",
+        )
+    if len(args) < 2 or not args[1].strip():
+        return await _append_custom_film_recipe_turn(
+            conversation_id,
+            tenant_id,
+            "Name the recipe and fresh topic, for example: Reuse recipe “My Recipe” "
+            "for a film about coastal restoration.",
+        )
+    try:
+        manifest = await load_capability_manifest()
+        recipe = await load_active_recipe(tenant_id, args[0], manifest)
+    except CustomFilmContractError as exc:
+        return await _append_custom_film_recipe_turn(
+            conversation_id, tenant_id, str(exc)
+        )
+    return await _handle_custom_film_plan(
+        conversation_id,
+        tenant_id,
+        transcript,
+        state,
+        args[1].strip(),
+        expected_state,
+        saved_recipe=recipe,
+    )
+
+
 _CUSTOM_FILM_STALE_STATE_KEYS = (
     "last_spec",
     "pending_action",
@@ -4142,10 +4360,17 @@ async def _handle_custom_film_approval_turn(
 
         manifest = await load_capability_manifest()
         quote_total = float(quote_inputs["totals"]["estimated_cost"])
+        save_offer = (
+            " If you want to reuse this section treatment later, send a separate "
+            "message such as “Save this recipe as My Recipe.”"
+            if isinstance(pending.get("novelty"), dict)
+            and pending["novelty"].get("is_novel") is True
+            else ""
+        )
         message = (
             f"Approved — this exact ~${quote_total:.2f} BYOK plan is safely held "
             "and ready for section-aware production. No generation has started "
-            "or been charged yet."
+            f"or been charged yet.{save_offer}"
         )
         result = await reserve_approved_start_intent(
             tenant_id,
@@ -4157,6 +4382,12 @@ async def _handle_custom_film_approval_turn(
             ),
         )
         video_id = result["video_id"]
+        reserved_pending = result.get("pending_custom_film_plan")
+        if isinstance(reserved_pending, dict):
+            # Schedule from the transaction's authoritative accepted state.
+            # Using the pre-lock caller snapshot here would overwrite the
+            # post-approval save candidate during the runtime metadata update.
+            state["pending_custom_film_plan"] = copy.deepcopy(reserved_pending)
         schedule_kwargs = (
             {"arq_pool": arq_pool}
             if arq_pool is not _QUEUE_CONTEXT_UNSET
@@ -4205,6 +4436,8 @@ async def _handle_custom_film_plan(
     state: dict[str, Any],
     user_message: str,
     expected_state: dict[str, Any] | None = None,
+    *,
+    saved_recipe: dict[str, Any] | None = None,
 ) -> ChatTurnResponse:
     """Plan only: no video creation, estimate, approval, or background dispatch."""
     from custom_film_planner import (
@@ -4216,6 +4449,7 @@ async def _handle_custom_film_plan(
         is_section_count_change_request,
         load_capability_manifest,
         plan_custom_film,
+        plan_custom_film_from_recipe,
     )
 
     transcript.append({"role": "user", "content": user_message})
@@ -4309,18 +4543,27 @@ async def _handle_custom_film_plan(
             user_message,
             prior_pending,
         )
-        compiled = await plan_custom_film(
-            user_message,
-            manifest,
-            client,
-            total_duration_seconds=total_duration_seconds,
-            prior_proposal=(
-                prior_pending.get("planner_proposal")
-                if prior_pending is not None
-                else None
-            ),
-            prior_section_ids=prior_section_ids,
-        )
+        if saved_recipe is not None:
+            compiled = await plan_custom_film_from_recipe(
+                user_message,
+                saved_recipe["recipe"],
+                manifest,
+                client,
+                total_duration_seconds=total_duration_seconds,
+            )
+        else:
+            compiled = await plan_custom_film(
+                user_message,
+                manifest,
+                client,
+                total_duration_seconds=total_duration_seconds,
+                prior_proposal=(
+                    prior_pending.get("planner_proposal")
+                    if prior_pending is not None
+                    else None
+                ),
+                prior_section_ids=prior_section_ids,
+            )
     except CustomFilmPlannerError as exc:
         message = str(exc) or PLANNER_FAILURE_MESSAGE
         phase = "asking"
@@ -4400,7 +4643,7 @@ async def _handle_custom_film_plan(
             "Planning is complete; generation has not started. Review the one "
             "itemized estimate below and explicitly approve this exact version."
         )
-        from custom_film_contract import approval_binding_hash, plan_hash
+        from custom_film_contract import approval_binding_hash, canonical_hash, plan_hash
         current_plan_hash = plan_hash(compiled.internal_plan)
         current_approval_hash = approval_binding_hash(
             current_plan_hash,
@@ -4459,6 +4702,7 @@ async def _handle_custom_film_plan(
             "user" if requested_budget_cap is not None else "quote"
         ),
         "recipe_signature": compiled.recipe_signature,
+        "recipe_hash": canonical_hash(compiled.normalized_recipe),
         "novelty": novelty_payload,
         "status": "awaiting_approval",
     }
@@ -5517,6 +5761,26 @@ async def chat_turn(
     state = _as_dict(conv.get("state"))
     custom_film_expected_state = copy.deepcopy(state)
     video_id = str(conv["video_id"]) if conv.get("video_id") else None
+
+    # Saved-recipe commands are deterministic chat control turns. They run
+    # before runtime resume/co-pilot routing so save/list/rename/archive never
+    # schedule, generate, render, or inherit a production approval.
+    recipe_command = (
+        _custom_film_recipe_command(body.message)
+        if body.message and body.message.strip()
+        else None
+    )
+    if recipe_command is not None:
+        return await _handle_custom_film_recipe_command(
+            recipe_command,
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+            state=state,
+            video_id=video_id,
+            user_message=body.message.strip(),
+            transcript=transcript,
+            expected_state=custom_film_expected_state,
+        )
 
     # M2-3 owns a held pre-runtime video, not a generic co-pilot video. A retry
     # or reload must reconstruct that durable result before legacy video routing.

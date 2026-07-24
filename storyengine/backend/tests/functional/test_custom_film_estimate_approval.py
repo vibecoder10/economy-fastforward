@@ -422,6 +422,11 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
         _plan(), total_duration_seconds=90
     )
     pending = _pending(quote)
+    pending.update(
+        novelty={"is_novel": True},
+        recipe_signature="b" * 64,
+        recipe_hash="c" * 64,
+    )
     state = {"mode": "custom_film", "pending_custom_film_plan": pending}
     connection = _patch_intent_contract(monkeypatch, state)
     manifest = SimpleNamespace(version="test-v1")
@@ -442,13 +447,28 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
         manifest,
         confirmation_turn={"role": "assistant", "content": "held"},
     )
-    assert first == {
+    assert {
+        key: first[key]
+        for key in (
+            "video_id",
+            "created",
+            "approval_hash",
+            "max_spend",
+            "duration_seconds",
+        )
+    } == {
         "video_id": "video-1",
         "created": True,
         "approval_hash": pending["approval_hash"],
         "max_spend": quote["totals"]["estimated_cost"],
         "duration_seconds": 90,
     }
+    candidate = first["pending_custom_film_plan"]["save_candidate"]
+    assert candidate["video_id"] == "video-1"
+    assert candidate["plan_hash"] == pending["plan_hash"]
+    assert candidate["approval_hash"] == pending["approval_hash"]
+    assert candidate["recipe_signature"] == "b" * 64
+    assert candidate["recipe_hash"] == "c" * 64
     assert second["video_id"] == "video-1"
     assert second["created"] is False
     assert connection.video_inserts == 1

@@ -1208,3 +1208,80 @@ def test_bare_custom_cancel_clears_state_without_invoking_any_planner(
     assert "pending_custom_film_plan" not in captured["state"]
     for stale_key in chat_route._CUSTOM_FILM_STALE_STATE_KEYS:
         assert stale_key not in captured["state"]
+
+
+def test_saved_recipe_chat_commands_are_small_and_deterministic():
+    parse = chat_route._custom_film_recipe_command
+    assert parse("Show my saved recipes") == ("list", ())
+    assert parse('Save this recipe as "Power Mix"') == ("save", ("Power Mix",))
+    assert parse('Rename "Power Mix" to "Evidence Mix"') == (
+        "rename",
+        ("Power Mix", "Evidence Mix"),
+    )
+    assert parse('Archive recipe "Evidence Mix"') == (
+        "archive",
+        ("Evidence Mix",),
+    )
+    assert parse('Reuse recipe "Evidence Mix" for a film about clean steel') == (
+        "reuse",
+        ("Evidence Mix", "a film about clean steel"),
+    )
+    assert parse("Save this recipe") == ("save", ())
+    assert parse("Make a normal video about recipes") is None
+
+
+@pytest.mark.asyncio
+async def test_reuse_planner_only_grounds_focus_and_reapplies_exact_recipe(manifest):
+    compiled = planner.compile_planner_proposal(
+        "Make a Custom Film about steel",
+        _proposal(),
+        manifest,
+        total_duration_seconds=300,
+    )
+    prompts = []
+
+    class Client:
+        async def generate(self, **kwargs):
+            prompts.append(kwargs)
+            return json.dumps(
+                {"sections": [{"focus": "clean steel"}, {"focus": "clean steel"}]}
+            )
+
+    reused = await planner.plan_custom_film_from_recipe(
+        "Make a film about clean steel",
+        compiled.normalized_recipe,
+        manifest,
+        Client(),
+        total_duration_seconds=420,
+    )
+    assert reused.recipe_signature == compiled.recipe_signature
+    assert reused.normalized_recipe == compiled.normalized_recipe
+    assert [s["duration_units"] for s in reused.internal_plan["sections"]] == [
+        s["duration_units"] for s in compiled.normalized_recipe["sections"]
+    ]
+    assert all("clean steel" in s["purpose"] for s in reused.internal_plan["sections"])
+    prompt = prompts[0]["prompt"]
+    assert "fresh topic" in prompt
+    assert "provider_id" not in prompt
+    assert "duration_weight" not in planner.ReuseFocusProposal.model_json_schema()[
+        "$defs"
+    ]["ReuseFocusSection"]["properties"]
+
+
+@pytest.mark.asyncio
+async def test_reuse_rejects_wrong_focus_count_and_never_inherits_approval(manifest):
+    compiled = planner.compile_planner_proposal(
+        "Make a Custom Film about steel", _proposal(), manifest
+    )
+
+    class Client:
+        async def generate(self, **_kwargs):
+            return '{"sections":[{"focus":"new steel"}]}'
+
+    with pytest.raises(planner.CustomFilmPlannerError):
+        await planner.plan_custom_film_from_recipe(
+            "A film about new steel",
+            compiled.normalized_recipe,
+            manifest,
+            Client(),
+        )

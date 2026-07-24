@@ -1860,6 +1860,7 @@ CREATE TABLE IF NOT EXISTS custom_film_recipes (
   recipe_family_id UUID NOT NULL,
   version INTEGER NOT NULL CHECK (version > 0),
   name TEXT NOT NULL CHECK (btrim(name) <> ''),
+  name_key TEXT NOT NULL CHECK (btrim(name_key) <> ''),
   compatibility_version TEXT NOT NULL CHECK (btrim(compatibility_version) <> ''),
   recipe JSONB NOT NULL CHECK (jsonb_typeof(recipe) = 'object'),
   signature TEXT NOT NULL CHECK (signature ~ '^[0-9a-f]{64}$'),
@@ -1871,6 +1872,10 @@ CREATE TABLE IF NOT EXISTS custom_film_recipes (
 
 CREATE UNIQUE INDEX IF NOT EXISTS custom_film_recipes_active_signature_uidx
   ON custom_film_recipes (tenant_id, signature)
+  WHERE archived_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS custom_film_recipes_active_name_uidx
+  ON custom_film_recipes (tenant_id, name_key)
   WHERE archived_at IS NULL;
 CREATE INDEX IF NOT EXISTS custom_film_recipes_family_idx
   ON custom_film_recipes (tenant_id, recipe_family_id, version DESC);

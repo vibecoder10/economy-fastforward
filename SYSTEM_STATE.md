@@ -11526,3 +11526,29 @@ control writes without losing the video, approval, or confirmation.
   three legacy render-mode choices. Provider/media callers remain free of
   Custom Film branches, and every legacy/single-profile render path is
   unchanged.
+
+# M2-6 Custom Film reusable recipes (added 2026-07-23)
+
+- A recipe is the topic-free projection of an approved immutable Custom Film
+  plan: compatibility version, ordered section roles, normalized integer
+  duration proportions, allowlisted production knobs, and component
+  provenance only. Topic, focus, purpose, title, rationale, section/video/asset
+  identity, providers/models, quotes/prices, and transcripts are never stored.
+- Successful approved-start reservation stamps the only eligible save
+  candidate. A later, separate chat turn revalidates that candidate against the
+  tenant-owned video and immutable approved plan hashes before one transaction
+  rechecks public-profile novelty, active tenant signature, and normalized
+  active name. Save itself never schedules, generates, renders, or uploads.
+- Migration 128 adds a case- and whitespace-normalized active recipe name key.
+  Tenant-wide transaction locks serialize save, name, family/version,
+  duplicate, rename, and archive races. Recipe bodies and signatures remain
+  immutable; rename and archive change metadata only with honest timestamps.
+  Archived recipes remain durable history, are excluded from list/reuse, and
+  do not block a later identical active save.
+- Chat supports explicit natural-language save/name, active list, reuse,
+  rename, and archive turns without exposing IDs, providers, settings, or a
+  fifth public profile card. Reuse loads the latest active tenant version,
+  asks the planner only for fresh grounded focus phrases, deterministically
+  reapplies the exact saved roles/proportions/knobs/provenance, asserts the
+  normalized signature, and enters the ordinary fresh estimate/hash/approval
+  flow with no inherited approval or generation.

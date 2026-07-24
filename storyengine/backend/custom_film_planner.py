@@ -33,6 +33,7 @@ from custom_film_contract import (
     normalize_recipe,
     plan_hash,
     recipe_signature,
+    validate_normalized_recipe,
 )
 from production_styles import PUBLIC_PRODUCTION_STYLE_IDS, REQUIRED_KNOB_KEYS
 
@@ -249,6 +250,16 @@ class PlannerSection(_StrictModel):
 
 class PlannerProposal(_StrictModel):
     sections: list[PlannerSection] = Field(min_length=1, max_length=MAX_PLANNER_SECTIONS)
+
+
+class ReuseFocusSection(_StrictModel):
+    focus: str = Field(min_length=1, max_length=120)
+
+
+class ReuseFocusProposal(_StrictModel):
+    sections: list[ReuseFocusSection] = Field(
+        min_length=1, max_length=MAX_PLANNER_SECTIONS
+    )
 
 
 @dataclass(frozen=True)
@@ -815,6 +826,157 @@ async def plan_custom_film(
     except CustomFilmPlannerError:
         raise
     except Exception as exc:  # noqa: BLE001 - provider details must not leak to chat
+        raise CustomFilmPlannerError(PLANNER_FAILURE_MESSAGE) from exc
+
+
+async def plan_custom_film_from_recipe(
+    user_request: str,
+    saved_recipe: dict[str, Any],
+    manifest: CapabilityManifest,
+    client: Any,
+    *,
+    total_duration_seconds: int | None = None,
+) -> CompiledCustomFilm:
+    """Ground fresh section content while deterministically reapplying a recipe."""
+    if client is None:
+        raise CustomFilmPlannerError(NO_KEY_MESSAGE)
+    try:
+        recipe = validate_normalized_recipe(saved_recipe, manifest)
+        sections = recipe["sections"]
+        schema = ReuseFocusProposal.model_json_schema()
+        raw = await client.generate(
+            prompt=(
+                "Return one JSON object matching the schema. Supply exactly "
+                f"{len(sections)} ordered section focus phrases copied verbatim from "
+                "the creator's fresh topic. Do not return roles, durations, styles, "
+                "knobs, providers, models, prices, approvals, or actions.\n\n"
+                f"JSON SCHEMA:\n{canonical_json(schema)}\n\n"
+                f"CREATOR REQUEST:\n{user_request.strip()}"
+            ),
+            system_prompt=(
+                "You ground saved film sections in a fresh topic. Follow the JSON "
+                "schema exactly and copy concise focus phrases from the request."
+            ),
+            max_tokens=1_000,
+            temperature=0,
+        )
+        focus_proposal = ReuseFocusProposal.model_validate(
+            _extract_json_object(raw)
+        )
+        if len(focus_proposal.sections) != len(sections):
+            raise CustomFilmPlannerError(PLANNER_FAILURE_MESSAGE)
+        focuses = [
+            _normalized_grounded_focus(section.focus, user_request, None)
+            for section in focus_proposal.sections
+        ]
+        raw_plan_sections: list[dict[str, Any]] = []
+        proposal_sections: list[dict[str, Any]] = []
+        for index, (saved, focus) in enumerate(zip(sections, focuses)):
+            provenance = saved["provenance"]
+            structure_source = provenance["render_mode"][0]
+            writing_source = provenance["script_profile"][0]
+            visual_source = provenance["visual_profile"][0]
+            purpose = ROLE_PURPOSES[saved["role"]].format(focus=focus)
+            duration = (
+                Decimal(total_duration_seconds)
+                * Decimal(saved["duration_units"])
+                / Decimal(1_000_000)
+                if total_duration_seconds is not None
+                else Decimal(0)
+            ).quantize(Decimal("0.001"))
+            raw_plan_sections.append(
+                {
+                    "section_id": _section_id(user_request, index),
+                    "role": saved["role"],
+                    "purpose": purpose,
+                    "duration_weight": saved["duration_units"],
+                    "knobs": copy.deepcopy(saved["knobs"]),
+                    "estimated_media": {
+                        "still_images": 0,
+                        "animation_clips": 0,
+                        "voice_tracks": 0,
+                        "duration_seconds": duration,
+                    },
+                }
+            )
+            proposal_sections.append(
+                {
+                    "role": saved["role"],
+                    "focus": focus,
+                    "duration_weight": saved["duration_units"],
+                    "structure_source": structure_source,
+                    "writing_source": writing_source,
+                    "visual_source": visual_source,
+                }
+            )
+        normalized_plan = normalize_plan(
+            {
+                "compatibility_version": manifest.version,
+                "sections": raw_plan_sections,
+            },
+            manifest,
+        )
+        reapplied_recipe = normalize_recipe(
+            {
+                "compatibility_version": manifest.version,
+                "sections": [
+                    {
+                        "role": section["role"],
+                        "duration_weight": section["duration_units"],
+                        "knobs": section["knobs"],
+                    }
+                    for section in normalized_plan["sections"]
+                ],
+            },
+            manifest,
+        )
+        expected_signature = recipe_signature(recipe)
+        if recipe_signature(reapplied_recipe) != expected_signature:
+            raise CustomFilmPlannerError(
+                "That saved recipe could not be reapplied exactly. Nothing was generated or charged."
+            )
+        display_sections = [
+            {
+                "section_id": section["section_id"],
+                "order": section["order_index"] + 1,
+                "role": _role_label(section["role"]),
+                "purpose": section["purpose"],
+                "share_percent": round(section["duration_units"] / 10_000, 2),
+                "feel": _feel(section["knobs"]),
+                "expected_media": _expected_media(section["knobs"]),
+                "why": (
+                    "This saved recipe keeps the production treatment while grounding "
+                    "the section in your new topic."
+                ),
+            }
+            for section in normalized_plan["sections"]
+        ]
+        display = {
+            "kind": "custom_film",
+            "summary": (
+                f"I reapplied the saved recipe across {len(display_sections)} "
+                "ordered sections for this new topic."
+            ),
+            "sections": display_sections,
+            "byok_notice": (
+                "Any later production uses only your connected AI accounts."
+            ),
+            "status": (
+                "Planning only — review the fresh estimate and explicitly approve "
+                "this exact new film."
+            ),
+        }
+        return CompiledCustomFilm(
+            internal_plan=normalized_plan,
+            display_plan=display,
+            planner_proposal={"sections": proposal_sections},
+            normalized_recipe=reapplied_recipe,
+            plan_hash=plan_hash(normalized_plan),
+            recipe_signature=expected_signature,
+        )
+    except CustomFilmPlannerError:
+        raise
+    except Exception as exc:  # noqa: BLE001
         raise CustomFilmPlannerError(PLANNER_FAILURE_MESSAGE) from exc
 
 
