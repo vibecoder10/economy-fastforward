@@ -3,6 +3,7 @@
 import os
 import httpx
 import tempfile
+import inspect
 from typing import Optional
 
 from orchestrator.pipeline_constants import Models
@@ -58,6 +59,58 @@ class ElevenLabsClient:
 
         self.voice_id = voice_id or os.getenv("ELEVENLABS_VOICE_ID", self.DEFAULT_VOICE_ID)
 
+    async def query_task(self, task_id: str) -> dict:
+        """Query and finish one already-created Kie TTS task.
+
+        Direct ElevenLabs responses have no task identity and never enter this
+        path.  Custom Film uses it only after the Kie task ID has been durably
+        journaled, so worker recovery never creates a second paid task.
+        """
+        if not self._kie_mode:
+            raise RuntimeError("Direct ElevenLabs voice has no queryable task")
+        import asyncio as _asyncio
+        import json as _json
+
+        task_id = str(task_id or "").strip()
+        if not task_id:
+            raise RuntimeError("Kie TTS task identity is missing")
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        for _attempt in range(60):
+            await _asyncio.sleep(3)
+            async with httpx.AsyncClient() as client:
+                poll = await client.get(
+                    self.KIE_RECORD_INFO_URL,
+                    headers=headers,
+                    params={"taskId": task_id},
+                    timeout=30.0,
+                )
+            pdata = poll.json().get("data", {}) if poll.text else {}
+            state = str(pdata.get("state", "")).lower()
+            if state in ("fail", "failed", "failure", "error"):
+                message = str(
+                    pdata.get("failMsg")
+                    or pdata.get("errorMessage")
+                    or pdata
+                )[:200]
+                raise RuntimeError(f"Kie TTS task failed: {message}")
+            result_json = pdata.get("resultJson")
+            if result_json:
+                result = (
+                    _json.loads(result_json)
+                    if isinstance(result_json, str)
+                    else result_json
+                )
+                urls = result.get("resultUrls") or []
+                if urls:
+                    async with httpx.AsyncClient() as client:
+                        audio = await client.get(urls[0], timeout=120.0)
+                        audio.raise_for_status()
+                    return {
+                        "audio_content": audio.content,
+                        "content_type": "audio/mpeg",
+                    }
+        raise RuntimeError(f"Kie.ai TTS timed out for task {task_id}")
+
     async def _generate_via_kie(
         self,
         text: str,
@@ -66,11 +119,9 @@ class ElevenLabsClient:
         similarity_boost: float,
         style: Optional[float] = None,
         speed: Optional[float] = None,
+        task_id_callback=None,
     ) -> dict:
         """Generate TTS through Kie.ai's async job API; returns audio bytes."""
-        import asyncio as _asyncio
-        import json as _json
-
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -107,31 +158,11 @@ class ElevenLabsClient:
                     print(f"    Voice '{candidate}' not on Kie roster — falling back to narration voice", flush=True)
                     continue
                 raise RuntimeError(f"Kie TTS createTask failed: {last_error}")
-
-            for _attempt in range(60):
-                await _asyncio.sleep(3)
-                async with httpx.AsyncClient() as client:
-                    poll = await client.get(
-                        self.KIE_RECORD_INFO_URL,
-                        headers={"Authorization": f"Bearer {self.api_key}"},
-                        params={"taskId": task_id},
-                        timeout=30.0,
-                    )
-                pdata = poll.json().get("data", {}) if poll.text else {}
-                state = str(pdata.get("state", "")).lower()
-                if state in ("fail", "failed", "failure", "error"):
-                    last_error = str(pdata.get("failMsg") or pdata.get("errorMessage") or pdata)[:200]
-                    raise RuntimeError(f"Kie TTS task failed: {last_error}")
-                result_json = pdata.get("resultJson")
-                if result_json:
-                    result = _json.loads(result_json) if isinstance(result_json, str) else result_json
-                    urls = result.get("resultUrls") or []
-                    if urls:
-                        async with httpx.AsyncClient() as client:
-                            audio = await client.get(urls[0], timeout=120.0)
-                            audio.raise_for_status()
-                        return {"audio_content": audio.content, "content_type": "audio/mpeg"}
-            raise RuntimeError("Kie TTS task timed out after 180s")
+            if task_id_callback is not None:
+                callback_result = task_id_callback(str(task_id))
+                if inspect.isawaitable(callback_result):
+                    await callback_result
+            return await self.query_task(str(task_id))
         raise RuntimeError(f"Kie TTS failed: {last_error}")
 
     async def generate_voice(
@@ -142,6 +173,7 @@ class ElevenLabsClient:
         stability: float = 0.5,
         style: Optional[float] = None,
         speed: Optional[float] = None,
+        task_id_callback=None,
     ) -> dict:
         """Generate voice audio from text via ElevenLabs API.
 
@@ -165,7 +197,13 @@ class ElevenLabsClient:
                     pass
         if self._kie_mode:
             return await self._generate_via_kie(
-                text, target_voice, stability, similarity_boost, style=style, speed=speed
+                text,
+                target_voice,
+                stability,
+                similarity_boost,
+                style=style,
+                speed=speed,
+                task_id_callback=task_id_callback,
             )
         url = f"{self.ELEVENLABS_API_URL}/{target_voice}"
 
@@ -210,6 +248,7 @@ class ElevenLabsClient:
         self,
         text: str,
         voice_id: Optional[str] = None,
+        task_id_callback=None,
     ) -> Optional[str]:
         """Generate voice audio and return a temporary file URL.
 
@@ -221,7 +260,11 @@ class ElevenLabsClient:
             File path to the generated audio, or None if failed.
         """
         try:
-            result = await self.generate_voice(text, voice_id)
+            result = await self.generate_voice(
+                text,
+                voice_id,
+                task_id_callback=task_id_callback,
+            )
             audio_content = result.get("audio_content")
             if not audio_content:
                 return None

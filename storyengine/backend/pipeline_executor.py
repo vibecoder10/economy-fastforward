@@ -12458,6 +12458,7 @@ separate scenes."""
         only_scenes: list = None,
         force_model_id: str = None,
         asset_ids: list = None,
+        section_contract: dict = None,
     ) -> dict:
         """Generate motion clips from final pictures — one card, several
         cards, one scene, or all.
@@ -12533,6 +12534,25 @@ separate scenes."""
             video = await self._get_video(video_id)
             if not video:
                 return {"status": "failed", "error": "Video not found"}
+            section_camera_mode = ""
+            section_exact_seconds = None
+            if section_contract is not None:
+                animation = section_contract.get("animation")
+                camera = section_contract.get("camera")
+                if (
+                    section_contract.get("render_mode") != "coverage"
+                    or not isinstance(animation, dict)
+                    or animation.get("enabled") is not True
+                    or animation.get("mode") != "grok_native"
+                    or not isinstance(camera, dict)
+                    or camera.get("mode")
+                    not in {"dialogue_coverage", "investigative_coverage"}
+                    or type(section_contract.get("exact_seconds")) is not int
+                    or section_contract["exact_seconds"] < 1
+                ):
+                    raise ValueError("Unsupported animated section clip contract")
+                section_camera_mode = str(camera["mode"])
+                section_exact_seconds = int(section_contract["exact_seconds"])
 
             from shared.channel_profile import MODEL_REGISTRY, DEFAULT_VIDEO_MODEL
             from shared.model_router import resolve_clip_model
@@ -12780,6 +12800,11 @@ separate scenes."""
                 if style_note:
                     p += f" Art style: {style_note}"
                 p += f" Motion: {core_prompt}"
+                if section_camera_mode:
+                    p += (
+                        f" Use the approved {section_camera_mode} camera grammar "
+                        f"for this exact {section_exact_seconds}-second section."
+                    )
                 return p
 
             # 💬 cards speak: map this video's tagged dialogue lines to cards.
@@ -12812,6 +12837,7 @@ separate scenes."""
             done = failed = 0
             cost = 0.0
             total = len(todo)
+            generated_artifacts: list[dict] = []
             # Clips fan out concurrently; CLIP_CONCURRENCY tunes the width
             # (Kie queues server-side — same account the coverage image gens
             # already hit concurrently).
@@ -13214,6 +13240,14 @@ separate scenes."""
                         print(f"[clips] S{sc}.{idx} model_used write failed "
                               f"(clip itself succeeded): {str(mu_err)[:150]}", flush=True)
                     done += 1
+                    generated_artifacts.append(
+                        {
+                            "asset_id": str(r["id"]),
+                            "video_clip_url": drive_url,
+                            "provider_model": effective_model_id,
+                            "duration_seconds": str(clip_dur),
+                        }
+                    )
                     cost += clip_cost
                     # generation_ledger: one row per completed clip, single source
                     # of truth for videos.total_cost (checklist §0.3a / C07).
@@ -13417,6 +13451,11 @@ separate scenes."""
                     "clips_generated": done, "clips_failed": failed, "cost": cost,
                     "clips_blocked": len(blocked_rows),
                     "clips_in_progress_elsewhere": len(already_animating),
+                    "requested_asset_ids": list(_ids or []),
+                    "generated_asset_ids": [
+                        row["asset_id"] for row in generated_artifacts
+                    ],
+                    "generated_artifacts": generated_artifacts,
                     "error": msg if failed and not done else None}
 
         except Exception as e:
@@ -16075,6 +16114,48 @@ separate scenes."""
             "method": result["method"],
         }
 
+    async def _run_custom_film_render(
+        self, video_id: str, video: dict, current_status: str
+    ) -> dict:
+        """One render-door dispatch into the dedicated section compositor."""
+        bot_name = "Render Bot"
+        await self._log_activity(
+            bot_name,
+            video_id,
+            "started",
+            "Assembling the approved Custom Film sections",
+        )
+
+        async def _progress(message: str) -> None:
+            await self._log_activity(bot_name, video_id, "running", message)
+
+        from custom_film_compositor import render_custom_film_video
+
+        result = await render_custom_film_video(
+            video_id,
+            self.tenant_id,
+            title=video.get("video_title") or "",
+            on_progress=_progress,
+        )
+        if result.get("status") != "rendered" or not result.get("final_video_url"):
+            raise RuntimeError("Custom Film compositor returned no exact final artifact")
+        await self._log_transition(
+            video_id, current_status, to_supabase("rendered"), "api"
+        )
+        await self._charge_render_minutes(
+            video_id,
+            max(1, round(float(result["duration_seconds"]) / 60)),
+        )
+        await self._log_activity(
+            bot_name,
+            video_id,
+            "completed",
+            f"Assembled {result['section_count']} approved sections "
+            f"({result['duration_seconds']:.0f}s, {result['resolution']}) "
+            "into one exact Custom Film",
+        )
+        return result
+
     async def _charge_render_minutes(self, video_id: str, minutes) -> None:
         """Charge render minutes idempotently — only the delta above what this
         video was already charged. Re-renders (edit/retry) of one deliverable
@@ -16136,6 +16217,13 @@ separate scenes."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # Custom Film is interpreted exactly once at the render boundary.
+            # Media/provider callers remain profile-agnostic.
+            if video.get("custom_film_plan_id"):
+                return await self._run_custom_film_render(
+                    video_id, video, current_status
+                )
 
             # grok_native videos carry Grok's dialogue baked into each clip, so
             # the final video is just the clips stitched in order — no Remotion,

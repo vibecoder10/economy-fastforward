@@ -1886,6 +1886,27 @@ export interface VideoSummary {
   updated_at: string | null;
 }
 
+export interface CustomFilmPlanSection {
+  section_id: string;
+  order_index: number;
+  role: string;
+  purpose: string;
+  duration_units: number;
+  // The backend may include the immutable allowlisted production contract.
+  // UI surfaces treat it as opaque and expose only creator-safe derived copy.
+  knobs?: Record<string, unknown>;
+}
+
+export interface CustomFilmPlan {
+  id: string;
+  video_id: string;
+  revision: number;
+  compatibility_version: string;
+  approved_at?: string | null;
+  created_at?: string | null;
+  sections: CustomFilmPlanSection[];
+}
+
 export interface VideoDetail extends VideoSummary {
   characters_approved_at?: string | null;
   story_locked_at?: string | null;
@@ -1900,6 +1921,13 @@ export interface VideoDetail extends VideoSummary {
   production_style_id?: ProductionStyleId | null;
   production_style_version?: number | null;
   production_style_snapshot?: ProductionStyle | null;
+  custom_film_plan_id?: string | null;
+  custom_film_plan_revision?: number | null;
+  custom_film_plan_hash?: string | null;
+  custom_film_quote_inputs_hash?: string | null;
+  custom_film_approval_hash?: string | null;
+  custom_film_approved_at?: string | null;
+  custom_film_plan?: CustomFilmPlan | null;
   // Optional per-video spend ceiling (migration 103, checklist §3.3/C36).
   // null = no cap (default). The money gate (backend actions.budget_check)
   // reads the SAME total_cost above against this before every paid verb.

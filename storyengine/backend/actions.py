@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 import sys
 from pathlib import Path
@@ -770,10 +771,136 @@ async def estimate_cost(tenant_id, video_id, verb: str, scene: Optional[int], su
             # flat math rather than invent per-scene numbers that don't
             # exist yet.
             cost = scenes * 6 * clip
+    elif verb == "custom_film_section":
+        # M2-3: section-aware Custom Film pricing still goes through this
+        # shared estimator.  The deterministic compiler supplies only counts;
+        # every dollar constant remains the same shared channel-profile source
+        # used by every other chat/button quote above.
+        stills = max(0, int(summary.get("still_images") or 0))
+        clips = max(0, int(summary.get("animation_clips") or 0))
+        voices = max(0, int(summary.get("voice_tracks") or 0))
+        cost = (
+            stills * PICTURE_COST
+            + clips * clip
+            + voices * VOICE_COST_ESTIMATE
+        )
     else:
         cost = 0.0
     text = "no extra cost" if cost <= 0 else f"~${cost:.2f}"
     return round(cost, 2), text
+
+
+async def estimate_custom_film_plan(
+    normalized_plan: dict[str, Any],
+    *,
+    total_duration_seconds: int,
+    model: str = "grok-imagine",
+) -> dict[str, Any]:
+    """Compile a deterministic section BOM and price every row via estimate_cost.
+
+    This is deliberately internal/provider-neutral output.  Chat renders only
+    the friendly media counts and total; model/provider identifiers stay in the
+    quote inputs used for the approval binding.
+    """
+    duration = max(5, min(24 * 60 * 60, int(total_duration_seconds)))
+    sections = normalized_plan.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise ValueError("Custom Film plan has no sections")
+    if duration < len(sections):
+        raise ValueError("Custom Film duration is too short for its section count")
+    if sum(int(section.get("duration_units") or 0) for section in sections) != 1_000_000:
+        raise ValueError("Custom Film section durations are not normalized")
+
+    # Integer-second largest-remainder allocation.  Independent round() calls
+    # can drift above/below the approved runtime, especially for 5-second
+    # multi-section plans; this guarantees exact reconciliation.
+    exact_seconds = [
+        duration * max(1, int(section.get("duration_units") or 0)) / 1_000_000
+        for section in sections
+    ]
+    section_seconds = [math.floor(value) for value in exact_seconds]
+    remainder = duration - sum(section_seconds)
+    ranked = sorted(
+        range(len(sections)),
+        key=lambda index: (-(exact_seconds[index] - section_seconds[index]), index),
+    )
+    for index in ranked[:remainder]:
+        section_seconds[index] += 1
+    for zero_index in (
+        index for index, seconds in enumerate(section_seconds) if seconds == 0
+    ):
+        donor = min(
+            (index for index, seconds in enumerate(section_seconds) if seconds > 1),
+            key=lambda index: (-section_seconds[index], index),
+        )
+        section_seconds[zero_index] = 1
+        section_seconds[donor] -= 1
+
+    rows: list[dict[str, Any]] = []
+    capability_totals = {
+        "image_generation": 0,
+        "clip_generation": 0,
+        "voice_generation": 0,
+    }
+    total_cost = 0.0
+    for section, seconds in zip(sections, section_seconds):
+        knobs = section.get("knobs") if isinstance(section.get("knobs"), dict) else {}
+        density = knobs.get("image_density") if isinstance(knobs.get("image_density"), dict) else {}
+        animation = knobs.get("animation") if isinstance(knobs.get("animation"), dict) else {}
+        dubbing = knobs.get("dubbing") if isinstance(knobs.get("dubbing"), dict) else {}
+
+        if density.get("mode") == "per_item":
+            stills = max(1, math.ceil(seconds / 60)) * max(1, int(density.get("target") or 1))
+        else:
+            stills = max(
+                1,
+                math.ceil(seconds / 60 * max(1, float(density.get("target_per_minute") or 1))),
+            )
+        clips = stills if bool(animation.get("enabled")) else 0
+        voices = 2 if bool(dubbing.get("enabled")) else 1
+        summary = {
+            "model": model,
+            "still_images": stills,
+            "animation_clips": clips,
+            "voice_tracks": voices,
+        }
+        row_cost, _ = await estimate_cost(
+            None, None, "custom_film_section", None, summary
+        )
+        row = {
+            "section_id": str(section.get("section_id") or ""),
+            "order_index": int(section.get("order_index") or 0),
+            "duration_seconds": seconds,
+            "still_images": stills,
+            "animation_clips": clips,
+            "voice_tracks": voices,
+            "provider_capabilities": {
+                "image_generation": stills,
+                "clip_generation": clips,
+                "voice_generation": voices,
+            },
+            "estimated_cost": row_cost,
+        }
+        rows.append(row)
+        total_cost += row_cost
+        for capability, count in row["provider_capabilities"].items():
+            capability_totals[capability] += count
+
+    totals = {
+        "duration_seconds": sum(row["duration_seconds"] for row in rows),
+        "still_images": sum(row["still_images"] for row in rows),
+        "animation_clips": sum(row["animation_clips"] for row in rows),
+        "voice_tracks": sum(row["voice_tracks"] for row in rows),
+        "provider_capabilities": capability_totals,
+        "estimated_cost": round(total_cost, 2),
+    }
+    return {
+        "estimator_version": "shared-actions-v1",
+        "model": model,
+        "requested_duration_seconds": duration,
+        "sections": rows,
+        "totals": totals,
+    }
 
 
 async def estimate_plan_cost(video_length_minutes: Optional[float] = None) -> tuple[float, str, int]:

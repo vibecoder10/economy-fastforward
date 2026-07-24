@@ -1,7 +1,11 @@
 "use client";
 
 import { Check, Loader2, TriangleAlert, Wifi, WifiOff } from "lucide-react";
-import type { VideoDetail } from "@/lib/api";
+import type {
+  CustomFilmPlan,
+  CustomFilmPlanSection,
+  VideoDetail,
+} from "@/lib/api";
 import type {
   SSEStageChangeEvent,
   SSETaskProgressEvent,
@@ -20,6 +24,86 @@ const PIPELINE_STEPS = [
   { label: "Thumbnail", plan: "thumbnail" },
   { label: "Render", plan: "render" },
 ] as const;
+
+type CustomFilmSectionView = {
+  key: string;
+  order: number;
+  role: string;
+  share: string;
+  purpose: string;
+  feel: string;
+};
+
+const CREATOR_SECTION_ROLES = new Set([
+  "full_film",
+  "opening",
+  "context",
+  "explanation",
+  "evidence",
+  "contrast",
+  "case_study",
+  "resolution",
+  "closing",
+]);
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function sectionFeel(section: CustomFilmPlanSection): string {
+  const knobs = objectValue(section.knobs);
+  const animation = objectValue(knobs.animation);
+  const language = objectValue(knobs.language);
+  if (knobs.render_mode === "static_docu") {
+    return "Grounded still-image documentary treatment";
+  }
+  if (language.mode === "bilingual") {
+    return "Bilingual performed character animation";
+  }
+  if (animation.enabled === true) {
+    return "Animated visual storytelling";
+  }
+  return "Focused documentary treatment";
+}
+
+export function customFilmSectionViews(
+  plan: CustomFilmPlan | null | undefined,
+): CustomFilmSectionView[] {
+  if (!plan || !Array.isArray(plan.sections)) return [];
+  return [...plan.sections]
+    .filter((section) => (
+      Number.isInteger(section.order_index)
+      && Number.isFinite(section.duration_units)
+      && section.duration_units > 0
+      && typeof section.purpose === "string"
+      && section.purpose.trim().length > 0
+    ))
+    .sort((a, b) => a.order_index - b.order_index)
+    .map((section) => ({
+      key: section.section_id || `section-${section.order_index}`,
+      order: section.order_index + 1,
+      role: CREATOR_SECTION_ROLES.has(section.role)
+        ? section.role.replaceAll("_", " ")
+        : "section",
+      share: `${(section.duration_units / 10_000).toFixed(1).replace(/\.0$/, "")}%`,
+      purpose: section.purpose.trim(),
+      feel: sectionFeel(section),
+    }));
+}
+
+export function customFilmStatusLabel(
+  status: string | null | undefined,
+): string {
+  const value = String(status || "").toLowerCase();
+  if (["rendered", "uploaded", "uploaded_draft", "published", "done"].includes(value)) {
+    return "Film ready";
+  }
+  if (value === "rendering" || value === "ready_to_render") return "Assembling film";
+  if (value === "custom_film_ready") return "Plan approved";
+  return "Section-aware production";
+}
 
 function pipelineIndex(status: string | null | undefined): number {
   const value = String(status || "").toLowerCase();
@@ -60,6 +144,8 @@ export function ChatPipelineMap({
   }
 
   const profile = video.production_style_snapshot;
+  const customFilmSections = customFilmSectionViews(video.custom_film_plan);
+  const isCustomFilm = Boolean(video.custom_film_plan);
   const plan = video.pipeline_stages;
   const visible = PIPELINE_STEPS.filter((step) => !plan || plan.includes(step.plan));
   const rawIndex = pipelineIndex(stageChange?.current_status || video.status);
@@ -83,10 +169,12 @@ export function ChatPipelineMap({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-            {profile?.label || "Legacy video workflow"}
+            {isCustomFilm ? "Custom Film" : profile?.label || "Legacy video workflow"}
           </p>
           <p className="text-[10px] leading-relaxed mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-            {profile?.description || "This older video keeps its original inferred production settings."}
+            {isCustomFilm
+              ? `${customFilmSections.length} ordered sections work together as one film.`
+              : profile?.description || "This older video keeps its original inferred production settings."}
           </p>
         </div>
         <span
@@ -98,6 +186,59 @@ export function ChatPipelineMap({
           {connected ? "Live" : "Reconnecting"}
         </span>
       </div>
+
+      {isCustomFilm && (
+        <div
+          aria-label="Custom Film section mix"
+          className="rounded-lg p-2.5 space-y-2"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+              Ordered section mix
+            </p>
+            <span
+              className="text-[9px] rounded-full px-2 py-0.5"
+              style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+            >
+              {customFilmStatusLabel(stageChange?.current_status || video.status)}
+            </span>
+          </div>
+          <ol className="space-y-1.5">
+            {customFilmSections.map((section) => (
+              <li
+                key={section.key}
+                className="grid grid-cols-[24px_minmax(0,1fr)_auto] gap-2 items-start rounded-md px-2 py-1.5"
+                style={{ background: "var(--bg-surface)" }}
+              >
+                <span
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-semibold"
+                  style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+                >
+                  {section.order}
+                </span>
+                <span className="min-w-0">
+                  <span
+                    className="block text-[10px] font-semibold capitalize"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    {section.role}
+                  </span>
+                  <span className="block text-[9px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                    {section.purpose}
+                  </span>
+                  <span className="block text-[9px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                    {section.feel}
+                  </span>
+                </span>
+                <span className="text-[9px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+                  {section.share}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
       <div className="overflow-x-auto pb-1">
         <ol className="flex min-w-max items-start">

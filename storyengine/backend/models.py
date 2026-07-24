@@ -1,6 +1,6 @@
 """Pydantic models for API request/response."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_serializer
 from typing import Optional, List, Literal
 from datetime import datetime
 from decimal import Decimal
@@ -98,6 +98,16 @@ class VideoDetail(VideoSummary):
     production_style_id: Optional[str] = None
     production_style_version: Optional[int] = None
     production_style_snapshot: Optional[dict] = None
+    # Custom Film is an optional, immutable per-video plan revision. The
+    # serializer omits this whole additive group when no plan exists so legacy
+    # and ordinary single-profile response payloads keep their prior key set.
+    custom_film_plan_id: Optional[str] = None
+    custom_film_plan_revision: Optional[int] = None
+    custom_film_plan_hash: Optional[str] = None
+    custom_film_quote_inputs_hash: Optional[str] = None
+    custom_film_approval_hash: Optional[str] = None
+    custom_film_approved_at: Optional[str] = None
+    custom_film_plan: Optional[dict] = None
     # Editorial-voice engine pick (checklist §2.3, C24) — a
     # shared.profiles.script profile id (e.g. "power_doctrine_v2"). NULL =
     # no explicit pick; the executor's SCRIPT_PROFILE seam falls back to
@@ -147,6 +157,22 @@ class VideoDetail(VideoSummary):
     script_system_prompt: Optional[str] = None
     thumbnail_system_prompt: Optional[str] = None
     sound_system_prompt: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _serialize_without_empty_custom_film(self, handler):
+        payload = handler(self)
+        if self.custom_film_plan_id is None:
+            for key in (
+                "custom_film_plan_id",
+                "custom_film_plan_revision",
+                "custom_film_plan_hash",
+                "custom_film_quote_inputs_hash",
+                "custom_film_approval_hash",
+                "custom_film_approved_at",
+                "custom_film_plan",
+            ):
+                payload.pop(key, None)
+        return payload
 
 
 class VideoAdvance(BaseModel):

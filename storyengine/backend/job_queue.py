@@ -1,12 +1,14 @@
 """Persistent job queue — thin wrapper over arq pool stored on app.state."""
 from __future__ import annotations
 import logging
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from arq import ArqRedis
 
 logger = logging.getLogger(__name__)
+_CUSTOM_FILM_RUNTIME_JOB_RE = re.compile(r"^custom-film-runtime:[0-9a-f]{64}$")
 
 # Stage -> arq function name map (must match worker.py handler names)
 _STAGE_HANDLERS: dict[str, str] = {
@@ -23,6 +25,7 @@ _STAGE_HANDLERS: dict[str, str] = {
     "thumbnail":        "arq_run_thumbnail",
     "render":           "arq_run_render",
     "upload":           "arq_run_upload",
+    "custom_film_runtime": "arq_run_custom_film_runtime",
 }
 
 
@@ -50,8 +53,18 @@ async def enqueue_stage(
     handler = _STAGE_HANDLERS.get(stage)
     if not handler:
         raise ValueError(f"Unknown stage: {stage!r}. Valid: {list(_STAGE_HANDLERS)}")
+    if stage == "custom_film_runtime":
+        runtime_job_id = str(stage_kwargs.get("runtime_job_id") or "")
+        if not _CUSTOM_FILM_RUNTIME_JOB_RE.fullmatch(runtime_job_id):
+            raise ValueError(
+                "custom_film_runtime requires its exact durable runtime_job_id"
+            )
 
-    job_id = make_job_id(stage, video_id, attempt)
+    job_id = (
+        f"custom-film-worker:{stage_kwargs['runtime_job_id']}:{attempt}"
+        if stage == "custom_film_runtime"
+        else make_job_id(stage, video_id, attempt)
+    )
     job = await arq_pool.enqueue_job(
         handler,
         video_id,

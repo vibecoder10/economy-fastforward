@@ -129,6 +129,15 @@ CREATE TABLE videos (
   production_style_id TEXT,
   production_style_version INTEGER,
   production_style_snapshot JSONB,
+  -- Custom Film points at one immutable instantiated plan revision. NULL on
+  -- every legacy/single-profile video. Approval is a future exact-hash gate;
+  -- migration 122 adds storage only and does not approve or dispatch work.
+  custom_film_plan_id UUID,
+  custom_film_plan_revision INTEGER,
+  custom_film_plan_hash TEXT,
+  custom_film_quote_inputs_hash TEXT,
+  custom_film_approval_hash TEXT,
+  custom_film_approved_at TIMESTAMPTZ,
   story_bible TEXT,
   script_validation TEXT,
   title_candidates TEXT,
@@ -1045,7 +1054,48 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT now(),
     job_id TEXT,
-    attempt INTEGER NOT NULL DEFAULT 1
+    attempt INTEGER NOT NULL DEFAULT 1,
+    runtime_envelope JSONB,
+    runtime_progress JSONB,
+    CONSTRAINT background_tasks_tenant_video_job_uidx
+      UNIQUE (tenant_id, video_id, job_id),
+    CONSTRAINT background_tasks_custom_film_runtime_envelope_check CHECK (
+      task_type <> 'custom_film_runtime'
+      OR (
+        runtime_envelope IS NOT NULL
+        AND jsonb_typeof(runtime_envelope) = 'object'
+        AND runtime_envelope->>'runtime_version' = 'custom-film-runtime-v1'
+        AND runtime_envelope->>'runtime_hash' ~ '^[0-9a-f]{64}$'
+        AND runtime_envelope->>'approval_hash' ~ '^[0-9a-f]{64}$'
+        AND jsonb_typeof(runtime_envelope->'sections') = 'array'
+        AND jsonb_typeof(runtime_envelope->'stage_plan') = 'array'
+      )
+    ),
+    CONSTRAINT background_tasks_custom_film_runtime_progress_check CHECK (
+      runtime_progress IS NULL
+      OR (
+        task_type = 'custom_film_runtime'
+        AND jsonb_typeof(runtime_progress) = 'object'
+        AND runtime_progress ? 'last_stage_key'
+        AND runtime_progress ? 'in_flight'
+        AND runtime_progress->>'runtime_hash' ~ '^[0-9a-f]{64}$'
+        AND jsonb_typeof(runtime_progress->'completed_stage_keys') = 'array'
+        AND (
+          runtime_progress->'last_stage_key' = 'null'::jsonb
+          OR jsonb_typeof(runtime_progress->'last_stage_key') = 'string'
+        )
+        AND (
+          runtime_progress->'in_flight' = 'null'::jsonb
+          OR (
+            jsonb_typeof(runtime_progress->'in_flight') = 'object'
+            AND runtime_progress->'in_flight'->>'stage_key' <> ''
+            AND runtime_progress->'in_flight'->>'operation_id'
+              ~ '^custom-film-op:[0-9a-f]{64}$'
+            AND runtime_progress->'in_flight'->>'state' = 'started'
+          )
+        )
+      )
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_bg_tasks_tenant ON background_tasks(tenant_id);
@@ -1056,6 +1106,13 @@ CREATE INDEX IF NOT EXISTS idx_bg_tasks_created_at ON background_tasks(created_a
 -- behind db_persist_task()'s check-then-insert race on the "pending" branch.
 -- NULL job_id (the in-process fallback path) is never deduped.
 CREATE UNIQUE INDEX IF NOT EXISTS background_tasks_job_id_uidx ON background_tasks(job_id) WHERE job_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS background_tasks_custom_film_approval_idx
+  ON background_tasks (
+    tenant_id,
+    video_id,
+    (runtime_envelope->>'approval_hash')
+  )
+  WHERE task_type = 'custom_film_runtime';
 
 ALTER TABLE background_tasks ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Tenant isolation" ON background_tasks FOR ALL TO authenticated
@@ -1785,6 +1842,660 @@ ON CONFLICT (id) DO UPDATE SET
   public = EXCLUDED.public,
   sort = EXCLUDED.sort,
   updated_at = now();
+
+-- =============================================================================
+-- CUSTOM FILM CONTRACT (migration 122)
+-- =============================================================================
+-- Tenant-owned reusable recipes are topic-free immutable versions. Instantiated
+-- plans/sections are also immutable; only a plan's future approval fields may
+-- change. Stable section UUIDs intentionally do not depend on scene numbers.
+CREATE UNIQUE INDEX IF NOT EXISTS videos_tenant_id_id_uidx
+  ON videos (tenant_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS scripts_tenant_video_id_uidx
+  ON scripts (tenant_id, video_id, id);
+
+CREATE TABLE IF NOT EXISTS custom_film_recipes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  recipe_family_id UUID NOT NULL,
+  version INTEGER NOT NULL CHECK (version > 0),
+  name TEXT NOT NULL CHECK (btrim(name) <> ''),
+  name_key TEXT NOT NULL CHECK (
+    name_key = lower(regexp_replace(btrim(name), '\s+', ' ', 'g'))
+    AND btrim(name_key) <> ''
+  ),
+  compatibility_version TEXT NOT NULL CHECK (btrim(compatibility_version) <> ''),
+  recipe JSONB NOT NULL CHECK (jsonb_typeof(recipe) = 'object'),
+  signature TEXT NOT NULL CHECK (signature ~ '^[0-9a-f]{64}$'),
+  archived_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, recipe_family_id, version)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS custom_film_recipes_active_signature_uidx
+  ON custom_film_recipes (tenant_id, signature)
+  WHERE archived_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS custom_film_recipes_active_name_uidx
+  ON custom_film_recipes (tenant_id, name_key)
+  WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS custom_film_recipes_family_idx
+  ON custom_film_recipes (tenant_id, recipe_family_id, version DESC);
+
+CREATE TABLE IF NOT EXISTS custom_film_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  video_id UUID NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  compatibility_version TEXT NOT NULL CHECK (btrim(compatibility_version) <> ''),
+  plan JSONB NOT NULL CHECK (jsonb_typeof(plan) = 'object'),
+  plan_hash TEXT NOT NULL CHECK (plan_hash ~ '^[0-9a-f]{64}$'),
+  quote_inputs JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(quote_inputs) = 'object'),
+  quote_inputs_hash TEXT NOT NULL CHECK (quote_inputs_hash ~ '^[0-9a-f]{64}$'),
+  approval_hash TEXT CHECK (
+    approval_hash IS NULL OR approval_hash ~ '^[0-9a-f]{64}$'
+  ),
+  approved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, video_id, revision),
+  UNIQUE (tenant_id, id),
+  UNIQUE (tenant_id, id, video_id),
+  FOREIGN KEY (tenant_id, video_id)
+    REFERENCES videos(tenant_id, id) ON DELETE CASCADE,
+  CHECK (
+    (approval_hash IS NULL AND approved_at IS NULL)
+    OR (approval_hash IS NOT NULL AND approved_at IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_plans_video_revision_idx
+  ON custom_film_plans (tenant_id, video_id, revision DESC);
+
+CREATE TABLE IF NOT EXISTS custom_film_sections (
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  section_id UUID NOT NULL,
+  order_index INTEGER NOT NULL CHECK (order_index >= 0),
+  role TEXT NOT NULL CHECK (btrim(role) <> ''),
+  purpose TEXT NOT NULL CHECK (btrim(purpose) <> ''),
+  duration_units INTEGER NOT NULL CHECK (
+    duration_units > 0 AND duration_units <= 1000000
+  ),
+  knobs JSONB NOT NULL CHECK (jsonb_typeof(knobs) = 'object'),
+  provenance JSONB NOT NULL CHECK (jsonb_typeof(provenance) = 'object'),
+  estimated_media JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(estimated_media) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, plan_id, section_id),
+  UNIQUE (tenant_id, plan_id, video_id, section_id),
+  UNIQUE (tenant_id, plan_id, order_index),
+  FOREIGN KEY (tenant_id, plan_id, video_id)
+    REFERENCES custom_film_plans(tenant_id, id, video_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_sections_order_idx
+  ON custom_film_sections (tenant_id, plan_id, order_index);
+
+CREATE TABLE IF NOT EXISTS custom_film_section_scenes (
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  section_id UUID NOT NULL,
+  script_id UUID NOT NULL,
+  scene_order INTEGER NOT NULL CHECK (scene_order >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, plan_id, section_id, script_id),
+  UNIQUE (tenant_id, plan_id, script_id),
+  UNIQUE (tenant_id, plan_id, section_id, scene_order),
+  FOREIGN KEY (tenant_id, plan_id, video_id, section_id)
+    REFERENCES custom_film_sections(tenant_id, plan_id, video_id, section_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, video_id, script_id)
+    REFERENCES scripts(tenant_id, video_id, id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_section_scenes_order_idx
+  ON custom_film_section_scenes
+    (tenant_id, plan_id, section_id, scene_order);
+
+-- M2-4B2a: provider request/result journal keyed by the stable stage
+-- operation_id. Provider callers may query a persisted provider task, repeat
+-- an idempotent request with the same operation ID, or fail closed; they may
+-- never blindly replay an unresolved opaque request.
+CREATE TABLE IF NOT EXISTS custom_film_provider_operations (
+  operation_id TEXT PRIMARY KEY
+    CHECK (operation_id ~ '^custom-film-op:[0-9a-f]{64}$'),
+  tenant_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  runtime_job_id TEXT NOT NULL
+    CHECK (runtime_job_id ~ '^custom-film-runtime:[0-9a-f]{64}$'),
+  runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
+  stage_key TEXT NOT NULL CHECK (stage_key <> ''),
+  provider TEXT NOT NULL CHECK (provider <> ''),
+  request_hash TEXT NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+  reconciliation_mode TEXT NOT NULL
+    CHECK (reconciliation_mode IN (
+      'provider_query', 'provider_idempotency', 'none'
+    )),
+  state TEXT NOT NULL DEFAULT 'prepared'
+    CHECK (state IN (
+      'prepared', 'submitted', 'completed', 'failed',
+      'reconciliation_required'
+    )),
+  provider_operation_id TEXT,
+  result JSONB,
+  reconciliation_detail TEXT,
+  submitted_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, video_id, runtime_job_id, stage_key),
+  CHECK (state <> 'completed' OR result IS NOT NULL),
+  CHECK (state <> 'submitted' OR provider_operation_id IS NOT NULL),
+  FOREIGN KEY (tenant_id, video_id)
+    REFERENCES videos(tenant_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, video_id, runtime_job_id)
+    REFERENCES background_tasks(tenant_id, video_id, job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_provider_operations_runtime_idx
+  ON custom_film_provider_operations (tenant_id, video_id, runtime_job_id);
+
+ALTER TABLE assets
+  ADD CONSTRAINT assets_tenant_video_id_uidx
+  UNIQUE (tenant_id, video_id, id);
+
+ALTER TABLE custom_film_provider_operations
+  ADD CONSTRAINT custom_film_provider_operations_identity_uidx
+  UNIQUE (operation_id, tenant_id, video_id, runtime_hash);
+
+CREATE TABLE IF NOT EXISTS custom_film_asset_provenance (
+  tenant_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  asset_id UUID NOT NULL,
+  plan_id UUID NOT NULL,
+  section_id UUID NOT NULL,
+  runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
+  stage TEXT NOT NULL CHECK (stage IN ('pictures', 'motion', 'clips')),
+  operation_id TEXT NOT NULL
+    CHECK (operation_id ~ '^custom-film-op:[0-9a-f]{64}$'),
+  request_hash TEXT NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+  section_contract_hash TEXT NOT NULL
+    CHECK (section_contract_hash ~ '^[0-9a-f]{64}$'),
+  generation_method TEXT NOT NULL CHECK (generation_method <> ''),
+  provider_model TEXT,
+  status TEXT NOT NULL DEFAULT 'prepared'
+    CHECK (status IN ('prepared', 'submitted', 'completed', 'failed')),
+  artifact_url_hash TEXT CHECK (
+    artifact_url_hash IS NULL OR artifact_url_hash ~ '^[0-9a-f]{64}$'
+  ),
+  actual_duration_ms BIGINT CHECK (
+    actual_duration_ms IS NULL OR actual_duration_ms > 0
+  ),
+  assigned_duration_ms BIGINT CHECK (
+    assigned_duration_ms IS NULL OR assigned_duration_ms > 0
+  ),
+  timing_transform JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, video_id, asset_id, runtime_hash, stage),
+  FOREIGN KEY (tenant_id, video_id, asset_id)
+    REFERENCES assets(tenant_id, video_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, plan_id, video_id, section_id)
+    REFERENCES custom_film_sections(tenant_id, plan_id, video_id, section_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (operation_id, tenant_id, video_id, runtime_hash)
+    REFERENCES custom_film_provider_operations(
+      operation_id, tenant_id, video_id, runtime_hash
+    ) ON DELETE CASCADE,
+  CHECK (
+    (status = 'completed' AND artifact_url_hash IS NOT NULL
+     AND completed_at IS NOT NULL)
+    OR
+    (status <> 'completed' AND completed_at IS NULL)
+  ),
+  CHECK (
+    (stage = 'clips' AND assigned_duration_ms IS NOT NULL)
+    OR
+    (stage <> 'clips' AND actual_duration_ms IS NULL
+      AND assigned_duration_ms IS NULL AND timing_transform IS NULL)
+  ),
+  CHECK (
+    stage <> 'clips' OR status <> 'completed'
+    OR (actual_duration_ms IS NOT NULL AND timing_transform IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_asset_provenance_section_idx
+  ON custom_film_asset_provenance
+    (tenant_id, video_id, plan_id, section_id, runtime_hash, stage);
+
+CREATE OR REPLACE FUNCTION protect_custom_film_provider_operation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (
+    NEW.operation_id, NEW.tenant_id, NEW.video_id, NEW.runtime_job_id,
+    NEW.runtime_hash, NEW.stage_key, NEW.provider, NEW.request_hash,
+    NEW.reconciliation_mode
+  ) IS DISTINCT FROM (
+    OLD.operation_id, OLD.tenant_id, OLD.video_id, OLD.runtime_job_id,
+    OLD.runtime_hash, OLD.stage_key, OLD.provider, OLD.request_hash,
+    OLD.reconciliation_mode
+  ) THEN
+    RAISE EXCEPTION 'Custom Film provider operation identity is immutable';
+  END IF;
+  IF OLD.provider_operation_id IS NOT NULL
+     AND NEW.provider_operation_id IS DISTINCT FROM OLD.provider_operation_id THEN
+    RAISE EXCEPTION 'Custom Film provider task identity is write-once';
+  END IF;
+  IF OLD.result IS NOT NULL AND NEW.result IS DISTINCT FROM OLD.result THEN
+    RAISE EXCEPTION 'Custom Film provider result is write-once';
+  END IF;
+  IF OLD.reconciliation_detail IS NOT NULL
+     AND NEW.reconciliation_detail IS DISTINCT FROM OLD.reconciliation_detail THEN
+    RAISE EXCEPTION 'Custom Film reconciliation detail is write-once';
+  END IF;
+  IF OLD.state IN ('completed', 'failed', 'reconciliation_required')
+     AND (
+       NEW.provider_operation_id, NEW.result, NEW.reconciliation_detail
+     ) IS DISTINCT FROM (
+       OLD.provider_operation_id, OLD.result, OLD.reconciliation_detail
+     ) THEN
+    RAISE EXCEPTION 'Custom Film terminal provider operation is immutable';
+  END IF;
+  IF (
+    (OLD.state = 'prepared' AND NEW.state NOT IN (
+      'prepared', 'submitted', 'completed', 'failed',
+      'reconciliation_required'
+    ))
+    OR (OLD.state = 'submitted' AND NEW.state NOT IN (
+      'submitted', 'completed', 'failed', 'reconciliation_required'
+    ))
+    OR (OLD.state IN ('completed', 'failed', 'reconciliation_required')
+        AND NEW.state <> OLD.state)
+  ) THEN
+    RAISE EXCEPTION 'Custom Film provider operation state cannot regress';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION protect_custom_film_asset_provenance()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (
+    NEW.tenant_id, NEW.video_id, NEW.asset_id, NEW.plan_id, NEW.section_id,
+    NEW.runtime_hash, NEW.stage, NEW.operation_id, NEW.request_hash,
+    NEW.section_contract_hash,
+    NEW.generation_method
+  ) IS DISTINCT FROM (
+    OLD.tenant_id, OLD.video_id, OLD.asset_id, OLD.plan_id, OLD.section_id,
+    OLD.runtime_hash, OLD.stage, OLD.operation_id, OLD.request_hash,
+    OLD.section_contract_hash,
+    OLD.generation_method
+  ) THEN
+    RAISE EXCEPTION 'Custom Film asset provenance identity is immutable';
+  END IF;
+  IF OLD.provider_model IS NOT NULL
+     AND NEW.provider_model IS DISTINCT FROM OLD.provider_model THEN
+    RAISE EXCEPTION 'Custom Film asset provider model is write-once';
+  END IF;
+  IF OLD.artifact_url_hash IS NOT NULL
+     AND NEW.artifact_url_hash IS DISTINCT FROM OLD.artifact_url_hash THEN
+    RAISE EXCEPTION 'Custom Film asset URL identity is write-once';
+  END IF;
+  IF OLD.actual_duration_ms IS NOT NULL
+     AND NEW.actual_duration_ms IS DISTINCT FROM OLD.actual_duration_ms THEN
+    RAISE EXCEPTION 'Custom Film asset actual duration is write-once';
+  END IF;
+  IF OLD.assigned_duration_ms IS NOT NULL
+     AND NEW.assigned_duration_ms IS DISTINCT FROM OLD.assigned_duration_ms THEN
+    RAISE EXCEPTION 'Custom Film asset assigned duration is write-once';
+  END IF;
+  IF OLD.timing_transform IS NOT NULL
+     AND NEW.timing_transform IS DISTINCT FROM OLD.timing_transform THEN
+    RAISE EXCEPTION 'Custom Film asset timing transform is write-once';
+  END IF;
+  IF (
+    (OLD.status = 'prepared' AND NEW.status NOT IN (
+      'prepared', 'submitted', 'failed'
+    ))
+    OR (OLD.status = 'submitted' AND NEW.status NOT IN (
+      'submitted', 'completed', 'failed'
+    ))
+    OR (OLD.status IN ('completed', 'failed') AND NEW.status <> OLD.status)
+  ) THEN
+    RAISE EXCEPTION 'Custom Film asset provenance status cannot regress';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER custom_film_provider_operation_protect
+  BEFORE UPDATE ON custom_film_provider_operations
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_provider_operation();
+
+CREATE TRIGGER custom_film_asset_provenance_protect
+  BEFORE UPDATE ON custom_film_asset_provenance
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_asset_provenance();
+
+ALTER TABLE videos
+  ADD CONSTRAINT videos_custom_film_plan_fkey
+  FOREIGN KEY (tenant_id, custom_film_plan_id)
+  REFERENCES custom_film_plans(tenant_id, id)
+  DEFERRABLE INITIALLY DEFERRED;
+
+ALTER TABLE videos
+  ADD CONSTRAINT videos_custom_film_plan_revision_check
+  CHECK (
+    (custom_film_plan_id IS NULL
+     AND custom_film_plan_revision IS NULL
+     AND custom_film_plan_hash IS NULL
+     AND custom_film_quote_inputs_hash IS NULL
+     AND custom_film_approval_hash IS NULL
+     AND custom_film_approved_at IS NULL)
+    OR
+    (custom_film_plan_id IS NOT NULL
+     AND custom_film_plan_revision > 0
+     AND custom_film_plan_hash ~ '^[0-9a-f]{64}$'
+     AND custom_film_quote_inputs_hash ~ '^[0-9a-f]{64}$'
+     AND (
+       (custom_film_approval_hash IS NULL AND custom_film_approved_at IS NULL)
+       OR
+       (custom_film_approval_hash ~ '^[0-9a-f]{64}$'
+        AND custom_film_approved_at IS NOT NULL)
+     ))
+  );
+
+CREATE OR REPLACE FUNCTION protect_custom_film_immutable_contract()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'custom_film_sections' THEN
+    RAISE EXCEPTION 'Custom Film section contracts are immutable';
+  END IF;
+  IF TG_TABLE_NAME = 'custom_film_recipes'
+     AND (
+       NEW.id, NEW.tenant_id, NEW.recipe_family_id, NEW.version,
+       NEW.compatibility_version, NEW.recipe, NEW.signature, NEW.created_at
+     ) IS DISTINCT FROM (
+       OLD.id, OLD.tenant_id, OLD.recipe_family_id, OLD.version,
+       OLD.compatibility_version, OLD.recipe, OLD.signature, OLD.created_at
+     ) THEN
+    RAISE EXCEPTION 'Custom Film recipe versions are immutable';
+  END IF;
+  IF TG_TABLE_NAME = 'custom_film_recipes' THEN
+    IF (NEW.name, NEW.name_key, NEW.archived_at)
+       IS DISTINCT FROM (OLD.name, OLD.name_key, OLD.archived_at) THEN
+      IF NEW.updated_at <= OLD.updated_at THEN
+        RAISE EXCEPTION 'Custom Film recipe metadata timestamps must advance';
+      END IF;
+      IF OLD.archived_at IS NULL AND NEW.archived_at IS NOT NULL
+         AND NEW.archived_at IS DISTINCT FROM NEW.updated_at THEN
+        RAISE EXCEPTION 'Custom Film recipe archive timestamp must be truthful';
+      END IF;
+    ELSIF NEW.updated_at IS DISTINCT FROM OLD.updated_at THEN
+      RAISE EXCEPTION 'Custom Film recipe updated_at cannot change alone';
+    END IF;
+  END IF;
+  IF TG_TABLE_NAME = 'custom_film_plans'
+     AND (
+       NEW.tenant_id, NEW.video_id, NEW.revision,
+       NEW.compatibility_version, NEW.plan, NEW.plan_hash,
+       NEW.quote_inputs, NEW.quote_inputs_hash
+     ) IS DISTINCT FROM (
+       OLD.tenant_id, OLD.video_id, OLD.revision,
+       OLD.compatibility_version, OLD.plan, OLD.plan_hash,
+       OLD.quote_inputs, OLD.quote_inputs_hash
+     ) THEN
+    RAISE EXCEPTION 'Custom Film plan revisions are immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER custom_film_recipes_immutable
+  BEFORE UPDATE ON custom_film_recipes
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_immutable_contract();
+CREATE TRIGGER custom_film_plans_immutable
+  BEFORE UPDATE ON custom_film_plans
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_immutable_contract();
+CREATE TRIGGER custom_film_sections_immutable
+  BEFORE UPDATE ON custom_film_sections
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_immutable_contract();
+
+ALTER TABLE custom_film_recipes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_sections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_section_scenes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_provider_operations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_asset_provenance ENABLE ROW LEVEL SECURITY;
+
+-- M2-5: immutable, restart-safe Custom Film assembly and upload journal.
+CREATE TABLE IF NOT EXISTS custom_film_assemblies (
+  tenant_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  runtime_job_id TEXT NOT NULL,
+  runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
+  manifest_version TEXT NOT NULL CHECK (manifest_version = 'custom-film-assembly-v1'),
+  manifest_hash TEXT NOT NULL CHECK (manifest_hash ~ '^[0-9a-f]{64}$'),
+  manifest JSONB NOT NULL CHECK (jsonb_typeof(manifest) = 'object'),
+  progress JSONB NOT NULL CHECK (
+    jsonb_typeof(progress) = 'object'
+    AND progress->>'phase' IN (
+      'prepared', 'normalizing', 'assembling', 'rendering',
+      'uploading', 'finalized', 'retryable_failed', 'terminal_failed'
+    )
+    AND (progress->>'completed_sections') ~ '^[0-9]+$'
+    AND (progress->>'total_sections') ~ '^[1-9][0-9]*$'
+    AND (progress->>'completed_sections')::integer
+      <= (progress->>'total_sections')::integer
+  ),
+  state TEXT NOT NULL DEFAULT 'prepared' CHECK (
+    state IN ('prepared', 'rendering', 'rendered', 'uploading', 'uploaded', 'finalized', 'retryable_failed', 'terminal_failed')
+  ),
+  artifact_sha256 TEXT CHECK (artifact_sha256 IS NULL OR artifact_sha256 ~ '^[0-9a-f]{64}$'),
+  artifact_probe JSONB,
+  storage_path TEXT NOT NULL CHECK (storage_path <> ''),
+  final_video_url TEXT,
+  failure_detail TEXT,
+  failure_kind TEXT CHECK (failure_kind IS NULL OR failure_kind IN ('retryable', 'terminal')),
+  retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+  render_started_at TIMESTAMPTZ,
+  rendered_at TIMESTAMPTZ,
+  upload_started_at TIMESTAMPTZ,
+  uploaded_at TIMESTAMPTZ,
+  finalized_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, video_id, runtime_hash),
+  UNIQUE (tenant_id, video_id, manifest_hash),
+  FOREIGN KEY (tenant_id, video_id) REFERENCES videos(tenant_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, video_id, runtime_job_id)
+    REFERENCES background_tasks(tenant_id, video_id, job_id),
+  CHECK (
+    manifest->>'assembly_version' = manifest_version
+    AND manifest->>'manifest_hash' = manifest_hash
+    AND manifest->>'runtime_hash' = runtime_hash
+    AND manifest->>'runtime_job_id' = runtime_job_id
+    AND manifest->>'tenant_id' = tenant_id::text
+    AND manifest->>'video_id' = video_id::text
+  ),
+  CHECK (
+    state NOT IN ('rendered', 'uploading', 'uploaded', 'finalized')
+    OR (artifact_sha256 IS NOT NULL AND artifact_probe IS NOT NULL AND rendered_at IS NOT NULL)
+  ),
+  CHECK (
+    state NOT IN ('uploaded', 'finalized')
+    OR (final_video_url IS NOT NULL AND uploaded_at IS NOT NULL)
+  ),
+  CHECK (state <> 'finalized' OR finalized_at IS NOT NULL)
+);
+
+CREATE OR REPLACE FUNCTION protect_custom_film_assembly()
+RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  old_phase_rank INTEGER;
+  new_phase_rank INTEGER;
+BEGIN
+  IF (
+    NEW.tenant_id, NEW.video_id, NEW.runtime_job_id, NEW.runtime_hash, NEW.manifest_version,
+    NEW.manifest_hash, NEW.manifest, NEW.storage_path
+  ) IS DISTINCT FROM (
+    OLD.tenant_id, OLD.video_id, OLD.runtime_job_id, OLD.runtime_hash, OLD.manifest_version,
+    OLD.manifest_hash, OLD.manifest, OLD.storage_path
+  ) THEN
+    RAISE EXCEPTION 'Custom Film assembly identity is immutable';
+  END IF;
+  IF OLD.artifact_sha256 IS NOT NULL
+     AND NEW.artifact_sha256 IS DISTINCT FROM OLD.artifact_sha256 THEN
+    RAISE EXCEPTION 'Custom Film assembly artifact hash is write-once';
+  END IF;
+  IF OLD.artifact_probe IS NOT NULL
+     AND NEW.artifact_probe IS DISTINCT FROM OLD.artifact_probe THEN
+    RAISE EXCEPTION 'Custom Film assembly probe is write-once';
+  END IF;
+  IF OLD.final_video_url IS NOT NULL
+     AND NEW.final_video_url IS DISTINCT FROM OLD.final_video_url THEN
+    RAISE EXCEPTION 'Custom Film assembly storage result is write-once';
+  END IF;
+  IF (NEW.progress->>'total_sections')::integer
+       <> (OLD.progress->>'total_sections')::integer
+     OR (NEW.progress->>'completed_sections')::integer
+       < (OLD.progress->>'completed_sections')::integer THEN
+    RAISE EXCEPTION 'Custom Film assembly progress cannot regress';
+  END IF;
+  old_phase_rank := CASE OLD.progress->>'phase'
+    WHEN 'prepared' THEN 0 WHEN 'normalizing' THEN 1
+    WHEN 'assembling' THEN 2 WHEN 'rendering' THEN 3
+    WHEN 'uploading' THEN 4 WHEN 'finalized' THEN 5 ELSE 6 END;
+  new_phase_rank := CASE NEW.progress->>'phase'
+    WHEN 'prepared' THEN 0 WHEN 'normalizing' THEN 1
+    WHEN 'assembling' THEN 2 WHEN 'rendering' THEN 3
+    WHEN 'uploading' THEN 4 WHEN 'finalized' THEN 5 ELSE 6 END;
+  IF OLD.state <> 'retryable_failed'
+     AND NEW.progress->>'phase' NOT IN ('retryable_failed', 'terminal_failed')
+     AND new_phase_rank < old_phase_rank THEN
+    RAISE EXCEPTION 'Custom Film assembly phase cannot regress';
+  END IF;
+  IF (
+    (OLD.state = 'prepared' AND NEW.state NOT IN ('prepared', 'rendering', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'rendering' AND NEW.state NOT IN ('rendering', 'rendered', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'rendered' AND NEW.state NOT IN ('rendered', 'uploading', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'uploading' AND NEW.state NOT IN ('uploading', 'uploaded', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'uploaded' AND NEW.state NOT IN ('uploaded', 'finalized', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'retryable_failed' AND NEW.state NOT IN ('retryable_failed', 'rendering', 'terminal_failed'))
+    OR (OLD.state IN ('finalized', 'terminal_failed') AND NEW.state <> OLD.state)
+  ) THEN
+    RAISE EXCEPTION 'Custom Film assembly state cannot regress or skip';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS custom_film_assembly_protect ON custom_film_assemblies;
+CREATE TRIGGER custom_film_assembly_protect
+  BEFORE UPDATE ON custom_film_assemblies
+  FOR EACH ROW EXECUTE FUNCTION protect_custom_film_assembly();
+
+CREATE INDEX IF NOT EXISTS custom_film_assemblies_state_idx
+  ON custom_film_assemblies (tenant_id, state, updated_at);
+
+ALTER TABLE custom_film_assemblies ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE custom_film_assemblies FROM anon, authenticated;
+
+REVOKE ALL ON custom_film_recipes FROM anon;
+REVOKE ALL ON custom_film_plans FROM anon;
+REVOKE ALL ON custom_film_sections FROM anon;
+REVOKE ALL ON custom_film_section_scenes FROM anon;
+REVOKE ALL ON custom_film_provider_operations FROM anon;
+REVOKE ALL ON custom_film_asset_provenance FROM anon;
+REVOKE ALL ON custom_film_recipes FROM authenticated;
+REVOKE ALL ON custom_film_plans FROM authenticated;
+REVOKE ALL ON custom_film_sections FROM authenticated;
+REVOKE ALL ON custom_film_section_scenes FROM authenticated;
+REVOKE ALL ON custom_film_provider_operations FROM authenticated;
+REVOKE ALL ON custom_film_asset_provenance FROM authenticated;
+
+CREATE POLICY "Tenant isolation" ON custom_film_recipes
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+  )
+  WITH CHECK (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+  );
+
+CREATE POLICY "Tenant isolation" ON custom_film_plans
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+  )
+  WITH CHECK (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    AND EXISTS (
+      SELECT 1 FROM videos v
+      WHERE v.id = custom_film_plans.video_id
+        AND v.tenant_id = custom_film_plans.tenant_id
+    )
+  );
+
+CREATE POLICY "Tenant isolation" ON custom_film_sections
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+  )
+  WITH CHECK (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    AND EXISTS (
+      SELECT 1 FROM custom_film_plans p
+      WHERE p.id = custom_film_sections.plan_id
+        AND p.tenant_id = custom_film_sections.tenant_id
+    )
+  );
+
+CREATE POLICY "Tenant isolation" ON custom_film_section_scenes
+  FOR ALL TO authenticated
+  USING (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+  )
+  WITH CHECK (
+    tenant_id IN (
+      SELECT m.tenant_id FROM memberships m
+      WHERE m.user_id = (SELECT auth.uid())
+    )
+    AND EXISTS (
+      SELECT 1 FROM custom_film_sections s
+      WHERE s.plan_id = custom_film_section_scenes.plan_id
+        AND s.video_id = custom_film_section_scenes.video_id
+        AND s.section_id = custom_film_section_scenes.section_id
+        AND s.tenant_id = custom_film_section_scenes.tenant_id
+    )
+  );
 
 
 -- =============================================================================

@@ -1504,7 +1504,8 @@ async def _scene_subjects(tenant_id: str, scenes: list[dict],
 
 async def generate_static_images_for_video(video_id: str, tenant_id: str,
                                            progress=None,
-                                           only_scenes: Optional[set] = None) -> dict:
+                                           only_scenes: Optional[set] = None,
+                                           section_contract: Optional[dict] = None) -> dict:
     """Create the static-documentary view set for every narration segment.
 
     The static analogue of generate_coverage_for_video: reads scripts, writes
@@ -1513,6 +1514,28 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
     is render-ready with at least two approved views. Idempotent per scene —
     re-running replaces only that scene's static-documentary assets.
     """
+    if section_contract is not None:
+        density = section_contract.get("image_density")
+        camera = section_contract.get("camera")
+        animation = section_contract.get("animation")
+        if (
+            section_contract.get("render_mode") != "static_docu"
+            or section_contract.get("image_source") != "generate"
+            or not isinstance(density, dict)
+            or density.get("mode") != "per_item"
+            or density.get("target") != STATIC_VIEWS_TARGET
+            or section_contract.get("expected_still_images") != STATIC_VIEWS_TARGET
+            or section_contract.get("expected_animation_clips") != 0
+            or not isinstance(camera, dict)
+            or camera.get("mode") != "three_complementary_views"
+            or not isinstance(animation, dict)
+            or animation.get("enabled") is not False
+            or animation.get("mode") != "ken_burns"
+            or type(section_contract.get("exact_seconds")) is not int
+            or section_contract["exact_seconds"] < 1
+        ):
+            raise ValueError("Unsupported static section production contract")
+
     def _p(msg):
         if progress:
             try:
@@ -1795,7 +1818,7 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             )
             await execute(
                 "UPDATE assets SET image_url=$2, drive_image_url=$2, status='done', "
-                "image_prompt=$3 WHERE id=$1",
+                "image_prompt=$3, image_model='gpt-image-2' WHERE id=$1",
                 view_row_id, durable,
                 (
                     (f"[ref: {ref_src}] " if ref_src else "")
@@ -1857,6 +1880,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         if int((o or {}).get("done") or 0) < STATIC_VIEWS_MINIMUM
     ]
     view_count = sum(int((o or {}).get("done") or 0) for o in outcomes)
+    if (
+        section_contract is not None
+        and view_count != section_contract["expected_still_images"]
+    ):
+        return {
+            "status": "failed",
+            "error": (
+                "verified static view count did not match the approved section "
+                f"BOM: expected {section_contract['expected_still_images']}, "
+                f"got {view_count}"
+            ),
+        }
     if not ready:
         return {
             "status": "failed",

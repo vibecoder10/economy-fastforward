@@ -1,5 +1,43 @@
 # System State — Economy FastForward
 
+## Custom Film local milestone status
+
+- Local/no-spend Milestone 2 is independently accepted through `682f3e12`.
+  Natural chat conducts the four locked public production profiles as one
+  ordered film without adding a fifth selector; the co-pilot shows creator-safe
+  section order, share, purpose, feel, and progress.
+- Exact BYOK plan/quote approval, per-section runtime, deterministic mixed
+  assembly, and separate topic-free reusable-recipe lifecycle are implemented.
+  The final synthetic proof is exact, audible, multilingual-captioned, visually
+  distinct, and byte-stable; frontend and Remotion production builds pass.
+- Production completion is not claimed. The branch/draft PR, migrations
+  121–128, deployment, paid BYOK proof, Drive/upload, and merge remain explicit
+  Ryan approval gates.
+
+## Custom Film section runtime
+
+- `storyengine/backend/custom_film_runtime.py` is the provider-neutral adapter
+  between an immutable approved plan and existing stage seams. It verifies
+  exact integer section seconds and every plan/quote/approval pointer, compiles
+  per-section runtime values, and owns the locked approval-consume plus unique
+  durable runtime-task insert.
+- `production_styles.runtime_values_from_knobs` is shared by public profile
+  snapshots and Custom Film sections, so provider callers receive resolved
+  values without branching on `custom_film` or public profile names.
+- Migration 123 adds `background_tasks.runtime_envelope`, a constrained JSONB
+  recovery payload for Custom Film runtime tasks. It contains the runtime
+  version; approval, runtime, plan, and quote hashes; exact section values and
+  seconds; and the ordered stage plan. Restart consumers must validate its hash
+  through `custom_film_runtime.validate_runtime_envelope` before use.
+- `storyengine/backend/custom_film_production_runner.py` is the concrete,
+  operation-aware bridge for section script, voice, pictures, motion, clips,
+  and quality stages. It
+  hands resolved profile, role/purpose, exact seconds, scene assignments,
+  language/dubbing/audio behavior, and quality laws to the shared production
+  seams without provider-level Custom Film branches. Media stages enforce the
+  approved exact counts, camera grammar, same per-section asset set, and exact
+  clip-time sum through backend-owned immutable provenance.
+
 > Last updated: 2026-06-12
 
 ---
@@ -11186,3 +11224,367 @@ claim-guarded against a same-asset race that could not previously happen
 (the old exclusive "main" lane already prevented it, at the cost of
 serializing every redraw). No DB migration, no new table, no frontend
 change in this chunk.
+
+## Custom Film M2-1 — contract and persistence foundation (added 2026-07-23)
+
+Migration `storyengine/backend/migrations/122_custom_film_contract.sql`
+adds three immutable tenant-owned contract stores:
+`custom_film_recipes` (topic-free versioned recipes),
+`custom_film_plans` (per-video immutable revisions with plan/quote/approval
+hash fields), and `custom_film_sections` (stable UUID sections independent
+of scene numbering). `custom_film_section_scenes` is a separate future
+assignment table: one section may map to one or more `scripts` rows, and
+scene replanning can remap those rows without mutating the section contract.
+All four tables have tenant-consistent composite foreign keys and RLS.
+
+`storyengine/backend/custom_film_contract.py` derives the allowed values and
+per-knob public-profile provenance from exactly the four
+`production_style_profiles`, then applies explicit semantic compatibility
+domains. Static-documentary and dialogue structures stay cohesive while the
+already-independent script/visual runtime seams can safely cross profiles and
+visual-cue coverage can use supported simple-language performance. The module
+normalizes section weights deterministically, rejects unknown/incompatible
+values, hashes canonical plans and topic-free recipe signatures, detects
+public/tenant duplicates, and provides tenant-scoped persistence/load helpers.
+It contains no planner, provider call, approval action, generation dispatch,
+or runtime wiring.
+
+`videos` has additive nullable current-plan/hash/approval columns. They remain
+NULL for legacy and ordinary single-profile videos. The video detail model
+omits the entire Custom Film field group when no plan pointer exists, preserving
+the legacy response key set, and the route loads section details only when a
+Custom Film plan pointer exists.
+
+## Custom Film M2-2 — chat-hidden planner and compiler (added 2026-07-23)
+
+`storyengine/backend/custom_film_planner.py` is the no-dispatch planning
+boundary. A tenant-owned text client may propose only ordered section roles,
+a grounded exact content-focus phrase, relative weights, and three allowlisted
+public component sources (structure, writing, and visual). The compiler rejects
+generic Custom Film/production-treatment boilerplate plus internal profile IDs
+and advanced knob names. It also rejects quote/price/estimate phrases and
+company/model tokens grounded in operational clauses such as `using`, `via`,
+`powered by`, or `animate ... with`, while allowing those names when they are
+the actual film topic. Connector words alone are not rejected: they must be
+grounded in generation/execution or provider-media context, so topics such as
+artists using a tool for criticism, journeys through a place, and companies
+using recycled materials remain valid. Known provider/model vocabulary and
+fused, dotted, or digit-bearing provider morphology are rejected in terminal
+operational clauses. An unknown lowercase name without any such cue remains
+grounded content only: it cannot select sources or change compiler-owned knobs.
+The compiler derives creator-facing purpose prose from closed role templates
+plus the validated focus. The deterministic compiler also
+derives all knobs, provenance, initial ordered-slot UUIDs, canonical plan and
+topic-free recipe hashes, and a separate creator-safe explanation. Follow-up
+turns receive the prior normalized proposal and validated prior section UUIDs,
+so constrained revisions keep section identity without trusting model IDs.
+Extra provider/model/key/knob/estimate/approval/generation fields fail closed.
+The compiler performs no pricing, persistence, approval, or generation work.
+
+`storyengine/backend/routes/chat.py` intercepts explicit or safely inferred
+mixed-section Custom Film intent before the legacy create approval branch. It
+immediately quarantines stale `last_spec`, pending actions, and old selections,
+then persists only a distinct `pending_custom_film_plan` conversation state
+with `ready_to_create=false`. The API keeps `plan=NULL` so the current frontend
+cannot mistake it for a legacy ProductionPlan or render a live-looking Make It
+button; the ordered explanation is assistant text until M2-3 adds a
+discriminated approval UI. No-key and malformed-revision exits stay useful and
+pre-spend, retaining the last valid unapproved plan on a failed follow-up. The
+creator sees each section's purpose, feel, still/motion/voice
+shape, BYOK notice, and the later estimate/approval boundary without internal
+profile IDs or advanced knobs.
+
+`storyengine/backend/custom_film_contract.py` now classifies a recipe made
+entirely from one public profile as a public clone even when it is cosmetically
+split across multiple roles or sections. Focused fake-client, injection,
+novelty, stable-ID, stale-approval, no-key, and intent-routing coverage lives in
+`storyengine/backend/tests/functional/test_custom_film_planner.py`.
+
+## Custom Film M2-3 — section estimate and exact approval (added 2026-07-23)
+
+`storyengine/backend/actions.py::estimate_custom_film_plan` deterministically
+turns the compiled section durations and density/animation/dubbing knobs into
+still, clip, voice, and provider-capability counts. Every section row is priced
+by the existing shared `estimate_cost` law (`custom_film_section`), so the BOM
+does not introduce a second pricing table and its itemized rows reconcile
+exactly with the total.
+
+`storyengine/backend/routes/chat.py` now renders that compiler-owned BOM as one
+plain-English BYOK plan/estimate and a generic approval card while keeping
+private knob/profile/model/provider identifiers in conversation state only.
+Every textual revision clears the prior approval before inference. Exact
+approval is bound with `custom_film_contract.approval_binding_hash`; the start
+path rechecks that binding and the tenant-owned Kie key, then passes the durable
+drain-aware generation claim and shared budget check before one transaction
+locks the conversation and reserves a minimal `custom_film_ready` video plus
+its approved immutable plan. The transaction persists the exact runtime and a
+non-NULL per-video spending cap, then CAS-updates the conversation with the
+approval hash, reserved video, and confirmation transcript in that same locked
+transaction. Custom Film plan, edit, cancel, and control writes compare the
+entire state snapshot and require `video_id IS NULL`; a stale writer that loses
+to reservation reloads and returns the durable `start_ready` result instead of
+overwriting it. Endpoint reloads reconstruct that held-start response before
+legacy co-pilot routing. It does not use `create_video`, choose a
+single production profile, increment usage, create a project, queue Drive
+sync, schedule autobuild, or call a provider. Replays converge on the same
+reserved video. Approval remains held for M2-4 to consume at the actual
+section-aware runtime door.
+
+Focused no-network/no-provider coverage lives in the new
+`storyengine/backend/tests/functional/test_custom_film_estimate_approval.py`.
+It proves row/total reconciliation through the shared estimator, stale-hash and
+missing-key pre-spend stops, reachable cap gating, exact duration allocation,
+edit-over-approval precedence, transactional replay convergence, and the
+absence of any runtime/background scheduling. Causal interleaving coverage
+also proves a committed reservation wins over stale planner, cancel, and
+control writes without losing the video, approval, or confirmation.
+# M2-4B1 Custom Film durable section consumer (2026-07-23)
+
+- `storyengine/backend/custom_film_section_runtime.py` is the single restart-safe
+  interpreter for the immutable Custom Film runtime envelope. It validates the
+  complete ordered stage plan before any stage callback, resolves every
+  section-scoped production dimension into an immutable adapter, holds the
+  existing `main` generation claim throughout consumption, and persists stable
+  script-to-section assignments in `custom_film_section_scenes`.
+- Migration 124 adds `background_tasks.runtime_progress`, allowing a restarted
+  worker to resume at the first incomplete section stage without replaying
+  accepted work. `worker.py` and `job_queue.py` register the durable runtime job.
+  The default runner deliberately fails closed until M2-4B2 wires the existing
+  production-stage/provider seams; it cannot call a provider or spend.
+- Repair `a231208e+` makes completed progress an exact contiguous prefix of the
+  immutable stage plan and records a deterministic `custom-film-op:<sha256>`
+  write-ahead identity before each callback. An unresolved in-flight operation
+  is never replayed after a crash; the task enters an explicit reconciliation
+  stop so B2 can query the provider by the stable operation ID. Startup recovery
+  carries the original hashed runtime job ID into the worker queue, and raw
+  callback exceptions are humanized before task persistence.
+
+# M2-4B2a Custom Film enqueue and provider reconciliation (2026-07-23)
+
+- The Custom Film approval/resume path treats the pending
+  `custom-film-runtime:<runtime_hash>` background-task row as a durable outbox.
+  It immediately enqueues the exact row when Redis is available and returns a
+  useful safely-held response when Redis is absent or enqueue fails. Startup
+  and the periodic stale-task loop dispatch all pending rows with their
+  original attempt; the deterministic arq worker key makes duplicate passes
+  converge instead of minting a second attempt. The stale reaper never fails a
+  pending Custom Film outbox row merely because Redis was unavailable.
+- Migration 125 and matching `schema.sql` create
+  `custom_film_provider_operations`, a backend-only journal keyed by the
+  B1 `custom-film-op:<sha256>` identity. Each row immutably binds tenant,
+  video, runtime job/hash, stage key, provider, canonical request hash, and one
+  declared reconciliation mode; provider task IDs and completed results are
+  durable. Composite foreign keys bind every operation to the exact
+  tenant-owned video and exact `(tenant, video, runtime job)` background task.
+  A database trigger makes operation/provider/request identity immutable,
+  provider task IDs/results write-once, and completed/failed/reconciliation
+  states terminal.
+- `custom_film_provider_operations.py` permits exactly three restart outcomes:
+  return an already completed result, query a persisted provider task, or
+  repeat a provider-idempotent request with the same operation ID. Missing,
+  changed, opaque, or unsupported reconciliation state fails closed and is
+  persisted as `reconciliation_required`.
+- Operation-aware B2 stage runners are journaled before B1 writes its in-flight
+  marker. Their completed provider result is committed in the same transaction
+  as section assignment/progress. Legacy synthetic function runners retain
+  B1's original explicit reconciliation stop.
+
+# M2-4B2b Custom Film script, voice, and quality runner (2026-07-23)
+
+- `custom_film_production_runner.py` converts each immutable section adapter
+  into one explicit provider request whose canonical hash binds runtime/plan,
+  operation, section role and purpose, exact integer seconds, stable scene
+  assignments, script profile, language/dubbing/dialogue-audio behavior, and
+  quality laws. The real worker installs this operation-aware runner; ordinary
+  `arq_run_script` and `arq_run_voice` legacy handlers are unchanged.
+- The default script seam uses the tenant's initialized text client, the shared
+  script-profile loader, and `brief_translator.generate_script` with an
+  exact-seconds config. It saves one deterministic stable script UUID per
+  approved section. The voice seam reads only the assigned scene IDs, reuses
+  the shared narrator-text filter and tenant voice client, skips separate
+  narration for `grok_native`, and truthfully leaves bilingual
+  speech-to-speech performance to the existing clip dialogue seam. The quality
+  seam sends only the assigned section text and approved laws through
+  `script_quality.critique_script`, failing closed when those laws cannot be
+  evaluated or do not pass.
+- Any provider task ID exposed by a seam is written immediately with
+  `mark_submitted`; recovery may query only that same task or replay only a
+  declared same-operation idempotent request. Kie narration exposes and queries
+  its durable task ID; direct Anthropic/ElevenLabs calls have no query handle,
+  so a crash after submission stops instead of risking duplicate BYOK spend.
+  Pictures, motion, clips, and camera intentionally stop before provider work
+  pending M2-4B2c.
+- A section voice stage is a local idempotent parent aggregate, not one
+  provider operation pretending to cover multiple scenes. Every assigned
+  scene receives a deterministic child operation derived from
+  `(parent operation, scene ID)`, with its own immutable request hash, provider
+  task ID, result, and reconciliation path. Children run in assignment order;
+  each child result is durable before the next child identity can be created.
+- Voice artifacts use an operation-derived filename and `voice_status`
+  checkpoint. Recovery first reuses the exact DB checkpoint, then searches
+  Drive for that stable filename before any upload. This closes both crash
+  windows: an uploaded file can be found and checkpointed without a second
+  upload, and a checkpointed artifact can complete its child/parent operation
+  without a second provider query or Drive write.
+
+# M2-4B2c Custom Film imagery, motion, and camera runner (2026-07-23)
+
+- The operation-aware Custom Film runner now handles the full ordered section
+  schedule: script, voice, pictures, motion, clips, then quality. Its immutable
+  request hash includes render mode, structural visual profile, image density
+  and source, animation, camera grammar, exact integer seconds, estimated
+  media, stable assignments, and the previously wired writing/audio/quality
+  values. Unsupported or tampered static/animated combinations stop before a
+  shared production seam is called.
+- Pictures route by resolved dimension to the existing static-documentary
+  three-view generator or the existing coverage generator. The shared static
+  seam validates per-item density, three complementary views, generated-image
+  source, Ken Burns-only animation, and exact section seconds. Coverage receives
+  the section's own visual profile and density snapshot; the camera engine
+  receives dialogue versus investigative coverage explicitly, with the
+  investigative grammar retaining up to three earned moves instead of
+  collapsing to the video-wide default.
+- Animated sections alone receive motion and clip stages. The shared motion
+  writer and clip generator receive the approved camera grammar and exact
+  section seconds; static sections never schedule these stages. Quality remains
+  the final ordered section stage, so imagery/motion artifacts exist before the
+  approved laws are evaluated.
+- Pictures, motion, and clips use deterministic per-scene child journal
+  operations and stable database asset IDs. Migration 126 adds backend-only
+  `custom_film_asset_provenance`, whose composite asset/section/provider-
+  operation foreign keys and immutable runtime/request/contract identity bind
+  each accepted artifact to one exact approved section execution. Picture
+  generation snapshots pre-existing scene assets and may provenance only the
+  newly generated exact asset set; pending placeholders and stale legacy rows
+  cannot become checkpoints.
+- The approved `estimated_media.still_images` and `animation_clips` values are
+  exact execution counts, not hints. Coverage density directly determines the
+  exact picture plan; static-documentary and coverage generators fail closed
+  on count mismatch. Custom Film picture generation suppresses the legacy
+  inline motion writer. The dedicated motion stage writes only to the exact
+  picture asset IDs, and the clip stage targets that same set while
+  deterministically allocating the section's exact integer seconds to
+  millisecond precision.
+- Recovery returns completed child results or checkpoints only when real
+  image/prompt/clip artifacts match the exact runtime, operation, request, and
+  immutable section contract. The stored artifact identity is recomputed from
+  the current image URLs, motion prompt, clip URL, actual provider model,
+  camera grammar, request, and exact clip allocation, so a completed row cannot
+  bless a later manual or concurrent replacement.
+- Motion and clip assets are claimed in backend-only provenance as
+  `prepared`, then `submitted`, before provider entry. Their target prompt/clip
+  fields must still be empty in the same claim statement; a pre-existing
+  unprovenanced result or competing claim fails before provider work. Completion
+  requires the provider seam to report exactly the requested asset IDs and
+  count, zero failures/blocks/competing work, and artifacts byte-for-byte
+  matching the current database rows. Quality runs only after provenance
+  proves exact counts, the same asset IDs across all required media stages,
+  valid motion, and an exact assigned-duration sum.
+- Clip provenance keeps provider reality separate from the approved film
+  timeline: `actual_duration_ms` matches the provider result and current
+  `assets.video_duration`, while `assigned_duration_ms` matches the immutable
+  section allocation and current target fields. Equal durations use a `none`
+  transform; longer source clips use a deterministic leading trim; shorter
+  source clips use an exact repeat-then-final-trim recipe. Unequal media is
+  reported as `timing_status=needs_compositor`, not as normalized or exact.
+  M2-4 records the recipe only; M2-5 remains responsible for executing it and
+  proving final assembled timing. The existing multi-provider image/clip
+  wrappers do not expose one safely queryable task for the whole scene, so
+  their child operations declare opaque reconciliation and fail closed if no
+  exact durable checkpoint exists; automatic retry is never used to guess
+  across a possible BYOK spend.
+- All new shared-function parameters are optional. Legacy video-wide static,
+  coverage, camera, motion, and clip callers retain their previous inputs and
+  behavior.
+
+# M2-5 Custom Film exact mixed compositor (2026-07-23)
+
+- `storyengine/backend/custom_film_compositor.py` is the only render boundary
+  that interprets a Custom Film. It revalidates the immutable runtime, exact
+  completed stage prefix, ordered provider-operation journal, stable section
+  scenes, current assets, and M2-4 provenance in one repeatable-read snapshot.
+  It then binds the exact downloaded media/audio hashes into
+  `custom-film-assembly-v1`; gaps, duplicates, current-row drift, incomplete
+  voice artifacts, unsupported transforms, or provenance/hash changes fail
+  before rendering or upload.
+- The repeatable snapshot also requires the current video's plan ID/hash to
+  match the runtime and resolves its current supported aspect/resolution to one
+  immutable output canvas (16:9 or 9:16 at 720p/480p). Downloaded clip stream
+  duration must exactly match accepted `actual_duration_ms`; a URL with changed
+  bytes or media duration cannot be normalized under old provenance.
+- Exact integer section seconds become cumulative exact frames at one fixed
+  24 fps / 1920x1080 output. Static sections divide their approved pictures
+  deterministically and use Ken Burns; animated sections execute only the
+  accepted `none`, `trim`, or `repeat_then_trim` recipe against the retained
+  raw duration. Every source, normalized artifact, section offset, caption,
+  and final artifact remains auditable in the manifest/result provenance.
+- Shared transitions are deterministic non-overlapping dips to black. Their
+  fade frames and matching audio fades live inside the adjacent section
+  budgets, so transitions never shorten or extend the film. Grok-native
+  sections retain exactly one clip-audio path; voice-over sections mute clip
+  audio and bind the current ordered narration tracks, preventing doubled
+  speech. Caption frames are offset onto the film timeline and muxed as an
+  MP4 subtitle stream.
+- Migration 127 and the fresh schema add backend-only
+  `custom_film_assemblies`, an immutable manifest plus monotonic
+  prepared/rendering/rendered/uploading/uploaded/finalized journal. The final
+  storage path derives from the manifest hash. Restart reuses a finalized
+  result, finalizes an already uploaded result without another upload, or
+  retries the same deterministic object path after an uncertain upload.
+  `videos.final_video_url` and rendered status are written only after exact
+  ffprobe/hash checks and the storage seam returns a durable URL.
+  A structured progress snapshot persists the current
+  normalizing/assembling/rendering/uploading phase plus completed and total
+  section counts, while bot activity exposes the same product-language status.
+- `PipelineExecutor.run_render` contains one Custom Film dispatch before the
+  three legacy render-mode choices. Provider/media callers remain free of
+  Custom Film branches, and every legacy/single-profile render path is
+  unchanged.
+
+# M2-6 Custom Film reusable recipes (added 2026-07-23)
+
+- A recipe is the topic-free projection of an approved immutable Custom Film
+  plan: compatibility version, ordered section roles, normalized integer
+  duration proportions, allowlisted production knobs, and component
+  provenance only. Topic, focus, purpose, title, rationale, section/video/asset
+  identity, providers/models, quotes/prices, and transcripts are never stored.
+- Successful approved-start reservation stamps the only eligible save
+  candidate. A later, separate chat turn revalidates that candidate against the
+  tenant-owned video and immutable approved plan hashes before one transaction
+  rechecks public-profile novelty, active tenant signature, and normalized
+  active name. Save itself never schedules, generates, renders, or uploads.
+  Save recognizes either the still-held exact approval or the one validated,
+  tenant/video-bound runtime envelope left after scheduling legitimately
+  consumes those approval pointers; partial clears, failed/multiple jobs, and
+  envelope identity drift fail closed.
+- Migration 128 adds a case- and whitespace-normalized active recipe name key.
+  Tenant-wide transaction locks serialize save, name, family/version,
+  duplicate, rename, and archive races. Recipe bodies and signatures remain
+  immutable; rename and archive change metadata only with honest timestamps.
+  Archived recipes remain durable history, are excluded from list/reuse, and
+  do not block a later identical active save.
+- Chat supports explicit natural-language save/name, active list, reuse,
+  rename, and archive turns without exposing IDs, providers, settings, or a
+  fifth public profile card. Reuse loads the latest active tenant version,
+  asks the planner only for fresh grounded focus phrases, deterministically
+  reapplies the exact saved roles/proportions/knobs/provenance, asserts the
+  normalized signature, and enters the ordinary fresh estimate/hash/approval
+  flow with no inherited approval or generation.
+- Recipe command parsing uses full-message, state-aware grammar so incidental
+  words such as “save,” “archive,” “rename,” or “recipe” remain ordinary
+  Producer/co-pilot content. Every accepted recipe command serializes on the
+  tenant conversation, records the user and assistant turns together, and
+  advances a state revision so an older planner CAS cannot erase its audit.
+
+# M2-7 Custom Film pipeline product truth (added 2026-07-23)
+
+- Frontend `VideoDetail` now types the backend's optional serialized
+  `custom_film_plan` and ordered section contract. `ChatPipelineMap` recognizes
+  that plan as one Custom Film conductor over its sections, not a fifth
+  production profile.
+- The chat pipeline map shows only creator-safe section order, role, duration
+  share, grounded purpose, derived feel, and current production status. It
+  never renders profile IDs, provider/model identifiers, hashes, provenance,
+  knobs, or additional selector controls.
+- When `custom_film_plan` is absent, the existing public-profile and legacy
+  pipeline branches, copy, steps, and visuals are unchanged.
