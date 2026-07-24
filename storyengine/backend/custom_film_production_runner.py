@@ -2080,6 +2080,14 @@ class SharedSectionProductionSeams:
             )
         return {
             "scene_ids": [scene_id],
+            "scene_text_hashes": [
+                {
+                    "scene_id": scene_id,
+                    "scene_text_hash": canonical_hash(
+                        {"scene_id": scene_id, "scene_text": script_text}
+                    ),
+                }
+            ],
             "exact_seconds": request.exact_seconds,
             "script_profile": request.script_profile,
             "role": request.role,

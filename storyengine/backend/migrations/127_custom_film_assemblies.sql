@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS custom_film_assemblies (
   tenant_id UUID NOT NULL,
   video_id UUID NOT NULL,
+  runtime_job_id TEXT NOT NULL,
   runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
   manifest_version TEXT NOT NULL CHECK (
     manifest_version = 'custom-film-assembly-v1'
@@ -12,15 +13,17 @@ CREATE TABLE IF NOT EXISTS custom_film_assemblies (
     jsonb_typeof(progress) = 'object'
     AND progress->>'phase' IN (
       'prepared', 'normalizing', 'assembling', 'rendering',
-      'uploading', 'finalized', 'failed'
+      'uploading', 'finalized', 'retryable_failed', 'terminal_failed'
     )
     AND (progress->>'completed_sections') ~ '^[0-9]+$'
     AND (progress->>'total_sections') ~ '^[1-9][0-9]*$'
+    AND (progress->>'completed_sections')::integer
+      <= (progress->>'total_sections')::integer
   ),
   state TEXT NOT NULL DEFAULT 'prepared' CHECK (
     state IN (
       'prepared', 'rendering', 'rendered', 'uploading', 'uploaded',
-      'finalized', 'failed'
+      'finalized', 'retryable_failed', 'terminal_failed'
     )
   ),
   artifact_sha256 TEXT CHECK (
@@ -30,6 +33,10 @@ CREATE TABLE IF NOT EXISTS custom_film_assemblies (
   storage_path TEXT NOT NULL CHECK (storage_path <> ''),
   final_video_url TEXT,
   failure_detail TEXT,
+  failure_kind TEXT CHECK (
+    failure_kind IS NULL OR failure_kind IN ('retryable', 'terminal')
+  ),
+  retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
   render_started_at TIMESTAMPTZ,
   rendered_at TIMESTAMPTZ,
   upload_started_at TIMESTAMPTZ,
@@ -41,10 +48,13 @@ CREATE TABLE IF NOT EXISTS custom_film_assemblies (
   UNIQUE (tenant_id, video_id, manifest_hash),
   FOREIGN KEY (tenant_id, video_id)
     REFERENCES videos(tenant_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, video_id, runtime_job_id)
+    REFERENCES background_tasks(tenant_id, video_id, job_id),
   CHECK (
     manifest->>'assembly_version' = manifest_version
     AND manifest->>'manifest_hash' = manifest_hash
     AND manifest->>'runtime_hash' = runtime_hash
+    AND manifest->>'runtime_job_id' = runtime_job_id
     AND manifest->>'tenant_id' = tenant_id::text
     AND manifest->>'video_id' = video_id::text
   ),
@@ -62,12 +72,15 @@ CREATE TABLE IF NOT EXISTS custom_film_assemblies (
 
 CREATE OR REPLACE FUNCTION protect_custom_film_assembly()
 RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  old_phase_rank INTEGER;
+  new_phase_rank INTEGER;
 BEGIN
   IF (
-    NEW.tenant_id, NEW.video_id, NEW.runtime_hash, NEW.manifest_version,
+    NEW.tenant_id, NEW.video_id, NEW.runtime_job_id, NEW.runtime_hash, NEW.manifest_version,
     NEW.manifest_hash, NEW.manifest, NEW.storage_path
   ) IS DISTINCT FROM (
-    OLD.tenant_id, OLD.video_id, OLD.runtime_hash, OLD.manifest_version,
+    OLD.tenant_id, OLD.video_id, OLD.runtime_job_id, OLD.runtime_hash, OLD.manifest_version,
     OLD.manifest_hash, OLD.manifest, OLD.storage_path
   ) THEN
     RAISE EXCEPTION 'Custom Film assembly identity is immutable';
@@ -84,13 +97,33 @@ BEGIN
      AND NEW.final_video_url IS DISTINCT FROM OLD.final_video_url THEN
     RAISE EXCEPTION 'Custom Film assembly storage result is write-once';
   END IF;
+  IF (NEW.progress->>'total_sections')::integer
+       <> (OLD.progress->>'total_sections')::integer
+     OR (NEW.progress->>'completed_sections')::integer
+       < (OLD.progress->>'completed_sections')::integer THEN
+    RAISE EXCEPTION 'Custom Film assembly progress cannot regress';
+  END IF;
+  old_phase_rank := CASE OLD.progress->>'phase'
+    WHEN 'prepared' THEN 0 WHEN 'normalizing' THEN 1
+    WHEN 'assembling' THEN 2 WHEN 'rendering' THEN 3
+    WHEN 'uploading' THEN 4 WHEN 'finalized' THEN 5 ELSE 6 END;
+  new_phase_rank := CASE NEW.progress->>'phase'
+    WHEN 'prepared' THEN 0 WHEN 'normalizing' THEN 1
+    WHEN 'assembling' THEN 2 WHEN 'rendering' THEN 3
+    WHEN 'uploading' THEN 4 WHEN 'finalized' THEN 5 ELSE 6 END;
+  IF OLD.state <> 'retryable_failed'
+     AND NEW.progress->>'phase' NOT IN ('retryable_failed', 'terminal_failed')
+     AND new_phase_rank < old_phase_rank THEN
+    RAISE EXCEPTION 'Custom Film assembly phase cannot regress';
+  END IF;
   IF (
-    (OLD.state = 'prepared' AND NEW.state NOT IN ('prepared', 'rendering', 'failed'))
-    OR (OLD.state = 'rendering' AND NEW.state NOT IN ('rendering', 'rendered', 'failed'))
-    OR (OLD.state = 'rendered' AND NEW.state NOT IN ('rendered', 'uploading', 'failed'))
-    OR (OLD.state = 'uploading' AND NEW.state NOT IN ('uploading', 'uploaded', 'failed'))
-    OR (OLD.state = 'uploaded' AND NEW.state NOT IN ('uploaded', 'finalized', 'failed'))
-    OR (OLD.state IN ('finalized', 'failed') AND NEW.state <> OLD.state)
+    (OLD.state = 'prepared' AND NEW.state NOT IN ('prepared', 'rendering', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'rendering' AND NEW.state NOT IN ('rendering', 'rendered', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'rendered' AND NEW.state NOT IN ('rendered', 'uploading', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'uploading' AND NEW.state NOT IN ('uploading', 'uploaded', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'uploaded' AND NEW.state NOT IN ('uploaded', 'finalized', 'retryable_failed', 'terminal_failed'))
+    OR (OLD.state = 'retryable_failed' AND NEW.state NOT IN ('retryable_failed', 'rendering', 'terminal_failed'))
+    OR (OLD.state IN ('finalized', 'terminal_failed') AND NEW.state <> OLD.state)
   ) THEN
     RAISE EXCEPTION 'Custom Film assembly state cannot regress or skip';
   END IF;

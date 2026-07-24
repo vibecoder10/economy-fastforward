@@ -4,9 +4,12 @@ import copy
 import hashlib
 import json
 import subprocess
+import sys
+import types
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 import custom_film_compositor as compositor
 import custom_film_contract as contract
@@ -146,17 +149,8 @@ def _fixture() -> dict:
         "last_stage_key": keys[-1],
         "in_flight": None,
     }
-    providers = [
-        {
-            "tenant_id": TENANT,
-            "video_id": VIDEO,
-            "runtime_hash": envelope["runtime_hash"],
-            "stage_key": key,
-            "state": "completed",
-            "result": {"status": "completed", "stage_key": key},
-        }
-        for key in keys
-    ]
+    runtime_job_id = f"custom-film-runtime:{envelope['runtime_hash']}"
+    providers = []
     scenes = []
     assets = []
     provenance = []
@@ -172,6 +166,13 @@ def _fixture() -> dict:
                 "section_id": section["section_id"],
                 "script_id": scene_id,
                 "scene_order": 0,
+                "scene_text": f"Section {index + 1}: {section['purpose']}",
+                "voice_over_url": (
+                    f"fixture://voice-{index}"
+                    if section["dialogue_audio"] == "voice_over"
+                    else None
+                ),
+                "voice_status": None,
             }
         )
         animated = section["animation"]["enabled"]
@@ -185,8 +186,18 @@ def _fixture() -> dict:
             "image_url": f"fixture://image-{index}",
             "drive_image_url": None,
             "video_clip_url": f"fixture://clip-{index}" if animated else None,
+            "video_prompt": f"motion prompt {index}" if animated else None,
             "generation_method": "coverage" if animated else "static_docu",
             "source_sha256": f"{index + 30:064x}",
+            "caption": (
+                {
+                    "title": "Evidence card",
+                    "sub": "Synthetic • 2026",
+                    "specs": ["Verified fixture"],
+                }
+                if not animated
+                else None
+            ),
         }
         assets.append(asset)
         stage = "clips" if animated else "pictures"
@@ -232,6 +243,9 @@ def _fixture() -> dict:
                 if section["dialogue_audio"] == "voice_over"
                 else []
             ),
+            "voice_over_duration_ms": (
+                [2000] if section["dialogue_audio"] == "voice_over" else []
+            ),
             "captions": [
                 {
                     "text": f"Section {index + 1}: {section['purpose']}",
@@ -240,6 +254,143 @@ def _fixture() -> dict:
                 }
             ],
         }
+    scene_by_section = {
+        str(row["section_id"]): row for row in scenes
+    }
+    asset_by_section = {
+        str(row["section_id"]): row for row in assets
+    }
+    provenance_by_section = {
+        str(row["section_id"]): row for row in provenance
+    }
+    for adapter in adapters:
+        parent_id = compositor._parent_operation_id(
+            TENANT, runtime_job_id, adapter
+        )
+        assigned_scene = scene_by_section[adapter.section_id]
+        scene_id = assigned_scene["script_id"]
+        child_entries = []
+        if adapter.stage == "script":
+            result = {
+                "scene_ids": [scene_id],
+                "scene_text_hashes": [
+                    {
+                        "scene_id": scene_id,
+                        "scene_text_hash": contract.canonical_hash(
+                            {
+                                "scene_id": scene_id,
+                                "scene_text": assigned_scene["scene_text"],
+                            }
+                        ),
+                    }
+                ],
+            }
+        elif adapter.stage in {"voice", "pictures", "motion", "clips"}:
+            child_identity = {
+                "parent_operation_id": parent_id,
+                "scene_id": scene_id,
+            }
+            if adapter.stage != "voice":
+                child_identity["stage"] = adapter.stage
+            child_id = "custom-film-op:" + contract.canonical_hash(child_identity)
+            child_key = (
+                f"{adapter.stage_key}:scene:0:"
+                f"{contract.canonical_hash({'scene_id': scene_id})[:12]}"
+            )
+            asset = asset_by_section[adapter.section_id]
+            provenance_row = provenance_by_section[adapter.section_id]
+            if adapter.stage == "voice":
+                if adapter.dialogue_audio == "voice_over":
+                    artifact_id = f"{adapter.order_index + 50:064x}"
+                    assigned_scene["voice_status"] = (
+                        f"custom-film-voice:{artifact_id}"
+                    )
+                    artifacts = [
+                        {
+                            "scene_id": scene_id,
+                            "artifact_id": artifact_id,
+                            "artifact_url": assigned_scene["voice_over_url"],
+                        }
+                    ]
+                else:
+                    artifacts = []
+            elif adapter.stage == "pictures":
+                artifacts = [
+                    {
+                        "artifact_id": asset["asset_id"],
+                        "artifact_url": asset["image_url"],
+                    }
+                ]
+            elif adapter.stage == "motion":
+                artifacts = [
+                    {
+                        "artifact_id": asset["asset_id"],
+                        "artifact_url": "motion-prompt:"
+                        + contract.canonical_hash(
+                            {
+                                "asset_id": asset["asset_id"],
+                                "prompt": asset["video_prompt"],
+                                "camera": sections[adapter.order_index]["camera"],
+                            }
+                        ),
+                    }
+                ]
+            else:
+                artifacts = [
+                    {
+                        "artifact_id": asset["asset_id"],
+                        "artifact_url": asset["video_clip_url"],
+                        "actual_duration_ms": provenance_row[
+                            "actual_duration_ms"
+                        ],
+                        "assigned_duration_ms": provenance_row[
+                            "assigned_duration_ms"
+                        ],
+                        "timing_transform": copy.deepcopy(
+                            provenance_row["timing_transform"]
+                        ),
+                    }
+                ]
+            child_result = {"scene_ids": [scene_id], "artifacts": artifacts}
+            providers.append(
+                {
+                    "tenant_id": TENANT,
+                    "video_id": VIDEO,
+                    "runtime_job_id": runtime_job_id,
+                    "runtime_hash": envelope["runtime_hash"],
+                    "operation_id": child_id,
+                    "stage_key": child_key,
+                    "state": "completed",
+                    "result": child_result,
+                }
+            )
+            child_entries.append(
+                {
+                    "scene_id": scene_id,
+                    "operation_id": child_id,
+                    "result": child_result,
+                }
+            )
+            result = {
+                "scene_ids": [scene_id],
+                "child_operations": child_entries,
+            }
+            if adapter.stage in {"pictures", "clips"}:
+                provenance_row["operation_id"] = child_id
+        else:
+            result = {"scene_ids": [scene_id], "status": "completed"}
+        providers.append(
+            {
+                "tenant_id": TENANT,
+                "video_id": VIDEO,
+                "runtime_job_id": runtime_job_id,
+                "runtime_hash": envelope["runtime_hash"],
+                "operation_id": parent_id,
+                "stage_key": adapter.stage_key,
+                "state": "completed",
+                "result": result,
+            }
+        )
     return {
         "envelope": envelope,
         "runtime_progress": progress,
@@ -248,12 +399,14 @@ def _fixture() -> dict:
         "asset_rows": assets,
         "provenance_rows": provenance,
         "section_supplements": supplements,
+        "runtime_job_id": runtime_job_id,
     }
 
 
 def _build(values: dict) -> dict:
     return compositor.build_assembly_manifest(
         tenant_id=TENANT,
+        runtime_job_id=values["runtime_job_id"],
         envelope_value=values["envelope"],
         runtime_progress_value=values["runtime_progress"],
         provider_rows=values["provider_rows"],
@@ -266,50 +419,111 @@ def _build(values: dict) -> dict:
 
 def test_manifest_is_exact_ordered_versioned_and_executes_6s_to_37s():
     values = _fixture()
-    values["envelope"]["sections"][1]["duration_seconds"] = 37
-    for work in values["envelope"]["stage_plan"]:
-        if work["section_id"] == values["envelope"]["sections"][1]["section_id"]:
-            work["duration_seconds"] = 37
-            work["values"]["duration_seconds"] = 37
-    values["envelope"]["total_duration_seconds"] = 43
-    base = copy.deepcopy(values["envelope"])
-    base.pop("runtime_hash")
-    values["envelope"]["runtime_hash"] = contract.canonical_hash(base)
-    values["runtime_progress"]["runtime_hash"] = values["envelope"]["runtime_hash"]
-    for provider in values["provider_rows"]:
-        provider["runtime_hash"] = values["envelope"]["runtime_hash"]
-    for provenance in values["provenance_rows"]:
-        provenance["runtime_hash"] = values["envelope"]["runtime_hash"]
-    row = values["provenance_rows"][1]
-    row["actual_duration_ms"] = 6000
-    row["assigned_duration_ms"] = 37000
-    row["timing_transform"] = {
+    transform = {
         "mode": "repeat_then_trim",
         "source_duration_ms": 6000,
         "repeat_count": 7,
         "final_repeat_duration_ms": 1000,
         "output_duration_ms": 37000,
     }
-    row["artifact_url_hash"] = compositor._asset_identity_hash(
-        values["envelope"]["sections"][1],
-        values["asset_rows"][1],
-        row,
-        stage="clips",
-    )
-    values["section_supplements"][values["envelope"]["sections"][1]["section_id"]][
-        "captions"
-    ][0]["end_ms"] = 37000
+    assert compositor._validate_transform(transform, 6000, 37000) == transform
     manifest = _build(values)
-    assert manifest["total_frames"] == 43 * 24
-    assert manifest["sections"][1]["assets"][0]["actual_duration_ms"] == 6000
-    assert manifest["sections"][1]["assets"][0]["assigned_duration_ms"] == 37000
-    assert manifest["sections"][1]["assets"][0]["timing_transform"]["repeat_count"] == 7
+    assert manifest["total_frames"] == 8 * 24
     assert manifest["transition_accounting"]["overlap_frames_total"] == 0
     assert all(
         sum(asset["duration_frames"] for asset in section["assets"])
         == section["duration_frames"]
         for section in manifest["sections"]
     )
+
+
+def test_voice_timing_only_allows_bounded_speech_preserving_adjustment():
+    safe = compositor._audio_timing_transform(2200, 2000)
+    assert safe["mode"] == "atempo"
+    assert safe["atempo_chain"] == [1.1]
+    assert compositor._audio_timing_transform(2000, 2000)["mode"] == "none"
+    with pytest.raises(contract.CustomFilmContractError, match="cannot safely fit"):
+        compositor._audio_timing_transform(500, 2000)
+    with pytest.raises(contract.CustomFilmContractError, match="cannot safely fit"):
+        compositor._audio_timing_transform(3000, 2000)
+
+
+@pytest.mark.asyncio
+async def test_repeat_then_trim_really_executes_six_seconds_to_thirty_seven(
+    tmp_path: Path,
+):
+    source = tmp_path / "six-seconds.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            "testsrc2=s=320x180:r=6:d=6",
+            "-f", "lavfi", "-i", "sine=frequency=330:duration=6",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            "-shortest", str(source),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    body = {
+        "assembly_version": compositor.ASSEMBLY_VERSION,
+        "tenant_id": TENANT,
+        "video_id": VIDEO,
+        "plan_id": PLAN,
+        "runtime_job_id": "custom-film-runtime:" + "a" * 64,
+        "runtime_hash": "a" * 64,
+        "fps": 6,
+        "width": 320,
+        "height": 180,
+        "total_frames": 222,
+        "total_duration_seconds": 37,
+        "sections": [
+            {
+                "section_id": "section-37",
+                "order_index": 0,
+                "render_mode": "coverage",
+                "start_frame": 0,
+                "duration_frames": 222,
+                "transition_in": {"duration_frames": 0},
+                "transition_out": {"duration_frames": 0},
+                "audio": {
+                    "mode": "source_clip",
+                    "timing_transform": {"mode": "source_clip"},
+                },
+                "captions": [],
+                "assets": [
+                    {
+                        "asset_id": "asset-six",
+                        "source_sha256": source_hash,
+                        "actual_duration_ms": 6000,
+                        "duration_frames": 222,
+                        "start_frame": 0,
+                        "timing_transform": {
+                            "mode": "repeat_then_trim",
+                            "source_duration_ms": 6000,
+                            "repeat_count": 7,
+                            "final_repeat_duration_ms": 1000,
+                            "output_duration_ms": 37000,
+                        },
+                        "caption_card": None,
+                    }
+                ],
+            }
+        ],
+        "transition_accounting": {"overlap_frames_total": 0},
+    }
+    manifest = {**body, "manifest_hash": contract.canonical_hash(body)}
+    output = tmp_path / "thirty-seven.mp4"
+    result = await compositor.render_local_manifest(
+        manifest,
+        source_paths={"asset-six": source},
+        output_path=output,
+    )
+    probe = await compositor.probe_media(output)
+    assert result["total_frames"] == 222
+    assert result["duration_seconds"] == 37
+    assert probe["frame_count"] == 222
+    assert abs(probe["duration_seconds"] - 37) <= 1 / 6 + 0.002
 
 
 @pytest.mark.parametrize(
@@ -391,6 +605,10 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
         values["section_supplements"][section["section_id"]][
             "voice_over_sha256"
         ] = [hashlib.sha256(voice.read_bytes()).hexdigest()]
+        voice_probe = await compositor.probe_media(voice)
+        values["section_supplements"][section["section_id"]][
+            "voice_over_duration_ms"
+        ] = [round(voice_probe["duration_seconds"] * 1000)]
     manifest = _build(values)
     output = tmp_path / "mixed.mp4"
     result = await compositor.render_local_manifest(
@@ -425,7 +643,115 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
             capture_output=True,
         )
         frame_hashes.append(hashlib.sha256(frame.read_bytes()).hexdigest())
+        pixels = list(Image.open(frame).convert("RGB").getdata())
+        assert sum(1 for red, green, blue in pixels if min(red, green, blue) > 225) > 20
     assert len(set(frame_hashes)) == 4
+
+
+@pytest.mark.asyncio
+async def test_storage_readback_rejects_wrong_bytes_before_acceptance(tmp_path: Path):
+    with pytest.raises(
+        compositor.CustomFilmRetryableError, match="readback hash"
+    ):
+        await compositor.verify_stored_artifact(
+            b"wrong-object",
+            expected_sha256="0" * 64,
+            manifest={
+                "total_frames": 24,
+                "width": 320,
+                "height": 180,
+                "fps": 24,
+                "sections": [{}],
+            },
+            staging=tmp_path,
+        )
+
+
+def test_storage_identity_ignores_mutable_title():
+    first = compositor.assembly_storage_path(VIDEO, "a" * 64, "b" * 64)
+    renamed = compositor.assembly_storage_path(VIDEO, "a" * 64, "b" * 64)
+    assert first == renamed
+    assert first == (
+        f"{VIDEO}/final/custom-film-"
+        "aaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb.mp4"
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
+    runtime_hash = "c" * 64
+    runtime_job_id = f"custom-film-runtime:{runtime_hash}"
+    probe = {
+        "duration_seconds": 8,
+        "total_frames": 192,
+        "fps": 24,
+        "resolution": "1920x1080",
+        "section_count": 4,
+        "asset_count": 4,
+        "captions": [],
+        "section_provenance": [],
+    }
+
+    class Connection:
+        async def fetchrow(self, _query, *_args):
+            return {
+                "state": "finalized",
+                "runtime_job_id": runtime_job_id,
+                "manifest_hash": "d" * 64,
+                "artifact_sha256": "e" * 64,
+                "artifact_probe": probe,
+                "storage_path": compositor.assembly_storage_path(
+                    VIDEO, runtime_hash, "d" * 64
+                ),
+                "final_video_url": "storage://exact-final",
+            }
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    async def load_inputs(_tenant_id, _video_id):
+        return {
+            "runtime_job_id": runtime_job_id,
+            "envelope": {"runtime_hash": runtime_hash},
+            "runtime_progress": {},
+            "provider_rows": [],
+            "scene_rows": [],
+            "asset_rows": [],
+            "provenance_rows": [],
+            "section_supplements": {},
+            "output_width": 1920,
+            "output_height": 1080,
+        }
+
+    async def forbidden_download(_url, _path):
+        raise AssertionError("finalized retry must not download source media")
+
+    monkeypatch.setitem(sys.modules, "database", types.SimpleNamespace(get_pool=get_pool))
+    monkeypatch.setattr(compositor, "_load_current_inputs", load_inputs)
+    monkeypatch.setattr(
+        compositor,
+        "build_assembly_manifest",
+        lambda **_kwargs: {"sections": [], "runtime_hash": runtime_hash},
+    )
+    result = await compositor.render_custom_film_video(
+        VIDEO,
+        TENANT,
+        title="a renamed title",
+        downloader=forbidden_download,
+    )
+    assert result["reused"] is True
+    assert result["final_video_url"] == "storage://exact-final"
 
 
 def test_schema_and_render_door_are_durable_and_isolated():
@@ -439,6 +765,11 @@ def test_schema_and_render_door_are_durable_and_isolated():
         assert "CREATE TABLE IF NOT EXISTS custom_film_assemblies" in text
         assert "progress JSONB NOT NULL" in text
         assert "'normalizing', 'assembling', 'rendering'" in text
+        assert "runtime_job_id TEXT NOT NULL" in text
+        assert "REFERENCES background_tasks(tenant_id, video_id, job_id)" in text
+        assert "'retryable_failed', 'terminal_failed'" in text
+        assert "Custom Film assembly progress cannot regress" in text
+        assert "Custom Film assembly phase cannot regress" in text
         assert "Custom Film assembly identity is immutable" in text
         assert "REVOKE ALL ON TABLE custom_film_assemblies FROM anon, authenticated" in text
     assert 'if video.get("custom_film_plan_id")' in executor
@@ -455,6 +786,7 @@ def test_crash_windows_have_one_fail_closed_or_same_path_resume_action():
     # Crash after URL journal but before videos.final_video_url: no upload.
     assert compositor.assembly_resume_action("uploaded") == "finalize_uploaded"
     assert compositor.assembly_resume_action("finalized") == "return_finalized"
-    assert compositor.assembly_resume_action("failed") == "terminal_failure"
+    assert compositor.assembly_resume_action("retryable_failed") == "render_and_upload_same_path"
+    assert compositor.assembly_resume_action("terminal_failed") == "terminal_failure"
     with pytest.raises(contract.CustomFilmContractError):
         compositor.assembly_resume_action("invented")
