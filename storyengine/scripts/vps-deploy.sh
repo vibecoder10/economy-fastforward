@@ -93,6 +93,12 @@ if [[ "$ARGS" == *--with-remotion* ]]; then
     npm ci --no-audit --no-fund
     npm run generate:motion-audio
     npm run typecheck
+    npm ls @fontsource/noto-sans --depth=0 >/dev/null
+    test -f node_modules/@fontsource/noto-sans/latin-ext-400.css
+    test -f node_modules/@fontsource/noto-sans/latin-ext-600.css
+    test -f node_modules/@fontsource/noto-sans/latin-ext-700.css
+    find node_modules/@fontsource/noto-sans/files -type f -name '*.woff2' \
+      -print -quit | grep -q .
   )
   REMOTION_BROWSER=$(command -v google-chrome || command -v chromium || true)
   if [ ! -x remotion-video/node_modules/.bin/remotion ] || [ -z "$REMOTION_BROWSER" ]; then
