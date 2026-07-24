@@ -403,7 +403,7 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
     probe = await compositor.probe_media(output)
     assert result["duration_seconds"] == 8
     assert result["section_count"] == 4
-    assert probe["has_video"] and probe["has_audio"]
+    assert probe["has_video"] and probe["has_audio"] and probe["has_subtitles"]
     assert probe["width"] == 1920 and probe["height"] == 1080
     assert abs(probe["duration_seconds"] - 8) <= 1 / 24 + 0.002
     assert len(result["captions"]) == 4

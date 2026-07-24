@@ -11493,6 +11493,11 @@ control writes without losing the video, approval, or confirmation.
   `custom-film-assembly-v1`; gaps, duplicates, current-row drift, incomplete
   voice artifacts, unsupported transforms, or provenance/hash changes fail
   before rendering or upload.
+- The repeatable snapshot also requires the current video's plan ID/hash to
+  match the runtime and resolves its current supported aspect/resolution to one
+  immutable output canvas (16:9 or 9:16 at 720p/480p). Downloaded clip stream
+  duration must exactly match accepted `actual_duration_ms`; a URL with changed
+  bytes or media duration cannot be normalized under old provenance.
 - Exact integer section seconds become cumulative exact frames at one fixed
   24 fps / 1920x1080 output. Static sections divide their approved pictures
   deterministically and use Ken Burns; animated sections execute only the

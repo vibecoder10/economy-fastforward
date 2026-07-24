@@ -355,6 +355,7 @@ def build_assembly_manifest(
 
         manifest_assets: list[dict[str, Any]] = []
         assigned_frames = 0
+        seen_asset_slots: set[tuple[int, int]] = set()
         for row in section_provenance:
             asset_id = str(row["asset_id"])
             asset = assets_by_id.get(asset_id)
@@ -372,6 +373,15 @@ def build_assembly_manifest(
                 )
             if str(asset.get("section_id") or "") != section_id:
                 raise CustomFilmContractError("Custom Film asset section ownership drifted")
+            asset_slot = (
+                _exact_int(asset.get("scene_order"), "asset scene order"),
+                _exact_int(asset.get("image_index"), "asset image order"),
+            )
+            if asset_slot in seen_asset_slots:
+                raise CustomFilmContractError(
+                    "Custom Film section media order has a duplicate slot"
+                )
+            seen_asset_slots.add(asset_slot)
             if (
                 str(row.get("artifact_url_hash") or "")
                 != _asset_identity_hash(
@@ -405,15 +415,20 @@ def build_assembly_manifest(
                     "source_duration_ms": None,
                     "output_duration_ms": None,
                 }
+            source_url = str(
+                asset.get("video_clip_url")
+                if animated
+                else asset.get("drive_image_url") or asset.get("image_url")
+                or ""
+            ).strip()
+            if not source_url:
+                raise CustomFilmContractError(
+                    "Custom Film current media source is missing"
+                )
             manifest_assets.append(
                 {
                     "asset_id": asset_id,
-                    "source_url": str(
-                        asset.get("video_clip_url")
-                        if animated
-                        else asset.get("drive_image_url") or asset.get("image_url")
-                        or ""
-                    ),
+                    "source_url": source_url,
                     "source_sha256": source_sha256 or None,
                     "actual_duration_ms": actual_ms,
                     "assigned_duration_ms": target_ms if animated else None,
@@ -616,6 +631,9 @@ async def probe_media(path: Path) -> dict[str, Any]:
         "height": video.get("height"),
         "has_video": bool(video),
         "has_audio": any(row.get("codec_type") == "audio" for row in streams),
+        "has_subtitles": any(
+            row.get("codec_type") == "subtitle" for row in streams
+        ),
     }
 
 
@@ -666,6 +684,20 @@ async def render_local_manifest(
                     raise CustomFilmContractError(
                         f"Custom Film downloaded source hash changed for asset {asset_id}"
                     )
+                if section["render_mode"] != "static_docu":
+                    raw_probe = await probe_media(source)
+                    actual_duration_ms = round(
+                        float(raw_probe["duration_seconds"]) * 1000
+                    )
+                    if (
+                        not raw_probe["has_video"]
+                        or actual_duration_ms
+                        != int(asset["actual_duration_ms"])
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film raw clip duration or stream no longer "
+                            "matches accepted provenance"
+                        )
                 frames = int(asset["duration_frames"])
                 seconds = frames / fps
                 fade_in_frames = (
@@ -983,6 +1015,18 @@ async def _load_current_inputs(
     pool = await database.get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction(isolation="repeatable_read", readonly=True):
+            video = await conn.fetchrow(
+                """SELECT custom_film_plan_id::text, custom_film_plan_hash,
+                          aspect_ratio, video_resolution
+                   FROM videos
+                   WHERE tenant_id = $1::uuid AND id = $2::uuid""",
+                tenant_id,
+                video_id,
+            )
+            if not video or not str(video.get("custom_film_plan_id") or ""):
+                raise CustomFilmContractError(
+                    "Custom Film current video plan pointer is missing"
+                )
             task = await conn.fetchrow(
                 """SELECT runtime_envelope, runtime_progress, status
                    FROM background_tasks
@@ -1000,6 +1044,27 @@ async def _load_current_inputs(
             envelope = _mapping(task["runtime_envelope"], "runtime envelope")
             if str(envelope.get("video_id") or "") != video_id:
                 raise CustomFilmContractError("Custom Film runtime identity changed")
+            if (
+                str(video.get("custom_film_plan_id") or "")
+                != str(envelope.get("plan_id") or "")
+                or str(video.get("custom_film_plan_hash") or "")
+                != str(envelope.get("plan_hash") or "")
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film current video no longer points at this runtime plan"
+                )
+            aspect_ratio = str(video.get("aspect_ratio") or "")
+            resolution = str(video.get("video_resolution") or "")
+            output_dimensions = {
+                ("16:9", "720p"): (1280, 720),
+                ("9:16", "720p"): (720, 1280),
+                ("16:9", "480p"): (854, 480),
+                ("9:16", "480p"): (480, 854),
+            }.get((aspect_ratio, resolution))
+            if output_dimensions is None:
+                raise CustomFilmContractError(
+                    "Custom Film output aspect ratio or resolution is unsupported"
+                )
             providers_raw = await conn.fetch(
                 """SELECT tenant_id::text, video_id::text, runtime_hash,
                           stage_key, state, result
@@ -1131,6 +1196,8 @@ async def _load_current_inputs(
         "asset_rows": [dict(row) for row in asset_records],
         "provenance_rows": [dict(row) for row in provenance_records],
         "section_supplements": section_supplements,
+        "output_width": output_dimensions[0],
+        "output_height": output_dimensions[1],
     }
 
 
@@ -1185,6 +1252,8 @@ async def render_custom_film_video(
         provenance_rows=inputs["provenance_rows"],
         section_supplements=inputs["section_supplements"],
         require_source_hashes=False,
+        width=inputs["output_width"],
+        height=inputs["output_height"],
     )
     staging = Path(tempfile.mkdtemp(prefix=f"custom_film_{video_id[:8]}_"))
     try:
@@ -1228,6 +1297,8 @@ async def render_custom_film_video(
             asset_rows=inputs["asset_rows"],
             provenance_rows=inputs["provenance_rows"],
             section_supplements=inputs["section_supplements"],
+            width=inputs["output_width"],
+            height=inputs["output_height"],
         )
         manifest_hash = manifest["manifest_hash"]
         runtime_hash = manifest["runtime_hash"]
