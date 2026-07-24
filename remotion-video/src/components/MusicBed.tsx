@@ -150,7 +150,7 @@ const ActMusic: React.FC<ActMusicProps> = ({
 		<Audio
 			src={staticFile(`music/${musicFile}`)}
 			volume={effectiveVolume}
-			startFrom={MUSIC_START_FROM_FRAMES}
+			trimBefore={MUSIC_START_FROM_FRAMES}
 			loop
 		/>
 	);

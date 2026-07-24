@@ -6,6 +6,9 @@
         "studio": "remotion studio",
         "render": "remotion render Main out/final.mp4",
         "build": "remotion bundle",
+        "typecheck": "tsc --noEmit",
+        "test": "npm run test:custom-film",
+        "test:custom-film": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/custom-film.test.cjs",
         "transcribe": "node scripts/transcribe.mjs"
     },
     "dependencies": {
@@ -14,7 +17,8 @@
         "@remotion/media": "^4.0.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
-        "remotion": "^4.0.0"
+        "remotion": "^4.0.0",
+        "zod": "3.22.3"
     },
     "devDependencies": {
         "@remotion/install-whisper-cpp": "^4.0.0",

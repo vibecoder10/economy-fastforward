@@ -2280,7 +2280,12 @@ CREATE TABLE IF NOT EXISTS custom_film_assemblies (
   video_id UUID NOT NULL,
   runtime_job_id TEXT NOT NULL,
   runtime_hash TEXT NOT NULL CHECK (runtime_hash ~ '^[0-9a-f]{64}$'),
-  manifest_version TEXT NOT NULL CHECK (manifest_version = 'custom-film-assembly-v1'),
+  manifest_version TEXT NOT NULL CHECK (
+    manifest_version IN (
+      'custom-film-assembly-v1',
+      'custom-film-assembly-v2'
+    )
+  ),
   manifest_hash TEXT NOT NULL CHECK (manifest_hash ~ '^[0-9a-f]{64}$'),
   manifest JSONB NOT NULL CHECK (jsonb_typeof(manifest) = 'object'),
   progress JSONB NOT NULL CHECK (
@@ -2323,6 +2328,20 @@ CREATE TABLE IF NOT EXISTS custom_film_assemblies (
     AND manifest->>'runtime_job_id' = runtime_job_id
     AND manifest->>'tenant_id' = tenant_id::text
     AND manifest->>'video_id' = video_id::text
+  ),
+  CHECK (
+    (
+      manifest_version = 'custom-film-assembly-v1'
+      AND NOT (manifest ? 'render_engine')
+    )
+    OR (
+      manifest_version = 'custom-film-assembly-v2'
+      AND manifest->>'render_engine' IN ('ffmpeg', 'remotion')
+      AND (manifest->>'plan_hash') ~ '^[0-9a-f]{64}$'
+      AND (manifest->>'quote_inputs_hash') ~ '^[0-9a-f]{64}$'
+      AND (manifest->>'approval_hash') ~ '^[0-9a-f]{64}$'
+      AND jsonb_typeof(manifest->'max_spend') = 'number'
+    )
   ),
   CHECK (
     state NOT IN ('rendered', 'uploading', 'uploaded', 'finalized')

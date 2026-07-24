@@ -23,6 +23,7 @@ import shutil
 import tempfile
 import textwrap
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
@@ -35,10 +36,13 @@ from custom_film_section_runtime import compile_stage_adapters
 from error_utils import humanize_error
 
 
-ASSEMBLY_VERSION = "custom-film-assembly-v1"
+ASSEMBLY_VERSION_V1 = "custom-film-assembly-v1"
+ASSEMBLY_VERSION_V2 = "custom-film-assembly-v2"
+ASSEMBLY_VERSION = ASSEMBLY_VERSION_V2
 DEFAULT_FPS = 24
 SUPPORTED_TRANSFORMS = frozenset({"none", "trim", "repeat_then_trim"})
 ProgressCallback = Callable[[str], Awaitable[None]]
+RemotionRenderer = Callable[..., Awaitable[Mapping[str, Any]]]
 
 
 class CustomFilmRetryableError(RuntimeError):
@@ -395,6 +399,8 @@ def build_assembly_manifest(
     fps: int = DEFAULT_FPS,
     width: int = 1920,
     height: int = 1080,
+    render_engine: str = "ffmpeg",
+    assembly_version: str = ASSEMBLY_VERSION,
 ) -> dict[str, Any]:
     """Build an immutable JSON-safe exact-frame assembly manifest.
 
@@ -416,6 +422,16 @@ def build_assembly_manifest(
     height = _exact_int(height, "assembly height", 2)
     if width % 2 or height % 2:
         raise CustomFilmContractError("Custom Film output dimensions must be even")
+    from custom_film_remotion import SUPPORTED_RENDER_ENGINES
+
+    if render_engine not in SUPPORTED_RENDER_ENGINES:
+        raise CustomFilmContractError("Custom Film render engine is unsupported")
+    if assembly_version not in {ASSEMBLY_VERSION_V1, ASSEMBLY_VERSION_V2}:
+        raise CustomFilmContractError("Custom Film assembly version is unsupported")
+    if assembly_version == ASSEMBLY_VERSION_V1 and render_engine != "ffmpeg":
+        raise CustomFilmContractError(
+            "Custom Film assembly v1 only supports its original FFmpeg renderer"
+        )
 
     scenes = _rows(scene_rows, "section scenes")
     assets = _rows(asset_rows, "assets")
@@ -1014,7 +1030,7 @@ def build_assembly_manifest(
     if film_frame != int(envelope["total_duration_seconds"]) * fps:
         raise CustomFilmContractError("Custom Film total film frames drifted")
     body = {
-        "assembly_version": ASSEMBLY_VERSION,
+        "assembly_version": assembly_version,
         "tenant_id": tenant_id,
         "video_id": str(envelope["video_id"]),
         "plan_id": str(envelope["plan_id"]),
@@ -1033,6 +1049,16 @@ def build_assembly_manifest(
         },
         "sections": manifest_sections,
     }
+    if assembly_version == ASSEMBLY_VERSION_V2:
+        body.update(
+            {
+                "plan_hash": str(envelope["plan_hash"]),
+                "quote_inputs_hash": str(envelope["quote_inputs_hash"]),
+                "approval_hash": str(envelope["approval_hash"]),
+                "max_spend": envelope["max_spend"],
+                "render_engine": render_engine,
+            }
+        )
     body["manifest_hash"] = canonical_hash(body)
     return body
 
@@ -1059,7 +1085,11 @@ async def probe_media(path: Path) -> dict[str, Any]:
         "-v",
         "error",
         "-show_entries",
-        "format=duration:stream=codec_type,width,height,nb_frames:stream_tags=language",
+        (
+            "format=duration:"
+            "stream=codec_type,width,height,nb_frames,avg_frame_rate,r_frame_rate:"
+            "stream_tags=language"
+        ),
         "-of",
         "json",
         str(path),
@@ -1072,6 +1102,19 @@ async def probe_media(path: Path) -> dict[str, Any]:
     data = json.loads(stdout)
     streams = data.get("streams") or []
     video = next((row for row in streams if row.get("codec_type") == "video"), {})
+    raw_rate = str(
+        video.get("avg_frame_rate") or video.get("r_frame_rate") or "0/0"
+    )
+    try:
+        frame_rate = Fraction(raw_rate)
+    except (ValueError, ZeroDivisionError):
+        frame_rate = Fraction(0, 1)
+    if frame_rate <= 0:
+        fallback_rate = str(video.get("r_frame_rate") or "0/0")
+        try:
+            frame_rate = Fraction(fallback_rate)
+        except (ValueError, ZeroDivisionError):
+            frame_rate = Fraction(0, 1)
     return {
         "duration_seconds": float(data["format"]["duration"]),
         "width": video.get("width"),
@@ -1079,6 +1122,16 @@ async def probe_media(path: Path) -> dict[str, Any]:
         "frame_count": (
             int(video["nb_frames"])
             if str(video.get("nb_frames") or "").isdigit()
+            else None
+        ),
+        "fps": (
+            frame_rate.numerator
+            if frame_rate.denominator == 1
+            else float(frame_rate)
+        ) if frame_rate > 0 else None,
+        "fps_fraction": (
+            f"{frame_rate.numerator}/{frame_rate.denominator}"
+            if frame_rate > 0
             else None
         ),
         "has_video": bool(video),
@@ -1092,6 +1145,17 @@ async def probe_media(path: Path) -> dict[str, Any]:
             if row.get("codec_type") == "subtitle"
         ],
     }
+
+
+def _probe_has_exact_fps(probe: Mapping[str, Any], expected_fps: int) -> bool:
+    """Compare the probed rational frame rate without float tolerance."""
+    value = probe.get("fps_fraction")
+    if not isinstance(value, str):
+        return False
+    try:
+        return Fraction(value) == Fraction(expected_fps, 1)
+    except (ValueError, ZeroDivisionError):
+        return False
 
 
 def _srt_timestamp(frame: int, fps: int) -> str:
@@ -1352,6 +1416,7 @@ async def render_local_manifest(
                 if (
                     probe["width"] != width
                     or probe["height"] != height
+                    or not _probe_has_exact_fps(probe, fps)
                     or abs(probe["duration_seconds"] - seconds) > (1 / fps + 0.002)
                 ):
                     raise CustomFilmContractError(
@@ -1642,6 +1707,7 @@ async def render_local_manifest(
             or probe["width"] != width
             or probe["height"] != height
             or probe["frame_count"] != total_frames
+            or not _probe_has_exact_fps(probe, fps)
             or abs(probe["duration_seconds"] - expected_seconds) > (1 / fps + 0.002)
         ):
             raise CustomFilmContractError(
@@ -1665,6 +1731,174 @@ async def render_local_manifest(
         }
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def _validate_local_render_result(
+    result_value: Any,
+    *,
+    manifest: Mapping[str, Any],
+    output_path: Path,
+) -> dict[str, Any]:
+    """Require an alternate renderer to satisfy the FFmpeg result contract."""
+    if not isinstance(result_value, Mapping):
+        raise CustomFilmContractError(
+            "Custom Film local renderer returned an invalid result"
+        )
+    result = copy.deepcopy(dict(result_value))
+    required = {
+        "status",
+        "manifest_hash",
+        "artifact_sha256",
+        "duration_seconds",
+        "total_frames",
+        "fps",
+        "resolution",
+        "section_count",
+        "asset_count",
+        "captions",
+        "provenance",
+        "section_provenance",
+        "output_path",
+    }
+    if not required.issubset(result):
+        raise CustomFilmContractError(
+            "Custom Film local renderer result contract is incomplete"
+        )
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        raise CustomFilmContractError(
+            "Custom Film local renderer produced no artifact"
+        )
+    expected_seconds = int(manifest["total_frames"]) / int(manifest["fps"])
+    expected_resolution = f"{manifest['width']}x{manifest['height']}"
+    expected_captions = [
+        caption
+        for section in manifest["sections"]
+        for caption in section.get("captions", [])
+    ]
+    expected_asset_count = sum(
+        len(section["assets"]) for section in manifest["sections"]
+    )
+    actual_hash = hashlib.sha256(output_path.read_bytes()).hexdigest()
+    try:
+        result_path_matches = Path(str(result["output_path"])).resolve() == (
+            output_path.resolve()
+        )
+    except (OSError, RuntimeError):
+        result_path_matches = False
+    if (
+        result["status"] != "rendered_local"
+        or result["manifest_hash"] != manifest["manifest_hash"]
+        or result["artifact_sha256"] != actual_hash
+        or result["duration_seconds"] != expected_seconds
+        or result["total_frames"] != manifest["total_frames"]
+        or result["fps"] != manifest["fps"]
+        or result["resolution"] != expected_resolution
+        or result["section_count"] != len(manifest["sections"])
+        or result["asset_count"] != expected_asset_count
+        or result["captions"] != expected_captions
+        or not isinstance(result["provenance"], list)
+        or not isinstance(result["section_provenance"], list)
+        or not result_path_matches
+    ):
+        raise CustomFilmContractError(
+            "Custom Film local renderer result changed the approved contract"
+        )
+    probe = await probe_media(output_path)
+    if (
+        probe["frame_count"] != manifest["total_frames"]
+        or probe["width"] != manifest["width"]
+        or probe["height"] != manifest["height"]
+        or not _probe_has_exact_fps(probe, int(manifest["fps"]))
+        or not probe["has_video"]
+        or not probe["has_audio"]
+        or (
+            bool(expected_captions)
+            and not probe["has_subtitles"]
+        )
+        or abs(probe["duration_seconds"] - expected_seconds)
+        > (1 / int(manifest["fps"]) + 0.002)
+    ):
+        raise CustomFilmContractError(
+            "Custom Film local renderer artifact failed exact media probe"
+        )
+    return result
+
+
+async def render_manifest_with_engine(
+    manifest_value: Any,
+    *,
+    source_paths: Mapping[str, Path | str],
+    output_path: Path,
+    on_progress: ProgressCallback | None = None,
+    remotion_renderer: RemotionRenderer | None = None,
+) -> dict[str, Any]:
+    """Dispatch one already-selected, hash-bound local render engine.
+
+    There is deliberately no fallback here.  Engine fallback is only legal in
+    ``resolve_render_engine`` before the assembly manifest is hashed/journaled.
+    """
+    manifest = _mapping(manifest_value, "assembly manifest")
+    manifest_hash = str(manifest.pop("manifest_hash", ""))
+    if manifest_hash != canonical_hash(manifest):
+        raise CustomFilmContractError("Custom Film assembly manifest hash changed")
+    manifest["manifest_hash"] = manifest_hash
+    assembly_version = str(manifest.get("assembly_version") or "")
+    if assembly_version == ASSEMBLY_VERSION_V1:
+        if "render_engine" in manifest:
+            raise CustomFilmContractError(
+                "Custom Film assembly v1 renderer identity changed"
+            )
+        engine = "ffmpeg"
+    elif assembly_version == ASSEMBLY_VERSION_V2:
+        engine = str(manifest.get("render_engine") or "")
+    else:
+        raise CustomFilmContractError("Custom Film assembly version is unsupported")
+    if engine == "ffmpeg":
+        result = await render_local_manifest(
+            manifest,
+            source_paths=source_paths,
+            output_path=output_path,
+            on_progress=on_progress,
+        )
+    elif engine == "remotion":
+        if remotion_renderer is None:
+            raise CustomFilmContractError(
+                "Custom Film Remotion was selected but no renderer is available"
+            )
+        from custom_film_remotion import build_remotion_props
+
+        remotion_props = build_remotion_props(manifest)
+        result = await remotion_renderer(
+            remotion_props=remotion_props,
+            source_paths=source_paths,
+            output_path=output_path,
+            on_progress=on_progress,
+        )
+    else:
+        raise CustomFilmContractError("Custom Film render engine is unsupported")
+    validated = await _validate_local_render_result(
+        result, manifest=manifest, output_path=output_path
+    )
+    validated["render_engine"] = engine
+    return validated
+
+
+def custom_film_output_dimensions(
+    aspect_ratio: str, resolution: str
+) -> tuple[int, int]:
+    """Return the exact supported Custom Film canvas or fail closed."""
+    output_dimensions = {
+        ("16:9", "1080p"): (1920, 1080),
+        ("16:9", "720p"): (1280, 720),
+        ("9:16", "720p"): (720, 1280),
+        ("16:9", "480p"): (854, 480),
+        ("9:16", "480p"): (480, 854),
+    }.get((str(aspect_ratio), str(resolution)))
+    if output_dimensions is None:
+        raise CustomFilmContractError(
+            "Custom Film output aspect ratio or resolution is unsupported"
+        )
+    return output_dimensions
 
 
 async def _load_current_inputs(
@@ -1716,16 +1950,9 @@ async def _load_current_inputs(
                 )
             aspect_ratio = str(video.get("aspect_ratio") or "")
             resolution = str(video.get("video_resolution") or "")
-            output_dimensions = {
-                ("16:9", "720p"): (1280, 720),
-                ("9:16", "720p"): (720, 1280),
-                ("16:9", "480p"): (854, 480),
-                ("9:16", "480p"): (480, 854),
-            }.get((aspect_ratio, resolution))
-            if output_dimensions is None:
-                raise CustomFilmContractError(
-                    "Custom Film output aspect ratio or resolution is unsupported"
-                )
+            output_dimensions = custom_film_output_dimensions(
+                aspect_ratio, resolution
+            )
             providers_raw = await conn.fetch(
                 """SELECT tenant_id::text, video_id::text, runtime_job_id,
                           runtime_hash, stage_key, operation_id, state, result
@@ -1892,6 +2119,7 @@ async def verify_stored_artifact(
         stored_probe["frame_count"] != manifest["total_frames"]
         or stored_probe["width"] != manifest["width"]
         or stored_probe["height"] != manifest["height"]
+        or not _probe_has_exact_fps(stored_probe, int(manifest["fps"]))
         or not stored_probe["has_video"]
         or not stored_probe["has_audio"]
         or (bool(manifest["sections"]) and not stored_probe["has_subtitles"])
@@ -1915,6 +2143,9 @@ async def render_custom_film_video(
     downloader: Callable[[str, Path], Awaitable[None]] | None = None,
     uploader: Callable[[bytes, str, str], Awaitable[str]] | None = None,
     storage_reader: Callable[[str], Awaitable[bytes]] | None = None,
+    render_engine: str | None = None,
+    remotion_renderer: RemotionRenderer | None = None,
+    pre_journal_fallback: str = "forbid",
 ) -> dict[str, Any]:
     """Production render door with durable render/upload reconciliation.
 
@@ -1923,6 +2154,10 @@ async def render_custom_film_video(
     identity instead of creating a second upload.
     """
     import database
+    from custom_film_remotion import (
+        resolve_durable_render_engine,
+        resolve_render_engine,
+    )
 
     download = downloader or _default_download
     upload = uploader or _default_upload
@@ -1931,12 +2166,14 @@ async def render_custom_film_video(
     pool = await database.get_pool()
     runtime_hash = str(inputs["envelope"]["runtime_hash"])
     runtime_job_id = str(inputs["runtime_job_id"])
-    # A finalized journal is a durable result.  Revalidate the current runtime
-    # and operation graph above, then return it before any source media I/O.
+    # A durable journal owns renderer selection on every retry.  Read and
+    # validate it before any source media I/O so a default caller cannot
+    # reinterpret a Remotion assembly as FFmpeg.
     async with pool.acquire() as conn:
-        finalized = await conn.fetchrow(
-            """SELECT state, runtime_job_id, manifest_hash, artifact_sha256,
-                      artifact_probe, storage_path, final_video_url
+        existing = await conn.fetchrow(
+            """SELECT state, runtime_job_id, manifest_version, manifest_hash,
+                      artifact_sha256, manifest, artifact_probe, storage_path,
+                      final_video_url
                FROM custom_film_assemblies
                WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                  AND runtime_hash = $3""",
@@ -1944,6 +2181,44 @@ async def render_custom_film_video(
             video_id,
             runtime_hash,
         )
+    durable_manifest: dict[str, Any] | None = None
+    durable_manifest_hash = ""
+    if existing:
+        if str(existing["state"]) == "terminal_failed":
+            raise CustomFilmContractError(
+                "Custom Film assembly is terminally failed; a new approved "
+                "runtime is required"
+            )
+        durable_manifest = _mapping(
+            existing.get("manifest"), "durable assembly manifest"
+        )
+        durable_manifest_hash = str(durable_manifest.pop("manifest_hash", ""))
+        if (
+            str(existing["runtime_job_id"]) != runtime_job_id
+            or durable_manifest_hash != str(existing["manifest_hash"] or "")
+            or canonical_hash(durable_manifest) != durable_manifest_hash
+            or str(durable_manifest.get("assembly_version") or "")
+            != str(existing["manifest_version"] or "")
+            or str(durable_manifest.get("runtime_hash") or "") != runtime_hash
+        ):
+            raise CustomFilmContractError(
+                "Custom Film durable assembly identity is incomplete"
+            )
+        selected_render_engine = resolve_durable_render_engine(
+            manifest_version=str(existing["manifest_version"]),
+            manifest=durable_manifest,
+            journal_state=str(existing["state"]),
+            requested_engine=render_engine,
+            remotion_available=remotion_renderer is not None,
+        )
+        selected_assembly_version = str(existing["manifest_version"])
+    else:
+        selected_render_engine = resolve_render_engine(
+            render_engine,
+            remotion_available=remotion_renderer is not None,
+            pre_journal_fallback=pre_journal_fallback,
+        )
+        selected_assembly_version = ASSEMBLY_VERSION
     preliminary = build_assembly_manifest(
         tenant_id=tenant_id,
         envelope_value=inputs["envelope"],
@@ -1957,18 +2232,18 @@ async def render_custom_film_video(
         require_source_hashes=False,
         width=inputs["output_width"],
         height=inputs["output_height"],
+        render_engine=selected_render_engine,
+        assembly_version=selected_assembly_version,
     )
-    if finalized and str(finalized["state"]) == "finalized":
+    if existing and str(existing["state"]) == "finalized":
         if (
-            str(finalized["runtime_job_id"]) != runtime_job_id
-            or not str(finalized["manifest_hash"] or "")
-            or not str(finalized["artifact_sha256"] or "")
-            or str(finalized["storage_path"] or "")
+            not str(existing["artifact_sha256"] or "")
+            or str(existing["storage_path"] or "")
             != assembly_storage_path(
-                video_id, runtime_hash, str(finalized["manifest_hash"])
+                video_id, runtime_hash, durable_manifest_hash
             )
-            or not str(finalized["final_video_url"] or "")
-            or not isinstance(finalized["artifact_probe"], Mapping)
+            or not str(existing["final_video_url"] or "")
+            or not isinstance(existing["artifact_probe"], Mapping)
         ):
             raise CustomFilmContractError(
                 "Custom Film finalized assembly identity is incomplete"
@@ -1976,10 +2251,10 @@ async def render_custom_film_video(
         return {
             "status": "rendered",
             "video_id": video_id,
-            "final_video_url": str(finalized["final_video_url"]),
-            **_mapping(finalized["artifact_probe"], "artifact probe"),
-            "manifest_hash": str(finalized["manifest_hash"]),
-            "artifact_sha256": str(finalized["artifact_sha256"]),
+            "final_video_url": str(existing["final_video_url"]),
+            **_mapping(existing["artifact_probe"], "artifact probe"),
+            "manifest_hash": durable_manifest_hash,
+            "artifact_sha256": str(existing["artifact_sha256"]),
             "reused": True,
         }
     staging = Path(tempfile.mkdtemp(prefix=f"custom_film_{video_id[:8]}_"))
@@ -2035,6 +2310,8 @@ async def render_custom_film_video(
             section_supplements=inputs["section_supplements"],
             width=inputs["output_width"],
             height=inputs["output_height"],
+            render_engine=selected_render_engine,
+            assembly_version=selected_assembly_version,
         )
         manifest_hash = manifest["manifest_hash"]
         runtime_hash = manifest["runtime_hash"]
@@ -2055,7 +2332,7 @@ async def render_custom_film_video(
                     video_id,
                     runtime_job_id,
                     runtime_hash,
-                    ASSEMBLY_VERSION,
+                    manifest["assembly_version"],
                     manifest_hash,
                     json.dumps(manifest, sort_keys=True, separators=(",", ":")),
                     json.dumps(
@@ -2218,11 +2495,12 @@ async def render_custom_film_video(
             if on_progress:
                 await on_progress(message)
 
-        rendered = await render_local_manifest(
+        rendered = await render_manifest_with_engine(
             manifest,
             source_paths=source_paths,
             output_path=output,
             on_progress=_durable_progress,
+            remotion_renderer=remotion_renderer,
         )
         probe = {
             key: rendered[key]

@@ -1,0 +1,111 @@
+{
+  "identity": {
+    "approval_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+    "assembly_manifest_hash": "7dfa7b9584a6a39eb0c5be119a4bc5a9e01362fea200b4deab8c58b93bae675f",
+    "assembly_version": "custom-film-assembly-v2",
+    "max_spend": 15.0,
+    "plan_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+    "plan_id": "plan-1",
+    "quote_inputs_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+    "render_engine": "remotion",
+    "runtime_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+    "runtime_job_id": "custom-film-runtime:8888888888888888888888888888888888888888888888888888888888888888",
+    "tenant_id": "tenant-1",
+    "video_id": "video-1"
+  },
+  "props_hash": "384a5ef2aa8c0646a40f235e53ea18e50cd4e33d9140197524bb20490a6886ce",
+  "schema_version": "custom-film-remotion-props-v1",
+  "sections": [
+    {
+      "assets": [
+        {
+          "actual_duration_ms": null,
+          "asset_id": "asset-1",
+          "assigned_duration_ms": null,
+          "camera": {"mode": "three_complementary_views"},
+          "caption_card": {
+            "specs": ["Señal verificada"],
+            "sub": "Mara",
+            "title": "Prueba • proof"
+          },
+          "caption_hash": "7b12e498d449b18368e6e5f18f2a1003e19a7e0ec86d15e747cd92860b54e3bb",
+          "duration_frames": 24,
+          "provenance_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+          "source_key": "asset-1",
+          "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "start_frame": 0,
+          "timing_transform": {
+            "mode": "static_hold",
+            "output_duration_ms": 1000,
+            "source_duration_ms": null
+          }
+        }
+      ],
+      "audio": {
+        "gain_db": 0.0,
+        "mode": "voice_over",
+        "sources": [
+          {
+            "source_duration_ms": 1000,
+            "source_key": "audio:section-1:0",
+            "source_sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        ],
+        "timing_transform": {
+          "atempo_chain": [],
+          "caption_scale": 1.0,
+          "mode": "none",
+          "output_duration_ms": 1000,
+          "source_duration_ms": 1000
+        }
+      },
+      "captions": [
+        {
+          "end_frame": 24,
+          "language": {"languages": ["es", "en"], "mode": "bilingual"},
+          "scene_id": "scene-1",
+          "section_end_ms": 1000,
+          "section_start_ms": 0,
+          "start_frame": 0,
+          "text": "Mara: Si puedes oírme."
+        }
+      ],
+      "dialogue_audio": "voice_over",
+      "duration_frames": 24,
+      "order_index": 0,
+      "render_mode": "static_docu",
+      "role": "opening",
+      "scene_ids": ["scene-1"],
+      "section_id": "section-1",
+      "start_frame": 0,
+      "transition_in": {
+        "accounting": "inside_section",
+        "audio": "fade_in",
+        "duration_frames": 0,
+        "overlap_frames": 0,
+        "type": "none"
+      },
+      "transition_out": {
+        "accounting": "inside_section",
+        "audio": "fade_out",
+        "duration_frames": 0,
+        "overlap_frames": 0,
+        "type": "none"
+      },
+      "visual_profile": "photo_documentary"
+    }
+  ],
+  "transition_accounting": {
+    "duration_lives_inside_assigned_sections": true,
+    "duration_source": "min(half_second, quarter_section)",
+    "overlap_frames_total": 0,
+    "type": "dip_to_black_non_overlap"
+  },
+  "video": {
+    "fps": 24,
+    "height": 1080,
+    "total_duration_seconds": 1,
+    "total_frames": 24,
+    "width": 1920
+  }
+}

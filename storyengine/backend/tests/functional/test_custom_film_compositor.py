@@ -13,6 +13,7 @@ from PIL import Image
 
 import custom_film_compositor as compositor
 import custom_film_contract as contract
+import custom_film_remotion
 import custom_film_runtime
 import custom_film_section_runtime
 
@@ -455,6 +456,114 @@ def test_manifest_is_exact_ordered_versioned_and_executes_6s_to_37s():
     )
 
 
+def test_fresh_manifest_is_v2_while_legacy_v1_shape_remains_unchanged():
+    values = _fixture()
+    fresh = _build(values)
+    legacy = compositor.build_assembly_manifest(
+        tenant_id=TENANT,
+        runtime_job_id=values["runtime_job_id"],
+        envelope_value=values["envelope"],
+        runtime_progress_value=values["runtime_progress"],
+        provider_rows=values["provider_rows"],
+        scene_rows=values["scene_rows"],
+        asset_rows=values["asset_rows"],
+        provenance_rows=values["provenance_rows"],
+        section_supplements=values["section_supplements"],
+        assembly_version=compositor.ASSEMBLY_VERSION_V1,
+    )
+    assert fresh["assembly_version"] == compositor.ASSEMBLY_VERSION_V2
+    assert fresh["render_engine"] == "ffmpeg"
+    assert fresh["approval_hash"] == values["envelope"]["approval_hash"]
+    assert legacy["assembly_version"] == compositor.ASSEMBLY_VERSION_V1
+    assert all(
+        key not in legacy
+        for key in (
+            "render_engine",
+            "plan_hash",
+            "quote_inputs_hash",
+            "approval_hash",
+            "max_spend",
+        )
+    )
+    assert legacy["manifest_hash"] != fresh["manifest_hash"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "resume_state", ["prepared", "rendering", "retryable_failed"]
+)
+async def test_actual_v1_manifest_dispatches_ffmpeg_for_legacy_resume_paths(
+    monkeypatch, tmp_path: Path, resume_state: str
+):
+    values = _fixture()
+    legacy = compositor.build_assembly_manifest(
+        tenant_id=TENANT,
+        runtime_job_id=values["runtime_job_id"],
+        envelope_value=values["envelope"],
+        runtime_progress_value=values["runtime_progress"],
+        provider_rows=values["provider_rows"],
+        scene_rows=values["scene_rows"],
+        asset_rows=values["asset_rows"],
+        provenance_rows=values["provenance_rows"],
+        section_supplements=values["section_supplements"],
+        assembly_version=compositor.ASSEMBLY_VERSION_V1,
+    )
+    assert custom_film_remotion.resolve_durable_render_engine(
+        manifest_version=compositor.ASSEMBLY_VERSION_V1,
+        manifest=legacy,
+        journal_state=resume_state,
+        requested_engine=None,
+        remotion_available=False,
+    ) == "ffmpeg"
+    called = []
+
+    async def fake_ffmpeg(*_args, **_kwargs):
+        called.append("ffmpeg")
+        return {"status": "rendered_local"}
+
+    async def accept(result, **_kwargs):
+        return dict(result)
+
+    monkeypatch.setattr(compositor, "render_local_manifest", fake_ffmpeg)
+    monkeypatch.setattr(compositor, "_validate_local_render_result", accept)
+    result = await compositor.render_manifest_with_engine(
+        legacy,
+        source_paths={},
+        output_path=tmp_path / f"{resume_state}.mp4",
+    )
+    assert called == ["ffmpeg"]
+    assert result["render_engine"] == "ffmpeg"
+
+
+@pytest.mark.asyncio
+async def test_v1_dispatch_rejects_injected_render_engine(tmp_path: Path):
+    values = _fixture()
+    legacy = compositor.build_assembly_manifest(
+        tenant_id=TENANT,
+        runtime_job_id=values["runtime_job_id"],
+        envelope_value=values["envelope"],
+        runtime_progress_value=values["runtime_progress"],
+        provider_rows=values["provider_rows"],
+        scene_rows=values["scene_rows"],
+        asset_rows=values["asset_rows"],
+        provenance_rows=values["provenance_rows"],
+        section_supplements=values["section_supplements"],
+        assembly_version=compositor.ASSEMBLY_VERSION_V1,
+    )
+    legacy["render_engine"] = "ffmpeg"
+    legacy["manifest_hash"] = contract.canonical_hash(
+        {key: value for key, value in legacy.items() if key != "manifest_hash"}
+    )
+    with pytest.raises(
+        contract.CustomFilmContractError, match="v1 renderer identity changed"
+    ):
+        await compositor.render_manifest_with_engine(
+            legacy,
+            source_paths={},
+            output_path=tmp_path / "tampered-v1.mp4",
+        )
+
+
 def test_voice_timing_only_allows_bounded_speech_preserving_adjustment():
     safe = compositor._audio_timing_transform(2200, 2000)
     assert safe["mode"] == "atempo"
@@ -648,7 +757,7 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
         ] = [round(voice_probe["duration_seconds"] * 1000)]
     manifest = _build(values)
     output = tmp_path / "mixed.mp4"
-    result = await compositor.render_local_manifest(
+    result = await compositor.render_manifest_with_engine(
         manifest, source_paths=paths, output_path=output
     )
     rerender = tmp_path / "mixed-rerender.mp4"
@@ -657,9 +766,11 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
     )
     probe = await compositor.probe_media(output)
     assert result["duration_seconds"] == 8
+    assert result["render_engine"] == "ffmpeg"
     assert result["section_count"] == 4
     assert probe["has_video"] and probe["has_audio"] and probe["has_subtitles"]
     assert probe["width"] == 1920 and probe["height"] == 1080
+    assert probe["fps_fraction"] == "24/1"
     assert probe["subtitle_languages"] == ["mul"]
     assert abs(probe["duration_seconds"] - 8) <= 1 / 24 + 0.002
     assert len(result["captions"]) == 4
@@ -670,6 +781,13 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
     assert len(result["section_provenance"]) == 4
     assert len({row["section_sha256"] for row in result["section_provenance"]}) == 4
     assert rerender_result["artifact_sha256"] == result["artifact_sha256"]
+    stored_probe = await compositor.verify_stored_artifact(
+        output.read_bytes(),
+        expected_sha256=result["artifact_sha256"],
+        manifest=manifest,
+        staging=tmp_path,
+    )
+    assert stored_probe["fps_fraction"] == "24/1"
     assert [row["start_frame"] for row in result["captions"]] == [0, 48, 96, 144]
     # Causal boundary proof: sample safely inside each section, away from the
     # hashed dip-to-black frames, and confirm distinct mean RGB identities.
@@ -723,6 +841,15 @@ def test_storage_identity_ignores_mutable_title():
 async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
     runtime_hash = "c" * 64
     runtime_job_id = f"custom-film-runtime:{runtime_hash}"
+    durable_manifest_body = {
+        "assembly_version": compositor.ASSEMBLY_VERSION_V1,
+        "runtime_hash": runtime_hash,
+    }
+    durable_manifest_hash = contract.canonical_hash(durable_manifest_body)
+    durable_manifest = {
+        **durable_manifest_body,
+        "manifest_hash": durable_manifest_hash,
+    }
     probe = {
         "duration_seconds": 8,
         "total_frames": 192,
@@ -739,11 +866,13 @@ async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
             return {
                 "state": "finalized",
                 "runtime_job_id": runtime_job_id,
-                "manifest_hash": "d" * 64,
+                "manifest_version": compositor.ASSEMBLY_VERSION_V1,
+                "manifest_hash": durable_manifest_hash,
+                "manifest": durable_manifest,
                 "artifact_sha256": "e" * 64,
                 "artifact_probe": probe,
                 "storage_path": compositor.assembly_storage_path(
-                    VIDEO, runtime_hash, "d" * 64
+                    VIDEO, runtime_hash, durable_manifest_hash
                 ),
                 "final_video_url": "storage://exact-final",
             }
@@ -784,7 +913,10 @@ async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
     monkeypatch.setattr(
         compositor,
         "build_assembly_manifest",
-        lambda **_kwargs: {"sections": [], "runtime_hash": runtime_hash},
+        lambda **_kwargs: {
+            "sections": [],
+            "runtime_hash": runtime_hash,
+        },
     )
     result = await compositor.render_custom_film_video(
         VIDEO,
@@ -801,6 +933,9 @@ def test_schema_and_render_door_are_durable_and_isolated():
     migration = (
         root / "backend/migrations/127_custom_film_assemblies.sql"
     ).read_text()
+    migration_v2 = (
+        root / "backend/migrations/129_custom_film_assembly_v2.sql"
+    ).read_text()
     schema = (root / "schema.sql").read_text()
     executor = (root / "backend/pipeline_executor.py").read_text()
     for text in (migration, schema):
@@ -816,6 +951,9 @@ def test_schema_and_render_door_are_durable_and_isolated():
         assert "REVOKE ALL ON TABLE custom_film_assemblies FROM anon, authenticated" in text
     assert 'if video.get("custom_film_plan_id")' in executor
     assert "render_custom_film_video" in executor
+    assert "custom-film-assembly-v1" in migration_v2
+    assert "custom-film-assembly-v2" in migration_v2
+    assert "manifest->>'render_engine' IN ('ffmpeg', 'remotion')" in migration_v2
 
 
 def test_crash_windows_have_one_fail_closed_or_same_path_resume_action():

@@ -1,3 +1,17 @@
+# Deferred verification — Custom Film Remotion showcase layer
+
+- [ ] **Paid five-minute BYOK media substitution.**
+  - Proof required first: the complete local 300-second synthetic Remotion master, exact artifact verification, deterministic rerender, representative-frame/reveal inspection, and fallback proof must be accepted without provider calls.
+  - Later recipe: refresh the accepted shared estimator immediately before generation. Only if Ryan separately approves the exact current quote with a hard `$15` cap may actual generated section media/audio/captions replace the synthetic fixtures through the same immutable manifest. Revalidate plan hash, quote-input hash, approval hash, integer film/section seconds, ordered section IDs, media/provenance hashes, and current cap before scheduling.
+  - Expected result: actual assets substitute without rebuilding the composition; no provider/model internals reach Remotion; any changed duration, order, media identity, caption timing, model/provenance, or quote clears approval and fails before spend.
+
+- [ ] **Remote publication, live migration, deployment, upload, and release.**
+  - Proof required first: local M3 final sweep plus explicit review of the isolated branch and its relationship to deployed `main`.
+  - Later recipe: Ryan must separately approve each boundary: push/draft PR; any disposable/live migration; deployment/restart/config change; Drive/upload/public release; merge. Use the sanctioned drain/deploy path only after approval and never touch Redis as part of this renderer proof.
+  - Expected result: FFmpeg remains the production fallback until the Remotion proof is explicitly accepted; deployment preserves first-user Custom Film truth and no fifth public card appears.
+
+## Previous deferred verification
+
 # Deferred verification — Custom Film composer (Milestone 2)
 
 - [ ] **Paid mixed-section provider proof.**

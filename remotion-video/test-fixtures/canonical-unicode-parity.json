@@ -1,0 +1,12 @@
+{
+  "value": {
+    "z": "latin",
+    "ä": "umlaut",
+    "a": {
+      "ä": "nested",
+      "z": "nested-latin"
+    }
+  },
+  "canonical_json": "{\"a\":{\"z\":\"nested-latin\",\"ä\":\"nested\"},\"z\":\"latin\",\"ä\":\"umlaut\"}",
+  "sha256": "4f57cf2f6ed935875bf942df0083f6d271367376c4d1f76c90c89fb962e1fa34"
+}

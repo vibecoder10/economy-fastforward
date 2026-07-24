@@ -1,5 +1,30 @@
 # System State — Economy FastForward
 
+## Custom Film Remotion finishing contract (M3-1, 2026-07-23)
+
+- `storyengine/backend/custom_film_remotion.py` derives one strict,
+  provider-opaque `custom-film-remotion-props-v1` document from the already
+  validated and hashed Custom Film assembly manifest. The derivative preserves
+  plan/quote/approval/cap/runtime identity, exact ordered frames, source and
+  provenance hashes, caption/audio timing, and its own canonical SHA-256.
+- `custom-film-assembly-v1` remains the original FFmpeg-only shape.
+  `custom-film-assembly-v2` adds the immutable render-engine and approval
+  identity required by the alternate renderer. Migration 129 and the matching
+  fresh schema accept both versions without rewriting v1 rows.
+- Durable assembly rows own renderer selection before any source download:
+  resumable v1 rows remain FFmpeg, resumable v2 rows require their recorded
+  engine, and no render attempt may silently switch after manifest hashing.
+  FFmpeg remains the default for new production calls.
+- The Remotion package now has a strict Zod mirror, Python-compatible canonical
+  Unicode JSON/SHA-256, exact frame math, tracked parity fixtures, and local
+  tests. `custom_film_compositor.py` also accepts 1920x1080 Custom Film output
+  and requires exact rational FPS in local and stored artifact probes.
+- The callable Remotion seam is integrated behind the existing artifact
+  hash/probe/storage/readback boundary. The real Remotion composition and
+  five-minute synthetic proof are later M3 chunks; no production selection,
+  paid call, migration application, deployment, or remote publication has
+  occurred.
+
 ## Custom Film local milestone status
 
 - Local/no-spend Milestone 2 is independently accepted through `682f3e12`.
