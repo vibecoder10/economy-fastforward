@@ -11482,3 +11482,42 @@ control writes without losing the video, approval, or confirmation.
 - All new shared-function parameters are optional. Legacy video-wide static,
   coverage, camera, motion, and clip callers retain their previous inputs and
   behavior.
+
+# M2-5 Custom Film exact mixed compositor (2026-07-23)
+
+- `storyengine/backend/custom_film_compositor.py` is the only render boundary
+  that interprets a Custom Film. It revalidates the immutable runtime, exact
+  completed stage prefix, ordered provider-operation journal, stable section
+  scenes, current assets, and M2-4 provenance in one repeatable-read snapshot.
+  It then binds the exact downloaded media/audio hashes into
+  `custom-film-assembly-v1`; gaps, duplicates, current-row drift, incomplete
+  voice artifacts, unsupported transforms, or provenance/hash changes fail
+  before rendering or upload.
+- Exact integer section seconds become cumulative exact frames at one fixed
+  24 fps / 1920x1080 output. Static sections divide their approved pictures
+  deterministically and use Ken Burns; animated sections execute only the
+  accepted `none`, `trim`, or `repeat_then_trim` recipe against the retained
+  raw duration. Every source, normalized artifact, section offset, caption,
+  and final artifact remains auditable in the manifest/result provenance.
+- Shared transitions are deterministic non-overlapping dips to black. Their
+  fade frames and matching audio fades live inside the adjacent section
+  budgets, so transitions never shorten or extend the film. Grok-native
+  sections retain exactly one clip-audio path; voice-over sections mute clip
+  audio and bind the current ordered narration tracks, preventing doubled
+  speech. Caption frames are offset onto the film timeline and muxed as an
+  MP4 subtitle stream.
+- Migration 127 and the fresh schema add backend-only
+  `custom_film_assemblies`, an immutable manifest plus monotonic
+  prepared/rendering/rendered/uploading/uploaded/finalized journal. The final
+  storage path derives from the manifest hash. Restart reuses a finalized
+  result, finalizes an already uploaded result without another upload, or
+  retries the same deterministic object path after an uncertain upload.
+  `videos.final_video_url` and rendered status are written only after exact
+  ffprobe/hash checks and the storage seam returns a durable URL.
+  A structured progress snapshot persists the current
+  normalizing/assembling/rendering/uploading phase plus completed and total
+  section counts, while bot activity exposes the same product-language status.
+- `PipelineExecutor.run_render` contains one Custom Film dispatch before the
+  three legacy render-mode choices. Provider/media callers remain free of
+  Custom Film branches, and every legacy/single-profile render path is
+  unchanged.

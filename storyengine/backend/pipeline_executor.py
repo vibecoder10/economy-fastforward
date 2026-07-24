@@ -16114,6 +16114,48 @@ separate scenes."""
             "method": result["method"],
         }
 
+    async def _run_custom_film_render(
+        self, video_id: str, video: dict, current_status: str
+    ) -> dict:
+        """One render-door dispatch into the dedicated section compositor."""
+        bot_name = "Render Bot"
+        await self._log_activity(
+            bot_name,
+            video_id,
+            "started",
+            "Assembling the approved Custom Film sections",
+        )
+
+        async def _progress(message: str) -> None:
+            await self._log_activity(bot_name, video_id, "running", message)
+
+        from custom_film_compositor import render_custom_film_video
+
+        result = await render_custom_film_video(
+            video_id,
+            self.tenant_id,
+            title=video.get("video_title") or "",
+            on_progress=_progress,
+        )
+        if result.get("status") != "rendered" or not result.get("final_video_url"):
+            raise RuntimeError("Custom Film compositor returned no exact final artifact")
+        await self._log_transition(
+            video_id, current_status, to_supabase("rendered"), "api"
+        )
+        await self._charge_render_minutes(
+            video_id,
+            max(1, round(float(result["duration_seconds"]) / 60)),
+        )
+        await self._log_activity(
+            bot_name,
+            video_id,
+            "completed",
+            f"Assembled {result['section_count']} approved sections "
+            f"({result['duration_seconds']:.0f}s, {result['resolution']}) "
+            "into one exact Custom Film",
+        )
+        return result
+
     async def _charge_render_minutes(self, video_id: str, minutes) -> None:
         """Charge render minutes idempotently — only the delta above what this
         video was already charged. Re-renders (edit/retry) of one deliverable
@@ -16175,6 +16217,13 @@ separate scenes."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # Custom Film is interpreted exactly once at the render boundary.
+            # Media/provider callers remain profile-agnostic.
+            if video.get("custom_film_plan_id"):
+                return await self._run_custom_film_render(
+                    video_id, video, current_status
+                )
 
             # grok_native videos carry Grok's dialogue baked into each clip, so
             # the final video is just the clips stitched in order — no Remotion,
