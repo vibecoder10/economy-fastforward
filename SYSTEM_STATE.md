@@ -1,5 +1,24 @@
 # System State — Economy FastForward
 
+## Custom Film flagship Remotion production activation (M5, 2026-07-24)
+
+- `remotion-video/src/showcase/motion-plan-v1.json` is the shared, versioned
+  Python/TypeScript insertion schedule. It binds every frame from 0 through
+  7,199 to an approved section and names the finishing primitive responsible
+  for that interval. SignalPulse and MotionAudioSystem remain global.
+- The production Custom Film render door uses `showcase_auto`: the exact
+  approved 45/105/90/60-second, four-role, 1920x1080 flagship contract selects
+  the real `run_remotion_renderer`; every other Custom Film stays on the
+  established FFmpeg compositor. Durable retries always follow their recorded
+  engine and can never reinterpret an existing assembly.
+- The Remotion renderer now recognizes the VPS Chromium installation at
+  `/snap/bin/chromium`. The sanctioned deploy script supports
+  `--with-remotion`, installs pinned renderer dependencies, regenerates local
+  motion audio, runs TypeScript validation, verifies the browser/CLI runtime,
+  and applies strict migrations before restarting the backend.
+- Renderer results expose the exact props and bundle hashes, and the full-proof
+  harness refuses to reuse a master made by an older adapter or motion plan.
+
 ## Custom Film Remotion motion library (M3-2, 2026-07-23)
 
 - `remotion-video/src/motion-library/` contains nine reusable deterministic
@@ -11729,9 +11748,9 @@ control writes without losing the video, approval, or confirmation.
   one pinned single-thread FFmpeg delivery encode. Independent source frame and
   audio runs were deterministic; delivery-MP4 byte identity remains a secondary
   diagnostic rather than the creative acceptance gate.
-- The accepted synthetic master is
+- The current activation-bound synthetic master is
   `remotion-video/out/full-showcase-proof/master-a.mp4`, SHA-256
-  `60bb164707194ddc46b2e5f15b6691795337cd6fcb51e574142cd8f29d5175fd`.
+  `b158748f7c6cb70d50ce468e7ddd86325b72a20017dbe2e4e06cd8ab0d035117`.
   It probes as exactly 300.000 seconds, 7,200 frames, 1920x1080, 24 fps, with
   AAC 48 kHz stereo and Unicode-capable `mul` mov_text subtitles.
 - Direct and independent visual review covered every motion primitive, exact
@@ -11740,8 +11759,16 @@ control writes without losing the video, approval, or confirmation.
   duplicate-caption interference were reduced; approved media clears the
   persuasive reveal; and the Evidence Board title is centered inside its lower
   boundary without colliding with the 4:57 master reveal.
+- Direct visual review additionally repaired the shared title-safe boundary for
+  every primitive and removed the redundant product footer during final-line
+  convergence, eliminating the 9:16 collision at 4:55–4:58.
+- The live activation policy is `showcase_auto`: the exact 45/105/90/60
+  treatment must also carry a hash-bound `storyengine-showcase-motion-plan-v1`
+  1920x1080 finishing canvas before Remotion can be selected. Dimensions alone
+  never authorize it; unbound, legacy, vertical, and other Custom Films stay on
+  FFmpeg. The same approval card now says either `Remotion locked` or
+  `FFmpeg finishing` truthfully.
 - This is an accepted synthetic engineering and creative reference, not paid
-  flagship footage. A real BYOK substitution requires a refreshed exact quote
-  no higher than $15 and Ryan's separate explicit paid-run approval. Push,
-  migration 130, deployment, upload, and publication each remain separately
-  gated; FFmpeg remains the safe production default.
+  flagship footage. A real BYOK substitution requires the refreshed exact quote
+  no higher than $15 and Ryan's separate explicit paid-run approval. Upload and
+  publication remain separately gated.

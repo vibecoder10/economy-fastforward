@@ -14,6 +14,7 @@ type Cue = {
   readonly id: string;
   readonly from: number;
   readonly to: number;
+  readonly primitive: string;
 };
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
@@ -178,7 +179,11 @@ const FinalReveal: React.FC<{absoluteFrame:number}> = ({absoluteFrame}) => {
   const promise=absoluteFrame>=7140;
   const end=absoluteFrame>=7176;
   if(end) return <AbsoluteFill style={{background:COLORS.ink,color:COLORS.cream,fontFamily:FONT_FAMILY,display:"grid",placeItems:"center"}}><div style={{width:560,textAlign:"center"}}><div style={{fontSize:62,fontWeight:700,letterSpacing:5}}>STORYENGINE</div><div style={{height:5,background:COLORS.turquoise,margin:"26px 0"}}/><div style={{fontSize:30}}>Tell it what you want to make.</div></div></AbsoluteFill>;
-  return <PrimitiveFrame kicker="One request · one approved film" title="StoryEngine Custom Film">
+  return <PrimitiveFrame
+    kicker="One request · one approved film"
+    title="StoryEngine Custom Film"
+    titleStyle={{opacity: absoluteFrame >= 7080 ? 0 : 1}}
+  >
     {showTracks&&<div style={{position:"absolute",left:720,top:270,width:480,display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>{["OPENING","EVIDENCE","WITNESS","EXPLANATION"].map((label,index)=><div key={label} style={{height:82,padding:"0 16px",boxSizing:"border-box",display:"flex",alignItems:"center",background:COLORS.panelSoft,borderLeft:`5px solid ${COLORS.turquoise}`}}>0{index+1} · {label}</div>)}</div>}
     {showCenteredLanes&&<div style={{position:"absolute",left:720,top:245,width:480}}><div style={{fontSize:15,letterSpacing:3,color:COLORS.turquoise,marginBottom:12,textAlign:"center"}}>PRODUCTION LANES LOCKED</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>{["MAP","EVIDENCE","CAPTIONS","AUDIO","MOTION"].map((label,index)=><div key={label} style={{height:62,gridColumn:index===4?"1 / span 2":undefined,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"center",boxSizing:"border-box",background:"#0d2026",border:`1px solid ${COLORS.turquoise}`,transform:`scale(${.9+lock*.1})`}}>{label}</div>)}</div></div>}
     {showLanes&&!showCenteredLanes&&<>{["MAP","EVIDENCE","CAPTIONS","AUDIO","MOTION"].map((label,index)=>{const left=index<3?220:1450;const top=index<3?280+index*105:280+(index-3)*105;return <div key={label} style={{position:"absolute",left,top,width:250,height:62,padding:"0 16px",boxSizing:"border-box",display:"flex",alignItems:"center",background:"#0d2026",border:`1px solid ${COLORS.turquoise}`}}>{label}</div>})}</>}
@@ -195,21 +200,77 @@ const FinalReveal: React.FC<{absoluteFrame:number}> = ({absoluteFrame}) => {
 export const ShowcaseCueScene: React.FC<{cue: Cue}> = ({cue}) => {
   const localFrame=useCurrentFrame();
   const absoluteFrame=cue.from+localFrame;
-  if(cue.id.endsWith("-fade")||cue.id.endsWith("-dip")) return <BoundaryView cue={cue}/>;
-  if(cue.id.startsWith("opening-")) return <OpeningView cue={cue} absoluteFrame={absoluteFrame}/>;
-  if(cue.id==="evidence-map") return <ShowcaseMap absoluteFrame={absoluteFrame}/>;
-  if(cue.id==="evidence-board") return <EvidenceBoard timelineOffsetFrames={24}/>;
-  if(cue.id==="evidence-timeline") return <ShowcaseTimeline absoluteFrame={absoluteFrame}/>;
-  if(cue.id==="evidence-voice-packet") return <VoicePacket/>;
-  if(cue.id==="witness-mara-intro") return <MaraPortrait label="Mara hears a familiar voice" sub="Emergency operator · bilingual witness"/>;
-  if(cue.id==="witness-measured-line") return <MeasuredCaption absoluteFrame={absoluteFrame}/>;
-  if(cue.id==="witness-reaction") return <MaraPortrait label="“That’s my brother.”" sub="The room insists the voice must be synthetic."/>;
-  if(cue.id==="witness-objection-response") return <MeasuredCaption absoluteFrame={absoluteFrame} response/>;
-  if(cue.id==="witness-waveform-code") return <RadioWaveform/>;
-  if(cue.id==="witness-recovery-key") return <RecoveryKey/>;
-  if(cue.id==="reveal-node-collapse") return <NetworkState absoluteFrame={absoluteFrame} reconnect={false}/>;
-  if(cue.id==="reveal-ordered-reconnect") return <NetworkState absoluteFrame={absoluteFrame} reconnect/>;
-  if(cue.id==="reveal-city-return") return <CityReturn absoluteFrame={absoluteFrame}/>;
-  if(cue.id==="reveal-pullback-timeline") return <PullbackTimeline absoluteFrame={absoluteFrame}/>;
-  return <FinalReveal absoluteFrame={absoluteFrame}/>;
+  switch (cue.primitive) {
+    case "Boundary":
+      return <BoundaryView cue={cue}/>;
+    case "CinematicOpening":
+    case "SignalPulse":
+    case "MotionAudioSystem":
+      if (cue.id.startsWith("opening-")) {
+        return <OpeningView cue={cue} absoluteFrame={absoluteFrame}/>;
+      }
+      break;
+    case "OutageMap":
+      if (cue.id === "evidence-map") {
+        return <ShowcaseMap absoluteFrame={absoluteFrame}/>;
+      }
+      break;
+    case "EvidenceBoard":
+      if (cue.id === "evidence-board") {
+        return <EvidenceBoard timelineOffsetFrames={24}/>;
+      }
+      if (cue.id === "evidence-voice-packet") {
+        return <VoicePacket/>;
+      }
+      break;
+    case "IncidentTimeline":
+      if (cue.id === "evidence-timeline") {
+        return <ShowcaseTimeline absoluteFrame={absoluteFrame}/>;
+      }
+      break;
+    case "BilingualCaptions":
+      if (cue.id === "witness-mara-intro") {
+        return <MaraPortrait label="Mara hears a familiar voice" sub="Emergency operator · bilingual witness"/>;
+      }
+      if (cue.id === "witness-measured-line") {
+        return <MeasuredCaption absoluteFrame={absoluteFrame}/>;
+      }
+      if (cue.id === "witness-reaction") {
+        return <MaraPortrait label="“That’s my brother.”" sub="The room insists the voice must be synthetic."/>;
+      }
+      if (cue.id === "witness-objection-response") {
+        return <MeasuredCaption absoluteFrame={absoluteFrame} response/>;
+      }
+      break;
+    case "RadioWaveform":
+      if (cue.id === "witness-waveform-code") {
+        return <RadioWaveform/>;
+      }
+      if (cue.id === "witness-recovery-key") {
+        return <RecoveryKey/>;
+      }
+      break;
+    case "NetworkExplainer":
+      if (cue.id === "reveal-node-collapse") {
+        return <NetworkState absoluteFrame={absoluteFrame} reconnect={false}/>;
+      }
+      if (cue.id === "reveal-ordered-reconnect") {
+        return <NetworkState absoluteFrame={absoluteFrame} reconnect/>;
+      }
+      if (cue.id === "reveal-city-return") {
+        return <CityReturn absoluteFrame={absoluteFrame}/>;
+      }
+      break;
+    case "StoryEngineReveal":
+      if (cue.id === "reveal-pullback-timeline") {
+        return <PullbackTimeline absoluteFrame={absoluteFrame}/>;
+      }
+      if (cue.id.startsWith("reveal-")) {
+        return <FinalReveal absoluteFrame={absoluteFrame}/>;
+      }
+      break;
+  }
+  throw new Error(
+    `Unsupported StoryEngine motion cue: ${cue.primitive}/${cue.id}`,
+  );
 };

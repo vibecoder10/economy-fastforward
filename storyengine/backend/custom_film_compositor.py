@@ -1978,6 +1978,56 @@ async def _load_current_inputs(
             output_dimensions = custom_film_output_dimensions(
                 aspect_ratio, resolution
             )
+            plan_record = await conn.fetchrow(
+                """SELECT quote_inputs, quote_inputs_hash
+                   FROM custom_film_plans
+                   WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                     AND id = $3::uuid""",
+                tenant_id,
+                video_id,
+                envelope["plan_id"],
+            )
+            if not plan_record:
+                raise CustomFilmContractError(
+                    "Custom Film approved quote is missing"
+                )
+            quote_inputs = _mapping(
+                plan_record["quote_inputs"],
+                "approved quote inputs",
+            )
+            quote_inputs_hash = canonical_hash(quote_inputs)
+            if (
+                quote_inputs_hash
+                != str(plan_record.get("quote_inputs_hash") or "")
+                or quote_inputs_hash
+                != str(envelope.get("quote_inputs_hash") or "")
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film approved quote identity changed"
+                )
+            finishing_canvas = quote_inputs.get("finishing_canvas")
+            exact_finishing_canvas = {
+                "engine": "remotion",
+                "motion_plan_version": "storyengine-showcase-motion-plan-v1",
+                "aspect_ratio": "16:9",
+                "width": 1920,
+                "height": 1080,
+                "fps": 24,
+            }
+            # Source clips keep their approved generation tier (normally
+            # 720p). Only a separately approved and hash-bound delivery canvas
+            # may promote the exact flagship to 1080p Remotion finishing.
+            from custom_film_remotion import is_storyengine_showcase_runtime
+
+            if (
+                aspect_ratio == "16:9"
+                and finishing_canvas == exact_finishing_canvas
+                and is_storyengine_showcase_runtime(envelope)
+            ):
+                output_dimensions = (1920, 1080)
+                remotion_finishing_bound = True
+            else:
+                remotion_finishing_bound = False
             providers_raw = await conn.fetch(
                 """SELECT tenant_id::text, video_id::text, runtime_job_id,
                           runtime_hash, stage_key, operation_id, state, result
@@ -2088,6 +2138,7 @@ async def _load_current_inputs(
         "section_supplements": section_supplements,
         "output_width": output_dimensions[0],
         "output_height": output_dimensions[1],
+        "remotion_finishing_bound": remotion_finishing_bound,
     }
 
 
@@ -2180,6 +2231,8 @@ async def render_custom_film_video(
     """
     import database
     from custom_film_remotion import (
+        AUTOMATIC_RENDER_POLICY,
+        automatic_render_engine_for_runtime,
         resolve_durable_render_engine,
         resolve_render_engine,
     )
@@ -2191,6 +2244,7 @@ async def render_custom_film_video(
     pool = await database.get_pool()
     runtime_hash = str(inputs["envelope"]["runtime_hash"])
     runtime_job_id = str(inputs["runtime_job_id"])
+    automatic_policy = render_engine == AUTOMATIC_RENDER_POLICY
     # A durable journal owns renderer selection on every retry.  Read and
     # validate it before any source media I/O so a default caller cannot
     # reinterpret a Remotion assembly as FFmpeg.
@@ -2233,13 +2287,25 @@ async def render_custom_film_video(
             manifest_version=str(existing["manifest_version"]),
             manifest=durable_manifest,
             journal_state=str(existing["state"]),
-            requested_engine=render_engine,
+            requested_engine=None if automatic_policy else render_engine,
             remotion_available=remotion_renderer is not None,
         )
         selected_assembly_version = str(existing["manifest_version"])
     else:
+        requested_engine = (
+            automatic_render_engine_for_runtime(
+                inputs["envelope"],
+                width=inputs["output_width"],
+                height=inputs["output_height"],
+                remotion_finishing_bound=bool(
+                    inputs.get("remotion_finishing_bound")
+                ),
+            )
+            if automatic_policy
+            else render_engine
+        )
         selected_render_engine = resolve_render_engine(
-            render_engine,
+            requested_engine,
             remotion_available=remotion_renderer is not None,
             pre_journal_fallback=pre_journal_fallback,
         )
@@ -2281,6 +2347,7 @@ async def render_custom_film_video(
             "status": "rendered",
             "video_id": video_id,
             "final_video_url": str(existing["final_video_url"]),
+            "render_engine": selected_render_engine,
             **_mapping(existing["artifact_probe"], "artifact probe"),
             "manifest_hash": durable_manifest_hash,
             "artifact_sha256": str(existing["artifact_sha256"]),
@@ -2417,6 +2484,7 @@ async def render_custom_film_video(
                         "status": "rendered",
                         "video_id": video_id,
                         "final_video_url": str(journal["final_video_url"]),
+                        "render_engine": selected_render_engine,
                         **_mapping(journal["artifact_probe"], "artifact probe"),
                         "manifest_hash": manifest_hash,
                         "reused": True,
@@ -2450,6 +2518,7 @@ async def render_custom_film_video(
                         "status": "rendered",
                         "video_id": video_id,
                         "final_video_url": str(journal["final_video_url"]),
+                        "render_engine": selected_render_engine,
                         **_mapping(journal["artifact_probe"], "artifact probe"),
                         "manifest_hash": manifest_hash,
                         "reused": True,
@@ -2655,9 +2724,10 @@ async def render_custom_film_video(
             "status": "rendered",
             "video_id": video_id,
             "final_video_url": str(final_url),
+            "render_engine": selected_render_engine,
             "manifest_hash": manifest_hash,
             "artifact_sha256": rendered["artifact_sha256"],
-            "method": "custom_film_exact_assembly_v1",
+            "method": f"custom_film_{selected_render_engine}_assembly",
             **probe,
         }
     except Exception as exc:

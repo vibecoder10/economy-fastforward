@@ -1,0 +1,66 @@
+{
+  "version": "storyengine-showcase-motion-plan-v1",
+  "fps": 24,
+  "width": 1920,
+  "height": 1080,
+  "total_frames": 7200,
+  "global_primitives": [
+    "SignalPulse",
+    "MotionAudioSystem",
+    "ApprovedMediaLayer"
+  ],
+  "sections": [
+    {
+      "role": "opening",
+      "duration_frames": 1080
+    },
+    {
+      "role": "evidence",
+      "duration_frames": 2520
+    },
+    {
+      "role": "case_study",
+      "duration_frames": 2160
+    },
+    {
+      "role": "explanation",
+      "duration_frames": 1440
+    }
+  ],
+  "cues": [
+    {"id": "opening-clock", "section_index": 0, "from": 0, "to": 95, "primitive": "CinematicOpening"},
+    {"id": "opening-failure-cascade", "section_index": 0, "from": 96, "to": 383, "primitive": "CinematicOpening"},
+    {"id": "opening-hard-silence", "section_index": 0, "from": 384, "to": 443, "primitive": "MotionAudioSystem"},
+    {"id": "opening-first-pulse", "section_index": 0, "from": 444, "to": 527, "primitive": "SignalPulse"},
+    {"id": "opening-frozen-city", "section_index": 0, "from": 528, "to": 815, "primitive": "SignalPulse"},
+    {"id": "opening-tower", "section_index": 0, "from": 816, "to": 959, "primitive": "SignalPulse"},
+    {"id": "opening-title", "section_index": 0, "from": 960, "to": 1067, "primitive": "SignalPulse"},
+    {"id": "opening-dip", "section_index": 0, "from": 1068, "to": 1079, "primitive": "Boundary"},
+    {"id": "evidence-fade", "section_index": 1, "from": 1080, "to": 1091, "primitive": "Boundary"},
+    {"id": "evidence-map", "section_index": 1, "from": 1092, "to": 2111, "primitive": "OutageMap"},
+    {"id": "evidence-board", "section_index": 1, "from": 2112, "to": 3071, "primitive": "EvidenceBoard"},
+    {"id": "evidence-timeline", "section_index": 1, "from": 3072, "to": 3431, "primitive": "IncidentTimeline"},
+    {"id": "evidence-voice-packet", "section_index": 1, "from": 3432, "to": 3587, "primitive": "EvidenceBoard"},
+    {"id": "evidence-dip", "section_index": 1, "from": 3588, "to": 3599, "primitive": "Boundary"},
+    {"id": "witness-fade", "section_index": 2, "from": 3600, "to": 3611, "primitive": "Boundary"},
+    {"id": "witness-mara-intro", "section_index": 2, "from": 3612, "to": 3839, "primitive": "BilingualCaptions"},
+    {"id": "witness-measured-line", "section_index": 2, "from": 3840, "to": 4199, "primitive": "BilingualCaptions"},
+    {"id": "witness-reaction", "section_index": 2, "from": 4200, "to": 4439, "primitive": "BilingualCaptions"},
+    {"id": "witness-objection-response", "section_index": 2, "from": 4440, "to": 4919, "primitive": "BilingualCaptions"},
+    {"id": "witness-waveform-code", "section_index": 2, "from": 4920, "to": 5399, "primitive": "RadioWaveform"},
+    {"id": "witness-recovery-key", "section_index": 2, "from": 5400, "to": 5747, "primitive": "RadioWaveform"},
+    {"id": "witness-dip", "section_index": 2, "from": 5748, "to": 5759, "primitive": "Boundary"},
+    {"id": "reveal-fade", "section_index": 3, "from": 5760, "to": 5771, "primitive": "Boundary"},
+    {"id": "reveal-node-collapse", "section_index": 3, "from": 5772, "to": 6047, "primitive": "NetworkExplainer"},
+    {"id": "reveal-ordered-reconnect", "section_index": 3, "from": 6048, "to": 6383, "primitive": "NetworkExplainer"},
+    {"id": "reveal-city-return", "section_index": 3, "from": 6384, "to": 6623, "primitive": "NetworkExplainer"},
+    {"id": "reveal-pullback-timeline", "section_index": 3, "from": 6624, "to": 6839, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-four-tracks", "section_index": 3, "from": 6840, "to": 6899, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-tracks-lock", "section_index": 3, "from": 6900, "to": 6959, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-chat", "section_index": 3, "from": 6960, "to": 7019, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-approved-plan", "section_index": 3, "from": 7020, "to": 7079, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-convergence", "section_index": 3, "from": 7080, "to": 7139, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-promise", "section_index": 3, "from": 7140, "to": 7175, "primitive": "StoryEngineReveal"},
+    {"id": "reveal-end-card", "section_index": 3, "from": 7176, "to": 7199, "primitive": "StoryEngineReveal"}
+  ]
+}

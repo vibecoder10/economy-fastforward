@@ -59,7 +59,25 @@ test("approved props lock exactly 300 seconds, 7200 frames, and four role bounda
 test("versioned cue compiler fills every inclusive frame exactly once", () => {
   const manifest = compileShowcaseManifest(STORYENGINE_SHOWCASE_DEFAULT_PROPS);
   assert.equal(manifest.schema_version, SHOWCASE_MANIFEST_VERSION);
+  assert.equal(manifest.motion_plan_version, "storyengine-showcase-motion-plan-v1");
   assert.equal(manifest.cues.length, 34);
+  const primitives = new Set([
+    ...manifest.motion_plan.global_primitives,
+    ...manifest.cues.map((cue) => cue.primitive),
+  ]);
+  for (const primitive of [
+    "SignalPulse",
+    "OutageMap",
+    "EvidenceBoard",
+    "IncidentTimeline",
+    "RadioWaveform",
+    "BilingualCaptions",
+    "NetworkExplainer",
+    "StoryEngineReveal",
+    "MotionAudioSystem",
+  ]) {
+    assert.equal(primitives.has(primitive), true, `${primitive} is not scheduled`);
+  }
   let frame = 0;
   for (const cue of manifest.cues) {
     assert.equal(cue.from, frame);
@@ -88,6 +106,9 @@ test("all authored Sequences premount and pulse receives the global timeline fra
   const scene = fs.readFileSync(path.join(__dirname, "..", "src", "showcase", "ShowcaseScene.tsx"), "utf8");
   assert.match(scene, /signalPulseEnergy\(pulseFrame, 24\)/);
   assert.match(scene, /data-title-pulse-energy/);
+  assert.match(scene, /switch \(cue\.primitive\)/);
+  assert.match(scene, /Unsupported StoryEngine motion cue/);
+  assert.match(scene, /titleStyle=\{\{opacity: absoluteFrame >= 7080 \? 0 : 1\}\}/);
 });
 
 test("showcase scene source preserves exact historical, recovery, and lane labels", () => {
@@ -98,8 +119,9 @@ test("showcase scene source preserves exact historical, recovery, and lane label
 });
 
 test("motion-card titles stay centered inside the title-safe boundary", () => {
-  const evidence = fs.readFileSync(path.join(__dirname, "..", "src", "motion-library", "EvidenceBoard.tsx"), "utf8");
-  assert.match(evidence, /titleStyle=\{\{bottom: 190, textAlign: "center"\}\}/);
+  const primitiveFrame = fs.readFileSync(path.join(__dirname, "..", "src", "motion-library", "PrimitiveFrame.tsx"), "utf8");
+  assert.match(primitiveFrame, /bottom: 190/);
+  assert.match(primitiveFrame, /textAlign: "center"/);
   const media = fs.readFileSync(path.join(__dirname, "..", "src", "showcase", "ApprovedMedia.tsx"), "utf8");
   assert.match(media, /top: 760/);
 });

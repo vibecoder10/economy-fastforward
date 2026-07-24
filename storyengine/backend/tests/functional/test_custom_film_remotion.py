@@ -203,6 +203,90 @@ def test_renderer_bundle_hash_binds_python_adapter(monkeypatch):
     assert remotion.renderer_bundle_hash() != original
 
 
+def _flagship_runtime_envelope() -> dict:
+    roles = ("opening", "evidence", "case_study", "explanation")
+    durations = (45, 105, 90, 60)
+    return {
+        "runtime_version": "custom-film-runtime-v1",
+        "runtime_hash": "8" * 64,
+        "video_id": "video-1",
+        "plan_id": "plan-1",
+        "plan_hash": "5" * 64,
+        "quote_inputs_hash": "6" * 64,
+        "approval_hash": "7" * 64,
+        "total_duration_seconds": 300,
+        "max_spend": 15.0,
+        "sections": [
+            {
+                "section_id": f"section-{index + 1}",
+                "order_index": index,
+                "role": role,
+                "duration_seconds": duration,
+            }
+            for index, (role, duration) in enumerate(zip(roles, durations))
+        ],
+        "stage_plan": [],
+    }
+
+
+def test_shared_motion_plan_selects_every_showcase_primitive_at_exact_frames():
+    plan = remotion.load_showcase_motion_plan()
+    assert plan["version"] == remotion.SHOWCASE_MOTION_PLAN_VERSION
+    assert plan["cues"][0]["from"] == 0
+    assert plan["cues"][-1]["to"] == 7199
+    primitives = set(plan["global_primitives"]) | {
+        cue["primitive"] for cue in plan["cues"]
+    }
+    assert {
+        "SignalPulse",
+        "OutageMap",
+        "EvidenceBoard",
+        "IncidentTimeline",
+        "RadioWaveform",
+        "BilingualCaptions",
+        "NetworkExplainer",
+        "StoryEngineReveal",
+        "MotionAudioSystem",
+    }.issubset(primitives)
+    assert remotion.is_storyengine_showcase_runtime(
+        _flagship_runtime_envelope()
+    )
+    assert remotion.automatic_render_engine_for_runtime(
+        _flagship_runtime_envelope(),
+        width=1920,
+        height=1080,
+        remotion_finishing_bound=True,
+    ) == "remotion"
+    assert remotion.automatic_render_engine_for_runtime(
+        _flagship_runtime_envelope(),
+        width=1920,
+        height=1080,
+    ) == "ffmpeg"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "width", "height"),
+    [
+        ({"total_duration_seconds": 301}, 1920, 1080),
+        ({"sections": []}, 1920, 1080),
+        ({}, 1280, 720),
+    ],
+)
+def test_automatic_renderer_keeps_non_showcase_films_on_ffmpeg(
+    mutation, width, height
+):
+    envelope = _flagship_runtime_envelope()
+    envelope.update(mutation)
+    if mutation:
+        assert not remotion.is_storyengine_showcase_runtime(envelope)
+    assert remotion.automatic_render_engine_for_runtime(
+        envelope,
+        width=width,
+        height=height,
+        remotion_finishing_bound=True,
+    ) == "ffmpeg"
+
+
 def test_python_generated_props_match_the_tracked_typescript_parity_fixture():
     root = Path(__file__).resolve().parents[4]
     tracked = json.loads(
@@ -1154,7 +1238,7 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
     assert progress and progress[-1].startswith("Rendering ")
 
 
-def test_migration_130_and_fresh_schema_bind_renderer_implementation():
+def test_migration_131_and_fresh_schema_bind_renderer_implementation():
     root = Path(__file__).resolve().parents[3]
     migration = (
         root / "backend/migrations/131_custom_film_remotion_renderer_v3.sql"

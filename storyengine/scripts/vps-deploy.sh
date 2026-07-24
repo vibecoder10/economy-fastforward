@@ -7,7 +7,7 @@
 # script serializes deploys behind a lock file and leaves an audit trail.
 #
 # Usage (on the VPS):
-#   ~/projects/economy-fastforward/storyengine/scripts/vps-deploy.sh <session-name> [--with-frontend] [--force]
+#   ~/projects/economy-fastforward/storyengine/scripts/vps-deploy.sh <session-name> [--with-frontend] [--with-remotion] [--force]
 #
 # Lock protocol (~/deploy.lock):
 #   - ANY session doing prod work that must not be interrupted (a deploy, a
@@ -21,7 +21,7 @@ set -euo pipefail
 LOCK="$HOME/deploy.lock"
 REPO="$HOME/projects/economy-fastforward"
 LOG="$HOME/deploys.log"
-WHO="${1:?usage: vps-deploy.sh <session-name> [--with-frontend] [--force]}"
+WHO="${1:?usage: vps-deploy.sh <session-name> [--with-frontend] [--with-remotion] [--force]}"
 shift || true
 ARGS="${*:-}"
 DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-7200}"
@@ -86,6 +86,26 @@ done
 $PIP install -q -r storyengine/backend/requirements.txt || \
   $PIP install -q --user -r storyengine/backend/requirements.txt || \
   echo "WARN: pip install failed — check deps by hand"
+
+if [[ "$ARGS" == *--with-remotion* ]]; then
+  (
+    cd remotion-video
+    npm ci --no-audit --no-fund
+    npm run generate:motion-audio
+    npm run typecheck
+  )
+  REMOTION_BROWSER=$(command -v google-chrome || command -v chromium || true)
+  if [ ! -x remotion-video/node_modules/.bin/remotion ] || [ -z "$REMOTION_BROWSER" ]; then
+    echo "DEPLOY FAILED — Remotion CLI or browser runtime is unavailable." >&2
+    exit 1
+  fi
+  echo "remotion runtime: verified ($REMOTION_BROWSER)"
+  (
+    cd storyengine/backend
+    "$PYTHON" scripts/run_migrations_strict.py
+  )
+  echo "remotion schema: strict migrations complete"
+fi
 
 # Restart the backend by its exact unit PID. NEVER pkill -f uvicorn on this
 # box — it has matched voice-osiris AND the ssh session itself before.

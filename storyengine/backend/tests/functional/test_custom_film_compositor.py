@@ -951,6 +951,19 @@ def test_schema_and_render_door_are_durable_and_isolated():
         assert "REVOKE ALL ON TABLE custom_film_assemblies FROM anon, authenticated" in text
     assert 'if video.get("custom_film_plan_id")' in executor
     assert "render_custom_film_video" in executor
+    assert "AUTOMATIC_RENDER_POLICY" in executor
+    assert "run_remotion_renderer" in executor
+    assert "remotion_renderer=run_remotion_renderer" in executor
+    compositor_source = (
+        root / "backend/custom_film_compositor.py"
+    ).read_text()
+    assert "and is_storyengine_showcase_runtime(envelope)" in compositor_source
+    assert 'aspect_ratio == "16:9"' in compositor_source
+    assert "finishing_canvas == exact_finishing_canvas" in compositor_source
+    assert "Custom Film approved quote identity changed" in compositor_source
+    assert '"remotion_finishing_bound": remotion_finishing_bound' in compositor_source
+    assert 'inputs.get("remotion_finishing_bound")' in compositor_source
+    assert "output_dimensions = (1920, 1080)" in compositor_source
     assert "custom-film-assembly-v1" in migration_v2
     assert "custom-film-assembly-v2" in migration_v2
     assert "manifest->>'render_engine' IN ('ffmpeg', 'remotion')" in migration_v2

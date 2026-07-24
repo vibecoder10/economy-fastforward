@@ -1,6 +1,23 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
-## Active mission — M4 FLAGSHIP BYOK PREFLIGHT + CREATOR BLUEPRINT
+## Active mission — M5 LIVE REMOTION ACTIVATION
+
+### Definition of Complete
+1. The exact approved flagship runtime automatically selects the real Remotion renderer; no production caller can silently fall back to FFmpeg after a Remotion assembly is journaled.
+2. One shared versioned motion plan tells Python and TypeScript exactly which primitive runs at every frame and proves all nine required primitives are scheduled.
+3. Non-flagship Custom Films retain the established FFmpeg compositor, and any duration, section-role, order, canvas, media, caption, approval, cost, or renderer-identity drift fails closed.
+4. Migrations 130–131 and the pinned Remotion/Chromium runtime are installed through the sanctioned drain-aware deployment path with zero active work.
+5. A fresh full 300-second local synthetic proof and a production-host zero-provider Remotion proof pass with exact media probes, captions, audio, representative visual evidence, and deployed bundle identity.
+6. Paid Grok generation remains a separate explicit approval capped at $15; no provider call or paid generation occurs during activation.
+
+### Chunks
+- [x] M5-0 GAP AUDIT: proved the live caller omitted both `render_engine="remotion"` and `run_remotion_renderer`, and the VPS Chromium path was absent from the adapter.
+- [x] M5-1 MOTION PLAN + ACTIVATION: added the shared exact-frame insertion plan, deterministic flagship-only auto policy, real production renderer injection, explicit returned renderer identity, stale-proof rejection, VPS browser support, and a `--with-remotion` deploy mode.
+- [x] M5-2 LOCAL FULL PROOF: verified the fresh renderer-identity-bound 300-second master, all nine primitives, exact media/audio/subtitle probes, wide and 9:16 contacts, title-safe repairs, and the collision-free 4:45–5:00 reveal. Final SHA-256: `b158748f7c6cb70d50ce468e7ddd86325b72a20017dbe2e4e06cd8ab0d035117`.
+- [ ] M5-3 LIVE MIGRATION + DEPLOY: apply migrations 130–131 and deploy the pinned Remotion runtime behind the zero-work drain.
+- [ ] M5-4 PRODUCTION-HOST PROOF + FINAL VERDICT: run zero-provider proof on the VPS, inspect outputs, verify health and exact live identity, and publish the truthful paid-run handoff.
+
+## Accepted mission — M4 FLAGSHIP BYOK PREFLIGHT + CREATOR BLUEPRINT
 
 ### Definition of Complete
 1. The exact five-minute showcase plan is refreshed through the shared no-spend estimator and current public unit pricing, with the difference between conservative pre-script authorization and later character-metered voice cost stated plainly.

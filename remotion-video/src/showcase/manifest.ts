@@ -1,5 +1,6 @@
 import {canonicalJson, sha256Hex} from "../custom-film/canonical";
 import {validateCustomFilmRemotionProps, type CustomFilmRemotionProps} from "../custom-film/schema";
+import motionPlan from "./motion-plan-v1.json";
 
 export const SHOWCASE_MANIFEST_VERSION = "storyengine-showcase-cues-v1" as const;
 export const SHOWCASE_REQUEST = "Make me a cinematic five-minute Custom Film about the day the internet went dark. Open like a thriller, investigate the mystery with visual evidence, give it a bilingual human witness, explain the technical reveal so anyone can understand it, and end by revealing that StoryEngine assembled the film. Keep the total provider spend below $15.";
@@ -9,61 +10,24 @@ export const SHOWCASE_QUOTE = {
   approval_required: true,
 } as const;
 
-const cue = (id: string, sectionIndex: number, from: number, to: number) => ({
-  id,
-  sectionIndex,
-  from,
-  to,
-  durationInFrames: to - from + 1,
-});
-
-export const SHOWCASE_CUES = [
-  cue("opening-clock", 0, 0, 95),
-  cue("opening-failure-cascade", 0, 96, 383),
-  cue("opening-hard-silence", 0, 384, 443),
-  cue("opening-first-pulse", 0, 444, 527),
-  cue("opening-frozen-city", 0, 528, 815),
-  cue("opening-tower", 0, 816, 959),
-  cue("opening-title", 0, 960, 1067),
-  cue("opening-dip", 0, 1068, 1079),
-  cue("evidence-fade", 1, 1080, 1091),
-  cue("evidence-map", 1, 1092, 2111),
-  cue("evidence-board", 1, 2112, 3071),
-  cue("evidence-timeline", 1, 3072, 3431),
-  cue("evidence-voice-packet", 1, 3432, 3587),
-  cue("evidence-dip", 1, 3588, 3599),
-  cue("witness-fade", 2, 3600, 3611),
-  cue("witness-mara-intro", 2, 3612, 3839),
-  cue("witness-measured-line", 2, 3840, 4199),
-  cue("witness-reaction", 2, 4200, 4439),
-  cue("witness-objection-response", 2, 4440, 4919),
-  cue("witness-waveform-code", 2, 4920, 5399),
-  cue("witness-recovery-key", 2, 5400, 5747),
-  cue("witness-dip", 2, 5748, 5759),
-  cue("reveal-fade", 3, 5760, 5771),
-  cue("reveal-node-collapse", 3, 5772, 6047),
-  cue("reveal-ordered-reconnect", 3, 6048, 6383),
-  cue("reveal-city-return", 3, 6384, 6623),
-  cue("reveal-pullback-timeline", 3, 6624, 6839),
-  cue("reveal-four-tracks", 3, 6840, 6899),
-  cue("reveal-tracks-lock", 3, 6900, 6959),
-  cue("reveal-chat", 3, 6960, 7019),
-  cue("reveal-approved-plan", 3, 7020, 7079),
-  cue("reveal-convergence", 3, 7080, 7139),
-  cue("reveal-promise", 3, 7140, 7175),
-  cue("reveal-end-card", 3, 7176, 7199),
-] as const;
-
-const expectedSections = [
-  {role: "opening", start: 0, duration: 1080},
-  {role: "evidence", start: 1080, duration: 2520},
-  {role: "case_study", start: 3600, duration: 2160},
-  {role: "explanation", start: 5760, duration: 1440},
-] as const;
+export const SHOWCASE_MOTION_PLAN = motionPlan;
+export const SHOWCASE_CUES = motionPlan.cues.map((item) => ({
+  id: item.id,
+  sectionIndex: item.section_index,
+  from: item.from,
+  to: item.to,
+  durationInFrames: item.to - item.from + 1,
+  primitive: item.primitive,
+}));
 
 export const validateStoryEngineShowcaseProps = (value: unknown): CustomFilmRemotionProps => {
   const props = validateCustomFilmRemotionProps(value);
   if (
+    motionPlan.version !== "storyengine-showcase-motion-plan-v1" ||
+    motionPlan.fps !== 24 ||
+    motionPlan.width !== 1920 ||
+    motionPlan.height !== 1080 ||
+    motionPlan.total_frames !== 7200 ||
     props.video.fps !== 24 ||
     props.video.width !== 1920 ||
     props.video.height !== 1080 ||
@@ -73,13 +37,15 @@ export const validateStoryEngineShowcaseProps = (value: unknown): CustomFilmRemo
   ) {
     throw new Error("StoryEngine showcase video identity changed");
   }
-  expectedSections.forEach((expected, index) => {
+  motionPlan.sections.forEach((expected, index) => {
     const section = props.sections[index];
     if (
       section.role !== expected.role ||
       section.order_index !== index ||
-      section.start_frame !== expected.start ||
-      section.duration_frames !== expected.duration ||
+      section.start_frame !== motionPlan.sections
+        .slice(0, index)
+        .reduce((total, item) => total + item.duration_frames, 0) ||
+      section.duration_frames !== expected.duration_frames ||
       section.transition_in.overlap_frames !== 0 ||
       section.transition_out.overlap_frames !== 0
     ) {
@@ -383,6 +349,8 @@ export const compileShowcaseManifest = (propsValue: unknown) => {
   if (frame !== 7200) throw new Error("Showcase cues do not fill exactly 7200 frames");
   const manifest = {
     schema_version: SHOWCASE_MANIFEST_VERSION,
+    motion_plan_version: motionPlan.version,
+    motion_plan: motionPlan,
     props_hash: props.props_hash,
     identity: {...props.identity},
     quote: SHOWCASE_QUOTE,

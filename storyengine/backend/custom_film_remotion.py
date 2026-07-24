@@ -33,6 +33,8 @@ LEGACY_ASSEMBLY_VERSION = "custom-film-assembly-v2"
 EXPECTED_ASSEMBLY_VERSION = "custom-film-assembly-v3"
 REMOTION_RENDERER_CONTRACT_VERSION = "custom-film-remotion-renderer-v1"
 REMOTION_COMPOSITION_ID = "StoryEngineCustomFilmShowcase"
+SHOWCASE_MOTION_PLAN_VERSION = "storyengine-showcase-motion-plan-v1"
+AUTOMATIC_RENDER_POLICY = "showcase_auto"
 SUPPORTED_RENDER_ENGINES = frozenset({"ffmpeg", "remotion"})
 PRE_JOURNAL_FALLBACK_POLICIES = frozenset({"forbid", "ffmpeg"})
 RESUMABLE_JOURNAL_STATES = frozenset(
@@ -316,6 +318,205 @@ def remotion_props_hash(value: Any) -> str:
 
 def _remotion_project_root() -> Path:
     return Path(__file__).resolve().parents[2] / "remotion-video"
+
+
+def load_showcase_motion_plan(
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    """Load and validate the shared Python/TypeScript insertion schedule."""
+    root = (project_root or _remotion_project_root()).resolve()
+    path = root / "src/showcase/motion-plan-v1.json"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion plan is unavailable"
+        ) from exc
+    plan = _strict_mapping(value, "showcase motion plan")
+    if set(plan) != {
+        "version",
+        "fps",
+        "width",
+        "height",
+        "total_frames",
+        "global_primitives",
+        "sections",
+        "cues",
+    }:
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion plan shape changed"
+        )
+    if (
+        plan["version"] != SHOWCASE_MOTION_PLAN_VERSION
+        or _exact_int(plan["fps"], "showcase motion plan fps", 1) != 24
+        or _exact_int(plan["width"], "showcase motion plan width", 1) != 1920
+        or _exact_int(plan["height"], "showcase motion plan height", 1) != 1080
+        or _exact_int(
+            plan["total_frames"], "showcase motion plan frames", 1
+        ) != 7200
+    ):
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion plan identity changed"
+        )
+    required_primitives = {
+        "SignalPulse",
+        "OutageMap",
+        "EvidenceBoard",
+        "IncidentTimeline",
+        "RadioWaveform",
+        "BilingualCaptions",
+        "NetworkExplainer",
+        "StoryEngineReveal",
+        "MotionAudioSystem",
+    }
+    primitives = {
+        str(value)
+        for value in _strict_sequence(
+            plan["global_primitives"], "showcase global primitives"
+        )
+    }
+    sections = _strict_sequence(plan["sections"], "showcase motion sections")
+    if len(sections) != 4:
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion plan section count changed"
+        )
+    expected_sections = (
+        ("opening", 1080),
+        ("evidence", 2520),
+        ("case_study", 2160),
+        ("explanation", 1440),
+    )
+    section_bounds: list[tuple[int, int]] = []
+    section_start = 0
+    for section_value, (role, duration) in zip(
+        sections, expected_sections
+    ):
+        section = _strict_mapping(section_value, "showcase motion section")
+        if (
+            set(section) != {"role", "duration_frames"}
+            or section.get("role") != role
+            or _exact_int(
+                section.get("duration_frames"),
+                "showcase section frames",
+                1,
+            )
+            != duration
+        ):
+            raise CustomFilmContractError(
+                "StoryEngine Remotion motion plan sections changed"
+            )
+        section_bounds.append((section_start, section_start + duration - 1))
+        section_start += duration
+    if section_start != plan["total_frames"]:
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion sections do not fill the film"
+        )
+    expected_frame = 0
+    cues = _strict_sequence(plan["cues"], "showcase motion cues")
+    if not cues:
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion plan cues are empty"
+        )
+    for cue_value in cues:
+        cue = _strict_mapping(cue_value, "showcase motion cue")
+        if set(cue) != {
+            "id",
+            "section_index",
+            "from",
+            "to",
+            "primitive",
+        }:
+            raise CustomFilmContractError(
+                "StoryEngine Remotion motion cue shape changed"
+            )
+        start = _exact_int(cue["from"], "showcase motion cue start")
+        end = _exact_int(cue["to"], "showcase motion cue end")
+        section_index = _exact_int(
+            cue["section_index"], "showcase motion cue section"
+        )
+        if (
+            start != expected_frame
+            or end < start
+            or section_index >= 4
+            or start < section_bounds[section_index][0]
+            or end > section_bounds[section_index][1]
+        ):
+            raise CustomFilmContractError(
+                "StoryEngine Remotion motion cues are not exact and contiguous"
+            )
+        primitives.add(_text(cue["primitive"], "showcase motion primitive"))
+        expected_frame = end + 1
+    if expected_frame != 7200 or not required_primitives.issubset(primitives):
+        raise CustomFilmContractError(
+            "StoryEngine Remotion motion plan is incomplete"
+        )
+    return copy.deepcopy(plan)
+
+
+def is_storyengine_showcase_runtime(
+    envelope_value: Mapping[str, Any],
+) -> bool:
+    """Match only the exact immutable four-act flagship runtime contract."""
+    plan = load_showcase_motion_plan()
+    envelope = _strict_mapping(envelope_value, "runtime envelope")
+    sections = _strict_sequence(envelope.get("sections"), "runtime sections")
+    planned_sections = _strict_sequence(
+        plan["sections"], "showcase motion sections"
+    )
+    if (
+        _exact_int(
+            envelope.get("total_duration_seconds"),
+            "runtime duration",
+            1,
+        )
+        * plan["fps"]
+        != plan["total_frames"]
+        or len(sections) != len(planned_sections)
+    ):
+        return False
+    for runtime_value, planned_value in zip(sections, planned_sections):
+        runtime = _strict_mapping(runtime_value, "runtime section")
+        planned = _strict_mapping(planned_value, "showcase motion section")
+        if (
+            str(runtime.get("role") or "") != str(planned.get("role") or "")
+            or _exact_int(
+                runtime.get("duration_seconds"),
+                "runtime section duration",
+                1,
+            )
+            * plan["fps"]
+            != _exact_int(
+                planned.get("duration_frames"),
+                "showcase section frames",
+                1,
+            )
+        ):
+            return False
+    return True
+
+
+def automatic_render_engine_for_runtime(
+    envelope_value: Mapping[str, Any],
+    *,
+    width: int,
+    height: int,
+    remotion_finishing_bound: bool = False,
+) -> str:
+    """Select Remotion only for the exact approved flagship treatment.
+
+    Every other Custom Film keeps the established FFmpeg compositor. The
+    decision is made from the immutable runtime envelope and the same tracked
+    motion plan consumed by the Remotion composition.
+    """
+    plan = load_showcase_motion_plan()
+    if (
+        remotion_finishing_bound is not True
+        or width != plan["width"]
+        or height != plan["height"]
+        or not is_storyengine_showcase_runtime(envelope_value)
+    ):
+        return "ffmpeg"
+    return "remotion"
 
 
 def _renderer_adapter_hash() -> str:
@@ -1969,6 +2170,7 @@ async def run_remotion_renderer(
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/usr/bin/google-chrome",
         "/usr/bin/chromium",
+        "/snap/bin/chromium",
     ]
     browser = next(
         (Path(value) for value in browser_candidates if value and Path(value).is_file()),
@@ -2151,6 +2353,8 @@ async def run_remotion_renderer(
         result = {
             "status": "rendered_local",
             "manifest_hash": props["identity"]["assembly_manifest_hash"],
+            "props_hash": props["props_hash"],
+            "renderer_bundle_hash": props["identity"]["renderer_bundle_hash"],
             "artifact_sha256": artifact_hash,
             "duration_seconds": expected_seconds,
             "total_frames": frames,

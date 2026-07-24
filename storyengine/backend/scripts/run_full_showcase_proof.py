@@ -509,10 +509,18 @@ async def render(label: str) -> None:
     hash_path = PROOF_ROOT / f"hash-{label}.json"
     state_path = PROOF_ROOT / f"render-{label}-state.json"
     if output.is_file() and result_path.is_file() and probe_path.is_file() and hash_path.is_file():
-        if digest_file(output) == read_json(hash_path)["sha256"]:
+        existing_result = read_json(result_path)
+        if (
+            digest_file(output) == read_json(hash_path)["sha256"]
+            and existing_result.get("props_hash") == props["props_hash"]
+            and existing_result.get("renderer_bundle_hash")
+            == props["identity"]["renderer_bundle_hash"]
+        ):
             print(f"Render {label} is already complete and hash-valid: {output}")
             return
-        raise RuntimeError(f"Existing render {label} sidecars do not match")
+        raise RuntimeError(
+            f"Existing render {label} does not match the current renderer identity"
+        )
 
     async def progress(message: str) -> None:
         write_json(state_path, {"status": "rendering", "label": label, "progress": message})

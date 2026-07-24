@@ -3931,6 +3931,10 @@ def _custom_film_approval_card(
                 "estimated_cost": float(row["estimated_cost"]),
             }
         )
+    remotion_finishing = _custom_film_remotion_finishing_eligible(
+        quote,
+        display_plan,
+    )
     return {
         "id": "custom_film_approval",
         "label": "Your Custom Film production blueprint",
@@ -3951,9 +3955,21 @@ def _custom_film_approval_card(
             f"{len(sections)}-section plan, timing, media bill, and spending cap; "
             "any edit clears approval and creates a new quote."
         ),
+        "finishing_engine": "remotion" if remotion_finishing else "ffmpeg",
         "finishing_notice": (
-            "StoryEngine's deterministic Remotion finishing adds motion graphics, "
-            "captions, transitions, and the product reveal with $0 provider spend."
+            (
+                "Remotion motion plan v1 is locked to these exact four acts. "
+                "StoryEngine will automatically schedule the signal pulse, outage "
+                "map, evidence board, incident timeline, radio waveform, bilingual "
+                "captions, network explainer, product reveal, and motion-audio mix "
+                "with $0 additional provider spend."
+            )
+            if remotion_finishing
+            else (
+                "This plan uses StoryEngine's verified FFmpeg finishing fallback. "
+                "Use the exact 45 / 105 / 90 / 60-second flagship treatment to "
+                "activate the reusable Remotion motion plan."
+            )
         ),
         "options": [
             {
@@ -3963,6 +3979,69 @@ def _custom_film_approval_card(
             {"value": "no", "label": "Keep editing"},
         ],
     }
+
+
+_CUSTOM_FILM_REMOTION_FINISHING_CANVAS = {
+    "engine": "remotion",
+    "motion_plan_version": "storyengine-showcase-motion-plan-v1",
+    "aspect_ratio": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 24,
+}
+
+
+def _custom_film_showcase_treatment_match(
+    quote: dict[str, Any],
+    display_plan: dict[str, Any],
+) -> bool:
+    """Match the exact four-act treatment before binding its finishing canvas."""
+    expected = (
+        ("opening", 45),
+        ("evidence", 105),
+        ("case_study", 90),
+        ("explanation", 60),
+    )
+    display_sections = display_plan.get("sections")
+    quote_sections = quote.get("sections")
+    if not isinstance(display_sections, list) or not isinstance(quote_sections, list):
+        return False
+    if len(display_sections) != len(expected) or len(quote_sections) != len(expected):
+        return False
+    quote_by_order = {
+        int(row.get("order_index", -1)): row
+        for row in quote_sections
+        if isinstance(row, dict)
+    }
+    for index, (expected_role, expected_duration) in enumerate(expected):
+        section = display_sections[index]
+        quote_row = quote_by_order.get(index)
+        if not isinstance(section, dict) or quote_row is None:
+            return False
+        role = str(section.get("role", "")).strip().lower().replace(" ", "_")
+        if (
+            int(section.get("order", -1)) != index + 1
+            or role != expected_role
+            or int(quote_row.get("duration_seconds", -1)) != expected_duration
+        ):
+            return False
+    totals = quote.get("totals")
+    return (
+        isinstance(totals, dict)
+        and int(totals.get("duration_seconds", -1)) == 300
+    )
+
+
+def _custom_film_remotion_finishing_eligible(
+    quote: dict[str, Any],
+    display_plan: dict[str, Any],
+) -> bool:
+    """Return true only when treatment and approved canvas are both exact."""
+    return (
+        _custom_film_showcase_treatment_match(quote, display_plan)
+        and quote.get("finishing_canvas")
+        == _CUSTOM_FILM_REMOTION_FINISHING_CANVAS
+    )
 
 
 def _custom_film_approval_cards(
@@ -4795,6 +4874,16 @@ async def _handle_custom_film_plan(
             "Planning is complete; generation has not started. Review the one "
             "itemized estimate below and explicitly approve this exact version."
         )
+        if _custom_film_showcase_treatment_match(
+            quote_inputs,
+            compiled.display_plan,
+        ):
+            # The provider generation tier remains independently quoted. This
+            # immutable approval field owns only the deterministic delivery
+            # canvas and is hashed with the rest of the quote.
+            quote_inputs["finishing_canvas"] = copy.deepcopy(
+                _CUSTOM_FILM_REMOTION_FINISHING_CANVAS
+            )
         from custom_film_contract import approval_binding_hash, canonical_hash, plan_hash
         current_plan_hash = plan_hash(compiled.internal_plan)
         current_approval_hash = approval_binding_hash(

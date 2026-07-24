@@ -683,6 +683,80 @@ def test_custom_film_blueprint_blocks_approval_when_cap_is_below_estimate():
     cards = chat_route._custom_film_approval_cards(quote, display_plan)
     assert cards and cards[0]["id"] == "custom_film_approval"
     assert cards[0]["options"][0]["label"].endswith("$0.72")
+    assert cards[0]["finishing_engine"] == "ffmpeg"
+    assert "ffmpeg" in cards[0]["finishing_notice"].lower()
+
+
+def test_custom_film_blueprint_locks_remotion_only_for_exact_showcase_contract():
+    durations = (45, 105, 90, 60)
+    roles = ("Opening", "Evidence", "Case Study", "Explanation")
+    quote = {
+        "sections": [
+            {
+                "section_id": f"section-{index}",
+                "order_index": index,
+                "duration_seconds": duration,
+                "still_images": 1,
+                "animation_clips": 1,
+                "voice_tracks": 1,
+                "estimated_cost": 1.0,
+            }
+            for index, duration in enumerate(durations)
+        ],
+        "totals": {
+            "duration_seconds": 300,
+            "still_images": 4,
+            "animation_clips": 4,
+            "voice_tracks": 4,
+            "estimated_cost": 4.0,
+        },
+        "max_spend": 15.0,
+        "finishing_canvas": copy.deepcopy(
+            chat_route._CUSTOM_FILM_REMOTION_FINISHING_CANVAS
+        ),
+    }
+    display_plan = {
+        "sections": [
+            {
+                "order": index + 1,
+                "role": role,
+                "purpose": f"Purpose {index + 1}",
+                "feel": "Cinematic",
+                "share_percent": duration / 3,
+            }
+            for index, (role, duration) in enumerate(zip(roles, durations))
+        ]
+    }
+
+    card = chat_route._custom_film_approval_card(quote, display_plan)
+    assert card["finishing_engine"] == "remotion"
+    assert "motion plan v1 is locked" in card["finishing_notice"].lower()
+    for primitive in (
+        "signal pulse",
+        "outage map",
+        "evidence board",
+        "incident timeline",
+        "radio waveform",
+        "bilingual captions",
+        "network explainer",
+        "product reveal",
+        "motion-audio mix",
+    ):
+        assert primitive in card["finishing_notice"].lower()
+
+    unbound_quote = copy.deepcopy(quote)
+    unbound_quote.pop("finishing_canvas")
+    unbound = chat_route._custom_film_approval_card(
+        unbound_quote,
+        display_plan,
+    )
+    assert unbound["finishing_engine"] == "ffmpeg"
+
+    quote["sections"][1]["duration_seconds"] = 104
+    quote["totals"]["duration_seconds"] = 299
+    fallback = chat_route._custom_film_approval_card(quote, display_plan)
+    assert fallback["finishing_engine"] == "ffmpeg"
+    assert "45 / 105 / 90 / 60-second" in fallback["finishing_notice"]
 
 
 def test_chat_intent_routes_before_normal_producer_and_cannot_dispatch(monkeypatch):

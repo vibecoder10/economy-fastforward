@@ -3177,6 +3177,7 @@ export interface ChatCard {
   custom_film_sections?: ChatCustomFilmSection[];
   custom_film_totals?: ChatCustomFilmTotals;
   approval_notice?: string;
+  finishing_engine?: "remotion" | "ffmpeg";
   finishing_notice?: string;
 }
 export interface ProductionPlan {

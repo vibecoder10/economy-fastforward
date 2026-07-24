@@ -1303,6 +1303,7 @@ function CustomFilmApprovalCard({
   const duration = totals
     ? `${Math.floor(totals.duration_seconds / 60)}:${String(totals.duration_seconds % 60).padStart(2, "0")}`
     : "—";
+  const remotionLocked = card.finishing_engine === "remotion";
 
   return (
     <GlassCard
@@ -1340,7 +1341,7 @@ function CustomFilmApprovalCard({
             className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
             style={{ background: "rgba(0,212,170,0.12)", color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.25)" }}
           >
-            Exact plan
+            {remotionLocked ? "Remotion locked" : "FFmpeg finishing"}
           </span>
         </div>
       </div>
@@ -1429,11 +1430,24 @@ function CustomFilmApprovalCard({
         )}
 
         {card.finishing_notice && (
-          <div className="flex items-start gap-2 rounded-lg px-3 py-2" style={{ background: "var(--bg-deep)" }}>
+          <div
+            className="flex items-start gap-2 rounded-lg px-3 py-2"
+            style={{
+              background: remotionLocked ? "rgba(0,212,170,0.06)" : "var(--bg-deep)",
+              border: remotionLocked
+                ? "1px solid rgba(0,212,170,0.18)"
+                : "1px solid var(--border-subtle)",
+            }}
+          >
             <CheckCircle2 size={15} className="mt-0.5 shrink-0" style={{ color: "var(--turquoise)" }} />
-            <p className="break-words text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              {card.finishing_notice}
-            </p>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--turquoise)" }}>
+                {remotionLocked ? "Remotion finishing locked" : "Verified fallback"}
+              </p>
+              <p className="mt-1 break-words text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {card.finishing_notice}
+              </p>
+            </div>
           </div>
         )}
 

@@ -21,7 +21,6 @@ export const EvidenceBoard: React.FC<{photoSrc?: string; timelineOffsetFrames?: 
     <PrimitiveFrame
       title="Evidence Board"
       kicker="Cross-reference / three sources"
-      titleStyle={{bottom: 190, textAlign: "center"}}
     >
       <svg style={{position: "absolute", inset: 0}} viewBox="0 0 1920 1080">
         <path d="M540 450 C710 390 880 370 1120 420" stroke={COLORS.turquoiseDim} strokeWidth="4" fill="none" />

@@ -66,6 +66,7 @@ def test_custom_film_approval_uses_a_dedicated_creator_safe_blueprint():
         "custom_film_sections",
         "custom_film_totals",
         "approval_notice",
+        "finishing_engine",
         "finishing_notice",
     ):
         assert field in api_source
@@ -79,6 +80,8 @@ def test_custom_film_approval_uses_a_dedicated_creator_safe_blueprint():
         "not reroll permission",
         "Approve paid production",
         "Keep editing",
+        "Remotion finishing locked",
+        "Verified fallback",
     ):
         assert truth in chat_source
     assert "custom_film_approval: value" in chat_source

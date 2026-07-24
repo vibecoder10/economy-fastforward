@@ -42,10 +42,11 @@ export const PrimitiveFrame: React.FC<{
         position: "absolute",
         left: CENTER_CROP_BOUNDS.criticalX,
         width: CENTER_CROP_BOUNDS.criticalWidth,
-        bottom: SAFE_Y - 12,
+        bottom: 190,
         fontSize: 42,
         fontWeight: 700,
         letterSpacing: -1,
+        textAlign: "center",
         zIndex: 20,
         ...titleStyle,
       }}

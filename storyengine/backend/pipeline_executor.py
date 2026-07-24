@@ -16130,15 +16130,23 @@ separate scenes."""
             await self._log_activity(bot_name, video_id, "running", message)
 
         from custom_film_compositor import render_custom_film_video
+        from custom_film_remotion import (
+            AUTOMATIC_RENDER_POLICY,
+            run_remotion_renderer,
+        )
 
         result = await render_custom_film_video(
             video_id,
             self.tenant_id,
             title=video.get("video_title") or "",
             on_progress=_progress,
+            render_engine=AUTOMATIC_RENDER_POLICY,
+            remotion_renderer=run_remotion_renderer,
         )
         if result.get("status") != "rendered" or not result.get("final_video_url"):
             raise RuntimeError("Custom Film compositor returned no exact final artifact")
+        if result.get("render_engine") not in {"ffmpeg", "remotion"}:
+            raise RuntimeError("Custom Film compositor returned no renderer identity")
         await self._log_transition(
             video_id, current_status, to_supabase("rendered"), "api"
         )
@@ -16152,7 +16160,7 @@ separate scenes."""
             "completed",
             f"Assembled {result['section_count']} approved sections "
             f"({result['duration_seconds']:.0f}s, {result['resolution']}) "
-            "into one exact Custom Film",
+            f"into one exact Custom Film with {result['render_engine']}",
         )
         return result
 
