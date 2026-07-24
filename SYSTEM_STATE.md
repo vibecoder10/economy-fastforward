@@ -1,5 +1,19 @@
 # System State — Economy FastForward
 
+## Custom Film local milestone status
+
+- Local/no-spend Milestone 2 is independently accepted through `682f3e12`.
+  Natural chat conducts the four locked public production profiles as one
+  ordered film without adding a fifth selector; the co-pilot shows creator-safe
+  section order, share, purpose, feel, and progress.
+- Exact BYOK plan/quote approval, per-section runtime, deterministic mixed
+  assembly, and separate topic-free reusable-recipe lifecycle are implemented.
+  The final synthetic proof is exact, audible, multilingual-captioned, visually
+  distinct, and byte-stable; frontend and Remotion production builds pass.
+- Production completion is not claimed. The branch/draft PR, migrations
+  121–128, deployment, paid BYOK proof, Drive/upload, and merge remain explicit
+  Ryan approval gates.
+
 ## Custom Film section runtime
 
 - `storyengine/backend/custom_film_runtime.py` is the provider-neutral adapter
