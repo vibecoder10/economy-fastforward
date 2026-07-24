@@ -66,6 +66,37 @@ export const showcaseBedGain = (frame: number): number => {
   return envelope * dialogueDuck;
 };
 
+export const approvedMediaOpacity = (
+  role: string,
+  absoluteFrame: number,
+): number => {
+  if (role === "case_study") {
+    const isPortraitMoment =
+      (absoluteFrame >= 3612 && absoluteFrame <= 3839) ||
+      (absoluteFrame >= 4200 && absoluteFrame <= 4439);
+    return isPortraitMoment ? 0.62 : 0.16;
+  }
+  if (role === "explanation" && absoluteFrame >= 6624) return 0;
+  if (role === "opening") return 0.18;
+  if (role === "evidence") return 0.14;
+  return 0.12;
+};
+
+export const approvedCaptionOpacity = (
+  role: string,
+  absoluteFrame: number,
+): number => {
+  const measuredWitnessLine =
+    role === "case_study" &&
+    (
+      (absoluteFrame >= 3840 && absoluteFrame <= 4199) ||
+      (absoluteFrame >= 4440 && absoluteFrame <= 4919)
+    );
+  const productReveal =
+    role === "explanation" && absoluteFrame >= 6624;
+  return measuredWitnessLine || productReveal ? 0 : 1;
+};
+
 export const SHOWCASE_AUDIO_CUES = [
   {id: "opening-pulse", role: "opening", from: 444, to: 527, path: "motion-audio/signal-pulse.wav", loop: true},
   {id: "opening-boundary-dip", role: "opening", from: 1068, to: 1079, path: "motion-audio/transition-envelope.wav", loop: false},

@@ -196,6 +196,13 @@ def test_assembly_v3_binds_exact_renderer_and_rejects_bundle_drift(monkeypatch):
         )
 
 
+def test_renderer_bundle_hash_binds_python_adapter(monkeypatch):
+    original = remotion.renderer_bundle_hash()
+    monkeypatch.setattr(remotion, "_renderer_adapter_hash", lambda: "f" * 64)
+
+    assert remotion.renderer_bundle_hash() != original
+
+
 def test_python_generated_props_match_the_tracked_typescript_parity_fixture():
     root = Path(__file__).resolve().parents[4]
     tracked = json.loads(
@@ -1063,6 +1070,9 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
             destination = Path(command[-1])
             destination.parent.mkdir(parents=True, exist_ok=True)
             if destination.name == "normalized.mp4":
+                assert command[command.index("-threads") + 1] == "1"
+                assert command[command.index("-filter_threads") + 1] == "1"
+                assert command[command.index("-filter_complex_threads") + 1] == "1"
                 input_indexes = [
                     index for index, value in enumerate(command) if value == "-i"
                 ]
@@ -1078,7 +1088,18 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
         assert command[0].endswith("node_modules/.bin/remotion")
         assert "--concurrency=1" in command
         assert "--gl=angle" in command
-        Path(command[4]).write_bytes(b"raw-remotion")
+        remotion_output = Path(command[4])
+        if "--sequence" in command:
+            assert "--image-format=png" in command
+            assert "--image-sequence-pattern=frame-[frame].[ext]" in command
+            remotion_output.mkdir(parents=True, exist_ok=True)
+            for frame in range(7200):
+                (remotion_output / f"frame-{frame:04d}.png").write_bytes(
+                    b"deterministic-png"
+                )
+        else:
+            assert "--codec=wav" in command
+            remotion_output.write_bytes(b"deterministic-wav")
 
     async def exact_probe(_path):
         return {

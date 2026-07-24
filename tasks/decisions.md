@@ -673,3 +673,17 @@ checks) get skipped. Rulings:
 - C48 UNBLOCKED (C25a confirmed merged into main by Ryan's coordinated deploy, verified via
   git merge-base 2026-07-21) — media-bearing tools ship per its existing spec.
 - New verified baseline post-deploy-merge: 2074P/15F/1E.
+
+## 2026-07-24 — Custom Film uses Remotion as an internal finishing engine
+
+- Remotion is not a fifth public profile and not a provider. It consumes the immutable
+  approved Custom Film section/media/audio/caption contract and returns its output through
+  the existing StoryEngine artifact verification, storage, and readback boundary.
+- FFmpeg remains the production default and safe fallback. Once a Remotion assembly identity
+  is journaled, it cannot silently switch engines; selecting another engine requires a fresh
+  approved identity.
+- Full showcase acceptance is creative-first. Exact duration, probe, manifest identity, source
+  frame/audio determinism, and artifact hashes remain enforced or reported, while byte-identical
+  delivery MP4s are a secondary diagnostic.
+- A real flagship run requires a refreshed exact BYOK quote <= $15 and Ryan's explicit approval.
+  Push, migration, deploy, upload, and public release are separate gates.

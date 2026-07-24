@@ -2574,3 +2574,13 @@ PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7
 - Script phase should generate one selected machine at a time as a real script block, not as a Research preview.
 - The selected-machine script action saves a validated paragraph into that machine's `scripts` row, updates `script_validation.script_hold`, and leaves the full roster untouched.
 - Next: run Machine 2 from Script after reviewing its saved research card; do not run Machine 3 or a full roster script until Machine 2 passes.
+
+## Handoff (2026-07-24 — Custom Film Remotion showcase)
+
+- COMPLETE locally: reusable Remotion finishing manifest/adapter, nine motion primitives,
+  exact 300-second synthetic master, creative/audio/caption/crop inspection, fallback and
+  artifact-boundary tests, and Ryan's centered Evidence Board correction.
+- Playable master: `remotion-video/out/full-showcase-proof/master-a.mp4` (SHA-256
+  `60bb164707194ddc46b2e5f15b6691795337cd6fcb51e574142cd8f29d5175fd`).
+- Next decision: creative changes, or request a refreshed exact BYOK quote <= $15.
+  Paid flagship footage, push, deploy, migration, upload, and release remain unapproved.

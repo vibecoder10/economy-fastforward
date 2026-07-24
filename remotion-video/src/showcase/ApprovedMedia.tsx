@@ -14,13 +14,18 @@ import type {CustomFilmRemotionProps} from "../custom-film/schema";
 import {CENTER_CROP_BOUNDS} from "../motion-library/contracts";
 import {COLORS, FONT_FAMILY} from "../motion-library/theme";
 import type {ShowcaseMediaSlot} from "./manifest";
-import {showcaseBedGain} from "./timing";
+import {
+  approvedCaptionOpacity,
+  approvedMediaOpacity,
+  showcaseBedGain,
+} from "./timing";
 
 const ApprovedVisual: React.FC<{
   slot: Extract<ShowcaseMediaSlot, {kind: "visual"}>;
 }> = ({slot}) => {
   const frame = useCurrentFrame();
   const absoluteFrame = slot.startFrame + frame;
+  const mediaOpacity = approvedMediaOpacity(slot.role, absoluteFrame);
   const nativeAudioGain = 10 ** (slot.nativeAudioGainDb / 20);
   const loopDurationInFrames = Math.max(
     1,
@@ -54,7 +59,7 @@ const ApprovedVisual: React.FC<{
         overflow: "hidden",
         border: `2px solid ${COLORS.turquoise}`,
         boxShadow: "0 24px 70px rgba(0,0,0,.5)",
-        opacity: 0.66,
+        opacity: mediaOpacity,
       }}
     >
       {slot.mediaType === "image" ? (
@@ -133,8 +138,10 @@ export const ApprovedMediaLayer: React.FC<{
 
 export const ApprovedCaptionLayer: React.FC<{
   sections: CustomFilmRemotionProps["sections"];
-}> = ({sections}) => (
-  <AbsoluteFill style={{pointerEvents: "none"}}>
+}> = ({sections}) => {
+  const absoluteFrame = useCurrentFrame();
+  return (
+    <AbsoluteFill style={{pointerEvents: "none"}}>
     {sections.flatMap((section) =>
       section.captions.map((caption) => (
         <Sequence
@@ -150,7 +157,7 @@ export const ApprovedCaptionLayer: React.FC<{
               position: "absolute",
               left: CENTER_CROP_BOUNDS.criticalX,
               width: CENTER_CROP_BOUNDS.criticalWidth,
-              top: 835,
+              top: 760,
               boxSizing: "border-box",
               padding: "12px 18px",
               background: "rgba(2,8,10,.82)",
@@ -160,6 +167,10 @@ export const ApprovedCaptionLayer: React.FC<{
               fontSize: 20,
               lineHeight: 1.3,
               textAlign: "center",
+              opacity: approvedCaptionOpacity(
+                section.role,
+                absoluteFrame,
+              ),
             }}
           >
             {caption.text}
@@ -167,5 +178,6 @@ export const ApprovedCaptionLayer: React.FC<{
         </Sequence>
       )),
     )}
-  </AbsoluteFill>
-);
+    </AbsoluteFill>
+  );
+};

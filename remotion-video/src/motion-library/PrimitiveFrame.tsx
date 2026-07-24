@@ -7,7 +7,8 @@ export const PrimitiveFrame: React.FC<{
   title: string;
   kicker: string;
   children: React.ReactNode;
-}> = ({title, kicker, children}) => (
+  titleStyle?: React.CSSProperties;
+}> = ({title, kicker, children, titleStyle}) => (
   <AbsoluteFill
     style={{
       background:
@@ -46,6 +47,7 @@ export const PrimitiveFrame: React.FC<{
         fontWeight: 700,
         letterSpacing: -1,
         zIndex: 20,
+        ...titleStyle,
       }}
     >
       {title}

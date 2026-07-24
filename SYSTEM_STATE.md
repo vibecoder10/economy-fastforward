@@ -11714,3 +11714,34 @@ control writes without losing the video, approval, or confirmation.
   or production configuration has been applied. The normal pipeline remains on
   FFmpeg unless a later approved caller explicitly supplies
   `render_engine="remotion"` and `run_remotion_renderer`.
+
+# M3-5/M3-6 Custom Film full synthetic Remotion proof (added 2026-07-24)
+
+- `storyengine/backend/scripts/run_full_showcase_proof.py` is the cold-resumable
+  local proof entry point. It prepares deterministic approved image, audio, and
+  witness-video fixtures; invokes the real StoryEngine Remotion adapter; probes
+  the artifact; verifies captions and causal audio; and extracts wide and
+  crop-aware inspection evidence.
+- Renderer identity now includes the exact bytes of
+  `storyengine/backend/custom_film_remotion.py`, so staging, validation, and
+  normalization changes cannot retain an old renderer hash. The adapter renders
+  lossless PNG frames plus WAV audio, validates all 7,200 frame files, and uses
+  one pinned single-thread FFmpeg delivery encode. Independent source frame and
+  audio runs were deterministic; delivery-MP4 byte identity remains a secondary
+  diagnostic rather than the creative acceptance gate.
+- The accepted synthetic master is
+  `remotion-video/out/full-showcase-proof/master-a.mp4`, SHA-256
+  `60bb164707194ddc46b2e5f15b6691795337cd6fcb51e574142cd8f29d5175fd`.
+  It probes as exactly 300.000 seconds, 7,200 frames, 1920x1080, 24 fps, with
+  AAC 48 kHz stereo and Unicode-capable `mul` mov_text subtitles.
+- Direct and independent visual review covered every motion primitive, exact
+  section boundaries, representative 16:9 and centered 9:16 crops, every second
+  from 4:45 through 5:00, and the final frame. Approved-media washout and
+  duplicate-caption interference were reduced; approved media clears the
+  persuasive reveal; and the Evidence Board title is centered inside its lower
+  boundary without colliding with the 4:57 master reveal.
+- This is an accepted synthetic engineering and creative reference, not paid
+  flagship footage. A real BYOK substitution requires a refreshed exact quote
+  no higher than $15 and Ryan's separate explicit paid-run approval. Push,
+  migration 130, deployment, upload, and publication each remain separately
+  gated; FFmpeg remains the safe production default.

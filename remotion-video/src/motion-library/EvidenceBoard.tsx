@@ -18,7 +18,11 @@ export const EvidenceBoard: React.FC<{photoSrc?: string; timelineOffsetFrames?: 
     {x: 1120, y: 245, r: 5, title: "VOICE PACKET", kind: "wave"},
   ];
   return (
-    <PrimitiveFrame title="Evidence Board" kicker="Cross-reference / three sources">
+    <PrimitiveFrame
+      title="Evidence Board"
+      kicker="Cross-reference / three sources"
+      titleStyle={{bottom: 190, textAlign: "center"}}
+    >
       <svg style={{position: "absolute", inset: 0}} viewBox="0 0 1920 1080">
         <path d="M540 450 C710 390 880 370 1120 420" stroke={COLORS.turquoiseDim} strokeWidth="4" fill="none" />
         <path d="M850 520 C920 570 1030 590 1240 560" stroke={COLORS.amber} strokeWidth="3" fill="none" />

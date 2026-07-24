@@ -25,6 +25,8 @@ const {
   MARA_RESPONSE_WORDS,
   SHOWCASE_AUDIO_CUES,
   SHOWCASE_PULSE_ANCHOR_FRAME,
+  approvedCaptionOpacity,
+  approvedMediaOpacity,
   showcasePulseFrame,
   showcaseBedGain,
 } = require("../.showcase-test-build/showcase/timing.js");
@@ -95,6 +97,13 @@ test("showcase scene source preserves exact historical, recovery, and lane label
   for (const label of ["MAP", "EVIDENCE", "CAPTIONS", "AUDIO", "MOTION"]) assert.match(source, new RegExp(`\"${label}\"`));
 });
 
+test("motion-card titles stay centered inside the title-safe boundary", () => {
+  const evidence = fs.readFileSync(path.join(__dirname, "..", "src", "motion-library", "EvidenceBoard.tsx"), "utf8");
+  assert.match(evidence, /titleStyle=\{\{bottom: 190, textAlign: "center"\}\}/);
+  const media = fs.readFileSync(path.join(__dirname, "..", "src", "showcase", "ApprovedMedia.tsx"), "utf8");
+  assert.match(media, /top: 760/);
+});
+
 test("measured bilingual timings are Unicode-safe, ordered, irregular, and cue-bound", () => {
   for (const [words, start, end] of [
     [MARA_MEASURED_WORDS, 3840, 4199],
@@ -106,6 +115,17 @@ test("measured bilingual timings are Unicode-safe, ordered, irregular, and cue-b
     assert.ok(new Set(words.map((word) => word.endFrame - word.startFrame)).size > 3);
   }
   assert.equal(MARA_MEASURED_WORDS.map((word) => word.text).join(" "), "Mara, si puedes oírme, no reinicies la red.");
+});
+
+test("approved media supports motion graphics and clears the persuasive reveal", () => {
+  assert.equal(approvedMediaOpacity("case_study", 3700), 0.62);
+  assert.equal(approvedMediaOpacity("case_study", 3900), 0.16);
+  assert.equal(approvedMediaOpacity("evidence", 2400), 0.14);
+  assert.equal(approvedMediaOpacity("explanation", 6623), 0.12);
+  assert.equal(approvedMediaOpacity("explanation", 6624), 0);
+  assert.equal(approvedCaptionOpacity("case_study", 3900), 0);
+  assert.equal(approvedCaptionOpacity("case_study", 4300), 1);
+  assert.equal(approvedCaptionOpacity("explanation", 6624), 0);
 });
 
 test("identity, media, approval, and hash tampering is rejected", () => {

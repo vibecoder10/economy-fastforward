@@ -552,3 +552,22 @@ context — absence from MY context is not absence from the REPO. Rule: before a
 exist / has to be built" claim that shapes a design or a chunk brief, run the 10-second
 `Grep -i <x>` across the repo first. Existence claims are cheap to verify and expensive to get
 wrong (I nearly queued a chunk to build a parallel subscription system beside a live one).
+
+## 2026-07-24 — Scope visual fixes to the defective primitive
+
+Ryan identified one concrete visual defect in the five-minute synthetic showcase: the
+Evidence Board title was not centered and crossed its boundary. A global title-position
+change fixed that frame but created a new collision in the 4:57 StoryEngine reveal.
+The accepted repair added a per-primitive title-style override only to EvidenceBoard and
+then checked both the reported frame and the downstream reveal. Rule: when visual feedback
+names one primitive, repair that primitive first and inspect high-value downstream scenes
+before generalizing the layout change.
+
+## 2026-07-24 — Creative acceptance outranks container-byte purity for showcase QA
+
+The initial full-proof loop over-weighted byte-identical delivery MP4s. Ryan clarified that
+the decision is primarily what the film looks and sounds like. Source PNG/WAV determinism,
+manifest identity, probing, and hashing remain necessary engineering diagnostics, but they
+must not consume the creative-review budget once silent drift is prevented. Directly inspect
+the motion primitives, typography, framing, captions, pacing, audio intent, crop behavior,
+and product reveal; report any remaining delivery-hash difference honestly.

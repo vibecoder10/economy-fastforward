@@ -318,6 +318,11 @@ def _remotion_project_root() -> Path:
     return Path(__file__).resolve().parents[2] / "remotion-video"
 
 
+def _renderer_adapter_hash() -> str:
+    """Hash the exact Python staging and normalization adapter."""
+    return hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+
+
 def renderer_bundle_hash(project_root: Path | None = None) -> str:
     """Hash the deterministic renderer implementation used by assembly v3.
 
@@ -379,6 +384,7 @@ def renderer_bundle_hash(project_root: Path | None = None) -> str:
     return canonical_hash(
         {
             "renderer_contract_version": REMOTION_RENDERER_CONTRACT_VERSION,
+            "adapter_sha256": _renderer_adapter_hash(),
             "files": records,
         }
     )
@@ -1980,7 +1986,12 @@ async def run_remotion_renderer(
         )
     workdir = Path(tempfile.mkdtemp(prefix="custom_film_remotion_"))
     log_path = workdir / "renderer.log"
-    raw_output = workdir / "raw-remotion.mp4"
+    # Remotion's video encoders produced tiny cross-run pixel drift even when
+    # independent PNG captures of every tested browser frame were byte-identical.
+    # Keep frame capture and audio capture lossless and separate; the pinned,
+    # single-thread normalization pass below is the only delivery encoder.
+    raw_frames = workdir / "raw-frames"
+    raw_audio = workdir / "raw-audio.wav"
     normalized = workdir / "normalized.mp4"
     props_path = workdir / "props.json"
     captions_path = workdir / "captions.srt"
@@ -2020,23 +2031,53 @@ async def run_remotion_renderer(
                 f"Rendering {len(props['sections'])}/"
                 f"{len(props['sections'])} approved sections"
             )
-        command = [
+        frame_command = [
             str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
-            str(raw_output), f"--props={props_path}",
-            f"--public-dir={workdir / 'public'}", "--codec=h264",
-            "--pixel-format=yuv420p", "--crf=18", "--audio-codec=aac",
+            str(raw_frames), f"--props={props_path}",
+            f"--public-dir={workdir / 'public'}", "--sequence",
+            "--image-format=png",
+            "--image-sequence-pattern=frame-[frame].[ext]",
             "--concurrency=1", "--gl=angle",
             f"--browser-executable={browser}",
         ]
         await _run_local_command(
-            command,
+            frame_command,
             cwd=project,
             timeout_seconds=timeout_seconds,
             log_path=log_path,
         )
-        if not raw_output.is_file() or raw_output.stat().st_size == 0:
+        expected_frame_paths = [
+            raw_frames / f"frame-{frame:04d}.png"
+            for frame in range(int(props["video"]["total_frames"]))
+        ]
+        if (
+            not raw_frames.is_dir()
+            or any(
+                not frame_path.is_file() or frame_path.stat().st_size == 0
+                for frame_path in expected_frame_paths
+            )
+            or len(list(raw_frames.glob("frame-*.png")))
+            != len(expected_frame_paths)
+        ):
             raise CustomFilmRetryableError(
-                "Custom Film Remotion produced no intermediate artifact"
+                "Custom Film Remotion produced an incomplete frame sequence"
+            )
+        audio_command = [
+            str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
+            str(raw_audio), f"--props={props_path}",
+            f"--public-dir={workdir / 'public'}", "--codec=wav",
+            "--concurrency=1", "--gl=angle",
+            f"--browser-executable={browser}",
+        ]
+        await _run_local_command(
+            audio_command,
+            cwd=project,
+            timeout_seconds=timeout_seconds,
+            log_path=log_path,
+        )
+        if not raw_audio.is_file() or raw_audio.stat().st_size == 0:
+            raise CustomFilmRetryableError(
+                "Custom Film Remotion produced no lossless audio"
             )
         fps = int(props["video"]["fps"])
         frames = int(props["video"]["total_frames"])
@@ -2046,15 +2087,19 @@ async def run_remotion_renderer(
         language = _subtitle_language(props)
         await _run_local_command(
             [
-                "ffmpeg", "-y", "-i", str(raw_output), "-i",
-                str(captions_path), "-filter_complex",
+                "ffmpeg", "-y", "-threads", "1",
+                "-filter_threads", "1", "-filter_complex_threads", "1",
+                "-framerate", str(fps),
+                "-start_number", "0", "-i",
+                str(raw_frames / "frame-%04d.png"), "-i",
+                str(raw_audio), "-i", str(captions_path), "-filter_complex",
                 (
                     f"[0:v]fps={fps},scale={width}:{height},"
                     f"trim=end_frame={frames},setpts=N/({fps}*TB)[v];"
-                    f"[0:a]aresample=48000,apad,atrim=end_sample={samples},"
+                    f"[1:a]aresample=48000,apad,atrim=end_sample={samples},"
                     "asetpts=N/SR/TB[a]"
                 ),
-                "-map", "[v]", "-map", "[a]", "-map", "1:0",
+                "-map", "[v]", "-map", "[a]", "-map", "2:0",
                 "-frames:v", str(frames), "-c:v", "libx264",
                 "-preset", "veryfast", "-crf", "18", "-pix_fmt",
                 "yuv420p", "-x264-params",
