@@ -554,6 +554,8 @@ async def test_repeat_then_trim_really_executes_six_seconds_to_thirty_seven(
         "provenance_gap",
         "transform",
         "caption",
+        "missing_caption_card",
+        "missing_caption_hash",
     ],
 )
 def test_manifest_fails_closed_on_stale_or_incomplete_current_rows(tamper):
@@ -572,8 +574,20 @@ def test_manifest_fails_closed_on_stale_or_incomplete_current_rows(tamper):
         next(
             row for row in values["provenance_rows"] if row["stage"] == "clips"
         )["timing_transform"]["repeat_count"] = 3
-    else:
+    elif tamper == "caption":
         values["asset_rows"][0]["caption"]["label"] = "mutated after completion"
+    else:
+        picture_child = next(
+            row
+            for row in values["provider_rows"]
+            if ":pictures:scene:" in row["stage_key"]
+        )
+        key = (
+            "caption_card"
+            if tamper == "missing_caption_card"
+            else "caption_hash"
+        )
+        del picture_child["result"]["artifacts"][0][key]
     with pytest.raises(contract.CustomFilmContractError):
         _build(values)
 

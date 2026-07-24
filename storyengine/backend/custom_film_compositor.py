@@ -683,10 +683,21 @@ def build_assembly_manifest(
                 if isinstance(value, Mapping)
                 and str(value.get("artifact_id") or "") == asset_id
             ]
-            if len(exact_picture_artifacts) != 1 or (
-                exact_picture_artifacts[0].get("caption_card") != caption_card
-                or exact_picture_artifacts[0].get("caption_hash")
-                != caption_hash
+            exact_picture = (
+                exact_picture_artifacts[0]
+                if len(exact_picture_artifacts) == 1
+                else {}
+            )
+            stored_card = exact_picture.get("caption_card")
+            stored_caption_hash = exact_picture.get("caption_hash")
+            if (
+                "caption_card" not in exact_picture
+                or "caption_hash" not in exact_picture
+                or (stored_card is not None and not isinstance(stored_card, Mapping))
+                or not isinstance(stored_caption_hash, str)
+                or len(stored_caption_hash) != 64
+                or stored_card != caption_card
+                or stored_caption_hash != caption_hash
             ):
                 raise CustomFilmContractError(
                     "Custom Film current caption card drifted from its picture operation"
