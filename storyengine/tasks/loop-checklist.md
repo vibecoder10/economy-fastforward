@@ -1,18 +1,20 @@
 # Loop checklist — Custom Film composer (Milestone 2)
 
-## Active mission — M2-5 MIXED COMPOSITOR
+## Active mission — M2-6 REUSABLE NOVEL PROFILES
 
 ### Definition of Complete
-1. One deterministic ordered composition consumes the accepted per-section outputs and timing contracts without collapsing sections to a video-wide style.
-2. Static and animated sections normalize to their exact assigned integer durations; every `needs_compositor` trim/repeat/hold recipe is actually applied and the assembled duration reconciles exactly.
-3. Shared transitions, aspect/resolution, narration/dialogue/music continuity, captions, progress, and final/co-pilot status truth survive section boundaries.
-4. A synthetic no-provider fixture mixes all four section types in order, renders locally, and passes frame/audio/timing inspection while legacy and single-profile composition paths remain at baseline.
-5. No provider call, live migration, deploy, push, PR mutation, Drive write, upload, merge, or protected-checkout/stash action occurs.
+1. Save is offered only for a canonically novel topic-free recipe, never for a public-profile clone or an active tenant duplicate, and only after a separate explicit confirmation.
+2. The versioned saved recipe contains ordered section roles, normalized proportions, approved component sources/knobs, and compatibility version—never the source film's subject, title, rationale, scene IDs, assets, or provider internals.
+3. Tenant-scoped list, reuse, rename, and archive flows work through natural chat while the public selector remains exactly four cards and advanced controls remain hidden.
+4. Reuse instantiates a fresh topic-specific plan through the accepted planner/compiler/estimate/approval path without mutating the saved version or starting generation.
+5. Focused novelty, duplicate, cross-tenant, confirmation, versioning, reuse, mutation, and regression proof passes. No provider call, live migration, deploy, push, PR mutation, Drive write, upload, merge, or protected-checkout/stash action occurs.
 
 ### Active chunk brief
-- Trace the existing render/composition and finish-status seams, then define one immutable mixed-film assembly manifest from the accepted M2-4 artifacts and timing transforms.
-- Implement the complete local compositor path as one coherent chunk, with deterministic synthetic assets and honest progress/final-state reporting.
-- Independently verify exact timing, section order, media/audio/caption continuity, UI truth, and legacy behavior before acceptance.
+- Trace the accepted M2 novelty signature and chat state into one tenant-owned, versioned recipe contract and local persistence boundary.
+- Implement the complete save/list/reuse/rename/archive chat flow as one coherent chunk with separate save confirmation and no generation side effect.
+- Independently verify topic stripping, public/tenant duplicate rejection, tenant isolation, immutable version reuse, hidden controls, and legacy chat behavior.
+
+## Accepted mission — M2-5 MIXED COMPOSITOR
 
 ## Accepted mission — M2-4 SECTION RUNTIME
 
@@ -152,10 +154,11 @@
       Risk/prohibited: highest backend/provider blast radius; no paid provider call.
       Depends on: M2-1 and M2-3; M2-4B depends on accepted M2-4A.
       Evidence: combined M2-4 CEO and independent ACCEPT at control-plane boundary `f5b9b3b6`, with product implementation through `15f47300`. The full fake/no-spend path binds exact plan/quote/approval hashes, integer film/section seconds, ordered IDs, resolved knobs, media counts, cap, and tenant/video identity; revalidates tenant BYOK, drain-aware claim, plan limits, approval, and current cap immediately before one atomic consume plus durable schedule intention; and recovers through an exact runtime job, pending outbox, stable assignments, ordered prefix progress, and write-ahead provider operations without blind replay. Concrete script, language/dubbing, voice, static/coverage imagery, motion/clips, camera, provenance, and ordered quality seams consume immutable per-section adapters; shared provider callers contain no `custom_film` branch. Missing, stale, unsupported, raced, or tampered state stops pre-provider. Actual clip duration remains distinct from assigned target duration and any mismatch remains `needs_compositor` for M2-5. CEO passed 166 combined runtime/legacy tests and compilation; the independent whole-boundary audit passed 260 coherent tests, while B2c's expanded suite passed 383. Full-run tips reached 2836 passes with the unchanged 14-failure/one-error repository baseline. Live PostgreSQL migration/application concurrency, provider, Drive, and browser proof remain deferred by the explicit safety boundary. No provider/network/Drive call, live migration, deploy, push, PR mutation, upload, merge, or protected-checkout/stash action occurred.
-- [ ] M2-5 MIXED COMPOSITOR [B][R][U][V] Normalize static and animated section outputs into one ordered composition, preserving transitions, audio continuity, captions, aspect/resolution, progress, and honest finish/co-pilot status.
+- [x] M2-5 MIXED COMPOSITOR [B][R][U][V] Normalize static and animated section outputs into one ordered composition, preserving transitions, audio continuity, captions, aspect/resolution, progress, and honest finish/co-pilot status.
       Acceptance: a local fixture film mixes all four section types in order with deterministic timing and no generated media; screenshots/frame inspection prove the user-visible result.
       Risk/prohibited: high render/UX risk; synthetic local assets only.
       Depends on: M2-4.
+      Evidence: CEO and independent ACCEPT at explicit-null repair `ff122287` over caption binding `0013bc4c`, full hardening `341270cf`, output binding `31453c37`, and implementation `e17c7175`. One dedicated versioned assembly manifest revalidates the exact current plan/runtime job, completed parent and per-scene child operations, stable assignments, script/voice/media results, per-asset provenance, current source bytes/durations, caption cards, output geometry, and immutable section timing before local media work. Static and animated assets execute exact frame allocations plus none/trim/repeat-then-trim; the real six-second-to-37-second proof renders seven repeats with a one-second final repeat. Within-budget dip-to-black and audio fades preserve exact film time, bounded measured atempo preserves spoken content or fails harmful mismatch closed, source audio never doubles voice-over, and structured-language captions/static cards burn visibly while mixed subtitle metadata remains honest. Durable migration 127 binds the exact runtime job and hash-derived title-independent storage path, enforces progress/failure/retry laws, verifies uploaded bytes by SHA and ffprobe before final URL/status/charge, and returns finalized work before source redownload. Independent review drove repairs for real child-journal compatibility, causal artifact ownership, speech truncation, caption visibility, false storage completion, mutable retry paths, failure truth, finalized reuse, runtime FKs, mutable card payloads, multilingual metadata, and missing-versus-explicit-null identity. The synthetic four-profile film is an exact eight-second 1920x1080 MP4 with audio, visible captions, distinct section frames, and byte-identical rerender; portrait/720p/480p contracts also bind current output truth. Engineer passed all 252 Custom Film functional tests and full 2853 with unchanged 14-failure/one-error baseline; CEO passed 52 then 18 focused; final verifier passed 33 focused and the explicit-null adversaries. No provider/network/Drive call, live migration, deploy, push, PR mutation, upload, merge, or protected-checkout/stash action occurred.
 - [ ] M2-6 REUSABLE NOVEL PROFILES [D][B][U][V] Offer and confirm saving only after canonical novelty passes; store a topic-free recipe; list/reuse/rename/archive tenant recipes through chat while keeping advanced knobs hidden.
       Acceptance: duplicates/public clones are not offered as novel; cross-tenant reads fail; reuse instantiates a fresh topic-specific plan without mutating the saved version; save never starts generation.
       Risk/prohibited: tenant data writes only in local tests; no external write.
@@ -164,6 +167,11 @@
       Acceptance: explicit Complete/Partial verdict with baseline comparison and exact residual risks; PR contains no Milestone 1 amendments unrelated to its M2 dependency and no paid/deploy evidence is implied.
       Risk/prohibited: remote write is limited to the separate branch/draft PR; no merge, deployment, live migration, paid run, Drive write, or upload.
       Depends on: M2-1 through M2-6 accepted.
+
+## Approved post-milestone capstone
+- [ ] FIVE-MINUTE SHOWCASE DESIGN + QUOTED PAID GATE — after the local Definition of Complete and first-user sweep, design a high-impact StoryEngine prototype film that uses all four profile foundations through one natural chat request and adds Remotion as the shared motion-graphics layer for maps, timelines, data, kinetic type, diagrams, split screens, and the final product reveal.
+      Acceptance: a complete five-minute creative treatment, script/section plan, media BOM, Remotion graphics plan, and exact BYOK quote at or below Ryan's $15 ceiling are ready; no paid call begins until Ryan explicitly approves that exact quote.
+      Current concept: **The Day the Internet Went Dark** — a near-future mini-documentary whose investigative, photo-evidence, bilingual-character, and simple-explainer sections culminate in the reveal that one StoryEngine chat request assembled the film.
 
 ## Previous completed mission
 
