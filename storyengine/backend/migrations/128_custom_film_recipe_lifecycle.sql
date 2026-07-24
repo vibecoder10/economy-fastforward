@@ -15,7 +15,10 @@ ALTER TABLE custom_film_recipes
   DROP CONSTRAINT IF EXISTS custom_film_recipes_name_key_check;
 ALTER TABLE custom_film_recipes
   ADD CONSTRAINT custom_film_recipes_name_key_check
-  CHECK (btrim(name_key) <> '');
+  CHECK (
+    name_key = lower(regexp_replace(btrim(name), '\s+', ' ', 'g'))
+    AND btrim(name_key) <> ''
+  );
 
 CREATE UNIQUE INDEX IF NOT EXISTS custom_film_recipes_active_name_uidx
   ON custom_film_recipes (tenant_id, name_key)
@@ -31,21 +34,39 @@ BEGIN
   END IF;
   IF TG_TABLE_NAME = 'custom_film_recipes'
      AND (
+       NEW.id,
        NEW.tenant_id,
        NEW.recipe_family_id,
        NEW.version,
        NEW.compatibility_version,
        NEW.recipe,
-       NEW.signature
+       NEW.signature,
+       NEW.created_at
      ) IS DISTINCT FROM (
+       OLD.id,
        OLD.tenant_id,
        OLD.recipe_family_id,
        OLD.version,
        OLD.compatibility_version,
        OLD.recipe,
-       OLD.signature
+       OLD.signature,
+       OLD.created_at
      ) THEN
     RAISE EXCEPTION 'Custom Film recipe versions are immutable';
+  END IF;
+  IF TG_TABLE_NAME = 'custom_film_recipes' THEN
+    IF (NEW.name, NEW.name_key, NEW.archived_at)
+       IS DISTINCT FROM (OLD.name, OLD.name_key, OLD.archived_at) THEN
+      IF NEW.updated_at <= OLD.updated_at THEN
+        RAISE EXCEPTION 'Custom Film recipe metadata timestamps must advance';
+      END IF;
+      IF OLD.archived_at IS NULL AND NEW.archived_at IS NOT NULL
+         AND NEW.archived_at IS DISTINCT FROM NEW.updated_at THEN
+        RAISE EXCEPTION 'Custom Film recipe archive timestamp must be truthful';
+      END IF;
+    ELSIF NEW.updated_at IS DISTINCT FROM OLD.updated_at THEN
+      RAISE EXCEPTION 'Custom Film recipe updated_at cannot change alone';
+    END IF;
   END IF;
   IF TG_TABLE_NAME = 'custom_film_plans'
      AND (

@@ -790,21 +790,92 @@ async def create_recipe_version(
     return _serialize_recipe_row(row)
 
 
+def validate_recipe_save_approval_evidence(
+    plan_row: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    pending: Mapping[str, Any],
+    *,
+    video_id: str,
+    runtime_rows: list[Mapping[str, Any]],
+) -> str:
+    """Accept one held approval or one exact durable consumed-runtime identity."""
+    expected_approval = str(candidate.get("approval_hash") or "")
+    held = (
+        str(plan_row.get("approval_hash") or "") == expected_approval
+        and plan_row.get("approved_at") is not None
+        and str(plan_row.get("custom_film_approval_hash") or "")
+        == expected_approval
+        and plan_row.get("custom_film_approved_at") is not None
+    )
+    approval_fields = (
+        plan_row.get("approval_hash"),
+        plan_row.get("approved_at"),
+        plan_row.get("custom_film_approval_hash"),
+        plan_row.get("custom_film_approved_at"),
+    )
+    consumed = all(value is None for value in approval_fields)
+    if held:
+        if runtime_rows:
+            raise CustomFilmContractError(
+                "A still-held approval cannot also have consumed runtime proof."
+            )
+        return "held"
+    if not consumed:
+        raise CustomFilmContractError(
+            "The Custom Film approval is partially cleared or mismatched."
+        )
+    if len(runtime_rows) != 1:
+        raise CustomFilmContractError(
+            "The consumed Custom Film approval has no unique runtime proof."
+        )
+    runtime_row = runtime_rows[0]
+    if str(runtime_row.get("status") or "") not in {
+        "pending",
+        "running",
+        "completed",
+    }:
+        raise CustomFilmContractError(
+            "That Custom Film runtime did not remain safely accepted."
+        )
+    from custom_film_runtime import validate_runtime_envelope
+
+    envelope = validate_runtime_envelope(runtime_row["runtime_envelope"])
+    quote_inputs = _parse_json(plan_row["quote_inputs"])
+    expected_seconds = int(quote_inputs.get("requested_duration_seconds") or 0)
+    expected_job = f"custom-film-runtime:{envelope['runtime_hash']}"
+    cached_job = str(pending.get("runtime_job_id") or "")
+    if (
+        str(runtime_row["job_id"]) != expected_job
+        or (cached_job and cached_job != expected_job)
+        or str(envelope["video_id"]) != str(video_id)
+        or str(envelope["plan_id"]) != str(candidate.get("plan_id"))
+        or str(envelope["plan_hash"]) != str(candidate.get("plan_hash"))
+        or str(envelope["approval_hash"]) != expected_approval
+        or str(envelope["quote_inputs_hash"])
+        != str(plan_row["quote_inputs_hash"])
+        or int(envelope["total_duration_seconds"]) != expected_seconds
+        or expected_seconds != int(candidate.get("total_duration_seconds") or 0)
+    ):
+        raise CustomFilmContractError(
+            "The consumed runtime proof does not match this approved film."
+        )
+    return "consumed"
+
+
 async def save_approved_recipe(
     tenant_id: str,
     conversation_id: str,
     name: str,
     manifest: CapabilityManifest,
+    *,
+    user_message: str | None = None,
+    audit_phase: str = "created",
 ) -> dict[str, Any]:
     """Atomically save only the exact recipe from a durable approved plan."""
     display_name, name_key = normalize_recipe_name(name)
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-                f"custom-film-recipes:{tenant_id}",
-            )
             conversation = await conn.fetchrow(
                 """SELECT id, video_id, state
                    FROM chat_conversations
@@ -815,6 +886,10 @@ async def save_approved_recipe(
             )
             if not conversation:
                 raise CustomFilmContractError("Custom Film conversation not found")
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"custom-film-recipes:{tenant_id}",
+            )
             state = _parse_json(conversation["state"])
             pending = (
                 state.get("pending_custom_film_plan")
@@ -843,8 +918,11 @@ async def save_approved_recipe(
                 )
             plan_row = await conn.fetchrow(
                 """SELECT p.id AS plan_id, p.plan, p.plan_hash, p.approval_hash,
-                          p.approved_at, v.custom_film_plan_id,
-                          v.custom_film_plan_hash, v.custom_film_approval_hash
+                          p.approved_at, p.quote_inputs, p.quote_inputs_hash,
+                          v.custom_film_plan_id, v.custom_film_plan_hash,
+                          v.custom_film_quote_inputs_hash,
+                          v.custom_film_approval_hash,
+                          v.custom_film_approved_at
                    FROM videos v
                    JOIN custom_film_plans p
                      ON p.tenant_id = v.tenant_id
@@ -856,7 +934,7 @@ async def save_approved_recipe(
                 tenant_id,
                 conversation["video_id"],
             )
-            if not plan_row or not plan_row.get("approved_at"):
+            if not plan_row:
                 raise CustomFilmContractError(
                     "The approved Custom Film contract could not be verified."
                 )
@@ -868,14 +946,38 @@ async def save_approved_recipe(
                 != str(candidate.get("plan_hash") or "")
                 or str(plan_row["plan_hash"])
                 != str(plan_row["custom_film_plan_hash"])
-                or str(plan_row["approval_hash"])
-                != str(candidate.get("approval_hash") or "")
-                or str(plan_row["approval_hash"])
-                != str(plan_row["custom_film_approval_hash"])
+                or str(plan_row["quote_inputs_hash"])
+                != str(plan_row["custom_film_quote_inputs_hash"])
+                or str(plan_row["quote_inputs_hash"])
+                != str(candidate.get("quote_inputs_hash") or "")
             ):
                 raise CustomFilmContractError(
                     "The approved Custom Film changed, so no recipe was saved."
                 )
+            approval_fields = (
+                plan_row.get("approval_hash"),
+                plan_row.get("approved_at"),
+                plan_row.get("custom_film_approval_hash"),
+                plan_row.get("custom_film_approved_at"),
+            )
+            runtime_rows: list[Mapping[str, Any]] = []
+            if all(value is None for value in approval_fields):
+                runtime_rows = await conn.fetch(
+                    """SELECT job_id, status, runtime_envelope
+                       FROM background_tasks
+                       WHERE tenant_id = $1 AND video_id = $2
+                         AND task_type = 'custom_film_runtime'
+                       FOR UPDATE""",
+                    tenant_id,
+                    conversation["video_id"],
+                )
+            validate_recipe_save_approval_evidence(
+                plan_row,
+                candidate,
+                pending,
+                video_id=str(conversation["video_id"]),
+                runtime_rows=list(runtime_rows),
+            )
             raw_plan = _parse_json(plan_row["plan"])
             normalized_plan = normalize_plan(
                 revision_input_from_normalized_plan(raw_plan, manifest),
@@ -930,7 +1032,23 @@ async def save_approved_recipe(
                 canonical_json(normalized),
                 signature,
             )
-    return _serialize_recipe_row(row)
+            result = _serialize_recipe_row(row)
+            assistant_text = (
+                f"Saved “{result['name']}” as a reusable Custom Film recipe. "
+                "Only the section roles, proportions, safe production settings, "
+                "and their provenance were stored—none of this film’s topic or assets."
+            )
+            if user_message is not None:
+                await _append_recipe_chat_audit(
+                    conn,
+                    conversation_id,
+                    tenant_id,
+                    user_message,
+                    assistant_text,
+                    phase=audit_phase,
+                )
+            result["_assistant_text"] = assistant_text
+    return result
 
 
 def _serialize_recipe_row(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -950,6 +1068,43 @@ def _serialize_recipe_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
+
+
+async def _append_recipe_chat_audit(
+    conn: Any,
+    conversation_id: str,
+    tenant_id: str,
+    user_message: str,
+    assistant_text: str,
+    *,
+    phase: str,
+) -> None:
+    turns = [
+        {"role": "user", "content": str(user_message)},
+        {
+            "role": "assistant",
+            "content": str(assistant_text),
+            "data": {"assistant_text": str(assistant_text), "phase": phase},
+        },
+    ]
+    result = await conn.execute(
+        """UPDATE chat_conversations
+           SET transcript = COALESCE(transcript, '[]'::jsonb) || $3::jsonb,
+               state = jsonb_set(
+                 COALESCE(state, '{}'::jsonb),
+                 '{recipe_command_revision}',
+                 to_jsonb(
+                   COALESCE((state->>'recipe_command_revision')::bigint, 0) + 1
+                 )
+               ),
+               updated_at = now()
+           WHERE id = $1 AND tenant_id = $2""",
+        conversation_id,
+        tenant_id,
+        canonical_json(turns),
+    )
+    if not str(result).endswith(" 1"):
+        raise CustomFilmContractError("Recipe command conversation changed.")
 
 
 async def list_recipe_versions(
@@ -984,6 +1139,60 @@ async def list_active_recipes(tenant_id: str) -> list[dict[str, Any]]:
     return [_serialize_recipe_row(row) for row in rows]
 
 
+async def list_active_recipes_for_chat(
+    tenant_id: str,
+    conversation_id: str,
+    user_message: str,
+    *,
+    phase: str,
+) -> tuple[list[dict[str, Any]], str]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            conversation = await conn.fetchrow(
+                """SELECT id FROM chat_conversations
+                   WHERE id = $1 AND tenant_id = $2
+                   FOR UPDATE""",
+                conversation_id,
+                tenant_id,
+            )
+            if not conversation:
+                raise CustomFilmContractError(
+                    "Recipe command conversation not found."
+                )
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"custom-film-recipes:{tenant_id}",
+            )
+            rows = await conn.fetch(
+                """SELECT DISTINCT ON (recipe_family_id)
+                          id, tenant_id, recipe_family_id, version, name,
+                          compatibility_version, recipe, signature,
+                          archived_at::text, created_at::text, updated_at::text
+                   FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND archived_at IS NULL
+                   ORDER BY recipe_family_id, version DESC""",
+                tenant_id,
+            )
+            recipes = [_serialize_recipe_row(row) for row in rows]
+            message = (
+                "You have no active saved Custom Film recipes."
+                if not recipes
+                else "Your active saved recipes are: "
+                + ", ".join(f"“{recipe['name']}”" for recipe in recipes)
+                + "."
+            )
+            await _append_recipe_chat_audit(
+                conn,
+                conversation_id,
+                tenant_id,
+                user_message,
+                message,
+                phase=phase,
+            )
+    return recipes, message
+
+
 async def load_active_recipe(
     tenant_id: str,
     name: str,
@@ -1015,16 +1224,96 @@ async def load_active_recipe(
     return result
 
 
+async def load_active_recipe_for_chat(
+    tenant_id: str,
+    conversation_id: str,
+    name: str,
+    manifest: CapabilityManifest,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    """Load one active recipe with authoritative conversation CAS inputs."""
+    _display, name_key = normalize_recipe_name(name)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            conversation = await conn.fetchrow(
+                """SELECT transcript, state FROM chat_conversations
+                   WHERE id = $1 AND tenant_id = $2
+                   FOR UPDATE""",
+                conversation_id,
+                tenant_id,
+            )
+            if not conversation:
+                raise CustomFilmContractError(
+                    "Recipe command conversation not found."
+                )
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"custom-film-recipes:{tenant_id}",
+            )
+            row = await conn.fetchrow(
+                """SELECT id, tenant_id, recipe_family_id, version, name,
+                          compatibility_version, recipe, signature,
+                          archived_at::text, created_at::text, updated_at::text
+                   FROM custom_film_recipes
+                   WHERE tenant_id = $1 AND name_key = $2
+                     AND archived_at IS NULL
+                   ORDER BY version DESC
+                   LIMIT 1
+                   FOR UPDATE""",
+                tenant_id,
+                name_key,
+            )
+            if not row:
+                raise CustomFilmContractError(
+                    "I couldn't find an active saved recipe with that name."
+                )
+            result = _serialize_recipe_row(row)
+            if result["compatibility_version"] != manifest.version:
+                raise CustomFilmContractError(
+                    f"“{result['name']}” uses an older recipe format and cannot "
+                    "be reused safely yet. Keep it archived for history or create "
+                    "a fresh Custom Film."
+                )
+            normalized = validate_normalized_recipe(result["recipe"], manifest)
+            if recipe_signature(normalized) != result["signature"]:
+                raise CustomFilmContractError(
+                    "That saved recipe failed its integrity check."
+                )
+            transcript = _parse_json(conversation.get("transcript") or [])
+            state = _parse_json(conversation.get("state") or {})
+            if not isinstance(transcript, list) or not isinstance(state, dict):
+                raise CustomFilmContractError(
+                    "Recipe command conversation state is invalid."
+                )
+    return result, copy.deepcopy(transcript), copy.deepcopy(state)
+
+
 async def rename_active_recipe(
     tenant_id: str,
     old_name: str,
     new_name: str,
+    *,
+    conversation_id: str | None = None,
+    user_message: str | None = None,
+    audit_phase: str = "asking",
 ) -> dict[str, Any]:
     _old_display, old_key = normalize_recipe_name(old_name)
     new_display, new_key = normalize_recipe_name(new_name)
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            if conversation_id is not None:
+                conversation = await conn.fetchrow(
+                    """SELECT id FROM chat_conversations
+                       WHERE id = $1 AND tenant_id = $2
+                       FOR UPDATE""",
+                    conversation_id,
+                    tenant_id,
+                )
+                if not conversation:
+                    raise CustomFilmContractError(
+                        "Recipe command conversation not found."
+                    )
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
                 f"custom-film-recipes:{tenant_id}",
@@ -1059,14 +1348,45 @@ async def rename_active_recipe(
                 raise CustomFilmContractError(
                     "I couldn't find an active saved recipe with that name."
                 )
-    return _serialize_recipe_row(row)
+            result = _serialize_recipe_row(row)
+            assistant_text = f"Renamed the active recipe to “{result['name']}”."
+            if conversation_id is not None and user_message is not None:
+                await _append_recipe_chat_audit(
+                    conn,
+                    conversation_id,
+                    tenant_id,
+                    user_message,
+                    assistant_text,
+                    phase=audit_phase,
+                )
+            result["_assistant_text"] = assistant_text
+    return result
 
 
-async def archive_active_recipe(tenant_id: str, name: str) -> dict[str, Any]:
+async def archive_active_recipe(
+    tenant_id: str,
+    name: str,
+    *,
+    conversation_id: str | None = None,
+    user_message: str | None = None,
+    audit_phase: str = "asking",
+) -> dict[str, Any]:
     _display, name_key = normalize_recipe_name(name)
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            if conversation_id is not None:
+                conversation = await conn.fetchrow(
+                    """SELECT id FROM chat_conversations
+                       WHERE id = $1 AND tenant_id = $2
+                       FOR UPDATE""",
+                    conversation_id,
+                    tenant_id,
+                )
+                if not conversation:
+                    raise CustomFilmContractError(
+                        "Recipe command conversation not found."
+                    )
             await conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
                 f"custom-film-recipes:{tenant_id}",
@@ -1086,7 +1406,23 @@ async def archive_active_recipe(tenant_id: str, name: str) -> dict[str, Any]:
                 raise CustomFilmContractError(
                     "I couldn't find an active saved recipe with that name."
                 )
-    return _serialize_recipe_row(row)
+            result = _serialize_recipe_row(row)
+            assistant_text = (
+                f"Archived “{result['name']}”. It is hidden from list and reuse, "
+                "but its immutable history remains. A future identical recipe may "
+                "be saved again because archived recipes do not block active saves."
+            )
+            if conversation_id is not None and user_message is not None:
+                await _append_recipe_chat_audit(
+                    conn,
+                    conversation_id,
+                    tenant_id,
+                    user_message,
+                    assistant_text,
+                    phase=audit_phase,
+                )
+            result["_assistant_text"] = assistant_text
+    return result
 
 
 async def create_plan_revision(
@@ -1276,6 +1612,7 @@ async def reserve_approved_start_intent(
     manifest: CapabilityManifest,
     *,
     confirmation_turn: Mapping[str, Any],
+    save_offer_suffix: str = "",
 ) -> dict[str, Any]:
     """Atomically reserve one no-provider Custom Film start intention.
 
@@ -1388,6 +1725,47 @@ async def reserve_approved_start_intent(
             persisted_plan = normalize_plan(raw_plan, manifest)
             quote_digest = canonical_hash(quote_inputs)
             plan_id = str(uuid4())
+            save_eligible = False
+            novelty = pending.get("novelty")
+            if (
+                isinstance(novelty, dict)
+                and novelty.get("is_novel") is True
+                and pending.get("recipe_signature")
+                and pending.get("recipe_hash")
+            ):
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                    f"custom-film-recipes:{tenant_id}",
+                )
+                current_recipe = recipe_from_normalized_plan(
+                    persisted_plan,
+                    manifest,
+                )
+                current_signature = recipe_signature(current_recipe)
+                current_recipe_hash = canonical_hash(current_recipe)
+                public_duplicate = _public_recipe_duplicate(
+                    current_recipe,
+                    manifest,
+                )
+                tenant_duplicate = await conn.fetchrow(
+                    """SELECT id FROM custom_film_recipes
+                       WHERE tenant_id = $1 AND signature = $2
+                         AND archived_at IS NULL
+                       LIMIT 1""",
+                    tenant_id,
+                    current_signature,
+                )
+                save_eligible = bool(
+                    current_signature == str(pending["recipe_signature"])
+                    and current_recipe_hash == str(pending["recipe_hash"])
+                    and public_duplicate is None
+                    and tenant_duplicate is None
+                )
+                if not save_eligible:
+                    pending["novelty"] = {
+                        "is_novel": False,
+                        "status": "duplicate_or_changed_at_approval",
+                    }
             proposal = pending.get("planner_proposal")
             proposal_sections = (
                 proposal.get("sections")
@@ -1471,22 +1849,26 @@ async def reserve_approved_start_intent(
             pending["status"] = "start_ready"
             pending["start_intent_hash"] = expected_approval_hash
             pending["video_id"] = video_id
-            if (
-                isinstance(pending.get("novelty"), dict)
-                and pending["novelty"].get("is_novel") is True
-                and pending.get("recipe_signature")
-                and pending.get("recipe_hash")
-            ):
+            if save_eligible:
                 pending["save_candidate"] = {
                     "video_id": video_id,
                     "plan_id": plan_id,
                     "plan_hash": current_plan_hash,
                     "approval_hash": expected_approval_hash,
+                    "quote_inputs_hash": quote_digest,
+                    "total_duration_seconds": duration_seconds,
                     "recipe_signature": pending["recipe_signature"],
                     "recipe_hash": pending["recipe_hash"],
                 }
             state["pending_custom_film_plan"] = pending
-            transcript.append(copy.deepcopy(dict(confirmation_turn)))
+            accepted_turn = copy.deepcopy(dict(confirmation_turn))
+            if save_eligible and save_offer_suffix:
+                accepted_turn["content"] = (
+                    str(accepted_turn.get("content") or "") + save_offer_suffix
+                )
+                if isinstance(accepted_turn.get("data"), dict):
+                    accepted_turn["data"]["assistant_text"] = accepted_turn["content"]
+            transcript.append(accepted_turn)
             await conn.execute(
                 """UPDATE chat_conversations
                    SET state = $3::jsonb, video_id = $4, transcript = $5::jsonb,
@@ -1506,6 +1888,7 @@ async def reserve_approved_start_intent(
                 "max_spend": float(max_spend),
                 "duration_seconds": duration_seconds,
                 "pending_custom_film_plan": copy.deepcopy(pending),
+                "confirmation_turn": copy.deepcopy(accepted_turn),
             }
 
 

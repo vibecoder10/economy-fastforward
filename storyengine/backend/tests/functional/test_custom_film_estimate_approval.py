@@ -328,6 +328,7 @@ class _IntentConnection:
         self.video_id = None
         self.calls = []
         self.video_inserts = 0
+        self.recipe_duplicate = None
 
     def transaction(self):
         return _AsyncContext()
@@ -344,6 +345,8 @@ class _IntentConnection:
         if "INSERT INTO videos" in query:
             self.video_inserts += 1
             return {"id": "video-1"}
+        if "FROM custom_film_recipes" in query:
+            return self.recipe_duplicate
         raise AssertionError(query)
 
     async def execute(self, query, *args):
@@ -422,10 +425,22 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
         _plan(), total_duration_seconds=90
     )
     pending = _pending(quote)
+    test_recipe = {"sections": []}
     pending.update(
         novelty={"is_novel": True},
         recipe_signature="b" * 64,
-        recipe_hash="c" * 64,
+        recipe_hash=contract.canonical_hash(test_recipe),
+    )
+    monkeypatch.setattr(
+        contract,
+        "recipe_from_normalized_plan",
+        lambda _plan, _manifest: test_recipe,
+    )
+    monkeypatch.setattr(contract, "recipe_signature", lambda _recipe: "b" * 64)
+    monkeypatch.setattr(
+        contract,
+        "_public_recipe_duplicate",
+        lambda _recipe, _manifest: None,
     )
     state = {"mode": "custom_film", "pending_custom_film_plan": pending}
     connection = _patch_intent_contract(monkeypatch, state)
@@ -468,7 +483,11 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
     assert candidate["plan_hash"] == pending["plan_hash"]
     assert candidate["approval_hash"] == pending["approval_hash"]
     assert candidate["recipe_signature"] == "b" * 64
-    assert candidate["recipe_hash"] == "c" * 64
+    assert candidate["recipe_hash"] == contract.canonical_hash(test_recipe)
+    assert candidate["quote_inputs_hash"] == contract.canonical_hash(
+        pending["quote_inputs"]
+    )
+    assert candidate["total_duration_seconds"] == 90
     assert second["video_id"] == "video-1"
     assert second["created"] is False
     assert connection.video_inserts == 1
@@ -487,6 +506,48 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
         for call in connection.calls
         for token in ("background_tasks", "Drive", "increment_usage")
     )
+
+
+@pytest.mark.asyncio
+async def test_approval_refreshes_novelty_before_save_offer(monkeypatch):
+    quote = await actions.estimate_custom_film_plan(
+        _plan(), total_duration_seconds=90
+    )
+    pending = _pending(quote)
+    test_recipe = {"sections": []}
+    pending.update(
+        novelty={"is_novel": True},
+        recipe_signature="b" * 64,
+        recipe_hash=contract.canonical_hash(test_recipe),
+    )
+    monkeypatch.setattr(
+        contract,
+        "recipe_from_normalized_plan",
+        lambda _plan, _manifest: test_recipe,
+    )
+    monkeypatch.setattr(contract, "recipe_signature", lambda _recipe: "b" * 64)
+    monkeypatch.setattr(
+        contract,
+        "_public_recipe_duplicate",
+        lambda _recipe, _manifest: None,
+    )
+    state = {"mode": "custom_film", "pending_custom_film_plan": pending}
+    connection = _patch_intent_contract(monkeypatch, state)
+    connection.recipe_duplicate = {"id": "already-saved"}
+
+    result = await contract.reserve_approved_start_intent(
+        "tenant",
+        "conv",
+        pending["approval_hash"],
+        SimpleNamespace(version="test-v1"),
+        confirmation_turn={"role": "assistant", "content": "Approved."},
+        save_offer_suffix=" Save this recipe.",
+    )
+    accepted = result["pending_custom_film_plan"]
+    assert "save_candidate" not in accepted
+    assert accepted["novelty"]["is_novel"] is False
+    assert result["confirmation_turn"]["content"] == "Approved."
+    assert connection.transcript[-1]["content"] == "Approved."
 
 
 @pytest.mark.asyncio

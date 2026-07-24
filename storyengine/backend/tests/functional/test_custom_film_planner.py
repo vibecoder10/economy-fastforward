@@ -1212,9 +1212,16 @@ def test_bare_custom_cancel_clears_state_without_invoking_any_planner(
 
 def test_saved_recipe_chat_commands_are_small_and_deterministic():
     parse = chat_route._custom_film_recipe_command
-    assert parse("Show my saved recipes") == ("list", ())
-    assert parse('Save this recipe as "Power Mix"') == ("save", ("Power Mix",))
-    assert parse('Rename "Power Mix" to "Evidence Mix"') == (
+    assert parse("Show my saved Custom Film recipes") == ("list", ())
+    assert parse("Show my saved recipes") is None
+    assert parse(
+        'Save this recipe as "Power Mix"', has_save_candidate=True
+    ) == ("save", ("Power Mix",))
+    assert parse('Save this Custom Film recipe as "Power Mix"') == (
+        "save",
+        ("Power Mix",),
+    )
+    assert parse('Rename recipe "Power Mix" to "Evidence Mix"') == (
         "rename",
         ("Power Mix", "Evidence Mix"),
     )
@@ -1222,12 +1229,77 @@ def test_saved_recipe_chat_commands_are_small_and_deterministic():
         "archive",
         ("Evidence Mix",),
     )
-    assert parse('Reuse recipe "Evidence Mix" for a film about clean steel') == (
+    assert parse(
+        'Reuse saved recipe "Evidence Mix" for a film about clean steel'
+    ) == (
         "reuse",
         ("Evidence Mix", "a film about clean steel"),
     )
-    assert parse("Save this recipe") == ("save", ())
+    assert parse("Save this recipe", has_save_candidate=True) == ("save", ())
+    assert parse("Save this recipe") is None
     assert parse("Make a normal video about recipes") is None
+    for ordinary_film_request in (
+        "Make a Custom Film about how to save this species",
+        "Create a documentary about an archive that preserves recipes",
+        "Make a film about companies that rename products",
+        "Show how saved recipes changed family cooking",
+        "A video about when creators use recipe metaphors",
+        "rename this video to Launch Cut",
+        "archive this project",
+        "save it",
+        "save this draft",
+        "use the recipe for the intro",
+    ):
+        assert parse(ordinary_film_request) is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "rename this video",
+        "archive this project",
+        "save it",
+        "save this draft",
+        "use the recipe for the intro",
+    ),
+)
+def test_ordinary_recipe_words_still_reach_legacy_copilot(monkeypatch, message):
+    async def fake_load(*_args):
+        return {
+            "id": "conversation-a",
+            "video_id": "video-a",
+            "transcript": [],
+            "state": {},
+            "phase": "created",
+        }
+
+    async def no_op(*_args, **_kwargs):
+        return None
+
+    async def fake_copilot(
+        _body, conversation_id, _tenant_id, _transcript, _state, video_id, _bg
+    ):
+        return chat_route.ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=f"legacy:{message}",
+            video_id=video_id,
+            phase="created",
+        )
+
+    monkeypatch.setattr(chat_route, "_load_conversation", fake_load)
+    monkeypatch.setattr(chat_route, "_hydrate_creator_brief", no_op)
+    monkeypatch.setattr(chat_route, "_handle_copilot", fake_copilot)
+    response = asyncio.run(
+        chat_route.chat_turn(
+            chat_route.ChatTurnRequest(
+                conversation_id="conversation-a",
+                message=message,
+            ),
+            background_tasks=object(),
+            tenant_id="tenant-a",
+        )
+    )
+    assert response.assistant_text == f"legacy:{message}"
 
 
 @pytest.mark.asyncio

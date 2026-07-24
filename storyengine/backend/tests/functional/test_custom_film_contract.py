@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import inspect
 import json
 from pathlib import Path
 from uuid import UUID
@@ -590,6 +591,72 @@ def test_migration_128_enforces_active_name_lifecycle_without_deleting_history()
     assert "DELETE FROM custom_film_recipes" not in migration
     assert "NEW.recipe" in migration
     assert "NEW.signature" in migration
+    assert "NEW.id" in migration
+    assert "NEW.created_at" in migration
+    assert "updated_at cannot change alone" in migration
+    assert "name_key = lower(regexp_replace(btrim(name)" in migration
+
+
+@pytest.mark.asyncio
+async def test_recipe_mutation_audit_appends_user_and_assistant_and_advances_cas():
+    captured = {}
+
+    class Conn:
+        async def execute(self, sql, *args):
+            captured.update(sql=sql, args=args)
+            return "UPDATE 1"
+
+    await contract._append_recipe_chat_audit(
+        Conn(),
+        "conversation-a",
+        "tenant-a",
+        "Save this recipe as Evidence Mix",
+        "Saved Evidence Mix",
+        phase="created",
+    )
+    turns = json.loads(captured["args"][2])
+    assert [turn["role"] for turn in turns] == ["user", "assistant"]
+    assert turns[0]["content"] == "Save this recipe as Evidence Mix"
+    assert turns[1]["content"] == "Saved Evidence Mix"
+    assert "recipe_command_revision" in captured["sql"]
+    assert "WHERE id = $1 AND tenant_id = $2" in captured["sql"]
+
+
+@pytest.mark.asyncio
+async def test_reuse_compatibility_mismatch_fails_before_planning(monkeypatch, manifest):
+    async def old_recipe(_sql, *_args):
+        return {
+            "id": "recipe-old",
+            "tenant_id": "tenant-a",
+            "recipe_family_id": "family-a",
+            "version": 1,
+            "name": "Old Recipe",
+            "compatibility_version": "old-contract",
+            "recipe": {"sections": []},
+            "signature": "a" * 64,
+            "archived_at": None,
+            "created_at": "then",
+            "updated_at": "then",
+        }
+
+    monkeypatch.setattr(contract, "fetch_one", old_recipe)
+    with pytest.raises(contract.CustomFilmContractError, match="older recipe format"):
+        await contract.load_active_recipe("tenant-a", "Old Recipe", manifest)
+
+
+def test_recipe_lifecycle_queries_keep_tenant_lock_archive_and_audit_laws():
+    save_source = inspect.getsource(contract.save_approved_recipe)
+    rename_source = inspect.getsource(contract.rename_active_recipe)
+    archive_source = inspect.getsource(contract.archive_active_recipe)
+    list_source = inspect.getsource(contract.list_active_recipes)
+    for source in (save_source, rename_source, archive_source):
+        assert "custom-film-recipes:{tenant_id}" in source
+        assert "_append_recipe_chat_audit" in source
+        assert "tenant_id = $1" in source
+    assert "archived_at = now(), updated_at = now()" in archive_source
+    assert "DELETE" not in archive_source
+    assert "archived_at IS NULL" in list_source
+    assert "DISTINCT ON (recipe_family_id)" in list_source
 
 
 @pytest.mark.asyncio
@@ -602,6 +669,8 @@ async def test_save_approved_recipe_revalidates_durable_contract_and_is_atomic(
     recipe_hash = contract.canonical_hash(recipe)
     digest = contract.plan_hash(normalized_plan)
     approval = "a" * 64
+    quote_inputs = {"requested_duration_seconds": 60}
+    quote_hash = contract.canonical_hash(quote_inputs)
     state = {
         "pending_custom_film_plan": {
             "status": "start_ready",
@@ -612,6 +681,8 @@ async def test_save_approved_recipe_revalidates_durable_contract_and_is_atomic(
                 "plan_id": "plan-a",
                 "plan_hash": digest,
                 "approval_hash": approval,
+                "quote_inputs_hash": quote_hash,
+                "total_duration_seconds": 60,
                 "recipe_signature": signature,
                 "recipe_hash": recipe_hash,
             },
@@ -644,9 +715,13 @@ async def test_save_approved_recipe_revalidates_durable_contract_and_is_atomic(
                     "plan_hash": digest,
                     "approval_hash": approval,
                     "approved_at": "now",
+                    "quote_inputs": quote_inputs,
+                    "quote_inputs_hash": quote_hash,
                     "custom_film_plan_id": "plan-a",
                     "custom_film_plan_hash": digest,
+                    "custom_film_quote_inputs_hash": quote_hash,
                     "custom_film_approval_hash": approval,
+                    "custom_film_approved_at": "now",
                 }
             if "INSERT INTO custom_film_recipes" in sql:
                 return {
@@ -663,6 +738,10 @@ async def test_save_approved_recipe_revalidates_durable_contract_and_is_atomic(
                     "updated_at": "now",
                 }
             return None
+
+        async def fetch(self, sql, *args):
+            calls.append(("fetch", sql, args))
+            return []
 
     class Acquire:
         async def __aenter__(self):
@@ -685,7 +764,11 @@ async def test_save_approved_recipe_revalidates_durable_contract_and_is_atomic(
     assert saved["name"] == "My Recipe"
     assert saved["recipe"] == recipe
     assert sum("INSERT INTO custom_film_recipes" in call[1] for call in calls) == 1
-    assert "custom-film-recipes:tenant-a" in calls[0][2]
+    assert any(
+        "custom-film-recipes:tenant-a" in call[2]
+        for call in calls
+        if call[0] == "execute"
+    )
     assert any("FOR UPDATE OF v, p" in call[1] for call in calls)
 
 
@@ -726,3 +809,161 @@ async def test_save_stale_or_unverified_candidate_never_inserts(monkeypatch, man
             "tenant-a", "conversation-a", "Unsafe", manifest
         )
     assert not any("INSERT INTO custom_film_recipes" in sql for sql in calls)
+
+
+@pytest.mark.asyncio
+async def test_save_after_consumed_schedule_uses_one_exact_runtime_envelope(
+    monkeypatch, manifest
+):
+    import actions
+    import custom_film_runtime
+
+    normalized_plan = contract.normalize_plan(_plan(manifest), manifest)
+    recipe = contract.recipe_from_normalized_plan(normalized_plan, manifest)
+    plan_digest = contract.plan_hash(normalized_plan)
+    quote = await actions.estimate_custom_film_plan(
+        normalized_plan,
+        total_duration_seconds=60,
+    )
+    quote["max_spend"] = quote["totals"]["estimated_cost"]
+    quote_digest = contract.canonical_hash(quote)
+    approval = contract.approval_binding_hash(plan_digest, quote)
+    envelope = custom_film_runtime.compile_runtime_plan(
+        video_id="video-a",
+        plan_id="plan-a",
+        normalized_plan=normalized_plan,
+        quote_inputs=quote,
+        expected_plan_hash=plan_digest,
+        expected_quote_inputs_hash=quote_digest,
+        expected_approval_hash=approval,
+        max_spend=quote["max_spend"],
+    ).envelope()
+    pending = {
+        "status": "start_ready",
+        "video_id": "video-a",
+        "runtime_job_id": f"custom-film-runtime:{envelope['runtime_hash']}",
+        "novelty": {"is_novel": True},
+        "save_candidate": {
+            "video_id": "video-a",
+            "plan_id": "plan-a",
+            "plan_hash": plan_digest,
+            "approval_hash": approval,
+            "quote_inputs_hash": quote_digest,
+            "total_duration_seconds": 60,
+            "recipe_signature": contract.recipe_signature(recipe),
+            "recipe_hash": contract.canonical_hash(recipe),
+        },
+    }
+    consumed_plan_row = {
+        "plan_id": "plan-a",
+        "plan": normalized_plan,
+        "plan_hash": plan_digest,
+        "approval_hash": None,
+        "approved_at": None,
+        "quote_inputs": quote,
+        "quote_inputs_hash": quote_digest,
+        "custom_film_plan_id": "plan-a",
+        "custom_film_plan_hash": plan_digest,
+        "custom_film_quote_inputs_hash": quote_digest,
+        "custom_film_approval_hash": None,
+        "custom_film_approved_at": None,
+    }
+    runtime_row = {
+        "job_id": f"custom-film-runtime:{envelope['runtime_hash']}",
+        "status": "completed",
+        "runtime_envelope": envelope,
+    }
+    calls = []
+
+    class Tx:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_args): return False
+
+    class Conn:
+        def transaction(self): return Tx()
+
+        async def execute(self, sql, *args):
+            calls.append(("execute", sql))
+            return "UPDATE 1"
+
+        async def fetchrow(self, sql, *args):
+            calls.append(("fetchrow", sql))
+            if "FROM chat_conversations" in sql:
+                return {
+                    "video_id": "video-a",
+                    "state": {"pending_custom_film_plan": pending},
+                }
+            if "JOIN custom_film_plans" in sql:
+                return consumed_plan_row
+            if "INSERT INTO custom_film_recipes" in sql:
+                return {
+                    "id": "recipe-a",
+                    "tenant_id": "tenant-a",
+                    "recipe_family_id": "family-a",
+                    "version": 1,
+                    "name": "Runtime Recipe",
+                    "compatibility_version": manifest.version,
+                    "recipe": recipe,
+                    "signature": contract.recipe_signature(recipe),
+                    "archived_at": None,
+                    "created_at": "now",
+                    "updated_at": "now",
+                }
+            return None
+
+        async def fetch(self, sql, *args):
+            calls.append(("fetch", sql))
+            return [runtime_row]
+
+    class Acquire:
+        async def __aenter__(self): return Conn()
+        async def __aexit__(self, *_args): return False
+
+    class Pool:
+        def acquire(self): return Acquire()
+
+    async def fake_pool(): return Pool()
+
+    monkeypatch.setattr(contract, "get_pool", fake_pool)
+    saved = await contract.save_approved_recipe(
+        "tenant-a", "conversation-a", "Runtime Recipe", manifest
+    )
+    assert saved["name"] == "Runtime Recipe"
+    assert any("FROM background_tasks" in sql for _kind, sql in calls)
+    assert sum("INSERT INTO custom_film_recipes" in sql for _kind, sql in calls) == 1
+
+    with pytest.raises(contract.CustomFilmContractError, match="remain safely"):
+        contract.validate_recipe_save_approval_evidence(
+            consumed_plan_row,
+            pending["save_candidate"],
+            pending,
+            video_id="video-a",
+            runtime_rows=[{**runtime_row, "status": "failed"}],
+        )
+    with pytest.raises(contract.CustomFilmContractError, match="unique runtime"):
+        contract.validate_recipe_save_approval_evidence(
+            consumed_plan_row,
+            pending["save_candidate"],
+            pending,
+            video_id="video-a",
+            runtime_rows=[runtime_row, runtime_row],
+        )
+    partial = {**consumed_plan_row, "approved_at": "stale"}
+    with pytest.raises(contract.CustomFilmContractError, match="partially cleared"):
+        contract.validate_recipe_save_approval_evidence(
+            partial,
+            pending["save_candidate"],
+            pending,
+            video_id="video-a",
+            runtime_rows=[runtime_row],
+        )
+    foreign = copy.deepcopy(runtime_row)
+    foreign["runtime_envelope"]["video_id"] = "video-b"
+    with pytest.raises(contract.CustomFilmContractError):
+        contract.validate_recipe_save_approval_evidence(
+            consumed_plan_row,
+            pending["save_candidate"],
+            pending,
+            video_id="video-a",
+            runtime_rows=[foreign],
+        )

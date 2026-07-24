@@ -11539,6 +11539,10 @@ control writes without losing the video, approval, or confirmation.
   tenant-owned video and immutable approved plan hashes before one transaction
   rechecks public-profile novelty, active tenant signature, and normalized
   active name. Save itself never schedules, generates, renders, or uploads.
+  Save recognizes either the still-held exact approval or the one validated,
+  tenant/video-bound runtime envelope left after scheduling legitimately
+  consumes those approval pointers; partial clears, failed/multiple jobs, and
+  envelope identity drift fail closed.
 - Migration 128 adds a case- and whitespace-normalized active recipe name key.
   Tenant-wide transaction locks serialize save, name, family/version,
   duplicate, rename, and archive races. Recipe bodies and signatures remain
@@ -11552,3 +11556,8 @@ control writes without losing the video, approval, or confirmation.
   reapplies the exact saved roles/proportions/knobs/provenance, asserts the
   normalized signature, and enters the ordinary fresh estimate/hash/approval
   flow with no inherited approval or generation.
+- Recipe command parsing uses full-message, state-aware grammar so incidental
+  words such as “save,” “archive,” “rename,” or “recipe” remain ordinary
+  Producer/co-pilot content. Every accepted recipe command serializes on the
+  tenant conversation, records the user and assistant turns together, and
+  advances a state revision so an older planner CAS cannot erase its audit.
