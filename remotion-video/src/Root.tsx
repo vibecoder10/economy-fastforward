@@ -3,6 +3,13 @@ import { Main } from "./Main";
 import { getSceneDurationFromConfig, getTotalDurationFromConfig, getSceneNumbers } from "./renderConfig";
 import {MotionLibraryPreview} from "./motion-library/MotionLibraryPreview";
 import {PREVIEW_PRIMITIVES, PREVIEW_SECONDS_PER_PRIMITIVE} from "./motion-library/contracts";
+import {StoryEngineCustomFilmShowcase} from "./showcase/StoryEngineCustomFilmShowcase";
+import {
+    STORYENGINE_SHOWCASE_DEFAULT_PROPS,
+    STORYENGINE_SHOWCASE_SOURCE_CLIP_PROOF_PROPS,
+    STORYENGINE_SHOWCASE_STAGED_PROOF_PROPS,
+} from "./showcase/fixture";
+import {validateStoryEngineShowcaseProps} from "./showcase/manifest";
 
 const FPS = 24;
 // Buffer after last spoken word to let audio trail off naturally
@@ -74,6 +81,50 @@ export const RemotionRoot: React.FC = () => {
                 fps={FPS}
                 width={1920}
                 height={1080}
+            />
+            <Composition
+                id="StoryEngineCustomFilmShowcase"
+                component={StoryEngineCustomFilmShowcase}
+                durationInFrames={7200}
+                fps={24}
+                width={1920}
+                height={1080}
+                defaultProps={STORYENGINE_SHOWCASE_DEFAULT_PROPS}
+                calculateMetadata={({props}) => {
+                    validateStoryEngineShowcaseProps(props);
+                    return {
+                        durationInFrames: 7200,
+                        fps: 24,
+                        width: 1920,
+                        height: 1080,
+                    };
+                }}
+            />
+            <Composition
+                id="StoryEngineCustomFilmShowcaseStagedProof"
+                component={StoryEngineCustomFilmShowcase}
+                durationInFrames={7200}
+                fps={24}
+                width={1920}
+                height={1080}
+                defaultProps={STORYENGINE_SHOWCASE_STAGED_PROOF_PROPS}
+                calculateMetadata={({props}) => {
+                    validateStoryEngineShowcaseProps(props);
+                    return {durationInFrames: 7200, fps: 24, width: 1920, height: 1080};
+                }}
+            />
+            <Composition
+                id="StoryEngineCustomFilmShowcaseSourceClipProof"
+                component={StoryEngineCustomFilmShowcase}
+                durationInFrames={7200}
+                fps={24}
+                width={1920}
+                height={1080}
+                defaultProps={STORYENGINE_SHOWCASE_SOURCE_CLIP_PROOF_PROPS}
+                calculateMetadata={({props}) => {
+                    validateStoryEngineShowcaseProps(props);
+                    return {durationInFrames: 7200, fps: 24, width: 1920, height: 1080};
+                }}
             />
         </>
     );

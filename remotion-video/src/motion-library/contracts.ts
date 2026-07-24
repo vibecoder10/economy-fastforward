@@ -99,9 +99,7 @@ export const signalPulseEnergy = (frame: number, fps: number): number => {
   return signalPulseBurstFrames(fps).reduce((strongest, burst) => {
     const elapsed = cycle - burst;
     if (elapsed < 0 || elapsed > release) return strongest;
-    const value = elapsed <= attack
-      ? elapsed / attack
-      : 1 - (elapsed - attack) / (release - attack);
+    const value = 1 - elapsed / release;
     return Math.max(strongest, value);
   }, 0);
 };

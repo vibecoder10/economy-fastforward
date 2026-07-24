@@ -11656,3 +11656,30 @@ control writes without losing the video, approval, or confirmation.
   knobs, or additional selector controls.
 - When `custom_film_plan` is absent, the existing public-profile and legacy
   pipeline branches, copy, steps, and visuals are unchanged.
+
+# M3-3 Custom Film five-minute Remotion composition (added 2026-07-23)
+
+- `remotion-video/src/showcase/StoryEngineCustomFilmShowcase.tsx` owns one
+  exact 7,200-frame, 24 fps, 1920x1080 reference composition. Its four approved
+  sections start at frames 0, 1080, 3600, and 5760; 34 contiguous cues fill
+  every frame without transition overlap or duration drift.
+- The global turquoise signal is derived only from the absolute Remotion
+  frame and remains visible across treatment phases, including the exact title
+  burst at frame 972. All authored Sequences premount; no CSS, wall-clock,
+  random, remote, or token-driven animation owns timing.
+- Approved section assets resolve from immutable source keys to deterministic
+  local paths under `custom-film-sources/{kind}/{sha256(source_key)}`.
+  Composition layers consume the approved images, videos, narration, native
+  clip audio, and Unicode captions at their exact frame windows. Local
+  overrides may supply only the already-derived path and cannot change source
+  identity, role, media type, section, or timing.
+- Narration sources concatenate in approved order, apply the immutable atempo
+  transform, and exactly partition the section. Native `source_clip` audio is
+  allowed only when non-synthetic approved videos cover the complete section;
+  voice-over videos remain muted to prevent doubled dialogue. Mode/transform
+  mismatches, mixed media, gaps, overlaps, and incomplete native-audio
+  coverage fail closed.
+- The full 300-second master is not yet accepted. M3-3 proof is intentionally
+  limited to comprehensive still inspection plus short exact source and audio
+  renders; M3-5 owns the complete render, rerender, hash, probe, audio, caption,
+  and visual acceptance.

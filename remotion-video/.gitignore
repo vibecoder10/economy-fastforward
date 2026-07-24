@@ -3,6 +3,7 @@ out/
 dist/
 .test-build/
 .motion-test-build/
+.showcase-test-build/
 
 # Dependencies
 node_modules/

@@ -5,7 +5,10 @@ import {SignalPulse} from "./SignalPulse";
 import {COLORS} from "./theme";
 import {assertLocalMotionSources} from "./contracts";
 
-export const EvidenceBoard: React.FC<{photoSrc?: string}> = ({photoSrc}) => {
+export const EvidenceBoard: React.FC<{photoSrc?: string; timelineOffsetFrames?: number}> = ({
+  photoSrc,
+  timelineOffsetFrames = 0,
+}) => {
   if (photoSrc) assertLocalMotionSources([photoSrc]);
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
@@ -21,7 +24,7 @@ export const EvidenceBoard: React.FC<{photoSrc?: string}> = ({photoSrc}) => {
         <path d="M850 520 C920 570 1030 590 1240 560" stroke={COLORS.amber} strokeWidth="3" fill="none" />
       </svg>
       {cards.map((card, index) => {
-        const enter = spring({frame: frame - index * 10, fps, config: {damping: 18}});
+        const enter = spring({frame: frame + timelineOffsetFrames - index * 10, fps, config: {damping: 18}});
         return (
           <div
             key={card.title}

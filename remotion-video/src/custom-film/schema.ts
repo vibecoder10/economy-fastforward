@@ -174,6 +174,10 @@ export const CustomFilmRemotionPropsSchema = z
         runtime_job_id: nonEmptyTextSchema,
         max_spend: z.number().finite().nonnegative(),
         render_engine: z.enum(["ffmpeg", "remotion"]),
+        renderer_contract_version: z
+          .literal("custom-film-remotion-renderer-v1")
+          .optional(),
+        renderer_bundle_hash: hashSchema.optional(),
       })
       .strict(),
     video: z
@@ -198,6 +202,18 @@ export const CustomFilmRemotionPropsSchema = z
   })
   .strict()
   .superRefine((props, context) => {
+    const isAssemblyV3 = props.identity.assembly_version === "custom-film-assembly-v3";
+    const hasRendererIdentity =
+      props.identity.renderer_contract_version ===
+        "custom-film-remotion-renderer-v1" &&
+      typeof props.identity.renderer_bundle_hash === "string";
+    if (isAssemblyV3 !== hasRendererIdentity) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom Film renderer identity does not match assembly version",
+        path: ["identity", "renderer_contract_version"],
+      });
+    }
     const {props_hash: propsHash, ...body} = props;
     if (sha256Hex(canonicalJson(body)) !== propsHash) {
       context.addIssue({
