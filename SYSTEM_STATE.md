@@ -11561,3 +11561,16 @@ control writes without losing the video, approval, or confirmation.
   Producer/co-pilot content. Every accepted recipe command serializes on the
   tenant conversation, records the user and assistant turns together, and
   advances a state revision so an older planner CAS cannot erase its audit.
+
+# M2-7 Custom Film pipeline product truth (added 2026-07-23)
+
+- Frontend `VideoDetail` now types the backend's optional serialized
+  `custom_film_plan` and ordered section contract. `ChatPipelineMap` recognizes
+  that plan as one Custom Film conductor over its sections, not a fifth
+  production profile.
+- The chat pipeline map shows only creator-safe section order, role, duration
+  share, grounded purpose, derived feel, and current production status. It
+  never renders profile IDs, provider/model identifiers, hashes, provenance,
+  knobs, or additional selector controls.
+- When `custom_film_plan` is absent, the existing public-profile and legacy
+  pipeline branches, copy, steps, and visuals are unchanged.
