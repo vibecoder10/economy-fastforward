@@ -16,11 +16,13 @@
   seconds; and the ordered stage plan. Restart consumers must validate its hash
   through `custom_film_runtime.validate_runtime_envelope` before use.
 - `storyengine/backend/custom_film_production_runner.py` is the concrete,
-  operation-aware bridge for section script, voice, and quality stages. It
+  operation-aware bridge for section script, voice, pictures, motion, clips,
+  and quality stages. It
   hands resolved profile, role/purpose, exact seconds, scene assignments,
   language/dubbing/audio behavior, and quality laws to the shared production
-  seams without provider-level Custom Film branches. Imagery, motion, and
-  camera remain fail-closed until M2-4B2c.
+  seams without provider-level Custom Film branches. Media stages enforce the
+  approved exact counts, camera grammar, same per-section asset set, and exact
+  clip-time sum through backend-owned immutable provenance.
 
 > Last updated: 2026-06-12
 
@@ -11434,12 +11436,30 @@ control writes without losing the video, approval, or confirmation.
   the final ordered section stage, so imagery/motion artifacts exist before the
   approved laws are evaluated.
 - Pictures, motion, and clips use deterministic per-scene child journal
-  operations and stable database asset IDs. Recovery returns completed child
-  results or checkpoints already durable image/prompt/clip artifacts before
-  any replay. The existing multi-provider image/clip wrappers do not expose one
-  safely queryable task for the whole scene, so their child operations declare
-  opaque reconciliation and fail closed if no durable checkpoint exists;
-  automatic retry is never used to guess across a possible BYOK spend.
+  operations and stable database asset IDs. Migration 126 adds backend-only
+  `custom_film_asset_provenance`, whose composite asset/section/provider-
+  operation foreign keys and immutable runtime/request/contract identity bind
+  each accepted artifact to one exact approved section execution. Picture
+  generation snapshots pre-existing scene assets and may provenance only the
+  newly generated exact asset set; pending placeholders and stale legacy rows
+  cannot become checkpoints.
+- The approved `estimated_media.still_images` and `animation_clips` values are
+  exact execution counts, not hints. Coverage density directly determines the
+  exact picture plan; static-documentary and coverage generators fail closed
+  on count mismatch. Custom Film picture generation suppresses the legacy
+  inline motion writer. The dedicated motion stage writes only to the exact
+  picture asset IDs, and the clip stage targets that same set while
+  deterministically allocating the section's exact integer seconds to
+  millisecond precision.
+- Recovery returns completed child results or checkpoints only when real
+  image/prompt/clip artifacts match the exact runtime, operation, request, and
+  immutable section contract. Quality runs only after provenance proves exact
+  counts, the same asset IDs across all required media stages, valid motion,
+  and an exact clip-duration sum. The existing multi-provider image/clip
+  wrappers do not expose one safely queryable task for the whole scene, so
+  their child operations declare opaque reconciliation and fail closed if no
+  exact durable checkpoint exists; automatic retry is never used to guess
+  across a possible BYOK spend.
 - All new shared-function parameters are optional. Legacy video-wide static,
   coverage, camera, motion, and clip callers retain their previous inputs and
   behavior.

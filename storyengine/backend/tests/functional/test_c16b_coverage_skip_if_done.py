@@ -166,7 +166,7 @@ def _scenes(numbers):
     return [{"scene": n, "scene_text": SCENE_TEXT} for n in numbers]
 
 
-def _patch_noop_helpers():
+def _patch_noop_helpers(motion_mock=None):
     """Every per-scene helper C16b does not touch, patched to harmless no-ops
     so each test exercises ONLY the skip/allowlist/force decision."""
     return [
@@ -176,7 +176,10 @@ def _patch_noop_helpers():
         patch("scripts.coverage_to_app._approved_envs", AsyncMock(return_value=[])),
         patch("scripts.coverage_to_app.store_scene", AsyncMock(return_value=2)),
         patch("scripts.coverage_to_app.set_scene_board", AsyncMock(return_value=True)),
-        patch("scripts.coverage_to_app._write_motion_prompts", AsyncMock(return_value=0)),
+        patch(
+            "scripts.coverage_to_app._write_motion_prompts",
+            motion_mock or AsyncMock(return_value=0),
+        ),
         patch("scripts.coverage_to_app.populate_characters", AsyncMock(return_value=0)),
         patch("scripts.coverage_to_app._reconcile_moment_dialogue", lambda moments, text: None),
     ]
@@ -197,7 +200,8 @@ def _fresh_run_coverage_output(**_kwargs):
 
 def _run(fakedb, **kwargs):
     run_coverage_mock = AsyncMock(side_effect=_fresh_run_coverage_output)
-    patches = _patch_noop_helpers() + [
+    motion_mock = AsyncMock(return_value=0)
+    patches = _patch_noop_helpers(motion_mock) + [
         patch("scripts.coverage_to_app.fetch_one", fakedb.fetch_one),
         patch("scripts.coverage_to_app.fetch_all", fakedb.fetch_all),
         patch("scripts.coverage_to_app.execute", fakedb.execute),
@@ -210,11 +214,41 @@ def _run(fakedb, **kwargs):
     finally:
         for p in patches:
             p.stop()
+    run_coverage_mock.inline_motion_mock = motion_mock
     return result, run_coverage_mock
 
 
 def _called_scenes(run_coverage_mock) -> list:
     return [c.kwargs["beat_scenes"][0] for c in run_coverage_mock.await_args_list]
+
+
+def test_custom_film_coverage_defers_motion_to_exact_motion_stage():
+    fakedb = FakeDB(
+        scenes=_scenes([1]),
+        saved_by_scene={1: None},
+        drawn_by_scene={1: 0},
+    )
+    section_contract = {
+        "render_mode": "coverage",
+        "image_source": "generate",
+        "expected_still_images": 2,
+        "expected_animation_clips": 2,
+        "image_density": {"mode": "visual_cue", "target_per_minute": 2},
+        "animation": {"enabled": True, "mode": "grok_native"},
+        "camera": {"mode": "investigative_coverage"},
+        "visual_profile": "neutral_v1",
+        "exact_seconds": 7,
+    }
+
+    result, coverage = _run(fakedb, section_contract=section_contract)
+
+    assert result["status"] == "completed"
+    coverage.assert_awaited_once()
+    assert coverage.await_args.kwargs["max_moments"] == 2
+    assert coverage.await_args.kwargs["angles_min"] == 0
+    assert coverage.await_args.kwargs["angles_max"] == 0
+    assert coverage.await_args.kwargs["max_frames"] == 2
+    coverage.inline_motion_mock.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

@@ -2601,6 +2601,7 @@ def _coverage_shape(
     scene_text: str,
     dialogue_audio: str = "voice_over",
     production_style_snapshot=None,
+    section_contract=None,
 ):
     """(max_moments, angles_min, angles_max, max_frames) — THE per-scene shot
     budget (D1). Every image pathway funnels through here, so this one
@@ -2624,6 +2625,23 @@ def _coverage_shape(
     Non-dialogue scene → the classic 3-moment coverage, 2–3 matched angles.
     Lines are never lost regardless of caps — _reconcile_moment_dialogue
     folds overflow turns onto that speaker's shot."""
+    if section_contract is not None:
+        expected = section_contract.get("expected_still_images")
+        density = section_contract.get("image_density")
+        if (
+            type(expected) is not int
+            or expected < 1
+            or not isinstance(density, dict)
+            or density.get("mode") not in {"dialogue_shape", "visual_cue"}
+            or not isinstance(density.get("target_per_minute"), (int, float))
+            or isinstance(density.get("target_per_minute"), bool)
+            or density["target_per_minute"] <= 0
+        ):
+            raise ValueError("Invalid exact Custom Film coverage count")
+        # The approved BOM is the hard provider ceiling and floor. Density
+        # materially changes this value upstream; one master per planned cue
+        # makes the shared coverage planner target exactly that many frames.
+        return expected, 0, 0, expected
     turns = _dialogue_turn_count(scene_text)
     if _production_density_mode(production_style_snapshot) == "visual_cue":
         cues = max(_visual_cue_count(scene_text), turns + (1 if turns else 0))
@@ -3003,6 +3021,7 @@ async def _write_motion_prompts(
     claude,
     model=None,
     section_contract=None,
+    asset_ids=None,
 ) -> int:
     """One Claude call writes the per-shot CAMERA MOTION for the scene's coverage
     frames; the spoken line was already assigned by the coverage planner (stored on
@@ -3037,11 +3056,23 @@ async def _write_motion_prompts(
         camera_mode = str(camera["mode"])
         exact_seconds = int(section_contract["exact_seconds"])
 
+    if asset_ids is not None and (
+        not isinstance(asset_ids, list)
+        or not asset_ids
+        or len(set(asset_ids)) != len(asset_ids)
+    ):
+        raise ValueError("Invalid Custom Film motion asset allowlist")
     rows = await fetch_all(
         "SELECT id, shot_type, image_prompt, sentence_text, assigned_dialogue, camera_movement "
         "FROM assets "
         "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 AND generation_method='coverage' "
-        "ORDER BY image_index", vid, tenant, scene)
+        + ("AND id = ANY($4::uuid[]) " if asset_ids is not None else "")
+        + "ORDER BY image_index",
+        vid,
+        tenant,
+        scene,
+        *([asset_ids] if asset_ids is not None else []),
+    )
     if not rows:
         return 0
     srow = await fetch_one(
@@ -3239,6 +3270,13 @@ async def generate_coverage_for_video(
             or section_contract.get("image_source") != "generate"
             or not isinstance(density, dict)
             or density.get("mode") not in {"dialogue_shape", "visual_cue"}
+            or not isinstance(density.get("target_per_minute"), (int, float))
+            or isinstance(density.get("target_per_minute"), bool)
+            or density["target_per_minute"] <= 0
+            or type(section_contract.get("expected_still_images")) is not int
+            or section_contract["expected_still_images"] < 1
+            or section_contract.get("expected_animation_clips")
+            != section_contract["expected_still_images"]
             or not isinstance(animation, dict)
             or animation.get("enabled") is not True
             or animation.get("mode") != "grok_native"
@@ -3333,6 +3371,7 @@ async def generate_coverage_for_video(
             s["scene_text"] or "",
             dialogue_audio,
             production_style_snapshot,
+            section_contract,
         )
         # An explicit ask for THIS scene (the per-scene "regenerate scene N"
         # button, or this scene named in only_scenes) always redraws — an
@@ -3442,11 +3481,12 @@ async def generate_coverage_for_video(
             await set_scene_board(vid, tenant, sc, outdir, title=title)
         # Write a real per-shot grok-imagine MOTION prompt onto each frame, so the clip
         # generator animates with intent instead of falling back to a hardcoded push-in.
-        try:
-            _p(f"Scene {sc}: writing camera motion…")
-            await _write_motion_prompts(vid, tenant, sc, claude, claude_model)
-        except Exception as e:  # noqa: BLE001
-            _p(f"(motion prompts skipped: {e})")
+        if section_contract is None:
+            try:
+                _p(f"Scene {sc}: writing camera motion…")
+                await _write_motion_prompts(vid, tenant, sc, claude, claude_model)
+            except Exception as e:  # noqa: BLE001
+                _p(f"(motion prompts skipped: {e})")
         total += n
         _p(f"Scene {sc}: {n} coverage frames + board done")
 
@@ -3462,6 +3502,14 @@ async def generate_coverage_for_video(
         _p(f"(couldn't fill the Characters tab: {e})")
 
     processed = len(targets) - skipped
+    if section_contract is not None and total != section_contract["expected_still_images"]:
+        return {
+            "status": "failed",
+            "error": (
+                "coverage frame count did not match the approved section BOM: "
+                f"expected {section_contract['expected_still_images']}, got {total}"
+            ),
+        }
     msg = f"Coverage done: {total} frames across {processed} scene(s)"
     if skipped:
         msg += f" ({skipped} scene(s) already done, skipped)"

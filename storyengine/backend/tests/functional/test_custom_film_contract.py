@@ -554,6 +554,7 @@ def test_migration_122_and_fresh_schema_match_security_and_scene_foundation():
         int(path.name.split("_", 1)[0])
         for path in (root / "backend" / "migrations").glob("[0-9][0-9][0-9]_*.sql")
     ]
-    # M2-4A's envelope, B1 restart progress, and B2a provider-operation
-    # reconciliation journal are additive migrations.
-    assert max(migration_numbers) == 125
+    # M2-4A's envelope, B1 restart progress, B2a provider-operation
+    # reconciliation journal, and B2c per-asset provenance are additive
+    # migrations.
+    assert max(migration_numbers) == 126

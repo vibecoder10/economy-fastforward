@@ -17,6 +17,7 @@ import copy
 import json
 import uuid
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from typing import Any, Awaitable, Callable, Mapping, Protocol
 
 from custom_film_contract import CustomFilmContractError, canonical_hash
@@ -64,6 +65,27 @@ def _exact_scene_ids(values: tuple[str, ...], *, required: bool) -> tuple[str, .
     return tuple(value.strip() for value in values)
 
 
+def _allocate_integer(total: int, count: int) -> tuple[int, ...]:
+    if type(total) is not int or total < 0 or type(count) is not int or count < 1:
+        raise CustomFilmContractError("Custom Film media allocation is invalid")
+    base, remainder = divmod(total, count)
+    values = tuple(base + (1 if index < remainder else 0) for index in range(count))
+    if any(value < 1 for value in values) or sum(values) != total:
+        raise CustomFilmContractError(
+            "Custom Film approved media count cannot cover every assigned scene"
+        )
+    return values
+
+
+def _allocate_seconds(exact_seconds: int, count: int) -> tuple[Decimal, ...]:
+    total_ms = exact_seconds * 1000
+    allocations = _allocate_integer(total_ms, count)
+    values = tuple(Decimal(value) / Decimal(1000) for value in allocations)
+    if sum(values, Decimal(0)) != Decimal(exact_seconds):
+        raise CustomFilmContractError("Custom Film clip timing does not reconcile")
+    return values
+
+
 @dataclass(frozen=True)
 class SectionProductionRequest:
     operation_id: str
@@ -77,6 +99,7 @@ class SectionProductionRequest:
     role: str
     purpose: str
     scene_ids: tuple[str, ...]
+    asset_ids: tuple[str, ...]
     render_mode: str
     script_profile: str
     visual_profile: str
@@ -90,6 +113,8 @@ class SectionProductionRequest:
     quality_laws: tuple[str, ...]
     image_source: str
     estimated_media: Mapping[str, Any]
+    expected_still_images: int
+    expected_animation_clips: int
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -104,6 +129,7 @@ class SectionProductionRequest:
             "role": self.role,
             "purpose": self.purpose,
             "scene_ids": list(self.scene_ids),
+            "asset_ids": list(self.asset_ids),
             "render_mode": self.render_mode,
             "script_profile": self.script_profile,
             "visual_profile": self.visual_profile,
@@ -117,6 +143,8 @@ class SectionProductionRequest:
             "quality_laws": list(self.quality_laws),
             "image_source": self.image_source,
             "estimated_media": _plain(self.estimated_media),
+            "expected_still_images": self.expected_still_images,
+            "expected_animation_clips": self.expected_animation_clips,
         }
 
 
@@ -152,6 +180,8 @@ def _request(
     adapter: SectionStageAdapter,
     scene_ids: tuple[str, ...],
     operation_id: str,
+    *,
+    asset_ids: tuple[str, ...] = (),
 ) -> SectionProductionRequest:
     if adapter.stage not in SUPPORTED_PRODUCTION_STAGES:
         raise CustomFilmContractError(
@@ -244,6 +274,20 @@ def _request(
         raise CustomFilmContractError(
             "Custom Film script stage cannot reuse stale scene assignments"
         )
+    assets = _exact_scene_ids(asset_ids, required=False)
+    still_images = adapter.estimated_media.get("still_images")
+    animation_clips = adapter.estimated_media.get("animation_clips")
+    if (
+        type(still_images) is not int
+        or still_images < 1
+        or type(animation_clips) is not int
+        or animation_clips < 0
+        or (animated and animation_clips != still_images)
+        or (not animated and animation_clips != 0)
+    ):
+        raise CustomFilmContractError(
+            "Custom Film approved media counts are invalid"
+        )
     return SectionProductionRequest(
         operation_id=operation_id,
         runtime_hash=adapter.runtime_hash,
@@ -256,6 +300,7 @@ def _request(
         role=adapter.role,
         purpose=adapter.purpose,
         scene_ids=scenes,
+        asset_ids=assets,
         render_mode=adapter.render_mode,
         script_profile=adapter.script_profile,
         visual_profile=adapter.visual_profile,
@@ -269,6 +314,8 @@ def _request(
         quality_laws=adapter.quality_laws,
         image_source=adapter.image_source,
         estimated_media=adapter.estimated_media,
+        expected_still_images=still_images,
+        expected_animation_clips=animation_clips,
     )
 
 
@@ -605,6 +652,18 @@ class CustomFilmProductionRunner:
                 "Custom Film parent media operation identity changed"
             )
         child_results: list[dict[str, Any]] = []
+        still_allocations = _allocate_integer(
+            parent_request.expected_still_images,
+            len(parent_request.scene_ids),
+        )
+        clip_allocations = (
+            _allocate_integer(
+                parent_request.expected_animation_clips,
+                len(parent_request.scene_ids),
+            )
+            if parent_request.expected_animation_clips
+            else (0,) * len(parent_request.scene_ids)
+        )
         for scene_index, scene_id in enumerate(parent_request.scene_ids):
             child_operation_id = "custom-film-op:" + canonical_hash(
                 {
@@ -617,6 +676,8 @@ class CustomFilmProductionRunner:
                 parent_request,
                 operation_id=child_operation_id,
                 scene_ids=(scene_id,),
+                expected_still_images=still_allocations[scene_index],
+                expected_animation_clips=clip_allocations[scene_index],
             )
             provider, mode = self.seams.operation_metadata(child_request)
             spec = ProviderOperationSpec(
@@ -862,7 +923,7 @@ class SharedSectionProductionSeams:
             )
         return int(rows[0]["scene"])
 
-    async def _asset_rows(
+    async def _raw_asset_rows(
         self,
         request: SectionProductionRequest,
     ) -> list[dict[str, Any]]:
@@ -873,7 +934,9 @@ class SharedSectionProductionSeams:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT id, image_url, drive_image_url, video_prompt,
-                          video_clip_url, generation_method
+                          video_clip_url, generation_method, image_model,
+                          model_used, status, motion_gate_status,
+                          duration_seconds
                    FROM assets
                    WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                      AND scene = $3
@@ -884,33 +947,235 @@ class SharedSectionProductionSeams:
             )
         return [dict(row) for row in rows]
 
+    @staticmethod
+    def _artifact_url(request: SectionProductionRequest, row: Mapping[str, Any]) -> str:
+        if request.stage == "pictures":
+            return str(row.get("drive_image_url") or row.get("image_url") or "").strip()
+        if request.stage == "motion":
+            prompt = str(row.get("video_prompt") or "").strip()
+            return (
+                "motion-prompt:"
+                + canonical_hash(
+                    {
+                        "asset_id": str(row.get("id") or ""),
+                        "prompt": prompt,
+                        "camera": _plain(request.camera),
+                    }
+                )
+                if prompt
+                else ""
+            )
+        return str(row.get("video_clip_url") or "").strip()
+
+    @staticmethod
+    def _section_contract_hash(
+        request: SectionProductionRequest,
+        *,
+        stage: str | None = None,
+    ) -> str:
+        payload = request.payload()
+        payload.pop("operation_id", None)
+        payload.pop("asset_ids", None)
+        payload.pop("expected_still_images", None)
+        payload.pop("expected_animation_clips", None)
+        payload["stage"] = stage or request.stage
+        return canonical_hash(payload)
+
+    async def _record_media_provenance(
+        self,
+        request: SectionProductionRequest,
+        rows: list[dict[str, Any]],
+        *,
+        durations: Mapping[str, Decimal] | None = None,
+    ) -> None:
+        expected = (
+            request.expected_still_images
+            if request.stage in {"pictures", "motion"}
+            else request.expected_animation_clips
+        )
+        if len(rows) != expected:
+            raise CustomFilmContractError(
+                f"Custom Film {request.stage} count does not match the approved estimate"
+            )
+        request_hash = canonical_hash(request.payload())
+        prepared_rows: list[tuple[dict[str, Any], str, str, Decimal | None]] = []
+        for row in rows:
+            asset_id = str(row.get("id") or "")
+            artifact_url = self._artifact_url(request, row)
+            if not asset_id or not artifact_url:
+                raise CustomFilmContractError(
+                    f"Custom Film {request.stage} artifact is incomplete"
+                )
+            if request.stage == "pictures" and (
+                str(row.get("status") or "") != "done"
+                or not str(row.get("image_url") or "").strip()
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film picture is not a genuinely generated image"
+                )
+            if request.stage == "motion" and (
+                str(row.get("motion_gate_status") or "") == "blocked"
+                or not str(row.get("video_prompt") or "").strip()
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film motion prompt is missing or blocked"
+                )
+            exact_duration = (
+                durations.get(asset_id) if durations is not None else None
+            )
+            prepared_rows.append((row, asset_id, artifact_url, exact_duration))
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for row, asset_id, artifact_url, exact_duration in prepared_rows:
+                    await conn.execute(
+                        """INSERT INTO custom_film_asset_provenance
+                             (tenant_id, video_id, asset_id, plan_id, section_id,
+                              runtime_hash, stage, operation_id, request_hash,
+                              section_contract_hash, generation_method,
+                              provider_model, status,
+                              artifact_url_hash, exact_duration_seconds,
+                              completed_at)
+                           VALUES
+                             ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
+                              $6, $7, $8, $9, $10, $11, $12, 'completed',
+                              $13, $14, now())
+                           ON CONFLICT
+                             (tenant_id, video_id, asset_id, runtime_hash, stage)
+                           DO NOTHING""",
+                        self.tenant_id,
+                        request.video_id,
+                        asset_id,
+                        request.plan_id,
+                        request.section_id,
+                        request.runtime_hash,
+                        request.stage,
+                        request.operation_id,
+                        request_hash,
+                        self._section_contract_hash(request),
+                        str(row.get("generation_method") or ""),
+                        str(
+                            row.get("image_model")
+                            or row.get("model_used")
+                            or ""
+                        )
+                        or None,
+                        canonical_hash({"artifact_url": artifact_url}),
+                        exact_duration,
+                    )
+
+    async def _section_completed_rows(
+        self,
+        request: SectionProductionRequest,
+        *,
+        stage: str,
+        expected: int,
+    ) -> list[dict[str, Any]]:
+        scene = await self._scene_number(request)
+        contract_hash = self._section_contract_hash(request, stage=stage)
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT a.id, a.image_url, a.drive_image_url, a.video_prompt,
+                          a.video_clip_url, a.generation_method, a.image_model,
+                          a.model_used, a.status, a.motion_gate_status,
+                          p.exact_duration_seconds
+                   FROM custom_film_asset_provenance p
+                   JOIN assets a
+                     ON (a.tenant_id, a.video_id, a.id)
+                      = (p.tenant_id, p.video_id, p.asset_id)
+                   WHERE p.tenant_id = $1::uuid AND p.video_id = $2::uuid
+                     AND p.plan_id = $3::uuid AND p.section_id = $4::uuid
+                     AND p.runtime_hash = $5 AND p.stage = $6
+                     AND p.section_contract_hash = $7
+                     AND p.status = 'completed' AND a.scene = $8
+                   ORDER BY a.image_index, a.id""",
+                self.tenant_id,
+                request.video_id,
+                request.plan_id,
+                request.section_id,
+                request.runtime_hash,
+                stage,
+                contract_hash,
+                scene,
+            )
+        values = [dict(row) for row in rows]
+        if len(values) != expected:
+            raise CustomFilmContractError(
+                f"Custom Film {stage} provenance/count is incomplete"
+            )
+        return values
+
+    async def _provenance_rows(
+        self,
+        request: SectionProductionRequest,
+    ) -> list[dict[str, Any]]:
+        scene = await self._scene_number(request)
+        request_hash = canonical_hash(request.payload())
+        expected = (
+            request.expected_still_images
+            if request.stage in {"pictures", "motion"}
+            else request.expected_animation_clips
+        )
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT a.id, a.image_url, a.drive_image_url, a.video_prompt,
+                          a.video_clip_url, a.generation_method, a.image_model,
+                          a.model_used, a.status, a.motion_gate_status,
+                          p.exact_duration_seconds
+                   FROM custom_film_asset_provenance p
+                   JOIN assets a
+                     ON (a.tenant_id, a.video_id, a.id)
+                      = (p.tenant_id, p.video_id, p.asset_id)
+                   WHERE p.tenant_id = $1::uuid AND p.video_id = $2::uuid
+                     AND p.plan_id = $3::uuid AND p.section_id = $4::uuid
+                     AND p.runtime_hash = $5 AND p.stage = $6
+                     AND p.operation_id = $7 AND p.request_hash = $8
+                     AND p.status = 'completed' AND a.scene = $9
+                   ORDER BY a.image_index, a.id""",
+                self.tenant_id,
+                request.video_id,
+                request.plan_id,
+                request.section_id,
+                request.runtime_hash,
+                request.stage,
+                request.operation_id,
+                request_hash,
+                scene,
+            )
+        values = [dict(row) for row in rows]
+        if len(values) != expected:
+            return []
+        if request.asset_ids and tuple(str(row["id"]) for row in values) != request.asset_ids:
+            return []
+        return values
+
     async def _media_artifact_checkpoint(
         self,
         request: SectionProductionRequest,
     ) -> dict[str, Any] | None:
-        rows = await self._asset_rows(request)
+        rows = await self._provenance_rows(request)
         artifacts: list[dict[str, Any]] = []
         for row in rows:
-            if request.stage == "pictures":
-                url = str(
-                    row.get("drive_image_url") or row.get("image_url") or ""
-                ).strip()
-            elif request.stage == "motion":
-                prompt = str(row.get("video_prompt") or "").strip()
-                url = (
-                    "motion-prompt:" + canonical_hash(
-                        {
-                            "asset_id": str(row.get("id") or ""),
-                            "prompt": prompt,
-                            "camera": _plain(request.camera),
-                        }
-                    )
-                    if prompt
-                    else ""
-                )
-            else:
-                url = str(row.get("video_clip_url") or "").strip()
+            url = self._artifact_url(request, row)
             if not url:
+                return None
+            if request.stage == "pictures" and (
+                str(row.get("status") or "") != "done"
+                or not str(row.get("image_url") or "").strip()
+            ):
+                return None
+            if request.stage == "motion" and (
+                str(row.get("motion_gate_status") or "") == "blocked"
+                or not str(row.get("video_prompt") or "").strip()
+            ):
                 return None
             artifacts.append(
                 {
@@ -920,6 +1185,11 @@ class SharedSectionProductionSeams:
                         row.get("generation_method") or ""
                     ),
                     "reused": True,
+                    "exact_duration_seconds": (
+                        str(row.get("exact_duration_seconds"))
+                        if row.get("exact_duration_seconds") is not None
+                        else None
+                    ),
                 }
             )
         if not artifacts:
@@ -941,6 +1211,11 @@ class SharedSectionProductionSeams:
     async def _pictures(self, request: SectionProductionRequest) -> dict[str, Any]:
         scene = await self._scene_number(request)
         contract = request.payload()
+        before_asset_ids = {
+            str(row.get("id") or "")
+            for row in await self._raw_asset_rows(request)
+            if row.get("id")
+        }
         if request.render_mode == "static_docu":
             from static_docu import generate_static_images_for_video
 
@@ -963,6 +1238,17 @@ class SharedSectionProductionSeams:
             raise CustomFilmContractError(
                 "Custom Film section pictures did not complete"
             )
+        rows = await self._raw_asset_rows(request)
+        expected_method = "static_docu" if request.render_mode == "static_docu" else "coverage"
+        rows = [
+            row
+            for row in rows
+            if str(row.get("id") or "") not in before_asset_ids
+            if str(row.get("generation_method") or "") == expected_method
+            and str(row.get("status") or "") == "done"
+            and str(row.get("image_url") or "").strip()
+        ]
+        await self._record_media_provenance(request, rows)
         checkpoint = await self._media_artifact_checkpoint(request)
         if checkpoint is None:
             raise CustomFilmContractError(
@@ -981,6 +1267,14 @@ class SharedSectionProductionSeams:
         from scripts.coverage_to_app import _write_motion_prompts
         from shared.channel_profile import claude_model_for_direct_client
 
+        picture_request = replace(request, stage="pictures")
+        picture_rows = await self._section_completed_rows(
+            picture_request,
+            stage="pictures",
+            expected=request.expected_still_images,
+        )
+        asset_ids = tuple(str(row["id"]) for row in picture_rows)
+        request = replace(request, asset_ids=asset_ids)
         written = await _write_motion_prompts(
             request.video_id,
             self.tenant_id,
@@ -988,11 +1282,16 @@ class SharedSectionProductionSeams:
             client,
             model=claude_model_for_direct_client(client),
             section_contract=request.payload(),
+            asset_ids=list(asset_ids),
         )
-        if type(written) is not int or written < 1:
+        if type(written) is not int or written != request.expected_still_images:
             raise CustomFilmContractError(
                 "Custom Film section motion prompts did not complete"
             )
+        rows = await self._raw_asset_rows(request)
+        rows_by_id = {str(row["id"]): row for row in rows}
+        exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
+        await self._record_media_provenance(request, exact_rows)
         checkpoint = await self._media_artifact_checkpoint(request)
         if checkpoint is None:
             raise CustomFilmContractError(
@@ -1002,16 +1301,60 @@ class SharedSectionProductionSeams:
 
     async def _clips(self, request: SectionProductionRequest) -> dict[str, Any]:
         scene = await self._scene_number(request)
+        picture_request = replace(request, stage="pictures")
+        picture_rows = await self._section_completed_rows(
+            picture_request,
+            stage="pictures",
+            expected=request.expected_still_images,
+        )
+        asset_ids = tuple(str(row["id"]) for row in picture_rows)
+        if len(asset_ids) != request.expected_animation_clips:
+            raise CustomFilmContractError(
+                "Custom Film approved clip count does not match picture assets"
+            )
+        request = replace(request, asset_ids=asset_ids)
+        durations = _allocate_seconds(request.exact_seconds, len(asset_ids))
+        duration_by_id = dict(zip(asset_ids, durations))
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                for asset_id, duration in duration_by_id.items():
+                    updated = await conn.execute(
+                        """UPDATE assets
+                           SET duration_seconds = $4,
+                               assigned_video_duration = $4,
+                               updated_at = now()
+                           WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                             AND id = $3::uuid""",
+                        self.tenant_id,
+                        request.video_id,
+                        asset_id,
+                        duration,
+                    )
+                    if not str(updated).endswith(" 1"):
+                        raise CustomFilmContractError(
+                            "Custom Film clip timing could not be persisted"
+                        )
         executor = await self._ready_executor()
         result = await executor.run_clip_generation(
             request.video_id,
-            only_scenes=[scene],
+            asset_ids=list(asset_ids),
             section_contract=request.payload(),
         )
         if not isinstance(result, Mapping) or result.get("status") != "completed":
             raise CustomFilmContractError(
                 "Custom Film section clips did not complete"
             )
+        rows = await self._raw_asset_rows(request)
+        rows_by_id = {str(row["id"]): row for row in rows}
+        exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
+        await self._record_media_provenance(
+            request,
+            exact_rows,
+            durations=duration_by_id,
+        )
         checkpoint = await self._media_artifact_checkpoint(request)
         if checkpoint is None:
             raise CustomFilmContractError(
@@ -1402,6 +1745,7 @@ class SharedSectionProductionSeams:
 
     async def _quality(self, request: SectionProductionRequest) -> dict[str, Any]:
         rows = await self._scene_rows(request)
+        await self._quality_media_preflight(request)
         executor = await self._ready_executor()
         client = getattr(executor._pipeline, "anthropic", None)
         if client is None:
@@ -1444,3 +1788,97 @@ class SharedSectionProductionSeams:
             "score": grade.score,
             "exact_seconds": request.exact_seconds,
         }
+
+    async def _quality_media_preflight(
+        self,
+        request: SectionProductionRequest,
+    ) -> None:
+        required_stages = ["pictures"]
+        if bool(request.animation.get("enabled")):
+            required_stages.extend(("motion", "clips"))
+        import database
+
+        pool = await database.get_pool()
+        stage_assets: dict[str, tuple[str, ...]] = {}
+        clip_duration = Decimal(0)
+        async with pool.acquire() as conn:
+            for stage in required_stages:
+                rows = await conn.fetch(
+                    """SELECT p.asset_id, p.exact_duration_seconds,
+                              a.image_url, a.status, a.video_prompt,
+                              a.motion_gate_status, a.video_clip_url
+                       FROM custom_film_asset_provenance p
+                       JOIN assets a
+                         ON (a.tenant_id, a.video_id, a.id)
+                          = (p.tenant_id, p.video_id, p.asset_id)
+                       WHERE p.tenant_id = $1::uuid
+                         AND p.video_id = $2::uuid
+                         AND p.plan_id = $3::uuid
+                         AND p.section_id = $4::uuid
+                         AND p.runtime_hash = $5
+                         AND p.stage = $6
+                         AND p.section_contract_hash = $7
+                         AND p.status = 'completed'
+                       ORDER BY p.asset_id""",
+                    self.tenant_id,
+                    request.video_id,
+                    request.plan_id,
+                    request.section_id,
+                    request.runtime_hash,
+                    stage,
+                    self._section_contract_hash(request, stage=stage),
+                )
+                values = [dict(row) for row in rows]
+                expected = (
+                    request.expected_animation_clips
+                    if stage == "clips"
+                    else request.expected_still_images
+                )
+                if len(values) != expected:
+                    raise CustomFilmContractError(
+                        f"Custom Film quality preflight found incomplete {stage}"
+                    )
+                if stage == "pictures" and any(
+                    str(row.get("status") or "") != "done"
+                    or not str(row.get("image_url") or "").strip()
+                    for row in values
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film quality preflight found invalid pictures"
+                    )
+                if stage == "motion" and any(
+                    str(row.get("motion_gate_status") or "") == "blocked"
+                    or not str(row.get("video_prompt") or "").strip()
+                    for row in values
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film quality preflight found invalid motion"
+                    )
+                if stage == "clips":
+                    if any(
+                        not str(row.get("video_clip_url") or "").strip()
+                        or row.get("exact_duration_seconds") is None
+                        for row in values
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film quality preflight found invalid clips"
+                        )
+                    clip_duration = sum(
+                        (
+                            Decimal(str(row["exact_duration_seconds"]))
+                            for row in values
+                        ),
+                        Decimal(0),
+                    )
+                stage_assets[stage] = tuple(str(row["asset_id"]) for row in values)
+        picture_assets = stage_assets["pictures"]
+        if any(stage_assets[stage] != picture_assets for stage in required_stages[1:]):
+            raise CustomFilmContractError(
+                "Custom Film media stages do not own the same approved asset set"
+            )
+        if "clips" in required_stages and clip_duration != Decimal(
+            request.exact_seconds
+        ):
+            raise CustomFilmContractError(
+                "Custom Film clip timing does not equal exact section seconds"
+            )

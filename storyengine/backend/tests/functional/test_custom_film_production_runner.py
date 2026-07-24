@@ -29,7 +29,9 @@ def _adapter(
     dialogue_audio: str = "voice_over",
     dubbing: bool = False,
     static: bool = False,
+    media_count: int | None = None,
 ) -> SectionStageAdapter:
+    resolved_media_count = media_count if media_count is not None else (3 if static else 1)
     return SectionStageAdapter(
         runtime_hash="a" * 64,
         plan_id="plan-1",
@@ -82,7 +84,11 @@ def _adapter(
         ),
         image_source="generate",
         provenance={"script_profile": [profile]},
-        estimated_media={"voice_tracks": 2 if dubbing else 1},
+        estimated_media={
+            "still_images": resolved_media_count,
+            "animation_clips": 0 if static else resolved_media_count,
+            "voice_tracks": 2 if dubbing else 1,
+        },
     )
 
 
@@ -718,6 +724,9 @@ async def test_shared_quality_seam_passes_approved_laws_to_real_critic_contract(
         )
 
     monkeypatch.setattr(seams, "_scene_rows", rows)
+    async def media_preflight(_request):
+        return None
+    monkeypatch.setattr(seams, "_quality_media_preflight", media_preflight)
     seams._executor = Executor()
     monkeypatch.setattr("script_quality.critique_script", critique)
     result = await seams._quality(request)
@@ -1195,7 +1204,7 @@ def test_visual_request_rejects_tampered_static_motion_before_seam():
 
 @pytest.mark.asyncio
 async def test_media_children_record_tasks_and_reconcile_without_duplicate():
-    adapter = _adapter("pictures", seconds=23)
+    adapter = _adapter("pictures", seconds=23, media_count=2)
     parent_id = "custom-film-op:" + "5" * 64
     journal = _FakeJournal()
     journal.seed_parent(parent_id, adapter)
@@ -1236,6 +1245,8 @@ async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
 ):
     seams = production.SharedSectionProductionSeams("tenant-1")
     captured = []
+    recorded = []
+    raw_call_counts = {}
 
     async def scene_number(_request):
         return 7
@@ -1248,6 +1259,37 @@ async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
             ],
         }
 
+    async def raw_rows(request):
+        key = request.render_mode
+        raw_call_counts[key] = raw_call_counts.get(key, 0) + 1
+        legacy = {
+            "id": f"legacy-{key}",
+            "status": "done",
+            "image_url": "fake://legacy",
+            "drive_image_url": "fake://legacy",
+            "generation_method": (
+                "static_docu" if request.render_mode == "static_docu" else "coverage"
+            ),
+        }
+        if raw_call_counts[key] == 1:
+            return [legacy]
+        count = request.expected_still_images
+        method = "static_docu" if request.render_mode == "static_docu" else "coverage"
+        return [legacy] + [
+            {
+                "id": f"{key}-asset-{index}",
+                "status": "done",
+                "image_url": f"fake://image/{index}",
+                "drive_image_url": f"fake://image/{index}",
+                "generation_method": method,
+            }
+            for index in range(count)
+        ]
+
+    async def record(request, rows, **_kwargs):
+        recorded.append((request.render_mode, [row["id"] for row in rows]))
+        return None
+
     async def static_call(video_id, tenant_id, **kwargs):
         captured.append(("static", video_id, tenant_id, kwargs))
         return {"status": "completed"}
@@ -1258,6 +1300,8 @@ async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
 
     monkeypatch.setattr(seams, "_scene_number", scene_number)
     monkeypatch.setattr(seams, "_media_artifact_checkpoint", checkpoint)
+    monkeypatch.setattr(seams, "_raw_asset_rows", raw_rows)
+    monkeypatch.setattr(seams, "_record_media_provenance", record)
     monkeypatch.setattr(
         "static_docu.generate_static_images_for_video",
         static_call,
@@ -1288,6 +1332,13 @@ async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
         "visual_cue"
     )
     assert captured[1][3]["section_contract"]["exact_seconds"] == 31
+    assert recorded == [
+        (
+            "static_docu",
+            ["static_docu-asset-0", "static_docu-asset-1", "static_docu-asset-2"],
+        ),
+        ("coverage", ["coverage-asset-0"]),
+    ]
 
 
 @pytest.mark.asyncio
@@ -1325,10 +1376,51 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
 
     async def write_motion(*args, **kwargs):
         motion_calls.append((args, kwargs))
-        return 2
+        return 1
+
+    async def completed_rows(*_args, **_kwargs):
+        return [
+            {
+                "id": "asset-1",
+                "status": "done",
+                "image_url": "fake://image/1",
+                "drive_image_url": "fake://image/1",
+                "generation_method": "coverage",
+            }
+        ]
+
+    async def raw_rows(_request):
+        return [
+            {
+                "id": "asset-1",
+                "status": "done",
+                "image_url": "fake://image/1",
+                "drive_image_url": "fake://image/1",
+                "video_prompt": "Locked camera move",
+                "video_clip_url": "fake://clip/1",
+                "generation_method": "coverage",
+            }
+        ]
+
+    async def record(*_args, **_kwargs):
+        return None
+
+    class Conn:
+        async def execute(self, *_args):
+            return "UPDATE 1"
+
+        def transaction(self):
+            return _AsyncContext(None)
+
+    async def get_pool():
+        return _Pool(Conn())
 
     monkeypatch.setattr(seams, "_scene_number", scene_number)
     monkeypatch.setattr(seams, "_media_artifact_checkpoint", checkpoint)
+    monkeypatch.setattr(seams, "_section_completed_rows", completed_rows)
+    monkeypatch.setattr(seams, "_raw_asset_rows", raw_rows)
+    monkeypatch.setattr(seams, "_record_media_provenance", record)
+    monkeypatch.setattr("database.get_pool", get_pool)
     seams._executor = Executor()
     monkeypatch.setattr(
         "scripts.coverage_to_app._write_motion_prompts",
@@ -1350,7 +1442,7 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
         "mode": "investigative_coverage"
     }
     assert motion_calls[0][1]["section_contract"]["exact_seconds"] == 37
-    assert clip_calls[0][1]["only_scenes"] == [4]
+    assert clip_calls[0][1]["asset_ids"] == ["asset-1"]
     assert clip_calls[0][1]["section_contract"]["animation"] == {
         "enabled": True,
         "mode": "grok_native",

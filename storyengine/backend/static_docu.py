@@ -1524,6 +1524,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             or not isinstance(density, dict)
             or density.get("mode") != "per_item"
             or density.get("target") != STATIC_VIEWS_TARGET
+            or section_contract.get("expected_still_images") != STATIC_VIEWS_TARGET
+            or section_contract.get("expected_animation_clips") != 0
             or not isinstance(camera, dict)
             or camera.get("mode") != "three_complementary_views"
             or not isinstance(animation, dict)
@@ -1878,6 +1880,18 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
         if int((o or {}).get("done") or 0) < STATIC_VIEWS_MINIMUM
     ]
     view_count = sum(int((o or {}).get("done") or 0) for o in outcomes)
+    if (
+        section_contract is not None
+        and view_count != section_contract["expected_still_images"]
+    ):
+        return {
+            "status": "failed",
+            "error": (
+                "verified static view count did not match the approved section "
+                f"BOM: expected {section_contract['expected_still_images']}, "
+                f"got {view_count}"
+            ),
+        }
     if not ready:
         return {
             "status": "failed",
