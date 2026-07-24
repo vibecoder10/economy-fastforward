@@ -104,6 +104,11 @@ def test_migration_126_and_fresh_schema_bind_backend_owned_asset_provenance():
         assert "asset provenance status cannot regress" in text
         assert "'prepared', 'submitted', 'completed', 'failed'" in text
         assert "asset provider model is write-once" in text
+        assert "'prepared', 'submitted', 'failed'" in text
+        assert "'prepared', 'submitted', 'completed', 'failed'" not in text[
+            text.index("OLD.status = 'prepared'"):
+            text.index("OR (OLD.status = 'submitted'")
+        ]
         assert "ENABLE ROW LEVEL SECURITY" in text
         assert "REVOKE ALL" in text
 
@@ -201,6 +206,7 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
                 "image_url": "i:a",
                 "drive_image_url": "i:a",
                 "image_model": "image-test",
+                "generation_method": "coverage",
                 "status": "done",
             },
             {
@@ -208,6 +214,7 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
                 "image_url": "i:b",
                 "drive_image_url": "i:b",
                 "image_model": "image-test",
+                "generation_method": "coverage",
                 "status": "done",
             },
         ],
@@ -215,12 +222,14 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
             {
                 "asset_id": "a",
                 "video_prompt": "move a",
-                "motion_gate_status": None,
+                    "motion_gate_status": None,
+                    "generation_method": "coverage",
             },
             {
                 "asset_id": "b",
                 "video_prompt": "move b",
-                "motion_gate_status": None,
+                    "motion_gate_status": None,
+                    "generation_method": "coverage",
             },
         ],
         "clips": [
@@ -231,6 +240,7 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
                 "exact_duration_seconds": Decimal("3.5"),
                 "duration_seconds": Decimal("3.5"),
                 "assigned_video_duration": Decimal("3.5"),
+                "generation_method": "coverage",
             },
             {
                 "asset_id": "b",
@@ -239,6 +249,7 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
                 "exact_duration_seconds": Decimal("3.5"),
                 "duration_seconds": Decimal("3.5"),
                 "assigned_video_duration": Decimal("3.5"),
+                "generation_method": "coverage",
             },
         ],
     }
@@ -252,6 +263,7 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
         for row in rows:
             row["provenance_provider_model"] = provider_models[stage]
             row["provenance_request_hash"] = request_hash
+            row["provenance_generation_method"] = row["generation_method"]
             row["provenance_artifact_hash"] = seams._artifact_identity_hash(
                 request,
                 row,
@@ -305,10 +317,12 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
             "image_url": "fake://image",
             "drive_image_url": "fake://image",
             "image_model": "image-test",
+            "generation_method": "coverage",
         },
         "motion": {
             "asset_id": "asset-1",
             "video_prompt": "exact motion",
+            "generation_method": "coverage",
         },
         "clips": {
             "asset_id": "asset-1",
@@ -317,6 +331,7 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
             "exact_duration_seconds": Decimal("7"),
             "duration_seconds": Decimal("7"),
             "assigned_video_duration": Decimal("7"),
+            "generation_method": "coverage",
         },
     }
     models = {
@@ -328,6 +343,7 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
         request_hash = production.canonical_hash({"stage": stage})
         row["provenance_provider_model"] = models[stage]
         row["provenance_request_hash"] = request_hash
+        row["provenance_generation_method"] = row["generation_method"]
         row["provenance_artifact_hash"] = seams._artifact_identity_hash(
             request,
             row,
@@ -360,6 +376,11 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
     )
     changed = copy.deepcopy(rows["clips"])
     changed["assigned_video_duration"] = Decimal("6.9")
+    assert not seams._completed_provenance_is_exact(
+        request, changed, stage="clips"
+    )
+    changed = copy.deepcopy(rows["clips"])
+    changed["generation_method"] = "legacy-manual"
     assert not seams._completed_provenance_is_exact(
         request, changed, stage="clips"
     )
@@ -498,11 +519,13 @@ def test_provider_result_validators_reject_partial_wrong_or_failed_outputs():
                 "asset_id": "a",
                 "video_clip_url": "clip:a",
                 "provider_model": "grok",
+                "duration_seconds": "3.5",
             },
             {
                 "asset_id": "b",
                 "video_clip_url": "clip:b",
                 "provider_model": "grok",
+                "duration_seconds": "3.5",
             },
         ],
         "clips_generated": 2,
@@ -510,17 +533,34 @@ def test_provider_result_validators_reject_partial_wrong_or_failed_outputs():
         "clips_blocked": 0,
         "clips_in_progress_elsewhere": 0,
     }
-    assert set(production._exact_clip_result(clips, asset_ids)) == set(asset_ids)
+    durations = {"a": Decimal("3.5"), "b": Decimal("3.5")}
+    assert set(production._exact_clip_result(clips, asset_ids, durations)) == set(
+        asset_ids
+    )
     for changed in (
         {**clips, "clips_generated": 1},
         {**clips, "generated_asset_ids": ["a", "wrong"]},
+        {**clips, "generated_asset_ids": ["a", "a"]},
+        {**clips, "generated_asset_ids": ["a", "b", "extra"]},
         {**clips, "clips_failed": 1},
         {**clips, "clips_blocked": 1},
         {**clips, "clips_in_progress_elsewhere": 1},
         {**clips, "generated_artifacts": clips["generated_artifacts"][:1]},
+        {
+            **clips,
+            "generated_artifacts": [
+                clips["generated_artifacts"][0],
+                clips["generated_artifacts"][0],
+            ],
+        },
     ):
         with pytest.raises(CustomFilmContractError):
-            production._exact_clip_result(changed, asset_ids)
+            production._exact_clip_result(changed, asset_ids, durations)
+    for wrong_duration in (None, "wrong", "3.4"):
+        changed = copy.deepcopy(clips)
+        changed["generated_artifacts"][1]["duration_seconds"] = wrong_duration
+        with pytest.raises(CustomFilmContractError, match="duration"):
+            production._exact_clip_result(changed, asset_ids, durations)
 
 
 def test_concurrent_artifact_write_cannot_be_adopted():

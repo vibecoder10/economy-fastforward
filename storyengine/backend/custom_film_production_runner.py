@@ -116,13 +116,21 @@ def _exact_motion_result(
 def _exact_clip_result(
     result: Any,
     asset_ids: tuple[str, ...],
+    duration_by_id: Mapping[str, Decimal],
 ) -> dict[str, Mapping[str, Any]]:
     artifacts = result.get("generated_artifacts") if isinstance(result, Mapping) else None
+    generated_ids = (
+        list(result.get("generated_asset_ids") or ())
+        if isinstance(result, Mapping)
+        else []
+    )
     if (
         not isinstance(result, Mapping)
         or result.get("status") != "completed"
         or tuple(result.get("requested_asset_ids") or ()) != asset_ids
-        or set(result.get("generated_asset_ids") or ()) != set(asset_ids)
+        or len(generated_ids) != len(asset_ids)
+        or len(set(generated_ids)) != len(generated_ids)
+        or set(generated_ids) != set(asset_ids)
         or result.get("clips_generated") != len(asset_ids)
         or result.get("clips_failed") != 0
         or result.get("clips_blocked") != 0
@@ -136,10 +144,34 @@ def _exact_clip_result(
         for row in artifacts
         if isinstance(row, Mapping)
     }
-    if set(values) != set(asset_ids):
+    artifact_ids = [
+        str(row.get("asset_id") or "")
+        for row in artifacts
+        if isinstance(row, Mapping)
+    ]
+    if (
+        len(artifact_ids) != len(asset_ids)
+        or len(set(artifact_ids)) != len(artifact_ids)
+        or set(values) != set(asset_ids)
+    ):
         raise CustomFilmContractError(
             "Custom Film clip result did not match exact requested assets"
         )
+    for asset_id in asset_ids:
+        raw_duration = values[asset_id].get("duration_seconds")
+        try:
+            returned_duration = Decimal(str(raw_duration))
+        except Exception as exc:
+            raise CustomFilmContractError(
+                "Custom Film clip result duration is missing or invalid"
+            ) from exc
+        if (
+            raw_duration is None
+            or returned_duration != duration_by_id.get(asset_id)
+        ):
+            raise CustomFilmContractError(
+                "Custom Film clip result duration changed"
+            )
     return values
 
 
@@ -1065,6 +1097,10 @@ class SharedSectionProductionSeams:
         return ""
 
     @staticmethod
+    def _expected_generation_method(request: SectionProductionRequest) -> str:
+        return "static_docu" if request.render_mode == "static_docu" else "coverage"
+
+    @staticmethod
     def _section_contract_hash(
         request: SectionProductionRequest,
         *,
@@ -1120,6 +1156,9 @@ class SharedSectionProductionSeams:
                 "asset_id": str(row.get("id") or row.get("asset_id") or ""),
                 "artifact": artifact,
                 "provider_model": provider_model,
+                "generation_method": str(
+                    row.get("generation_method") or ""
+                ).strip(),
                 "camera": _plain(request.camera),
                 "request_hash": request_hash,
                 "section_contract_hash": self._section_contract_hash(
@@ -1139,7 +1178,18 @@ class SharedSectionProductionSeams:
         stored_hash = str(row.get("provenance_artifact_hash") or "")
         stored_model = str(row.get("provenance_provider_model") or "")
         stored_request_hash = str(row.get("provenance_request_hash") or "")
-        if not stored_hash or not stored_model or not stored_request_hash:
+        stored_generation_method = str(
+            row.get("provenance_generation_method") or ""
+        )
+        current_generation_method = str(row.get("generation_method") or "")
+        if (
+            not stored_hash
+            or not stored_model
+            or not stored_request_hash
+            or stored_generation_method != current_generation_method
+            or current_generation_method
+            != self._expected_generation_method(request)
+        ):
             return False
         current_model = self._asset_provider_model(stage, row)
         if stage in {"pictures", "clips"} and (
@@ -1465,7 +1515,8 @@ class SharedSectionProductionSeams:
                           p.exact_duration_seconds,
                           p.artifact_url_hash AS provenance_artifact_hash,
                           p.provider_model AS provenance_provider_model,
-                          p.request_hash AS provenance_request_hash
+                          p.request_hash AS provenance_request_hash,
+                          p.generation_method AS provenance_generation_method
                    FROM custom_film_asset_provenance p
                    JOIN assets a
                      ON (a.tenant_id, a.video_id, a.id)
@@ -1522,7 +1573,8 @@ class SharedSectionProductionSeams:
                           p.exact_duration_seconds,
                           p.artifact_url_hash AS provenance_artifact_hash,
                           p.provider_model AS provenance_provider_model,
-                          p.request_hash AS provenance_request_hash
+                          p.request_hash AS provenance_request_hash,
+                          p.generation_method AS provenance_generation_method
                    FROM custom_film_asset_provenance p
                    JOIN assets a
                      ON (a.tenant_id, a.video_id, a.id)
@@ -1780,7 +1832,7 @@ class SharedSectionProductionSeams:
             asset_ids=list(asset_ids),
             section_contract=request.payload(),
         )
-        returned = _exact_clip_result(result, asset_ids)
+        returned = _exact_clip_result(result, asset_ids, duration_by_id)
         rows = await self._raw_asset_rows(request)
         rows_by_id = {str(row["id"]): row for row in rows}
         exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
@@ -2254,9 +2306,11 @@ class SharedSectionProductionSeams:
                               a.drive_image_url, a.motion_gate_status,
                               a.video_clip_url, a.image_model, a.model_used,
                               a.duration_seconds, a.assigned_video_duration,
+                              a.generation_method,
                               p.artifact_url_hash AS provenance_artifact_hash,
                               p.provider_model AS provenance_provider_model,
-                              p.request_hash AS provenance_request_hash
+                              p.request_hash AS provenance_request_hash,
+                              p.generation_method AS provenance_generation_method
                        FROM custom_film_asset_provenance p
                        JOIN assets a
                          ON (a.tenant_id, a.video_id, a.id)

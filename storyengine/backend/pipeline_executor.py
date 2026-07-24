@@ -13245,7 +13245,8 @@ separate scenes."""
                             "asset_id": str(r["id"]),
                             "video_clip_url": drive_url,
                             "provider_model": effective_model_id,
-                            "duration_seconds": str(clip_dur),
+                            "duration_seconds": str(r.get("duration_seconds")),
+                            "provider_duration_seconds": str(clip_dur),
                         }
                     )
                     cost += clip_cost

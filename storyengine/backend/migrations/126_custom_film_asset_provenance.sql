@@ -100,7 +100,7 @@ BEGIN
   END IF;
   IF (
     (OLD.status = 'prepared' AND NEW.status NOT IN (
-      'prepared', 'submitted', 'completed', 'failed'
+      'prepared', 'submitted', 'failed'
     ))
     OR (OLD.status = 'submitted' AND NEW.status NOT IN (
       'submitted', 'completed', 'failed'

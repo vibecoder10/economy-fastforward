@@ -1367,7 +1367,7 @@ async def test_shared_motion_and_clip_seams_receive_camera_and_exact_seconds(
                         "asset_id": "asset-1",
                         "video_clip_url": "fake://clip/1",
                         "provider_model": "grok-imagine",
-                        "duration_seconds": "6",
+                        "duration_seconds": "37",
                     }
                 ],
                 "clips_generated": 1,
