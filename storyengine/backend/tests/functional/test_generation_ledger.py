@@ -467,7 +467,7 @@ def test_image_ledger_row_prices_by_actual_model_used():
 
 def test_voice_ledger_row_meters_by_real_character_count():
     """C09: voice/run.py now reports total_chars; the ledger write must use
-    the REAL per-character price (docs/cost-awareness.md ~$0.30/1000 chars)
+    the REAL per-character price (current Multilingual v2/v3 $0.10/1000 chars)
     instead of a flat per-run guess — a 6000-char narration must cost 20x a
     300-char one, which a flat VOICE_COST_ESTIMATE could never reflect."""
     _reset()
@@ -479,7 +479,7 @@ def test_voice_ledger_row_meters_by_real_character_count():
         units=total_chars, unit_cost=round(per_char, 6), actual_cost=actual,
     ))
     row = LEDGER_ROWS[0]
-    assert row["actual_cost"] == 1.8, f"6000 chars @ $0.30/1000 should be $1.80, got {row['actual_cost']}"
+    assert row["actual_cost"] == 0.6, f"6000 chars @ $0.10/1000 should be $0.60, got {row['actual_cost']}"
     assert row["actual_cost"] != VOICE_COST_ESTIMATE, (
         "a 6000-char video must NOT collapse to the flat 0.30 estimate")
     print("✅ test_voice_ledger_row_meters_by_real_character_count")

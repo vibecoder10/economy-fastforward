@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 API = ROOT / "frontend" / "src" / "lib" / "api.ts"
 MAP = ROOT / "frontend" / "src" / "components" / "chat" / "ChatPipelineMap.tsx"
+CHAT = ROOT / "frontend" / "src" / "components" / "chat" / "ChatCore.tsx"
 
 
 def test_video_detail_types_the_optional_custom_film_plan():
@@ -54,3 +55,30 @@ def test_legacy_pipeline_copy_and_path_remain_intact():
     )
     assert "const visible = PIPELINE_STEPS.filter" in source
     assert "{isCustomFilm && (" in source
+
+
+def test_custom_film_approval_uses_a_dedicated_creator_safe_blueprint():
+    api_source = API.read_text()
+    chat_source = CHAT.read_text()
+    for field in (
+        "ChatCustomFilmSection",
+        "ChatCustomFilmTotals",
+        "custom_film_sections",
+        "custom_film_totals",
+        "approval_notice",
+        "finishing_notice",
+    ):
+        assert field in api_source
+    for truth in (
+        'if (card.id === "custom_film_approval")',
+        "CustomFilmApprovalCard",
+        "Ready for your review",
+        "BYOK estimate",
+        "Hard ceiling",
+        "Unused headroom",
+        "not reroll permission",
+        "Approve paid production",
+        "Keep editing",
+    ):
+        assert truth in chat_source
+    assert "custom_film_approval: value" in chat_source

@@ -3114,6 +3114,27 @@ export interface ChatDnaPatternRow {
   source: string;
   evidence_summary: string;
 }
+export interface ChatCustomFilmSection {
+  order: number;
+  role: string;
+  purpose: string;
+  feel: string;
+  share_percent: number;
+  duration_seconds: number;
+  still_images: number;
+  animation_clips: number;
+  voice_tracks: number;
+  estimated_cost: number;
+}
+export interface ChatCustomFilmTotals {
+  duration_seconds: number;
+  still_images: number;
+  animation_clips: number;
+  voice_tracks: number;
+  estimated_cost: number;
+  max_spend: number;
+  headroom: number;
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -3150,6 +3171,13 @@ export interface ChatCard {
   // C46e: proposed (not-yet-confirmed) channel_patterns rows. Optional/
   // additive, same rule as every card-specific field above.
   patterns?: ChatDnaPatternRow[];
+  // Custom Film approval card: creator-safe production blueprint derived from
+  // the same immutable plan + shared estimate that the backend binds on
+  // approval. Provider/model internals are deliberately absent.
+  custom_film_sections?: ChatCustomFilmSection[];
+  custom_film_totals?: ChatCustomFilmTotals;
+  approval_notice?: string;
+  finishing_notice?: string;
 }
 export interface ProductionPlan {
   story_concept?: string;

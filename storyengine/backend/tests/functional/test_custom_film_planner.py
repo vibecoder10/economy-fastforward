@@ -611,8 +611,78 @@ def test_chat_custom_film_handler_persists_distinct_pending_plan_without_approva
     assert "1. **Opening**" in response.assistant_text
     assert "BYOK estimate" in response.assistant_text
     assert response.cards and response.cards[0]["id"] == "custom_film_approval"
+    blueprint = response.cards[0]
+    assert blueprint["label"] == "Your Custom Film production blueprint"
+    assert len(blueprint["custom_film_sections"]) == 2
+    assert blueprint["custom_film_totals"] == {
+        "duration_seconds": 300,
+        "still_images": sum(
+            row["still_images"] for row in pending["quote_inputs"]["sections"]
+        ),
+        "animation_clips": sum(
+            row["animation_clips"] for row in pending["quote_inputs"]["sections"]
+        ),
+        "voice_tracks": sum(
+            row["voice_tracks"] for row in pending["quote_inputs"]["sections"]
+        ),
+        "estimated_cost": pending["quote_inputs"]["totals"]["estimated_cost"],
+        "max_spend": pending["quote_inputs"]["max_spend"],
+        "headroom": 0.0,
+    }
+    blueprint_text = json.dumps(blueprint).lower()
+    for hidden_internal in (
+        "provider_id",
+        "model_id",
+        "render_mode",
+        "photo_documentary",
+        "animated_investigative_documentary",
+    ):
+        assert hidden_internal not in blueprint_text
+    assert blueprint["options"][0]["value"] == "yes"
+    assert "paid production" in blueprint["options"][0]["label"].lower()
+    assert "any edit clears approval" in blueprint["approval_notice"].lower()
     assert "render_mode" not in response.assistant_text
     assert "photo_documentary" not in response.assistant_text
+
+
+def test_custom_film_blueprint_blocks_approval_when_cap_is_below_estimate():
+    quote = {
+        "sections": [
+            {
+                "section_id": "section-a",
+                "order_index": 0,
+                "duration_seconds": 60,
+                "still_images": 3,
+                "animation_clips": 3,
+                "voice_tracks": 1,
+                "estimated_cost": 0.72,
+            }
+        ],
+        "totals": {
+            "duration_seconds": 60,
+            "still_images": 3,
+            "animation_clips": 3,
+            "voice_tracks": 1,
+            "estimated_cost": 0.72,
+        },
+        "max_spend": 0.50,
+    }
+    display_plan = {
+        "sections": [
+            {
+                "order": 1,
+                "role": "Opening",
+                "purpose": "Open the story",
+                "feel": "Focused",
+                "share_percent": 100,
+            }
+        ]
+    }
+    assert chat_route._custom_film_approval_cards(quote, display_plan) is None
+    quote["max_spend"] = 0.72
+    cards = chat_route._custom_film_approval_cards(quote, display_plan)
+    assert cards and cards[0]["id"] == "custom_film_approval"
+    assert cards[0]["options"][0]["label"].endswith("$0.72")
 
 
 def test_chat_intent_routes_before_normal_producer_and_cannot_dispatch(monkeypatch):

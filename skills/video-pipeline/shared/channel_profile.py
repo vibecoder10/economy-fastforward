@@ -563,13 +563,16 @@ def picture_price_for(model_id: Optional[str]) -> float:
 # price by it — flagged as a follow-up, not built here (scope).
 THUMBNAIL_PRICE = IMAGE_PRICE_BY_MODEL["gpt-image-2"]
 
-# ElevenLabs is billed per character, not per run (docs/cost-awareness.md:
-# ~$0.30/1000 chars) — a video with a long narration and one with a single
+# ElevenLabs is billed per character, not per run (the July 2026 public API
+# price for Multilingual v2/v3 is $0.10/1000 chars) — a video with a long
+# narration and one with a single
 # line cost very differently even though both used to ledger the same flat
 # $0.30. VOICE_PRICE_FLAT_ESTIMATE stays as the fallback for a caller that
 # genuinely has no character count to meter (or the pre-generation "voice"
-# verb quote, before scripts necessarily exist).
-VOICE_PRICE_PER_1K_CHARS = 0.30
+# verb quote, before scripts necessarily exist). Keeping that pre-script
+# reserve at $0.30/track is intentionally conservative; once text exists the
+# ledger uses the current character-metered price instead.
+VOICE_PRICE_PER_1K_CHARS = 0.10
 VOICE_PRICE_FLAT_ESTIMATE = 0.30
 
 # Matches shared.clients.sound_client.SoundClient.ESTIMATED_COST_PER_GENERATION

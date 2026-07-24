@@ -12,7 +12,7 @@ Every API call costs money. Be aware of these costs when building features:
 | Video clip, Veo 3.1 Fast (8s) — price UNCONFIRMED, see note below | $0.30/clip | 20-40 clips = $6-12 |
 | Video clip, Veo 3.1 Quality (8s) — price UNCONFIRMED, see note below | $1.25/clip | 20-40 clips = $25-50 |
 | Thumbnail (GPT Image 2, 2K tier — see note below) | $0.05/image | 1-3 = $0.05-0.15 |
-| Voice synthesis (ElevenLabs) | ~$0.30/1000 chars | ~$1-2 per video |
+| Voice synthesis (ElevenLabs Multilingual v2/v3) | $0.10/1000 chars | ~$0.30-0.70 per video |
 | Claude API (Sonnet) | ~$0.01-0.05/call | ~20-30 calls = $0.30-1.50 |
 | Whisper transcription | ~$0.006/min | ~$0.15 per video |
 | Vision QA (Kie Gemini 2.5 Flash via vision_client) | ~$0.0005/call | storyboard QA + cast rewrite + thumbnail pass = < $0.05 |
@@ -61,9 +61,10 @@ reading the call sites (quoted in `shared/channel_profile.py`):
   generation path) so this doesn't affect any real spend today.
 - **Grok's image-generation price** (distinct from Grok Imagine's video
   price above) — not found published anywhere.
-- **ElevenLabs voice** ($0.30/1000 chars) — ElevenLabs doesn't route through
-  Kie, so this $0.005/credit research pass doesn't touch it; still needs
-  confirming against ElevenLabs' own dashboard/invoice.
+- **ElevenLabs voice** was refreshed separately on 2026-07-24 against the
+  provider's public API pricing: Multilingual v2/v3 is $0.10/1000 characters.
+  StoryEngine retains a conservative $0.30-per-track fallback only before a
+  script exists; actual ledger rows use the character-metered rate.
 
 **Single price source (storyengine-wiring-fix-checklist.md §0.3c / C09,
 accuracy pass §C09a):** every StoryEngine generation price above lives in

@@ -115,11 +115,12 @@ const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string
 // (the conversational "make me a new style" preview/confirm card) the same way.
 // C42 adds "channel_dna_digest" (the "learn this channel" confirmable digest)
 // the same way — one more lookup-table entry, no new string-match branch.
-type CardKind = "prompt_apply" | "confirm_action" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "generic";
+type CardKind = "prompt_apply" | "confirm_action" | "custom_film_approval" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "generic";
 
 function cardKind(card: ChatCard): CardKind {
   if (card.id === "prompt_apply") return "prompt_apply";
   if (card.id === "confirm_action") return "confirm_action";
+  if (card.id === "custom_film_approval") return "custom_film_approval";
   if (card.id === "secure_key") return "secure_key";
   if (card.id === "connect_yt" || card.id === "connect_drive") return "connect";
   if (card.id === "look_engine") return "look_engine";
@@ -129,7 +130,7 @@ function cardKind(card: ChatCard): CardKind {
   return "generic";
 }
 
-const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "secure_key", "style_draft", "channel_dna_digest"]);
+const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "custom_film_approval", "secure_key", "style_draft", "channel_dna_digest"]);
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -524,6 +525,15 @@ export function ChatCore({
       <ConfirmActionCard
         card={actionCard!}
         onChoose={(value, label) => turn({ selections: { confirm_action: value } }, label)}
+      />
+    ),
+    custom_film_approval: () => (
+      <CustomFilmApprovalCard
+        card={actionCard!}
+        onChoose={(value, label) => turn(
+          { selections: { custom_film_approval: value } },
+          label,
+        )}
       />
     ),
     style_draft: () => (
@@ -1270,6 +1280,188 @@ function ConfirmActionCard({
         >
           {no?.label ?? "Cancel"}
         </button>
+      </div>
+    </GlassCard>
+  );
+}
+
+// --- Custom Film production blueprint -------------------------------------
+// A creator-safe, one-tap review of the exact immutable plan and shared BYOK
+// quote. This replaces the generic radio-card treatment at the moment where
+// approval can start paid work, without exposing internal profiles/providers.
+function CustomFilmApprovalCard({
+  card,
+  onChoose,
+}: {
+  card: ChatCard;
+  onChoose: (value: string, label: string) => void;
+}) {
+  const yes = card.options?.find((o) => o.value === "yes");
+  const no = card.options?.find((o) => o.value === "no");
+  const sections = card.custom_film_sections ?? [];
+  const totals = card.custom_film_totals;
+  const duration = totals
+    ? `${Math.floor(totals.duration_seconds / 60)}:${String(totals.duration_seconds % 60).padStart(2, "0")}`
+    : "—";
+
+  return (
+    <GlassCard
+      className="overflow-hidden p-0"
+      style={{ borderColor: "rgba(0, 212, 170, 0.38)" }}
+    >
+      <div
+        className="px-4 py-4 sm:px-5"
+        style={{
+          background: "linear-gradient(135deg, rgba(0,212,170,0.14), rgba(0,212,170,0.03))",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+            >
+              <Clapperboard size={19} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--turquoise)" }}>
+                Ready for your review
+              </p>
+              <h2 className="mt-1 break-words text-lg font-display font-bold leading-tight" style={{ color: "var(--text-primary)" }}>
+                {card.label}
+              </h2>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {card.header ?? "Custom Film"} · {duration} · {sections.length} acts
+              </p>
+            </div>
+          </div>
+          <span
+            className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
+            style={{ background: "rgba(0,212,170,0.12)", color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.25)" }}
+          >
+            Exact plan
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 p-4 sm:p-5">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          {sections.map((section) => (
+            <div
+              key={section.order}
+              className="min-w-0 rounded-xl p-3"
+              style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                    style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+                  >
+                    {section.order}
+                  </span>
+                  <p className="min-w-0 break-words text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text-primary)" }}>
+                    {section.role}
+                  </p>
+                </div>
+                <span className="shrink-0 text-xs font-semibold" style={{ color: "var(--turquoise)" }}>
+                  {Math.floor(section.duration_seconds / 60)}:{String(section.duration_seconds % 60).padStart(2, "0")}
+                </span>
+              </div>
+              <p className="mt-2 break-words text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {section.purpose}
+              </p>
+              <p className="mt-1 break-words text-[11px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+                {section.feel}
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px]">
+                <span className="rounded-full px-2 py-1" style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}>
+                  {section.still_images} images
+                </span>
+                <span className="rounded-full px-2 py-1" style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}>
+                  {section.animation_clips} clips
+                </span>
+                <span className="rounded-full px-2 py-1" style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}>
+                  {section.voice_tracks} voice
+                </span>
+                <span className="ml-auto rounded-full px-2 py-1 font-semibold" style={{ background: "rgba(0,212,170,0.08)", color: "var(--turquoise)" }}>
+                  ~${section.estimated_cost.toFixed(2)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {totals && (
+          <div
+            className="grid grid-cols-2 gap-3 rounded-xl p-3 sm:grid-cols-4"
+            style={{ background: "rgba(0,212,170,0.06)", border: "1px solid rgba(0,212,170,0.18)" }}
+          >
+            <div>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Media bill</p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                {totals.still_images} + {totals.animation_clips} + {totals.voice_tracks}
+              </p>
+              <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>images · clips · voice</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>BYOK estimate</p>
+              <p className="mt-1 text-xl font-display font-bold" style={{ color: "var(--turquoise)" }}>
+                ${totals.estimated_cost.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Hard ceiling</p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                ${totals.max_spend.toFixed(2)}
+              </p>
+              <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>cannot silently exceed</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Unused headroom</p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                ${totals.headroom.toFixed(2)}
+              </p>
+              <p className="text-[10px]" style={{ color: "var(--text-secondary)" }}>not reroll permission</p>
+            </div>
+          </div>
+        )}
+
+        {card.finishing_notice && (
+          <div className="flex items-start gap-2 rounded-lg px-3 py-2" style={{ background: "var(--bg-deep)" }}>
+            <CheckCircle2 size={15} className="mt-0.5 shrink-0" style={{ color: "var(--turquoise)" }} />
+            <p className="break-words text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {card.finishing_notice}
+            </p>
+          </div>
+        )}
+
+        {card.approval_notice && (
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" style={{ color: "var(--gold)" }} />
+            <p className="break-words text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {card.approval_notice}
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => yes && onChoose("yes", yes.label)}
+            className="min-w-0 flex-1 rounded-xl px-4 py-3 text-sm font-bold transition-all hover:brightness-110 active:scale-[0.98]"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            {yes?.label ?? "Approve paid production"}
+          </button>
+          <button
+            onClick={() => onChoose("no", no?.label ?? "Keep editing")}
+            className="rounded-xl px-4 py-3 text-sm font-semibold transition-all hover:brightness-110 active:scale-[0.98]"
+            style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+          >
+            {no?.label ?? "Keep editing"}
+          </button>
+        </div>
       </div>
     </GlassCard>
   );

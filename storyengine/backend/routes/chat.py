@@ -3905,17 +3905,76 @@ def _custom_film_requested_budget_cap(
     return None
 
 
-def _custom_film_approval_card(quote: dict[str, Any]) -> dict[str, Any]:
+def _custom_film_approval_card(
+    quote: dict[str, Any],
+    display_plan: dict[str, Any],
+) -> dict[str, Any]:
     total = float(quote["totals"]["estimated_cost"])
+    max_spend = float(quote["max_spend"])
+    quote_rows = {
+        int(row["order_index"]): row for row in quote["sections"]
+    }
+    sections = []
+    for display_section in display_plan["sections"]:
+        row = quote_rows[int(display_section["order"]) - 1]
+        sections.append(
+            {
+                "order": int(display_section["order"]),
+                "role": str(display_section["role"]),
+                "purpose": str(display_section["purpose"]),
+                "feel": str(display_section["feel"]),
+                "share_percent": float(display_section["share_percent"]),
+                "duration_seconds": int(row["duration_seconds"]),
+                "still_images": int(row["still_images"]),
+                "animation_clips": int(row["animation_clips"]),
+                "voice_tracks": int(row["voice_tracks"]),
+                "estimated_cost": float(row["estimated_cost"]),
+            }
+        )
     return {
         "id": "custom_film_approval",
-        "label": "Approve this exact Custom Film plan and estimate",
+        "label": "Your Custom Film production blueprint",
         "type": "single",
+        "header": "Custom Film plan review",
+        "custom_film_sections": sections,
+        "custom_film_totals": {
+            "duration_seconds": int(quote["totals"]["duration_seconds"]),
+            "still_images": int(quote["totals"]["still_images"]),
+            "animation_clips": int(quote["totals"]["animation_clips"]),
+            "voice_tracks": int(quote["totals"]["voice_tracks"]),
+            "estimated_cost": total,
+            "max_spend": max_spend,
+            "headroom": round(max(0.0, max_spend - total), 2),
+        },
+        "approval_notice": (
+            "This is a paid BYOK production start. Approval binds to this exact "
+            f"{len(sections)}-section plan, timing, media bill, and spending cap; "
+            "any edit clears approval and creates a new quote."
+        ),
+        "finishing_notice": (
+            "StoryEngine's deterministic Remotion finishing adds motion graphics, "
+            "captions, transitions, and the product reveal with $0 provider spend."
+        ),
         "options": [
-            {"value": "yes", "label": f"Approve production start · ~${total:.2f}"},
+            {
+                "value": "yes",
+                "label": f"Approve paid production · up to ${max_spend:.2f}",
+            },
             {"value": "no", "label": "Keep editing"},
         ],
     }
+
+
+def _custom_film_approval_cards(
+    quote: dict[str, Any],
+    display_plan: dict[str, Any],
+) -> list[dict[str, Any]] | None:
+    """Expose paid approval only when the creator's cap covers the estimate."""
+    estimate = float(quote["totals"]["estimated_cost"])
+    max_spend = float(quote["max_spend"])
+    if max_spend + 1e-9 < estimate:
+        return None
+    return [_custom_film_approval_card(quote, display_plan)]
 
 
 def _custom_film_estimate_text(quote: dict[str, Any]) -> str:
@@ -4784,32 +4843,47 @@ async def _handle_custom_film_plan(
         novelty_payload = {"is_novel": None, "status": "unverified"}
 
     state["mode"] = "custom_film"
+    approval_cards = _custom_film_approval_cards(
+        quote_inputs,
+        compiled.display_plan,
+    )
+    budget_blocked = approval_cards is None
     state["pending_custom_film_plan"] = {
         "internal_plan": compiled.internal_plan,
         "display_plan": compiled.display_plan,
         "planner_proposal": compiled.planner_proposal,
         "plan_hash": current_plan_hash,
         "quote_inputs": quote_inputs,
-        "approval_hash": current_approval_hash,
         "budget_cap_source": (
             "user" if requested_budget_cap is not None else "quote"
         ),
         "recipe_signature": compiled.recipe_signature,
         "recipe_hash": canonical_hash(compiled.normalized_recipe),
         "novelty": novelty_payload,
-        "status": "awaiting_approval",
+        "status": "budget_blocked" if budget_blocked else "awaiting_approval",
     }
+    if not budget_blocked:
+        state["pending_custom_film_plan"]["approval_hash"] = current_approval_hash
     assistant_text = (
         _custom_film_plan_text(compiled.display_plan)
         + "\n\n"
         + _custom_film_estimate_text(quote_inputs)
     )
+    if budget_blocked:
+        assistant_text += (
+            "\n\nThis plan is estimated at "
+            f"${float(quote_inputs['totals']['estimated_cost']):.2f}, which is "
+            f"above your ${float(quote_inputs['max_spend']):.2f} cap. Nothing "
+            "is approved or generated. Raise the cap to at least the estimate, "
+            "or ask me to reduce the media plan; I will issue a new exact quote."
+        )
     data = {
         "assistant_text": assistant_text,
-        "cards": [_custom_film_approval_card(quote_inputs)],
         "ready_to_create": False,
         "phase": "plan",
     }
+    if approval_cards is not None:
+        data["cards"] = approval_cards
     transcript.append(_assistant_turn(data))
     converged = await _persist_custom_film_cas(
         conversation_id, tenant_id, transcript, state, "plan", expected_state
@@ -4819,7 +4893,7 @@ async def _handle_custom_film_plan(
     return ChatTurnResponse(
         conversation_id=conversation_id,
         assistant_text=assistant_text,
-        cards=[_custom_film_approval_card(quote_inputs)],
+        cards=approval_cards,
         plan=None,
         ready_to_create=False,
         phase="plan",
