@@ -411,6 +411,32 @@ def test_planner_role_schema_is_exactly_the_canonical_recipe_role_enum(
         "properties"
     ]["role"]
     assert role_schema["enum"] == sorted(contract.RECIPE_ROLES)
+    expected_catalog = [
+        {
+            "id": role,
+            "purpose": planner.ROLE_PURPOSES[role].format(
+                focus="the section topic"
+            ),
+        }
+        for role in sorted(contract.RECIPE_ROLES)
+    ]
+    assert list(planner.PUBLIC_ROLE_CATALOG) == expected_catalog
+    prompt = planner._planner_prompt(
+        "Make a custom film about steel",
+        manifest,
+    )
+    assert planner.canonical_json(expected_catalog) in prompt
+    assert prompt.index("CANONICAL ROLE CATALOG:") < prompt.index(
+        "JSON SCHEMA:"
+    )
+    assert (
+        "`role` is a closed internal narrative-function classification" in prompt
+    )
+    assert (
+        "descriptive act or chapter title, genre, subject, person, or event"
+        in prompt
+    )
+    assert "investigation, thriller, witness sequence, or product reveal" not in prompt
 
     secret_role = "sk-live-invalid-role-DO-NOT-LOG"
     invalid = _proposal("steel")
@@ -515,6 +541,14 @@ def test_exact_flagship_request_accepts_generic_and_bilingual_caption_signals(
     assert len(json.dumps(response)) < 6_000 * 4
     assert client.calls[0]["max_tokens"] == 6_000
     planning_prompt = client.calls[0]["prompt"]
+    assert "`role` is a closed internal narrative-function classification" in (
+        planning_prompt
+    )
+    assert '"id":"evidence"' in planning_prompt
+    assert (
+        "descriptive act or chapter title, genre, subject, person, or event"
+        in client.calls[0]["system_prompt"]
+    )
     for value in sorted(orchestration.ALLOWED_INTENTS):
         assert f'"{value}"' in planning_prompt
     for value in sorted(orchestration.ALLOWED_HANDOFFS):

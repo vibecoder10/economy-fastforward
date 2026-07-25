@@ -76,6 +76,13 @@ ROLE_PURPOSES = {
     "resolution": "Bring the evidence about {focus} into one clear conclusion",
     "closing": "Leave the audience with the main takeaway about {focus}",
 }
+PUBLIC_ROLE_CATALOG = tuple(
+    {
+        "id": role,
+        "purpose": ROLE_PURPOSES[role].format(focus="the section topic"),
+    }
+    for role in sorted(RECIPE_ROLES)
+)
 _FOCUS_BOILERPLATE_WORDS = frozenset(
     {
         "a",
@@ -751,6 +758,12 @@ def _planner_prompt(
     return (
         "Assemble a section-by-section Custom Film proposal for the creator's request. "
         "Return exactly one JSON object matching the supplied schema.\n\n"
+        "`role` is a closed internal narrative-function classification, not a "
+        "creative chapter title or genre. Copy one `role` ID exactly from the "
+        "canonical role catalog for every section. Put any descriptive act or "
+        "chapter title, genre, subject, person, or event in `focus` and `beats`, "
+        "never in `role`.\n\n"
+        f"CANONICAL ROLE CATALOG:\n{canonical_json(PUBLIC_ROLE_CATALOG)}\n\n"
         "You may choose only the listed public source IDs. `structure_source` chooses "
         "the complete safe production shape; `writing_source` chooses its writing "
         "approach; `visual_source` chooses its visual treatment. Do not return knobs, "
@@ -1122,8 +1135,12 @@ async def plan_custom_film(
         raw = await client.generate(
             prompt=_planner_prompt(user_request, manifest, normalized_prior),
             system_prompt=(
-                "You are a constrained film-structure planner. Follow the JSON schema "
-                "exactly and never propose providers, prices, runtime knobs, or actions."
+                "You are a constrained film-structure planner. `role` is a closed "
+                "internal narrative-function classification: copy it exactly from "
+                "the canonical role catalog, and put any descriptive act or chapter "
+                "title, genre, subject, person, or event in focus and beats. Follow "
+                "the JSON schema exactly and never propose providers, prices, runtime "
+                "knobs, or actions."
             ),
             max_tokens=6_000,
             temperature=0,
