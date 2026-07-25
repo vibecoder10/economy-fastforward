@@ -98,6 +98,7 @@ class SectionStageAdapter:
     image_source: str
     provenance: Mapping[str, Any]
     estimated_media: Mapping[str, Any]
+    story_arc: tuple[Mapping[str, Any], ...] = ()
 
     @property
     def stage_key(self) -> str:
@@ -105,7 +106,7 @@ class SectionStageAdapter:
 
     def provider_values(self) -> dict[str, Any]:
         """Return a detached payload safe to hand to a stage/provider seam."""
-        return {
+        values = {
             "runtime_hash": self.runtime_hash,
             "plan_id": self.plan_id,
             "video_id": self.video_id,
@@ -130,6 +131,9 @@ class SectionStageAdapter:
             "provenance": _thaw(self.provenance),
             "estimated_media": _thaw(self.estimated_media),
         }
+        if self.stage == "script":
+            values["story_arc"] = _thaw(self.story_arc)
+        return values
 
 
 class SectionStageRunner(Protocol):
@@ -439,6 +443,19 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
         raise CustomFilmContractError("Custom Film runtime stage plan is stale")
 
     adapters: list[SectionStageAdapter] = []
+    story_arc = tuple(
+        _freeze(
+            {
+                "order_index": int(section["order_index"]),
+                "role": str(section.get("role") or ""),
+                "purpose": str(section.get("purpose") or ""),
+            }
+        )
+        for section in sorted(
+            sections_by_id.values(),
+            key=lambda value: int(value["order_index"]),
+        )
+    )
     for section_id, order_index, stage, duration_seconds in actual_plan:
         section = sections_by_id[section_id]
         adapters.append(
@@ -466,6 +483,7 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
                 image_source=str(section["image_source"]),
                 provenance=_freeze(section["provenance"]),
                 estimated_media=_freeze(section["estimated_media"]),
+                story_arc=story_arc if stage == "script" else (),
             )
         )
     return tuple(adapters)

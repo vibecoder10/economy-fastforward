@@ -274,9 +274,10 @@ class SectionProductionRequest:
     estimated_media: Mapping[str, Any]
     expected_still_images: int
     expected_animation_clips: int
+    story_arc: tuple[Mapping[str, Any], ...] = ()
 
     def payload(self) -> dict[str, Any]:
-        return {
+        values = {
             "operation_id": self.operation_id,
             "runtime_hash": self.runtime_hash,
             "plan_id": self.plan_id,
@@ -305,6 +306,9 @@ class SectionProductionRequest:
             "expected_still_images": self.expected_still_images,
             "expected_animation_clips": self.expected_animation_clips,
         }
+        if self.stage == "script":
+            values["story_arc"] = _plain(self.story_arc)
+        return values
 
 
 @dataclass(frozen=True)
@@ -475,6 +479,7 @@ def _request(
         estimated_media=adapter.estimated_media,
         expected_still_images=still_images,
         expected_animation_clips=animation_clips,
+        story_arc=adapter.story_arc if adapter.stage == "script" else (),
     )
 
 
@@ -1075,6 +1080,75 @@ _SCRIPT_ALL_CAPS_HEADING_PATTERN = re.compile(
 _SCRIPT_NUMBER_PATTERN = re.compile(
     r"(?<![\w])(?:18|19|20)\d{2}(?![\w])|(?<![\w])\d+(?:\.\d+)?%?(?![\w])"
 )
+_SCRIPT_NUMBER_WORDS = frozenset(
+    {
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+        "thirty",
+        "forty",
+        "fifty",
+        "sixty",
+        "seventy",
+        "eighty",
+        "ninety",
+        "hundred",
+        "thousand",
+        "million",
+        "billion",
+        "trillion",
+        "first",
+        "second",
+        "third",
+        "fourth",
+        "fifth",
+        "sixth",
+        "seventh",
+        "eighth",
+        "ninth",
+        "tenth",
+        "eleventh",
+        "twelfth",
+        "thirteenth",
+        "fourteenth",
+        "fifteenth",
+        "sixteenth",
+        "seventeenth",
+        "eighteenth",
+        "nineteenth",
+        "twentieth",
+        "thirtieth",
+        "fortieth",
+        "fiftieth",
+        "sixtieth",
+        "seventieth",
+        "eightieth",
+        "ninetieth",
+        "hundredth",
+        "thousandth",
+        "millionth",
+        "billionth",
+        "trillionth",
+    }
+)
 _SCRIPT_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]*")
 _SCRIPT_NAMED_TOKEN_PATTERN = re.compile(
     r"\b(?:[A-Z]{2,5}|[A-Z][a-z]{2,})\b"
@@ -1083,6 +1157,15 @@ _SCRIPT_NAMED_TOKEN_PATTERN = re.compile(
 
 def _script_word_count(script_text: str) -> int:
     return len(_SCRIPT_WORD_PATTERN.findall(_script_spoken_prose(script_text)))
+
+
+def _script_number_word_anchors(text: str) -> set[str]:
+    anchors: set[str] = set()
+    for token in _SCRIPT_WORD_PATTERN.findall(text):
+        for part in re.split(r"[-']", token.casefold()):
+            if part in _SCRIPT_NUMBER_WORDS:
+                anchors.add(part)
+    return anchors
 
 
 def _script_spoken_prose(script_text: str) -> str:
@@ -1117,6 +1200,77 @@ def _script_spoken_prose(script_text: str) -> str:
             continue
         spoken.append(line)
     return "\n".join(spoken)
+
+
+def _script_role_structure_law(role: str) -> str:
+    """Return film-agnostic craft constraints without authorizing facts."""
+
+    normalized = role.strip().casefold().replace("-", "_").replace(" ", "_")
+    laws = {
+        "opening": (
+            "Open immediately on the clearest visible disruption, tension, or "
+            "question authorized by this section. Establish the through-line "
+            "and stakes quickly, escalate curiosity through distinct visual "
+            "beats, and end on an open handoff without revealing the answer early."
+        ),
+        "evidence": (
+            "Open on the strongest concrete visible proof authorized by this "
+            "section. Escalate across distinct approved evidence types so each "
+            "beat raises confidence or stakes instead of listing or repeating. "
+            "End on an earned reveal, question, or handoff to the next section."
+        ),
+        "case_study": (
+            "Open inside the most concrete approved moment, subject, or event. "
+            "Escalate from observation through discovery to consequence using "
+            "distinct visual beats, then end on an earned insight or handoff."
+        ),
+        "resolution": (
+            "Open on the decisive approved action or change. Show the causal "
+            "resolution in ordered visible beats with escalating confirmation, "
+            "then end by proving the result and handing off cleanly."
+        ),
+        "closing": (
+            "Open on the earned payoff. Synthesize the approved through-line "
+            "without a list or generic recap, introduce no new claims, and land "
+            "on one decisive visible final image and takeaway."
+        ),
+    }
+    return laws.get(
+        normalized,
+        (
+            "Open on the strongest concrete visible beat authorized by this "
+            "section. Develop distinct beats in a clear escalating causal order, "
+            "avoid list-like repetition, and end on an earned transition."
+        ),
+    )
+
+
+def _script_story_arc_guidance(
+    story_arc: tuple[Mapping[str, Any], ...],
+    *,
+    current_order_index: int,
+) -> str:
+    if not story_arc:
+        return ""
+    lines = [
+        "=== APPROVED STORY ARC (STRUCTURE ONLY — NOT A FACTUAL SOURCE) ===",
+        (
+            "Use this ordered arc only for continuity, non-duplication, "
+            "escalation, and the handoff between sections. Other sections' "
+            "purposes do not authorize any subject, person, place, organization, "
+            "event, date, number, example, or case study in this section."
+        ),
+    ]
+    for item in story_arc:
+        order_index = int(item.get("order_index", -1))
+        current = " [CURRENT SECTION]" if order_index == current_order_index else ""
+        lines.append(
+            f"SECTION {order_index + 1}{current} — "
+            f"ROLE: {str(item.get('role') or '')}; "
+            f"PURPOSE: {str(item.get('purpose') or '')}"
+        )
+    lines.append("=== END APPROVED STORY ARC ===")
+    return "\n".join(lines)
 
 
 def _script_approved_contract(
@@ -1174,6 +1328,10 @@ def _script_approved_contract(
                 "non-visual filler with filmable shots or actions, without "
                 "inventing any unapproved fact, name, date, number, example, "
                 "or adjacent topic."
+            ),
+            (
+                "ROLE-AWARE STRUCTURE LAW: "
+                + _script_role_structure_law(role)
             ),
             "=== END EXCLUSIVE APPROVED SECTION CONTRACT ===",
         )
@@ -1270,6 +1428,15 @@ def _script_grounding_issues(
         issues.append(
             "script introduces number/date anchors absent from the approved "
             "section: " + ", ".join(unsupported_numbers[:6])
+        )
+    approved_number_words = _script_number_word_anchors(approved_context)
+    unsupported_number_words = sorted(
+        _script_number_word_anchors(prose) - approved_number_words
+    )
+    if unsupported_number_words:
+        issues.append(
+            "script introduces number-word anchors absent from the approved "
+            "section: " + ", ".join(unsupported_number_words[:6])
         )
 
     approved_casefold = approved_context.casefold()
@@ -2431,6 +2598,11 @@ class SharedSectionProductionSeams:
             exact_seconds=request.exact_seconds,
             config=config,
         )
+        story_arc_guidance = _script_story_arc_guidance(
+            request.story_arc,
+            current_order_index=request.order_index,
+        )
+        role_structure_law = _script_role_structure_law(request.role)
         brief = {
             "headline": request.purpose,
             "thesis": request.purpose,
@@ -2441,7 +2613,8 @@ class SharedSectionProductionSeams:
                 f"The spoken result must fit exactly {request.exact_seconds} seconds.\n"
                 + approved_contract
                 + "\n"
-                f"Language mode is '{request.language.get('mode')}', dialogue "
+                + (story_arc_guidance + "\n" if story_arc_guidance else "")
+                + f"Language mode is '{request.language.get('mode')}', dialogue "
                 f"audio is '{request.dialogue_audio}', and dubbing mode is "
                 f"'{request.dubbing.get('mode')}'. "
                 + (
@@ -2545,6 +2718,10 @@ class SharedSectionProductionSeams:
                 "evidence, environment, character behavior, or an observable "
                 "change that the approved stills or clips can show; reject generic "
                 "exposition, disconnected claims, and non-visual filler.",
+                "role_structure_quality: Apply this film-agnostic structural "
+                f"law for the approved '{request.role}' role: "
+                f"{role_structure_law} The ordered story arc may guide continuity "
+                "and handoff only; it cannot authorize facts from another section.",
             )
         )
         grade = None
@@ -2565,6 +2742,7 @@ class SharedSectionProductionSeams:
                 severity_by_rule={
                     "approved_purpose_grounding": "hard_gate",
                     "visual_story_readiness": "hard_gate",
+                    "role_structure_quality": "hard_gate",
                 },
                 max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
                 edit_constraints=[
