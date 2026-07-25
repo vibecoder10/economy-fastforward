@@ -1329,6 +1329,12 @@ async def test_magic_button_resolution_semantic_failure_never_persists(
         assert "Do not invent technical labels, component counts, sectors, geographic" in context
         assert "directional qualifiers" in context
         assert "Use unlabeled relative visual state" in context
+        assert "Specificity must come from performance" in context
+        assert "show characters physically performing that literal action" in context
+        assert "maps, screens, commands, overlays, and indicators" in context
+        assert "GROUNDING GRANULARITY LAW" in context
+        assert "Concrete does not mean more factually specific" in context
+        assert "timestamp, measurement, specification, or mechanism" in context
         assert "APPROVED VISUAL BEAT PLAN" in context
         assert "NetworkExplainer" in context
         assert "motion.network_explainer" in context

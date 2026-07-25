@@ -1357,6 +1357,14 @@ def _script_role_structure_law(role: str) -> str:
             "subdivisions, directional qualifiers, or obstacles merely to "
             "manufacture steps. Use unlabeled relative visual state when the "
             "approved world does not name the underlying geography or system. "
+            "Specificity must come from performance, spatial behavior, light, "
+            "sound, and observable state change, not from specializing a generic "
+            "approved noun into an unapproved subtype, component, measurement, "
+            "or technical mechanism. When the purpose names a filmable physical "
+            "resolution action, show characters physically performing that "
+            "literal action in at least one middle beat; maps, screens, commands, "
+            "overlays, and indicators may guide or confirm it but cannot replace "
+            "it. "
             "A single switch, button, command, automatic "
             "recovery, or montage must never resolve the whole problem. The "
             "final beat must visibly prove the approved result and hand off "
@@ -2502,6 +2510,16 @@ def _script_approved_contract(
                 "non-visual filler with filmable shots or actions, without "
                 "inventing any unapproved fact, name, date, number, example, "
                 "or adjacent topic."
+            ),
+            (
+                "GROUNDING GRANULARITY LAW: Concrete does not mean more "
+                "factually specific. Preserve the exact factual granularity of "
+                "approved nouns. Do not turn a generic approved record, signal, "
+                "location, object, network, piece of evidence, or event into a "
+                "new subtype, named component, labeled geography, timestamp, "
+                "measurement, specification, or mechanism. Make it cinematic "
+                "through handling, blocking, reaction, lighting, sound, camera "
+                "perspective, and visible before/after state."
             ),
             (
                 "ROLE-AWARE STRUCTURE LAW: "
@@ -4163,7 +4181,13 @@ class SharedSectionProductionSeams:
             "number, case study, conspiracy, or adjacent topic. Treat an "
             "unapproved sentence-initial title-case candidate as potential "
             "entity drift even though lexical validation cannot distinguish it "
-            "from an ordinary capitalized visual noun.",
+            "from an ordinary capitalized visual noun. GROUNDING GRANULARITY "
+            "LAW: Concrete does not mean more factually specific. Preserve the "
+            "exact factual granularity of approved nouns; reject new subtypes, "
+            "named components, labeled geography, timestamp, measurement, "
+            "specification, or mechanism. Cinematic specificity must instead "
+            "come from handling, blocking, reaction, light, sound, camera "
+            "perspective, and visible before/after state.",
             "visual_story_readiness: The script must tell a coherent, "
             "specific visual story. Each beat must provide concrete action, "
             "evidence, environment, character behavior, or an observable "
