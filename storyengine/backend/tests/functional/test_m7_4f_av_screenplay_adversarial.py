@@ -1291,6 +1291,103 @@ async def test_staged_multi_step_resolution_passes_and_persists(
     assert result["quality_verdict"] == "pass"
 
 
+@pytest.mark.asyncio
+async def test_two_malformed_strict_critic_responses_fail_before_persistence(
+    monkeypatch,
+):
+    purpose = "Restore the approved system safely"
+    next_purpose = "Land the approved restored system"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "resolution",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "closing",
+            "purpose": next_purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=40),
+            role="resolution",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "c" * 64,
+    )
+    candidate = _with_boundary_carries(
+        _resolution_screenplay(staged=True),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    database_touched = False
+
+    class CriticClient:
+        def __init__(self):
+            self.responses = ["", '{"verdict":"pass"']
+            self.calls = []
+
+        async def generate(self, **kwargs):
+            self.calls.append(kwargs)
+            return self.responses.pop(0)
+
+    critic_client = CriticClient()
+    executor = _Executor()
+    executor._pipeline.anthropic = critic_client
+
+    async def generate(*_args, **_kwargs):
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("unavailable strict grade must not persist")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = executor
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed visual-story quality before voice or imagery",
+    ):
+        await seams._script(request)
+
+    assert len(critic_client.calls) == 2
+    assert all(call["max_tokens"] == 1800 for call in critic_client.calls)
+    exact_ids = (
+        "approved_purpose_grounding",
+        "visual_story_readiness",
+        "role_structure_quality",
+        "story_arc_continuity",
+        "shared_film_world_progression",
+        "av_screenplay_performance",
+    )
+    for rule_id in exact_ids:
+        assert rule_id in critic_client.calls[0]["system_prompt"]
+    assert (
+        "nested explanatory prose"
+        in critic_client.calls[0]["system_prompt"]
+    )
+    assert (
+        "RETRY CONTRACT: The prior response was empty, malformed, or truncated"
+        in critic_client.calls[1]["system_prompt"]
+    )
+    assert database_touched is False
+
+
 def test_whole_arc_requires_concrete_carry_between_sections():
     first, first_issues = production._parse_custom_film_av_screenplay(
         _bilingual_screenplay(),

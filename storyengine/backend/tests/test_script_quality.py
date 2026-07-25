@@ -51,6 +51,37 @@ def _json_regenerate():
     return '{"verdict": "regenerate", "score": 20, "failing_gates": ["hook speed", "causality"], "rewrite_guidance": "Start over from the incident."}'
 
 
+_CUSTOM_FILM_RULE_IDS = (
+    "approved_purpose_grounding",
+    "visual_story_readiness",
+    "role_structure_quality",
+    "story_arc_continuity",
+    "shared_film_world_progression",
+    "av_screenplay_performance",
+)
+
+
+def _strict_grade(*, failed_rule=None):
+    import json
+
+    return json.dumps(
+        {
+            "verdict": "pass",
+            "score": 92,
+            "failing_gates": [],
+            "rewrite_guidance": "",
+            "rule_verdicts": [
+                {
+                    "rule": rule_id,
+                    "passed": rule_id != failed_rule,
+                    "note": "needs repair" if rule_id == failed_rule else "",
+                }
+                for rule_id in _CUSTOM_FILM_RULE_IDS
+            ],
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # critique_script — the lifted critic
 # ---------------------------------------------------------------------------
@@ -133,6 +164,95 @@ def test_critique_script_rule_verdicts_as_bare_strings_are_coerced():
     result = sq.CritiqueResult(verdict="revise", rule_verdicts=["some rule broke"])
     assert result.rule_verdicts[0].rule == "some rule broke"
     assert result.rule_verdicts[0].passed is False
+
+
+def test_strict_critic_retries_malformed_then_accepts_exact_rule_ids():
+    client = FakeClient(['{"verdict":"pass"', _strict_grade()])
+
+    result = asyncio.run(
+        sq.critique_script(
+            "tenant-1",
+            "video-1",
+            {"script": "A complete script."},
+            rules_text=(
+                "approved_purpose_grounding: nested prose\n"
+                "visual_story_readiness: visible action"
+            ),
+            severity_by_rule={
+                rule_id: "hard_gate" for rule_id in _CUSTOM_FILM_RULE_IDS
+            },
+            strict_rule_ids=_CUSTOM_FILM_RULE_IDS,
+            critic_max_tokens=1800,
+            retry_invalid_critique=True,
+            client=client,
+        )
+    )
+
+    assert result.verdict == "pass"
+    assert [item.rule for item in result.rule_verdicts] == list(
+        _CUSTOM_FILM_RULE_IDS
+    )
+    assert len(client.calls) == 2
+    assert all(call["max_tokens"] == 1800 for call in client.calls)
+    assert (
+        "nested explanatory prose"
+        in client.calls[0]["system_prompt"]
+    )
+    assert (
+        "RETRY CONTRACT: The prior response was empty, malformed, or truncated"
+        in client.calls[1]["system_prompt"]
+    )
+
+
+def test_strict_critic_two_malformed_responses_keep_fail_open_sentinel():
+    client = FakeClient(["", "not-json"])
+
+    result = asyncio.run(
+        sq.critique_script(
+            "tenant-1",
+            "video-1",
+            {"script": "A complete script."},
+            rules_text="approved_purpose_grounding: approved facts only",
+            severity_by_rule={
+                rule_id: "hard_gate" for rule_id in _CUSTOM_FILM_RULE_IDS
+            },
+            strict_rule_ids=_CUSTOM_FILM_RULE_IDS,
+            critic_max_tokens=1800,
+            retry_invalid_critique=True,
+            client=client,
+        )
+    )
+
+    assert len(client.calls) == 2
+    assert result.verdict == "pass"
+    assert result.failing_gates == ["grade unavailable - failed open"]
+
+
+def test_strict_critic_rejects_extra_or_missing_rule_ids():
+    import json
+
+    extra = json.loads(_strict_grade())
+    extra["rule_verdicts"].append(
+        {"rule": "nested_arc_prose", "passed": True, "note": ""}
+    )
+    client = FakeClient([json.dumps(extra), _strict_grade()])
+
+    result = asyncio.run(
+        sq.critique_script(
+            "tenant-1",
+            "video-1",
+            {"script": "A complete script."},
+            rules_text="story_arc_continuity: nested structural prose",
+            strict_rule_ids=_CUSTOM_FILM_RULE_IDS,
+            retry_invalid_critique=True,
+            client=client,
+        )
+    )
+
+    assert len(client.calls) == 2
+    assert [item.rule for item in result.rule_verdicts] == list(
+        _CUSTOM_FILM_RULE_IDS
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +360,44 @@ def test_orchestrator_revise_verdict_converges_within_edit_rounds():
     assert "Keep the approved subject and 100-120 word band." in (
         client.calls[1]["prompt"]
     )
+
+
+def test_strict_hard_rule_failure_drives_edit_then_exact_regrade():
+    scenes = _scenes("A magic button resolves everything.")
+    edited_raw = (
+        "@@@SCENE 1@@@\n"
+        "A staged sequence visibly confirms each dependent action."
+    )
+    client = FakeClient(
+        [
+            _strict_grade(failed_rule="role_structure_quality"),
+            edited_raw,
+            _strict_grade(),
+        ]
+    )
+
+    outcome = asyncio.run(
+        sq.run_critique_and_edit(
+            "tenant-1",
+            "video-1",
+            scenes,
+            client=client,
+            rules_text="role_structure_quality: require dependent actions",
+            severity_by_rule={
+                rule_id: "hard_gate" for rule_id in _CUSTOM_FILM_RULE_IDS
+            },
+            strict_rule_ids=_CUSTOM_FILM_RULE_IDS,
+            critic_max_tokens=1800,
+            retry_invalid_critique=True,
+        )
+    )
+
+    assert outcome["critique"].verdict == "pass"
+    assert outcome["edit_rounds"] == 1
+    assert outcome["changed"] is True
+    assert "role_structure_quality" in client.calls[1]["prompt"]
+    assert client.calls[0]["max_tokens"] == 1800
+    assert client.calls[2]["max_tokens"] == 1800
 
 
 def test_orchestrator_revise_verdict_still_failing_after_bound_is_needs_review():

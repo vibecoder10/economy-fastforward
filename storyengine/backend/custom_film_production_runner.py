@@ -3997,6 +3997,9 @@ class SharedSectionProductionSeams:
                 hook=f"{request.role}: {request.purpose}",
                 rules_text=rules_text,
                 severity_by_rule=severity_by_rule,
+                strict_rule_ids=tuple(severity_by_rule),
+                critic_max_tokens=1800,
+                retry_invalid_critique=True,
                 max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
                 edit_constraints=[
                     (
