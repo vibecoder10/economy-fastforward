@@ -466,6 +466,164 @@ class FakePlannerClient:
         return json.dumps(self.payload)
 
 
+class SequencedPlannerClient:
+    def __init__(self, outputs):
+        self.outputs = outputs
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        index = len(self.calls)
+        self.calls.append(kwargs)
+        output = self.outputs[index]
+        return json.dumps(output) if isinstance(output, dict) else output
+
+
+def test_planner_repairs_one_ungrounded_focus_then_compiles(manifest, caplog):
+    client = SequencedPlannerClient(
+        [_proposal("unrelated topic"), _proposal("steel")]
+    )
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        compiled = asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+
+    assert len(client.calls) == 2
+    assert compiled.planner_proposal["sections"][0]["focus"] == "steel"
+    repair_prompt = client.calls[1]["prompt"]
+    assert "Make a custom film about steel" in repair_prompt
+    assert '"focus":"unrelated topic"' in repair_prompt
+    assert "CANONICAL ROLE CATALOG:" in repair_prompt
+    assert "JSON SCHEMA:" in repair_prompt
+    assert "exact contiguous substring" in repair_prompt
+    assert "Preserve every valid section" in repair_prompt
+    assert "stage=repair reason=focus_not_grounded attempt=1" in caplog.text
+
+
+def test_planner_repairs_one_schema_rejection_then_compiles(manifest, caplog):
+    invalid = _proposal("steel")
+    invalid["sections"][0]["role"] = "descriptive chapter name"
+    client = SequencedPlannerClient([invalid, _proposal("steel")])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        compiled = asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+
+    assert len(client.calls) == 2
+    assert compiled.internal_plan["sections"][0]["role"] == "opening"
+    assert "stage=repair reason=schema_validation attempt=1" in caplog.text
+
+
+def test_planner_does_not_repair_parse_duration_or_prior_identity_failures(
+    manifest,
+    monkeypatch,
+):
+    parse_client = SequencedPlannerClient(["not-json"])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                parse_client,
+                total_duration_seconds=30,
+            )
+        )
+    assert len(parse_client.calls) == 1
+
+    duration_client = SequencedPlannerClient([_proposal("steel")])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                duration_client,
+                total_duration_seconds=1,
+            )
+        )
+    assert len(duration_client.calls) == 1
+
+    prior_client = SequencedPlannerClient([_proposal("steel")])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                prior_client,
+                total_duration_seconds=30,
+                prior_section_ids=["not-a-complete-prior-plan"],
+            )
+        )
+    assert len(prior_client.calls) == 1
+
+    def fail_normalization(*_args, **_kwargs):
+        raise contract.CustomFilmContractError("internal normalization detail")
+
+    monkeypatch.setattr(planner, "normalize_plan", fail_normalization)
+    normalization_client = SequencedPlannerClient([_proposal("steel")])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                normalization_client,
+                total_duration_seconds=30,
+            )
+        )
+    assert len(normalization_client.calls) == 1
+
+
+def test_planner_failed_repair_stops_after_exactly_two_calls(manifest):
+    client = SequencedPlannerClient(
+        [_proposal("first unrelated topic"), _proposal("second unrelated topic")]
+    )
+    with pytest.raises(planner.CustomFilmPlannerError) as error:
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+    assert str(error.value) == planner.PLANNER_FAILURE_MESSAGE
+    assert len(client.calls) == 2
+
+
+def test_planner_repair_logs_never_echo_request_or_candidate_values(
+    manifest,
+    caplog,
+):
+    request_secret = "confidential-request-token"
+    candidate_secret = "sk-live-candidate-secret-$15"
+    invalid = _proposal(candidate_secret)
+    client = SequencedPlannerClient([invalid, _proposal("steel")])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        compiled = asyncio.run(
+            planner.plan_custom_film(
+                f"Make a custom film about steel {request_secret}",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+
+    assert compiled.planner_proposal["sections"][0]["focus"] == "steel"
+    assert len(client.calls) == 2
+    assert request_secret in client.calls[1]["prompt"]
+    assert candidate_secret in client.calls[1]["prompt"]
+    assert request_secret not in caplog.text
+    assert candidate_secret not in caplog.text
+
+
 def test_exact_flagship_request_accepts_generic_and_bilingual_caption_signals(
     manifest,
 ):

@@ -286,6 +286,16 @@ class PlannerCompileReason(str, Enum):
     NORMALIZATION_FAILED = "normalization_failed"
 
 
+_REPAIRABLE_FOCUS_REASONS = frozenset(
+    {
+        PlannerCompileReason.FOCUS_INVALID,
+        PlannerCompileReason.FOCUS_INTERNAL_TERM,
+        PlannerCompileReason.FOCUS_PRICING,
+        PlannerCompileReason.FOCUS_OPERATIONAL,
+        PlannerCompileReason.FOCUS_PROVIDER,
+        PlannerCompileReason.FOCUS_NOT_GROUNDED,
+    }
+)
 _SAFE_COMPILE_MESSAGES = {
     PlannerCompileReason.DURATION_INVALID: "Duration is outside the planner contract",
     PlannerCompileReason.PRIOR_ID_INVALID: "Prior plan identity is inconsistent",
@@ -795,6 +805,44 @@ def _planner_prompt(
     )
 
 
+def _planner_repair_prompt(
+    user_request: str,
+    prior_candidate: dict[str, Any],
+) -> str:
+    """Build one bounded repair request from the parsed, still-untrusted candidate."""
+    return (
+        "Repair the prior Custom Film planner candidate. Return exactly one JSON "
+        "object matching the schema. Preserve every valid section, its order, and "
+        "every valid field; replace only fields that violate the schema or grounding "
+        "contract. Every `role` must be copied exactly from the canonical role "
+        "catalog. Every `focus` must be a concise exact contiguous substring copied "
+        "from the creator request, never a paraphrase. Descriptive chapter language "
+        "belongs in focus or beats. Do not add providers, models, prices, approvals, "
+        "actions, runtime knobs, or generation instructions.\n\n"
+        f"CANONICAL ROLE CATALOG:\n{canonical_json(PUBLIC_ROLE_CATALOG)}\n\n"
+        f"ORCHESTRATION CAPABILITY CATALOG ({CAPABILITY_CATALOG_VERSION}):\n"
+        f"{canonical_json(PUBLIC_ORCHESTRATION_CAPABILITIES)}\n\n"
+        f"ORCHESTRATION SIGNAL RULES:\n"
+        f"{canonical_json(PUBLIC_ORCHESTRATION_SIGNAL_RULES)}\n\n"
+        f"JSON SCHEMA:\n{canonical_json(planner_json_schema())}\n\n"
+        f"CREATOR REQUEST:\n{user_request.strip()}\n\n"
+        f"PRIOR CANDIDATE:\n{canonical_json(prior_candidate)}"
+    )
+
+
+def _repairable_planner_reason(error: CustomFilmPlannerError) -> str | None:
+    """Return a fixed reason code only for bounded schema/focus repair."""
+    cause = error.__cause__
+    if isinstance(cause, ValidationError):
+        return "schema_validation"
+    if (
+        isinstance(cause, _PlannerCompileError)
+        and cause.reason in _REPAIRABLE_FOCUS_REASONS
+    ):
+        return cause.reason.value
+    return None
+
+
 def _section_id(
     user_request: str,
     index: int,
@@ -1146,18 +1194,49 @@ async def plan_custom_film(
             temperature=0,
         )
         parsed = _extract_json_object(raw)
-        return compile_planner_proposal(
-            user_request,
-            parsed,
-            manifest,
-            total_duration_seconds=total_duration_seconds,
-            prior_section_ids=prior_section_ids,
-            prior_focuses=(
-                [section.focus for section in normalized_prior.sections]
-                if normalized_prior is not None
-                else None
-            ),
+        prior_focuses = (
+            [section.focus for section in normalized_prior.sections]
+            if normalized_prior is not None
+            else None
         )
+        try:
+            return compile_planner_proposal(
+                user_request,
+                parsed,
+                manifest,
+                total_duration_seconds=total_duration_seconds,
+                prior_section_ids=prior_section_ids,
+                prior_focuses=prior_focuses,
+            )
+        except CustomFilmPlannerError as first_error:
+            repair_reason = _repairable_planner_reason(first_error)
+            if repair_reason is None:
+                raise
+            logger.warning(
+                "custom-film planner repair stage=repair reason=%s attempt=1",
+                repair_reason,
+            )
+            repaired_raw = await client.generate(
+                prompt=_planner_repair_prompt(user_request, parsed),
+                system_prompt=(
+                    "You repair one constrained film-structure JSON candidate. "
+                    "Preserve valid structure, use exact canonical role IDs and exact "
+                    "contiguous creator-request substrings for focus, and never emit "
+                    "providers, models, prices, approvals, actions, runtime knobs, "
+                    "or generation instructions."
+                ),
+                max_tokens=6_000,
+                temperature=0,
+            )
+            repaired = _extract_json_object(repaired_raw)
+            return compile_planner_proposal(
+                user_request,
+                repaired,
+                manifest,
+                total_duration_seconds=total_duration_seconds,
+                prior_section_ids=prior_section_ids,
+                prior_focuses=prior_focuses,
+            )
     except CustomFilmPlannerError:
         raise
     except Exception as exc:  # noqa: BLE001 - provider details must not leak to chat
