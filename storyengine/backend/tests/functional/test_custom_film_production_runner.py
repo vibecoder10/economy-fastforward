@@ -879,8 +879,13 @@ def test_held_149_word_opening_fails_exact_timing_and_grounding_before_quality()
         "The camera cuts to Texas, where ERCOT officials revisit the 2021 power "
         "grid collapse and a conspiracy about frozen turbines."
     )
-    drift = drift_base + " " + " ".join(
-        ["unrelated"] * (149 - production._script_word_count(drift_base))
+    drift = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:45 | ~112 words]\n"
+        + drift_base
+        + " "
+        + " ".join(
+            ["unrelated"] * (149 - production._script_word_count(drift_base))
+        )
     )
     words = production._script_word_count(drift)
     assert words == 149
@@ -903,7 +908,7 @@ def test_held_149_word_opening_fails_exact_timing_and_grounding_before_quality()
     assert any("ERCOT" in issue and "Texas" in issue for issue in issues)
 
 
-def test_grounding_ignores_document_headers_and_sentence_start_capitalization():
+def test_grounding_rejects_document_headers_before_canonical_marker():
     config = production._ExactSectionConfig(12)
     script = (
         "# NARRATION SCRIPT\n\n"
@@ -931,7 +936,11 @@ def test_grounding_ignores_document_headers_and_sentence_start_capitalization():
             "valid": False,
             "issues": ["Script too long: 36 words (maximum 35)"],
         },
-    ) == []
+    ) == [
+        "canonical ACT marker must be the first non-whitespace content; remove "
+        "every planning note, heading, separator, emphasis block, or prose "
+        "prefix before it"
+    ]
 
 
 def test_grounding_still_rejects_mid_sentence_unapproved_proper_nouns():
@@ -940,8 +949,13 @@ def test_grounding_still_rejects_mid_sentence_unapproved_proper_nouns():
         "The blackout begins on a dark panel. The camera cuts to Chicago and "
         "the Mercantile Exchange while an ERCOT report appears."
     )
-    script = script_base + " " + " ".join(
-        ["blackout"] * (30 - production._script_word_count(script_base))
+    script = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
+        + script_base
+        + " "
+        + " ".join(
+            ["blackout"] * (30 - production._script_word_count(script_base))
+        )
     )
 
     issues = production._script_grounding_issues(
@@ -972,8 +986,13 @@ async def test_shared_script_repairs_same_draft_then_passes_early_visual_story_g
         "The camera cuts to Texas, where ERCOT officials revisit the 2021 power "
         "grid collapse and a conspiracy about frozen turbines."
     )
-    drift = drift_base + " " + " ".join(
-        ["unrelated"] * (149 - production._script_word_count(drift_base))
+    drift = (
+        "[ACT 1 — OPENING | 0:00 - 0:45 | ~112 words]\n"
+        + drift_base
+        + " "
+        + " ".join(
+            ["unrelated"] * (149 - production._script_word_count(drift_base))
+        )
     )
     assert production._script_word_count(drift) == 149
     corrected = (

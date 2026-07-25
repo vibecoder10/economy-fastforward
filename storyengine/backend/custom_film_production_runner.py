@@ -1072,8 +1072,11 @@ _SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(
 _SCRIPT_EMPHASIS_LINE_PATTERN = re.compile(
     r"^\s*(?:\*\*|__)(?P<body>.+?)(?:\*\*|__)\s*$"
 )
-_SCRIPT_FENCE_PATTERN = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*$")
+_SCRIPT_FENCE_PATTERN = re.compile(r"^\s*(?:`{3,}|~{3,})[^\r\n]*$")
 _SCRIPT_SETEXT_PATTERN = re.compile(r"^\s*(?:=+|-+)\s*$")
+_SCRIPT_HORIZONTAL_RULE_PATTERN = re.compile(
+    r"^\s*(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$"
+)
 _SCRIPT_ALL_CAPS_HEADING_PATTERN = re.compile(
     r"^\s*[A-Z][A-Z0-9'’ -]{2,80}\s*$"
 )
@@ -1351,6 +1354,13 @@ def _script_output_format_issues(
         ]
     expected_end = f"{config.total_seconds // 60}:{config.total_seconds % 60:02d}"
     marker = matches[0]
+    leading_whitespace = len(script_text) - len(script_text.lstrip())
+    if marker.start() != leading_whitespace:
+        return [
+            "canonical ACT marker must be the first non-whitespace content; "
+            "remove every planning note, heading, separator, emphasis block, "
+            "or prose prefix before it"
+        ]
     if (
         int(marker.group("number")) != 1
         or marker.group("title") == "<SHORT SECTION TITLE>"
@@ -1362,6 +1372,40 @@ def _script_output_format_issues(
             "script ACT marker changed the required number, title, "
             "timestamps, or target-word annotation"
         ]
+    trailing_lines = [
+        line for line in script_text[marker.end() :].splitlines() if line.strip()
+    ]
+    if trailing_lines:
+        terminal = trailing_lines[-1]
+        normalized_terminal = terminal.strip()
+        for _ in range(2):
+            heading = _SCRIPT_MARKDOWN_HEADING_PATTERN.fullmatch(
+                normalized_terminal
+            )
+            if heading:
+                normalized_terminal = heading.group("body").strip()
+                continue
+            emphasis = _SCRIPT_EMPHASIS_LINE_PATTERN.fullmatch(
+                normalized_terminal
+            )
+            if emphasis:
+                normalized_terminal = emphasis.group("body").strip()
+                continue
+            break
+        if (
+            _SCRIPT_FENCE_PATTERN.fullmatch(terminal)
+            or _SCRIPT_FENCE_PATTERN.fullmatch(normalized_terminal)
+            or _SCRIPT_HORIZONTAL_RULE_PATTERN.fullmatch(normalized_terminal)
+            or re.fullmatch(
+                r"\s*(?:END|SCRIPT\s+END|END\s+SCRIPT)\s*[.!]?\s*",
+                normalized_terminal,
+                re.IGNORECASE,
+            )
+        ):
+            return [
+                "script has trailing document chrome after narration; remove "
+                "the terminal fence, horizontal rule, or END wrapper"
+            ]
     outside_marker = _SCRIPT_ACT_MARKER_PATTERN.sub("", script_text)
     if re.search(r"(?im)^\s*(?:ACT\s+\d+|END)\b", outside_marker):
         return ["script contains an ACT/END wrapper outside the required marker"]
@@ -1383,7 +1427,9 @@ def _script_grounding_issues(
     """
 
     issues: list[str] = []
-    issues.extend(_script_output_format_issues(script_text, config=config))
+    format_issues = _script_output_format_issues(script_text, config=config)
+    if format_issues:
+        return format_issues
     word_count = _script_word_count(script_text)
     if not config.script_min_words <= word_count <= config.script_max_words:
         issues.append(
