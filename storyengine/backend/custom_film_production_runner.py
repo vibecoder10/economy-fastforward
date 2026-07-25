@@ -1034,10 +1034,13 @@ _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     }
 )
 _SCRIPT_MARKER_PATTERN = re.compile(r"\[(?:ACT|SCENE)\b[^\]]*\]", re.IGNORECASE)
-_SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}#{1,6}\s+\S")
-_SCRIPT_EMPHASIS_HEADING_PATTERN = re.compile(
-    r"^\s*(?:\*\*|__)[^*_]+(?:\*\*|__)\s*$"
+_SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(
+    r"^\s{0,3}#{1,6}\s+(?P<body>.*)$"
 )
+_SCRIPT_EMPHASIS_LINE_PATTERN = re.compile(
+    r"^\s*(?:\*\*|__)(?P<body>.+?)(?:\*\*|__)\s*$"
+)
+_SCRIPT_FENCE_PATTERN = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*$")
 _SCRIPT_SETEXT_PATTERN = re.compile(r"^\s*(?:=+|-+)\s*$")
 _SCRIPT_ALL_CAPS_HEADING_PATTERN = re.compile(
     r"^\s*[A-Z][A-Z0-9'’ -]{2,80}\s*$"
@@ -1056,29 +1059,33 @@ def _script_spoken_prose(script_text: str) -> str:
     """Remove generated document chrome while preserving spoken paragraphs."""
 
     without_markers = _SCRIPT_MARKER_PATTERN.sub("", script_text)
-    lines = without_markers.replace("```", "").splitlines()
+    lines = without_markers.splitlines()
     spoken: list[str] = []
-    index = 0
-    while index < len(lines):
-        line = lines[index]
+    in_fence = False
+    for raw_line in lines:
+        if _SCRIPT_FENCE_PATTERN.fullmatch(raw_line):
+            in_fence = not in_fence
+            spoken.append("")
+            continue
+        line = raw_line.replace("`", "")
+        markdown_heading = _SCRIPT_MARKDOWN_HEADING_PATTERN.match(line)
+        if markdown_heading:
+            line = markdown_heading.group("body")
+        emphasis = _SCRIPT_EMPHASIS_LINE_PATTERN.fullmatch(line)
+        if emphasis:
+            line = emphasis.group("body")
         stripped = line.strip()
-        next_is_setext = (
-            index + 1 < len(lines)
-            and bool(_SCRIPT_SETEXT_PATTERN.fullmatch(lines[index + 1]))
-        )
         if (
             not stripped
-            or _SCRIPT_MARKDOWN_HEADING_PATTERN.match(line)
-            or _SCRIPT_EMPHASIS_HEADING_PATTERN.fullmatch(line)
-            or _SCRIPT_ALL_CAPS_HEADING_PATTERN.fullmatch(line)
-            or next_is_setext
             or _SCRIPT_SETEXT_PATTERN.fullmatch(line)
+            or (
+                not in_fence
+                and _SCRIPT_ALL_CAPS_HEADING_PATTERN.fullmatch(line)
+            )
         ):
             spoken.append("")
-            index += 2 if next_is_setext else 1
             continue
         spoken.append(line)
-        index += 1
     return "\n".join(spoken)
 
 
