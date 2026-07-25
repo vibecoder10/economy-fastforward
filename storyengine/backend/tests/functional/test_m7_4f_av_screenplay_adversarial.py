@@ -378,6 +378,332 @@ def test_generated_av_contract_names_exact_configured_language_labels():
 
     assert "labels 'es' and 'en'" in contract
     assert "No third language label is allowed" in contract
+    assert "DIALOGUE <speaker> [es | pair=<id>]:" in contract
+    assert "DIALOGUE <same speaker> [en | pair=<same id>]:" in contract
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ({"mode": "narrator"}, "EXACT NARRATOR TAG: VO [en]:"),
+        (
+            {"mode": "narrator", "target_language": "Spanish"},
+            "EXACT NARRATOR TAG: VO [es]:",
+        ),
+        (
+            {"mode": "simple_single_language", "language": "Spanish"},
+            "EXACT PERFORMED TAG: DIALOGUE <speaker> [es]:",
+        ),
+    ],
+)
+def test_av_contract_emits_exact_canonical_tag_for_every_language_mode(
+    language,
+    expected,
+):
+    request = production._request(
+        replace(
+            _adapter("script"),
+            language=language,
+            dialogue_audio=(
+                "grok_native"
+                if language["mode"] == "simple_single_language"
+                else "voice_over"
+            ),
+            segmentation={
+                "mode": (
+                    "speaker_turn"
+                    if language["mode"] == "simple_single_language"
+                    else "visual_cue"
+                )
+            },
+        ),
+        (),
+        "custom-film-op:" + "3" * 64,
+    )
+
+    assert expected in production._custom_film_av_contract(request)
+
+
+def test_noncanonical_language_name_has_actionable_exact_tag_diagnostic():
+    text = "\n".join(
+        (
+            "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: The approved signal fills the control screen.",
+            "SOUND: Low room tone continues.",
+            "VO [English]: The approved signal returns.",
+            "CARRY-IN: approved opening state",
+            "CARRY-OUT: approved final state",
+        )
+    )
+
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        text,
+        exact_seconds=12,
+        language_mode="narrator",
+        canonical_languages=("en",),
+    )
+
+    assert parsed is None
+    assert any(
+        "noncanonical VO language label 'English'; use exactly VO [en]:"
+        in issue
+        for issue in issues
+    )
+    assert "AV screenplay contains a malformed or unknown track tag" not in issues
+
+
+def test_explicit_target_language_parser_requires_its_canonical_tag():
+    spanish = _bilingual_screenplay().replace(
+        "DIALOGUE Mara [en | pair=signal-1]: The signal is back.",
+        "VO [es]: La señal aprobada ha vuelto.",
+    ).replace(
+        "DIALOGUE Mara [es | pair=signal-1]: La señal ha vuelto.",
+        "",
+    )
+
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        spanish,
+        exact_seconds=12,
+        language_mode="narrator",
+        canonical_languages=("es",),
+    )
+
+    assert issues == []
+    assert parsed["dialogue_segments"][0]["language"] == "es"
+
+
+def _four_beat_narrator_screenplay(*, audible_beats: set[int]) -> str:
+    lines = ["[AV SECTION — BLACKOUT | 0:00 - 0:40]"]
+    carries = [
+        "opening map",
+        "lit console",
+        "stable signal",
+        "restored room",
+        "final map",
+    ]
+    for index in range(4):
+        beat = index + 1
+        lines.extend(
+            (
+                f"[BEAT {beat} | 0:{index * 10:02d} - 0:{(index + 1) * 10:02d}]",
+                "VISUAL: The approved map changes visibly.",
+                "SOUND: Low electrical ambience shifts.",
+            )
+        )
+        if beat in audible_beats:
+            lines.append("VO [en]: The approved blackout signal changes.")
+        lines.extend(
+            (
+                f"CARRY-IN: {carries[index]}",
+                f"CARRY-OUT: {carries[index + 1]}",
+            )
+        )
+    return "\n".join(lines)
+
+
+def test_narrator_av_rejects_four_of_four_audible_beats():
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _four_beat_narrator_screenplay(audible_beats={1, 2, 3, 4}),
+        exact_seconds=40,
+        language_mode="narrator",
+        canonical_languages=("en",),
+    )
+
+    assert parsed is not None
+    assert any("use VO in at most 2 of 4 timed beats" in issue for issue in issues)
+
+
+def test_narrator_av_accepts_two_of_four_audible_beats():
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _four_beat_narrator_screenplay(audible_beats={1, 3}),
+        exact_seconds=40,
+        language_mode="narrator",
+        canonical_languages=("en",),
+    )
+
+    assert issues == []
+    assert parsed["spoken_words"] == 10
+
+
+@pytest.mark.asyncio
+async def test_local_english_tag_repair_exposes_grounding_and_occupancy_together(
+    monkeypatch,
+):
+    purpose = "Show the approved blackout map"
+    next_purpose = "Restore the approved StoryEngine system"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "resolution",
+            "purpose": next_purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=40),
+            role="evidence",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "2" * 64,
+    )
+    bad = _with_boundary_carries(
+        _four_beat_narrator_screenplay(audible_beats={1, 2, 3, 4})
+        .replace("VO [en]:", "VO [English]:")
+        .replace(
+            "The approved map changes visibly.",
+            (
+                "The approved map marks 47 FBI substations on February 14th "
+                "2027."
+            ),
+            1,
+        ),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    repaired = _with_boundary_carries(
+        _four_beat_narrator_screenplay(audible_beats={1, 3}),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    deterministic_calls = []
+    inserted = []
+
+    class Connection:
+        async def fetchrow(self, _sql, *args):
+            inserted.append(args[4])
+            return {"id": args[0]}
+
+        async def execute(self, _sql, *_args):
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def generate(*_args, **_kwargs):
+        return {"script": bad, "validation": {"valid": True, "issues": []}}
+
+    async def edit(scenes, violations, **_kwargs):
+        deterministic_calls.append((copy.deepcopy(scenes), list(violations)))
+        return [{"scene": 1, "text": repaired}]
+
+    async def quality(_tenant, _video, scenes, **_kwargs):
+        return _quality_pass(scenes)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    assert len(deterministic_calls) == 1
+    repaired_locally, violations = deterministic_calls[0]
+    assert "VO [English]:" not in repaired_locally[0]["text"]
+    assert repaired_locally[0]["text"].count("VO [en]:") == 4
+    issue_text = "\n".join(violations)
+    assert "47" in issue_text
+    assert "FBI" in issue_text
+    assert "2027" in issue_text
+    assert "use VO in at most 2 of 4 timed beats" in issue_text
+    assert "noncanonical VO language label" not in issue_text
+    assert inserted == [repaired]
+    assert result["quality_verdict"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_unknown_malformed_language_tag_fails_before_persistence(
+    monkeypatch,
+):
+    purpose = "Show the approved signal"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "closing",
+            "purpose": "Land the approved signal",
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=12),
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "1" * 64,
+    )
+    malformed = "\n".join(
+        (
+            "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: The approved signal fills the screen.",
+            "SOUND: Low room tone continues.",
+            "VO Klingon: The approved signal returns.",
+            f"CARRY-IN: approved opening state — {purpose}",
+            "CARRY-OUT: approved transition state — Land the approved signal",
+        )
+    )
+    repair_contexts = []
+    database_touched = False
+
+    async def generate(*_args, **_kwargs):
+        return {
+            "script": malformed,
+            "validation": {"valid": True, "issues": []},
+        }
+
+    async def edit(_scenes, violations, **_kwargs):
+        repair_contexts.extend(violations)
+        return []
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("malformed AV must fail before persistence")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed approved timing/grounding before voice or imagery",
+    ):
+        await seams._script(request)
+
+    assert any("malformed or unknown track tag" in item for item in repair_contexts)
+    assert any("EXACT NARRATOR TAG: VO [en]:" in item for item in repair_contexts)
+    assert database_touched is False
 
 
 def test_whole_arc_requires_concrete_carry_between_sections():
