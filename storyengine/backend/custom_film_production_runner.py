@@ -1172,6 +1172,74 @@ _SCRIPT_NUMBER_WORDS = frozenset(
         "trillionth",
     }
 )
+_SCRIPT_GREEK_DESIGNATIONS = frozenset(
+    {
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "epsilon",
+        "zeta",
+        "theta",
+        "iota",
+        "kappa",
+        "lambda",
+        "omicron",
+        "sigma",
+        "omega",
+    }
+)
+_SCRIPT_NATO_DESIGNATIONS = frozenset(
+    {
+        "alfa",
+        "alpha",
+        "bravo",
+        "charlie",
+        "delta",
+        "echo",
+        "foxtrot",
+        "golf",
+        "hotel",
+        "india",
+        "juliett",
+        "kilo",
+        "lima",
+        "mike",
+        "november",
+        "oscar",
+        "papa",
+        "quebec",
+        "romeo",
+        "sierra",
+        "tango",
+        "uniform",
+        "victor",
+        "whiskey",
+        "x-ray",
+        "xray",
+        "yankee",
+        "zulu",
+    }
+)
+_SCRIPT_DESIGNATION_CONTEXT_WORDS = frozenset(
+    {
+        "branch",
+        "channel",
+        "circuit",
+        "code",
+        "designation",
+        "identifier",
+        "node",
+        "panel",
+        "phase",
+        "sector",
+        "sequence",
+        "site",
+        "station",
+        "team",
+        "unit",
+    }
+)
 _SCRIPT_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]*")
 _SCRIPT_NAMED_TOKEN_PATTERN = re.compile(
     r"\b(?:[A-Z]{2,5}|[A-Z][a-z]{2,})\b"
@@ -1188,6 +1256,27 @@ def _script_number_word_anchors(text: str) -> set[str]:
         for part in re.split(r"[-']", token.casefold()):
             if part in _SCRIPT_NUMBER_WORDS:
                 anchors.add(part)
+    return anchors
+
+
+def _script_designation_word_anchors(text: str) -> set[str]:
+    words = [
+        token.casefold()
+        for token in _SCRIPT_WORD_PATTERN.findall(text)
+    ]
+    anchors = {
+        word for word in words if word in _SCRIPT_GREEK_DESIGNATIONS
+    }
+    for index, word in enumerate(words):
+        if word not in _SCRIPT_NATO_DESIGNATIONS:
+            continue
+        before = words[index - 1] if index else ""
+        after = words[index + 1] if index + 1 < len(words) else ""
+        if (
+            before in _SCRIPT_DESIGNATION_CONTEXT_WORDS
+            or after in _SCRIPT_DESIGNATION_CONTEXT_WORDS
+        ):
+            anchors.add(word)
     return anchors
 
 
@@ -1258,9 +1347,16 @@ def _script_role_structure_law(role: str) -> str:
             "result and hand off cleanly without a generic renewed threat."
         ),
         "closing": (
-            "Open on the earned payoff. Synthesize the approved through-line "
-            "without a list or generic recap, introduce no new claims, and land "
-            "on one decisive visible final image and takeaway."
+            "Open on the earned final story image. When the approved purpose "
+            "authorizes planning, assembly, or production work, reveal it through "
+            "concrete cinematic transformation or match cuts into the actual "
+            "artifacts and work, then return to the completed work or final "
+            "image. Land on one decisive visual payoff with sparse connective "
+            "VO. Never use a list recap, literal framework or schema jargon, "
+            "on-screen track tags, carry-state, beat, or section labels, abstract "
+            "rotating diagrams, or narration explaining the story's structure "
+            "unless those exact constructs are explicitly approved subject matter. "
+            "Introduce no new factual claim or generic renewed threat."
         ),
     }
     return laws.get(
@@ -2147,6 +2243,15 @@ def _custom_film_av_grounding_issues(
             "AV screenplay introduces number-word anchors absent from the "
             "approved section: " + ", ".join(unsupported_number_words[:6])
         )
+    unsupported_designations = sorted(
+        _script_designation_word_anchors(factual_text)
+        - _script_designation_word_anchors(approved_context)
+    )
+    if unsupported_designations:
+        issues.append(
+            "AV screenplay introduces designation anchors absent from the "
+            "approved section: " + ", ".join(unsupported_designations[:6])
+        )
     approved_tokens = {
         token.casefold() for token in _SCRIPT_WORD_PATTERN.findall(approved_context)
     }
@@ -2455,6 +2560,15 @@ def _script_grounding_issues(
         issues.append(
             "script introduces number-word anchors absent from the approved "
             "section: " + ", ".join(unsupported_number_words[:6])
+        )
+    unsupported_designations = sorted(
+        _script_designation_word_anchors(prose)
+        - _script_designation_word_anchors(approved_context)
+    )
+    if unsupported_designations:
+        issues.append(
+            "script introduces designation anchors absent from the approved "
+            "section: " + ", ".join(unsupported_designations[:6])
         )
 
     approved_casefold = approved_context.casefold()
