@@ -441,6 +441,23 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
     # V2, ~$0.05/effect) that's wasted if this video's render path can never
     # mix it in — see status_map.render_path_plays_sfx / the "plays_sfx" flag
     # video_summary() computes from the SAME helper above.
+    #
+    # `.get("plays_sfx", True)` fails OPEN (treats a MISSING key as "SFX
+    # play, allow it") — deliberate, matching every other legacy-default in
+    # this guard (render_path_plays_sfx(None) is also True), so a summary
+    # dict from BEFORE this field existed keeps behaving exactly as before.
+    # This is only safe because every current caller of blocked_reason()
+    # (agent_brain.py's _tool_state, routes/mcp.py's _call_verb, routes/
+    # chat.py's classifier dispatch) builds `summary` via video_summary()
+    # above, which always sets the key. A future caller that hand-rolls a
+    # summary dict WITHOUT going through video_summary() would silently
+    # fail this specific check open — but this is the OUTER, UX-polish layer
+    # only: run_sound_prompts/run_sound_effects (pipeline_executor.py) check
+    # status_map.render_path_plays_sfx directly off the real video row before
+    # any paid call, and refuse regardless of what this function decides. If
+    # you add a caller that builds `summary` by hand, either route it through
+    # video_summary() or set "plays_sfx" yourself — don't just trust this
+    # default.
     if verb == "sound" and not summary.get("plays_sfx", True):
         reason = summary.get("sfx_blocked_reason") or "this render path drops sound effects."
         return f"sound effects won't be used for this video — {reason}"

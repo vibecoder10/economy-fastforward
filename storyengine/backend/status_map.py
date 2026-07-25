@@ -474,6 +474,28 @@ def render_path_sfx_block_reason(video: dict) -> Optional[str]:
     return _render_path_sfx_reason(video) or None
 
 
+def stages_excluding_blocked_sound(stages: Optional[list], video: Optional[dict]) -> Optional[list]:
+    """Given a stage list (or None = "every stage"), drop "sound" when this
+    video's render path can never play it (render_path_plays_sfx above).
+    Otherwise returns `stages` unchanged.
+
+    The yes/no PREDICATE lives in exactly one place (render_path_plays_sfx);
+    this is the one place the mechanical "now remove 'sound' from a stage
+    list" step lives, shared by every caller that maintains its own notion of
+    "this video's enabled stages" — pipeline_executor.PipelineExecutor.
+    _enabled_stages (the executor's status-write chokepoint) and
+    production_guide.get_production_guide (the MCP co-pilot's stage
+    checklist) both call this instead of re-implementing the list-filter.
+    """
+    if render_path_plays_sfx(video):
+        return stages
+    if stages is None:
+        return [s for s in STAGE_ORDER if s != "sound"]
+    if "sound" in stages:
+        return [s for s in stages if s != "sound"]
+    return stages
+
+
 # ---------------------------------------------------------------------------
 # Friendly progress states (chat-first UI)
 # ---------------------------------------------------------------------------

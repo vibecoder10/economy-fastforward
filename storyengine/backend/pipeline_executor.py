@@ -53,8 +53,8 @@ from generation_ledger import record_ledger_entry
 from error_utils import humanize_error, user_facing
 from status_map import (
     to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage,
-    resolve_planned_status, get_next_status_supabase, STAGE_ORDER,
-    render_path_plays_sfx, render_path_sfx_block_reason,
+    resolve_planned_status, get_next_status_supabase,
+    render_path_plays_sfx, render_path_sfx_block_reason, stages_excluding_blocked_sound,
 )
 from vault import get_secret
 from extraction import extract_grid
@@ -7315,11 +7315,16 @@ class PipelineExecutor:
            path can never mix in sound effects (Custom Film, static_docu,
            grok_native, character_dialogue — see the comment on run_render's
            dispatch block) has 'sound' force-excluded here even when the
-           creator never touched the stage plan. This is what lets the single
-           status-advance chokepoint below (_update_video_status /
-           _skip_disabled_next) route every future transition around the
-           sound stage automatically, the same way a creator-disabled stage
-           already gets skipped — no parallel skip mechanism.
+           creator never touched the stage plan. Every status write inside
+           this class (_update_video_status / _skip_disabled_next) reads this
+           method, so it routes every transition it produces around the sound
+           stage automatically, the same way a creator-disabled stage already
+           gets skipped. The ONE write outside this class, routes/videos.py's
+           `advance_video` (the human "Advance" button — a raw
+           `UPDATE videos SET status`, not funneled through
+           _update_video_status), calls this SAME static method directly and
+           reroutes with status_map.resolve_planned_status itself — same
+           source of truth, different call shape, not a parallel copy.
         """
         stages: Optional[list] = None
         if video:
@@ -7334,12 +7339,7 @@ class PipelineExecutor:
                 if isinstance(raw, list) and raw:
                     stages = list(raw)
 
-        if not render_path_plays_sfx(video):
-            if stages is None:
-                stages = [s for s in STAGE_ORDER if s != "sound"]
-            elif "sound" in stages:
-                stages = [s for s in stages if s != "sound"]
-        return stages
+        return stages_excluding_blocked_sound(stages, video)
 
     @staticmethod
     def _skip_disabled_next(video: dict, natural_next: str) -> str:
@@ -7356,6 +7356,43 @@ class PipelineExecutor:
         if natural_next == "ready_for_voice" and video.get("skip_voice"):
             return "ready_for_image_prompts"
         return natural_next
+
+    async def _skip_sound_stage(self, video_id: str, video: dict, current_status: str, natural_next: str) -> dict:
+        """Advance a video past the sound stage without running it, because
+        its render path will never play the result (status_map.
+        render_path_plays_sfx — see the comment on run_render's dispatch
+        block). `natural_next` is the status sound work would normally hand
+        off to (run_sound_prompts always targets 'ready_for_sound_effects',
+        run_sound_effects always targets 'ready_for_video_scripts' — the SAME
+        hardcoded defaults those two methods already fall back to when their
+        bot doesn't say otherwise, not a re-derivation of "next status after
+        current_status", which would misbehave if this is ever reached from
+        an unexpected current_status).
+
+        Shared by three callers so the skip result is byte-identical no
+        matter which one hits it:
+          1. `_run_next_step_status_map`'s explicit guard — a video already
+             PARKED at ready_for_sound_design/effects (written before this
+             guard existed) gets a fast, specific skip instead of running the
+             handler at all.
+          2 & 3. `run_sound_prompts`/`run_sound_effects`'s own inner guard —
+             the backstop EVERY caller (known or not: chat, MCP, the REST
+             endpoints, ClaudeOrchestrator.execute, a future caller nobody's
+             written yet) hits by construction, because this is the only
+             place a paid Kie.ai sound generation can actually begin.
+        """
+        next_status = self._skip_disabled_next(video, natural_next) if natural_next else None
+        reason = render_path_sfx_block_reason(video) or "this render path drops sound effects."
+        if next_status and next_status != current_status:
+            await self._update_video_status(video_id, next_status, video)
+            await self._log_transition(
+                video_id, current_status, next_status, triggered_by="sfx_guard_skip")
+        return {
+            "status": next_status or current_status or "idle",
+            "video_id": video_id,
+            "skipped_stage": "sound",
+            "message": f"Sound stage skipped — {reason}",
+        }
 
     def _load_idea_from_video(self, video_id: str):
         """Load idea into pipeline state from Supabase video UUID.
@@ -13701,38 +13738,19 @@ separate scenes."""
                 "message": gate_message,
             }
 
-        # SFX guard (status_map.render_path_plays_sfx — see run_render's
-        # dispatch comment): there's no approval gate on ready_for_sound_design/
-        # ready_for_sound_effects, so a video whose render path can never play
-        # sound effects must be moved past this stage here, not run through
-        # run_sound_prompts/run_sound_effects (which would spend real money on
-        # generations render then throws away) and not left to sit here
-        # forever. _enabled_stages() already excludes "sound" for these videos
-        # going forward, so any FUTURE status write reroutes around it — but a
-        # video that reached this status BEFORE this guard existed needs an
-        # explicit skip-and-advance the first time it's next-stepped. Mirrors
-        # _full_auto_pass_gate's "skip a stage, advance to the next status"
-        # shape exactly (same get_next_status_supabase + _update_video_status
-        # + _log_transition sequence), just triggered by a different reason.
+        # SFX guard, OUTER layer (status_map.render_path_plays_sfx — see
+        # run_render's dispatch comment): there's no approval gate on
+        # ready_for_sound_design/ready_for_sound_effects, so a video whose
+        # render path can never play sound effects gets a fast, specific skip
+        # here instead of even reaching the handler dispatch below — this is
+        # UX polish (a precise "why" for a video PARKED at this status,
+        # written before this guard existed) on top of the INNER backstop in
+        # run_sound_prompts/run_sound_effects themselves (_skip_sound_stage's
+        # docstring), which is what actually makes "no paid sound generation
+        # for a blocked render path" true for every caller, not just this one.
         if current_status in ("ready_for_sound_design", "ready_for_sound_effects") and not render_path_plays_sfx(video):
             natural_next = get_next_status_supabase(current_status)
-            # _skip_disabled_next resolves the SAME reroute _update_video_status
-            # applies internally (both read _enabled_stages, which now excludes
-            # "sound" for this video) — compute it explicitly here so the
-            # returned "status" always matches what actually gets written,
-            # instead of reporting the un-rerouted natural-next status.
-            next_status = self._skip_disabled_next(video, natural_next) if natural_next else None
-            reason = render_path_sfx_block_reason(video) or "this render path drops sound effects."
-            if next_status:
-                await self._update_video_status(video_id, next_status, video)
-                await self._log_transition(
-                    video_id, current_status, next_status, triggered_by="sfx_guard_skip")
-            return {
-                "status": next_status or "idle",
-                "video_id": video_id,
-                "skipped_stage": "sound",
-                "message": f"Sound stage skipped — {reason}",
-            }
+            return await self._skip_sound_stage(video_id, video, current_status, natural_next)
 
         # Map status to handler
         handlers = {
@@ -15223,7 +15241,6 @@ separate scenes."""
 
     async def run_sound_prompts(self, video_id: str) -> dict:
         """Generate sound design prompts for a video."""
-        await self._ensure_initialized()
         bot_name = "Sound Design Bot"
 
         try:
@@ -15232,6 +15249,28 @@ separate scenes."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # SFX guard, INNER backstop (status_map.render_path_plays_sfx —
+            # see run_render's dispatch comment and _skip_sound_stage's
+            # docstring): this is the ONE place a paid sound-prompt
+            # generation can actually begin, so this is the check that makes
+            # "no spend for a render path that drops the result" true for
+            # EVERY caller — REST, chat, MCP, ClaudeOrchestrator.execute, or
+            # anything written after this comment — not just the ones that
+            # happen to check first. The REST endpoint / actions.py verb /
+            # auto-advance checks above this in the call chain are UX polish
+            # (a fast 400 / a disabled button); this is the backstop.
+            #
+            # Checked BEFORE _ensure_initialized() (deliberately out of the
+            # usual order every other run_* method uses — init first, then
+            # fetch the video) so a blocked video costs NOTHING: no vault key
+            # loads, no bot construction, no network call of any kind, not
+            # just no Kie.ai spend.
+            if not render_path_plays_sfx(video):
+                return await self._skip_sound_stage(
+                    video_id, video, current_status, "ready_for_sound_effects")
+
+            await self._ensure_initialized()
             await self._log_activity(bot_name, video_id, "started", "Generating sound prompts")
 
             # Load system prompt overrides (tenant + per-video)
@@ -15259,7 +15298,6 @@ separate scenes."""
 
     async def run_sound_effects(self, video_id: str) -> dict:
         """Generate sound effects for a video."""
-        await self._ensure_initialized()
         bot_name = "Sound Effects Bot"
 
         try:
@@ -15268,6 +15306,16 @@ separate scenes."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # SFX guard, INNER backstop — see run_sound_prompts's identical
+            # check just above for the full rationale, including WHY this
+            # runs before _ensure_initialized(). This is the ONE place a
+            # paid Kie.ai sound-EFFECT generation can actually begin.
+            if not render_path_plays_sfx(video):
+                return await self._skip_sound_stage(
+                    video_id, video, current_status, "ready_for_video_scripts")
+
+            await self._ensure_initialized()
             await self._log_activity(bot_name, video_id, "started", "Generating sound effects")
 
             # Load system prompt overrides (tenant + per-video)

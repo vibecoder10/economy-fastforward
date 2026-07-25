@@ -184,3 +184,40 @@ def test_plays_sfx_and_block_reason_agree_across_all_combinations():
         plays = sm.render_path_plays_sfx(video)
         reason = sm.render_path_sfx_block_reason(video)
         assert plays == (reason is None), (video, plays, reason)
+
+
+# =============================================================================
+# stages_excluding_blocked_sound — the shared list-filter (coordinator review
+# gap 3): the mechanical "drop 'sound' from a stage list" step lives in ONE
+# place, shared by pipeline_executor.PipelineExecutor._enabled_stages and
+# production_guide.get_production_guide, so it can't drift between them.
+# =============================================================================
+
+def test_stages_excluding_blocked_sound_returns_unchanged_when_sfx_plays():
+    video = {}  # legacy default — plays fine
+    assert sm.stages_excluding_blocked_sound(None, video) is None
+    plan = ["script", "sound", "render"]
+    assert sm.stages_excluding_blocked_sound(plan, video) == plan
+
+
+def test_stages_excluding_blocked_sound_builds_full_list_minus_sound_when_none():
+    video = {"dialogue_mode": "character_dialogue"}
+    result = sm.stages_excluding_blocked_sound(None, video)
+    assert result is not None
+    assert "sound" not in result
+    assert set(result) == set(sm.STAGE_ORDER) - {"sound"}
+
+
+def test_stages_excluding_blocked_sound_drops_sound_from_explicit_list():
+    video = {"dialogue_mode": "character_dialogue"}
+    plan = ["script", "voice", "images", "sound", "video", "render"]
+    result = sm.stages_excluding_blocked_sound(plan, video)
+    assert "sound" not in result
+    assert set(result) == {"script", "voice", "images", "video", "render"}
+
+
+def test_stages_excluding_blocked_sound_no_op_when_sound_already_absent():
+    video = {"dialogue_mode": "character_dialogue"}
+    plan = ["script", "voice", "render"]  # sound never was in this plan
+    result = sm.stages_excluding_blocked_sound(plan, video)
+    assert result == plan
