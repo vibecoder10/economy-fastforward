@@ -403,6 +403,59 @@ def test_orchestration_capability_catalog_is_strict_and_provider_opaque():
         )
 
 
+def test_planner_role_schema_is_exactly_the_canonical_recipe_role_enum(
+    manifest,
+    caplog,
+):
+    role_schema = planner.planner_json_schema()["$defs"]["PlannerSection"][
+        "properties"
+    ]["role"]
+    assert role_schema["enum"] == sorted(contract.RECIPE_ROLES)
+    expected_catalog = [
+        {
+            "id": role,
+            "purpose": planner.ROLE_PURPOSES[role].format(
+                focus="the section topic"
+            ),
+        }
+        for role in sorted(contract.RECIPE_ROLES)
+    ]
+    assert list(planner.PUBLIC_ROLE_CATALOG) == expected_catalog
+    prompt = planner._planner_prompt(
+        "Make a custom film about steel",
+        manifest,
+    )
+    assert planner.canonical_json(expected_catalog) in prompt
+    assert prompt.index("CANONICAL ROLE CATALOG:") < prompt.index(
+        "JSON SCHEMA:"
+    )
+    assert (
+        "`role` is a closed internal narrative-function classification" in prompt
+    )
+    assert (
+        "descriptive act or chapter title, genre, subject, person, or event"
+        in prompt
+    )
+    assert "investigation, thriller, witness sequence, or product reveal" not in prompt
+
+    secret_role = "sk-live-invalid-role-DO-NOT-LOG"
+    invalid = _proposal("steel")
+    invalid["sections"][0]["role"] = secret_role
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                invalid,
+                manifest,
+                total_duration_seconds=30,
+            )
+    assert str(error.value) == planner.PLANNER_FAILURE_MESSAGE
+    log_message = caplog.records[-1].getMessage()
+    assert '"type":"literal_error"' in log_message
+    assert "Value is outside the approved choices" in log_message
+    assert secret_role not in log_message
+
+
 class FakePlannerClient:
     def __init__(self, payload):
         self.payload = payload
@@ -411,6 +464,686 @@ class FakePlannerClient:
     async def generate(self, **kwargs):
         self.calls.append(kwargs)
         return json.dumps(self.payload)
+
+
+class SequencedPlannerClient:
+    def __init__(self, outputs):
+        self.outputs = outputs
+        self.calls = []
+
+    async def generate(self, **kwargs):
+        index = len(self.calls)
+        self.calls.append(kwargs)
+        output = self.outputs[index]
+        if isinstance(output, Exception):
+            raise output
+        return json.dumps(output) if isinstance(output, dict) else output
+
+
+class FakeInferenceError(Exception):
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize(
+    ("inference_error", "reason"),
+    [
+        (
+            FakeInferenceError("malicious-rate-secret", status_code=429),
+            planner.PlannerInferenceReason.RATE_LIMITED,
+        ),
+        (
+            FakeInferenceError("malicious-auth-secret", status_code=401),
+            planner.PlannerInferenceReason.AUTHENTICATION,
+        ),
+        (
+            FakeInferenceError(
+                "KIE_ACCOUNT_BLOCKED: insufficient credit malicious-credit-secret"
+            ),
+            planner.PlannerInferenceReason.INSUFFICIENT_CREDIT,
+        ),
+        (
+            FakeInferenceError(
+                "credit balance is too low adjacent-direct-credit-secret",
+                status_code=400,
+            ),
+            planner.PlannerInferenceReason.INSUFFICIENT_CREDIT,
+        ),
+        (
+            FakeInferenceError(
+                "malicious-request-rejection-secret",
+                status_code=400,
+            ),
+            planner.PlannerInferenceReason.REQUEST_REJECTED,
+        ),
+        (
+            TimeoutError("malicious-timeout-secret"),
+            planner.PlannerInferenceReason.TIMEOUT,
+        ),
+        (
+            FakeInferenceError("malicious-upstream-secret", status_code=503),
+            planner.PlannerInferenceReason.UPSTREAM_UNAVAILABLE,
+        ),
+        (
+            RuntimeError("malicious-unknown-secret"),
+            planner.PlannerInferenceReason.UNKNOWN,
+        ),
+    ],
+)
+def test_initial_planner_inference_failures_are_fixed_and_private(
+    manifest,
+    caplog,
+    inference_error,
+    reason,
+):
+    client = SequencedPlannerClient([inference_error])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            asyncio.run(
+                planner.plan_custom_film(
+                    "Make a custom film about steel",
+                    manifest,
+                    client,
+                    total_duration_seconds=30,
+                )
+            )
+
+    assert len(client.calls) == 1
+    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[reason]
+    assert (
+        f"stage=inference reason={reason.value} attempt=1" in caplog.text
+    )
+    assert str(inference_error) not in caplog.text
+    assert "No media production was approved or started." in str(error.value)
+    assert "from that response" not in str(error.value)
+    assert "charged" not in str(error.value)
+
+
+def test_repair_inference_failure_is_attempt_two_and_private(manifest, caplog):
+    secret = "malicious-repair-upstream-secret"
+    client = SequencedPlannerClient(
+        [
+            _proposal("unrelated topic"),
+            FakeInferenceError(secret, status_code=503),
+        ]
+    )
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            asyncio.run(
+                planner.plan_custom_film(
+                    "Make a custom film about steel",
+                    manifest,
+                    client,
+                    total_duration_seconds=30,
+                )
+            )
+
+    assert len(client.calls) == 2
+    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[
+        planner.PlannerInferenceReason.UPSTREAM_UNAVAILABLE
+    ]
+    assert "stage=inference reason=upstream_unavailable attempt=2" in caplog.text
+    assert secret not in caplog.text
+
+
+def test_saved_recipe_inference_failure_is_attempt_one(manifest, caplog):
+    compiled = planner.compile_planner_proposal(
+        "Make a custom film about steel",
+        _proposal("steel"),
+        manifest,
+        total_duration_seconds=30,
+    )
+    secret = "malicious-saved-recipe-timeout-secret"
+    client = SequencedPlannerClient([TimeoutError(secret)])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            asyncio.run(
+                planner.plan_custom_film_from_recipe(
+                    "Make a custom film about clean steel",
+                    compiled.normalized_recipe,
+                    manifest,
+                    client,
+                    total_duration_seconds=30,
+                )
+            )
+
+    assert len(client.calls) == 1
+    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[
+        planner.PlannerInferenceReason.TIMEOUT
+    ]
+    assert "stage=inference reason=timeout attempt=1" in caplog.text
+    assert secret not in caplog.text
+
+
+def test_exact_standalone_realistic_prompt_repairs_long_focus_and_compiles(
+    manifest,
+):
+    request = (
+        "Create a five-minute standalone cinematic film about a citywide "
+        "communications blackout and the investigation that restores the network.\n"
+        "Use a realistic, grounded visual world with photorealistic people, "
+        "believable locations, natural lighting, cinematic live-action camera work, "
+        "realistic documents, maps, radios, infrastructure, and environmental detail.\n"
+        "Tell the story in this order:\n"
+        "A citywide communications blackout begins without warning.\n"
+        "Investigators connect outage locations, maintenance records, and physical "
+        "evidence.\n"
+        "Mara gives bilingual witness testimony and discovers a hidden signal inside "
+        "a radio transmission.\n"
+        "Engineers reconnect the failed network in the correct sequence and restore "
+        "the city.\n"
+        "Reveal how StoryEngine planned the story, coordinated the media, motion "
+        "graphics, captions, sound, and editing, and assembled them into one finished "
+        "film.\n"
+        "Mix cinematic footage, animated imagery, maps, evidence graphics, timelines, "
+        "captions, camera movement, sound design, and interface visuals throughout "
+        "the scenes. Do not separate them into technology demonstrations.\n"
+        "Treat this film as independent from my normal channel identity. Do not reuse "
+        "my usual art style, palette, recurring characters, or visual world. Keep "
+        "only subtle StoryEngine turquoise accents and the final StoryEngine product "
+        "reveal."
+    )
+    focuses = [
+        "A citywide communications blackout begins without warning",
+        "Investigators connect outage locations, maintenance records, and physical evidence",
+        (
+            "Mara gives bilingual witness testimony and discovers a hidden signal "
+            "inside a radio transmission"
+        ),
+        (
+            "Engineers reconnect the failed network in the correct sequence and "
+            "restore the city"
+        ),
+        (
+            "Reveal how StoryEngine planned the story, coordinated the media, motion "
+            "graphics, captions, sound, and editing, and assembled them into one "
+            "finished film"
+        ),
+    ]
+    roles = ["opening", "evidence", "case_study", "resolution", "closing"]
+    capabilities = [
+        _beat("motion.signal_pulse", intents=["cinematic", "outage"]),
+        _beat(
+            "motion.outage_map",
+            "motion.evidence_board",
+            intents=["map", "evidence", "documents"],
+        ),
+        _beat(
+            "motion.radio_waveform",
+            "motion.bilingual_captions",
+            dialogue=True,
+            captions=True,
+            intents=["witness", "radio", "signal"],
+        ),
+        _beat(
+            "motion.network_explainer",
+            intents=["network", "recovery"],
+        ),
+        _beat(
+            "motion.storyengine_reveal",
+            intents=["product", "recovery"],
+        ),
+    ]
+    repaired = {
+        "sections": [
+            {
+                "role": role,
+                "focus": focus,
+                "duration_weight": 1,
+                "structure_source": (
+                    "bilingual_character_animation"
+                    if role == "case_study"
+                    else "animated_investigative_documentary"
+                ),
+                "writing_source": "animated_investigative_documentary",
+                "visual_source": "animated_investigative_documentary",
+                "beats": [beat],
+            }
+            for role, focus, beat in zip(roles, focuses, capabilities)
+        ]
+    }
+    invalid = copy.deepcopy(repaired)
+    invalid["sections"][0]["focus"] = "A blackout strikes the entire city"
+    client = SequencedPlannerClient([invalid, repaired])
+
+    compiled = asyncio.run(
+        planner.plan_custom_film(
+            request,
+            manifest,
+            client,
+            total_duration_seconds=300,
+        )
+    )
+
+    assert len(client.calls) == 2
+    assert len(compiled.planner_proposal["sections"]) == 5
+    assert compiled.planner_proposal["sections"][4]["focus"] == focuses[4]
+    assert len(focuses[4]) > 120
+    assert len(focuses[4]) <= planner.MAX_PLANNER_FOCUS_CHARS
+    assert f"at most {planner.MAX_PLANNER_FOCUS_CHARS} characters" in (
+        client.calls[1]["prompt"]
+    )
+
+
+def test_focus_character_bound_is_shared_and_over_limit_fails(manifest):
+    schema = planner.planner_json_schema()["$defs"]
+    reuse_schema = planner.ReuseFocusProposal.model_json_schema()["$defs"]
+    assert planner.MAX_PLANNER_FOCUS_CHARS == 240
+    assert schema["PlannerSection"]["properties"]["focus"]["maxLength"] == 240
+    assert reuse_schema["ReuseFocusSection"]["properties"]["focus"]["maxLength"] == 240
+
+    over_limit = "x" * (planner.MAX_PLANNER_FOCUS_CHARS + 1)
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            f"Make a custom film about {over_limit}",
+            _proposal(over_limit),
+            manifest,
+            total_duration_seconds=30,
+        )
+    with pytest.raises(planner.ValidationError):
+        planner.ReuseFocusProposal.model_validate(
+            {"sections": [{"focus": over_limit}]}
+        )
+
+
+def test_planner_repairs_one_ungrounded_focus_then_compiles(manifest, caplog):
+    client = SequencedPlannerClient(
+        [_proposal("unrelated topic"), _proposal("steel")]
+    )
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        compiled = asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+
+    assert len(client.calls) == 2
+    assert compiled.planner_proposal["sections"][0]["focus"] == "steel"
+    repair_prompt = client.calls[1]["prompt"]
+    assert "Make a custom film about steel" in repair_prompt
+    assert '"focus":"unrelated topic"' in repair_prompt
+    assert "CANONICAL ROLE CATALOG:" in repair_prompt
+    assert "JSON SCHEMA:" in repair_prompt
+    assert "exact contiguous substring" in repair_prompt
+    assert "Preserve every valid section" in repair_prompt
+    assert "stage=repair reason=focus_not_grounded attempt=1" in caplog.text
+
+
+def test_planner_repairs_one_schema_rejection_then_compiles(manifest, caplog):
+    invalid = _proposal("steel")
+    invalid["sections"][0]["role"] = "descriptive chapter name"
+    client = SequencedPlannerClient([invalid, _proposal("steel")])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        compiled = asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+
+    assert len(client.calls) == 2
+    assert compiled.internal_plan["sections"][0]["role"] == "opening"
+    assert "stage=repair reason=schema_validation attempt=1" in caplog.text
+
+
+def test_planner_does_not_repair_parse_duration_or_prior_identity_failures(
+    manifest,
+    monkeypatch,
+):
+    parse_client = SequencedPlannerClient(["not-json"])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                parse_client,
+                total_duration_seconds=30,
+            )
+        )
+    assert len(parse_client.calls) == 1
+
+    duration_client = SequencedPlannerClient([_proposal("steel")])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                duration_client,
+                total_duration_seconds=1,
+            )
+        )
+    assert len(duration_client.calls) == 1
+
+    prior_client = SequencedPlannerClient([_proposal("steel")])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                prior_client,
+                total_duration_seconds=30,
+                prior_section_ids=["not-a-complete-prior-plan"],
+            )
+        )
+    assert len(prior_client.calls) == 1
+
+    def fail_normalization(*_args, **_kwargs):
+        raise contract.CustomFilmContractError("internal normalization detail")
+
+    monkeypatch.setattr(planner, "normalize_plan", fail_normalization)
+    normalization_client = SequencedPlannerClient([_proposal("steel")])
+    with pytest.raises(planner.CustomFilmPlannerError):
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                normalization_client,
+                total_duration_seconds=30,
+            )
+        )
+    assert len(normalization_client.calls) == 1
+
+
+def test_planner_failed_repair_stops_after_exactly_two_calls(manifest):
+    client = SequencedPlannerClient(
+        [_proposal("first unrelated topic"), _proposal("second unrelated topic")]
+    )
+    with pytest.raises(planner.CustomFilmPlannerError) as error:
+        asyncio.run(
+            planner.plan_custom_film(
+                "Make a custom film about steel",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+    assert str(error.value) == planner.PLANNER_FAILURE_MESSAGE
+    assert len(client.calls) == 2
+
+
+def test_planner_repair_logs_never_echo_request_or_candidate_values(
+    manifest,
+    caplog,
+):
+    request_secret = "confidential-request-token"
+    candidate_secret = "sk-live-candidate-secret-$15"
+    invalid = _proposal(candidate_secret)
+    client = SequencedPlannerClient([invalid, _proposal("steel")])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        compiled = asyncio.run(
+            planner.plan_custom_film(
+                f"Make a custom film about steel {request_secret}",
+                manifest,
+                client,
+                total_duration_seconds=30,
+            )
+        )
+
+    assert compiled.planner_proposal["sections"][0]["focus"] == "steel"
+    assert len(client.calls) == 2
+    assert request_secret in client.calls[1]["prompt"]
+    assert candidate_secret in client.calls[1]["prompt"]
+    assert request_secret not in caplog.text
+    assert candidate_secret not in caplog.text
+
+
+def test_exact_flagship_request_accepts_generic_and_bilingual_caption_signals(
+    manifest,
+):
+    request = (
+        "Make me the ultimate cinematic five-minute Custom Film about the day "
+        "the internet went dark. Use exactly four acts: a 45-second thriller "
+        "opening; a 105-second investigation through a fictional outage map, "
+        "evidence board, and incident timeline; a 90-second bilingual witness "
+        "sequence where Mara reveals a hidden recovery key through a radio "
+        "transmission; and a 60-second four-node network explanation, city "
+        "reconnection, and StoryEngine product reveal. Keep the same evolving "
+        "turquoise signal pulse across all four acts. Keep all important faces, "
+        "evidence, captions, and product UI crop-safe for 9:16 excerpts. Use my "
+        "connected accounts only and do not exceed a $15 hard spending cap."
+    )
+    response = _flagship_proposal()
+    opening_followup = copy.deepcopy(response["sections"][0]["beats"][0])
+    opening_followup.update(
+        {
+            "narrative_function": "transition",
+            "duration_weight": 1,
+            "intents": ["outage", "signal", "transition"],
+            "energy": 1,
+            "handoff": "pulse_to_route",
+        }
+    )
+    response["sections"][0]["beats"].append(opening_followup)
+    evidence_followup = copy.deepcopy(response["sections"][1]["beats"][0])
+    evidence_followup.update(
+        {
+            "narrative_function": "investigate",
+            "duration_weight": 2,
+            "intents": ["evidence", "timeline", "transition"],
+            "energy": 3,
+            "handoff": "connector_to_waveform",
+        }
+    )
+    response["sections"][1]["beats"].append(evidence_followup)
+    exact_focuses = [
+        "day the internet went dark",
+        "fictional outage map, evidence board, and incident timeline",
+        "Mara reveals a hidden recovery key through a radio transmission",
+        "four-node network explanation, city reconnection, and StoryEngine product reveal",
+    ]
+    for section, focus in zip(response["sections"], exact_focuses):
+        section["focus"] = focus
+        # The creator requested caption-safe composition for the whole film.
+        # Only the Mara beat needs the specifically bilingual treatment.
+        for beat in section["beats"]:
+            beat["captions"] = True
+    client = FakePlannerClient(response)
+
+    compiled = asyncio.run(
+        planner.plan_custom_film(
+            request,
+            manifest,
+            client,
+            total_duration_seconds=300,
+        )
+    )
+
+    assert [section["focus"] for section in compiled.planner_proposal["sections"]] == (
+        exact_focuses
+    )
+    assert [len(section["beats"]) for section in compiled.planner_proposal["sections"]] == [
+        2,
+        2,
+        1,
+        1,
+    ]
+    # This representative multi-beat response remains comfortably below the
+    # bounded 6,000-token generation ceiling (using a conservative 4 chars/token).
+    assert len(json.dumps(response)) < 6_000 * 4
+    assert client.calls[0]["max_tokens"] == 6_000
+    planning_prompt = client.calls[0]["prompt"]
+    assert "`role` is a closed internal narrative-function classification" in (
+        planning_prompt
+    )
+    assert '"id":"evidence"' in planning_prompt
+    assert (
+        "descriptive act or chapter title, genre, subject, person, or event"
+        in client.calls[0]["system_prompt"]
+    )
+    for value in sorted(orchestration.ALLOWED_INTENTS):
+        assert f'"{value}"' in planning_prompt
+    for value in sorted(orchestration.ALLOWED_HANDOFFS):
+        assert f'"{value}"' in planning_prompt
+    assert "motion.bilingual_captions requires captions=true" in planning_prompt
+    beat_schema = planner.planner_json_schema()["$defs"]["PlannerBeat"][
+        "properties"
+    ]
+    assert beat_schema["intents"]["items"]["enum"] == sorted(
+        orchestration.ALLOWED_INTENTS
+    )
+    assert beat_schema["handoff"]["enum"] == sorted(
+        orchestration.ALLOWED_HANDOFFS
+    )
+    planner_section_schema = planner.planner_json_schema()["$defs"][
+        "PlannerSection"
+    ]["properties"]
+    assert planner.MAX_PLANNER_BEATS_PER_SECTION == 4
+    assert planner_section_schema["beats"]["anyOf"][0]["maxItems"] == 4
+    assert "ordinary captions do not require" in beat_schema["captions"][
+        "description"
+    ]
+    assert "dialogue=true requires captions=true" in beat_schema["dialogue"][
+        "description"
+    ]
+
+
+def test_bilingual_caption_capability_still_requires_caption_signal(manifest):
+    request = "Make a film about a bilingual witness"
+    response = _proposal("bilingual witness")
+    response["sections"][0]["beats"] = [
+        _beat("motion.bilingual_captions", captions=False)
+    ]
+
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            request,
+            response,
+            manifest,
+            total_duration_seconds=30,
+        )
+
+
+def test_five_valid_beats_exceed_planner_section_contract(manifest):
+    request = "Make a film about a bilingual witness"
+    response = _proposal("bilingual witness")
+    response["sections"][0]["beats"] = [
+        copy.deepcopy(_beat("motion.signal_pulse")) for _ in range(5)
+    ]
+
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            request,
+            response,
+            manifest,
+            total_duration_seconds=30,
+        )
+
+
+def test_planner_rejection_telemetry_is_staged_and_never_echoes_values(
+    manifest,
+    caplog,
+):
+    secret = "sk-live-DO-NOT-LOG-$15-user-request"
+
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as parse_error:
+            planner._extract_json_object(f"not-json {secret}")
+    assert str(parse_error.value) == planner.PLANNER_FAILURE_MESSAGE
+    parse_log = caplog.records[-1].getMessage()
+    assert "stage=parse" in parse_log
+    assert '"type":"parse_error"' in parse_log
+    assert secret not in parse_log
+
+    caplog.clear()
+    invalid_schema = _proposal("steel")
+    invalid_schema["sections"][0]["role"] = secret
+    invalid_schema["sections"][0][secret] = secret
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as schema_error:
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                invalid_schema,
+                manifest,
+                total_duration_seconds=30,
+            )
+    assert str(schema_error.value) == planner.PLANNER_FAILURE_MESSAGE
+    schema_log = caplog.records[-1].getMessage()
+    assert "stage=schema" in schema_log
+    assert '"location":["sections",0,"role"]' in schema_log
+    assert '"location":["sections",0,"<field>"]' in schema_log
+    assert secret not in schema_log
+
+    caplog.clear()
+    compile_secret = "confidential-focus-DO-NOT-LOG"
+    compile_rejection = _proposal(compile_secret)
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as compile_error:
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                compile_rejection,
+                manifest,
+                total_duration_seconds=30,
+            )
+    assert str(compile_error.value) == planner.PLANNER_FAILURE_MESSAGE
+    compile_log = caplog.records[-1].getMessage()
+    assert "stage=compile" in compile_log
+    assert '"type":"focus_not_grounded"' in compile_log
+    assert compile_secret not in compile_log
+    assert "Make a custom film about steel" not in compile_log
+
+
+def test_planner_rejection_telemetry_has_distinct_safe_beat_reason_codes(
+    manifest,
+    caplog,
+):
+    mutations = {
+        "bilingual_requires_captions": _beat(
+            "motion.bilingual_captions",
+            captions=False,
+        ),
+        "dialogue_requires_captions": _beat(
+            dialogue=True,
+            captions=False,
+        ),
+        "humanize_dialogue_requires_video": {
+            **_beat(dialogue=True, captions=True),
+            "media_kind": "image",
+        },
+    }
+
+    for reason_code, beat in mutations.items():
+        caplog.clear()
+        response = _proposal("steel")
+        response["sections"][0]["beats"] = [beat]
+        with caplog.at_level("WARNING", logger=planner.__name__):
+            with pytest.raises(planner.CustomFilmPlannerError) as error:
+                planner.compile_planner_proposal(
+                    "Make a custom film about steel",
+                    response,
+                    manifest,
+                    total_duration_seconds=30,
+                )
+        assert str(error.value) == planner.PLANNER_FAILURE_MESSAGE
+        log_message = caplog.records[-1].getMessage()
+        assert "stage=schema" in log_message
+        assert "total_errors=1" in log_message
+        assert f'"type":"{reason_code}"' in log_message
+        assert "steel" not in log_message
+
+
+def test_planner_rejection_telemetry_caps_schema_details_at_twenty(
+    manifest,
+    caplog,
+):
+    response = {"sections": [{} for _ in range(12)]}
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError):
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                response,
+                manifest,
+                total_duration_seconds=30,
+            )
+    log_message = caplog.records[-1].getMessage()
+    assert "stage=schema" in log_message
+    assert "total_errors=72" in log_message
+    assert log_message.count('"location"') == 20
 
 
 def test_fake_planner_fixture_compiles_to_stable_hidden_plan(manifest):
@@ -552,7 +1285,8 @@ def test_malformed_or_failed_planner_returns_useful_error(manifest):
             )
         )
     assert "network detail" not in str(exc.value)
-    assert "nothing was generated" in str(exc.value).lower()
+    assert "no media production was approved or started" in str(exc.value).lower()
+    assert "charged" not in str(exc.value).lower()
 
 
 @pytest.mark.parametrize(
