@@ -1,8 +1,13 @@
 import {canonicalJson, sha256Hex} from "../custom-film/canonical";
 import {validateCustomFilmRemotionProps, type CustomFilmRemotionProps} from "../custom-film/schema";
-import motionPlan from "./motion-plan-v1.json";
+import {
+  ORCHESTRATION_CONTRACT_VERSION,
+  SHOWCASE_ORCHESTRATION_PLAN,
+  resolveShowcaseRecipes,
+} from "./orchestration";
+import type {LayeredSceneRecipe} from "./orchestration";
 
-export const SHOWCASE_MANIFEST_VERSION = "storyengine-showcase-cues-v1" as const;
+export const SHOWCASE_MANIFEST_VERSION = "storyengine-showcase-layered-v2" as const;
 export const SHOWCASE_REQUEST = "Make me a cinematic five-minute Custom Film about the day the internet went dark. Open like a thriller, investigate the mystery with visual evidence, give it a bilingual human witness, explain the technical reveal so anyone can understand it, and end by revealing that StoryEngine assembled the film. Keep the total provider spend below $15.";
 export const SHOWCASE_QUOTE = {
   estimate: 5.57,
@@ -10,24 +15,67 @@ export const SHOWCASE_QUOTE = {
   approval_required: true,
 } as const;
 
-export const SHOWCASE_MOTION_PLAN = motionPlan;
-export const SHOWCASE_CUES = motionPlan.cues.map((item) => ({
-  id: item.id,
-  sectionIndex: item.section_index,
-  from: item.from,
-  to: item.to,
-  durationInFrames: item.to - item.from + 1,
-  primitive: item.primitive,
-}));
+export const SHOWCASE_MOTION_PLAN = SHOWCASE_ORCHESTRATION_PLAN;
+export const SHOWCASE_CUES = resolveShowcaseRecipes();
+
+export const validateLayeredCustomFilmProps = (value: unknown): CustomFilmRemotionProps => {
+  const props = validateCustomFilmRemotionProps(value);
+  const resolved = props.orchestration?.resolved_plan;
+  const recipes = resolved?.recipes as ReadonlyArray<LayeredSceneRecipe> | undefined;
+  if (
+    props.identity.assembly_version === "custom-film-assembly-v2" &&
+    !props.orchestration
+  ) {
+    return props;
+  }
+  if (
+    !resolved ||
+    !recipes ||
+    recipes.length === 0 ||
+    resolved.fps !== props.video.fps ||
+    resolved.total_frames !== props.video.total_frames ||
+    props.orchestration?.resolved_plan_hash !== sha256Hex(canonicalJson(resolved)) ||
+    props.orchestration.recipe_hash !== sha256Hex(canonicalJson(recipes))
+  ) {
+    throw new Error("Approved layered recipe identity changed");
+  }
+  let frame = 0;
+  for (const item of recipes) {
+    const section = props.sections[item.sectionIndex];
+    const visualPrimitives = new Set(
+      item.motionLayers
+        .map(({primitive}) => primitive)
+        .filter((primitive) =>
+          primitive !== "MotionAudioSystem" &&
+          primitive !== "BilingualCaptions"),
+    );
+    if (
+      item.from !== frame ||
+      item.to < item.from ||
+      item.durationInFrames !== item.to - item.from + 1 ||
+      !section ||
+      item.from < section.start_frame ||
+      item.to >= section.start_frame + section.duration_frames ||
+      visualPrimitives.size < 2
+    ) {
+      throw new Error("Approved layered recipes changed their section layout");
+    }
+    frame = item.to + 1;
+  }
+  if (frame !== props.video.total_frames) {
+    throw new Error("Approved layered recipes do not fill the film");
+  }
+  return props;
+};
 
 export const validateStoryEngineShowcaseProps = (value: unknown): CustomFilmRemotionProps => {
-  const props = validateCustomFilmRemotionProps(value);
+  const props = validateLayeredCustomFilmProps(value);
   if (
-    motionPlan.version !== "storyengine-showcase-motion-plan-v1" ||
-    motionPlan.fps !== 24 ||
-    motionPlan.width !== 1920 ||
-    motionPlan.height !== 1080 ||
-    motionPlan.total_frames !== 7200 ||
+    SHOWCASE_ORCHESTRATION_PLAN.version !== ORCHESTRATION_CONTRACT_VERSION ||
+    SHOWCASE_ORCHESTRATION_PLAN.fps !== 24 ||
+    SHOWCASE_ORCHESTRATION_PLAN.width !== 1920 ||
+    SHOWCASE_ORCHESTRATION_PLAN.height !== 1080 ||
+    SHOWCASE_ORCHESTRATION_PLAN.total_frames !== 7200 ||
     props.video.fps !== 24 ||
     props.video.width !== 1920 ||
     props.video.height !== 1080 ||
@@ -37,12 +85,12 @@ export const validateStoryEngineShowcaseProps = (value: unknown): CustomFilmRemo
   ) {
     throw new Error("StoryEngine showcase video identity changed");
   }
-  motionPlan.sections.forEach((expected, index) => {
+  SHOWCASE_ORCHESTRATION_PLAN.sections.forEach((expected, index) => {
     const section = props.sections[index];
     if (
       section.role !== expected.role ||
       section.order_index !== index ||
-      section.start_frame !== motionPlan.sections
+      section.start_frame !== SHOWCASE_ORCHESTRATION_PLAN.sections
         .slice(0, index)
         .reduce((total, item) => total + item.duration_frames, 0) ||
       section.duration_frames !== expected.duration_frames ||
@@ -133,7 +181,7 @@ export const resolveShowcaseMediaSlots = (
   propsValue: unknown,
   overrides: Readonly<Record<string, ShowcaseMediaPathOverride>> = {},
 ): ReadonlyArray<ShowcaseMediaSlot> => {
-  const props = validateStoryEngineShowcaseProps(propsValue);
+  const props = validateCustomFilmRemotionProps(propsValue);
   const approvedKeys = new Set(
     props.sections.flatMap((section) => [
       ...section.assets.map((asset) => asset.source_key),
@@ -336,27 +384,24 @@ export const resolveShowcaseMediaSlots = (
 };
 
 export const compileShowcaseManifest = (propsValue: unknown) => {
-  const props = validateStoryEngineShowcaseProps(propsValue);
-  let frame = 0;
-  for (const item of SHOWCASE_CUES) {
-    if (item.from !== frame || item.to < item.from) throw new Error("Showcase cues are not contiguous");
-    const section = props.sections[item.sectionIndex];
-    if (item.from < section.start_frame || item.to >= section.start_frame + section.duration_frames) {
-      throw new Error("Showcase cue crossed its approved section");
-    }
-    frame = item.to + 1;
-  }
-  if (frame !== 7200) throw new Error("Showcase cues do not fill exactly 7200 frames");
+  const props = validateLayeredCustomFilmProps(propsValue);
+  const recipes = props.orchestration?.resolved_plan
+    ? props.orchestration.resolved_plan.recipes as ReadonlyArray<LayeredSceneRecipe>
+    : SHOWCASE_CUES;
+  const reference = props.orchestration?.reference_compatible === true;
   const manifest = {
     schema_version: SHOWCASE_MANIFEST_VERSION,
-    motion_plan_version: motionPlan.version,
-    motion_plan: motionPlan,
+    orchestration_contract_version: props.orchestration?.contract_version ?? SHOWCASE_ORCHESTRATION_PLAN.version,
+    decision_rules_version: props.orchestration?.decision_rules_version ?? SHOWCASE_ORCHESTRATION_PLAN.decision_rules_version,
+    story_identity: props.orchestration?.story_identity ?? SHOWCASE_ORCHESTRATION_PLAN.story_identity,
+    semantic_plan: props.orchestration?.semantic_input ?? SHOWCASE_ORCHESTRATION_PLAN,
     props_hash: props.props_hash,
     identity: {...props.identity},
-    quote: SHOWCASE_QUOTE,
-    request: SHOWCASE_REQUEST,
+    quote: reference || !props.orchestration ? SHOWCASE_QUOTE : {hard_cap: props.identity.max_spend},
+    request: reference || !props.orchestration ? SHOWCASE_REQUEST : null,
+    reference_authored_timing: reference || !props.orchestration,
     media_slots: resolveShowcaseMediaSlots(props),
-    cues: SHOWCASE_CUES,
+    recipes,
   };
   const serialized = canonicalJson(manifest);
   if (/"(?:provider|model)[^"]*"\s*:/i.test(serialized)) {

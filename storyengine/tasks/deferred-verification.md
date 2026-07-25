@@ -496,3 +496,36 @@ from this chunk):**
       cross-track `dispatchInFlightRef` race, and the message-parsing reconcile would be
       the natural first candidates if a harness is ever added (all three are pure,
       ref/state-driven logic with no DOM dependency).
+
+# Deferred verification — M6 layered Custom Film orchestration
+
+M6-0 through M6-2 are accepted locally on `agent/storyengine-remotion-showcase`.
+The creative master and inspection evidence live under
+`remotion-video/out/full-showcase-proof/`; the unrelated ceramic proof lives under
+`remotion-video/out/test-results/`. No provider call, paid generation, push, deploy,
+upload, or publication occurred.
+
+- [ ] **Production-host activation and no-provider proof.** After Ryan separately
+      authorizes pushing this isolated branch, merge/deploy through the sanctioned
+      zero-active-work drain with `--with-frontend --with-remotion`. Confirm the deployed
+      backend/frontend/worker/Redis health, current migration count, Chromium/Remotion
+      runtime, and exact deployed renderer bundle identity. Repeat a no-provider generic
+      recipe render plus representative flagship stills on the host before enabling any
+      paid run.
+- [ ] **Real creator UI proof.** In the deployed chat flow, submit the exact request in
+      `custom-film-flagship-runbook.md`. Confirm the approval card shows four narrative
+      sections plus the Director's shot blueprint; each beat must expose creator-safe
+      approved media, simultaneous capability labels, transformation, camera, captions,
+      sound, exact timing, and the unchanged BYOK estimate/cap without provider/model
+      internals. Inspect desktop and 390px widths for clipping and overflow.
+- [ ] **Paid BYOK flagship gate.** Paid footage remains unproduced. The next valid
+      authorization is Ryan explicitly approving the refreshed five-minute estimate
+      (currently $5.57) with a hard total cap of $15. Approval authorizes only generation
+      through the approved plan/recipe identity; upload, publication, and rerolls remain
+      separate decisions.
+- [ ] **Post-paid creative acceptance.** After a separately approved BYOK run, inspect
+      identity/framing of real media, speech and music ducking, bilingual timing, every
+      act transition, centered 9:16 excerpts, and every second from 4:45–5:00. Reject any
+      provider output or finishing result that no longer matches the approved semantic
+      beat recipes or silently changes duration, media, captions, quote, cap, or
+      provenance.

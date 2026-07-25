@@ -38,6 +38,7 @@ const body = {
     overlap_frames_total: 0 as const,
     duration_lives_inside_assigned_sections: true as const,
   },
+  orchestration: null,
   sections: sectionSpecs.map((spec, index) => ({
     section_id: spec.id,
     order_index: index,

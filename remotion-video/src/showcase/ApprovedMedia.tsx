@@ -9,23 +9,30 @@ import {
   interpolate,
   staticFile,
   useCurrentFrame,
+  useVideoConfig,
 } from "remotion";
 import type {CustomFilmRemotionProps} from "../custom-film/schema";
 import {CENTER_CROP_BOUNDS} from "../motion-library/contracts";
 import {COLORS, FONT_FAMILY} from "../motion-library/theme";
 import type {ShowcaseMediaSlot} from "./manifest";
+import type {LayeredSceneRecipe} from "./orchestration";
 import {
   approvedCaptionOpacity,
   approvedMediaOpacity,
+  recipeBedGain,
+  recipeCaptionOpacity,
+  recipeMediaOpacity,
   showcaseBedGain,
 } from "./timing";
 
 const ApprovedVisual: React.FC<{
   slot: Extract<ShowcaseMediaSlot, {kind: "visual"}>;
-}> = ({slot}) => {
+  slots: ReadonlyArray<ShowcaseMediaSlot>;
+  recipes: ReadonlyArray<LayeredSceneRecipe>;
+  reference: boolean;
+}> = ({slot, slots, recipes, reference}) => {
   const frame = useCurrentFrame();
   const absoluteFrame = slot.startFrame + frame;
-  const mediaOpacity = approvedMediaOpacity(slot.role, absoluteFrame);
   const nativeAudioGain = 10 ** (slot.nativeAudioGainDb / 20);
   const loopDurationInFrames = Math.max(
     1,
@@ -34,22 +41,41 @@ const ApprovedVisual: React.FC<{
       slot.nativeAudioPlaybackRate,
     ),
   );
+  const recipe = recipes.find(({from, to}) => absoluteFrame >= from && absoluteFrame <= to);
+  if (!recipe) throw new Error("Approved visual has no orchestration recipe");
+  const mediaOpacity = reference
+    ? approvedMediaOpacity(slot.role, absoluteFrame)
+    : recipeMediaOpacity(recipe);
+  const overlapping = slots.filter(
+    (candidate) =>
+      candidate.kind === "visual" &&
+      candidate.startFrame <= recipe.to &&
+      candidate.startFrame + candidate.durationInFrames - 1 >= recipe.from,
+  );
+  const layerRank = overlapping.findIndex(({sourceKey}) => sourceKey === slot.sourceKey);
+  const isSecondary = layerRank === 1;
+  if (layerRank > 1) return null;
+  const cameraScale = recipe.camera.mode === "locked"
+    ? 1
+    : 1 + recipe.camera.intensity * (recipe.camera.mode === "reactive-push" ? .065 : .04);
   const zoom = interpolate(
     frame,
     [0, Math.max(1, slot.durationInFrames - 1)],
-    [1, 1.035],
+    [1, cameraScale],
     {extrapolateLeft: "clamp", extrapolateRight: "clamp"},
   );
   const style: React.CSSProperties = {
     width: "100%",
     height: "100%",
     objectFit: "cover",
-    transform: `scale(${zoom})`,
+    transform: `scale(${zoom}) translateX(${recipe.camera.mode === "investigative-drift" ? Math.sin(frame / 50) * 1.2 : 0}%)`,
   };
   return (
     <div
       data-approved-source-key={slot.sourceKey}
       data-approved-source-sha256={slot.sourceSha256}
+      data-approved-layer={isSecondary ? "secondary" : "primary"}
+      data-approved-camera={recipe.camera.mode}
       style={{
         position: "absolute",
         left: 150,
@@ -59,7 +85,9 @@ const ApprovedVisual: React.FC<{
         overflow: "hidden",
         border: `2px solid ${COLORS.turquoise}`,
         boxShadow: "0 24px 70px rgba(0,0,0,.5)",
-        opacity: mediaOpacity,
+        opacity: mediaOpacity * (isSecondary ? recipe.media.secondaryIntensity : 1),
+        zIndex: isSecondary ? recipe.media.secondaryZIndex : recipe.media.primaryZIndex,
+        mixBlendMode: isSecondary ? recipe.media.secondaryBlend : "normal",
       }}
     >
       {slot.mediaType === "image" ? (
@@ -73,7 +101,11 @@ const ApprovedVisual: React.FC<{
             style={style}
             volume={
               slot.nativeAudioEnabled
-                ? showcaseBedGain(absoluteFrame) * nativeAudioGain
+                ? (
+                    reference
+                      ? showcaseBedGain(absoluteFrame)
+                      : recipeBedGain(recipe, absoluteFrame)
+                  ) * nativeAudioGain
                 : 0
             }
           />
@@ -88,23 +120,38 @@ const ApprovedVisual: React.FC<{
 
 const ApprovedAudioTrack: React.FC<{
   slot: Extract<ShowcaseMediaSlot, {kind: "audio"}>;
-}> = ({slot}) => {
+  recipes: ReadonlyArray<LayeredSceneRecipe>;
+  reference: boolean;
+}> = ({slot, recipes, reference}) => {
   const localFrame = useCurrentFrame();
   const absoluteFrame = slot.startFrame + localFrame;
   const approvedGain = 10 ** (slot.gainDb / 20);
+  const recipe = recipes.find(
+    ({from, to}) => absoluteFrame >= from && absoluteFrame <= to,
+  );
+  if (!recipe) throw new Error("Approved audio has no orchestration recipe");
   return (
     <Audio
       playbackRate={slot.playbackRate}
       src={staticFile(slot.localPath)}
-      volume={showcaseBedGain(absoluteFrame) * approvedGain}
+      volume={
+        (
+          reference
+            ? showcaseBedGain(absoluteFrame)
+            : recipeBedGain(recipe, absoluteFrame)
+        ) * approvedGain
+      }
     />
   );
 };
 
 export const ApprovedMediaLayer: React.FC<{
   slots: ReadonlyArray<ShowcaseMediaSlot>;
-}> = ({slots}) => (
-  <AbsoluteFill>
+  recipes: ReadonlyArray<LayeredSceneRecipe>;
+  reference: boolean;
+}> = ({slots, recipes, reference}) => {
+  const {fps} = useVideoConfig();
+  return <AbsoluteFill style={{zIndex: 10}}>
     {slots.map((slot) => {
       if (slot.kind === "procedural") return null;
       if (slot.kind === "visual") {
@@ -114,9 +161,9 @@ export const ApprovedMediaLayer: React.FC<{
             name={`approved-visual:${slot.sectionId}`}
             from={slot.startFrame}
             durationInFrames={slot.durationInFrames}
-            premountFor={24}
+            premountFor={fps}
           >
-            <ApprovedVisual slot={slot} />
+            <ApprovedVisual slot={slot} slots={slots} recipes={recipes} reference={reference} />
           </Sequence>
         );
       }
@@ -127,21 +174,24 @@ export const ApprovedMediaLayer: React.FC<{
           name={`approved-audio:${slot.sectionId}`}
           from={slot.startFrame}
           durationInFrames={slot.durationInFrames}
-          premountFor={24}
+          premountFor={fps}
         >
-          <ApprovedAudioTrack slot={slot} />
+          <ApprovedAudioTrack slot={slot} recipes={recipes} reference={reference} />
         </Sequence>
       );
     })}
-  </AbsoluteFill>
-);
+  </AbsoluteFill>;
+};
 
 export const ApprovedCaptionLayer: React.FC<{
   sections: CustomFilmRemotionProps["sections"];
-}> = ({sections}) => {
+  recipes: ReadonlyArray<LayeredSceneRecipe>;
+  reference: boolean;
+}> = ({sections, recipes, reference}) => {
   const absoluteFrame = useCurrentFrame();
+  const {fps} = useVideoConfig();
   return (
-    <AbsoluteFill style={{pointerEvents: "none"}}>
+    <AbsoluteFill style={{pointerEvents: "none", zIndex: 100}}>
     {sections.flatMap((section) =>
       section.captions.map((caption) => (
         <Sequence
@@ -149,10 +199,11 @@ export const ApprovedCaptionLayer: React.FC<{
           name={`approved-caption:${caption.scene_id}`}
           from={caption.start_frame}
           durationInFrames={caption.end_frame - caption.start_frame}
-          premountFor={24}
+          premountFor={fps}
         >
           <div
             data-approved-caption-scene={caption.scene_id}
+            data-caption-recipe={recipes.find(({from, to}) => caption.start_frame >= from && caption.start_frame <= to)?.id}
             style={{
               position: "absolute",
               left: CENTER_CROP_BOUNDS.criticalX,
@@ -167,10 +218,13 @@ export const ApprovedCaptionLayer: React.FC<{
               fontSize: 20,
               lineHeight: 1.3,
               textAlign: "center",
-              opacity: approvedCaptionOpacity(
-                section.role,
-                absoluteFrame,
-              ),
+              opacity: reference
+                ? approvedCaptionOpacity(section.role, absoluteFrame)
+                : recipeCaptionOpacity(
+                    recipes.find(({from, to}) =>
+                      absoluteFrame >= from && absoluteFrame <= to,
+                    )!,
+                  ),
             }}
           >
             {caption.text}

@@ -39,6 +39,7 @@ import {
   type ChatDnaFieldRow,
   type ChatDnaLearnerRow,
   type ChatDnaPatternRow,
+  type ChatCustomFilmOrchestrationBeat,
   type ChatTurnRequest,
   type ProductionPlan,
   type ProductionStyleId,
@@ -1289,6 +1290,94 @@ function ConfirmActionCard({
 // A creator-safe, one-tap review of the exact immutable plan and shared BYOK
 // quote. This replaces the generic radio-card treatment at the moment where
 // approval can start paid work, without exposing internal profiles/providers.
+function exactSeconds(value: number): string {
+  return Number(value.toFixed(3)).toString();
+}
+
+function exactBeatTime(beat: ChatCustomFilmOrchestrationBeat): string {
+  const endSeconds = beat.start_seconds + beat.duration_seconds;
+  return `${exactSeconds(beat.start_seconds)}–${exactSeconds(endSeconds)} sec`;
+}
+
+function publicMediaLabel(mediaKind: string): string {
+  const normalized = mediaKind.trim().toLowerCase();
+  if (normalized === "video") return "Approved footage";
+  if (normalized === "image") return "Animated imagery";
+  if (normalized === "adaptive") return "Best approved media";
+  return mediaKind;
+}
+
+function CustomFilmOrchestrationBeatRow({
+  beat,
+}: {
+  beat: ChatCustomFilmOrchestrationBeat;
+}) {
+  const direction = [
+    ["Transform", beat.transformation_summary],
+    ["Camera", beat.camera_summary],
+    ["Captions", beat.captions_summary],
+    ["Sound", beat.audio_summary],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+
+  return (
+    <article
+      className="min-w-0 overflow-hidden rounded-lg p-3"
+      style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[9px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-tertiary)" }}>
+            Beat {beat.beat_order}
+          </p>
+          <h4 className="mt-1 break-words text-xs font-semibold leading-snug" style={{ color: "var(--text-primary)" }}>
+            {beat.narrative_label}
+          </h4>
+        </div>
+        <span
+          className="shrink-0 rounded-full px-2 py-1 text-[9px] font-bold tabular-nums"
+          style={{ background: "rgba(0,212,170,0.10)", color: "var(--turquoise)" }}
+          aria-label={`Starts at ${beat.start_seconds} seconds and lasts ${beat.duration_seconds} seconds`}
+        >
+          {exactBeatTime(beat)}
+        </span>
+      </div>
+
+      <div className="mt-2.5 flex min-w-0 flex-wrap gap-1.5">
+        <span
+          className="max-w-full break-words rounded-full px-2 py-1 text-[9px] font-semibold"
+          style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-primary)" }}
+        >
+          {publicMediaLabel(beat.media_kind)}
+        </span>
+        {beat.capability_labels.map((label) => (
+          <span
+            key={label}
+            className="max-w-full break-words rounded-full px-2 py-1 text-[9px]"
+            style={{ background: "rgba(0,212,170,0.07)", color: "var(--text-secondary)", border: "1px solid rgba(0,212,170,0.12)" }}
+          >
+            + {label}
+          </span>
+        ))}
+      </div>
+
+      {direction.length > 0 && (
+        <dl className="mt-3 grid min-w-0 grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2">
+          {direction.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>
+                {label}
+              </dt>
+              <dd className="mt-0.5 break-words text-[10px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </article>
+  );
+}
+
 function CustomFilmApprovalCard({
   card,
   onChoose,
@@ -1299,11 +1388,21 @@ function CustomFilmApprovalCard({
   const yes = card.options?.find((o) => o.value === "yes");
   const no = card.options?.find((o) => o.value === "no");
   const sections = card.custom_film_sections ?? [];
+  const orchestrationBeats = card.custom_film_orchestration_beats ?? [];
   const totals = card.custom_film_totals;
   const duration = totals
     ? `${Math.floor(totals.duration_seconds / 60)}:${String(totals.duration_seconds % 60).padStart(2, "0")}`
     : "—";
   const remotionLocked = card.finishing_engine === "remotion";
+  const hasOrchestrationBlueprint = orchestrationBeats.length > 0;
+  const beatsBySection = sections
+    .map((section) => ({
+      section,
+      beats: orchestrationBeats
+        .filter((beat) => beat.section_order === section.order)
+        .sort((a, b) => a.beat_order - b.beat_order),
+    }))
+    .filter((group) => group.beats.length > 0);
 
   return (
     <GlassCard
@@ -1341,7 +1440,11 @@ function CustomFilmApprovalCard({
             className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
             style={{ background: "rgba(0,212,170,0.12)", color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.25)" }}
           >
-            {remotionLocked ? "Remotion locked" : "FFmpeg finishing"}
+            {hasOrchestrationBlueprint && remotionLocked
+              ? "Layered vision locked"
+              : remotionLocked
+                ? "Remotion locked"
+                : "FFmpeg finishing"}
           </span>
         </div>
       </div>
@@ -1393,6 +1496,63 @@ function CustomFilmApprovalCard({
             </div>
           ))}
         </div>
+
+        {hasOrchestrationBlueprint && (
+          <div
+            className="min-w-0 overflow-hidden rounded-xl"
+            style={{ background: "var(--bg-deep)", border: "1px solid rgba(0,212,170,0.22)" }}
+          >
+            <div
+              className="px-3 py-3 sm:px-4"
+              style={{ background: "linear-gradient(110deg, rgba(0,212,170,0.10), transparent)", borderBottom: "1px solid var(--border-subtle)" }}
+            >
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--turquoise)" }}>
+                Director&apos;s shot blueprint
+              </p>
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                Every beat combines approved media, visual systems, camera, captions, and sound into one timed composition.
+              </p>
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-4 p-3 sm:p-4">
+              {beatsBySection.map(({ section, beats }) => (
+                <section
+                  key={section.order}
+                  className="min-w-0"
+                  aria-label={`Section ${section.order}: ${section.role}`}
+                >
+                  <div className="mb-2 flex min-w-0 items-center gap-2">
+                    <span
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold"
+                      style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+                    >
+                      {section.order}
+                    </span>
+                    <h3
+                      className="min-w-0 break-words text-[11px] font-bold uppercase tracking-[0.12em]"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {section.role}
+                    </h3>
+                    <span className="h-px min-w-4 flex-1" style={{ background: "var(--border-subtle)" }} />
+                    <span className="shrink-0 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                      {beats.length} {beats.length === 1 ? "beat" : "beats"}
+                    </span>
+                  </div>
+
+                  <div className="grid min-w-0 grid-cols-1 gap-2.5 xl:grid-cols-2">
+                    {beats.map((beat) => (
+                      <CustomFilmOrchestrationBeatRow
+                        key={`${beat.section_order}:${beat.beat_order}`}
+                        beat={beat}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        )}
 
         {totals && (
           <div

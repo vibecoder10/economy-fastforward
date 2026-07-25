@@ -15,7 +15,84 @@ from PIL import Image
 
 import custom_film_compositor as compositor
 import custom_film_contract as contract
+import custom_film_orchestration as orchestration
 import custom_film_remotion as remotion
+
+
+def _reference_orchestration_contract() -> dict:
+    plan = orchestration.load_reference_semantic_plan()
+    recipes = [
+        orchestration.resolve_layered_recipe(cue) for cue in plan["cues"]
+    ]
+    semantic_input = {
+        "capability_catalog_version": orchestration.CAPABILITY_CATALOG_VERSION,
+        "compatibility_version": "test",
+        "total_duration_seconds": 300,
+        "sections": [],
+    }
+    resolved = {"fps": 24, "total_frames": 7200, "recipes": recipes}
+    body = {
+        "contract_version": orchestration.ORCHESTRATION_CONTRACT_VERSION,
+        "decision_rules_version": orchestration.DECISION_RULES_VERSION,
+        "semantic_input": semantic_input,
+        "semantic_input_hash": contract.canonical_hash(semantic_input),
+        "approved_beat_plan": None,
+        "approved_beat_plan_hash": None,
+        "resolved_plan": resolved,
+        "resolved_plan_hash": contract.canonical_hash(resolved),
+        "reference_compatible": True,
+        "story_identity": orchestration.REFERENCE_STORY_IDENTITY,
+        "signals_hash": contract.canonical_hash(
+            [cue["signals"] for cue in plan["cues"]]
+        ),
+        "recipe_hash": contract.canonical_hash(recipes),
+        "reference_plan_version": plan["version"],
+    }
+    return {**body, "contract_hash": contract.canonical_hash(body)}
+
+
+def _generic_orchestration_contract(*, frames: int = 24) -> dict:
+    recipe = orchestration.resolve_layered_recipe(
+        {
+            "id": "section-1:beat:0",
+            "section_index": 0,
+            "from": 0,
+            "to": frames - 1,
+            "narrative_function": "Plate the finished meal",
+            "signals": {
+                "media_kind": "video",
+                "dialogue": False,
+                "captions": False,
+                "intents": ["culinary", "demonstration"],
+                "energy": 2,
+                "handoff": "pulse",
+            },
+        }
+    )
+    recipes = [recipe]
+    semantic_input = {
+        "capability_catalog_version": orchestration.CAPABILITY_CATALOG_VERSION,
+        "compatibility_version": "test-generic",
+        "total_duration_seconds": frames // 24,
+        "sections": [],
+    }
+    resolved = {"fps": 24, "total_frames": frames, "recipes": recipes}
+    body = {
+        "contract_version": orchestration.ORCHESTRATION_CONTRACT_VERSION,
+        "decision_rules_version": orchestration.DECISION_RULES_VERSION,
+        "semantic_input": semantic_input,
+        "semantic_input_hash": contract.canonical_hash(semantic_input),
+        "approved_beat_plan": resolved,
+        "approved_beat_plan_hash": contract.canonical_hash(resolved),
+        "resolved_plan": resolved,
+        "resolved_plan_hash": contract.canonical_hash(resolved),
+        "reference_compatible": False,
+        "story_identity": contract.canonical_hash(semantic_input),
+        "signals_hash": contract.canonical_hash([recipe["signals"]]),
+        "recipe_hash": contract.canonical_hash(recipes),
+        "reference_plan_version": None,
+    }
+    return {**body, "contract_hash": contract.canonical_hash(body)}
 
 
 def _manifest(
@@ -135,6 +212,7 @@ def _manifest(
                     remotion.REMOTION_RENDERER_CONTRACT_VERSION
                 ),
                 "renderer_bundle_hash": remotion.renderer_bundle_hash(),
+                "orchestration_contract": _reference_orchestration_contract(),
             }
         )
     return {**body, "manifest_hash": contract.canonical_hash(body)}
@@ -203,6 +281,15 @@ def test_renderer_bundle_hash_binds_python_adapter(monkeypatch):
     assert remotion.renderer_bundle_hash() != original
 
 
+def test_renderer_bundle_hash_binds_orchestration_adapter(monkeypatch):
+    original = remotion.renderer_bundle_hash()
+    monkeypatch.setattr(
+        remotion, "_orchestration_adapter_hash", lambda: "f" * 64
+    )
+
+    assert remotion.renderer_bundle_hash() != original
+
+
 def _flagship_runtime_envelope() -> dict:
     roles = ("opening", "evidence", "case_study", "explanation")
     durations = (45, 105, 90, 60)
@@ -229,13 +316,18 @@ def _flagship_runtime_envelope() -> dict:
     }
 
 
-def test_shared_motion_plan_selects_every_showcase_primitive_at_exact_frames():
+def test_shared_semantic_plan_resolves_layered_recipes_at_exact_frames():
     plan = remotion.load_showcase_motion_plan()
     assert plan["version"] == remotion.SHOWCASE_MOTION_PLAN_VERSION
     assert plan["cues"][0]["from"] == 0
     assert plan["cues"][-1]["to"] == 7199
-    primitives = set(plan["global_primitives"]) | {
-        cue["primitive"] for cue in plan["cues"]
+    recipes = [
+        orchestration.resolve_layered_recipe(cue) for cue in plan["cues"]
+    ]
+    primitives = {
+        layer["primitive"]
+        for recipe in recipes
+        for layer in recipe["motionLayers"]
     }
     assert {
         "SignalPulse",
@@ -248,6 +340,15 @@ def test_shared_motion_plan_selects_every_showcase_primitive_at_exact_frames():
         "StoryEngineReveal",
         "MotionAudioSystem",
     }.issubset(primitives)
+    approved = _reference_orchestration_contract()
+    serialized_round_trip = json.loads(contract.canonical_json(approved))
+    assert serialized_round_trip == approved
+    durable_body = copy.deepcopy(serialized_round_trip)
+    durable_hash = durable_body.pop("contract_hash")
+    assert durable_hash == contract.canonical_hash(durable_body)
+    assert serialized_round_trip["resolved_plan_hash"] == contract.canonical_hash(
+        serialized_round_trip["resolved_plan"]
+    )
     assert remotion.is_storyengine_showcase_runtime(
         _flagship_runtime_envelope()
     )
@@ -255,7 +356,7 @@ def test_shared_motion_plan_selects_every_showcase_primitive_at_exact_frames():
         _flagship_runtime_envelope(),
         width=1920,
         height=1080,
-        remotion_finishing_bound=True,
+        orchestration_contract=_reference_orchestration_contract(),
     ) == "remotion"
     assert remotion.automatic_render_engine_for_runtime(
         _flagship_runtime_envelope(),
@@ -283,8 +384,55 @@ def test_automatic_renderer_keeps_non_showcase_films_on_ffmpeg(
         envelope,
         width=width,
         height=height,
-        remotion_finishing_bound=True,
+        orchestration_contract=_reference_orchestration_contract(),
     ) == "ffmpeg"
+
+
+def test_non_flagship_approved_beats_select_general_remotion_execution():
+    envelope = {
+        **_flagship_runtime_envelope(),
+        "total_duration_seconds": 7,
+        "sections": [
+            {
+                **_flagship_runtime_envelope()["sections"][0],
+                "role": "demonstration",
+                "duration_seconds": 7,
+            }
+        ],
+    }
+    approved = _generic_orchestration_contract(frames=168)
+    assert approved["reference_compatible"] is False
+    assert approved["resolved_plan"]["recipes"][0]["signals"]["intents"] == [
+        "culinary",
+        "demonstration",
+    ]
+    assert {
+        layer["primitive"]
+        for layer in approved["resolved_plan"]["recipes"][0]["motionLayers"]
+    } == {"SignalPulse", "MediaKinetics", "MotionAudioSystem"}
+    assert remotion.automatic_render_engine_for_runtime(
+        envelope,
+        width=1920,
+        height=1080,
+        orchestration_contract=approved,
+    ) == "remotion"
+    without_beats = copy.deepcopy(approved)
+    without_beats["resolved_plan"] = None
+    assert remotion.automatic_render_engine_for_runtime(
+        envelope,
+        width=1920,
+        height=1080,
+        orchestration_contract=without_beats,
+    ) == "ffmpeg"
+    manifest = _manifest(version=compositor.ASSEMBLY_VERSION_V3)
+    manifest["orchestration_contract"] = _generic_orchestration_contract()
+    manifest = _rehash(manifest)
+    props = remotion.build_remotion_props(manifest)
+    assert props["video"]["total_duration_seconds"] == 1
+    assert props["orchestration"]["reference_compatible"] is False
+    assert props["orchestration"]["resolved_plan"]["recipes"][0]["id"] == (
+        "section-1:beat:0"
+    )
 
 
 def test_python_generated_props_match_the_tracked_typescript_parity_fixture():
@@ -563,6 +711,9 @@ def test_1080p_loader_canvas_and_exact_fps_comparison():
 
 def _v3_props_for_sources(asset: Path, audio: Path) -> dict:
     manifest = _manifest(version=compositor.ASSEMBLY_VERSION_V3)
+    manifest["orchestration_contract"] = _generic_orchestration_contract(
+        frames=7200
+    )
     manifest["total_duration_seconds"] = 300
     manifest["total_frames"] = 7200
     section = manifest["sections"][0]
@@ -1211,6 +1362,9 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
 
     monkeypatch.setattr(remotion, "_run_local_command", fake_command)
     monkeypatch.setattr(remotion, "_probe_renderer_media", source_probe)
+    monkeypatch.setattr(
+        remotion, "_validate_lossless_intermediates", lambda **_kwargs: None
+    )
     monkeypatch.setattr(compositor, "probe_media", exact_probe)
     output = tmp_path / "final.mp4"
     progress: list[str] = []
@@ -1236,6 +1390,413 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
     assert output.read_bytes() == b"deterministic-final"
     assert not workdir.exists()
     assert progress and progress[-1].startswith("Rendering ")
+
+
+def _write_valid_intermediate_fixture(
+    root: Path,
+    *,
+    total_frames: int = 2,
+    fps: int = 24,
+    width: int = 16,
+    height: int = 9,
+) -> tuple[Path, Path]:
+    frames = root / "raw-frames"
+    frames.mkdir(parents=True)
+    for frame in range(total_frames):
+        Image.new("RGB", (width, height), (frame, 20, 30)).save(
+            frames / f"frame-{frame:04d}.png"
+        )
+    audio = root / "raw-audio.wav"
+    samples = total_frames * 48_000 // fps
+    with wave.open(str(audio), "wb") as waveform:
+        waveform.setnchannels(2)
+        waveform.setsampwidth(2)
+        waveform.setframerate(48_000)
+        waveform.writeframes(b"\0" * samples * 4)
+    return frames, audio
+
+
+def test_intermediate_cache_identity_binds_props_renderer_and_sources(
+    tmp_path: Path,
+):
+    asset = tmp_path / "asset.bin"
+    audio = tmp_path / "audio.bin"
+    asset.write_bytes(b"approved-image")
+    audio.write_bytes(b"approved-audio")
+    props = _v3_props_for_sources(asset, audio)
+    baseline = remotion._intermediate_cache_identity(props)
+
+    source_mutation = copy.deepcopy(props)
+    source_mutation["sections"][0]["assets"][0]["source_sha256"] = "a" * 64
+    renderer_mutation = copy.deepcopy(props)
+    renderer_mutation["identity"]["renderer_bundle_hash"] = "b" * 64
+    props_mutation = copy.deepcopy(props)
+    props_mutation["props_hash"] = "c" * 64
+
+    assert baseline["cache_key"] != remotion._intermediate_cache_identity(
+        source_mutation
+    )["cache_key"]
+    assert baseline["cache_key"] != remotion._intermediate_cache_identity(
+        renderer_mutation
+    )["cache_key"]
+    assert baseline["cache_key"] != remotion._intermediate_cache_identity(
+        props_mutation
+    )["cache_key"]
+    assert "source_url" not in json.dumps(baseline)
+
+
+def test_lossless_intermediate_validation_rejects_missing_corrupt_and_wrong_size(
+    tmp_path: Path,
+):
+    frames, audio = _write_valid_intermediate_fixture(tmp_path)
+    kwargs = {
+        "raw_frames": frames,
+        "raw_audio": audio,
+        "total_frames": 2,
+        "fps": 24,
+        "width": 16,
+        "height": 9,
+    }
+    remotion._validate_lossless_intermediates(**kwargs)
+
+    missing = frames / "frame-0001.png"
+    missing.unlink()
+    with pytest.raises(contract.CustomFilmContractError, match="incomplete"):
+        remotion._validate_lossless_intermediates(**kwargs)
+    Image.new("RGB", (16, 9)).save(missing)
+
+    missing.write_bytes(remotion._PNG_SIGNATURE + b"corrupt")
+    with pytest.raises(
+        contract.CustomFilmContractError, match="undecodable"
+    ):
+        remotion._validate_lossless_intermediates(**kwargs)
+    Image.new("RGB", (17, 9)).save(missing)
+    with pytest.raises(contract.CustomFilmContractError, match="dimensions"):
+        remotion._validate_lossless_intermediates(**kwargs)
+
+
+def test_intermediate_cache_rejects_stale_identity_and_truncated_wav(
+    tmp_path: Path,
+):
+    frames, audio = _write_valid_intermediate_fixture(tmp_path)
+    identity = {
+        "cache_version": remotion._INTERMEDIATE_CACHE_VERSION,
+        "props_hash": "a" * 64,
+        "renderer_bundle_hash": "b" * 64,
+        "sources": [],
+        "cache_key": "c" * 64,
+    }
+    (tmp_path / "identity.json").write_text(
+        remotion.canonical_remotion_json(identity)
+    )
+    with pytest.raises(contract.CustomFilmContractError, match="identity changed"):
+        remotion._validate_intermediate_cache(
+            cache_dir=tmp_path,
+            identity={**identity, "props_hash": "d" * 64},
+            total_frames=2,
+            fps=24,
+            width=16,
+            height=9,
+        )
+
+    with audio.open("r+b") as stream:
+        stream.truncate(audio.stat().st_size - 4)
+    with pytest.raises(
+        contract.CustomFilmContractError, match="WAV is (truncated|undecodable)"
+    ):
+        remotion._validate_lossless_intermediates(
+            raw_frames=frames,
+            raw_audio=audio,
+            total_frames=2,
+            fps=24,
+            width=16,
+            height=9,
+        )
+
+
+def test_intermediate_cache_rejects_valid_png_and_pcm_content_mutations(
+    tmp_path: Path,
+):
+    identity = {
+        "cache_version": remotion._INTERMEDIATE_CACHE_VERSION,
+        "props_hash": "a" * 64,
+        "renderer_bundle_hash": "b" * 64,
+        "sources": [],
+        "cache_key": "c" * 64,
+    }
+
+    png_cache = tmp_path / "png-cache"
+    png_cache.mkdir()
+    png_frames, png_audio = _write_valid_intermediate_fixture(png_cache)
+    png_content = remotion._validate_lossless_intermediates(
+        raw_frames=png_frames,
+        raw_audio=png_audio,
+        total_frames=2,
+        fps=24,
+        width=16,
+        height=9,
+    )
+    remotion._write_private_canonical_json(
+        png_cache / "identity.json", identity
+    )
+    remotion._write_private_canonical_json(
+        png_cache / "content-manifest.json", png_content
+    )
+    remotion._validate_intermediate_cache(
+        cache_dir=png_cache,
+        identity=identity,
+        total_frames=2,
+        fps=24,
+        width=16,
+        height=9,
+    )
+    Image.new("RGB", (16, 9), (240, 12, 34)).save(
+        png_frames / "frame-0001.png"
+    )
+    with pytest.raises(contract.CustomFilmContractError, match="content hash"):
+        remotion._validate_intermediate_cache(
+            cache_dir=png_cache,
+            identity=identity,
+            total_frames=2,
+            fps=24,
+            width=16,
+            height=9,
+        )
+
+    wav_cache = tmp_path / "wav-cache"
+    wav_cache.mkdir()
+    wav_frames, wav_audio = _write_valid_intermediate_fixture(wav_cache)
+    wav_content = remotion._validate_lossless_intermediates(
+        raw_frames=wav_frames,
+        raw_audio=wav_audio,
+        total_frames=2,
+        fps=24,
+        width=16,
+        height=9,
+    )
+    remotion._write_private_canonical_json(
+        wav_cache / "identity.json", identity
+    )
+    remotion._write_private_canonical_json(
+        wav_cache / "content-manifest.json", wav_content
+    )
+    wav_payload = bytearray(wav_audio.read_bytes())
+    wav_payload[-1] ^= 1
+    wav_audio.write_bytes(wav_payload)
+    with pytest.raises(contract.CustomFilmContractError, match="content hash"):
+        remotion._validate_intermediate_cache(
+            cache_dir=wav_cache,
+            identity=identity,
+            total_frames=2,
+            fps=24,
+            width=16,
+            height=9,
+        )
+
+
+def test_exact_probe_rejects_2496_frame_delivery_truncation():
+    assert not compositor.probe_has_exact_video_identity(
+        {
+            "frame_count": 2496,
+            "width": 1920,
+            "height": 1080,
+            "fps_fraction": "24/1",
+            "duration_seconds": 104.0,
+        },
+        total_frames=7200,
+        fps=24,
+        width=1920,
+        height=1080,
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_concat_delivery_preserves_every_frame(tmp_path: Path):
+    total_frames = 24
+    fps = 24
+    width = 32
+    height = 18
+    frames, audio = _write_valid_intermediate_fixture(
+        tmp_path,
+        total_frames=total_frames,
+        fps=fps,
+        width=width,
+        height=height,
+    )
+    # Chromium can emit opaque RGB and translucent RGBA PNGs in one approved
+    # sequence. Delivery must preserve the timeline across that pixel-format
+    # transition instead of rebuilding the filter graph and resetting audio.
+    for frame in range(total_frames // 2, total_frames):
+        Image.new("RGBA", (width, height), (frame, 20, 30, 225)).save(
+            frames / f"frame-{frame:04d}.png"
+        )
+    concat = tmp_path / "frames.ffconcat"
+    output = tmp_path / "delivery.mp4"
+    remotion._write_frame_concat_manifest(
+        raw_frames=frames,
+        destination=concat,
+        total_frames=total_frames,
+        fps=fps,
+    )
+    await remotion._run_local_command(
+        [
+            "ffmpeg", "-y", "-threads", "1", "-filter_threads", "1",
+            "-filter_complex_threads", "1", "-reinit_filter", "0",
+            "-xerror", "-err_detect",
+            "explode", "-f", "concat", "-safe", "0", "-i", str(concat),
+            "-i", str(audio), "-filter_complex",
+            (
+                f"[0:v]fps={fps},scale={width}:{height},"
+                f"trim=end_frame={total_frames},setpts=N/({fps}*TB)[v];"
+                "[1:a]aresample=48000,apad,atrim=end_sample=48000,"
+                "asetpts=N/SR/TB[a]"
+            ),
+            "-map", "[v]", "-map", "[a]", "-frames:v", str(total_frames),
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-x264-params",
+            "threads=1:lookahead_threads=1:sliced_threads=0",
+            "-c:a", "aac", "-ar", "48000", "-ac", "2",
+            "-map_metadata", "-1", str(output),
+        ],
+        cwd=tmp_path,
+        timeout_seconds=60,
+        log_path=tmp_path / "ffmpeg.log",
+    )
+    probe = await compositor.probe_media(output)
+    assert compositor.probe_has_exact_video_identity(
+        probe,
+        total_frames=total_frames,
+        fps=fps,
+        width=width,
+        height=height,
+    )
+
+
+@pytest.mark.asyncio
+async def test_delivery_failure_reuses_verified_intermediates_on_cold_retry(
+    monkeypatch, tmp_path: Path
+):
+    asset = tmp_path / "asset.bin"
+    audio = tmp_path / "audio.bin"
+    asset.write_bytes(b"approved-image")
+    audio.write_bytes(b"approved-audio")
+    props = _v3_props_for_sources(asset, audio)
+    cache_root = tmp_path / "private-cache"
+    delivery_attempts = 0
+    sequence_captures = 0
+    audio_captures = 0
+    probe_frame_count = 7200
+
+    async def fake_command(command, *, cwd, **_kwargs):
+        nonlocal delivery_attempts, sequence_captures, audio_captures
+        if command[0].endswith("node"):
+            source_audio = (
+                remotion._remotion_project_root() / "public/motion-audio"
+            )
+            target_audio = Path(cwd) / "public/motion-audio"
+            target_audio.mkdir(parents=True, exist_ok=True)
+            for source in source_audio.glob("*.wav"):
+                shutil.copyfile(source, target_audio / source.name)
+            return
+        if command[0] == "ffmpeg":
+            destination = Path(command[-1])
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.name == "normalized.mp4":
+                delivery_attempts += 1
+                if delivery_attempts == 1:
+                    raise compositor.CustomFilmRetryableError(
+                        "synthetic delivery interruption"
+                    )
+                destination.write_bytes(b"verified-delivery")
+            else:
+                destination.write_bytes(b"normalized-source")
+            return
+        remotion_output = Path(command[4])
+        if "--sequence" in command:
+            sequence_captures += 1
+            assert remotion_output.parent.name.startswith("partial-")
+            assert remotion_output.parent.suffix == ""
+            remotion_output.mkdir(parents=True, exist_ok=True)
+        else:
+            audio_captures += 1
+            remotion_output.write_bytes(b"lossless-audio")
+
+    async def source_probe(path):
+        path = Path(path)
+        payload = path.read_bytes()
+        is_audio = path.suffix == ".wav" or b"audio" in payload
+        return {
+            "has_video": not is_audio,
+            "has_audio": is_audio,
+            "duration_seconds": 300.0,
+            "video_duration_seconds": None if is_audio else 300.0,
+            "audio_duration_seconds": 300.0 if is_audio else None,
+        }
+
+    async def exact_probe(_path):
+        return {
+            "frame_count": probe_frame_count,
+            "width": 1920,
+            "height": 1080,
+            "fps_fraction": "24/1",
+            "has_video": True,
+            "has_audio": True,
+            "has_subtitles": True,
+            "duration_seconds": probe_frame_count / 24,
+        }
+
+    monkeypatch.setattr(remotion, "_run_local_command", fake_command)
+    monkeypatch.setattr(remotion, "_probe_renderer_media", source_probe)
+    monkeypatch.setattr(
+        remotion, "_validate_lossless_intermediates", lambda **_kwargs: None
+    )
+    monkeypatch.setattr(compositor, "probe_media", exact_probe)
+    kwargs = {
+        "remotion_props": props,
+        "source_paths": {
+            "asset-1": asset,
+            "audio:section-1:0": audio,
+        },
+        "output_path": tmp_path / "final.mp4",
+        "intermediate_cache_root": cache_root,
+    }
+
+    with pytest.raises(
+        compositor.CustomFilmRetryableError,
+        match="synthetic delivery interruption",
+    ):
+        await remotion.run_remotion_renderer(**kwargs)
+    cache_entries = [
+        path for path in cache_root.iterdir() if not path.name.startswith(".")
+    ]
+    assert len(cache_entries) == 1
+    assert cache_root.stat().st_mode & 0o777 == 0o700
+    assert cache_entries[0].stat().st_mode & 0o777 == 0o700
+    assert (cache_entries[0] / "identity.json").is_file()
+    assert (cache_entries[0] / "content-manifest.json").is_file()
+    assert sequence_captures == 1
+    assert audio_captures == 1
+
+    result = await remotion.run_remotion_renderer(**kwargs)
+    assert result["artifact_sha256"] == hashlib.sha256(
+        b"verified-delivery"
+    ).hexdigest()
+    assert sequence_captures == 1
+    assert audio_captures == 1
+    assert not cache_entries[0].exists()
+
+    probe_frame_count = 2496
+    terminal_kwargs = {
+        **kwargs,
+        "output_path": tmp_path / "terminal-probe-failure.mp4",
+    }
+    with pytest.raises(
+        contract.CustomFilmContractError, match="failed exact probe"
+    ):
+        await remotion.run_remotion_renderer(**terminal_kwargs)
+    assert not [
+        path for path in cache_root.iterdir() if not path.name.startswith(".")
+    ]
 
 
 def test_migration_131_and_fresh_schema_bind_renderer_implementation():

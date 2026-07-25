@@ -7,6 +7,7 @@ import subprocess
 import sys
 import types
 from pathlib import Path
+from fractions import Fraction
 
 import pytest
 from PIL import Image
@@ -808,6 +809,53 @@ async def test_synthetic_four_section_render_has_exact_streams_boundaries_and_ca
     assert len(set(frame_hashes)) == 4
 
 
+def test_probe_frame_truth_accepts_counted_and_duration_ts_fallbacks():
+    assert compositor.authoritative_probe_frame_count(
+        {"nb_frames": "N/A", "nb_read_frames": "504"},
+        frame_rate=Fraction(24, 1),
+        duration_seconds=21,
+    ) == (504, "nb_read_frames")
+    assert compositor.authoritative_probe_frame_count(
+        {"nb_frames": "N/A", "nb_read_frames": "N/A"},
+        frame_rate=Fraction(24, 1),
+        duration_seconds=21,
+    ) == (504, "duration_ts")
+    assert compositor.authoritative_probe_frame_count(
+        {"nb_frames": "N/A", "nb_read_frames": "N/A"},
+        frame_rate=Fraction(24, 1),
+        duration_seconds=21.01,
+    ) == (None, None)
+
+
+def test_exact_video_probe_separates_bounded_aac_container_padding():
+    base = {
+        "frame_count": 504,
+        "width": 1920,
+        "height": 1080,
+        "fps": 24,
+        "fps_fraction": "24/1",
+        "video_duration_seconds": 21.0,
+        "duration_seconds": 21.045333,
+        "has_video": True,
+        "has_audio": True,
+    }
+    assert compositor.probe_has_exact_video_identity(
+        base, total_frames=504, fps=24, width=1920, height=1080
+    )
+    wrong_video = {**base, "video_duration_seconds": 21.01}
+    assert not compositor.probe_has_exact_video_identity(
+        wrong_video, total_frames=504, fps=24, width=1920, height=1080
+    )
+    unbounded_container = {**base, "duration_seconds": 21.1}
+    assert not compositor.probe_has_exact_video_identity(
+        unbounded_container,
+        total_frames=504,
+        fps=24,
+        width=1920,
+        height=1080,
+    )
+
+
 @pytest.mark.asyncio
 async def test_storage_readback_rejects_wrong_bytes_before_acceptance(tmp_path: Path):
     with pytest.raises(
@@ -957,12 +1005,13 @@ def test_schema_and_render_door_are_durable_and_isolated():
     compositor_source = (
         root / "backend/custom_film_compositor.py"
     ).read_text()
-    assert "and is_storyengine_showcase_runtime(envelope)" in compositor_source
+    assert 'orchestration_contract.get("resolved_plan")' in compositor_source
+    assert 'orchestration_contract["resolved_plan"].get("recipes")' in compositor_source
     assert 'aspect_ratio == "16:9"' in compositor_source
     assert "finishing_canvas == exact_finishing_canvas" in compositor_source
     assert "Custom Film approved quote identity changed" in compositor_source
     assert '"remotion_finishing_bound": remotion_finishing_bound' in compositor_source
-    assert 'inputs.get("remotion_finishing_bound")' in compositor_source
+    assert 'inputs.get("orchestration_contract")' in compositor_source
     assert "output_dimensions = (1920, 1080)" in compositor_source
     assert "custom-film-assembly-v1" in migration_v2
     assert "custom-film-assembly-v2" in migration_v2

@@ -12,15 +12,17 @@
    - four ordered acts;
    - exact act durations adding to 5:00;
    - images, motion clips, and voice tracks per act;
+   - a **Director's shot blueprint** grouped under those acts, where every beat names its approved media treatment and the simultaneous visual systems, transformation, camera, captions, and sound behavior;
    - section estimates and the $5.57 total estimate;
    - the $15 hard ceiling and $9.43 unused headroom;
    - the note that Remotion finishing adds no provider spend.
-5. The prompt is handled by the general Custom Film planner, so do not assume the expected treatment was reproduced merely because the request was accepted. Compare all four durations, media counts, and the quote with the table below. If anything differs—or any story or creative choice is wrong—click **Keep editing** and describe the correction in ordinary language. Any edit clears the previous approval and produces a newly bound plan and quote.
-6. Only when the blueprint is right, click **Approve paid production · up to $15.00**. This is the action that authorizes paid BYOK generation.
-7. StoryEngine creates the video and shows **Building your video…** with an **Open it** button. Open it to enter the production workspace.
-8. The production map shows **Custom Film**, the ordered four-section mix, and live pipeline stages. Custom Film remains one film; Remotion is an internal finishing engine, not a fifth public style or provider choice.
-9. Review generated section media before final assembly. Reject identity drift, weak evidence framing, unreadable text, awkward crops, or generic footage before accepting a section.
-10. After assembly, the card changes to **Your video is ready to review 🎬**. Click **Review it**, watch the full master with sound, then inspect the 4:45–5:00 product reveal and crop-aware excerpts before any upload or release.
+5. Read the shot blueprint as the exact creative promise, not as separate technology sections. A beat may combine approved footage or animated imagery with the pulse, map/evidence/timeline/waveform/network/product graphics, camera movement, bilingual captions, transition state, and audio behavior at the same time. Confirm the sequence feels like one film and that the named transformation carries visual ideas between beats.
+6. The prompt is handled by the general Custom Film planner, so do not assume the expected treatment was reproduced merely because the request was accepted. Compare all four durations, media counts, layered beat directions, and the quote with the table below. If anything differs—or any story or creative choice is wrong—click **Keep editing** and describe the correction in ordinary language. Any edit clears the previous approval and produces a newly bound plan and quote.
+7. Only when the blueprint is right, click **Approve paid production · up to $15.00**. This is the action that authorizes paid BYOK generation. StoryEngine must execute the approved beat recipes rather than replanning them after approval.
+8. StoryEngine creates the video and shows **Building your video…** with an **Open it** button. Open it to enter the production workspace.
+9. The production map shows **Custom Film**, the ordered four-section mix, and live pipeline stages. Custom Film remains one film; Remotion is an internal finishing engine, not a fifth public style or provider choice.
+10. Review generated section media before final assembly. Reject identity drift, weak evidence framing, unreadable text, awkward crops, or generic footage before accepting a section.
+11. After assembly, the card changes to **Your video is ready to review 🎬**. Click **Review it**, watch the full master with sound, then inspect the 4:45–5:00 product reveal and crop-aware excerpts before any upload or release.
 
 ## Refreshed expected treatment quote — verify in the blueprint
 

@@ -18,6 +18,7 @@ import os
 import shutil
 import signal
 import tempfile
+import wave
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
@@ -33,7 +34,7 @@ LEGACY_ASSEMBLY_VERSION = "custom-film-assembly-v2"
 EXPECTED_ASSEMBLY_VERSION = "custom-film-assembly-v3"
 REMOTION_RENDERER_CONTRACT_VERSION = "custom-film-remotion-renderer-v1"
 REMOTION_COMPOSITION_ID = "StoryEngineCustomFilmShowcase"
-SHOWCASE_MOTION_PLAN_VERSION = "storyengine-showcase-motion-plan-v1"
+SHOWCASE_MOTION_PLAN_VERSION = "storyengine-layered-orchestration-v1"
 AUTOMATIC_RENDER_POLICY = "showcase_auto"
 SUPPORTED_RENDER_ENGINES = frozenset({"ffmpeg", "remotion"})
 PRE_JOURNAL_FALLBACK_POLICIES = frozenset({"forbid", "ffmpeg"})
@@ -73,7 +74,11 @@ _ASSEMBLY_KEYS = frozenset(
     }
 )
 _ASSEMBLY_V3_KEYS = _ASSEMBLY_KEYS | frozenset(
-    {"renderer_contract_version", "renderer_bundle_hash"}
+    {
+        "renderer_contract_version",
+        "renderer_bundle_hash",
+        "orchestration_contract",
+    }
 )
 _SECTION_KEYS = frozenset(
     {
@@ -323,134 +328,42 @@ def _remotion_project_root() -> Path:
 def load_showcase_motion_plan(
     project_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Load and validate the shared Python/TypeScript insertion schedule."""
-    root = (project_root or _remotion_project_root()).resolve()
-    path = root / "src/showcase/motion-plan-v1.json"
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise CustomFilmContractError(
-            "StoryEngine Remotion motion plan is unavailable"
-        ) from exc
-    plan = _strict_mapping(value, "showcase motion plan")
-    if set(plan) != {
-        "version",
-        "fps",
-        "width",
-        "height",
-        "total_frames",
-        "global_primitives",
-        "sections",
-        "cues",
-    }:
-        raise CustomFilmContractError(
-            "StoryEngine Remotion motion plan shape changed"
-        )
-    if (
-        plan["version"] != SHOWCASE_MOTION_PLAN_VERSION
-        or _exact_int(plan["fps"], "showcase motion plan fps", 1) != 24
-        or _exact_int(plan["width"], "showcase motion plan width", 1) != 1920
-        or _exact_int(plan["height"], "showcase motion plan height", 1) != 1080
-        or _exact_int(
-            plan["total_frames"], "showcase motion plan frames", 1
-        ) != 7200
-    ):
-        raise CustomFilmContractError(
-            "StoryEngine Remotion motion plan identity changed"
-        )
-    required_primitives = {
-        "SignalPulse",
-        "OutageMap",
-        "EvidenceBoard",
-        "IncidentTimeline",
-        "RadioWaveform",
-        "BilingualCaptions",
-        "NetworkExplainer",
-        "StoryEngineReveal",
-        "MotionAudioSystem",
-    }
-    primitives = {
-        str(value)
-        for value in _strict_sequence(
-            plan["global_primitives"], "showcase global primitives"
-        )
-    }
-    sections = _strict_sequence(plan["sections"], "showcase motion sections")
-    if len(sections) != 4:
-        raise CustomFilmContractError(
-            "StoryEngine Remotion motion plan section count changed"
-        )
-    expected_sections = (
-        ("opening", 1080),
-        ("evidence", 2520),
-        ("case_study", 2160),
-        ("explanation", 1440),
+    """Load the semantic reference and independently resolve every recipe."""
+    if project_root is not None:
+        root = project_root.resolve()
+        expected = (
+            root / "src/showcase/orchestration-plan-v1.json"
+        ).resolve()
+        if expected != (
+            _remotion_project_root()
+            / "src/showcase/orchestration-plan-v1.json"
+        ).resolve():
+            try:
+                value = json.loads(expected.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise CustomFilmContractError(
+                    "StoryEngine orchestration reference is unavailable"
+                ) from exc
+            from custom_film_orchestration import (
+                load_reference_semantic_plan,
+            )
+            canonical = load_reference_semantic_plan()
+            if value != canonical:
+                raise CustomFilmContractError(
+                    "StoryEngine orchestration reference changed"
+                )
+            return value
+    from custom_film_orchestration import (
+        load_reference_semantic_plan,
+        resolve_layered_recipe,
     )
-    section_bounds: list[tuple[int, int]] = []
-    section_start = 0
-    for section_value, (role, duration) in zip(
-        sections, expected_sections
-    ):
-        section = _strict_mapping(section_value, "showcase motion section")
-        if (
-            set(section) != {"role", "duration_frames"}
-            or section.get("role") != role
-            or _exact_int(
-                section.get("duration_frames"),
-                "showcase section frames",
-                1,
-            )
-            != duration
-        ):
-            raise CustomFilmContractError(
-                "StoryEngine Remotion motion plan sections changed"
-            )
-        section_bounds.append((section_start, section_start + duration - 1))
-        section_start += duration
-    if section_start != plan["total_frames"]:
+    plan = load_reference_semantic_plan()
+    recipes = [resolve_layered_recipe(cue) for cue in plan["cues"]]
+    if any(len(recipe["motionLayers"]) < 2 for recipe in recipes):
         raise CustomFilmContractError(
-            "StoryEngine Remotion motion sections do not fill the film"
+            "StoryEngine orchestration recipe is not layered"
         )
-    expected_frame = 0
-    cues = _strict_sequence(plan["cues"], "showcase motion cues")
-    if not cues:
-        raise CustomFilmContractError(
-            "StoryEngine Remotion motion plan cues are empty"
-        )
-    for cue_value in cues:
-        cue = _strict_mapping(cue_value, "showcase motion cue")
-        if set(cue) != {
-            "id",
-            "section_index",
-            "from",
-            "to",
-            "primitive",
-        }:
-            raise CustomFilmContractError(
-                "StoryEngine Remotion motion cue shape changed"
-            )
-        start = _exact_int(cue["from"], "showcase motion cue start")
-        end = _exact_int(cue["to"], "showcase motion cue end")
-        section_index = _exact_int(
-            cue["section_index"], "showcase motion cue section"
-        )
-        if (
-            start != expected_frame
-            or end < start
-            or section_index >= 4
-            or start < section_bounds[section_index][0]
-            or end > section_bounds[section_index][1]
-        ):
-            raise CustomFilmContractError(
-                "StoryEngine Remotion motion cues are not exact and contiguous"
-            )
-        primitives.add(_text(cue["primitive"], "showcase motion primitive"))
-        expected_frame = end + 1
-    if expected_frame != 7200 or not required_primitives.issubset(primitives):
-        raise CustomFilmContractError(
-            "StoryEngine Remotion motion plan is incomplete"
-        )
-    return copy.deepcopy(plan)
+    return plan
 
 
 def is_storyengine_showcase_runtime(
@@ -500,21 +413,42 @@ def automatic_render_engine_for_runtime(
     *,
     width: int,
     height: int,
-    remotion_finishing_bound: bool = False,
+    orchestration_contract: Mapping[str, Any] | None = None,
 ) -> str:
-    """Select Remotion only for the exact approved flagship treatment.
+    """Select Remotion for an exact executable approved beat contract.
 
-    Every other Custom Film keeps the established FFmpeg compositor. The
-    decision is made from the immutable runtime envelope and the same tracked
-    motion plan consumed by the Remotion composition.
+    The outage showcase remains a stress-test fixture, not product authority.
+    Legacy plans without approved beats keep the established FFmpeg fallback.
     """
-    plan = load_showcase_motion_plan()
-    if (
-        remotion_finishing_bound is not True
-        or width != plan["width"]
-        or height != plan["height"]
-        or not is_storyengine_showcase_runtime(envelope_value)
-    ):
+    envelope = _strict_mapping(envelope_value, "runtime envelope")
+    runtime_sections = _strict_sequence(
+        envelope.get("sections"), "runtime sections"
+    )
+    if not isinstance(orchestration_contract, Mapping):
+        return "ffmpeg"
+    total_seconds = envelope.get("total_duration_seconds")
+    resolved = orchestration_contract.get("resolved_plan")
+    fps = resolved.get("fps") if isinstance(resolved, Mapping) else None
+    if width != 1920 or height != 1080:
+        return "ffmpeg"
+    try:
+        from custom_film_orchestration import (
+            validate_executable_orchestration,
+        )
+        validate_executable_orchestration(
+            orchestration_contract,
+            total_duration_seconds=int(total_seconds),
+            section_duration_seconds=[
+                int(
+                    _strict_mapping(
+                        section, "runtime section"
+                    )["duration_seconds"]
+                )
+                for section in runtime_sections
+            ],
+            fps=int(fps),
+        )
+    except (CustomFilmContractError, KeyError, TypeError, ValueError):
         return "ffmpeg"
     return "remotion"
 
@@ -522,6 +456,12 @@ def automatic_render_engine_for_runtime(
 def _renderer_adapter_hash() -> str:
     """Hash the exact Python staging and normalization adapter."""
     return hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+
+
+def _orchestration_adapter_hash() -> str:
+    """Hash the exact approval-time semantic compiler implementation."""
+    path = Path(__file__).resolve().with_name("custom_film_orchestration.py")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def renderer_bundle_hash(project_root: Path | None = None) -> str:
@@ -586,6 +526,7 @@ def renderer_bundle_hash(project_root: Path | None = None) -> str:
         {
             "renderer_contract_version": REMOTION_RENDERER_CONTRACT_VERSION,
             "adapter_sha256": _renderer_adapter_hash(),
+            "orchestration_adapter_sha256": _orchestration_adapter_hash(),
             "files": records,
         }
     )
@@ -777,6 +718,7 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             "Custom Film assembly version is unsupported by Remotion"
         )
     renderer_identity: dict[str, Any] = {}
+    orchestration_contract: dict[str, Any] | None = None
     if manifest["assembly_version"] == EXPECTED_ASSEMBLY_VERSION:
         if engine != "remotion":
             raise CustomFilmContractError(
@@ -800,6 +742,39 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             "renderer_contract_version": contract_version,
             "renderer_bundle_hash": bundle_hash,
         }
+        orchestration_contract = copy.deepcopy(
+            _strict_mapping(
+                manifest["orchestration_contract"],
+                "approved orchestration contract",
+            )
+        )
+        contract_body = copy.deepcopy(orchestration_contract)
+        contract_hash = _hash(
+            contract_body.pop("contract_hash", None),
+            "orchestration contract hash",
+        )
+        resolved_plan = _strict_mapping(
+            orchestration_contract.get("resolved_plan"),
+            "approved resolved orchestration plan",
+        )
+        recipes = _strict_sequence(
+            resolved_plan.get("recipes"),
+            "approved resolved orchestration recipes",
+        )
+        recipe_hash = canonical_hash(recipes)
+        if (
+            canonical_hash(contract_body) != contract_hash
+            or orchestration_contract.get("contract_version")
+            != SHOWCASE_MOTION_PLAN_VERSION
+            or orchestration_contract.get("decision_rules_version")
+            != "storyengine-layered-recipe-rules-v1"
+            or orchestration_contract.get("recipe_hash") != recipe_hash
+            or orchestration_contract.get("resolved_plan_hash")
+            != canonical_hash(resolved_plan)
+        ):
+            raise CustomFilmContractError(
+                "Custom Film Remotion orchestration identity changed"
+            )
     runtime_hash = _hash(manifest["runtime_hash"], "runtime hash")
     if manifest["runtime_job_id"] != f"custom-film-runtime:{runtime_hash}":
         raise CustomFilmContractError(
@@ -1102,6 +1077,7 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             "total_frames": total_frames,
         },
         "transition_accounting": transition_accounting,
+        "orchestration": orchestration_contract,
         "sections": sections,
     }
     return {**body, "props_hash": remotion_props_hash(body)}
@@ -1112,6 +1088,11 @@ _PROCESS_LOG_LIMIT = 16_384
 _DEFAULT_RENDER_TIMEOUT_SECONDS = 7_200
 _AAC_PACKET_PADDING_SECONDS = (1024 / 48_000) + 0.002
 _STREAM_COVERAGE_TOLERANCE_SECONDS = 0.002
+_INTERMEDIATE_CACHE_VERSION = "custom-film-remotion-intermediates-v1"
+_INTERMEDIATE_CONTENT_MANIFEST_VERSION = (
+    "custom-film-remotion-intermediate-content-v1"
+)
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def staged_local_path_for_source_key(source_key: str, kind: str) -> str:
@@ -1188,6 +1169,218 @@ def _renderer_source_specs(
                 }
             )
     return specs
+
+
+def _intermediate_cache_identity(
+    props: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind reusable lossless intermediates without persisting source paths."""
+    sources = sorted(
+        (
+            {
+                "kind": spec["kind"],
+                "sha256": spec["sha256"],
+                "source_key": spec["source_key"],
+            }
+            for spec in _renderer_source_specs(props)
+        ),
+        key=lambda item: (item["source_key"], item["kind"]),
+    )
+    body = {
+        "cache_version": _INTERMEDIATE_CACHE_VERSION,
+        "props_hash": props["props_hash"],
+        "renderer_bundle_hash": props["identity"]["renderer_bundle_hash"],
+        "sources": sources,
+    }
+    return {**body, "cache_key": canonical_hash(body)}
+
+
+def _private_directory(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_private_canonical_json(path: Path, value: Any) -> None:
+    temporary = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(
+        canonical_remotion_json(value),
+        encoding="utf-8",
+        newline="\n",
+    )
+    temporary.chmod(0o600)
+    os.replace(temporary, path)
+
+
+def _validate_lossless_intermediates(
+    *,
+    raw_frames: Path,
+    raw_audio: Path,
+    total_frames: int,
+    fps: int,
+    width: int,
+    height: int,
+) -> dict[str, Any]:
+    """Decode every approved frame and the complete PCM delivery waveform."""
+    from PIL import Image, UnidentifiedImageError
+
+    expected_names = [
+        f"frame-{frame:04d}.png" for frame in range(total_frames)
+    ]
+    if not raw_frames.is_dir():
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate frame directory is missing"
+        )
+    actual_names = {
+        path.name for path in raw_frames.iterdir() if path.suffix == ".png"
+    }
+    if actual_names != set(expected_names):
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate frame sequence is incomplete"
+        )
+    ordered_frame_hashes: list[dict[str, Any]] = []
+    for name in expected_names:
+        frame_path = raw_frames / name
+        try:
+            with frame_path.open("rb") as stream:
+                if stream.read(len(_PNG_SIGNATURE)) != _PNG_SIGNATURE:
+                    raise CustomFilmContractError(
+                        f"Custom Film Remotion intermediate PNG signature "
+                        f"changed: {name}"
+                    )
+            with Image.open(frame_path) as image:
+                if image.format != "PNG" or image.size != (width, height):
+                    raise CustomFilmContractError(
+                        f"Custom Film Remotion intermediate PNG dimensions "
+                        f"changed: {name}"
+                    )
+                image.verify()
+            ordered_frame_hashes.append(
+                {"name": name, "sha256": _sha256_path(frame_path)}
+            )
+        except (OSError, UnidentifiedImageError) as exc:
+            raise CustomFilmContractError(
+                f"Custom Film Remotion intermediate PNG is undecodable: {name}"
+            ) from exc
+
+    expected_samples = total_frames * 48_000 // fps
+    try:
+        with wave.open(str(raw_audio), "rb") as waveform:
+            audio_identity = (
+                waveform.getnchannels(),
+                waveform.getsampwidth(),
+                waveform.getframerate(),
+                waveform.getnframes(),
+                waveform.getcomptype(),
+            )
+            expected_identity = (2, 2, 48_000, expected_samples, "NONE")
+            if audio_identity != expected_identity:
+                raise CustomFilmContractError(
+                    "Custom Film Remotion intermediate WAV identity changed"
+                )
+            remaining = expected_samples
+            while remaining:
+                chunk_frames = min(remaining, 48_000)
+                payload = waveform.readframes(chunk_frames)
+                expected_bytes = chunk_frames * 2 * 2
+                if len(payload) != expected_bytes:
+                    raise CustomFilmContractError(
+                        "Custom Film Remotion intermediate WAV is truncated"
+                    )
+                remaining -= chunk_frames
+            if waveform.readframes(1):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion intermediate WAV has excess samples"
+                )
+    except (EOFError, OSError, wave.Error) as exc:
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate WAV is undecodable"
+        ) from exc
+    return {
+        "manifest_version": _INTERMEDIATE_CONTENT_MANIFEST_VERSION,
+        "total_frames": total_frames,
+        "frames": ordered_frame_hashes,
+        "audio": {
+            "name": raw_audio.name,
+            "sha256": _sha256_path(raw_audio),
+        },
+    }
+
+
+def _validate_intermediate_cache(
+    *,
+    cache_dir: Path,
+    identity: Mapping[str, Any],
+    total_frames: int,
+    fps: int,
+    width: int,
+    height: int,
+) -> None:
+    identity_path = cache_dir / "identity.json"
+    try:
+        cached_identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate cache identity is invalid"
+        ) from exc
+    if cached_identity != dict(identity):
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate cache identity changed"
+        )
+    content_path = cache_dir / "content-manifest.json"
+    try:
+        cached_content = json.loads(content_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate content manifest is invalid"
+        ) from exc
+    actual_content = _validate_lossless_intermediates(
+        raw_frames=cache_dir / "raw-frames",
+        raw_audio=cache_dir / "raw-audio.wav",
+        total_frames=total_frames,
+        fps=fps,
+        width=width,
+        height=height,
+    )
+    if cached_content != actual_content:
+        raise CustomFilmContractError(
+            "Custom Film Remotion intermediate content hash changed"
+        )
+
+
+def _ffconcat_quote(path: Path) -> str:
+    return "'" + str(path.resolve()).replace("'", "'\\''") + "'"
+
+
+def _write_frame_concat_manifest(
+    *,
+    raw_frames: Path,
+    destination: Path,
+    total_frames: int,
+    fps: int,
+) -> None:
+    duration = f"{1 / fps:.12f}"
+    lines = ["ffconcat version 1.0"]
+    for frame in range(total_frames):
+        lines.extend(
+            [
+                f"file {_ffconcat_quote(raw_frames / f'frame-{frame:04d}.png')}",
+                f"duration {duration}",
+            ]
+        )
+    # The concat demuxer applies the final duration only when a following file
+    # establishes its end timestamp. The video filter trims this repeated frame.
+    lines.append(
+        f"file {_ffconcat_quote(raw_frames / f'frame-{total_frames - 1:04d}.png')}"
+    )
+    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _validate_props_asset_transform(
@@ -1353,6 +1546,7 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
         "identity",
         "video",
         "transition_accounting",
+        "orchestration",
         "sections",
         "props_hash",
     }:
@@ -1377,6 +1571,39 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
     if set(identity) != _PROPS_IDENTITY_V3_KEYS:
         raise CustomFilmContractError(
             "Custom Film Remotion renderer identity is incomplete"
+        )
+    orchestration = _strict_mapping(
+        props["orchestration"],
+        "Remotion orchestration contract",
+    )
+    orchestration_body = copy.deepcopy(orchestration)
+    orchestration_hash = _hash(
+        orchestration_body.pop("contract_hash", None),
+        "Remotion orchestration contract hash",
+    )
+    resolved_plan = _strict_mapping(
+        orchestration.get("resolved_plan"),
+        "Remotion approved resolved plan",
+    )
+    recipes = _strict_sequence(
+        resolved_plan.get("recipes"),
+        "Remotion approved recipes",
+    )
+    if (
+        canonical_hash(orchestration_body) != orchestration_hash
+        or orchestration.get("semantic_input_hash")
+        != canonical_hash(
+            _strict_mapping(
+                orchestration.get("semantic_input"),
+                "Remotion orchestration semantic input",
+            )
+        )
+        or orchestration.get("resolved_plan_hash")
+        != canonical_hash(resolved_plan)
+        or orchestration.get("recipe_hash") != canonical_hash(recipes)
+    ):
+        raise CustomFilmContractError(
+            "Custom Film Remotion orchestration contract changed"
         )
     for key in ("tenant_id", "video_id", "plan_id", "runtime_job_id"):
         _text(identity[key], f"Remotion identity {key}")
@@ -1422,13 +1649,11 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             "Custom Film Remotion duration identity changed"
         )
     if (
-        fps,
-        int(video["width"]),
-        int(video["height"]),
-        frames,
-    ) != (24, 1920, 1080, 7200):
+        resolved_plan.get("fps") != fps
+        or resolved_plan.get("total_frames") != frames
+    ):
         raise CustomFilmContractError(
-            "Custom Film Remotion renderer v1 requires the exact showcase canvas"
+            "Custom Film Remotion resolved plan changed its approved video timing"
         )
     transition_accounting = _strict_mapping(
         props["transition_accounting"],
@@ -1688,6 +1913,15 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
         raise CustomFilmContractError(
             "Custom Film Remotion sections do not fill the film"
         )
+    from custom_film_orchestration import validate_executable_orchestration
+    validate_executable_orchestration(
+        orchestration,
+        total_duration_seconds=seconds,
+        section_duration_seconds=[
+            int(section["duration_frames"]) // fps for section in sections
+        ],
+        fps=fps,
+    )
     _renderer_source_specs(props)
     return props
 
@@ -2152,12 +2386,13 @@ async def run_remotion_renderer(
     output_path: Path,
     on_progress: ProgressCallback | None = None,
     timeout_seconds: float = _DEFAULT_RENDER_TIMEOUT_SECONDS,
+    intermediate_cache_root: Path | None = None,
 ) -> Mapping[str, Any]:
     """Render one already-journaled assembly-v3 identity locally."""
     from custom_film_compositor import (
         CustomFilmRetryableError,
-        _probe_has_exact_fps,
         probe_media,
+        probe_has_exact_video_identity,
     )
 
     props = _validate_renderer_props(remotion_props)
@@ -2186,18 +2421,41 @@ async def run_remotion_renderer(
         raise CustomFilmContractError(
             "Custom Film Remotion output path must be new"
         )
+    frames = int(props["video"]["total_frames"])
+    fps = int(props["video"]["fps"])
+    width = int(props["video"]["width"])
+    height = int(props["video"]["height"])
+    cache_identity = _intermediate_cache_identity(props)
+    cache_root = (
+        Path(intermediate_cache_root)
+        if intermediate_cache_root is not None
+        # Remotion treats a leading dot in any image-sequence destination path
+        # component as an extension. Privacy comes from mode 0700, not hiding
+        # the cache directory name.
+        else output_path.parent / "custom-film-remotion-cache"
+    )
+    _private_directory(cache_root)
+    cache_dir = cache_root / cache_identity["cache_key"]
+    # Remotion rejects image-sequence output directories when any destination
+    # path component looks like it has a file extension. Keep the private
+    # in-progress directory extension-free.
+    cache_partial = cache_root / (
+        f"partial-{cache_identity['cache_key']}-{os.getpid()}"
+    )
     workdir = Path(tempfile.mkdtemp(prefix="custom_film_remotion_"))
     log_path = workdir / "renderer.log"
     # Remotion's video encoders produced tiny cross-run pixel drift even when
     # independent PNG captures of every tested browser frame were byte-identical.
     # Keep frame capture and audio capture lossless and separate; the pinned,
     # single-thread normalization pass below is the only delivery encoder.
-    raw_frames = workdir / "raw-frames"
-    raw_audio = workdir / "raw-audio.wav"
+    raw_frames = cache_dir / "raw-frames"
+    raw_audio = cache_dir / "raw-audio.wav"
     normalized = workdir / "normalized.mp4"
     props_path = workdir / "props.json"
     captions_path = workdir / "captions.srt"
+    concat_path = workdir / "frames.ffconcat"
     succeeded = False
+    retain_cache_on_failure = False
     try:
         if on_progress:
             await on_progress("Normalizing section 1/1, approved Remotion sources")
@@ -2233,103 +2491,151 @@ async def run_remotion_renderer(
                 f"Rendering {len(props['sections'])}/"
                 f"{len(props['sections'])} approved sections"
             )
-        frame_command = [
-            str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
-            str(raw_frames), f"--props={props_path}",
-            f"--public-dir={workdir / 'public'}", "--sequence",
-            "--image-format=png",
-            "--image-sequence-pattern=frame-[frame].[ext]",
-            "--concurrency=1", "--gl=angle",
-            f"--browser-executable={browser}",
-        ]
-        await _run_local_command(
-            frame_command,
-            cwd=project,
-            timeout_seconds=timeout_seconds,
-            log_path=log_path,
+        if cache_dir.exists():
+            _validate_intermediate_cache(
+                cache_dir=cache_dir,
+                identity=cache_identity,
+                total_frames=frames,
+                fps=fps,
+                width=width,
+                height=height,
+            )
+            if on_progress:
+                await on_progress(
+                    "Reusing verified lossless Remotion intermediates"
+                )
+        else:
+            if cache_partial.exists():
+                shutil.rmtree(cache_partial)
+            _private_directory(cache_partial)
+            capture_frames = cache_partial / "raw-frames"
+            capture_audio = cache_partial / "raw-audio.wav"
+            frame_command = [
+                str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
+                str(capture_frames), f"--props={props_path}",
+                f"--public-dir={workdir / 'public'}", "--sequence",
+                "--image-format=png",
+                "--image-sequence-pattern=frame-[frame].[ext]",
+                "--concurrency=1", "--gl=angle",
+                f"--browser-executable={browser}",
+            ]
+            await _run_local_command(
+                frame_command,
+                cwd=project,
+                timeout_seconds=timeout_seconds,
+                log_path=log_path,
+            )
+            audio_command = [
+                str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
+                str(capture_audio), f"--props={props_path}",
+                f"--public-dir={workdir / 'public'}", "--codec=wav",
+                "--concurrency=1", "--gl=angle",
+                f"--browser-executable={browser}",
+            ]
+            await _run_local_command(
+                audio_command,
+                cwd=project,
+                timeout_seconds=timeout_seconds,
+                log_path=log_path,
+            )
+            content_manifest = _validate_lossless_intermediates(
+                raw_frames=capture_frames,
+                raw_audio=capture_audio,
+                total_frames=frames,
+                fps=fps,
+                width=width,
+                height=height,
+            )
+            _write_private_canonical_json(
+                cache_partial / "identity.json", cache_identity
+            )
+            _write_private_canonical_json(
+                cache_partial / "content-manifest.json",
+                content_manifest,
+            )
+            os.replace(cache_partial, cache_dir)
+            raw_frames = cache_dir / "raw-frames"
+            raw_audio = cache_dir / "raw-audio.wav"
+        _write_frame_concat_manifest(
+            raw_frames=raw_frames,
+            destination=concat_path,
+            total_frames=frames,
+            fps=fps,
         )
-        expected_frame_paths = [
-            raw_frames / f"frame-{frame:04d}.png"
-            for frame in range(int(props["video"]["total_frames"]))
-        ]
-        if (
-            not raw_frames.is_dir()
-            or any(
-                not frame_path.is_file() or frame_path.stat().st_size == 0
-                for frame_path in expected_frame_paths
-            )
-            or len(list(raw_frames.glob("frame-*.png")))
-            != len(expected_frame_paths)
-        ):
-            raise CustomFilmRetryableError(
-                "Custom Film Remotion produced an incomplete frame sequence"
-            )
-        audio_command = [
-            str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
-            str(raw_audio), f"--props={props_path}",
-            f"--public-dir={workdir / 'public'}", "--codec=wav",
-            "--concurrency=1", "--gl=angle",
-            f"--browser-executable={browser}",
-        ]
-        await _run_local_command(
-            audio_command,
-            cwd=project,
-            timeout_seconds=timeout_seconds,
-            log_path=log_path,
-        )
-        if not raw_audio.is_file() or raw_audio.stat().st_size == 0:
-            raise CustomFilmRetryableError(
-                "Custom Film Remotion produced no lossless audio"
-            )
-        fps = int(props["video"]["fps"])
-        frames = int(props["video"]["total_frames"])
-        width = int(props["video"]["width"])
-        height = int(props["video"]["height"])
         samples = frames * 48_000 // fps
         language = _subtitle_language(props)
-        await _run_local_command(
-            [
+        try:
+            await _run_local_command(
+                [
                 "ffmpeg", "-y", "-threads", "1",
                 "-filter_threads", "1", "-filter_complex_threads", "1",
-                "-framerate", str(fps),
-                "-start_number", "0", "-i",
-                str(raw_frames / "frame-%04d.png"), "-i",
-                str(raw_audio), "-i", str(captions_path), "-filter_complex",
-                (
-                    f"[0:v]fps={fps},scale={width}:{height},"
-                    f"trim=end_frame={frames},setpts=N/({fps}*TB)[v];"
-                    f"[1:a]aresample=48000,apad,atrim=end_sample={samples},"
-                    "asetpts=N/SR/TB[a]"
-                ),
-                "-map", "[v]", "-map", "[a]", "-map", "2:0",
-                "-frames:v", str(frames), "-c:v", "libx264",
-                "-preset", "veryfast", "-crf", "18", "-pix_fmt",
-                "yuv420p", "-x264-params",
-                "threads=1:lookahead_threads=1:sliced_threads=0",
-                "-c:a", "aac", "-ar", "48000", "-ac", "2",
-                "-c:s", "mov_text", "-metadata:s:s:0",
-                f"language={language}", "-map_metadata", "-1",
-                "-map_chapters", "-1", str(normalized),
-            ],
-            cwd=workdir,
-            timeout_seconds=timeout_seconds,
-            log_path=log_path,
-        )
-        probe = await probe_media(normalized)
+                "-reinit_filter", "0",
+                "-xerror", "-err_detect", "explode",
+                    "-f", "concat", "-safe", "0", "-i",
+                    str(concat_path), "-i",
+                    str(raw_audio), "-i", str(captions_path), "-filter_complex",
+                    (
+                        f"[0:v]fps={fps},scale={width}:{height},"
+                        f"trim=end_frame={frames},setpts=N/({fps}*TB)[v];"
+                        f"[1:a]aresample=48000,apad,atrim=end_sample={samples},"
+                        "asetpts=N/SR/TB[a]"
+                    ),
+                    "-map", "[v]", "-map", "[a]", "-map", "2:0",
+                    "-frames:v", str(frames), "-c:v", "libx264",
+                    "-preset", "veryfast", "-crf", "18", "-pix_fmt",
+                    "yuv420p", "-x264-params",
+                    "threads=1:lookahead_threads=1:sliced_threads=0",
+                    "-c:a", "aac", "-ar", "48000", "-ac", "2",
+                    "-c:s", "mov_text", "-metadata:s:s:0",
+                    f"language={language}", "-map_metadata", "-1",
+                    "-map_chapters", "-1", str(normalized),
+                ],
+                cwd=workdir,
+                timeout_seconds=timeout_seconds,
+                log_path=log_path,
+            )
+            probe = await probe_media(normalized)
+        except CustomFilmRetryableError:
+            # Only a downstream error explicitly classified as retryable may
+            # preserve expensive verified intermediates for a cold retry.
+            retain_cache_on_failure = True
+            raise
         expected_seconds = frames / fps
         if (
-            probe["frame_count"] != frames
-            or probe["width"] != width
-            or probe["height"] != height
-            or not _probe_has_exact_fps(probe, fps)
-            or not probe["has_video"]
+            not probe["has_video"]
             or not probe["has_audio"]
             or not probe["has_subtitles"]
-            or abs(probe["duration_seconds"] - expected_seconds)
-            > (1 / fps + 0.002)
+            or not probe_has_exact_video_identity(
+                probe,
+                total_frames=frames,
+                fps=fps,
+                width=width,
+                height=height,
+            )
         ):
             raise CustomFilmContractError(
-                "Custom Film Remotion normalized artifact failed exact probe"
+                "Custom Film Remotion normalized artifact failed exact probe: "
+                + canonical_remotion_json(
+                    {
+                        "actual": {
+                            "duration_seconds": probe["duration_seconds"],
+                            "fps_fraction": probe.get("fps_fraction"),
+                            "frame_count": probe["frame_count"],
+                            "has_audio": probe["has_audio"],
+                            "has_subtitles": probe["has_subtitles"],
+                            "has_video": probe["has_video"],
+                            "height": probe["height"],
+                            "width": probe["width"],
+                        },
+                        "expected": {
+                            "duration_seconds": expected_seconds,
+                            "fps": fps,
+                            "frame_count": frames,
+                            "height": height,
+                            "width": width,
+                        },
+                    }
+                )
             )
         atomic = output_path.with_name(f".{output_path.name}.remotion-partial")
         shutil.copyfile(normalized, atomic)
@@ -2370,6 +2676,7 @@ async def run_remotion_renderer(
             "output_path": str(output_path),
         }
         succeeded = True
+        shutil.rmtree(cache_dir)
         return result
     finally:
         partial = output_path.with_name(f".{output_path.name}.remotion-partial")
@@ -2377,4 +2684,13 @@ async def run_remotion_renderer(
             partial.unlink()
         if not succeeded and output_path.exists():
             output_path.unlink()
+        if cache_partial.exists():
+            shutil.rmtree(cache_partial, ignore_errors=True)
+        if (
+            cache_dir.exists()
+            and not succeeded
+            and not retain_cache_on_failure
+        ):
+            # Contract/probe failures are terminal for this captured identity.
+            shutil.rmtree(cache_dir, ignore_errors=True)
         shutil.rmtree(workdir, ignore_errors=True)

@@ -3935,12 +3935,64 @@ def _custom_film_approval_card(
         quote,
         display_plan,
     )
+    orchestration_beats = []
+    orchestration = quote.get("orchestration")
+    if isinstance(orchestration, dict):
+        resolved_plan = orchestration.get("resolved_plan")
+        recipes = (
+            resolved_plan.get("recipes")
+            if isinstance(resolved_plan, dict)
+            else None
+        )
+        if isinstance(recipes, list):
+            beat_counts: dict[int, int] = {}
+            for recipe in recipes:
+                if not isinstance(recipe, dict):
+                    continue
+                section_index = int(recipe.get("sectionIndex", -1))
+                beat_counts[section_index] = beat_counts.get(section_index, 0) + 1
+                layers = recipe.get("motionLayers")
+                capability_labels = [
+                    re.sub(r"(?<=[a-z])(?=[A-Z])", " ", str(layer["primitive"]))
+                    for layer in layers
+                    if isinstance(layer, dict) and layer.get("primitive")
+                ] if isinstance(layers, list) else []
+                signals = recipe.get("signals") if isinstance(recipe.get("signals"), dict) else {}
+                camera = recipe.get("camera") if isinstance(recipe.get("camera"), dict) else {}
+                caption = recipe.get("caption") if isinstance(recipe.get("caption"), dict) else {}
+                audio = recipe.get("audio") if isinstance(recipe.get("audio"), dict) else {}
+                orchestration_beats.append(
+                    {
+                        "section_order": section_index + 1,
+                        "beat_order": beat_counts[section_index],
+                        "narrative_label": str(
+                            recipe.get("narrativeFunction")
+                            or " + ".join(signals.get("intents") or [])
+                            or "Layered scene"
+                        ).replace("_", " ").title(),
+                        "start_seconds": round(float(recipe.get("from", 0)) / 24, 3),
+                        "duration_seconds": round(
+                            float(recipe.get("durationInFrames", 0)) / 24, 3
+                        ),
+                        "media_kind": str(signals.get("media_kind") or "adaptive"),
+                        "capability_labels": capability_labels,
+                        "transformation_summary": str(signals.get("handoff") or "continuous").replace("_", " → "),
+                        "camera_summary": str(camera.get("mode") or "locked").replace("-", " "),
+                        "captions_summary": str(caption.get("mode") or "none").replace("-", " "),
+                        "audio_summary": (
+                            "dialogue duck + motion audio"
+                            if audio.get("dialogueDuck") == 0.24
+                            else "motion audio"
+                        ),
+                    }
+                )
     return {
         "id": "custom_film_approval",
         "label": "Your Custom Film production blueprint",
         "type": "single",
         "header": "Custom Film plan review",
         "custom_film_sections": sections,
+        "custom_film_orchestration_beats": orchestration_beats,
         "custom_film_totals": {
             "duration_seconds": int(quote["totals"]["duration_seconds"]),
             "still_images": int(quote["totals"]["still_images"]),
@@ -3958,17 +4010,17 @@ def _custom_film_approval_card(
         "finishing_engine": "remotion" if remotion_finishing else "ffmpeg",
         "finishing_notice": (
             (
-                "Remotion motion plan v1 is locked to these exact four acts. "
-                "StoryEngine will automatically schedule the signal pulse, outage "
-                "map, evidence board, incident timeline, radio waveform, bilingual "
-                "captions, network explainer, product reveal, and motion-audio mix "
-                "with $0 additional provider spend."
+                "Layered Remotion orchestration is locked to this exact approved "
+                "scene recipe. StoryEngine will combine the approved media, motion, "
+                "caption, camera, transition, and audio capabilities selected for "
+                "each creator-visible beat with $0 additional provider spend."
             )
             if remotion_finishing
             else (
                 "This plan uses StoryEngine's verified FFmpeg finishing fallback. "
-                "Use the exact 45 / 105 / 90 / 60-second flagship treatment to "
-                "activate the reusable Remotion motion plan."
+                "Approve a plan whose creator-visible beat recipes explicitly "
+                "combine supported media, motion, caption, and audio capabilities "
+                "to activate layered Remotion finishing."
             )
         ),
         "options": [
@@ -3983,7 +4035,8 @@ def _custom_film_approval_card(
 
 _CUSTOM_FILM_REMOTION_FINISHING_CANVAS = {
     "engine": "remotion",
-    "motion_plan_version": "storyengine-showcase-motion-plan-v1",
+    "orchestration_contract_version": "storyengine-layered-orchestration-v1",
+    "decision_rules_version": "storyengine-layered-recipe-rules-v1",
     "aspect_ratio": "16:9",
     "width": 1920,
     "height": 1080,
@@ -3996,12 +4049,10 @@ def _custom_film_showcase_treatment_match(
     display_plan: dict[str, Any],
 ) -> bool:
     """Match the exact four-act treatment before binding its finishing canvas."""
-    expected = (
-        ("opening", 45),
-        ("evidence", 105),
-        ("case_study", 90),
-        ("explanation", 60),
-    )
+    orchestration = quote.get("orchestration")
+    if not isinstance(orchestration, dict) or orchestration.get("reference_compatible") is not True:
+        return False
+    expected = (("opening", 45), ("evidence", 105), ("case_study", 90), ("explanation", 60))
     display_sections = display_plan.get("sections")
     quote_sections = quote.get("sections")
     if not isinstance(display_sections, list) or not isinstance(quote_sections, list):
@@ -4036,11 +4087,53 @@ def _custom_film_remotion_finishing_eligible(
     quote: dict[str, Any],
     display_plan: dict[str, Any],
 ) -> bool:
-    """Return true only when treatment and approved canvas are both exact."""
+    """Return true only when resolved beats and approved canvas are both exact."""
+    orchestration = quote.get("orchestration")
+    canvas = quote.get("finishing_canvas")
+    resolved = (
+        orchestration.get("resolved_plan")
+        if isinstance(orchestration, dict)
+        else None
+    )
+    executable = False
+    if isinstance(orchestration, dict) and isinstance(resolved, dict):
+        try:
+            from custom_film_contract import CustomFilmContractError
+            from custom_film_orchestration import (
+                validate_executable_orchestration,
+            )
+            validate_executable_orchestration(
+                orchestration,
+                total_duration_seconds=int(
+                    quote["totals"]["duration_seconds"]
+                ),
+                section_duration_seconds=[
+                    int(section["duration_seconds"])
+                    for section in quote["sections"]
+                ],
+                fps=int(
+                    _CUSTOM_FILM_REMOTION_FINISHING_CANVAS["fps"]
+                ),
+            )
+            executable = True
+        except (CustomFilmContractError, KeyError, TypeError, ValueError):
+            executable = False
     return (
-        _custom_film_showcase_treatment_match(quote, display_plan)
-        and quote.get("finishing_canvas")
-        == _CUSTOM_FILM_REMOTION_FINISHING_CANVAS
+        executable
+        and isinstance(orchestration, dict)
+        and isinstance(resolved, dict)
+        and bool(resolved.get("recipes"))
+        and resolved.get("fps") == _CUSTOM_FILM_REMOTION_FINISHING_CANVAS["fps"]
+        and resolved.get("total_frames")
+        == int(quote["totals"]["duration_seconds"]) * int(resolved["fps"])
+        and isinstance(orchestration.get("recipe_hash"), str)
+        and isinstance(canvas, dict)
+        and canvas == {
+            **_CUSTOM_FILM_REMOTION_FINISHING_CANVAS,
+            "orchestration_contract_hash": orchestration.get("contract_hash"),
+            "story_identity": orchestration.get("story_identity"),
+            "recipe_hash": orchestration.get("recipe_hash"),
+        }
     )
 
 
@@ -4874,16 +4967,23 @@ async def _handle_custom_film_plan(
             "Planning is complete; generation has not started. Review the one "
             "itemized estimate below and explicitly approve this exact version."
         )
-        if _custom_film_showcase_treatment_match(
+        from custom_film_orchestration import compile_approved_orchestration
+        orchestration = compile_approved_orchestration(
+            compiled.internal_plan,
             quote_inputs,
-            compiled.display_plan,
-        ):
+            compiled.planner_proposal,
+        )
+        quote_inputs["orchestration"] = orchestration
+        if isinstance(orchestration.get("resolved_plan"), dict):
             # The provider generation tier remains independently quoted. This
             # immutable approval field owns only the deterministic delivery
             # canvas and is hashed with the rest of the quote.
-            quote_inputs["finishing_canvas"] = copy.deepcopy(
-                _CUSTOM_FILM_REMOTION_FINISHING_CANVAS
-            )
+            quote_inputs["finishing_canvas"] = {
+                **copy.deepcopy(_CUSTOM_FILM_REMOTION_FINISHING_CANVAS),
+                "orchestration_contract_hash": orchestration["contract_hash"],
+                "story_identity": orchestration["story_identity"],
+                "recipe_hash": orchestration["recipe_hash"],
+            }
         from custom_film_contract import approval_binding_hash, canonical_hash, plan_hash
         current_plan_hash = plan_hash(compiled.internal_plan)
         current_approval_hash = approval_binding_hash(

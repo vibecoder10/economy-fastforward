@@ -1,5 +1,5 @@
 import React from "react";
-import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
+import {AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig} from "remotion";
 import type {CustomFilmRemotionProps} from "../custom-film/schema";
 import {MotionTimelineProvider} from "../motion-library/MotionTimelineContext";
 import {ShowcaseCueScene} from "./ShowcaseScene";
@@ -12,24 +12,38 @@ export const StoryEngineCustomFilmShowcase: React.FC<CustomFilmRemotionProps> = 
   input,
 ) => {
   const absoluteFrame = useCurrentFrame();
+  const {fps} = useVideoConfig();
   const manifest = compileShowcaseManifest(input);
   return (
     <MotionTimelineProvider value={showcasePulseFrame(absoluteFrame)}>
       <AbsoluteFill>
-        {manifest.cues.map((cue) => (
+        <ApprovedMediaLayer
+          slots={manifest.media_slots}
+          recipes={manifest.recipes}
+          reference={manifest.reference_authored_timing}
+        />
+        {manifest.recipes.map((cue) => (
           <Sequence
             key={cue.id}
             name={cue.id}
             from={cue.from}
             durationInFrames={cue.durationInFrames}
-            premountFor={24}
+            premountFor={fps}
           >
             <ShowcaseCueScene cue={cue} />
           </Sequence>
         ))}
-        <ApprovedMediaLayer slots={manifest.media_slots} />
-        <ShowcaseAudio />
-        <ApprovedCaptionLayer sections={input.sections} />
+        <ShowcaseAudio
+          recipes={manifest.recipes}
+          totalFrames={input.video.total_frames}
+          fps={fps}
+          reference={manifest.reference_authored_timing}
+        />
+        <ApprovedCaptionLayer
+          sections={input.sections}
+          recipes={manifest.recipes}
+          reference={manifest.reference_authored_timing}
+        />
       </AbsoluteFill>
     </MotionTimelineProvider>
   );
