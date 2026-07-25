@@ -3669,7 +3669,10 @@ class SharedSectionProductionSeams:
                 "Tenant text-generation key is unavailable"
             )
         from scripts.coverage_to_app import _write_motion_prompts
-        from shared.channel_profile import claude_model_for_direct_client
+        from shared.channel_profile import (
+            CLAUDE_MODELS,
+            claude_model_for_direct_client,
+        )
 
         picture_request = replace(request, stage="pictures")
         picture_rows = await self._section_completed_rows(
@@ -3682,7 +3685,13 @@ class SharedSectionProductionSeams:
         rows = await self._raw_asset_rows(request)
         rows_by_id = {str(row["id"]): row for row in rows}
         exact_rows = [rows_by_id[asset_id] for asset_id in asset_ids if asset_id in rows_by_id]
-        provider_model = claude_model_for_direct_client(client)
+        # Kie's wrapped Claude client intentionally returns ``None`` from the
+        # direct-client helper so the call can use its own default. Provenance,
+        # however, must still name that default model explicitly.
+        provider_model = (
+            claude_model_for_direct_client(client)
+            or CLAUDE_MODELS["kie"]["smart"]
+        )
         provider_models = {asset_id: provider_model for asset_id in asset_ids}
         await self._prepare_media_provenance(
             request,
