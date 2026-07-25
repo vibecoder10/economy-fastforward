@@ -547,6 +547,117 @@ def test_five_valid_beats_exceed_planner_section_contract(manifest):
         )
 
 
+def test_planner_rejection_telemetry_is_staged_and_never_echoes_values(
+    manifest,
+    caplog,
+):
+    secret = "sk-live-DO-NOT-LOG-$15-user-request"
+
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as parse_error:
+            planner._extract_json_object(f"not-json {secret}")
+    assert str(parse_error.value) == planner.PLANNER_FAILURE_MESSAGE
+    parse_log = caplog.records[-1].getMessage()
+    assert "stage=parse" in parse_log
+    assert '"type":"parse_error"' in parse_log
+    assert secret not in parse_log
+
+    caplog.clear()
+    invalid_schema = _proposal("steel")
+    invalid_schema["sections"][0]["role"] = secret
+    invalid_schema["sections"][0][secret] = secret
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as schema_error:
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                invalid_schema,
+                manifest,
+                total_duration_seconds=30,
+            )
+    assert str(schema_error.value) == planner.PLANNER_FAILURE_MESSAGE
+    schema_log = caplog.records[-1].getMessage()
+    assert "stage=schema" in schema_log
+    assert '"location":["sections",0,"role"]' in schema_log
+    assert '"location":["sections",0,"<field>"]' in schema_log
+    assert secret not in schema_log
+
+    caplog.clear()
+    compile_secret = "confidential-focus-DO-NOT-LOG"
+    compile_rejection = _proposal(compile_secret)
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as compile_error:
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                compile_rejection,
+                manifest,
+                total_duration_seconds=30,
+            )
+    assert str(compile_error.value) == planner.PLANNER_FAILURE_MESSAGE
+    compile_log = caplog.records[-1].getMessage()
+    assert "stage=compile" in compile_log
+    assert '"type":"focus_not_grounded"' in compile_log
+    assert compile_secret not in compile_log
+    assert "Make a custom film about steel" not in compile_log
+
+
+def test_planner_rejection_telemetry_has_distinct_safe_beat_reason_codes(
+    manifest,
+    caplog,
+):
+    mutations = {
+        "bilingual_requires_captions": _beat(
+            "motion.bilingual_captions",
+            captions=False,
+        ),
+        "dialogue_requires_captions": _beat(
+            dialogue=True,
+            captions=False,
+        ),
+        "humanize_dialogue_requires_video": {
+            **_beat(dialogue=True, captions=True),
+            "media_kind": "image",
+        },
+    }
+
+    for reason_code, beat in mutations.items():
+        caplog.clear()
+        response = _proposal("steel")
+        response["sections"][0]["beats"] = [beat]
+        with caplog.at_level("WARNING", logger=planner.__name__):
+            with pytest.raises(planner.CustomFilmPlannerError) as error:
+                planner.compile_planner_proposal(
+                    "Make a custom film about steel",
+                    response,
+                    manifest,
+                    total_duration_seconds=30,
+                )
+        assert str(error.value) == planner.PLANNER_FAILURE_MESSAGE
+        log_message = caplog.records[-1].getMessage()
+        assert "stage=schema" in log_message
+        assert "total_errors=1" in log_message
+        assert f'"type":"{reason_code}"' in log_message
+        assert "steel" not in log_message
+
+
+def test_planner_rejection_telemetry_caps_schema_details_at_twenty(
+    manifest,
+    caplog,
+):
+    response = {"sections": [{} for _ in range(12)]}
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError):
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                response,
+                manifest,
+                total_duration_seconds=30,
+            )
+    log_message = caplog.records[-1].getMessage()
+    assert "stage=schema" in log_message
+    assert "total_errors=72" in log_message
+    assert log_message.count('"location"') == 20
+
+
 def test_fake_planner_fixture_compiles_to_stable_hidden_plan(manifest):
     first_client = FakePlannerClient(_proposal("hidden cost of fast fashion"))
     second_client = FakePlannerClient(
