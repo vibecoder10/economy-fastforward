@@ -17,8 +17,12 @@ from test_custom_film_production_runner import _Pool, _adapter
 
 
 def _padded(base: str, target: int = 30) -> str:
-    return base + " " + " ".join(
+    spoken = base + " " + " ".join(
         ["evidence"] * (target - production._script_word_count(base))
+    )
+    return (
+        "[ACT 1 — EVIDENCE | 0:00 - 0:12 | ~30 words]\n"
+        + spoken
     )
 
 

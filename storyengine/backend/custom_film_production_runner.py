@@ -1054,6 +1054,13 @@ _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     }
 )
 _SCRIPT_MARKER_PATTERN = re.compile(r"\[(?:ACT|SCENE)\b[^\]]*\]", re.IGNORECASE)
+_SCRIPT_ACT_MARKER_PATTERN = re.compile(
+    r"^\[ACT (?P<number>\d+) — "
+    r"(?P<title>[\w][\w &'’,:!?-]{0,78})"
+    r" \| (?P<start>\d+:\d{2}) - (?P<end>\d+:\d{2})"
+    r" \| ~(?P<words>\d+) words\]\r?$",
+    re.MULTILINE,
+)
 _SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(
     r"^\s{0,3}#{1,6}\s+(?P<body>.*)$"
 )
@@ -1121,6 +1128,11 @@ def _script_approved_contract(
 ) -> str:
     """One exclusive grounding/timing block shared by write and repair."""
 
+    end_timestamp = f"{exact_seconds // 60}:{exact_seconds % 60:02d}"
+    exact_marker = (
+        "[ACT 1 — <SHORT SECTION TITLE> | "
+        f"0:00 - {end_timestamp} | ~{config.total_script_words} words]"
+    )
     return "\n".join(
         (
             "=== EXCLUSIVE APPROVED SECTION CONTRACT ===",
@@ -1140,14 +1152,62 @@ def _script_approved_contract(
                 "assume either and do not add adjacent material."
             ),
             (
-                "VISUAL-STORY LAW: Keep the approved focus explicit and make "
-                "every beat give the approved stills or clips concrete, "
-                "relevant action, evidence, environment, behavior, or change "
-                "to show."
+                f"OUTPUT FORMAT LAW: Return exactly {config.act_count} act "
+                "using the shared marker grammar on its own line. For this "
+                f"section the required marker grammar is: {exact_marker} "
+                "Replace only <SHORT SECTION TITLE> with a short title; keep "
+                "the brackets, ACT number, separators, timestamps, and target "
+                "word annotation exactly as shown."
+            ),
+            (
+                "Do not replace the bracketed marker with ACT/END prose. Do "
+                "not add SCRIPT, END, notes, analysis, Markdown headings, or "
+                "any wrapper before or after the marked spoken section. The "
+                "marker is document structure, not spoken narration."
+            ),
+            (
+                "VISUAL-STORY REPAIR LAW: Keep the approved focus explicit. "
+                "Every narrative beat must name a concrete visible subject "
+                "and show relevant action, evidence, environment, behavior, "
+                "or observable change tied directly to the approved purpose. "
+                "Replace abstract summary, generic stakes, promises, and "
+                "non-visual filler with filmable shots or actions, without "
+                "inventing any unapproved fact, name, date, number, example, "
+                "or adjacent topic."
             ),
             "=== END EXCLUSIVE APPROVED SECTION CONTRACT ===",
         )
     )
+
+
+def _script_output_format_issues(
+    script_text: str,
+    *,
+    config: _ExactSectionConfig,
+) -> list[str]:
+    matches = list(_SCRIPT_ACT_MARKER_PATTERN.finditer(script_text))
+    if len(matches) != config.act_count:
+        return [
+            "script must contain exactly "
+            f"{config.act_count} shared bracketed ACT marker"
+        ]
+    expected_end = f"{config.total_seconds // 60}:{config.total_seconds % 60:02d}"
+    marker = matches[0]
+    if (
+        int(marker.group("number")) != 1
+        or marker.group("title") == "<SHORT SECTION TITLE>"
+        or marker.group("start") != "0:00"
+        or marker.group("end") != expected_end
+        or int(marker.group("words")) != config.total_script_words
+    ):
+        return [
+            "script ACT marker changed the required number, title, "
+            "timestamps, or target-word annotation"
+        ]
+    outside_marker = _SCRIPT_ACT_MARKER_PATTERN.sub("", script_text)
+    if re.search(r"(?im)^\s*(?:ACT\s+\d+|END)\b", outside_marker):
+        return ["script contains an ACT/END wrapper outside the required marker"]
+    return []
 
 
 def _script_grounding_issues(
@@ -1165,6 +1225,7 @@ def _script_grounding_issues(
     """
 
     issues: list[str] = []
+    issues.extend(_script_output_format_issues(script_text, config=config))
     word_count = _script_word_count(script_text)
     if not config.script_min_words <= word_count <= config.script_max_words:
         issues.append(

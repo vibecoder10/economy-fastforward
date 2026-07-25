@@ -89,6 +89,7 @@ async def test_contradictory_quality_shape_fails_closed_before_persistence(monke
     )
     seams = production.SharedSectionProductionSeams("tenant-1")
     script = (
+        "[ACT 1 — EVIDENCE | 0:00 - 0:12 | ~30 words]\n"
         "Sourced evidence appears on a monitor while a camera follows the "
         "visible signal through the room and reveals each concrete connection "
         "for the waiting audience."

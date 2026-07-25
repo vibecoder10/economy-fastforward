@@ -782,7 +782,7 @@ async def test_shared_script_seam_uses_profile_purpose_language_exact_seconds_an
         calls.append((client, copy.deepcopy(brief), kwargs))
         return {
             "script": (
-                "[ACT 1 — EXPLANATION | 0:00 - 0:19 | ~48 words] "
+                    "[ACT 1 — EXPLANATION | 0:00 - 0:19 | ~48 words]\n"
                 "The sourced mechanism appears on screen as a marked diagram. "
                 "A hand traces the connection while the bilingual explanation "
                 "names what changes and why it matters. The camera moves closer "
@@ -977,7 +977,7 @@ async def test_shared_script_repairs_same_draft_then_passes_early_visual_story_g
     )
     assert production._script_word_count(drift) == 149
     corrected = (
-        "[ACT 1 — OPENING | 0:00 - 0:45 | ~112 words] "
+        "[ACT 1 — OPENING | 0:00 - 0:45 | ~112 words]\n"
         + " ".join(
             [
                 "sourced",
@@ -1125,7 +1125,7 @@ async def test_live_shaped_chicago_drift_repair_receives_exclusive_context_and_b
         ["unrelated"] * (162 - production._script_word_count(drift_base))
     )
     corrected_base = (
-        "[ACT 1 — BLACKOUT | 0:00 - 0:54 | ~135 words] "
+        "[ACT 1 — BLACKOUT | 0:00 - 0:54 | ~135 words]\n"
         "The blackout begins without warning. A dark communications panel "
         "loses each signal in sequence while the camera follows the visible "
         "failure across the room. Warning lights vanish, silent radios line "
@@ -1238,7 +1238,7 @@ def test_grounding_allows_real_names_and_numbers_when_approved_purpose_names_the
         "2 AM, including 4.2 and 47"
     )
     script_base = (
-        "[ACT 1 — MARKET EVIDENCE | 0:00 - 0:54 | ~135 words] "
+        "[ACT 1 — MARKET EVIDENCE | 0:00 - 0:54 | ~135 words]\n"
         "The camera enters the Chicago Mercantile Exchange and finds the 1972 "
         "record marked 2 AM. A clerk traces 4.2 beside 47 on the approved page."
     )
