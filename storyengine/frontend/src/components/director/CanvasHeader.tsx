@@ -131,9 +131,9 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
   const stages = ledgerQuery.data ? Object.entries(ledgerQuery.data.by_stage).sort((a, b) => b[1] - a[1]) : [];
 
   return (
-    <div className="relative z-40 flex h-[54px] flex-none items-center gap-3 border-b border-line bg-surface px-3.5">
-      {/* left cluster */}
-      <div className="flex w-[330px] min-w-0 items-center gap-2.5">
+    <div className="relative z-40 flex flex-none flex-col gap-2 border-b border-line bg-surface px-3 py-2 lg:h-[54px] lg:flex-row lg:items-center lg:gap-3 lg:px-3.5 lg:py-0">
+      {/* left cluster — full-width row below `lg`; fixed 330px on the left at `lg`+ */}
+      <div className="flex min-w-0 items-center gap-2.5 lg:w-[330px] lg:flex-none">
         <button
           type="button"
           onClick={() => setSelectedVideoId(null)}
@@ -162,8 +162,10 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
         </div>
       </div>
 
-      {/* centered altitude segmented control */}
-      <div className="absolute left-1/2 flex -translate-x-1/2 gap-0.5 rounded-[10px] border border-line-soft bg-deep p-[3px]">
+      {/* altitude segmented control — its own row below `lg` (never absolutely
+          centered there, so it can never collide with the right cluster);
+          absolutely centered in the topbar at `lg`+, unchanged from before. */}
+      <div className="flex flex-none self-start gap-0.5 rounded-[10px] border border-line-soft bg-deep p-[3px] lg:absolute lg:left-1/2 lg:-translate-x-1/2 lg:self-auto">
         {ALTITUDES.map((a) => (
           <button
             key={a.id}
@@ -181,13 +183,18 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
         ))}
       </div>
 
-      {/* right cluster */}
-      <div className="ml-auto flex items-center gap-2">
+      {/* right cluster — below `lg` the disabled placeholders (Undo, Redo,
+          the 16:9 pill, the divider, Preview, Export) drop out entirely and
+          the row spreads its two load-bearing survivors (cost pill, Build)
+          to opposite edges so neither can be clipped by the viewport. At
+          `lg`+ every control returns and `ml-auto` pushes the whole cluster
+          flush right, unchanged from before. */}
+      <div className="flex items-center justify-between gap-2 lg:ml-auto lg:justify-normal">
         <button
           type="button"
           disabled
           title="Undo — not available yet"
-          className="flex h-8 w-8 flex-none items-center justify-center rounded-card-sm text-faint opacity-50"
+          className="hidden h-8 w-8 flex-none items-center justify-center rounded-card-sm text-faint opacity-50 lg:flex"
         >
           <Undo2 size={15} />
         </button>
@@ -195,22 +202,22 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
           type="button"
           disabled
           title="Redo — not available yet"
-          className="flex h-8 w-8 flex-none items-center justify-center rounded-card-sm text-faint opacity-50"
+          className="hidden h-8 w-8 flex-none items-center justify-center rounded-card-sm text-faint opacity-50 lg:flex"
         >
           <Redo2 size={15} />
         </button>
 
-        <div className="flex h-7 items-center rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim">
+        <div className="hidden h-7 items-center rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim lg:flex">
           16:9
         </div>
 
-        <div className="h-[22px] w-px bg-line-soft" />
+        <div className="hidden h-[22px] w-px bg-line-soft lg:block" />
 
         <button
           type="button"
           disabled
           title="Preview — not available yet"
-          className="h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50"
+          className="hidden h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50 lg:block"
         >
           Preview
         </button>
@@ -218,7 +225,7 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
           type="button"
           disabled
           title="Export — not available yet"
-          className="h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50"
+          className="hidden h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50 lg:block"
         >
           Export
         </button>

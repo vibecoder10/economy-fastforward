@@ -64,7 +64,7 @@ export function DirectorSurface() {
             inside the column, or picking an item, still does). Scoped,
             low-severity, and unrelated to the composer-escape bug this fixes. */}
         <div
-          className="relative flex min-w-[380px] max-w-[460px] w-full flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:w-[38%] lg:border-b-0 lg:border-r"
+          className="relative flex w-full flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:min-w-[380px] lg:max-w-[460px] lg:w-[38%] lg:border-b-0 lg:border-r"
           data-director-chat-column="true"
         >
           <ChatCore
