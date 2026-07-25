@@ -1473,6 +1473,10 @@ async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
         "visual_cue"
     )
     assert captured[1][3]["section_contract"]["exact_seconds"] == 31
+    assert captured[1][3]["section_contract"]["auxiliary_image_policy"] == {
+        "auto_cast_generation": "forbidden",
+        "auto_character_population": "forbidden",
+    }
     assert recorded == [
         (
             "static_docu",

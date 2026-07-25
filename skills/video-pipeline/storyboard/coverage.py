@@ -1908,10 +1908,13 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        aspect="16:9", resolution=os.getenv("COVERAGE_STILL_RESOLUTION", "1K"),
                        board_urls=None, board_panel_total=None, model_override=None,
                        render_style=None, video_model_id=None, camera_mode=None,
-                       props=None, progress_callback=None) -> dict:
+                       props=None, progress_callback=None,
+                       allow_auto_cast_generation=True) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
-    A locked cast (cast_url) wins; otherwise a cast sheet is auto-built from the story
-    bible (or cast_prompt) so coverage always has something to lock characters to.
+    A locked cast (cast_url) wins. Legacy callers auto-build a cast sheet from the
+    story bible (or cast_prompt) so coverage has a character anchor. Approval-bound
+    callers may set allow_auto_cast_generation=False; that forbids the auxiliary
+    provider call and draws the approved coverage frames without a cast reference.
     Saves frames + coverage.json locally with angle/shot-type metadata. No DB writes
     (storing into Image records is Phase 2, where the animator consumes them).
 
@@ -1946,10 +1949,18 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     unanchored — honest degradation, not silent wrong-panel composition)."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
-    cast_url = await resolve_cast_url(cast_url, image_client, cast_prompt=cast_prompt,
-                                      story_bible=story_bible, profile=profile,
-                                      aspect=aspect, outdir=outdir, model_override=model_override)
-    if not cast_url:
+    if allow_auto_cast_generation:
+        cast_url = await resolve_cast_url(
+            cast_url,
+            image_client,
+            cast_prompt=cast_prompt,
+            story_bible=story_bible,
+            profile=profile,
+            aspect=aspect,
+            outdir=outdir,
+            model_override=model_override,
+        )
+    if not cast_url and allow_auto_cast_generation:
         return {"error": "no cast: provide cast_url, cast_prompt, or a story_bible with characters"}
     if directive_text is None:
         directive_text = await generate_coverage_directive(
