@@ -1,74 +1,56 @@
-# HANDOFF - 2026-07-22 - film-grammar deployed; chat identity pool + voice-less dialogue flow shipped; pipeline UI decluttered
+# HANDOFF - 2026-07-24 - Director surface planned (no code shipped); prior clip-quality work still open
 
 ## State
-- Prod: b340c124 deployed (se health verified: backend+frontend active, api healthy,
-  active_tasks 0). Migrations 115 (env props) + 116 (skip_voice_source) live.
-  Local main = origin main = b340c124. Four deploys this session:
-  osiris-film-grammar (2c66923d), osiris-ui-cleanup (10f4af85),
-  osiris-identity-voiceless (e1740bad), osiris-rail-only-nav (b340c124).
-- Branch: main - uncommitted: parallel static_docu session files only
-  (tasks/loop-checklist.md, loop-handoff.md, storyengine/.claude/, ref-dryrun txt).
-- What shipped this session (all deployed + verified):
-  - Film-grammar rebuild C1-C9 LIVE: classifier diet, 1-move budget, setup
-    scaling + B-CU shared anchors, reaction/insert floors + editor durations,
-    prop manifest (115), sheet/pictures parity + legacy-sheet guard, env-matcher
-    fix, reactions face their listener. Scene-2 dry-run proof passed Ryan's bar.
-  - Chat identity pool Phase 1 LIVE + live-proven: channel_identity_context.py
-    brief leads all 3 chat surfaces; reference = topic-only; length from OWN
-    median; length_user_set needs a real phrase; clear_reference op + durable
-    lesson. MCP verb get_channel_identity_context.
-  - Voice-less dialogue flow LIVE: >=0.8 dialogue-share auto-skips voice
-    (bidirectional via skip_voice_source, DvsU/static protected, test-pinned);
-    ScriptVoiceTab collapses to Script -> Approve; TTS clock auto-builds in
-    Animate (voice_over mode still NEEDS it - never delete generation).
-  - Pipeline UI decluttered: broken Try-again removed (failure banner kept as
-    TaskFailureBanner.tsx), budget-cap card + script-voice selector removed,
-    NEXT UP card + numbered tab strip removed -> stage-rail-only nav + new
-    Results bubble.
-  - Ops: stale repo-root .env on VPS had DEAD Supabase host in DATABASE_URL/
-    SUPABASE_URL - fixed (backup .env.bak-2026-07-22), script gen unblocked.
+- Prod: `00c04cb5` healthy (se health: backend+frontend active, api healthy, active_tasks 0,
+  no deploy lock). Last deploy 2026-07-25T04:59:14Z `m7-custom-film-inference-diagnostics`
+  (8a51b1b3 -> 00c04cb5). **Custom Film is under active development by another session -
+  check before touching those files.**
+- Branch: `feat/per-card-parallel-clips`, **90 commits behind main**. Uncommitted: `HANDOFF.md`
+  (this file). main is at `b7944b46`.
+- What happened this session: **planning only, zero code shipped, nothing deployed.**
+  - Tore down 32 screenshots of OpenArt's Director mode (notes in session scratchpad).
+  - Surveyed our chat surface, render paths, and the Custom Film system against `main`.
+  - Wrote `DIRECTOR-CHAT-PLAN.md` (v2) - 8 phases, reviewed and approved.
+  - Product decisions recorded in memory (`storyengine-director-surface-thesis`).
 
 ## Next action (start here cold)
-Ryan is driving the 1-min test video HIMSELF through the UI: f00ea79a-06bd-407a
-(PocoAPoco, Birthday Cake, 3 scenes/26 shots planned, envs NOT approved,
-video_length_minutes still 3 - he wants 1; pictures ~$1.10 at 26 shots).
-First move: `se db "SELECT status, video_length_minutes FROM videos WHERE
-id='f00ea79a-06bd-407a-a467-2f014f184744'"` then support his drive - this is
-the film-grammar REAL-FRAMES proof. Judge frames at full res at the picture gate.
+Execute Phase 0 of `~/economy-fastforward/storyengine/DIRECTOR-CHAT-PLAN.md`. Read the whole
+plan first, especially "Before You Start" and "The Product Thesis". Branch off main:
+
+    git checkout main && git pull && git checkout -b feat/director-chat
+
+Phase 0 is three independent, no-visible-change tasks: Tailwind v4 `@theme` tokens in
+`frontend/src/app/globals.css`; harvest `BoardLightbox` / `ModelOverrideSheet` /
+`CameraPresetSheet` / `SegmentCard` / parsers out of `ScenesWorkspaceTab.tsx` into a new
+`frontend/src/components/canvas-shared/`; create `frontend/src/hooks/use-video-refresh.ts`.
 
 ## Open threads
-- Chat Phase 2 (scoped, not started): true tool-calling producer chat
-  (agent_brain + routes/mcp.py registry verbs) + DECLARED per-channel
-  performance-vs-narrated format flag in the identity pool (Ryan asked).
-- Spanish Class scenes 2-4: REGENERATE storyboard sheets first (legacy sheets
-  trip the new panel-count guard -> unanchored composition); ~$2.10/scene at
-  48 shots. Ryan runs from UI.
-- Budget cap has NO UI surface now (card removed) - settable via copilot chat
-  ("cap this video at $15") or MCP budget_cap verb only. Decide a future home.
-- Worker-flagged pre-existing bugs (parked): parse_coverage drift + _gen_ref
-  task_id_out test failures (both suites' baselines); coverage_to_app CLI
-  main() passes 2-tuples to store_scene which unpacks 4 (dev CLI only);
-  skills test env missing pytest-asyncio (inflates failure counts).
-- PipelineStepper fallback: while production-guide loads, page briefly has no
-  tab nav (pre-existing path, now the only nav) - flagged by U5 worker.
-- Carried: billing.py LIMIT-1 x3, SSE home-tenant bug, OAuth wrapper for
-  Connectors, agent-token + VPS password rotation owed, Hostinger abuse-notice
-  check owed, box-sharing cleanup parked.
+- **Ryan owes (carried from 2026-07-23, still open):** re-roll s113/s114/s122 in the UI
+  ($0.27) and re-render scene 1 (free), then regrade vs his C-. Pre-check before animating
+  more: `se db "SELECT image_index, motion_gate_status FROM assets WHERE
+  video_id='f00ea79a-06bd-407a-a467-2f014f184744' AND scene=1 AND (video_prompt IS NULL OR
+  motion_gate_status='blocked')"` must return 0 rows. If the regrade passes: scenes 2-3 via
+  Generate all storyboards.
+- **SFX may never reach rendered video** - `sound_effect_url` appears to be read only by the
+  legacy Remotion path, not by render_stitch or render_perform. If true, creators pay
+  ElevenLabs for audio that never lands. A background session was spawned to verify; check it.
+- **Transparency reversal owed:** plan Phase 5.3 exposes model + price inside Custom Film,
+  which reverses a tested invariant. Update the asserting tests in their own commit; never
+  delete one to make a screen work.
+- Two unresolved API gaps found while planning, both filed inside the plan: no select-variant
+  endpoint on `routes/assets.py`, and recipes may be chat-command-only with no REST route.
+- Picture-QA vision pass: still NOT built. Pre-spend audits remain text-only.
+- Carried: budget cap has no UI; est-cost formula misses script/storyboard spend;
+  `_run_static_script_hold` writes no ledger row; token/password rotations owed.
 
 ## Gotchas learned this session
-- VPS repo-root .env (~/projects/economy-fastforward/.env) is loaded by
-  pipeline init and OVERRIDES the correct storyengine/.env values - it held a
-  dead Supabase host for 6+ weeks. Audit it when adding env vars.
-- se health's frontend probe reads 000/http 000 during the frontend restart
-  window - poll localhost:3001 on the box before diagnosing.
-- Deploy guard blocks on active generations (saved a paid run once today);
-  for auto-deploy wait for 3 consecutive idle checks 45s apart - a single
-  idle check races Ryan's clicks.
-- Chat tests use inspect.getsource source-locks on chat_turn/_handle_copilot -
-  extracting prompt-assembly into helpers breaks test_c15c/c15d/c21b/c22.
-- devtoken = owner tenant; PocoAPoco workspace is UNREACHABLE for UI walks
-  (only Slow English + DvsU are owner client channels) - PocoAPoco visual
-  checks are Ryan-only.
-- voice_over-mode dialogue videos: TTS segments are the render TIMING CLOCK
-  (render_perform bails without them). Fold the UI step, never the generation;
-  Animate auto-chains it (pipeline_executor ~12613).
+- **Check branch drift before researching anything.** `git rev-list --left-right --count
+  main...HEAD`. This session surveyed a checkout 90 commits stale and produced a plan whose
+  line numbers were wrong by up to 393 lines - one instruction would have sliced a component
+  in half. Fix: cite symbol names, never line numbers. Saved to memory.
+- A subagent verifying that cited *symbols* still exist is a weak check - it misses everything
+  that was *added* next to them. Ask reviewers to check the target branch for new work too.
+- `git worktree add --detach <path> main` is the cheap way to give survey agents a clean read
+  of a branch without disturbing the working checkout.
+- HANDOFF.md was uncommitted here, so "overwrite it, git has history" was false. Read before
+  overwriting; the 2026-07-23 content was carried forward above, backup in session scratchpad.
