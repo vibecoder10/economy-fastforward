@@ -11840,3 +11840,18 @@ control writes without losing the video, approval, or confirmation.
   the unsafe shared function only after all replacement triggers are attached.
   It has not been applied to the live database; live migration and deployment
   remain separately approval-gated.
+
+# Custom Film approval-to-private-artifact continuation (added 2026-07-24)
+
+- The exact durable Custom Film runtime invokes final assembly only after every
+  ordered section stage is durably checkpointed. The compositor may read an
+  active runtime only when given its exact deterministic job ID and when
+  progress proves the complete ordered prefix with no in-flight provider work.
+- Remotion/FFmpeg selection, assembly journaling, artifact hashing, media probe,
+  private storage upload, and readback remain inside the existing exact
+  compositor boundary. Render retries skip completed provider stages and resume
+  the same assembly identity; this continuation never calls YouTube publication.
+- The chat tracker requires both `phase=created` and a durable video ID.
+  Approval failures returned as either exceptions or normal `phase=plan`
+  responses clear false progress and restore an actionable exact approval card;
+  a server-returned replacement approval card takes precedence.

@@ -481,6 +481,155 @@ async def test_operation_aware_consumer_journals_and_completes_every_stage(
 
 
 @pytest.mark.asyncio
+async def test_consumer_finalizes_only_after_full_durable_prefix(monkeypatch):
+    envelope = _envelope()
+    conn = _FakeConnection(envelope)
+    finalizer_calls = []
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    async def runner(adapter, _scene_ids, _operation_id):
+        if adapter.stage == "script":
+            return {"scene_ids": [f"{adapter.section_id}-scene-1"]}
+        return {"ok": True}
+
+    async def finalizer(tenant_id, video_id, job_id, exact_envelope):
+        assert conn.task["status"] == "running"
+        adapters = section_runtime.compile_stage_adapters(exact_envelope)
+        assert conn.task["runtime_progress"] == {
+            "runtime_hash": envelope["runtime_hash"],
+            "completed_stage_keys": [adapter.stage_key for adapter in adapters],
+            "last_stage_key": adapters[-1].stage_key,
+            "in_flight": None,
+        }
+        finalizer_calls.append((tenant_id, video_id, job_id))
+        return {
+            "status": "rendered",
+            "final_video_url": "storage://exact-film",
+            "render_engine": "remotion",
+        }
+
+    monkeypatch.setattr(
+        section_runtime.database, "get_pool", lambda: _value(_FakePool(conn))
+    )
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    result = await section_runtime.consume_runtime_schedule(
+        "tenant-1",
+        "video-1",
+        conn.task["job_id"],
+        stage_runner=runner,
+        finalizer=finalizer,
+    )
+    assert finalizer_calls == [
+        ("tenant-1", "video-1", conn.task["job_id"])
+    ]
+    assert result["finalization"]["final_video_url"] == "storage://exact-film"
+    assert conn.task["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_stage_failure_never_calls_finalizer(monkeypatch):
+    conn = _FakeConnection(_envelope())
+    finalizer_calls = []
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    async def runner(*_args):
+        raise RuntimeError("stage stopped")
+
+    async def finalizer(*args):
+        finalizer_calls.append(args)
+        return {}
+
+    monkeypatch.setattr(
+        section_runtime.database, "get_pool", lambda: _value(_FakePool(conn))
+    )
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    with pytest.raises(RuntimeError, match="stage stopped"):
+        await section_runtime.consume_runtime_schedule(
+            "tenant-1",
+            "video-1",
+            conn.task["job_id"],
+            stage_runner=runner,
+            finalizer=finalizer,
+        )
+    assert finalizer_calls == []
+    assert conn.task["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_finalizer_retry_skips_all_durable_provider_work(monkeypatch):
+    conn = _FakeConnection(_envelope())
+    stage_calls = []
+    finalizer_calls = 0
+
+    async def acquire(*_args, **_kwargs):
+        return True
+
+    async def release(*_args):
+        return None
+
+    async def runner(adapter, _scene_ids, _operation_id):
+        stage_calls.append(adapter.stage_key)
+        if adapter.stage == "script":
+            return {"scene_ids": [f"{adapter.section_id}-scene-1"]}
+        return {"ok": True}
+
+    async def finalizer(*_args):
+        nonlocal finalizer_calls
+        finalizer_calls += 1
+        if finalizer_calls == 1:
+            raise RuntimeError("render host restarted")
+        return {
+            "status": "rendered",
+            "final_video_url": "storage://resumed-film",
+            "render_engine": "ffmpeg",
+        }
+
+    monkeypatch.setattr(
+        section_runtime.database, "get_pool", lambda: _value(_FakePool(conn))
+    )
+    monkeypatch.setattr(section_runtime.generation_claims, "acquire", acquire)
+    monkeypatch.setattr(section_runtime.generation_claims, "release", release)
+    with pytest.raises(RuntimeError, match="render host restarted"):
+        await section_runtime.consume_runtime_schedule(
+            "tenant-1",
+            "video-1",
+            conn.task["job_id"],
+            stage_runner=runner,
+            finalizer=finalizer,
+        )
+    first_stage_calls = list(stage_calls)
+    assert conn.task["status"] == "failed"
+    assert len(first_stage_calls) == len(
+        section_runtime.compile_stage_adapters(_envelope())
+    )
+
+    result = await section_runtime.consume_runtime_schedule(
+        "tenant-1",
+        "video-1",
+        conn.task["job_id"],
+        stage_runner=runner,
+        finalizer=finalizer,
+        attempt=2,
+    )
+    assert stage_calls == first_stage_calls
+    assert finalizer_calls == 2
+    assert result["finalization"]["final_video_url"] == "storage://resumed-film"
+    assert conn.task["status"] == "completed"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("mode", "provider_task_id", "expected_path"),
     [

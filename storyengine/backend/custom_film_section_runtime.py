@@ -160,6 +160,18 @@ class ReconciliationStageRunner(SectionStageRunner, Protocol):
     ) -> Mapping[str, Any] | None: ...
 
 
+class RuntimeFinalizer(Protocol):
+    """Finish one fully checkpointed runtime without changing its identity."""
+
+    async def __call__(
+        self,
+        tenant_id: str,
+        video_id: str,
+        runtime_job_id: str,
+        envelope: Mapping[str, Any],
+    ) -> Mapping[str, Any]: ...
+
+
 class CustomFilmReconciliationRequired(CustomFilmContractError):
     """An operation crossed the write-ahead boundary without a durable result."""
 
@@ -243,6 +255,34 @@ def _validated_progress(
         "operation_id": expected_operation_id,
         "state": "started",
     }
+
+
+def validate_complete_runtime_progress(
+    *,
+    tenant_id: str,
+    runtime_job_id: str,
+    envelope_value: Any,
+    progress_value: Any,
+) -> tuple[str, ...]:
+    """Prove every exact stage is durable and no provider operation is in flight."""
+    envelope = validate_runtime_envelope(envelope_value)
+    adapters = compile_stage_adapters(envelope)
+    ordered_stage_keys = tuple(adapter.stage_key for adapter in adapters)
+    operation_ids = {
+        adapter.stage_key: _operation_id(tenant_id, runtime_job_id, adapter)
+        for adapter in adapters
+    }
+    completed, in_flight = _validated_progress(
+        progress_value,
+        runtime_hash=envelope["runtime_hash"],
+        ordered_stage_keys=ordered_stage_keys,
+        operation_ids=operation_ids,
+    )
+    if in_flight is not None or tuple(completed) != ordered_stage_keys:
+        raise CustomFilmContractError(
+            "Custom Film section runtime is not durably complete"
+        )
+    return ordered_stage_keys
 
 
 def _validate_section_modes(section: Mapping[str, Any]) -> None:
@@ -509,6 +549,7 @@ async def consume_runtime_schedule(
     job_id: str,
     *,
     stage_runner: SectionStageRunner | None = None,
+    finalizer: RuntimeFinalizer | None = None,
     attempt: int = 1,
 ) -> dict[str, Any]:
     """Consume one exact schedule under the main execution claim.
@@ -740,27 +781,60 @@ async def consume_runtime_schedule(
                         )
             in_flight = None
 
+        finalization_result: dict[str, Any] | None = None
+        if finalizer is not None:
+            validate_complete_runtime_progress(
+                tenant_id=tenant_id,
+                runtime_job_id=job_id,
+                envelope_value=envelope,
+                progress_value={
+                    "runtime_hash": envelope["runtime_hash"],
+                    "completed_stage_keys": list(completed),
+                    "last_stage_key": completed[-1] if completed else None,
+                    "in_flight": None,
+                },
+            )
+            raw_finalization = await finalizer(
+                tenant_id,
+                video_id,
+                job_id,
+                copy.deepcopy(envelope),
+            )
+            if not isinstance(raw_finalization, Mapping):
+                raise CustomFilmContractError(
+                    "Custom Film finalizer returned no durable artifact result"
+                )
+            finalization_result = copy.deepcopy(dict(raw_finalization))
+
         async with pool.acquire() as conn:
             completed_result = await conn.execute(
                 """UPDATE background_tasks
                    SET status = 'completed',
-                       message = 'Approved section runtime complete',
+                       message = $4,
                        completed_at = now()
                    WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
                 tenant_id,
                 video_id,
                 job_id,
+                (
+                    "Approved Custom Film rendered"
+                    if finalization_result is not None
+                    else "Approved section runtime complete"
+                ),
             )
             if not _updated_once(completed_result):
                 raise CustomFilmContractError(
                     "Custom Film runtime completion could not be checkpointed"
                 )
-        return {
+        response = {
             "status": "completed",
             "job_id": job_id,
             "runtime_hash": envelope["runtime_hash"],
             "completed_stage_keys": list(completed),
         }
+        if finalization_result is not None:
+            response["finalization"] = finalization_result
+        return response
     except Exception as exc:
         persisted_error = (
             str(exc)
