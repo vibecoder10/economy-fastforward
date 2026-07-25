@@ -989,41 +989,60 @@ _SCRIPT_REPAIR_ATTEMPTS = 2
 _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     {
         "about",
+        "and",
         "after",
         "again",
         "against",
         "also",
         "among",
+        "as",
+        "at",
         "because",
         "before",
         "being",
         "between",
+        "but",
+        "by",
         "bring",
         "carry",
         "clear",
         "conclusion",
         "evidence",
         "film",
+        "for",
+        "from",
         "give",
+        "he",
+        "if",
         "into",
+        "is",
+        "it",
+        "not",
+        "of",
+        "on",
+        "or",
         "leave",
         "main",
         "make",
         "present",
         "reason",
         "section",
+        "she",
         "show",
         "strongest",
         "takeaway",
         "that",
+        "the",
         "their",
         "there",
         "these",
         "they",
         "this",
         "through",
+        "to",
         "understand",
         "watching",
+        "we",
         "what",
         "when",
         "where",
@@ -1034,14 +1053,62 @@ _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     }
 )
 _SCRIPT_MARKER_PATTERN = re.compile(r"\[(?:ACT|SCENE)\b[^\]]*\]", re.IGNORECASE)
+_SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(
+    r"^\s{0,3}#{1,6}\s+(?P<body>.*)$"
+)
+_SCRIPT_EMPHASIS_LINE_PATTERN = re.compile(
+    r"^\s*(?:\*\*|__)(?P<body>.+?)(?:\*\*|__)\s*$"
+)
+_SCRIPT_FENCE_PATTERN = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*$")
+_SCRIPT_SETEXT_PATTERN = re.compile(r"^\s*(?:=+|-+)\s*$")
+_SCRIPT_ALL_CAPS_HEADING_PATTERN = re.compile(
+    r"^\s*[A-Z][A-Z0-9'’ -]{2,80}\s*$"
+)
 _SCRIPT_NUMBER_PATTERN = re.compile(
     r"(?<![\w])(?:18|19|20)\d{2}(?![\w])|(?<![\w])\d+(?:\.\d+)?%?(?![\w])"
 )
 _SCRIPT_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]*")
+_SCRIPT_NAMED_TOKEN_PATTERN = re.compile(
+    r"\b(?:[A-Z]{2,5}|[A-Z][a-z]{2,})\b"
+)
 
 
 def _script_word_count(script_text: str) -> int:
-    return len(_SCRIPT_WORD_PATTERN.findall(script_text))
+    return len(_SCRIPT_WORD_PATTERN.findall(_script_spoken_prose(script_text)))
+
+
+def _script_spoken_prose(script_text: str) -> str:
+    """Remove generated document chrome while preserving spoken paragraphs."""
+
+    without_markers = _SCRIPT_MARKER_PATTERN.sub("", script_text)
+    lines = without_markers.splitlines()
+    spoken: list[str] = []
+    in_fence = False
+    for raw_line in lines:
+        if _SCRIPT_FENCE_PATTERN.fullmatch(raw_line):
+            in_fence = not in_fence
+            spoken.append("")
+            continue
+        line = raw_line.replace("`", "")
+        markdown_heading = _SCRIPT_MARKDOWN_HEADING_PATTERN.match(line)
+        if markdown_heading:
+            line = markdown_heading.group("body")
+        emphasis = _SCRIPT_EMPHASIS_LINE_PATTERN.fullmatch(line)
+        if emphasis:
+            line = emphasis.group("body")
+        stripped = line.strip()
+        if (
+            not stripped
+            or _SCRIPT_SETEXT_PATTERN.fullmatch(line)
+            or (
+                not in_fence
+                and _SCRIPT_ALL_CAPS_HEADING_PATTERN.fullmatch(line)
+            )
+        ):
+            spoken.append("")
+            continue
+        spoken.append(line)
+    return "\n".join(spoken)
 
 
 def _script_approved_contract(
@@ -1108,12 +1175,18 @@ def _script_grounding_issues(
     if isinstance(generator_validation, Mapping):
         validation_issues = generator_validation.get("issues")
         if generator_validation.get("valid") is False:
-            detail = (
-                "; ".join(str(issue) for issue in validation_issues[:4])
-                if isinstance(validation_issues, list)
-                else "shared script validation failed"
-            )
-            issues.append(detail)
+            if isinstance(validation_issues, list):
+                actionable = [
+                    str(issue)
+                    for issue in validation_issues
+                    if not str(issue).startswith(
+                        ("Script too short:", "Script too long:")
+                    )
+                ]
+                if actionable:
+                    issues.append("; ".join(actionable[:4]))
+            else:
+                issues.append("shared script validation failed")
 
     approved_words = {
         word.casefold()
@@ -1126,7 +1199,7 @@ def _script_grounding_issues(
     if approved_words and not approved_words.intersection(script_words):
         issues.append("script does not retain a distinctive approved focus term")
 
-    prose = _SCRIPT_MARKER_PATTERN.sub("", script_text)
+    prose = _script_spoken_prose(script_text)
     approved_numbers = set(_SCRIPT_NUMBER_PATTERN.findall(approved_context))
     unsupported_numbers = sorted(
         set(_SCRIPT_NUMBER_PATTERN.findall(prose)) - approved_numbers
@@ -1139,10 +1212,14 @@ def _script_grounding_issues(
 
     approved_casefold = approved_context.casefold()
     unsupported_named: list[str] = []
-    for match in re.finditer(r"\b(?:[A-Z]{2,}|[A-Z][a-z]{2,})\b", prose):
+    for match in _SCRIPT_NAMED_TOKEN_PATTERN.finditer(prose):
         token = match.group(0)
-        before = prose[: match.start()].rstrip()
-        if not before or before[-1:] in ".!?":
+        before = prose[: match.start()]
+        line_start = before.rfind("\n") + 1
+        if not before[line_start:].strip():
+            continue
+        trimmed_before = before.rstrip()
+        if not trimmed_before or trimmed_before[-1:] in ".!?":
             continue
         if token.casefold() in approved_casefold:
             continue
