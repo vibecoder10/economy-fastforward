@@ -1911,9 +1911,25 @@ export interface VideoDetail extends VideoSummary {
   characters_approved_at?: string | null;
   story_locked_at?: string | null;
   dialogue_audio?: string | null;
+  // 'character_dialogue' | 'narration_only' | null (unanalyzed). Only
+  // exposed so sound_effects_unsupported_reason below is legible — nothing
+  // reads this field for its own sake yet.
+  dialogue_mode?: string | null;
   // null = normal (clip stitch / narrator). 'static_docu' = static-image
   // documentary: images held over the narration, no animate stage.
   render_mode?: string | null;
+  // Whether the backend's render path will mix this video's sound effects
+  // into the final output (status_map.render_path_plays_sfx — the single
+  // backend source of truth). Defaults true (every video created before this
+  // field existed keeps sound available). Read this instead of re-deriving
+  // custom_film_plan_id/render_mode/dialogue_audio/dialogue_mode in TS — that
+  // would create a second copy of a condition that must never drift from the
+  // backend's actual render dispatch.
+  sound_effects_supported?: boolean;
+  // Human-readable reason sound_effects_supported is false, or null when
+  // it's true — same computation as sound_effects_supported, never
+  // re-derived separately.
+  sound_effects_unsupported_reason?: string | null;
   // Channel-style routing guardrail (C13b/C14): 'animated' | 'realistic' |
   // null (undeclared — "Auto", the router's money-safe default). Drives
   // the Scenes workspace's "Channel look" control.

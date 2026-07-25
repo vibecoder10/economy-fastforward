@@ -336,6 +336,7 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
     into the tool's error result)."""
     video = await fetch_one(
         "SELECT video_title, status, render_mode, pipeline_stages, skip_voice, "
+        "custom_film_plan_id, dialogue_audio, dialogue_mode, "
         "story_locked_at, characters_approved_at, environments_approved_at, "
         "thumbnail_url, youtube_url, youtube_video_id, story_bible, research_payload "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
@@ -351,6 +352,16 @@ async def get_production_guide(tenant_id, video_id: str) -> Optional[dict[str, A
     is_static = (video.get("render_mode") or "") == "static_docu"
     plan_raw = status_map.parse_stage_plan(video.get("pipeline_stages"))
     enabled = status_map.static_stage_plan(plan_raw) if is_static else plan_raw  # None = full pipeline
+    # SFX guard: a video whose render path can never play sound effects
+    # (Custom Film / grok_native / character_dialogue — static_docu is
+    # ALREADY covered above via static_stage_plan, which independently drops
+    # 'sound') must report the sound stage as skipped_by_format too, or this
+    # guide would recommend a stage (_recommend_next_step below) that can
+    # never actually run. Same shared helper pipeline_executor.
+    # PipelineExecutor._enabled_stages uses — one predicate
+    # (status_map.render_path_plays_sfx), one list-filter
+    # (status_map.stages_excluding_blocked_sound), never re-derived here.
+    enabled = status_map.stages_excluding_blocked_sound(enabled, video)
 
     def bucket_enabled(bucket: str) -> bool:
         return enabled is None or bucket in enabled

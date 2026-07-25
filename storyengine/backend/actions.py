@@ -35,7 +35,7 @@ except ImportError:
     # actually needs `fetch_all` to be present (and real callers/tests that
     # exercise it monkeypatch this module attribute directly).
     fetch_all = None
-from status_map import is_at_or_past_stage
+from status_map import is_at_or_past_stage, render_path_plays_sfx, render_path_sfx_block_reason
 from static_docu_contract import STATIC_VIEWS_TARGET
 
 # shared.channel_profile lives in the pipeline package, not the SaaS backend
@@ -308,7 +308,7 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
         "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style, render_mode, "
-        "total_cost, max_spend "
+        "total_cost, max_spend, custom_film_plan_id, dialogue_audio, dialogue_mode "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -370,6 +370,15 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         # routing plan in the copilot's confirm text. None on any pre-C13b video.
         "render_style": v.get("render_style"),
         "render_mode": v.get("render_mode"),
+        # Whether THIS video's render path will ever mix in sound effects
+        # (status_map.render_path_plays_sfx — mirrors run_render's dispatch
+        # order exactly). Computed here, once, from the raw video row so
+        # blocked_reason()/estimate_cost() below and any other reader of this
+        # summary answer "will sound effects play?" from the SAME source,
+        # never by re-deriving custom_film_plan_id/render_mode/dialogue_audio/
+        # dialogue_mode branches themselves.
+        "plays_sfx": render_path_plays_sfx(v),
+        "sfx_blocked_reason": render_path_sfx_block_reason(v),
     }
 
 
@@ -428,6 +437,30 @@ def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
         return NEEDS_REASON["cast"]
     if needs == "rendered" and not is_at_or_past_stage(summary["status"], "rendered"):
         return NEEDS_REASON["rendered"]
+    # The "sound" verb generates real money (Kie.ai ElevenLabs Sound Effect
+    # V2, ~$0.05/effect) that's wasted if this video's render path can never
+    # mix it in — see status_map.render_path_plays_sfx / the "plays_sfx" flag
+    # video_summary() computes from the SAME helper above.
+    #
+    # `.get("plays_sfx", True)` fails OPEN (treats a MISSING key as "SFX
+    # play, allow it") — deliberate, matching every other legacy-default in
+    # this guard (render_path_plays_sfx(None) is also True), so a summary
+    # dict from BEFORE this field existed keeps behaving exactly as before.
+    # This is only safe because every current caller of blocked_reason()
+    # (agent_brain.py's _tool_state, routes/mcp.py's _call_verb, routes/
+    # chat.py's classifier dispatch) builds `summary` via video_summary()
+    # above, which always sets the key. A future caller that hand-rolls a
+    # summary dict WITHOUT going through video_summary() would silently
+    # fail this specific check open — but this is the OUTER, UX-polish layer
+    # only: run_sound_prompts/run_sound_effects (pipeline_executor.py) check
+    # status_map.render_path_plays_sfx directly off the real video row before
+    # any paid call, and refuse regardless of what this function decides. If
+    # you add a caller that builds `summary` by hand, either route it through
+    # video_summary() or set "plays_sfx" yourself — don't just trust this
+    # default.
+    if verb == "sound" and not summary.get("plays_sfx", True):
+        reason = summary.get("sfx_blocked_reason") or "this render path drops sound effects."
+        return f"sound effects won't be used for this video — {reason}"
     return None
 
 
