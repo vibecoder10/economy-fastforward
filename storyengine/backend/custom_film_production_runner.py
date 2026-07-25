@@ -1464,6 +1464,14 @@ _AV_RELAXED_DIALOGUE_PATTERN = re.compile(
 _AV_RELAXED_VO_PATTERN = re.compile(
     r"^VO \[(?P<language>[^\]\n]+)\]: (?P<text>\S.*)$"
 )
+_AV_EMPTY_AUDIBLE_TEXTS = frozenset(
+    {"-", "–", "—", "none", "n/a", "n-a", "silence", "[silence]"}
+)
+_AV_EMPTY_AUDIBLE_PREFIX_PATTERN = re.compile(
+    r"^(?:VO(?: \[[^\]\n]+\])?|DIALOGUE(?: [^:\n]+)?)$",
+    re.IGNORECASE,
+)
+_AV_TERMINAL_SEPARATOR_PATTERN = re.compile(r"^(?:-{3,}|—{3,}|–{3,})$")
 _AV_ACTION_LEAK_PATTERN = re.compile(
     r"\b(?:camera|shot|close-up|wide shot|we see|"
     r"(?:she|he|they|[A-Z][a-z]+)\s+(?:sits|stands|walks|runs|looks|"
@@ -1595,6 +1603,30 @@ def _canonicalize_custom_film_av_language_tags(
     return "\n".join(normalized_lines), changes
 
 
+def _is_custom_film_av_empty_audible_line(line: str) -> bool:
+    prefix, separator, text = line.strip().partition(":")
+    return bool(
+        separator
+        and _AV_EMPTY_AUDIBLE_PREFIX_PATTERN.fullmatch(prefix.strip())
+        and text.strip().casefold() in _AV_EMPTY_AUDIBLE_TEXTS
+    )
+
+
+def _remove_custom_film_av_empty_audible_placeholders(
+    text: str,
+) -> tuple[str, int]:
+    """Remove only exact semantically empty audible-track placeholders."""
+
+    retained: list[str] = []
+    removed = 0
+    for line in text.splitlines():
+        if _is_custom_film_av_empty_audible_line(line):
+            removed += 1
+            continue
+        retained.append(line)
+    return "\n".join(retained), removed
+
+
 def _custom_film_av_contract(request: SectionProductionRequest) -> str:
     end = f"{request.exact_seconds // 60}:{request.exact_seconds % 60:02d}"
     minimum_spoken_words = max(3, round(request.exact_seconds * 0.25))
@@ -1614,15 +1646,29 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
             f"DIALOGUE <same speaker> [{approved_languages[1]} | pair=<same id>]: "
             "<meaning-equivalent performed words>"
         )
+        audible_template_law = (
+            "PER-BEAT AUDIBLE TEMPLATE: When a beat contains performed speech, "
+            "use only the two exact paired DIALOGUE tags above. Never emit VO."
+        )
     elif language_mode == "simple_single_language":
         performed_tag_law = (
             "EXACT PERFORMED TAG: "
             f"DIALOGUE <speaker> [{approved_labels[0]}]: <performed words>"
         )
+        audible_template_law = (
+            "PER-BEAT AUDIBLE TEMPLATE: When a beat contains performed speech, "
+            f"use only DIALOGUE <speaker> [{approved_labels[0]}]: <performed "
+            "words>. Never emit VO or a translation pair ID."
+        )
     else:
         performed_tag_law = (
             f"EXACT NARRATOR TAG: VO [{approved_labels[0]}]: "
             "<sparse connective narration>"
+        )
+        audible_template_law = (
+            "PER-BEAT AUDIBLE TEMPLATE: When a beat needs sparse connective "
+            f"narration, use only VO [{approved_labels[0]}]: <spoken words>. "
+            "Never emit DIALOGUE."
         )
     return "\n".join(
         (
@@ -1636,14 +1682,15 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
             "[BEAT <N> | <M:SS> - <M:SS>]",
             "VISUAL: camera-visible action, environment, props, and transition",
             "SOUND: diegetic sound effects or ambience",
-            "VO [<canonical-tag>]: sparse information only when visuals/dialogue cannot carry it",
-            (
-                "DIALOGUE <speaker> [<canonical-tag> | pair=<translation-id>]: "
-                "exact performed words"
-            ),
+            audible_template_law,
             "CARRY-IN: concrete object, signal, evidence, or state entering the beat",
             "CARRY-OUT: concrete object, signal, evidence, or changed state leaving the beat",
             performed_tag_law,
+            (
+                "SILENT-BEAT LAW: Omit the entire audible-track line when a beat "
+                "has no speech. Never emit dash, None, N/A, N-A, silence, or any "
+                "other placeholder as VO or DIALOGUE text."
+            ),
             (
                 "TIMING LAW: Beats start at 0:00, are gapless/non-overlapping, "
                 f"and end exactly at {end}. Spoken coverage is cinematic and "
@@ -1735,6 +1782,17 @@ def _parse_custom_film_av_screenplay(
                 "carry_out": None,
                 "audible": [],
             }
+            continue
+        if _is_custom_film_av_empty_audible_line(line):
+            issues.append(
+                "AV audible placeholder text is forbidden; omit the entire VO "
+                "or DIALOGUE line for a silent beat"
+            )
+            continue
+        if _AV_TERMINAL_SEPARATOR_PATTERN.fullmatch(line):
+            issues.append(
+                "AV screenplay must not emit terminal separator lines"
+            )
             continue
         if current is None:
             issues.append("AV screenplay contains content outside a timed beat")
@@ -2011,12 +2069,18 @@ def _parse_custom_film_av_screenplay(
     }
     if issues:
         unique_issues = list(dict.fromkeys(issues))
+        reportable_issue_prefixes = (
+            "AV audible placeholder text is forbidden;",
+            "AV screenplay has insufficient cinematic spoken coverage",
+            "AV screenplay must not emit terminal separator lines",
+            "narrator AV occupancy is too high:",
+        )
         if all(
-            issue.startswith("narrator AV occupancy is too high:")
+            issue.startswith(reportable_issue_prefixes)
             for issue in unique_issues
         ):
-            # Occupancy is a semantic AV composition gate, not a malformed
-            # screenplay. Preserve the parsed tracks so the same validation
+            # These are semantic AV composition failures, not ambiguous track
+            # structure. Preserve parsed visual tracks so the same validation
             # pass can also report grounding drift.
             return parsed_result, unique_issues
         return None, unique_issues
@@ -3687,7 +3751,11 @@ class SharedSectionProductionSeams:
                 "Custom Film script provider returned no section script"
             )
         language_tag_normalizations = 0
+        audible_placeholder_removals = 0
         if av_screenplay_mode:
+            script_text, audible_placeholder_removals = (
+                _remove_custom_film_av_empty_audible_placeholders(script_text)
+            )
             script_text, language_tag_normalizations = (
                 _canonicalize_custom_film_av_language_tags(
                     script_text,
@@ -3762,6 +3830,7 @@ class SharedSectionProductionSeams:
             current_text: str,
             current_issues: list[str],
         ) -> tuple[str, list[str], int, dict[str, Any]]:
+            nonlocal audible_placeholder_removals
             nonlocal language_tag_normalizations
             rounds = 0
             validation: dict[str, Any] = (
@@ -3786,6 +3855,12 @@ class SharedSectionProductionSeams:
                     break
                 current_text = str(edited[0].get("text") or "").strip()
                 if av_screenplay_mode:
+                    current_text, removed = (
+                        _remove_custom_film_av_empty_audible_placeholders(
+                            current_text
+                        )
+                    )
+                    audible_placeholder_removals += removed
                     current_text, normalized = (
                         _canonicalize_custom_film_av_language_tags(
                             current_text,
@@ -3922,6 +3997,12 @@ class SharedSectionProductionSeams:
             quality_edit_rounds += edit_rounds
             script_text = str(final_scenes[0].get("text") or "").strip()
             if av_screenplay_mode:
+                script_text, removed = (
+                    _remove_custom_film_av_empty_audible_placeholders(
+                        script_text
+                    )
+                )
+                audible_placeholder_removals += removed
                 script_text, normalized = (
                     _canonicalize_custom_film_av_language_tags(
                         script_text,
@@ -3992,6 +4073,9 @@ class SharedSectionProductionSeams:
                     "deterministic_edit_rounds": deterministic_edit_rounds,
                     "quality_edit_rounds": quality_edit_rounds,
                     "quality_passes": quality_passes,
+                    "audible_placeholder_removals": (
+                        audible_placeholder_removals
+                    ),
                     "language_tag_normalizations": language_tag_normalizations,
                 },
             },
