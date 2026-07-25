@@ -255,6 +255,59 @@ def test_sentence_initial_title_case_entity_is_deferred_to_semantic_gate():
     ) == []
 
 
+def test_lowercase_greek_and_contextual_code_designations_require_approval():
+    text = _bilingual_screenplay().replace(
+        "Mara studies a pulsing signal on the console.",
+        (
+            "Mara routes circuit alpha past node beta, panel gamma, and unit "
+            "bravo."
+        ),
+    )
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        text,
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert issues == []
+
+    grounding = production._custom_film_av_grounding_issues(
+        parsed,
+        approved_context="case_study\nFollow Mara and the approved signal",
+    )
+
+    designation_issue = next(
+        issue for issue in grounding if "designation anchors" in issue
+    )
+    for anchor in ("alpha", "beta", "gamma", "bravo"):
+        assert anchor in designation_issue
+
+
+def test_approved_designations_and_ordinary_lowercase_nouns_remain_valid():
+    text = _bilingual_screenplay().replace(
+        "Mara studies a pulsing signal on the console.",
+        (
+            "Mara routes circuit alpha past node beta and panel gamma while "
+            "the control map and signal remain visible."
+        ),
+    )
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        text,
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert issues == []
+
+    assert production._custom_film_av_grounding_issues(
+        parsed,
+        approved_context=(
+            "case_study\nFollow Mara through circuit alpha, node beta, and "
+            "panel gamma using the approved control map and signal"
+        ),
+    ) == []
+
+
 def test_dialogue_speaker_requires_exact_approved_identity_not_prefix_alias():
     parsed, issues = production._parse_custom_film_av_screenplay(
         _bilingual_screenplay().replace("DIALOGUE Mara", "DIALOGUE Mar"),
@@ -1386,6 +1439,239 @@ async def test_two_malformed_strict_critic_responses_fail_before_persistence(
         in critic_client.calls[1]["system_prompt"]
     )
     assert database_touched is False
+
+
+def _closing_screenplay(*, cinematic: bool) -> str:
+    if cinematic:
+        visuals = (
+            "The completed work echoes the approved opening image.",
+            "Match cuts transform approved planning notes into assembled work.",
+            "The camera returns to the completed work and decisive final image.",
+        )
+        sounds = (
+            "The opening ambience returns with warmer room tone.",
+            "Paper movement becomes the rhythm of assembly.",
+            "The assembly sounds resolve into quiet completion.",
+        )
+        carries = (
+            "approved callback image",
+            "returned opening image",
+            "assembled completed work",
+            "decisive final image",
+        )
+        voice = (
+            "The approved plan becomes completed work before the final image "
+            "returns."
+        )
+    else:
+        visuals = (
+            "A section timeline appears with beat labels and timing marks.",
+            "Visual sound and carry tags orbit a rotating blueprint schema.",
+            "The framework returns as abstract section labels and diagrams.",
+        )
+        sounds = (
+            "Interface ticks mark each labeled section.",
+            "Synthetic pulses follow the rotating diagram.",
+            "A generic explanatory tone resolves.",
+        )
+        carries = (
+            "approved callback image",
+            "literal section timeline",
+            "rotating framework diagram",
+            "abstract schema recap",
+        )
+        voice = (
+            "This framework explains how each section and carry state works "
+            "together."
+        )
+    lines = ["[AV SECTION — FINAL IMAGE | 0:00 - 0:30]"]
+    for index, (visual, sound) in enumerate(zip(visuals, sounds), start=1):
+        lines.extend(
+            (
+                f"[BEAT {index} | 0:{(index - 1) * 10:02d} - "
+                f"0:{index * 10:02d}]",
+                f"VISUAL: {visual}",
+                f"SOUND: {sound}",
+            )
+        )
+        if index == 2:
+            lines.append(f"VO [en]: {voice}")
+        lines.extend(
+            (
+                f"CARRY-IN: {carries[index - 1]}",
+                f"CARRY-OUT: {carries[index]}",
+            )
+        )
+    return "\n".join(lines)
+
+
+@pytest.mark.asyncio
+async def test_literal_framework_closing_semantic_failure_never_persists(
+    monkeypatch,
+):
+    purpose = (
+        "Reveal the approved planning and assembly, then return to the "
+        "completed work and final image"
+    )
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-final",
+            "role": "closing",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", section_id="section-final", seconds=30),
+            order_index=0,
+            role="closing",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "b" * 64,
+    )
+    candidate = _with_boundary_carries(
+        _closing_screenplay(cinematic=False),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved final state — {purpose}",
+    )
+    observed = {}
+    database_touched = False
+
+    async def generate(_client, brief, **_kwargs):
+        observed["guidance"] = brief["writer_guidance"]
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        observed["rules"] = kwargs["rules_text"]
+        observed["repair"] = kwargs["edit_constraints"][0]
+        return {
+            "scenes": copy.deepcopy(scenes),
+            "critique": SimpleNamespace(
+                verdict="fail",
+                score=35,
+                failing_gates=[
+                    "role_structure_quality",
+                    "visual_story_readiness",
+                    "av_screenplay_performance",
+                ],
+                violations=[
+                    "literal framework recap replaces the final story payoff"
+                ],
+                rule_verdicts=[],
+                needs_revision=True,
+            ),
+            "needs_review": True,
+            "edit_rounds": 2,
+            "regenerated": False,
+            "changed": False,
+        }
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("failed closing must not persist")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed visual-story quality before voice or imagery",
+    ):
+        await seams._script(request)
+
+    for context in (
+        observed["guidance"],
+        observed["repair"],
+        observed["rules"],
+    ):
+        assert "earned final story image" in context
+        assert "concrete cinematic transformation or match cuts" in context
+        assert "literal framework or schema jargon" in context
+        assert "abstract rotating diagrams" in context
+        assert "one decisive visual payoff" in context
+    assert database_touched is False
+
+
+@pytest.mark.asyncio
+async def test_cinematic_callback_assembly_finished_work_closing_persists(
+    monkeypatch,
+):
+    purpose = (
+        "Reveal the approved planning and assembly, then return to the "
+        "completed work and final image"
+    )
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-final",
+            "role": "closing",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", section_id="section-final", seconds=30),
+            order_index=0,
+            role="closing",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "a" * 64,
+    )
+    candidate = _with_boundary_carries(
+        _closing_screenplay(cinematic=True),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved final state — {purpose}",
+    )
+    inserted = []
+
+    class Connection:
+        async def fetch(self, _sql, *_args):
+            return []
+
+        async def fetchrow(self, _sql, *args):
+            inserted.append(args[4])
+            return {"id": args[0]}
+
+        async def execute(self, _sql, *_args):
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def generate(*_args, **_kwargs):
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        assert "one decisive visual payoff" in kwargs["rules_text"]
+        return _quality_pass(scenes)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    assert inserted == [candidate]
+    assert result["quality_verdict"] == "pass"
 
 
 def test_whole_arc_requires_concrete_carry_between_sections():
