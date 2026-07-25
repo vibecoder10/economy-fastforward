@@ -989,41 +989,60 @@ _SCRIPT_REPAIR_ATTEMPTS = 2
 _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     {
         "about",
+        "and",
         "after",
         "again",
         "against",
         "also",
         "among",
+        "as",
+        "at",
         "because",
         "before",
         "being",
         "between",
+        "but",
+        "by",
         "bring",
         "carry",
         "clear",
         "conclusion",
         "evidence",
         "film",
+        "for",
+        "from",
         "give",
+        "he",
+        "if",
         "into",
+        "is",
+        "it",
+        "not",
+        "of",
+        "on",
+        "or",
         "leave",
         "main",
         "make",
         "present",
         "reason",
         "section",
+        "she",
         "show",
         "strongest",
         "takeaway",
         "that",
+        "the",
         "their",
         "there",
         "these",
         "they",
         "this",
         "through",
+        "to",
         "understand",
         "watching",
+        "we",
         "what",
         "when",
         "where",
@@ -1049,6 +1068,9 @@ _SCRIPT_NUMBER_PATTERN = re.compile(
     r"(?<![\w])(?:18|19|20)\d{2}(?![\w])|(?<![\w])\d+(?:\.\d+)?%?(?![\w])"
 )
 _SCRIPT_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]*")
+_SCRIPT_NAMED_TOKEN_PATTERN = re.compile(
+    r"\b(?:[A-Z]{2,5}|[A-Z][a-z]{2,})\b"
+)
 
 
 def _script_word_count(script_text: str) -> int:
@@ -1190,7 +1212,7 @@ def _script_grounding_issues(
 
     approved_casefold = approved_context.casefold()
     unsupported_named: list[str] = []
-    for match in re.finditer(r"\b(?:[A-Z]{2,}|[A-Z][a-z]{2,})\b", prose):
+    for match in _SCRIPT_NAMED_TOKEN_PATTERN.finditer(prose):
         token = match.group(0)
         before = prose[: match.start()]
         line_start = before.rfind("\n") + 1
