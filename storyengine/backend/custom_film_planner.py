@@ -52,6 +52,7 @@ from custom_film_orchestration import (
     ALLOWED_MEDIA_KINDS,
     CAPABILITY_CATALOG_VERSION,
 )
+from error_utils import is_kie_block
 
 
 PUBLIC_SOURCE = Literal[
@@ -287,6 +288,43 @@ class PlannerCompileReason(str, Enum):
     NORMALIZATION_FAILED = "normalization_failed"
 
 
+class PlannerInferenceReason(str, Enum):
+    RATE_LIMITED = "rate_limited"
+    AUTHENTICATION = "authentication"
+    INSUFFICIENT_CREDIT = "insufficient_credit"
+    TIMEOUT = "timeout"
+    UPSTREAM_UNAVAILABLE = "upstream_unavailable"
+    UNKNOWN = "unknown"
+
+
+_SAFE_INFERENCE_MESSAGES = {
+    PlannerInferenceReason.RATE_LIMITED: (
+        "The planning service is temporarily rate-limited. Please try again in a "
+        "moment. No media production was approved or started."
+    ),
+    PlannerInferenceReason.AUTHENTICATION: (
+        "I couldn't use your connected text-model key. Check or update it under "
+        "Profile → API Keys, then try again. No media production was approved or "
+        "started."
+    ),
+    PlannerInferenceReason.INSUFFICIENT_CREDIT: (
+        "Your connected text-model key appears blocked or out of credit. Add funds "
+        "or update it under Profile → API Keys, then try again. No media production "
+        "was approved or started."
+    ),
+    PlannerInferenceReason.TIMEOUT: (
+        "The planning service took too long to respond. Please try again in a moment. "
+        "No media production was approved or started."
+    ),
+    PlannerInferenceReason.UPSTREAM_UNAVAILABLE: (
+        "The planning service is temporarily unavailable. Please try again in a "
+        "moment. No media production was approved or started."
+    ),
+    PlannerInferenceReason.UNKNOWN: (
+        "The planning service couldn't complete this request. Please try again in a "
+        "moment. No media production was approved or started."
+    ),
+}
 _REPAIRABLE_FOCUS_REASONS = frozenset(
     {
         PlannerCompileReason.FOCUS_INVALID,
@@ -314,6 +352,64 @@ class _PlannerCompileError(ValueError):
     def __init__(self, reason: PlannerCompileReason):
         super().__init__(reason.value)
         self.reason = reason
+
+
+def _inference_status_code(exc: Exception) -> int | None:
+    """Read only a numeric status code, never response text or headers."""
+    direct = getattr(exc, "status_code", None)
+    if isinstance(direct, int):
+        return direct
+    response = getattr(exc, "response", None)
+    nested = getattr(response, "status_code", None)
+    return nested if isinstance(nested, int) else None
+
+
+def _classify_planner_inference_error(
+    exc: Exception,
+) -> PlannerInferenceReason:
+    """Classify with fixed type/status signals and the sanctioned block detector."""
+    if is_kie_block(exc):
+        return PlannerInferenceReason.INSUFFICIENT_CREDIT
+    status_code = _inference_status_code(exc)
+    class_name = type(exc).__name__
+    if status_code == 429 or class_name == "RateLimitError":
+        return PlannerInferenceReason.RATE_LIMITED
+    if status_code in {401, 403} or class_name in {
+        "AuthenticationError",
+        "PermissionDeniedError",
+    }:
+        return PlannerInferenceReason.AUTHENTICATION
+    if isinstance(exc, TimeoutError) or class_name in {
+        "APITimeoutError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "TimeoutException",
+    }:
+        return PlannerInferenceReason.TIMEOUT
+    if (
+        status_code is not None
+        and 500 <= status_code <= 599
+    ) or isinstance(exc, ConnectionError) or class_name in {
+        "APIConnectionError",
+        "ConnectError",
+        "NetworkError",
+    }:
+        return PlannerInferenceReason.UPSTREAM_UNAVAILABLE
+    return PlannerInferenceReason.UNKNOWN
+
+
+def _planner_inference_failure(
+    exc: Exception,
+    *,
+    attempt: Literal[1, 2],
+) -> CustomFilmPlannerError:
+    reason = _classify_planner_inference_error(exc)
+    logger.warning(
+        "custom-film planner rejection stage=inference reason=%s attempt=%d",
+        reason.value,
+        attempt,
+    )
+    return CustomFilmPlannerError(_SAFE_INFERENCE_MESSAGES[reason])
 
 
 def _safe_planner_validation_message(error_type: str) -> str:
@@ -1183,19 +1279,22 @@ async def plan_custom_film(
             if prior_proposal is not None
             else None
         )
-        raw = await client.generate(
-            prompt=_planner_prompt(user_request, manifest, normalized_prior),
-            system_prompt=(
-                "You are a constrained film-structure planner. `role` is a closed "
-                "internal narrative-function classification: copy it exactly from "
-                "the canonical role catalog, and put any descriptive act or chapter "
-                "title, genre, subject, person, or event in focus and beats. Follow "
-                "the JSON schema exactly and never propose providers, prices, runtime "
-                "knobs, or actions."
-            ),
-            max_tokens=6_000,
-            temperature=0,
-        )
+        try:
+            raw = await client.generate(
+                prompt=_planner_prompt(user_request, manifest, normalized_prior),
+                system_prompt=(
+                    "You are a constrained film-structure planner. `role` is a closed "
+                    "internal narrative-function classification: copy it exactly from "
+                    "the canonical role catalog, and put any descriptive act or "
+                    "chapter title, genre, subject, person, or event in focus and "
+                    "beats. Follow the JSON schema exactly and never propose providers, "
+                    "prices, runtime knobs, or actions."
+                ),
+                max_tokens=6_000,
+                temperature=0,
+            )
+        except Exception as exc:  # noqa: BLE001 - classified without raw logging
+            raise _planner_inference_failure(exc, attempt=1) from exc
         parsed = _extract_json_object(raw)
         prior_focuses = (
             [section.focus for section in normalized_prior.sections]
@@ -1219,18 +1318,21 @@ async def plan_custom_film(
                 "custom-film planner repair stage=repair reason=%s attempt=1",
                 repair_reason,
             )
-            repaired_raw = await client.generate(
-                prompt=_planner_repair_prompt(user_request, parsed),
-                system_prompt=(
-                    "You repair one constrained film-structure JSON candidate. "
-                    "Preserve valid structure, use exact canonical role IDs and exact "
-                    "contiguous creator-request substrings for focus, and never emit "
-                    "providers, models, prices, approvals, actions, runtime knobs, "
-                    "or generation instructions."
-                ),
-                max_tokens=6_000,
-                temperature=0,
-            )
+            try:
+                repaired_raw = await client.generate(
+                    prompt=_planner_repair_prompt(user_request, parsed),
+                    system_prompt=(
+                        "You repair one constrained film-structure JSON candidate. "
+                        "Preserve valid structure, use exact canonical role IDs and "
+                        "exact contiguous creator-request substrings for focus, and "
+                        "never emit providers, models, prices, approvals, actions, "
+                        "runtime knobs, or generation instructions."
+                    ),
+                    max_tokens=6_000,
+                    temperature=0,
+                )
+            except Exception as exc:  # noqa: BLE001 - safe fixed classification
+                raise _planner_inference_failure(exc, attempt=2) from exc
             repaired = _extract_json_object(repaired_raw)
             return compile_planner_proposal(
                 user_request,
@@ -1261,22 +1363,26 @@ async def plan_custom_film_from_recipe(
         recipe = validate_normalized_recipe(saved_recipe, manifest)
         sections = recipe["sections"]
         schema = ReuseFocusProposal.model_json_schema()
-        raw = await client.generate(
-            prompt=(
-                "Return one JSON object matching the schema. Supply exactly "
-                f"{len(sections)} ordered section focus phrases copied verbatim from "
-                "the creator's fresh topic. Do not return roles, durations, styles, "
-                "knobs, providers, models, prices, approvals, or actions.\n\n"
-                f"JSON SCHEMA:\n{canonical_json(schema)}\n\n"
-                f"CREATOR REQUEST:\n{user_request.strip()}"
-            ),
-            system_prompt=(
-                "You ground saved film sections in a fresh topic. Follow the JSON "
-                "schema exactly and copy concise focus phrases from the request."
-            ),
-            max_tokens=1_000,
-            temperature=0,
-        )
+        try:
+            raw = await client.generate(
+                prompt=(
+                    "Return one JSON object matching the schema. Supply exactly "
+                    f"{len(sections)} ordered section focus phrases copied verbatim "
+                    "from the creator's fresh topic. Do not return roles, durations, "
+                    "styles, knobs, providers, models, prices, approvals, or "
+                    "actions.\n\n"
+                    f"JSON SCHEMA:\n{canonical_json(schema)}\n\n"
+                    f"CREATOR REQUEST:\n{user_request.strip()}"
+                ),
+                system_prompt=(
+                    "You ground saved film sections in a fresh topic. Follow the JSON "
+                    "schema exactly and copy concise focus phrases from the request."
+                ),
+                max_tokens=1_000,
+                temperature=0,
+            )
+        except Exception as exc:  # noqa: BLE001 - safe fixed classification
+            raise _planner_inference_failure(exc, attempt=1) from exc
         focus_proposal = ReuseFocusProposal.model_validate(
             _extract_json_object(raw)
         )

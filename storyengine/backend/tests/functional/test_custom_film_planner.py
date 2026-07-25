@@ -475,7 +475,131 @@ class SequencedPlannerClient:
         index = len(self.calls)
         self.calls.append(kwargs)
         output = self.outputs[index]
+        if isinstance(output, Exception):
+            raise output
         return json.dumps(output) if isinstance(output, dict) else output
+
+
+class FakeInferenceError(Exception):
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize(
+    ("inference_error", "reason"),
+    [
+        (
+            FakeInferenceError("malicious-rate-secret", status_code=429),
+            planner.PlannerInferenceReason.RATE_LIMITED,
+        ),
+        (
+            FakeInferenceError("malicious-auth-secret", status_code=401),
+            planner.PlannerInferenceReason.AUTHENTICATION,
+        ),
+        (
+            FakeInferenceError(
+                "KIE_ACCOUNT_BLOCKED: insufficient credit malicious-credit-secret"
+            ),
+            planner.PlannerInferenceReason.INSUFFICIENT_CREDIT,
+        ),
+        (
+            TimeoutError("malicious-timeout-secret"),
+            planner.PlannerInferenceReason.TIMEOUT,
+        ),
+        (
+            FakeInferenceError("malicious-upstream-secret", status_code=503),
+            planner.PlannerInferenceReason.UPSTREAM_UNAVAILABLE,
+        ),
+        (
+            RuntimeError("malicious-unknown-secret"),
+            planner.PlannerInferenceReason.UNKNOWN,
+        ),
+    ],
+)
+def test_initial_planner_inference_failures_are_fixed_and_private(
+    manifest,
+    caplog,
+    inference_error,
+    reason,
+):
+    client = SequencedPlannerClient([inference_error])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            asyncio.run(
+                planner.plan_custom_film(
+                    "Make a custom film about steel",
+                    manifest,
+                    client,
+                    total_duration_seconds=30,
+                )
+            )
+
+    assert len(client.calls) == 1
+    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[reason]
+    assert (
+        f"stage=inference reason={reason.value} attempt=1" in caplog.text
+    )
+    assert str(inference_error) not in caplog.text
+    assert "No media production was approved or started." in str(error.value)
+    assert "from that response" not in str(error.value)
+    assert "charged" not in str(error.value)
+
+
+def test_repair_inference_failure_is_attempt_two_and_private(manifest, caplog):
+    secret = "malicious-repair-upstream-secret"
+    client = SequencedPlannerClient(
+        [
+            _proposal("unrelated topic"),
+            FakeInferenceError(secret, status_code=503),
+        ]
+    )
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            asyncio.run(
+                planner.plan_custom_film(
+                    "Make a custom film about steel",
+                    manifest,
+                    client,
+                    total_duration_seconds=30,
+                )
+            )
+
+    assert len(client.calls) == 2
+    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[
+        planner.PlannerInferenceReason.UPSTREAM_UNAVAILABLE
+    ]
+    assert "stage=inference reason=upstream_unavailable attempt=2" in caplog.text
+    assert secret not in caplog.text
+
+
+def test_saved_recipe_inference_failure_is_attempt_one(manifest, caplog):
+    compiled = planner.compile_planner_proposal(
+        "Make a custom film about steel",
+        _proposal("steel"),
+        manifest,
+        total_duration_seconds=30,
+    )
+    secret = "malicious-saved-recipe-timeout-secret"
+    client = SequencedPlannerClient([TimeoutError(secret)])
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            asyncio.run(
+                planner.plan_custom_film_from_recipe(
+                    "Make a custom film about clean steel",
+                    compiled.normalized_recipe,
+                    manifest,
+                    client,
+                    total_duration_seconds=30,
+                )
+            )
+
+    assert len(client.calls) == 1
+    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[
+        planner.PlannerInferenceReason.TIMEOUT
+    ]
+    assert "stage=inference reason=timeout attempt=1" in caplog.text
+    assert secret not in caplog.text
 
 
 def test_exact_standalone_realistic_prompt_repairs_long_focus_and_compiles(
@@ -1147,7 +1271,8 @@ def test_malformed_or_failed_planner_returns_useful_error(manifest):
             )
         )
     assert "network detail" not in str(exc.value)
-    assert "nothing was generated" in str(exc.value).lower()
+    assert "no media production was approved or started" in str(exc.value).lower()
+    assert "charged" not in str(exc.value).lower()
 
 
 @pytest.mark.parametrize(
