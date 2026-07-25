@@ -421,7 +421,16 @@ def test_av_contract_emits_exact_canonical_tag_for_every_language_mode(
         "custom-film-op:" + "3" * 64,
     )
 
-    assert expected in production._custom_film_av_contract(request)
+    contract = production._custom_film_av_contract(request)
+    assert expected in contract
+    assert "SILENT-BEAT LAW: Omit the entire audible-track line" in contract
+    assert "Never emit dash, None, N/A, N-A, silence" in contract
+    if language["mode"] == "narrator":
+        assert "use only VO [" in contract
+        assert "Never emit DIALOGUE" in contract
+    elif language["mode"] == "simple_single_language":
+        assert "use only DIALOGUE <speaker>" in contract
+        assert "Never emit VO or a translation pair ID" in contract
 
 
 def test_noncanonical_language_name_has_actionable_exact_tag_diagnostic():
@@ -451,6 +460,57 @@ def test_noncanonical_language_name_has_actionable_exact_tag_diagnostic():
         for issue in issues
     )
     assert "AV screenplay contains a malformed or unknown track tag" not in issues
+
+
+def test_local_placeholder_cleanup_is_exact_and_unknown_text_remains():
+    raw = "\n".join(
+        (
+            "VO [en]: —",
+            "DIALOGUE: N/A",
+            "DIALOGUE Mara [en]: silence",
+            "VO [en]: TBD",
+            "DIALOGUE: actual words",
+            "---",
+        )
+    )
+
+    cleaned, removed = (
+        production._remove_custom_film_av_empty_audible_placeholders(raw)
+    )
+
+    assert removed == 3
+    assert cleaned.splitlines() == [
+        "VO [en]: TBD",
+        "DIALOGUE: actual words",
+        "---",
+    ]
+
+
+def test_surviving_placeholder_text_is_rejected_actionably():
+    text = "\n".join(
+        (
+            "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: The approved signal fills the screen.",
+            "SOUND: Low room tone continues.",
+            "VO [en]: None",
+            "CARRY-IN: opening signal",
+            "CARRY-OUT: final signal",
+        )
+    )
+
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        text,
+        exact_seconds=12,
+        language_mode="narrator",
+        canonical_languages=("en",),
+    )
+
+    assert parsed is not None
+    assert any(
+        "AV audible placeholder text is forbidden" in issue
+        for issue in issues
+    )
 
 
 def test_explicit_target_language_parser_requires_its_canonical_tag():
@@ -712,6 +772,119 @@ async def test_local_english_tag_repair_exposes_grounding_and_occupancy_together
     assert "noncanonical VO language label" not in issue_text
     assert inserted == [repaired]
     assert result["quality_verdict"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_live_shape_placeholders_are_removed_before_grounding_repair(
+    monkeypatch,
+):
+    purpose = "Show the approved outage map"
+    next_purpose = "Restore the approved control signal"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "resolution",
+            "purpose": next_purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=40),
+            role="evidence",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "f" * 64,
+    )
+    bad_lines = _four_beat_narrator_screenplay(
+        audible_beats={1, 2, 3, 4}
+    ).splitlines()
+    live_shape_lines = []
+    visual_replaced = False
+    for line in bad_lines:
+        if line.startswith("VO [en]:"):
+            live_shape_lines.extend(("VO [en]: —", "DIALOGUE: —"))
+        elif line.startswith("VISUAL:") and not visual_replaced:
+            live_shape_lines.append(
+                "VISUAL: The approved map marks 17 FBI outage points at "
+                "12:04 after seven seconds."
+            )
+            visual_replaced = True
+        else:
+            live_shape_lines.append(line)
+    live_shape_lines.append("---")
+    bad = _with_boundary_carries(
+        "\n".join(live_shape_lines),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    repaired = _with_boundary_carries(
+        _four_beat_narrator_screenplay(audible_beats={1, 3}),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    deterministic_calls = []
+    inserted = []
+
+    class Connection:
+        async def fetchrow(self, _sql, *args):
+            inserted.append(args[4])
+            return {"id": args[0]}
+
+        async def execute(self, _sql, *_args):
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def generate(*_args, **_kwargs):
+        return {"script": bad, "validation": {"valid": True, "issues": []}}
+
+    async def edit(scenes, violations, **_kwargs):
+        deterministic_calls.append((copy.deepcopy(scenes), list(violations)))
+        return [{"scene": 1, "text": repaired}]
+
+    async def quality(_tenant, _video, scenes, **_kwargs):
+        return _quality_pass(scenes)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    await seams._script(request)
+
+    assert len(deterministic_calls) == 1
+    locally_cleaned, violations = deterministic_calls[0]
+    cleaned_text = locally_cleaned[0]["text"]
+    assert "VO [en]: —" not in cleaned_text
+    assert "DIALOGUE: —" not in cleaned_text
+    assert "---" in cleaned_text
+    issue_text = "\n".join(violations)
+    assert "insufficient cinematic spoken coverage" in issue_text
+    assert "terminal separator lines" in issue_text
+    assert "17" in issue_text
+    assert "FBI" in issue_text
+    assert "12" in issue_text
+    assert "04" in issue_text
+    assert "seven" in issue_text
+    assert "SILENT-BEAT LAW" in issue_text
+    assert inserted == [repaired]
 
 
 @pytest.mark.asyncio
