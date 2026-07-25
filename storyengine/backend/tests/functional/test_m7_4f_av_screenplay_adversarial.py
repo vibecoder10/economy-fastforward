@@ -1310,6 +1310,10 @@ async def test_magic_button_resolution_semantic_failure_never_persists(
         assert "multiple dependent visible actions or decisions" in context
         assert "single switch, button, command, automatic recovery, or montage" in context
         assert "observable confirmation before the next step" in context
+        assert "Repeated console commands" in context
+        assert "parallel operators performing the same action" in context
+        assert "Convert concrete evidence or state earned in earlier approved sections" in context
+        assert "Do not invent technical labels, component counts, sectors, or obstacles" in context
     assert database_touched is False
 
 
@@ -1368,6 +1372,9 @@ async def test_staged_multi_step_resolution_passes_and_persists(
 
     async def quality(_tenant, _video, scenes, **kwargs):
         assert "multiple dependent visible actions or decisions" in kwargs[
+            "rules_text"
+        ]
+        assert "Each middle beat must materially change the kind of work on screen" in kwargs[
             "rules_text"
         ]
         return _quality_pass(scenes)
