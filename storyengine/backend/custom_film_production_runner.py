@@ -58,6 +58,29 @@ def _plain(value: Any) -> Any:
     return copy.deepcopy(value)
 
 
+def _normalize_provenance_row(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize JSONB values returned by the unconfigured asyncpg pool.
+
+    ``database.get_pool()`` intentionally uses asyncpg's default codecs, which
+    return JSON/JSONB columns as strings.  Test doubles commonly return decoded
+    dictionaries, so provenance verification must accept both representations
+    while continuing to fail closed on malformed or non-object JSON.
+    """
+    row = dict(value)
+    timing_transform = row.get("timing_transform")
+    if isinstance(timing_transform, str):
+        try:
+            timing_transform = json.loads(timing_transform)
+        except (json.JSONDecodeError, TypeError):
+            timing_transform = None
+    row["timing_transform"] = (
+        dict(timing_transform)
+        if isinstance(timing_transform, Mapping)
+        else None
+    )
+    return row
+
+
 def _exact_scene_ids(values: tuple[str, ...], *, required: bool) -> tuple[str, ...]:
     if (
         (required and not values)
@@ -3046,6 +3069,7 @@ class SharedSectionProductionSeams:
         *,
         stage: str,
     ) -> bool:
+        row = _normalize_provenance_row(row)
         stored_hash = str(row.get("provenance_artifact_hash") or "")
         stored_model = str(row.get("provenance_provider_model") or "")
         stored_request_hash = str(row.get("provenance_request_hash") or "")
@@ -3456,7 +3480,7 @@ class SharedSectionProductionSeams:
                 contract_hash,
                 scene,
             )
-        values = [dict(row) for row in rows]
+        values = [_normalize_provenance_row(row) for row in rows]
         if len(values) != expected:
             raise CustomFilmContractError(
                 f"Custom Film {stage} provenance/count is incomplete"
@@ -3517,7 +3541,7 @@ class SharedSectionProductionSeams:
                 request_hash,
                 scene,
             )
-        values = [dict(row) for row in rows]
+        values = [_normalize_provenance_row(row) for row in rows]
         if len(values) != expected:
             return []
         if request.asset_ids and tuple(str(row["id"]) for row in values) != request.asset_ids:
@@ -4919,7 +4943,7 @@ class SharedSectionProductionSeams:
                     stage,
                     self._section_contract_hash(request, stage=stage),
                 )
-                values = [dict(row) for row in rows]
+                values = [_normalize_provenance_row(row) for row in rows]
                 expected = (
                     request.expected_animation_clips
                     if stage == "clips"
