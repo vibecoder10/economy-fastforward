@@ -1,4 +1,5 @@
 import type {TimedWord} from "../motion-library/contracts";
+import type {LayeredSceneRecipe} from "./orchestration";
 
 export const MARA_MEASURED_WORDS: ReadonlyArray<TimedWord> = [
   {text: "Mara,", startFrame: 3840, endFrame: 3862},
@@ -65,6 +66,34 @@ export const showcaseBedGain = (frame: number): number => {
       : 1;
   return envelope * dialogueDuck;
 };
+
+export const recipeEnvelope = (
+  recipe: LayeredSceneRecipe,
+  absoluteFrame: number,
+): number => {
+  if (absoluteFrame < recipe.from || absoluteFrame > recipe.to) return 0;
+  if (recipe.audio.silenceDrop) return 0;
+  const local = absoluteFrame - recipe.from;
+  const remaining = recipe.to - absoluteFrame;
+  if (!recipe.audio.transitionEnvelope) return 1;
+  return Math.max(0, Math.min(1, (local + 1) / 12, (remaining + 1) / 12));
+};
+
+export const recipeBedGain = (
+  recipe: LayeredSceneRecipe,
+  absoluteFrame: number,
+): number =>
+  recipeEnvelope(recipe, absoluteFrame) *
+  recipe.audio.bedGain *
+  recipe.audio.dialogueDuck;
+
+export const recipeMediaOpacity = (
+  recipe: LayeredSceneRecipe,
+): number => recipe.signals.media_kind === "video" ? 0.76 : 0.68;
+
+export const recipeCaptionOpacity = (
+  recipe: LayeredSceneRecipe,
+): number => recipe.caption.mode === "none" ? 0 : 1;
 
 export const approvedMediaOpacity = (
   role: string,

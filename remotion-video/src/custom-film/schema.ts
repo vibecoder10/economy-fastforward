@@ -9,6 +9,24 @@ const nonEmptyTextSchema = z.string().min(1);
 const exactIntSchema = z.number().int().nonnegative();
 const positiveIntSchema = z.number().int().positive();
 const jsonObjectSchema = z.record(z.unknown());
+const orchestrationSchema = z
+  .object({
+    contract_version: z.literal("storyengine-layered-orchestration-v1"),
+    decision_rules_version: z.literal("storyengine-layered-recipe-rules-v1"),
+    semantic_input: jsonObjectSchema,
+    semantic_input_hash: hashSchema,
+    approved_beat_plan: jsonObjectSchema.nullable(),
+    approved_beat_plan_hash: hashSchema.nullable(),
+    resolved_plan: jsonObjectSchema.nullable(),
+    resolved_plan_hash: hashSchema.nullable(),
+    reference_compatible: z.boolean(),
+    story_identity: nonEmptyTextSchema,
+    signals_hash: hashSchema.nullable(),
+    recipe_hash: hashSchema.nullable(),
+    reference_plan_version: nonEmptyTextSchema.nullable(),
+    contract_hash: hashSchema,
+  })
+  .strict();
 
 const assetTimingTransformSchema = z.discriminatedUnion("mode", [
   z
@@ -197,6 +215,7 @@ export const CustomFilmRemotionPropsSchema = z
         duration_lives_inside_assigned_sections: z.literal(true),
       })
       .strict(),
+    orchestration: orchestrationSchema.nullable(),
     sections: z.array(sectionSchema).min(1),
     props_hash: hashSchema,
   })
@@ -214,6 +233,19 @@ export const CustomFilmRemotionPropsSchema = z
         path: ["identity", "renderer_contract_version"],
       });
     }
+    if (
+      isAssemblyV3 !==
+      Boolean(
+        props.orchestration?.resolved_plan &&
+        props.orchestration.recipe_hash,
+      )
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom Film orchestration identity does not match assembly version",
+        path: ["orchestration"],
+      });
+    }
     const {props_hash: propsHash, ...body} = props;
     if (sha256Hex(canonicalJson(body)) !== propsHash) {
       context.addIssue({
@@ -221,6 +253,20 @@ export const CustomFilmRemotionPropsSchema = z
         message: "Custom Film Remotion props hash changed",
         path: ["props_hash"],
       });
+    }
+    if (props.orchestration) {
+      const {contract_hash: contractHash, ...contractBody} = props.orchestration;
+      if (
+        sha256Hex(canonicalJson(contractBody)) !== contractHash ||
+        sha256Hex(canonicalJson(props.orchestration.semantic_input)) !==
+          props.orchestration.semantic_input_hash
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Custom Film orchestration contract hash changed",
+          path: ["orchestration"],
+        });
+      }
     }
     if (
       props.video.total_frames !==

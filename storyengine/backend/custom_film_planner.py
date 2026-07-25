@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID, uuid5
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from custom_film_contract import (
     CapabilityManifest,
@@ -36,6 +36,12 @@ from custom_film_contract import (
     validate_normalized_recipe,
 )
 from production_styles import PUBLIC_PRODUCTION_STYLE_IDS, REQUIRED_KNOB_KEYS
+from custom_film_orchestration import (
+    ALLOWED_HANDOFFS,
+    ALLOWED_INTENTS,
+    ALLOWED_MEDIA_KINDS,
+    CAPABILITY_CATALOG_VERSION,
+)
 
 
 PUBLIC_SOURCE = Literal[
@@ -231,6 +237,84 @@ class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+PUBLIC_ORCHESTRATION_CAPABILITIES = (
+    {"id": "media.approved_primary", "kind": "media", "label": "Approved primary media", "description": "Use the strongest approved image or clip for the beat."},
+    {"id": "media.approved_secondary", "kind": "media", "label": "Approved secondary media", "description": "Blend an optional second approved image or clip."},
+    {"id": "motion.signal_pulse", "kind": "motion", "label": "Signal pulse", "description": "Carry a recurring visual motif through the story."},
+    {"id": "motion.outage_map", "kind": "motion", "label": "Route map", "description": "Draw routes, propagation, and evidence pins."},
+    {"id": "motion.evidence_board", "kind": "motion", "label": "Evidence board", "description": "Connect approved photographs, documents, and labels."},
+    {"id": "motion.incident_timeline", "kind": "motion", "label": "Incident timeline", "description": "Relate dates, incidents, counters, and causes."},
+    {"id": "motion.radio_waveform", "kind": "motion", "label": "Reactive waveform", "description": "Visualize speech, signal, code, or a reveal."},
+    {"id": "motion.bilingual_captions", "kind": "caption", "label": "Bilingual captions", "description": "Use translated, word-timed speaker treatment."},
+    {"id": "motion.network_explainer", "kind": "motion", "label": "Network explainer", "description": "Show nodes, failure, order, and reconnection."},
+    {"id": "motion.storyengine_reveal", "kind": "motion", "label": "StoryEngine reveal", "description": "Converge request, approved plan, tracks, and master."},
+    {"id": "audio.motion_system", "kind": "audio", "label": "Motion audio", "description": "Coordinate pulse, data clicks, silence, ducking, and transitions."},
+)
+PUBLIC_ORCHESTRATION_CAPABILITY_IDS = frozenset(
+    capability["id"] for capability in PUBLIC_ORCHESTRATION_CAPABILITIES
+)
+
+
+class PlannerBeat(_StrictModel):
+    narrative_function: Literal[
+        "establish", "investigate", "humanize", "explain", "reveal", "transition"
+    ]
+    duration_weight: Decimal = Field(gt=0, le=1_000_000)
+    capability_ids: list[str] = Field(min_length=2, max_length=11)
+    media_kind: Literal["image", "video", "adaptive"]
+    dialogue: bool
+    captions: bool
+    intents: list[str] = Field(min_length=1, max_length=8)
+    energy: int = Field(ge=0, le=3)
+    handoff: str
+
+    @field_validator("capability_ids")
+    @classmethod
+    def validate_capability_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)) or not set(value).issubset(
+            PUBLIC_ORCHESTRATION_CAPABILITY_IDS
+        ):
+            raise ValueError("Unknown or duplicate orchestration capability")
+        if "media.approved_primary" not in value:
+            raise ValueError("Every beat requires approved primary media")
+        if "audio.motion_system" not in value:
+            raise ValueError("Every beat requires coordinated motion audio")
+        return value
+
+    @field_validator("intents")
+    @classmethod
+    def validate_intents(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)) or not set(value).issubset(ALLOWED_INTENTS):
+            raise ValueError("Unknown or duplicate orchestration intent")
+        return value
+
+    @field_validator("handoff")
+    @classmethod
+    def validate_handoff(cls, value: str) -> str:
+        if value not in ALLOWED_HANDOFFS:
+            raise ValueError("Unknown orchestration handoff")
+        return value
+
+    @model_validator(mode="after")
+    def validate_compatibility(self) -> "PlannerBeat":
+        has_bilingual = "motion.bilingual_captions" in self.capability_ids
+        if self.captions != has_bilingual:
+            raise ValueError(
+                "Caption signal and bilingual caption capability disagree"
+            )
+        if self.dialogue and not self.captions:
+            raise ValueError("Dialogue beats require an approved caption treatment")
+        if (
+            self.media_kind == "image"
+            and self.narrative_function == "humanize"
+            and self.dialogue
+        ):
+            raise ValueError(
+                "Dialogue-driven human beats require approved video or adaptive media"
+            )
+        return self
+
+
 class PlannerSection(_StrictModel):
     """The complete and deliberately small authority granted to the model."""
 
@@ -240,6 +324,7 @@ class PlannerSection(_StrictModel):
     structure_source: PUBLIC_SOURCE
     writing_source: PUBLIC_SOURCE
     visual_source: PUBLIC_SOURCE
+    beats: list[PlannerBeat] | None = Field(default=None, min_length=1, max_length=12)
 
     @field_validator("role")
     @classmethod
@@ -472,9 +557,17 @@ def _planner_prompt(
         "on a revision it may instead exactly reuse that section's prior focus. "
         "Never paraphrase or invent focus text. "
         "StoryEngine derives creator-facing purpose text from role + validated focus. "
+        "For every NEW plan, include ordered `beats`. Choose only capability IDs "
+        "from the provider-opaque public catalog; combine approved media, motion, "
+        "captions, and audio when the story benefits. Every beat must include "
+        "`media.approved_primary` and `audio.motion_system`; use secondary media "
+        "and multiple motion capabilities when compositionally useful. Signals "
+        "describe narrative content, never provider/model internals. "
         "Use two to six purposeful sections unless the creator clearly asks for a "
         "different count.\n\n"
         f"PUBLIC SOURCES:\n{canonical_json(sources)}\n\n"
+        f"ORCHESTRATION CAPABILITY CATALOG ({CAPABILITY_CATALOG_VERSION}):\n"
+        f"{canonical_json(PUBLIC_ORCHESTRATION_CAPABILITIES)}\n\n"
         f"JSON SCHEMA:\n{canonical_json(planner_json_schema())}\n\n"
         f"CREATOR REQUEST:\n{user_request.strip()}"
         f"{prior_context}"

@@ -8,20 +8,119 @@ import {CropSafeColumn} from "../motion-library/CropSafe";
 import {COLORS, FONT_FAMILY} from "../motion-library/theme";
 import {signalPulseCycleFrame, signalPulseEnergy} from "../motion-library/contracts";
 import {SHOWCASE_REQUEST} from "./manifest";
+import type {LayeredSceneRecipe} from "./orchestration";
 import {MARA_MEASURED_WORDS, MARA_RESPONSE_WORDS, activeAbsoluteWord, showcasePulseFrame} from "./timing";
 
-type Cue = {
-  readonly id: string;
-  readonly from: number;
-  readonly to: number;
-  readonly primitive: string;
-};
+type Cue = LayeredSceneRecipe;
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
+const MotionIngredient: React.FC<{
+  layer: LayeredSceneRecipe["motionLayers"][number];
+  recipe: LayeredSceneRecipe;
+  progress: number;
+}> = ({layer, recipe, progress}) => {
+  const energy = recipe.signals.energy / 3;
+  const safeInset = layer.safeZone === "center-critical" ? 150 : 0;
+  const shell: React.CSSProperties = {
+    position: "absolute",
+    inset: `0 ${safeInset}px`,
+    zIndex: layer.zIndex,
+    mixBlendMode: layer.blend,
+    opacity: layer.intensity,
+  };
+  if (layer.primitive === "SignalPulse") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><SignalPulse compact phase={recipe.sectionIndex}/></div>;
+  }
+  if (layer.primitive === "MotionAudioSystem") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><div style={{position:"absolute",right:4,top:72,display:"flex",alignItems:"end",gap:3,height:26}}>{[.35,.7,.48,1,.62,.82].map((height,index)=><div key={index} style={{width:3,height:`${Math.max(8,height*energy*26)}px`,background:recipe.audio.silenceDrop?"#263238":COLORS.turquoise}}/>)}</div></div>;
+  }
+  if (layer.primitive === "MediaKinetics") {
+    return (
+      <div data-motion-ingredient={layer.primitive} style={shell}>
+        <div
+          style={{
+            position: "absolute",
+            inset: 70,
+            border: `1px solid rgba(45,226,208,${0.12 + energy * 0.16})`,
+            transform: `scale(${0.985 + progress * 0.015})`,
+            transformOrigin: "center",
+          }}
+        />
+      </div>
+    );
+  }
+  const common = {position: "absolute" as const, inset: 0};
+  if (layer.primitive === "OutageMap") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><svg width="100%" height="100%" viewBox="0 0 1620 1080" style={common}><path d="M130 650 C370 420 570 720 810 490 S1170 690 1460 440" fill="none" stroke={COLORS.turquoise} strokeWidth={3+energy*3} pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/></svg></div>;
+  }
+  if (layer.primitive === "EvidenceBoard") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><svg width="100%" height="100%" viewBox="0 0 1620 1080" style={common}>{[0,1,2].map(index=><g key={index}><rect x={1170+index*105} y={250+index*70} width="94" height="68" fill="#0b191e" stroke={COLORS.amber}/><path d={`M810 530 L${1170+index*105} ${284+index*70}`} stroke={COLORS.amber} strokeWidth="2"/></g>)}</svg></div>;
+  }
+  if (layer.primitive === "IncidentTimeline") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><svg width="100%" height="100%" viewBox="0 0 1620 1080" style={common}><path d="M280 790 H1340" stroke={COLORS.turquoise} strokeWidth="3"/>{[370,810,1250].map(x=><circle key={x} cx={x} cy="790" r={8+progress*7} fill={COLORS.turquoise}/>)}</svg></div>;
+  }
+  if (layer.primitive === "RadioWaveform") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><svg width="100%" height="100%" viewBox="0 0 1620 1080" style={common}><path d="M200 540 L270 540 300 470 340 640 380 505 420 575 460 540 H610" fill="none" stroke={COLORS.turquoise} strokeWidth={3+energy*3}/></svg></div>;
+  }
+  if (layer.primitive === "NetworkExplainer") {
+    const productSafeNodes = recipe.signals.intents.includes("product")
+      ? [[90,230],[1530,230],[90,790],[1530,790]]
+      : [[570,400],[810,310],[1050,400],[810,600]];
+    return <div data-motion-ingredient={layer.primitive} data-product-safe={recipe.signals.intents.includes("product")} style={shell}><svg width="100%" height="100%" viewBox="0 0 1620 1080" style={common}>{productSafeNodes.map(([x,y],index)=><circle key={index} cx={x} cy={y} r="14" fill={recipe.signals.intents.includes("product")?COLORS.turquoise:progress>=index/4?COLORS.turquoise:COLORS.red}/>)}</svg></div>;
+  }
+  if (layer.primitive === "StoryEngineReveal") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><svg width="100%" height="100%" viewBox="0 0 1620 1080" style={common}><path d="M270 835 C550 835 610 900 810 900 S1070 835 1350 835" fill="none" stroke={COLORS.turquoise} strokeWidth={3+progress*5}/></svg></div>;
+  }
+  if (layer.primitive === "BilingualCaptions") {
+    return <div data-motion-ingredient={layer.primitive} style={shell}><div style={{position:"absolute",left:520,right:520,bottom:120,height:3,background:COLORS.amber,transform:`scaleX(${.4+.6*progress})`}}/></div>;
+  }
+  return null;
+};
+
+const TransformationThread: React.FC<{
+  recipe: LayeredSceneRecipe;
+  absoluteFrame: number;
+}> = ({recipe, absoluteFrame}) => {
+  const progress = clamp(
+    (absoluteFrame - recipe.from) / Math.max(1, recipe.durationInFrames - 1),
+  );
+  const energy = recipe.signals.energy / 3;
+  const handoffColor = recipe.signals.handoff.includes("network")
+    ? COLORS.amber
+    : COLORS.turquoise;
+  return (
+    <AbsoluteFill
+      data-layered-recipe={recipe.id}
+      data-layer-count={recipe.motionLayers.length}
+      data-media-primary={recipe.media.primary}
+      data-media-secondary={recipe.media.secondary}
+      data-camera={recipe.camera.mode}
+      data-audio-treatment={JSON.stringify(recipe.audio)}
+      style={{pointerEvents: "none", zIndex: 70}}
+    >
+      <svg width="1920" height="1080" viewBox="0 0 1920 1080" style={{position:"absolute",inset:0,zIndex:1,mixBlendMode:"screen"}}>
+        <path
+          d="M 150 94 C 470 94, 510 188, 790 188 S 1110 94, 1450 94 S 1670 188, 1770 188"
+          fill="none"
+          stroke={handoffColor}
+          strokeWidth={2 + energy * 3}
+          pathLength="1"
+          strokeDasharray="1"
+          strokeDashoffset={1 - progress}
+          opacity={0.34 + energy * 0.35}
+        />
+      </svg>
+      {[...recipe.motionLayers]
+        .sort((left, right) => left.zIndex - right.zIndex)
+        .map((layer) => <MotionIngredient key={layer.primitive} layer={layer} recipe={recipe} progress={progress}/>)}
+    </AbsoluteFill>
+  );
+};
+
 const BoundaryView: React.FC<{cue: Cue}> = ({cue}) => {
   const local = useCurrentFrame();
-  const isFade = cue.id.endsWith("-fade");
+  const isFade = cue.transition.mode === "fade";
   const section = cue.id.split("-")[0].toUpperCase();
   const blackOpacity = isFade ? 1 - local / 11 : local / 11;
   return (
@@ -197,80 +296,94 @@ const FinalReveal: React.FC<{absoluteFrame:number}> = ({absoluteFrame}) => {
   </PrimitiveFrame>;
 };
 
-export const ShowcaseCueScene: React.FC<{cue: Cue}> = ({cue}) => {
-  const localFrame=useCurrentFrame();
-  const absoluteFrame=cue.from+localFrame;
-  switch (cue.primitive) {
+const GenericLayeredBeat: React.FC<{
+  cue: LayeredSceneRecipe;
+  absoluteFrame: number;
+}> = ({cue, absoluteFrame}) => {
+  const progress = clamp(
+    (absoluteFrame - cue.from) / Math.max(1, cue.durationInFrames - 1),
+  );
+  const kicker = cue.signals.intents.join(" · ");
+  const title = cue.narrativeFunction
+    ? cue.narrativeFunction
+    : cue.signals.dialogue
+      ? "A human voice changes the picture"
+      : cue.presentation === "StoryEngineReveal"
+      ? "Every production lane becomes one film"
+      : cue.presentation === "NetworkExplainer"
+        ? "The system reveals its order"
+        : "The evidence moves the story forward";
+  let visual: React.ReactNode;
+  if (cue.presentation === "OutageMap") {
+    visual = <svg style={{position:"absolute",left:300,top:230}} width="1320" height="520" viewBox="0 0 1320 520"><rect width="1320" height="520" rx="24" fill="rgba(3,15,19,.58)" stroke="#315059"/><path d="M120 350 C320 90 520 410 700 180 S980 390 1190 210" fill="none" stroke={COLORS.turquoise} strokeWidth="7" pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>{[[120,350],[410,250],[700,180],[980,310],[1190,210]].map(([x,y],index)=><circle key={index} cx={x} cy={y} r="10" fill={progress>=index/5?COLORS.amber:"#274047"}/>)}</svg>;
+  } else if (cue.presentation === "EvidenceBoard") {
+    visual = <div style={{position:"absolute",left:350,right:350,top:235,height:500}}>{[0,1,2].map(index=><div key={index} style={{position:"absolute",left:80+index*300,top:40+(index%2)*100,width:250,height:320,transform:`rotate(${index*4-4}deg) scale(${.92+progress*.08})`,background:"rgba(226,216,190,.82)",border:"8px solid rgba(245,237,215,.72)",boxShadow:"0 20px 50px rgba(0,0,0,.35)"}}><div style={{height:110,margin:18,background:"#26383c"}}/><div style={{height:7,margin:18,background:COLORS.amber}}/><div style={{height:5,margin:18,background:"#556669"}}/></div>)}</div>;
+  } else if (cue.presentation === "IncidentTimeline") {
+    visual = <svg style={{position:"absolute",left:300,top:300}} width="1320" height="400" viewBox="0 0 1320 400"><path d="M80 200 H1240" stroke="#29454b" strokeWidth="5"/><path d="M80 200 H1240" stroke={COLORS.turquoise} strokeWidth="5" pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/>{[180,650,1140].map((x,index)=><g key={x} opacity={progress>=index/3?1:.18}><circle cx={x} cy="200" r="16" fill={COLORS.amber}/><path d={`M${x} 170 V90`} stroke={COLORS.amber} strokeWidth="3"/></g>)}</svg>;
+  } else if (cue.presentation === "RadioWaveform" || cue.presentation === "BilingualCaptions") {
+    visual = <CropSafeColumn top={300} bottom={330} style={{background:"rgba(3,15,19,.58)",borderLeft:`5px solid ${COLORS.amber}`,display:"grid",placeItems:"center"}}><svg width="520" height="150" viewBox="0 0 520 150"><path d="M0 75 H80 L110 20 145 132 185 42 225 100 260 75 H520" fill="none" stroke={COLORS.turquoise} strokeWidth="6" pathLength="1" strokeDasharray="1" strokeDashoffset={1-progress}/></svg>{cue.signals.captions&&<div style={{fontSize:24,color:COLORS.cream,textAlign:"center"}}>VOICE / VOZ · {Math.round(progress*100)}%</div>}</CropSafeColumn>;
+  } else if (cue.presentation === "NetworkExplainer") {
+    visual = <svg style={{position:"absolute",left:620,top:230}} width="680" height="520" viewBox="0 0 680 520"><path d="M100 150 L340 70 580 150 340 430 Z" fill="none" stroke={COLORS.turquoise} strokeWidth="5"/>{[[100,150],[340,70],[580,150],[340,430]].map(([x,y],index)=><circle key={index} cx={x} cy={y} r="38" fill={progress>=(index+1)/4?COLORS.turquoise:COLORS.red}/>)}</svg>;
+  } else if (cue.presentation === "StoryEngineReveal") {
+    visual = <CropSafeColumn top={250} bottom={300}>{[0,1,2,3].map(index=><div key={index} style={{height:62,marginBottom:18,width:`${76+index*7}%`,background:"rgba(10,38,44,.78)",borderLeft:`5px solid ${index===2?COLORS.amber:COLORS.turquoise}`}}/>)}<div style={{height:6,width:`${progress*100}%`,background:COLORS.turquoise,boxShadow:`0 0 ${progress*32}px ${COLORS.turquoise}`}}/></CropSafeColumn>;
+  } else {
+    visual = <CropSafeColumn top={235} bottom={285} style={{background:"radial-gradient(circle at 50% 48%,rgba(45,226,208,.24),rgba(3,10,13,.48) 55%)",border:"1px solid #315059",transform:`scale(${1+progress*.035})`}}><div/></CropSafeColumn>;
+  }
+  return <PrimitiveFrame kicker={kicker} title={title} mediaAware>{visual}</PrimitiveFrame>;
+};
+
+const ShowcaseRecipePresentation: React.FC<{
+  cue: LayeredSceneRecipe;
+  absoluteFrame: number;
+}> = ({cue, absoluteFrame}) => {
+  if (cue.id.includes(":beat:")) {
+    return <GenericLayeredBeat cue={cue} absoluteFrame={absoluteFrame}/>;
+  }
+  switch (cue.presentation) {
     case "Boundary":
       return <BoundaryView cue={cue}/>;
     case "CinematicOpening":
-    case "SignalPulse":
-    case "MotionAudioSystem":
-      if (cue.id.startsWith("opening-")) {
-        return <OpeningView cue={cue} absoluteFrame={absoluteFrame}/>;
-      }
-      break;
+      return <OpeningView cue={cue} absoluteFrame={absoluteFrame}/>;
     case "OutageMap":
-      if (cue.id === "evidence-map") {
-        return <ShowcaseMap absoluteFrame={absoluteFrame}/>;
-      }
-      break;
+      return <ShowcaseMap absoluteFrame={absoluteFrame}/>;
     case "EvidenceBoard":
-      if (cue.id === "evidence-board") {
-        return <EvidenceBoard timelineOffsetFrames={24}/>;
-      }
-      if (cue.id === "evidence-voice-packet") {
-        return <VoicePacket/>;
-      }
-      break;
+      if (cue.id === "evidence-voice-packet") return <VoicePacket/>;
+      return <EvidenceBoard timelineOffsetFrames={24}/>;
     case "IncidentTimeline":
-      if (cue.id === "evidence-timeline") {
-        return <ShowcaseTimeline absoluteFrame={absoluteFrame}/>;
-      }
-      break;
+      return <ShowcaseTimeline absoluteFrame={absoluteFrame}/>;
     case "BilingualCaptions":
-      if (cue.id === "witness-mara-intro") {
-        return <MaraPortrait label="Mara hears a familiar voice" sub="Emergency operator · bilingual witness"/>;
-      }
-      if (cue.id === "witness-measured-line") {
-        return <MeasuredCaption absoluteFrame={absoluteFrame}/>;
-      }
-      if (cue.id === "witness-reaction") {
-        return <MaraPortrait label="“That’s my brother.”" sub="The room insists the voice must be synthetic."/>;
-      }
-      if (cue.id === "witness-objection-response") {
-        return <MeasuredCaption absoluteFrame={absoluteFrame} response/>;
-      }
-      break;
+      if (cue.id === "witness-measured-line") return <MeasuredCaption absoluteFrame={absoluteFrame}/>;
+      if (cue.id === "witness-objection-response") return <MeasuredCaption absoluteFrame={absoluteFrame} response/>;
+      if (cue.id === "witness-reaction") return <MaraPortrait label="“That’s my brother.”" sub="The room insists the voice must be synthetic."/>;
+      return <MaraPortrait label="Mara hears a familiar voice" sub="Emergency operator · bilingual witness"/>;
     case "RadioWaveform":
-      if (cue.id === "witness-waveform-code") {
-        return <RadioWaveform/>;
-      }
-      if (cue.id === "witness-recovery-key") {
-        return <RecoveryKey/>;
-      }
-      break;
+      return cue.id === "witness-recovery-key" ? <RecoveryKey/> : <RadioWaveform/>;
     case "NetworkExplainer":
-      if (cue.id === "reveal-node-collapse") {
-        return <NetworkState absoluteFrame={absoluteFrame} reconnect={false}/>;
-      }
-      if (cue.id === "reveal-ordered-reconnect") {
-        return <NetworkState absoluteFrame={absoluteFrame} reconnect/>;
-      }
-      if (cue.id === "reveal-city-return") {
-        return <CityReturn absoluteFrame={absoluteFrame}/>;
-      }
-      break;
+      if (cue.id === "reveal-node-collapse") return <NetworkState absoluteFrame={absoluteFrame} reconnect={false}/>;
+      if (cue.id === "reveal-ordered-reconnect") return <NetworkState absoluteFrame={absoluteFrame} reconnect/>;
+      return <CityReturn absoluteFrame={absoluteFrame}/>;
     case "StoryEngineReveal":
-      if (cue.id === "reveal-pullback-timeline") {
-        return <PullbackTimeline absoluteFrame={absoluteFrame}/>;
-      }
-      if (cue.id.startsWith("reveal-")) {
-        return <FinalReveal absoluteFrame={absoluteFrame}/>;
-      }
-      break;
+      return cue.id === "reveal-pullback-timeline"
+        ? <PullbackTimeline absoluteFrame={absoluteFrame}/>
+        : <FinalReveal absoluteFrame={absoluteFrame}/>;
+    case "SignalPulse":
+      return <OpeningView cue={cue} absoluteFrame={absoluteFrame}/>;
+    default:
+      throw new Error(`Unsupported layered presentation: ${cue.presentation}/${cue.id}`);
   }
-  throw new Error(
-    `Unsupported StoryEngine motion cue: ${cue.primitive}/${cue.id}`,
+};
+
+export const ShowcaseCueScene: React.FC<{cue: LayeredSceneRecipe}> = ({cue}) => {
+  const localFrame=useCurrentFrame();
+  const absoluteFrame=cue.from+localFrame;
+  return (
+    <AbsoluteFill
+      data-recipe-id={cue.id}
+      data-recipe-primitives={cue.motionLayers.map(({primitive}) => primitive).join(",")}
+      style={{zIndex: 30}}
+    >
+      <ShowcaseRecipePresentation cue={cue} absoluteFrame={absoluteFrame}/>
+      <TransformationThread recipe={cue} absoluteFrame={absoluteFrame}/>
+    </AbsoluteFill>
   );
 };

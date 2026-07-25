@@ -18,6 +18,7 @@ const {
   compileShowcaseManifest,
   resolveShowcaseMediaSlots,
   stagedLocalPathForSourceKey,
+  validateLayeredCustomFilmProps,
   validateStoryEngineShowcaseProps,
 } = require("../.showcase-test-build/showcase/manifest.js");
 const {
@@ -27,16 +28,131 @@ const {
   SHOWCASE_PULSE_ANCHOR_FRAME,
   approvedCaptionOpacity,
   approvedMediaOpacity,
+  recipeBedGain,
+  recipeCaptionOpacity,
+  recipeMediaOpacity,
   showcasePulseFrame,
   showcaseBedGain,
 } = require("../.showcase-test-build/showcase/timing.js");
 const {signalPulseCycleFrame} = require("../.showcase-test-build/motion-library/contracts.js");
 const {canonicalJson, sha256Hex} = require("../.showcase-test-build/custom-film/canonical.js");
+const {
+  ORCHESTRATION_CONTRACT_VERSION,
+  DECISION_RULES_VERSION,
+  resolveLayeredSceneRecipe,
+  resolveShowcaseRecipes,
+} = require("../.showcase-test-build/showcase/orchestration.js");
 
 const rehashProps = (value) => {
   const {props_hash: _oldHash, ...body} = value;
   value.props_hash = sha256Hex(canonicalJson(body));
   return value;
+};
+
+const referenceOrchestration = () => {
+  const recipes = resolveShowcaseRecipes();
+  const semanticInput = {
+    capability_catalog_version: "storyengine-custom-film-capabilities-v1",
+    compatibility_version: "test",
+    total_duration_seconds: 300,
+    sections: [],
+  };
+  const resolvedPlan = {fps: 24, total_frames: 7200, recipes};
+  const body = {
+    contract_version: ORCHESTRATION_CONTRACT_VERSION,
+    decision_rules_version: DECISION_RULES_VERSION,
+    semantic_input: semanticInput,
+    semantic_input_hash: sha256Hex(canonicalJson(semanticInput)),
+    approved_beat_plan: resolvedPlan,
+    approved_beat_plan_hash: sha256Hex(canonicalJson(resolvedPlan)),
+    resolved_plan: resolvedPlan,
+    resolved_plan_hash: sha256Hex(canonicalJson(resolvedPlan)),
+    reference_compatible: true,
+    story_identity: "internet-outage-investigation-witness-recovery-storyengine",
+    signals_hash: sha256Hex(canonicalJson(recipes.map(({signals}) => signals))),
+    recipe_hash: sha256Hex(canonicalJson(recipes)),
+    reference_plan_version: ORCHESTRATION_CONTRACT_VERSION,
+  };
+  return {...body, contract_hash: sha256Hex(canonicalJson(body))};
+};
+
+const genericProps = (seconds = 7, role = "demonstration") => {
+  const props = JSON.parse(fs.readFileSync(
+    path.join(__dirname, "..", "test-fixtures", "custom-film-remotion-props-v1.json"),
+    "utf8",
+  ));
+  props.identity.assembly_version = "custom-film-assembly-v3";
+  props.identity.renderer_contract_version = "custom-film-remotion-renderer-v1";
+  props.identity.renderer_bundle_hash = "9".repeat(64);
+  const frames = seconds * 24;
+  props.video.total_duration_seconds = seconds;
+  props.video.total_frames = frames;
+  const section = props.sections[0];
+  section.role = role;
+  section.assets[0].caption_card = {
+    title: "Ceramic glazing",
+    sub: "Kiln study",
+    specs: ["Approved local source"],
+  };
+  section.assets[0].caption_hash = sha256Hex(
+    canonicalJson(section.assets[0].caption_card),
+  );
+  section.duration_frames = frames;
+  section.assets[0].duration_frames = frames;
+  section.assets[0].timing_transform.output_duration_ms = seconds * 1000;
+  section.audio.sources[0].source_duration_ms = seconds * 1000;
+  section.audio.timing_transform.source_duration_ms = seconds * 1000;
+  section.audio.timing_transform.output_duration_ms = seconds * 1000;
+  section.captions[0].section_end_ms = seconds * 1000;
+  section.captions[0].end_frame = frames;
+  section.captions[0].text =
+    "Ceramic glaze reaches its final color inside the kiln.";
+  section.captions[0].language = {
+    mode: "narration",
+    languages: ["en"],
+  };
+  const recipe = resolveLayeredSceneRecipe({
+    id: "section-1:beat:0",
+    section_index: 0,
+    from: 0,
+    to: frames - 1,
+    narrative_function: "Plate the finished meal",
+    signals: {
+      media_kind: "video",
+      dialogue: false,
+      captions: true,
+      intents: ["culinary", "demonstration"],
+      energy: 2,
+      handoff: "pulse",
+    },
+  });
+  const semanticInput = {
+    capability_catalog_version: "storyengine-custom-film-capabilities-v1",
+    compatibility_version: "generic-test",
+    total_duration_seconds: seconds,
+    sections: [],
+  };
+  const resolvedPlan = {fps: 24, total_frames: frames, recipes: [recipe]};
+  const orchestrationBody = {
+    contract_version: ORCHESTRATION_CONTRACT_VERSION,
+    decision_rules_version: DECISION_RULES_VERSION,
+    semantic_input: semanticInput,
+    semantic_input_hash: sha256Hex(canonicalJson(semanticInput)),
+    approved_beat_plan: resolvedPlan,
+    approved_beat_plan_hash: sha256Hex(canonicalJson(resolvedPlan)),
+    resolved_plan: resolvedPlan,
+    resolved_plan_hash: sha256Hex(canonicalJson(resolvedPlan)),
+    reference_compatible: false,
+    story_identity: sha256Hex(canonicalJson(semanticInput)),
+    signals_hash: sha256Hex(canonicalJson([recipe.signals])),
+    recipe_hash: sha256Hex(canonicalJson([recipe])),
+    reference_plan_version: null,
+  };
+  props.orchestration = {
+    ...orchestrationBody,
+    contract_hash: sha256Hex(canonicalJson(orchestrationBody)),
+  };
+  return rehashProps(props);
 };
 
 test("approved props lock exactly 300 seconds, 7200 frames, and four role boundaries", () => {
@@ -56,15 +172,52 @@ test("approved props lock exactly 300 seconds, 7200 frames, and four role bounda
   }
 });
 
-test("versioned cue compiler fills every inclusive frame exactly once", () => {
+test("non-flagship non-300s approved recipes execute without outage substitution", () => {
+  const props = genericProps();
+  const approved = validateLayeredCustomFilmProps(props);
+  const manifest = compileShowcaseManifest(approved);
+  assert.equal(approved.video.total_duration_seconds, 7);
+  assert.equal(approved.orchestration.reference_compatible, false);
+  assert.deepEqual(manifest.recipes.map(({id}) => id), ["section-1:beat:0"]);
+  assert.deepEqual(manifest.recipes[0].signals.intents, ["culinary", "demonstration"]);
+  assert.deepEqual(
+    manifest.recipes[0].motionLayers.map(({primitive}) => primitive),
+    ["SignalPulse", "MediaKinetics", "MotionAudioSystem", "BilingualCaptions"],
+  );
+  assert.equal(manifest.request, null);
+  assert.doesNotMatch(
+    canonicalJson({props, manifest}),
+    /Mara|OutageMap|EvidenceBoard|outage|internet|recovery|evidence moves/i,
+  );
+});
+
+test("generic timing beyond frame 443 never inherits flagship silence or role opacity", () => {
+  for (const role of ["case_study", "explanation"]) {
+    const props = genericProps(21, role);
+    const manifest = compileShowcaseManifest(props);
+    const recipe = manifest.recipes[0];
+    assert.equal(manifest.reference_authored_timing, false);
+    for (const frame of [384, 420, 443, 444, 503]) {
+      assert.ok(recipeBedGain(recipe, frame) > 0);
+      assert.ok(recipeMediaOpacity(recipe) > 0.6);
+      assert.equal(recipeCaptionOpacity(recipe), 1);
+    }
+    assert.doesNotMatch(
+      canonicalJson({props, manifest}),
+      /Mara|OutageMap|EvidenceBoard|outage|internet|recovery|evidence moves/i,
+    );
+  }
+});
+
+test("semantic decision compiler resolves layered recipes over every exact frame", () => {
   const manifest = compileShowcaseManifest(STORYENGINE_SHOWCASE_DEFAULT_PROPS);
   assert.equal(manifest.schema_version, SHOWCASE_MANIFEST_VERSION);
-  assert.equal(manifest.motion_plan_version, "storyengine-showcase-motion-plan-v1");
-  assert.equal(manifest.cues.length, 34);
-  const primitives = new Set([
-    ...manifest.motion_plan.global_primitives,
-    ...manifest.cues.map((cue) => cue.primitive),
-  ]);
+  assert.equal(manifest.orchestration_contract_version, ORCHESTRATION_CONTRACT_VERSION);
+  assert.equal(manifest.decision_rules_version, DECISION_RULES_VERSION);
+  assert.equal(manifest.recipes.length, 34);
+  const primitives = new Set(manifest.recipes.flatMap((recipe) =>
+    recipe.motionLayers.map(({primitive}) => primitive)
+  ));
   for (const primitive of [
     "SignalPulse",
     "OutageMap",
@@ -79,15 +232,34 @@ test("versioned cue compiler fills every inclusive frame exactly once", () => {
     assert.equal(primitives.has(primitive), true, `${primitive} is not scheduled`);
   }
   let frame = 0;
-  for (const cue of manifest.cues) {
+  for (const cue of manifest.recipes) {
     assert.equal(cue.from, frame);
     assert.equal(cue.durationInFrames, cue.to - cue.from + 1);
+    assert.ok(cue.motionLayers.length >= 2);
+    assert.equal(cue.media.primary, "approved-overlap");
+    assert.equal(cue.media.secondary, "approved-overlap-optional");
     const section = STORYENGINE_SHOWCASE_DEFAULT_PROPS.sections[cue.sectionIndex];
     assert.ok(cue.from >= section.start_frame);
     assert.ok(cue.to < section.start_frame + section.duration_frames);
     frame = cue.to + 1;
   }
   assert.equal(frame, 7200);
+});
+
+test("semantic mutations deterministically change behavior-bearing recipes", () => {
+  const original = resolveShowcaseRecipes()[9];
+  const mutated = resolveLayeredSceneRecipe({
+    id: original.id,
+    section_index: original.sectionIndex,
+    from: original.from,
+    to: original.to,
+    signals: {...original.signals, energy: 3, dialogue: true, captions: true},
+  });
+  assert.notEqual(canonicalJson(mutated), canonicalJson(original));
+  assert.equal(mutated.caption.mode, "bilingual-word-emphasis");
+  assert.equal(mutated.camera.mode, "reactive-push");
+  assert.equal(mutated.audio.dialogueDuck, 0.24);
+  assert.ok(mutated.motionLayers.some(({primitive}) => primitive === "BilingualCaptions"));
 });
 
 test("all authored Sequences premount and pulse receives the global timeline frame", () => {
@@ -106,8 +278,14 @@ test("all authored Sequences premount and pulse receives the global timeline fra
   const scene = fs.readFileSync(path.join(__dirname, "..", "src", "showcase", "ShowcaseScene.tsx"), "utf8");
   assert.match(scene, /signalPulseEnergy\(pulseFrame, 24\)/);
   assert.match(scene, /data-title-pulse-energy/);
-  assert.match(scene, /switch \(cue\.primitive\)/);
-  assert.match(scene, /Unsupported StoryEngine motion cue/);
+  assert.match(scene, /recipe\.motionLayers/);
+  assert.match(scene, /MotionIngredient/);
+  assert.match(scene, /\.sort\(\(left, right\) => left\.zIndex - right\.zIndex\)/);
+  assert.match(scene, /mixBlendMode: layer\.blend/);
+  assert.match(scene, /opacity: layer\.intensity/);
+  assert.match(scene, /Unsupported layered presentation/);
+  assert.match(scene, /data-product-safe/);
+  assert.match(scene, /productSafeNodes/);
   assert.match(scene, /titleStyle=\{\{opacity: absoluteFrame >= 7080 \? 0 : 1\}\}/);
 });
 
@@ -167,6 +345,7 @@ test("assembly v3 requires renderer contract and bundle identity while v2 remain
   v3.identity.assembly_version = "custom-film-assembly-v3";
   v3.identity.renderer_contract_version = "custom-film-remotion-renderer-v1";
   v3.identity.renderer_bundle_hash = "c".repeat(64);
+  v3.orchestration = referenceOrchestration();
   const {props_hash: _oldHash, ...v3Body} = v3;
   v3.props_hash = sha256Hex(canonicalJson(v3Body));
   assert.doesNotThrow(() => validateStoryEngineShowcaseProps(v3));
@@ -223,10 +402,11 @@ test("composition consumes approved visual, audio, and caption slots", () => {
   assert.equal(stagedSlots.filter((slot) => slot.kind === "visual").length, 2);
   assert.equal(stagedSlots.filter((slot) => slot.kind === "audio" && !slot.sourceKey.startsWith("synthetic:")).length, 1);
   const composition = fs.readFileSync(path.join(__dirname, "..", "src", "showcase", "StoryEngineCustomFilmShowcase.tsx"), "utf8");
-  assert.match(composition, /ApprovedMediaLayer slots=\{manifest\.media_slots\}/);
-  assert.match(composition, /ApprovedCaptionLayer sections=\{input\.sections\}/);
+  assert.match(composition, /ApprovedMediaLayer[\s\S]*slots=\{manifest\.media_slots\}/);
+  assert.match(composition, /ApprovedCaptionLayer[\s\S]*sections=\{input\.sections\}/);
   const mediaSource = fs.readFileSync(path.join(__dirname, "..", "src", "showcase", "ApprovedMedia.tsx"), "utf8");
   for (const token of ["<Img", "<OffthreadVideo", "<Audio", "caption.text", "data-approved-source-key"]) assert.match(mediaSource, new RegExp(token.replace("<", "\\<")));
+  assert.match(mediaSource, /pointerEvents: "none", zIndex: 100/);
 
   for (const slot of stagedSlots) {
     if (slot.kind === "procedural" || slot.sourceKey.startsWith("synthetic:")) continue;

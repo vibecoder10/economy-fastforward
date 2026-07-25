@@ -19,6 +19,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import math
 import shutil
 import tempfile
 import textwrap
@@ -404,6 +405,7 @@ def build_assembly_manifest(
     height: int = 1080,
     render_engine: str = "ffmpeg",
     assembly_version: str = ASSEMBLY_VERSION,
+    orchestration_contract: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an immutable JSON-safe exact-frame assembly manifest.
 
@@ -1082,6 +1084,12 @@ def build_assembly_manifest(
                     REMOTION_RENDERER_CONTRACT_VERSION
                 ),
                 "renderer_bundle_hash": renderer_bundle_hash(),
+                "orchestration_contract": copy.deepcopy(
+                    _mapping(
+                        orchestration_contract,
+                        "approved orchestration contract",
+                    )
+                ),
             }
         )
     body["manifest_hash"] = canonical_hash(body)
@@ -1104,15 +1112,37 @@ async def _run(command: list[str]) -> None:
         )
 
 
+def authoritative_probe_frame_count(
+    video_stream: Mapping[str, Any],
+    *,
+    frame_rate: Fraction,
+    duration_seconds: float | None,
+) -> tuple[int | None, str | None]:
+    """Resolve exact frames from stream metadata without trusting container time."""
+    raw_frames = video_stream.get("nb_frames")
+    if str(raw_frames or "").isdigit():
+        return int(raw_frames), "nb_frames"
+    counted_frames = video_stream.get("nb_read_frames")
+    if str(counted_frames or "").isdigit():
+        return int(counted_frames), "nb_read_frames"
+    if duration_seconds is not None and frame_rate > 0:
+        derived = duration_seconds * float(frame_rate)
+        if abs(derived - round(derived)) <= 1e-6:
+            return round(derived), "duration_ts"
+    return None, None
+
+
 async def probe_media(path: Path) -> dict[str, Any]:
     proc = await asyncio.create_subprocess_exec(
         "ffprobe",
         "-v",
         "error",
+        "-count_frames",
         "-show_entries",
         (
             "format=duration:"
-            "stream=codec_type,width,height,nb_frames,avg_frame_rate,r_frame_rate:"
+            "stream=codec_type,width,height,duration,duration_ts,time_base,"
+            "nb_frames,nb_read_frames,avg_frame_rate,r_frame_rate:"
             "stream_tags=language"
         ),
         "-of",
@@ -1140,15 +1170,50 @@ async def probe_media(path: Path) -> dict[str, Any]:
             frame_rate = Fraction(fallback_rate)
         except (ValueError, ZeroDivisionError):
             frame_rate = Fraction(0, 1)
+    def stream_duration(stream: Mapping[str, Any]) -> float | None:
+        raw = stream.get("duration")
+        if raw not in (None, "", "N/A"):
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                value = -1
+            if math.isfinite(value) and value >= 0:
+                return value
+        duration_ts = stream.get("duration_ts")
+        time_base = stream.get("time_base")
+        if duration_ts not in (None, "", "N/A") and time_base not in (
+            None, "", "N/A",
+        ):
+            try:
+                numerator, denominator = str(time_base).split("/", 1)
+                value = int(duration_ts) * int(numerator) / int(denominator)
+            except (TypeError, ValueError, ZeroDivisionError):
+                return None
+            if math.isfinite(value) and value >= 0:
+                return value
+        return None
+    video_duration = stream_duration(video)
+    frame_count, frame_count_source = authoritative_probe_frame_count(
+        video,
+        frame_rate=frame_rate,
+        duration_seconds=video_duration,
+    )
     return {
         "duration_seconds": float(data["format"]["duration"]),
+        "container_duration_seconds": float(data["format"]["duration"]),
+        "video_duration_seconds": video_duration,
+        "audio_duration_seconds": next(
+            (
+                stream_duration(row)
+                for row in streams
+                if row.get("codec_type") == "audio"
+            ),
+            None,
+        ),
         "width": video.get("width"),
         "height": video.get("height"),
-        "frame_count": (
-            int(video["nb_frames"])
-            if str(video.get("nb_frames") or "").isdigit()
-            else None
-        ),
+        "frame_count": frame_count,
+        "frame_count_source": frame_count_source,
         "fps": (
             frame_rate.numerator
             if frame_rate.denominator == 1
@@ -1170,6 +1235,41 @@ async def probe_media(path: Path) -> dict[str, Any]:
             if row.get("codec_type") == "subtitle"
         ],
     }
+
+
+# AAC priming plus the final padded packet can extend an MP4 container by at
+# most two 1024-sample packets after the video stream has ended.
+_FINAL_CONTAINER_PADDING_SECONDS = (2 * 1024 / 48_000) + 0.004
+
+
+def probe_has_exact_video_identity(
+    probe: Mapping[str, Any],
+    *,
+    total_frames: int,
+    fps: int,
+    width: int,
+    height: int,
+) -> bool:
+    """Keep video truth exact while bounding container/audio packet padding."""
+    expected_seconds = total_frames / fps
+    video_duration = probe.get("video_duration_seconds")
+    if video_duration is None and probe.get("frame_count") == total_frames:
+        video_duration = expected_seconds
+    container_duration = probe.get(
+        "container_duration_seconds", probe.get("duration_seconds")
+    )
+    return (
+        probe.get("frame_count") == total_frames
+        and probe.get("width") == width
+        and probe.get("height") == height
+        and _probe_has_exact_fps(probe, fps)
+        and video_duration is not None
+        and abs(float(video_duration) - expected_seconds) <= 1e-6
+        and container_duration is not None
+        and float(container_duration) + 0.002 >= expected_seconds
+        and float(container_duration) - expected_seconds
+        <= _FINAL_CONTAINER_PADDING_SECONDS
+    )
 
 
 def _probe_has_exact_fps(probe: Mapping[str, Any], expected_fps: int) -> bool:
@@ -1729,11 +1829,13 @@ async def render_local_manifest(
         if (
             not probe["has_video"]
             or not probe["has_audio"]
-            or probe["width"] != width
-            or probe["height"] != height
-            or probe["frame_count"] != total_frames
-            or not _probe_has_exact_fps(probe, fps)
-            or abs(probe["duration_seconds"] - expected_seconds) > (1 / fps + 0.002)
+            or not probe_has_exact_video_identity(
+                probe,
+                total_frames=total_frames,
+                fps=fps,
+                width=width,
+                height=height,
+            )
         ):
             raise CustomFilmContractError(
                 "Custom Film final artifact failed exact duration/stream probe"
@@ -1830,18 +1932,19 @@ async def _validate_local_render_result(
         )
     probe = await probe_media(output_path)
     if (
-        probe["frame_count"] != manifest["total_frames"]
-        or probe["width"] != manifest["width"]
-        or probe["height"] != manifest["height"]
-        or not _probe_has_exact_fps(probe, int(manifest["fps"]))
-        or not probe["has_video"]
+        not probe["has_video"]
         or not probe["has_audio"]
         or (
             bool(expected_captions)
             and not probe["has_subtitles"]
         )
-        or abs(probe["duration_seconds"] - expected_seconds)
-        > (1 / int(manifest["fps"]) + 0.002)
+        or not probe_has_exact_video_identity(
+            probe,
+            total_frames=int(manifest["total_frames"]),
+            fps=int(manifest["fps"]),
+            width=int(manifest["width"]),
+            height=int(manifest["height"]),
+        )
     ):
         raise CustomFilmContractError(
             "Custom Film local renderer artifact failed exact media probe"
@@ -1979,7 +2082,7 @@ async def _load_current_inputs(
                 aspect_ratio, resolution
             )
             plan_record = await conn.fetchrow(
-                """SELECT quote_inputs, quote_inputs_hash
+                """SELECT plan, quote_inputs, quote_inputs_hash
                    FROM custom_film_plans
                    WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                      AND id = $3::uuid""",
@@ -2006,23 +2109,39 @@ async def _load_current_inputs(
                     "Custom Film approved quote identity changed"
                 )
             finishing_canvas = quote_inputs.get("finishing_canvas")
+            orchestration_contract = None
+            if quote_inputs.get("orchestration") is not None:
+                from custom_film_orchestration import validate_approved_orchestration
+                orchestration_contract = validate_approved_orchestration(
+                    quote_inputs.get("orchestration"),
+                    _mapping(plan_record["plan"], "approved Custom Film plan"),
+                    quote_inputs,
+                )
             exact_finishing_canvas = {
                 "engine": "remotion",
-                "motion_plan_version": "storyengine-showcase-motion-plan-v1",
+                "orchestration_contract_version": "storyengine-layered-orchestration-v1",
+                "decision_rules_version": "storyengine-layered-recipe-rules-v1",
                 "aspect_ratio": "16:9",
                 "width": 1920,
                 "height": 1080,
                 "fps": 24,
+                "orchestration_contract_hash": orchestration_contract["contract_hash"] if orchestration_contract else None,
+                "story_identity": orchestration_contract["story_identity"] if orchestration_contract else None,
+                "recipe_hash": orchestration_contract["recipe_hash"] if orchestration_contract else None,
             }
             # Source clips keep their approved generation tier (normally
-            # 720p). Only a separately approved and hash-bound delivery canvas
-            # may promote the exact flagship to 1080p Remotion finishing.
-            from custom_film_remotion import is_storyengine_showcase_runtime
-
+            # 720p). A separately approved and hash-bound delivery canvas may
+            # promote any exact resolved beat plan to Remotion finishing.
             if (
                 aspect_ratio == "16:9"
                 and finishing_canvas == exact_finishing_canvas
-                and is_storyengine_showcase_runtime(envelope)
+                and orchestration_contract is not None
+                and isinstance(
+                    orchestration_contract.get("resolved_plan"), dict
+                )
+                and bool(
+                    orchestration_contract["resolved_plan"].get("recipes")
+                )
             ):
                 output_dimensions = (1920, 1080)
                 remotion_finishing_bound = True
@@ -2139,6 +2258,7 @@ async def _load_current_inputs(
         "output_width": output_dimensions[0],
         "output_height": output_dimensions[1],
         "remotion_finishing_bound": remotion_finishing_bound,
+        "orchestration_contract": orchestration_contract,
     }
 
 
@@ -2192,17 +2312,16 @@ async def verify_stored_artifact(
     readback_path.write_bytes(stored_bytes)
     stored_probe = await probe_media(readback_path)
     if (
-        stored_probe["frame_count"] != manifest["total_frames"]
-        or stored_probe["width"] != manifest["width"]
-        or stored_probe["height"] != manifest["height"]
-        or not _probe_has_exact_fps(stored_probe, int(manifest["fps"]))
-        or not stored_probe["has_video"]
+        not stored_probe["has_video"]
         or not stored_probe["has_audio"]
         or (bool(manifest["sections"]) and not stored_probe["has_subtitles"])
-        or abs(
-            stored_probe["duration_seconds"]
-            - manifest["total_frames"] / manifest["fps"]
-        ) > (1 / manifest["fps"] + 0.002)
+        or not probe_has_exact_video_identity(
+            stored_probe,
+            total_frames=int(manifest["total_frames"]),
+            fps=int(manifest["fps"]),
+            width=int(manifest["width"]),
+            height=int(manifest["height"]),
+        )
     ):
         raise CustomFilmRetryableError(
             "Custom Film stored artifact readback media probe does not match"
@@ -2297,9 +2416,7 @@ async def render_custom_film_video(
                 inputs["envelope"],
                 width=inputs["output_width"],
                 height=inputs["output_height"],
-                remotion_finishing_bound=bool(
-                    inputs.get("remotion_finishing_bound")
-                ),
+                orchestration_contract=inputs.get("orchestration_contract"),
             )
             if automatic_policy
             else render_engine
@@ -2329,6 +2446,7 @@ async def render_custom_film_video(
         height=inputs["output_height"],
         render_engine=selected_render_engine,
         assembly_version=selected_assembly_version,
+        orchestration_contract=inputs.get("orchestration_contract"),
     )
     if existing and str(existing["state"]) == "finalized":
         if (
@@ -2408,6 +2526,7 @@ async def render_custom_film_video(
             height=inputs["output_height"],
             render_engine=selected_render_engine,
             assembly_version=selected_assembly_version,
+            orchestration_contract=inputs.get("orchestration_contract"),
         )
         manifest_hash = manifest["manifest_hash"]
         runtime_hash = manifest["runtime_hash"]

@@ -1,5 +1,42 @@
 # System State — Economy FastForward
 
+## Custom Film general layered orchestration (M6 local, 2026-07-24)
+
+- `storyengine/backend/custom_film_orchestration.py` owns the versioned,
+  provider-opaque connector catalog, approved semantic beat signals, deterministic
+  recipe resolver, and shared executable validator. Recipes are driven by media kind,
+  dialogue/captions, evidence/map/timeline/network/product intent, energy, and handoff;
+  the outage showcase is one reference result, not a hard-coded planner mode.
+- Sections remain narrative timing boundaries. Each beat may combine approved primary
+  or secondary media, `SignalPulse`, `MediaKinetics`, additional semantic motion
+  systems, camera treatment, Unicode captions, transitions, and frame-driven audio at
+  the same time. The pulse transforms through route/connector, waveform/key,
+  network, and final master-line states instead of resetting into technology-owned
+  sections.
+- The same fail-closed validator governs compiler output, the creator-safe approval
+  blueprint, runtime renderer selection, and renderer props. Supported approved
+  1920x1080/24fps recipes select assembly v3 Remotion; legacy/no-recipe or unsupported
+  canvases retain the FFmpeg compositor. The exact flagship authored cue components
+  activate only for the approved reference identity; generic recipes use their own
+  timing, media, captions, and audio.
+- The local renderer captures lossless PNGs and WAV, validates every decoded frame and
+  the complete PCM waveform, records ordered frame/WAV SHA-256 manifests in a private
+  identity-bound cache, and reuses that cache only after retryable delivery failures.
+  Terminal contract failures clean it. FFmpeg uses an explicit final-frame-aware concat
+  manifest plus fixed filter-graph state so mixed RGB/RGBA PNGs cannot reset timestamps
+  or truncate delivery.
+- General execution is proven with an unrelated ceramic-story fixture at 1920x1080/24.
+  The full no-provider reference master is exactly 300.000 seconds, 7,200 frames,
+  1920x1080 at 24fps with AAC stereo and Unicode subtitles; SHA-256
+  `cf74cebcdb79b61ecac168529220ddf46570140b94884a4e52ddc256342bec0f`.
+  Wide and centered 9:16 contacts plus every second from 4:45–5:00 passed direct and
+  independent creative review. Backend Custom Film tests pass 348/348; Remotion tests
+  pass 34/34; frontend typecheck and the 34-route production build pass.
+- M6 is not deployed. The production host remains on accepted M5 behavior until Ryan
+  separately authorizes pushing this isolated branch and the zero-active-work
+  `--with-frontend --with-remotion` activation. No provider call or paid flagship
+  footage exists; the refreshed pre-script estimate remains $5.57 under a hard $15 cap.
+
 ## Custom Film flagship Remotion production activation (M5, 2026-07-24)
 
 - `remotion-video/src/showcase/motion-plan-v1.json` is the shared, versioned

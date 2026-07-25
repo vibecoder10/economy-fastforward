@@ -3135,6 +3135,19 @@ export interface ChatCustomFilmTotals {
   max_spend: number;
   headroom: number;
 }
+export interface ChatCustomFilmOrchestrationBeat {
+  section_order: number;
+  beat_order: number;
+  narrative_label: string;
+  start_seconds: number;
+  duration_seconds: number;
+  media_kind: string;
+  capability_labels: string[];
+  transformation_summary?: string | null;
+  camera_summary?: string | null;
+  captions_summary?: string | null;
+  audio_summary?: string | null;
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -3176,6 +3189,10 @@ export interface ChatCard {
   // approval. Provider/model internals are deliberately absent.
   custom_film_sections?: ChatCustomFilmSection[];
   custom_film_totals?: ChatCustomFilmTotals;
+  // Optional M6 director's blueprint. Every row describes one approved,
+  // time-bound composition of media + public creative capabilities. Older
+  // payloads omit it and retain the established section-only approval card.
+  custom_film_orchestration_beats?: ChatCustomFilmOrchestrationBeat[];
   approval_notice?: string;
   finishing_engine?: "remotion" | "ffmpeg";
   finishing_notice?: string;

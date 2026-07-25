@@ -9,7 +9,7 @@ import {
     STORYENGINE_SHOWCASE_SOURCE_CLIP_PROOF_PROPS,
     STORYENGINE_SHOWCASE_STAGED_PROOF_PROPS,
 } from "./showcase/fixture";
-import {validateStoryEngineShowcaseProps} from "./showcase/manifest";
+import {validateLayeredCustomFilmProps, validateStoryEngineShowcaseProps} from "./showcase/manifest";
 
 const FPS = 24;
 // Buffer after last spoken word to let audio trail off naturally
@@ -91,12 +91,12 @@ export const RemotionRoot: React.FC = () => {
                 height={1080}
                 defaultProps={STORYENGINE_SHOWCASE_DEFAULT_PROPS}
                 calculateMetadata={({props}) => {
-                    validateStoryEngineShowcaseProps(props);
+                    const approved = validateLayeredCustomFilmProps(props);
                     return {
-                        durationInFrames: 7200,
-                        fps: 24,
-                        width: 1920,
-                        height: 1080,
+                        durationInFrames: approved.video.total_frames,
+                        fps: approved.video.fps,
+                        width: approved.video.width,
+                        height: approved.video.height,
                     };
                 }}
             />

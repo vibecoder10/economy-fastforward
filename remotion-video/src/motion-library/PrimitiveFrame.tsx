@@ -8,11 +8,14 @@ export const PrimitiveFrame: React.FC<{
   kicker: string;
   children: React.ReactNode;
   titleStyle?: React.CSSProperties;
-}> = ({title, kicker, children, titleStyle}) => (
+  mediaAware?: boolean;
+}> = ({title, kicker, children, titleStyle, mediaAware = false}) => (
   <AbsoluteFill
     style={{
       background:
-        "radial-gradient(circle at 72% 18%, #10343b 0%, #071216 32%, #04080b 72%)",
+        mediaAware
+          ? "radial-gradient(circle at 72% 18%, rgba(16,52,59,.36) 0%, rgba(7,18,22,.48) 36%, rgba(4,8,11,.62) 78%)"
+          : "radial-gradient(circle at 72% 18%, rgba(16,52,59,.88) 0%, rgba(7,18,22,.9) 32%, rgba(4,8,11,.94) 72%)",
       color: COLORS.cream,
       fontFamily: FONT_FAMILY,
       overflow: "hidden",
@@ -27,13 +30,14 @@ export const PrimitiveFrame: React.FC<{
         display: "flex",
         justifyContent: "space-between",
         alignItems: "baseline",
+        gap: 48,
         zIndex: 20,
       }}
     >
-      <div style={{fontSize: 22, letterSpacing: 5, color: COLORS.turquoise}}>
+      <div style={{fontSize: 18, letterSpacing: 4, color: COLORS.turquoise, whiteSpace: "nowrap"}}>
         {kicker.toUpperCase()}
       </div>
-      <div style={{fontSize: 18, letterSpacing: 3, opacity: 0.48}}>
+      <div style={{fontSize: 15, letterSpacing: 2.5, opacity: 0.48, whiteSpace: "nowrap", flexShrink: 0}}>
         STORYENGINE / MOTION SYSTEM
       </div>
     </div>

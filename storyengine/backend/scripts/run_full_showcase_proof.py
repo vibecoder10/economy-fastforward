@@ -59,6 +59,7 @@ REVEAL_FRAMES = tuple(range(6840, 7177, FPS)) + (7199,)
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from custom_film_compositor import probe_media  # noqa: E402
+from custom_film_contract import canonical_hash  # noqa: E402
 from custom_film_remotion import (  # noqa: E402
     REMOTION_PROPS_VERSION,
     REMOTION_RENDERER_CONTRACT_VERSION,
@@ -68,6 +69,14 @@ from custom_film_remotion import (  # noqa: E402
     remotion_props_hash,
     renderer_bundle_hash,
     run_remotion_renderer,
+)
+from custom_film_orchestration import (  # noqa: E402
+    CAPABILITY_CATALOG_VERSION,
+    DECISION_RULES_VERSION,
+    ORCHESTRATION_CONTRACT_VERSION,
+    REFERENCE_STORY_IDENTITY,
+    load_reference_semantic_plan,
+    resolve_layered_recipe,
 )
 
 
@@ -323,6 +332,42 @@ def build_props(paths: Mapping[str, Path]) -> dict[str, Any]:
                 ],
             }
         )
+    semantic_plan = load_reference_semantic_plan()
+    recipes = [
+        resolve_layered_recipe(cue) for cue in semantic_plan["cues"]
+    ]
+    semantic_input = {
+        "capability_catalog_version": CAPABILITY_CATALOG_VERSION,
+        "compatibility_version": "synthetic-proof-v1",
+        "total_duration_seconds": TOTAL_SECONDS,
+        "sections": [],
+    }
+    resolved_plan = {
+        "fps": FPS,
+        "total_frames": TOTAL_FRAMES,
+        "recipes": recipes,
+    }
+    orchestration_body = {
+        "contract_version": ORCHESTRATION_CONTRACT_VERSION,
+        "decision_rules_version": DECISION_RULES_VERSION,
+        "semantic_input": semantic_input,
+        "semantic_input_hash": canonical_hash(semantic_input),
+        "approved_beat_plan": resolved_plan,
+        "approved_beat_plan_hash": canonical_hash(resolved_plan),
+        "resolved_plan": resolved_plan,
+        "resolved_plan_hash": canonical_hash(resolved_plan),
+        "reference_compatible": True,
+        "story_identity": REFERENCE_STORY_IDENTITY,
+        "signals_hash": canonical_hash(
+            [recipe["signals"] for recipe in recipes]
+        ),
+        "recipe_hash": canonical_hash(recipes),
+        "reference_plan_version": semantic_plan["version"],
+    }
+    orchestration_contract = {
+        **orchestration_body,
+        "contract_hash": canonical_hash(orchestration_body),
+    }
     body = {
         "schema_version": REMOTION_PROPS_VERSION,
         "identity": {
@@ -354,6 +399,7 @@ def build_props(paths: Mapping[str, Path]) -> dict[str, Any]:
             "overlap_frames_total": 0,
             "duration_lives_inside_assigned_sections": True,
         },
+        "orchestration": orchestration_contract,
         "sections": sections,
     }
     props = {**body, "props_hash": remotion_props_hash(body)}

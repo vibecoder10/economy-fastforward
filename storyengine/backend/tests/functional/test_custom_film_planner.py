@@ -5,6 +5,7 @@ import json
 import pytest
 
 import custom_film_contract as contract
+import custom_film_orchestration as orchestration
 import custom_film_planner as planner
 import routes.chat as chat_route
 
@@ -121,6 +122,285 @@ def _proposal(focus="steel"):
             },
         ]
     }
+
+
+def _beat(*capabilities, dialogue=False, captions=False, intents=None):
+    return {
+        "narrative_function": "humanize" if dialogue else "investigate",
+        "duration_weight": 1,
+        "capability_ids": [
+            "media.approved_primary",
+            *capabilities,
+            "audio.motion_system",
+        ],
+        "media_kind": "video",
+        "dialogue": dialogue,
+        "captions": captions,
+        "intents": intents or ["evidence"],
+        "energy": 2,
+        "handoff": "waveform" if dialogue else "route",
+    }
+
+
+def _flagship_proposal():
+    specs = [
+        ("opening", "internet outage", 45, _beat(
+            "motion.signal_pulse", "motion.outage_map",
+            intents=["cinematic", "outage", "map"],
+        )),
+        ("evidence", "evidence investigation", 105, _beat(
+            "motion.evidence_board", "motion.incident_timeline",
+            intents=["evidence", "documents", "timeline"],
+        )),
+        ("case_study", "bilingual witness", 90, _beat(
+            "motion.radio_waveform", "motion.bilingual_captions",
+            dialogue=True, captions=True, intents=["witness", "radio"],
+        )),
+        ("explanation", "network recovery by StoryEngine", 60, _beat(
+            "motion.network_explainer", "motion.storyengine_reveal",
+            intents=["network", "recovery", "product"],
+        )),
+    ]
+    return {
+        "sections": [
+            {
+                "role": role,
+                "focus": focus,
+                "duration_weight": duration,
+                "structure_source": (
+                    "bilingual_character_animation"
+                    if role == "case_study"
+                    else "animated_investigative_documentary"
+                ),
+                "writing_source": "animated_investigative_documentary",
+                "visual_source": "animated_investigative_documentary",
+                "beats": [beat],
+            }
+            for role, focus, duration, beat in specs
+        ]
+    }
+
+
+def _quote_for_compiled(compiled):
+    durations = (45, 105, 90, 60)
+    quote = {
+        "sections": [],
+        "totals": {
+            "duration_seconds": 300,
+            "still_images": 4,
+            "animation_clips": 4,
+            "voice_tracks": 4,
+            "estimated_cost": 4.0,
+        },
+        "max_spend": 15.0,
+    }
+    for index, (section, duration) in enumerate(
+        zip(compiled.internal_plan["sections"], durations)
+    ):
+        section["estimated_media"] = {
+            "still_images": 1,
+            "animation_clips": 1,
+            "voice_tracks": 1,
+            "duration_seconds": str(duration),
+        }
+        quote["sections"].append(
+            {
+                "section_id": section["section_id"],
+                "order_index": index,
+                "duration_seconds": duration,
+                "still_images": 1,
+                "animation_clips": 1,
+                "voice_tracks": 1,
+                "estimated_cost": 1.0,
+            }
+        )
+    return quote
+
+
+def test_planner_capability_beats_resolve_exact_approval_bound_reference(manifest):
+    proposal = _flagship_proposal()
+    request = (
+        "Make a film about an internet outage, evidence investigation, a "
+        "bilingual witness, and network recovery by StoryEngine."
+    )
+    compiled = planner.compile_planner_proposal(
+        request, proposal, manifest, total_duration_seconds=300
+    )
+    quote = _quote_for_compiled(compiled)
+    first = orchestration.compile_approved_orchestration(
+        compiled.internal_plan, quote, compiled.planner_proposal
+    )
+    second = orchestration.compile_approved_orchestration(
+        compiled.internal_plan, quote, compiled.planner_proposal
+    )
+    assert first == second
+    assert first["reference_compatible"] is True
+    assert first["resolved_plan"] == first["approved_beat_plan"]
+    assert first["resolved_plan"]["total_frames"] == 7200
+    assert first["resolved_plan"]["recipes"][0]["from"] == 0
+    assert first["resolved_plan"]["recipes"][-1]["to"] == 7199
+    assert first["approved_beat_plan_hash"]
+    assert first["resolved_plan_hash"]
+    assert first["contract_hash"] == contract.canonical_hash(
+        {key: value for key, value in first.items() if key != "contract_hash"}
+    )
+    quote["orchestration"] = first
+    quote["finishing_canvas"] = {
+        **copy.deepcopy(chat_route._CUSTOM_FILM_REMOTION_FINISHING_CANVAS),
+        "orchestration_contract_hash": first["contract_hash"],
+        "story_identity": first["story_identity"],
+        "recipe_hash": first["recipe_hash"],
+    }
+    card = chat_route._custom_film_approval_card(
+        quote, compiled.display_plan
+    )
+    assert card["finishing_engine"] == "remotion"
+    assert len(card["custom_film_orchestration_beats"]) == 4
+    assert card["custom_film_orchestration_beats"][2]["captions_summary"] == (
+        "bilingual word emphasis"
+    )
+    assert "Radio Waveform" in card[
+        "custom_film_orchestration_beats"
+    ][2]["capability_labels"]
+    assert orchestration.validate_approved_orchestration(
+        first, compiled.internal_plan, quote
+    ) == first
+    compiler_owned_mutations = {
+        "decision_rules_version": "tampered-rules-v1",
+        "reference_compatible": False,
+        "story_identity": "tampered-story",
+        "signals_hash": "f" * 64,
+        "reference_plan_version": None,
+    }
+    for field, replacement in compiler_owned_mutations.items():
+        tampered = copy.deepcopy(first)
+        tampered[field] = replacement
+        tampered["contract_hash"] = contract.canonical_hash(
+            {
+                key: value
+                for key, value in tampered.items()
+                if key != "contract_hash"
+            }
+        )
+        with pytest.raises(
+            contract.CustomFilmContractError,
+            match="approved orchestration identity changed",
+        ):
+            orchestration.validate_approved_orchestration(
+                tampered, compiled.internal_plan, quote
+            )
+    semantic_version_mutations = {
+        "capability_catalog_version": "tampered-catalog-v1",
+        "compatibility_version": "tampered-compatibility-v1",
+    }
+    for field, replacement in semantic_version_mutations.items():
+        tampered_semantic = copy.deepcopy(first["semantic_input"])
+        tampered_semantic[field] = replacement
+        tampered = orchestration._contract_from_semantic_input(
+            tampered_semantic
+        )
+        with pytest.raises(
+            contract.CustomFilmContractError,
+            match="approved orchestration semantic input changed",
+        ):
+            orchestration.validate_approved_orchestration(
+                tampered, compiled.internal_plan, quote
+            )
+
+    mutated_proposal = copy.deepcopy(compiled.planner_proposal)
+    mutated_proposal["sections"][0]["beats"][0]["energy"] = 3
+    mutated = orchestration.compile_approved_orchestration(
+        compiled.internal_plan, quote, mutated_proposal
+    )
+    assert mutated["contract_hash"] != first["contract_hash"]
+    assert mutated["approved_beat_plan_hash"] != first["approved_beat_plan_hash"]
+
+
+def test_same_timing_unrelated_story_cannot_receive_outage_reference(manifest):
+    proposal = _flagship_proposal()
+    for section in proposal["sections"]:
+        section["focus"] = "steel manufacturing"
+    compiled = planner.compile_planner_proposal(
+        "Make a film about steel manufacturing",
+        proposal,
+        manifest,
+        total_duration_seconds=300,
+    )
+    quote = _quote_for_compiled(compiled)
+    result = orchestration.compile_approved_orchestration(
+        compiled.internal_plan, quote, compiled.planner_proposal
+    )
+    assert result["reference_compatible"] is False
+    assert result["resolved_plan"] == result["approved_beat_plan"]
+
+
+def test_media_plus_motion_audio_only_still_compiles_executable_visual_layers(
+    manifest,
+):
+    proposal = _proposal("ceramic glazing")
+    for section in proposal["sections"]:
+        section["beats"] = [
+            {
+                **_beat(intents=["cinematic"]),
+                "capability_ids": [
+                    "media.approved_primary",
+                    "audio.motion_system",
+                ],
+            }
+        ]
+    compiled = planner.compile_planner_proposal(
+        "Make a 30 second film about ceramic glazing",
+        proposal,
+        manifest,
+        total_duration_seconds=30,
+    )
+    quote = _quote_for_compiled(compiled)
+    quote["totals"]["duration_seconds"] = 30
+    for duration, quote_section, plan_section in zip(
+        (10, 20), quote["sections"], compiled.internal_plan["sections"]
+    ):
+        quote_section["duration_seconds"] = duration
+        plan_section["estimated_media"]["duration_seconds"] = str(duration)
+    approved = orchestration.compile_approved_orchestration(
+        compiled.internal_plan,
+        quote,
+        compiled.planner_proposal,
+    )
+    for recipe in approved["resolved_plan"]["recipes"]:
+        visual = {
+            layer["primitive"]
+            for layer in recipe["motionLayers"]
+            if layer["primitive"]
+            not in {"MotionAudioSystem", "BilingualCaptions"}
+        }
+        assert visual == {"SignalPulse", "MediaKinetics"}
+    orchestration.validate_executable_orchestration(
+        approved,
+        total_duration_seconds=30,
+        section_duration_seconds=[
+            row["duration_seconds"] for row in quote["sections"]
+        ],
+    )
+
+
+def test_orchestration_capability_catalog_is_strict_and_provider_opaque():
+    serialized = json.dumps(planner.PUBLIC_ORCHESTRATION_CAPABILITIES).lower()
+    assert "provider" not in serialized
+    assert "model" not in serialized
+    invalid = _flagship_proposal()
+    invalid["sections"][0]["beats"][0]["capability_ids"].append(
+        "motion.unknown"
+    )
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            (
+                "Make a film about an internet outage, evidence investigation, "
+                "a bilingual witness, and network recovery by StoryEngine."
+            ),
+            invalid,
+            contract.build_capability_manifest(_profiles()),
+            total_duration_seconds=300,
+        )
 
 
 class FakePlannerClient:
@@ -711,9 +991,6 @@ def test_custom_film_blueprint_locks_remotion_only_for_exact_showcase_contract()
             "estimated_cost": 4.0,
         },
         "max_spend": 15.0,
-        "finishing_canvas": copy.deepcopy(
-            chat_route._CUSTOM_FILM_REMOTION_FINISHING_CANVAS
-        ),
     }
     display_plan = {
         "sections": [
@@ -728,21 +1005,79 @@ def test_custom_film_blueprint_locks_remotion_only_for_exact_showcase_contract()
         ]
     }
 
+    unrelated = chat_route._custom_film_approval_card(quote, display_plan)
+    assert unrelated["finishing_engine"] == "ffmpeg"
+
+    frame = 0
+    recipes = []
+    for index, duration in enumerate(durations):
+        section_frames = duration * 24
+        recipes.append(
+            orchestration.resolve_layered_recipe(
+                {
+                    "id": f"section-{index}:beat:0",
+                    "section_index": index,
+                    "from": frame,
+                    "to": frame + section_frames - 1,
+                    "signals": {
+                        "media_kind": "video",
+                        "dialogue": False,
+                        "captions": False,
+                        "intents": ["cinematic"],
+                        "energy": 2,
+                        "handoff": "pulse",
+                    },
+                }
+            )
+        )
+        frame += section_frames
+    semantic_input = {
+        "capability_catalog_version": orchestration.CAPABILITY_CATALOG_VERSION,
+        "compatibility_version": "approval-card-test",
+        "total_duration_seconds": 300,
+        "sections": [],
+    }
+    resolved = {"fps": 24, "total_frames": 7200, "recipes": recipes}
+    orchestration_body = {
+        "contract_version": orchestration.ORCHESTRATION_CONTRACT_VERSION,
+        "decision_rules_version": orchestration.DECISION_RULES_VERSION,
+        "semantic_input": semantic_input,
+        "semantic_input_hash": contract.canonical_hash(semantic_input),
+        "approved_beat_plan": resolved,
+        "approved_beat_plan_hash": contract.canonical_hash(resolved),
+        "resolved_plan": resolved,
+        "resolved_plan_hash": contract.canonical_hash(resolved),
+        "reference_compatible": False,
+        "story_identity": contract.canonical_hash(semantic_input),
+        "signals_hash": contract.canonical_hash(
+            [recipe["signals"] for recipe in recipes]
+        ),
+        "recipe_hash": contract.canonical_hash(recipes),
+        "reference_plan_version": None,
+    }
+    quote["orchestration"] = {
+        **orchestration_body,
+        "contract_hash": contract.canonical_hash(orchestration_body),
+    }
+    quote["finishing_canvas"] = {
+        **copy.deepcopy(chat_route._CUSTOM_FILM_REMOTION_FINISHING_CANVAS),
+        "orchestration_contract_hash": quote["orchestration"]["contract_hash"],
+        "story_identity": quote["orchestration"]["story_identity"],
+        "recipe_hash": quote["orchestration"]["recipe_hash"],
+    }
     card = chat_route._custom_film_approval_card(quote, display_plan)
     assert card["finishing_engine"] == "remotion"
-    assert "motion plan v1 is locked" in card["finishing_notice"].lower()
-    for primitive in (
-        "signal pulse",
-        "outage map",
-        "evidence board",
-        "incident timeline",
-        "radio waveform",
-        "bilingual captions",
-        "network explainer",
-        "product reveal",
-        "motion-audio mix",
+    assert "layered remotion orchestration is locked" in card["finishing_notice"].lower()
+    for treatment in (
+        "approved media",
+        "motion",
+        "caption",
+        "camera",
+        "transition",
+        "audio",
+        "creator-visible beat",
     ):
-        assert primitive in card["finishing_notice"].lower()
+        assert treatment in card["finishing_notice"].lower()
 
     unbound_quote = copy.deepcopy(quote)
     unbound_quote.pop("finishing_canvas")
@@ -756,7 +1091,7 @@ def test_custom_film_blueprint_locks_remotion_only_for_exact_showcase_contract()
     quote["totals"]["duration_seconds"] = 299
     fallback = chat_route._custom_film_approval_card(quote, display_plan)
     assert fallback["finishing_engine"] == "ffmpeg"
-    assert "45 / 105 / 90 / 60-second" in fallback["finishing_notice"]
+    assert "creator-visible beat recipes" in fallback["finishing_notice"]
 
 
 def test_chat_intent_routes_before_normal_producer_and_cannot_dispatch(monkeypatch):
