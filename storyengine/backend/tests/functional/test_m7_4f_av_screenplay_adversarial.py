@@ -2371,8 +2371,8 @@ async def test_last_script_barrier_is_preinsert_exact_and_selects_dialogue_route
     class Connection:
         async def fetch(self, sql, *args):
             assert "custom_film_section_scenes css" in sql
-            assert "css.plan_id = $3" in sql
-            assert "css.section_id = ANY($4::text[])" in sql
+            assert "css.plan_id = $3::uuid" in sql
+            assert "css.section_id = ANY($4::uuid[])" in sql
             assert args[2] == request.plan_id
             assert args[3] == [first_id]
             return [
