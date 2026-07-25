@@ -1784,8 +1784,17 @@ class SharedSectionProductionSeams:
                 section_contract=contract,
             )
         else:
-            from scripts.coverage_to_app import generate_coverage_for_video
+            from scripts.coverage_to_app import (
+                CUSTOM_FILM_AUXILIARY_IMAGE_POLICY,
+                generate_coverage_for_video,
+            )
 
+            # Enrich only the paid coverage sub-contract. Keeping this law out
+            # of request.payload() preserves the durable operation request hash
+            # for an interrupted child while forbidding any new auxiliary draw.
+            contract["auxiliary_image_policy"] = copy.deepcopy(
+                CUSTOM_FILM_AUXILIARY_IMAGE_POLICY
+            )
             result = await generate_coverage_for_video(
                 request.video_id,
                 self.tenant_id,

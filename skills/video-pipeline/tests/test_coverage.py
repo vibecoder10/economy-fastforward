@@ -97,6 +97,68 @@ def test_cast_prompt_from_bible():
     assert cast_prompt_from_story_bible({"characters": []}, _Profile()) is None
 
 
+def test_approval_bound_coverage_calls_only_approved_still_draws(tmp_path):
+    """Two approved frames means exactly two provider image calls and no cast call."""
+    directive = (
+        "[MOMENT 1 | the relay fails]\n"
+        "- MASTER [WS]: Wide view of the dark relay room.\n"
+        "- ANGLE [INSERT]: Tight detail of the failed indicator.\n"
+    )
+    client = _FakeImageClientForFrames()
+    cast_resolver = AsyncMock(return_value="https://unexpected-cast.png")
+
+    with patch("storyboard.coverage.resolve_cast_url", cast_resolver), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="The relay fails.",
+            image_client=client,
+            outdir=str(tmp_path),
+            cast_url=None,
+            directive_text=directive,
+            max_moments=1,
+            angles_max=1,
+            max_frames=2,
+            model_override="z-image",
+            allow_auto_cast_generation=False,
+        ))
+
+    assert not out.get("error"), out
+    assert out["frame_count"] == 2
+    assert len(client.calls) == 2
+    cast_resolver.assert_not_awaited()
+    assert out["cast_url"] is None
+
+
+def test_legacy_coverage_still_auto_resolves_cast(tmp_path):
+    directive = (
+        "[MOMENT 1 | the relay fails]\n"
+        "- MASTER [WS]: Wide view of the dark relay room.\n"
+        "- ANGLE [INSERT]: Tight detail of the failed indicator.\n"
+    )
+    client = _FakeImageClientForFrames()
+    cast_resolver = AsyncMock(return_value="https://cast.png")
+
+    with patch("storyboard.coverage.resolve_cast_url", cast_resolver), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="The relay fails.",
+            image_client=client,
+            outdir=str(tmp_path),
+            cast_url=None,
+            directive_text=directive,
+            max_moments=1,
+            angles_max=1,
+            max_frames=2,
+            model_override="z-image",
+        ))
+
+    assert not out.get("error"), out
+    assert out["frame_count"] == 2
+    assert len(client.calls) == 2
+    cast_resolver.assert_awaited_once()
+    assert out["cast_url"] == "https://cast.png"
+
+
 class _FakeImageClientForFrames:
     """Records every frame-draw call; only the z-image path is exercised (no GPT
     fallback expected when it succeeds every time)."""

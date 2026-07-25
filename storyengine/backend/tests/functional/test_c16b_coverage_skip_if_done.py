@@ -86,7 +86,10 @@ _stub("vault", get_secret=_boom)
 _stub("kie_unified", get_text_client_for_tenant=_boom)
 
 from scripts.coverage_to_app import (  # noqa: E402
-    generate_coverage_for_video, _scene_text_hash, _expected_coverage_frame_count,
+    CUSTOM_FILM_AUXILIARY_IMAGE_POLICY,
+    generate_coverage_for_video,
+    _scene_text_hash,
+    _expected_coverage_frame_count,
 )
 
 VIDEO_ID = "11111111-1111-1111-1111-111111111111"
@@ -155,7 +158,7 @@ class FakeDB:
         if "SELECT scene, scene_text FROM scripts" in query:
             return [dict(s) for s in self.scenes]
         if "FROM video_characters" in query:
-            return [{"reference_url": self.cast_ref}]
+            return [{"reference_url": self.cast_ref}] if self.cast_ref else []
         raise AssertionError(f"unexpected fetch_all query: {query}")
 
     async def execute(self, query, *args):
@@ -166,7 +169,7 @@ def _scenes(numbers):
     return [{"scene": n, "scene_text": SCENE_TEXT} for n in numbers]
 
 
-def _patch_noop_helpers(motion_mock=None):
+def _patch_noop_helpers(motion_mock=None, populate_mock=None):
     """Every per-scene helper C16b does not touch, patched to harmless no-ops
     so each test exercises ONLY the skip/allowlist/force decision."""
     return [
@@ -180,7 +183,10 @@ def _patch_noop_helpers(motion_mock=None):
             "scripts.coverage_to_app._write_motion_prompts",
             motion_mock or AsyncMock(return_value=0),
         ),
-        patch("scripts.coverage_to_app.populate_characters", AsyncMock(return_value=0)),
+        patch(
+            "scripts.coverage_to_app.populate_characters",
+            populate_mock or AsyncMock(return_value=0),
+        ),
         patch("scripts.coverage_to_app._reconcile_moment_dialogue", lambda moments, text: None),
     ]
 
@@ -201,11 +207,14 @@ def _fresh_run_coverage_output(**_kwargs):
 def _run(fakedb, **kwargs):
     run_coverage_mock = AsyncMock(side_effect=_fresh_run_coverage_output)
     motion_mock = AsyncMock(return_value=0)
-    patches = _patch_noop_helpers(motion_mock) + [
+    populate_mock = AsyncMock(return_value=0)
+    cast_mock = AsyncMock(return_value="https://generated-cast.png")
+    patches = _patch_noop_helpers(motion_mock, populate_mock) + [
         patch("scripts.coverage_to_app.fetch_one", fakedb.fetch_one),
         patch("scripts.coverage_to_app.fetch_all", fakedb.fetch_all),
         patch("scripts.coverage_to_app.execute", fakedb.execute),
         patch("scripts.coverage_to_app.run_coverage", run_coverage_mock),
+        patch("scripts.coverage_to_app.resolve_cast_url", cast_mock),
     ]
     for p in patches:
         p.start()
@@ -215,6 +224,8 @@ def _run(fakedb, **kwargs):
         for p in patches:
             p.stop()
     run_coverage_mock.inline_motion_mock = motion_mock
+    run_coverage_mock.populate_mock = populate_mock
+    run_coverage_mock.cast_mock = cast_mock
     return result, run_coverage_mock
 
 
@@ -238,6 +249,7 @@ def test_custom_film_coverage_defers_motion_to_exact_motion_stage():
         "camera": {"mode": "investigative_coverage"},
         "visual_profile": "neutral_v1",
         "exact_seconds": 7,
+        "auxiliary_image_policy": dict(CUSTOM_FILM_AUXILIARY_IMAGE_POLICY),
     }
 
     result, coverage = _run(fakedb, section_contract=section_contract)
@@ -249,6 +261,87 @@ def test_custom_film_coverage_defers_motion_to_exact_motion_stage():
     assert coverage.await_args.kwargs["angles_max"] == 0
     assert coverage.await_args.kwargs["max_frames"] == 2
     coverage.inline_motion_mock.assert_not_awaited()
+
+
+def test_custom_film_coverage_forbids_unquoted_auxiliary_images():
+    fakedb = FakeDB(
+        scenes=_scenes([1]),
+        saved_by_scene={1: None},
+        drawn_by_scene={1: 0},
+        cast_ref=None,
+    )
+    section_contract = {
+        "render_mode": "coverage",
+        "image_source": "generate",
+        "expected_still_images": 2,
+        "expected_animation_clips": 2,
+        "image_density": {"mode": "visual_cue", "target_per_minute": 2},
+        "animation": {"enabled": True, "mode": "grok_native"},
+        "camera": {"mode": "investigative_coverage"},
+        "visual_profile": "neutral_v1",
+        "exact_seconds": 7,
+        "auxiliary_image_policy": dict(CUSTOM_FILM_AUXILIARY_IMAGE_POLICY),
+    }
+
+    result, coverage = _run(fakedb, section_contract=section_contract)
+
+    assert result["status"] == "completed"
+    coverage.assert_awaited_once()
+    assert coverage.await_args.kwargs["cast_url"] == []
+    assert coverage.await_args.kwargs["allow_auto_cast_generation"] is False
+    assert result["message"] == "Coverage done: 2 frames across 1 scene(s)"
+    coverage.cast_mock.assert_not_awaited()
+    coverage.populate_mock.assert_not_awaited()
+
+
+def test_custom_film_auxiliary_image_policy_is_fail_closed():
+    fakedb = FakeDB(
+        scenes=_scenes([1]),
+        saved_by_scene={1: None},
+        drawn_by_scene={1: 0},
+        cast_ref=None,
+    )
+    bad_contract = {
+        "render_mode": "coverage",
+        "image_source": "generate",
+        "expected_still_images": 2,
+        "expected_animation_clips": 2,
+        "image_density": {"mode": "visual_cue", "target_per_minute": 2},
+        "animation": {"enabled": True, "mode": "grok_native"},
+        "camera": {"mode": "investigative_coverage"},
+        "visual_profile": "neutral_v1",
+        "exact_seconds": 7,
+        "auxiliary_image_policy": {
+            "auto_cast_generation": "allowed",
+            "auto_character_population": "forbidden",
+        },
+    }
+
+    try:
+        _run(fakedb, section_contract=bad_contract)
+    except ValueError as exc:
+        assert str(exc) == "Unsupported coverage section production contract"
+    else:
+        raise AssertionError("mutated auxiliary image policy must fail closed")
+
+
+def test_legacy_coverage_keeps_auto_cast_and_character_population():
+    fakedb = FakeDB(
+        scenes=_scenes([1]),
+        saved_by_scene={1: None},
+        drawn_by_scene={1: 0},
+        cast_ref=None,
+    )
+
+    result, coverage = _run(fakedb)
+
+    assert result["status"] == "completed"
+    coverage.cast_mock.assert_awaited_once()
+    coverage.populate_mock.assert_awaited_once()
+    assert (
+        "allow_auto_cast_generation"
+        not in coverage.await_args.kwargs
+    )
 
 
 # ---------------------------------------------------------------------------

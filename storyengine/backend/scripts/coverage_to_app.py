@@ -117,6 +117,12 @@ logger = logging.getLogger(__name__)
 
 COVERAGE_INDEX_BASE = 100  # existing panels use 1-9; coverage frames live at 100+ (never clobber)
 PER_FRAME_USD = 0.05
+# Approval-bound coverage may spend only on the stills counted in its BOM.
+# This exact law is supplied by the Custom Film seam and rejected on mutation.
+CUSTOM_FILM_AUXILIARY_IMAGE_POLICY = {
+    "auto_cast_generation": "forbidden",
+    "auto_character_population": "forbidden",
+}
 # C25a-fix7 (2026-07-20) capped storyboard sheet reference images at 2
 # (SHEET_REF_CAP), blaming a 3rd input_urls entry for 400s on video
 # cd5d2883. C25a-fix8 (2026-07-20) re-derived that against the real filter
@@ -3269,10 +3275,12 @@ async def generate_coverage_for_video(
     production_style_snapshot = v.get("production_style_snapshot")
     visual_profile_override = None
     camera_mode_override = None
+    allow_auto_cast_generation = True
     if section_contract is not None:
         density = section_contract.get("image_density")
         animation = section_contract.get("animation")
         camera = section_contract.get("camera")
+        auxiliary_image_policy = section_contract.get("auxiliary_image_policy")
         if (
             section_contract.get("render_mode") != "coverage"
             or section_contract.get("image_source") != "generate"
@@ -3294,11 +3302,13 @@ async def generate_coverage_for_video(
             or not str(section_contract.get("visual_profile") or "").strip()
             or type(section_contract.get("exact_seconds")) is not int
             or section_contract["exact_seconds"] < 1
+            or auxiliary_image_policy != CUSTOM_FILM_AUXILIARY_IMAGE_POLICY
         ):
             raise ValueError("Unsupported coverage section production contract")
         production_style_snapshot = {"knobs": {"image_density": density}}
         visual_profile_override = str(section_contract["visual_profile"])
         camera_mode_override = str(camera["mode"])
+        allow_auto_cast_generation = False
     model_override = v["image_model_override"]
     # C13b: threaded through to run_coverage -> plan_camera_moves -> route_shot_model
     # (mirrors generate_storyboard_sheet_for_scene's identical SELECT+assign above it in
@@ -3343,11 +3353,11 @@ async def generate_coverage_for_video(
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
     cast_refs = [r["reference_url"] for r in crows]
-    if not cast_refs:
+    if not cast_refs and allow_auto_cast_generation:
         cu = await resolve_cast_url(None, ic, story_bible=bible, profile=profile, aspect=aspect,
                                     outdir=base_dir, model_override=model_override)
         cast_refs = [cu] if cu else []
-    if not cast_refs:
+    if not cast_refs and allow_auto_cast_generation:
         # No locked characters AND no character bible to build from — the common case for chat
         # auto-builds, which stamp the characters gate but never write video_characters rows.
         # Build a cast sheet straight from the script (the same proven path the CLI uses below)
@@ -3361,7 +3371,7 @@ async def generate_coverage_for_video(
             cast_refs = [cu] if cu else []
         except Exception as e:  # noqa: BLE001
             return {"status": "failed", "error": f"couldn't build a cast from the script: {e}"}
-    if not cast_refs:
+    if not cast_refs and allow_auto_cast_generation:
         return {"status": "failed", "error": "no cast to anchor on — lock characters first"}
 
     # SCENE LOCK: same approved-environment conditioning for the real frames.
@@ -3449,6 +3459,9 @@ async def generate_coverage_for_video(
         if env:
             _p(f"Scene {sc}: locked to {env['name']}")
         try:
+            coverage_kwargs = {}
+            if section_contract is not None:
+                coverage_kwargs["allow_auto_cast_generation"] = False
             out = await run_coverage(
                 beat_text=s["scene_text"] or "", image_client=ic, outdir=outdir, cast_url=cast_refs,
                 video_title=title, profile=profile, beat_scenes=[sc], story_bible=bible,
@@ -3464,7 +3477,8 @@ async def generate_coverage_for_video(
                 # draw prompt. None (no match, or the env has no manifest yet)
                 # is the existing behavior, unchanged.
                 props=(env or {}).get("props"),
-                progress_callback=_p)
+                progress_callback=_p,
+                **coverage_kwargs)
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest
             _p(f"Scene {sc}: errored ({str(e)[:150]}) — moving on to the next scene")
             continue
@@ -3501,13 +3515,14 @@ async def generate_coverage_for_video(
     # Surface the cast in the Characters tab so the creator can see/lock it. The fast auto-build
     # stamps the characters gate but never writes rows, leaving the tab empty; fill it from the
     # cast sheet we just built (in the chosen style). Idempotent — skips if rows already exist.
-    try:
-        full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
-        _p("Filling the Characters tab from the cast…")
-        await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script,
-                                  style=style_dir)
-    except Exception as e:  # noqa: BLE001
-        _p(f"(couldn't fill the Characters tab: {e})")
+    if section_contract is None:
+        try:
+            full_script = "\n\n".join((s["scene_text"] or "") for s in scenes)
+            _p("Filling the Characters tab from the cast…")
+            await populate_characters(vid, tenant, claude, claude_model, ic, base_dir, full_script,
+                                      style=style_dir)
+        except Exception as e:  # noqa: BLE001
+            _p(f"(couldn't fill the Characters tab: {e})")
 
     processed = len(targets) - skipped
     if section_contract is not None and total != section_contract["expected_still_images"]:

@@ -11859,3 +11859,22 @@ control writes without losing the video, approval, or confirmation.
   installed arq enqueue API does not reserve `_job_timeout`; passing it at
   enqueue time serializes it into the handler kwargs. `enqueue_stage` therefore
   passes only arq's supported `_job_id` metadata plus genuine stage kwargs.
+
+# Custom Film exact image-BOM enforcement (added 2026-07-24)
+
+- Approval-bound coverage carries one explicit auxiliary-image policy that
+  forbids both automatic cast-sheet generation and automatic character
+  population. A missing or mutated policy fails before image work.
+- Custom Film coverage may render its approved still allocation without a cast
+  reference. Existing locked references remain usable inputs, but StoryEngine
+  cannot create an extra reference image outside the approved bill of
+  materials. The stored still total must still equal the exact section count.
+- The policy is added to a fresh runtime payload without changing the approved
+  request hash, deterministic operation IDs, or existing retry lookup. Shared
+  non-Custom-Film coverage retains its legacy automatic-cast behavior.
+- A live exact-$8.52 runtime completed its first script and voice before this
+  gap was discovered. It is intentionally held failed with picture
+  reconciliation required: an auxiliary provider submission was not part of
+  the approved quote and cannot be silently treated as authorized. Paid
+  continuation requires a refreshed exact cumulative/remaining cap approval;
+  upload and publication remain separate gates.
