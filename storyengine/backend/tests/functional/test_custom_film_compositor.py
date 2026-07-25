@@ -439,6 +439,28 @@ def _build(values: dict) -> dict:
     )
 
 
+def test_manifest_normalizes_stringified_provider_results_across_graph():
+    values = _fixture()
+    for row in values["provider_rows"]:
+        row["result"] = json.dumps(row["result"])
+
+    manifest = _build(values)
+
+    assert len(manifest["sections"]) == len(values["envelope"]["sections"])
+
+
+@pytest.mark.parametrize("invalid_result", ["{not-json", "[]"])
+def test_manifest_rejects_non_object_provider_result_text(invalid_result):
+    values = _fixture()
+    values["provider_rows"][0]["result"] = invalid_result
+
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="provider operation result is invalid",
+    ):
+        _build(values)
+
+
 def _voice_child(values: dict, section_id: str) -> tuple[dict, dict]:
     scene_id = next(
         row["script_id"]
