@@ -473,6 +473,93 @@ def test_explicit_target_language_parser_requires_its_canonical_tag():
     assert parsed["dialogue_segments"][0]["language"] == "es"
 
 
+@pytest.mark.parametrize(
+    ("screenplay", "mode", "labels", "expected_issue"),
+    [
+        (
+            "\n".join(
+                (
+                    "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+                    "[BEAT 1 | 0:00 - 0:12]",
+                    "VISUAL: The approved signal fills the screen.",
+                    "SOUND: Low room tone continues.",
+                    "DIALOGUE Mara [en]: The approved signal returns.",
+                    "CARRY-IN: opening signal",
+                    "CARRY-OUT: final signal",
+                )
+            ),
+            "narrator",
+            ("en",),
+            "narrator AV mode permits VO tracks only",
+        ),
+        (
+            "\n".join(
+                (
+                    "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+                    "[BEAT 1 | 0:00 - 0:12]",
+                    "VISUAL: La señal aprobada llena la pantalla.",
+                    "SOUND: Un tono bajo continúa.",
+                    "VO [es]: La señal aprobada ha vuelto.",
+                    "CARRY-IN: señal inicial",
+                    "CARRY-OUT: señal final",
+                )
+            ),
+            "simple_single_language",
+            ("es",),
+            "simple single-language AV mode permits DIALOGUE tracks only",
+        ),
+        (
+            "\n".join(
+                (
+                    "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+                    "[BEAT 1 | 0:00 - 0:12]",
+                    "VISUAL: La señal aprobada llena la pantalla.",
+                    "SOUND: Un tono bajo continúa.",
+                    "DIALOGUE Mara [es | pair=signal-1]: La señal ha vuelto.",
+                    "CARRY-IN: señal inicial",
+                    "CARRY-OUT: señal final",
+                )
+            ),
+            "simple_single_language",
+            ("es",),
+            "must not include a translation pair ID",
+        ),
+        (
+            _bilingual_screenplay().replace(
+                "DIALOGUE Mara [en | pair=signal-1]: The signal is back.",
+                "\n".join(
+                    (
+                        "DIALOGUE Mara [en | pair=signal-1]: The signal is back.",
+                        "VO [en]: The approved signal returns.",
+                    )
+                ),
+            ),
+            "bilingual",
+            ("en", "es"),
+            "bilingual AV mode permits paired DIALOGUE tracks only",
+        ),
+    ],
+)
+def test_av_language_modes_reject_wrong_audible_track_types(
+    screenplay,
+    mode,
+    labels,
+    expected_issue,
+):
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        screenplay,
+        exact_seconds=12,
+        language_mode=mode,
+        approved_languages=(
+            (labels[0], labels[1]) if len(labels) == 2 else None
+        ),
+        canonical_languages=labels,
+    )
+
+    assert parsed is None
+    assert any(expected_issue in issue for issue in issues)
+
+
 def _four_beat_narrator_screenplay(*, audible_beats: set[int]) -> str:
     lines = ["[AV SECTION — BLACKOUT | 0:00 - 0:40]"]
     carries = [
@@ -703,6 +790,95 @@ async def test_unknown_malformed_language_tag_fails_before_persistence(
 
     assert any("malformed or unknown track tag" in item for item in repair_contexts)
     assert any("EXACT NARRATOR TAG: VO [en]:" in item for item in repair_contexts)
+    assert database_touched is False
+
+
+@pytest.mark.asyncio
+async def test_terminal_wrong_track_repairs_fail_before_persistence(
+    monkeypatch,
+):
+    purpose = "Show the approved signal"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "closing",
+            "purpose": "Land the approved signal",
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=12),
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "0" * 64,
+    )
+    wrong_track = "\n".join(
+        (
+            "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: The approved signal fills the screen.",
+            "SOUND: Low room tone continues.",
+            "DIALOGUE Mara [en]: The approved signal returns.",
+            f"CARRY-IN: approved opening state — {purpose}",
+            "CARRY-OUT: approved transition state — Land the approved signal",
+        )
+    )
+    repair_calls = []
+    database_touched = False
+
+    async def generate(*_args, **_kwargs):
+        return {
+            "script": wrong_track,
+            "validation": {"valid": True, "issues": []},
+        }
+
+    async def edit(scenes, violations, **_kwargs):
+        repair_calls.append((copy.deepcopy(scenes), list(violations)))
+        return copy.deepcopy(scenes)
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("wrong AV track type must fail before persistence")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed approved timing/grounding before voice or imagery",
+    ):
+        await seams._script(request)
+
+    assert len(repair_calls) == production._SCRIPT_REPAIR_ATTEMPTS
+    assert all(
+        any(
+            "narrator AV mode permits VO tracks only" in violation
+            for violation in violations
+        )
+        for _scenes, violations in repair_calls
+    )
+    assert all(
+        "EXACT NARRATOR TAG: VO [en]:" in violations[-1]
+        for _scenes, violations in repair_calls
+    )
     assert database_touched is False
 
 

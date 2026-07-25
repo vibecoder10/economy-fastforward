@@ -1882,6 +1882,38 @@ def _parse_custom_film_av_screenplay(
             "AV audible tracks must use only canonical language labels: "
             + ", ".join(allowed_languages)
         )
+    narration_segments = [
+        segment
+        for segment in audible_segments
+        if segment.get("type") == "narration"
+    ]
+    dialogue_segments = [
+        segment
+        for segment in audible_segments
+        if segment.get("type") == "dialogue"
+    ]
+    if language_mode == "narrator" and dialogue_segments:
+        issues.append(
+            "narrator AV mode permits VO tracks only; replace DIALOGUE with "
+            f"VO [{allowed_languages[0]}]: or move performed speech to an "
+            "approved dialogue mode"
+        )
+    if language_mode == "simple_single_language":
+        if narration_segments:
+            issues.append(
+                "simple single-language AV mode permits DIALOGUE tracks only; "
+                f"use DIALOGUE <speaker> [{allowed_languages[0]}]:"
+            )
+        if any(segment.get("translation_pair") for segment in dialogue_segments):
+            issues.append(
+                "simple single-language DIALOGUE must not include a translation "
+                "pair ID"
+            )
+    if language_mode == "bilingual" and narration_segments:
+        issues.append(
+            "bilingual AV mode permits paired DIALOGUE tracks only; remove VO "
+            "and perform the approved two-language speaker turns"
+        )
     if language_mode == "narrator" and beats:
         audible_beat_count = sum(bool(beat["audible"]) for beat in beats)
         maximum_audible_beats = max(1, math.floor(len(beats) * 0.6))
