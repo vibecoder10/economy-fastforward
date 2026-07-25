@@ -1349,8 +1349,11 @@ def _script_role_structure_law(role: str) -> str:
             "must materially change the kind of work on screen: apply a distinct "
             "approved clue or state, force a visibly different decision or "
             "action, and show its consequence before continuing. Do not invent "
-            "technical labels, component counts, sectors, or obstacles merely "
-            "to manufacture steps. A single switch, button, command, automatic "
+            "technical labels, component counts, sectors, geographic "
+            "subdivisions, directional qualifiers, or obstacles merely to "
+            "manufacture steps. Use unlabeled relative visual state when the "
+            "approved world does not name the underlying geography or system. "
+            "A single switch, button, command, automatic "
             "recovery, or montage must never resolve the whole problem. The "
             "final beat must visibly prove the approved result and hand off "
             "cleanly without a generic renewed threat."
@@ -1438,7 +1441,12 @@ def _script_approved_visual_plan_contract(
             "into diegetic shots, match cuts, layered visual motifs, and "
             "observable action. Never speak, caption, diagram, or expose raw "
             "component names, capability identifiers, handoff tokens, or "
-            "orchestration schema."
+            "orchestration schema. A map, timeline, network, evidence, product, "
+            "or title intent authorizes that visual form only; it does not "
+            "authorize new locations, directional geography, dates, labels, "
+            "quantities, technical components, or story facts. When those facts "
+            "are absent, use unlabeled patterns, match cuts, and relative "
+            "observable changes."
         ),
     ]
     for index, raw_beat in enumerate(beats, start=1):
