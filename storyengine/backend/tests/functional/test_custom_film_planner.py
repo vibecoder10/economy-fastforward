@@ -403,6 +403,33 @@ def test_orchestration_capability_catalog_is_strict_and_provider_opaque():
         )
 
 
+def test_planner_role_schema_is_exactly_the_canonical_recipe_role_enum(
+    manifest,
+    caplog,
+):
+    role_schema = planner.planner_json_schema()["$defs"]["PlannerSection"][
+        "properties"
+    ]["role"]
+    assert role_schema["enum"] == sorted(contract.RECIPE_ROLES)
+
+    secret_role = "sk-live-invalid-role-DO-NOT-LOG"
+    invalid = _proposal("steel")
+    invalid["sections"][0]["role"] = secret_role
+    with caplog.at_level("WARNING", logger=planner.__name__):
+        with pytest.raises(planner.CustomFilmPlannerError) as error:
+            planner.compile_planner_proposal(
+                "Make a custom film about steel",
+                invalid,
+                manifest,
+                total_duration_seconds=30,
+            )
+    assert str(error.value) == planner.PLANNER_FAILURE_MESSAGE
+    log_message = caplog.records[-1].getMessage()
+    assert '"type":"literal_error"' in log_message
+    assert "Value is outside the approved choices" in log_message
+    assert secret_role not in log_message
+
+
 class FakePlannerClient:
     def __init__(self, payload):
         self.payload = payload
