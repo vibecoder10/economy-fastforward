@@ -129,3 +129,17 @@ Four items deferred to post-deploy verification (see `DIRECTOR-CHAT-DEFERRED.md`
 - Saved-styles empty state rendering on screen
 - Build button end-to-end spend
 - Populated Scene altitude view
+
+## Known follow-ups after Phase 1 (2026-07-25)
+
+1. **The right rail is unreachable below the `lg` breakpoint.** At 820px viewport width and 375px width, the chat, canvas, and rail stack vertically, but nothing scrolls - the rail sits below the fold with no scroll chain to reach it. Root cause: `app/page.tsx` and `app/chat/page.tsx` wrap the surface in a `fixed inset-0 z-50` layer, and `components/director/RightRail.tsx` is a flat `w-[340px] flex-none` with no responsive behaviour. The scroll chain breaks once stacked content exceeds viewport height. Reproduce: open a video canvas, resize to 375 by 812, try to reach the Environments tab. The approved mockup is desktop-only by design, so mobile was never in Phase 1 scope, but this should be fixed before anyone opens the Director on a phone. **Files:** `app/page.tsx`, `app/chat/page.tsx`, `components/director/RightRail.tsx`.
+
+2. **The backend still serves internal channel code names.** `GET /api/production-styles` returns old labels like "Bilingual Character Animation" and "Animated Investigative Documentary". The frontend maps them to plain-English labels in `CHANNEL_CARDS` map in `components/director/DirectorHome.tsx` as a stopgap. The jargon ban should be applied at the source in `backend/migrations/121_production_style_profiles.sql` and whatever reads it, so a new surface cannot leak the old names. **Files:** `backend/migrations/121_production_style_profiles.sql`, `backend/routes/` (the read path), `components/director/DirectorHome.tsx` (temporary mapping).
+
+3. **The chat history dropdown no longer closes when you click the canvas.** ChatCore renders a `fixed inset-0` click-outside backdrop that is now scoped by the Director chat column's containing block (on purpose, to scope the composer). Clicking inside the column still dismisses the dropdown, and picking an item does too. Low severity. Code is in `components/chat/ChatCore.tsx`, which a concurrent session owns, so do not fix it without checking with them first. **File:** `components/chat/ChatCore.tsx`.
+
+4. **A cast sheet thumbnail rendered blank.** On video "What Should We Do To Help The Injured Baby Bird?", the "Dad" character sheet showed as a blank black tile while Tom, Lisa, Mom, Dr. May, and Baby Bird all rendered correctly. Unproven whether the asset URL is missing or a render glitch. Worth one look at the `getVideoCharacters` payload for that video (video ID not recorded). **File:** check `backend/routes/videos.py` `getVideoCharacters` and verify the character image URL for that video exists.
+
+5. **`SavedStyleCard`'s "Use this" button is unwired.** In `components/director/StyleLibrary.tsx`, the button has no handler wired. It is unreachable today because zero recipes exist in production, so it is not a live bug. Must be wired before saved styles become real. **File:** `components/director/StyleLibrary.tsx`.
+
+6. **Dev-mode only: the home chat spinner can wedge.** React Strict Mode double-invokes effects in dev, which interacts badly with the `autoTriedRef` guard and the `cancelled` cleanup flag in ChatCore's onboarding-hydrate effect. The spinner never resolves on a fresh mount. Production is unaffected, confirmed by running `next start` instead. Verify Director work against a production build, not `npm run dev`. **File:** `components/chat/ChatCore.tsx` (effects and ref guards).
