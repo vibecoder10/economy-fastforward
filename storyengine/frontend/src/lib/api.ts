@@ -3538,3 +3538,29 @@ export interface ScriptProfilesResponse {
 }
 export const getScriptProfiles = () =>
   fetchApi<ScriptProfilesResponse>("/api/script-profiles");
+
+// --- Custom Film recipes (Director Chunk 1.B) ---
+// A "recipe" is a frozen, reusable Custom Film style — locked from inside a
+// video via the canvas's "Lock this as a style" action (director-mockup
+// `.btn-gold`, ~L899). Backed by GET /api/custom-film/recipes. Field names
+// copied verbatim from the chunk 1.B response shape — do not retype.
+export interface CustomFilmRecipeSectionMix {
+  role: string;
+  duration_units: number;
+  share: number;
+}
+export interface CustomFilmRecipe {
+  id: string;
+  name: string;
+  recipe_family_id: string;
+  version: number;
+  compatibility_version: number;
+  section_mix: CustomFilmRecipeSectionMix[];
+  created_at: string;
+  updated_at: string;
+}
+export interface CustomFilmRecipesResponse {
+  recipes: CustomFilmRecipe[];
+}
+export const getCustomFilmRecipes = () =>
+  fetchApi<CustomFilmRecipesResponse>("/api/custom-film/recipes");
