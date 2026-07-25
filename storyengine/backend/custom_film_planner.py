@@ -292,6 +292,7 @@ class PlannerInferenceReason(str, Enum):
     RATE_LIMITED = "rate_limited"
     AUTHENTICATION = "authentication"
     INSUFFICIENT_CREDIT = "insufficient_credit"
+    REQUEST_REJECTED = "request_rejected"
     TIMEOUT = "timeout"
     UPSTREAM_UNAVAILABLE = "upstream_unavailable"
     UNKNOWN = "unknown"
@@ -312,6 +313,10 @@ _SAFE_INFERENCE_MESSAGES = {
         "or update it under Profile → API Keys, then try again. No media production "
         "was approved or started."
     ),
+    PlannerInferenceReason.REQUEST_REJECTED: (
+        "The planning service couldn't accept this request. Please try again in a "
+        "moment. No media production was approved or started."
+    ),
     PlannerInferenceReason.TIMEOUT: (
         "The planning service took too long to respond. Please try again in a moment. "
         "No media production was approved or started."
@@ -325,6 +330,14 @@ _SAFE_INFERENCE_MESSAGES = {
         "moment. No media production was approved or started."
     ),
 }
+_DIRECT_TEXT_CREDIT_SIGNALS = (
+    "credit balance is too low",
+    "purchase credits",
+    "plans & billing",
+    "insufficient credit",
+    "insufficient balance",
+    "out of credit",
+)
 _REPAIRABLE_FOCUS_REASONS = frozenset(
     {
         PlannerCompileReason.FOCUS_INVALID,
@@ -370,6 +383,9 @@ def _classify_planner_inference_error(
     """Classify with fixed type/status signals and the sanctioned block detector."""
     if is_kie_block(exc):
         return PlannerInferenceReason.INSUFFICIENT_CREDIT
+    lowered = str(exc).casefold()
+    if any(signal in lowered for signal in _DIRECT_TEXT_CREDIT_SIGNALS):
+        return PlannerInferenceReason.INSUFFICIENT_CREDIT
     status_code = _inference_status_code(exc)
     class_name = type(exc).__name__
     if status_code == 429 or class_name == "RateLimitError":
@@ -379,6 +395,8 @@ def _classify_planner_inference_error(
         "PermissionDeniedError",
     }:
         return PlannerInferenceReason.AUTHENTICATION
+    if status_code in {400, 413, 422}:
+        return PlannerInferenceReason.REQUEST_REJECTED
     if isinstance(exc, TimeoutError) or class_name in {
         "APITimeoutError",
         "ConnectTimeout",

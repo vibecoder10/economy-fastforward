@@ -504,6 +504,20 @@ class FakeInferenceError(Exception):
             planner.PlannerInferenceReason.INSUFFICIENT_CREDIT,
         ),
         (
+            FakeInferenceError(
+                "credit balance is too low adjacent-direct-credit-secret",
+                status_code=400,
+            ),
+            planner.PlannerInferenceReason.INSUFFICIENT_CREDIT,
+        ),
+        (
+            FakeInferenceError(
+                "malicious-request-rejection-secret",
+                status_code=400,
+            ),
+            planner.PlannerInferenceReason.REQUEST_REJECTED,
+        ),
+        (
             TimeoutError("malicious-timeout-secret"),
             planner.PlannerInferenceReason.TIMEOUT,
         ),
