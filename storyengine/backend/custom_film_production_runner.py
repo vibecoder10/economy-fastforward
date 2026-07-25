@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 import uuid
 from dataclasses import dataclass, replace
@@ -1455,12 +1456,41 @@ _AV_DIALOGUE_PATTERN = re.compile(
 _AV_VO_PATTERN = re.compile(
     r"^VO \[(?P<language>[a-z]{2,8})\]: (?P<text>\S.*)$"
 )
+_AV_RELAXED_DIALOGUE_PATTERN = re.compile(
+    r"^DIALOGUE (?P<speaker>[A-Za-z][A-Za-z .'-]{0,40}) "
+    r"\[(?P<language>[^\]\n|]+)"
+    r"(?: \| pair=(?P<pair>[A-Za-z0-9_-]+))?\]: (?P<text>\S.*)$"
+)
+_AV_RELAXED_VO_PATTERN = re.compile(
+    r"^VO \[(?P<language>[^\]\n]+)\]: (?P<text>\S.*)$"
+)
 _AV_ACTION_LEAK_PATTERN = re.compile(
     r"\b(?:camera|shot|close-up|wide shot|we see|"
     r"(?:she|he|they|[A-Z][a-z]+)\s+(?:sits|stands|walks|runs|looks|"
     r"turns|rewinds|opens|closes|moves|crosses|reaches|points|nods))\b",
     re.IGNORECASE,
 )
+_AV_LANGUAGE_NAME_TAGS = {
+    "arabic": "ar",
+    "chinese": "zh",
+    "dutch": "nl",
+    "english": "en",
+    "french": "fr",
+    "german": "de",
+    "hindi": "hi",
+    "italian": "it",
+    "japanese": "ja",
+    "korean": "ko",
+    "mandarin": "zh",
+    "polish": "pl",
+    "portuguese": "pt",
+    "russian": "ru",
+    "spanish": "es",
+    "swedish": "sv",
+    "turkish": "tr",
+}
+
+
 def _av_timestamp_seconds(value: str) -> int:
     minutes, seconds = value.split(":", 1)
     parsed_minutes = int(minutes)
@@ -1470,29 +1500,99 @@ def _av_timestamp_seconds(value: str) -> int:
     return parsed_minutes * 60 + parsed_seconds
 
 
+def _canonical_av_language_tag(value: Any, *, default: str = "en") -> str:
+    raw = str(value or "").strip().casefold().replace("_", "-")
+    if not raw:
+        return default
+    if raw in _AV_LANGUAGE_NAME_TAGS:
+        return _AV_LANGUAGE_NAME_TAGS[raw]
+    primary = raw.split("-", 1)[0]
+    if primary in _AV_LANGUAGE_NAME_TAGS:
+        return _AV_LANGUAGE_NAME_TAGS[primary]
+    if re.fullmatch(r"[a-z]{2,8}", primary):
+        return primary
+    return default
+
+
+def _custom_film_av_language_labels(
+    language: Mapping[str, Any],
+) -> tuple[str, ...]:
+    mode = str(language.get("mode") or "narrator")
+    raw_languages = language.get("languages")
+    if mode == "bilingual":
+        if (
+            isinstance(raw_languages, (list, tuple))
+            and len(raw_languages) == 2
+            and all(str(value).strip() for value in raw_languages)
+        ):
+            return tuple(
+                _canonical_av_language_tag(value)
+                for value in raw_languages
+            )
+        source = language.get("source_language") or language.get("source")
+        target = language.get("target_language") or language.get("target")
+        if source and target:
+            pair = (
+                _canonical_av_language_tag(source, default="source"),
+                _canonical_av_language_tag(target, default="target"),
+            )
+            if pair[0] != pair[1]:
+                return pair
+        return "source", "target"
+    if mode == "simple_single_language":
+        configured = (
+            language.get("language")
+            or language.get("target_language")
+            or language.get("target")
+            or (
+                raw_languages[0]
+                if isinstance(raw_languages, (list, tuple)) and raw_languages
+                else None
+            )
+        )
+        return (_canonical_av_language_tag(configured),)
+    configured = (
+        language.get("target_language")
+        or language.get("target")
+        or language.get("language")
+    )
+    return (_canonical_av_language_tag(configured),)
+
+
 def _custom_film_av_language_pair(
     language: Mapping[str, Any],
 ) -> tuple[str, str]:
-    raw_languages = language.get("languages")
-    if (
-        isinstance(raw_languages, (list, tuple))
-        and len(raw_languages) == 2
-        and all(str(value).strip() for value in raw_languages)
-    ):
-        return tuple(str(value).strip().casefold() for value in raw_languages)
-    source = str(
-        language.get("source_language")
-        or language.get("source")
-        or ""
-    ).strip().casefold()
-    target = str(
-        language.get("target_language")
-        or language.get("target")
-        or ""
-    ).strip().casefold()
-    if source and target and source != target:
-        return source, target
+    labels = _custom_film_av_language_labels(language)
+    if len(labels) == 2:
+        return labels[0], labels[1]
     return "source", "target"
+
+
+def _canonicalize_custom_film_av_language_tags(
+    text: str,
+    *,
+    canonical_languages: tuple[str, ...],
+) -> tuple[str, int]:
+    """Locally repair only known full-name labels to approved exact tags."""
+
+    approved = set(canonical_languages)
+    normalized_lines: list[str] = []
+    changes = 0
+    for line in text.splitlines():
+        relaxed = (
+            _AV_RELAXED_VO_PATTERN.fullmatch(line.strip())
+            or _AV_RELAXED_DIALOGUE_PATTERN.fullmatch(line.strip())
+        )
+        if relaxed:
+            raw_label = relaxed.group("language").strip()
+            canonical = _AV_LANGUAGE_NAME_TAGS.get(raw_label.casefold())
+            if canonical in approved and raw_label != canonical:
+                label_start = line.find("[") + 1
+                label_end = label_start + len(raw_label)
+                line = line[:label_start] + canonical + line[label_end:]
+                changes += 1
+        normalized_lines.append(line)
+    return "\n".join(normalized_lines), changes
 
 
 def _custom_film_av_contract(request: SectionProductionRequest) -> str:
@@ -1503,7 +1603,27 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
         round(request.exact_seconds * 2.2),
     )
     bilingual = str(request.language.get("mode") or "") == "bilingual"
+    language_mode = str(request.language.get("mode") or "narrator")
+    approved_labels = _custom_film_av_language_labels(request.language)
     approved_languages = _custom_film_av_language_pair(request.language)
+    if bilingual:
+        performed_tag_law = (
+            "EXACT PERFORMED TAGS: "
+            f"DIALOGUE <speaker> [{approved_languages[0]} | pair=<id>]: "
+            "<performed words> and "
+            f"DIALOGUE <same speaker> [{approved_languages[1]} | pair=<same id>]: "
+            "<meaning-equivalent performed words>"
+        )
+    elif language_mode == "simple_single_language":
+        performed_tag_law = (
+            "EXACT PERFORMED TAG: "
+            f"DIALOGUE <speaker> [{approved_labels[0]}]: <performed words>"
+        )
+    else:
+        performed_tag_law = (
+            f"EXACT NARRATOR TAG: VO [{approved_labels[0]}]: "
+            "<sparse connective narration>"
+        )
     return "\n".join(
         (
             "=== CUSTOM FILM COVERAGE AV SCREENPLAY CONTRACT ===",
@@ -1516,13 +1636,14 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
             "[BEAT <N> | <M:SS> - <M:SS>]",
             "VISUAL: camera-visible action, environment, props, and transition",
             "SOUND: diegetic sound effects or ambience",
-            "VO [<language>]: sparse information only when visuals/dialogue cannot carry it",
+            "VO [<canonical-tag>]: sparse information only when visuals/dialogue cannot carry it",
             (
-                "DIALOGUE <speaker> [<language> | pair=<translation-id>]: "
+                "DIALOGUE <speaker> [<canonical-tag> | pair=<translation-id>]: "
                 "exact performed words"
             ),
             "CARRY-IN: concrete object, signal, evidence, or state entering the beat",
             "CARRY-OUT: concrete object, signal, evidence, or changed state leaving the beat",
+            performed_tag_law,
             (
                 "TIMING LAW: Beats start at 0:00, are gapless/non-overlapping, "
                 f"and end exactly at {end}. Spoken coverage is cinematic and "
@@ -1554,6 +1675,15 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
                 "CARRY-OUT must exactly match the next beat's CARRY-IN. The final "
                 "carry must earn the next approved section handoff."
             ),
+            (
+                "NARRATOR OCCUPANCY LAW: In narrator mode, audible VO may appear "
+                "in at most floor(60% of timed beats), with one audible beat "
+                "allowed when the section has only one beat. Leave complete beats "
+                "without any audible track so VISUAL and SOUND carry the action."
+                if language_mode == "narrator"
+                else "PERFORMANCE OCCUPANCY LAW: Follow the performed-dialogue "
+                "contract; the narrator-only occupancy cap does not apply."
+            ),
             "=== END CUSTOM FILM COVERAGE AV SCREENPLAY CONTRACT ===",
         )
     )
@@ -1565,6 +1695,7 @@ def _parse_custom_film_av_screenplay(
     exact_seconds: int,
     language_mode: str,
     approved_languages: tuple[str, str] | None = None,
+    canonical_languages: tuple[str, ...] | None = None,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Parse the coverage-only AV DSL and fail closed on ambiguous tracks."""
 
@@ -1625,6 +1756,8 @@ def _parse_custom_film_av_screenplay(
             continue
         vo = _AV_VO_PATTERN.fullmatch(line)
         dialogue = _AV_DIALOGUE_PATTERN.fullmatch(line)
+        relaxed_vo = _AV_RELAXED_VO_PATTERN.fullmatch(line)
+        relaxed_dialogue = _AV_RELAXED_DIALOGUE_PATTERN.fullmatch(line)
         if vo:
             current["audible"].append(
                 {
@@ -1641,6 +1774,46 @@ def _parse_custom_film_av_screenplay(
                     "language": dialogue.group("language"),
                     "translation_pair": dialogue.group("pair"),
                     "text": dialogue.group("text").strip(),
+                }
+            )
+        elif relaxed_vo:
+            label = relaxed_vo.group("language").strip()
+            expected = tuple(
+                canonical_languages
+                or approved_languages
+                or ("en",)
+            )
+            issues.append(
+                f"noncanonical VO language label '{label}'; use exactly "
+                + " or ".join(f"VO [{value}]:" for value in expected)
+            )
+            current["audible"].append(
+                {
+                    "type": "narration",
+                    "language": label,
+                    "text": relaxed_vo.group("text").strip(),
+                }
+            )
+        elif relaxed_dialogue:
+            label = relaxed_dialogue.group("language").strip()
+            expected = tuple(
+                canonical_languages
+                or approved_languages
+                or ("en",)
+            )
+            issues.append(
+                f"noncanonical DIALOGUE language label '{label}'; use exactly "
+                + " or ".join(
+                    f"DIALOGUE <speaker> [{value}]:" for value in expected
+                )
+            )
+            current["audible"].append(
+                {
+                    "type": "dialogue",
+                    "speaker": relaxed_dialogue.group("speaker").strip(),
+                    "language": label,
+                    "translation_pair": relaxed_dialogue.group("pair"),
+                    "text": relaxed_dialogue.group("text").strip(),
                 }
             )
         else:
@@ -1692,13 +1865,66 @@ def _parse_custom_film_av_screenplay(
     if spoken_words > round(exact_seconds * 2.2):
         issues.append("AV screenplay is action-heavy or wall-to-wall spoken narration")
 
-    if language_mode == "bilingual":
-        allowed_languages = tuple(
-            language.casefold()
-            for language in (
-                approved_languages or ("source", "target")
-            )
+    allowed_languages = tuple(
+        language.casefold()
+        for language in (
+            canonical_languages
+            or approved_languages
+            or ("en",)
         )
+    )
+    observed_audible_languages = {
+        str(segment.get("language") or "").casefold()
+        for segment in audible_segments
+    }
+    if observed_audible_languages - set(allowed_languages):
+        issues.append(
+            "AV audible tracks must use only canonical language labels: "
+            + ", ".join(allowed_languages)
+        )
+    narration_segments = [
+        segment
+        for segment in audible_segments
+        if segment.get("type") == "narration"
+    ]
+    dialogue_segments = [
+        segment
+        for segment in audible_segments
+        if segment.get("type") == "dialogue"
+    ]
+    if language_mode == "narrator" and dialogue_segments:
+        issues.append(
+            "narrator AV mode permits VO tracks only; replace DIALOGUE with "
+            f"VO [{allowed_languages[0]}]: or move performed speech to an "
+            "approved dialogue mode"
+        )
+    if language_mode == "simple_single_language":
+        if narration_segments:
+            issues.append(
+                "simple single-language AV mode permits DIALOGUE tracks only; "
+                f"use DIALOGUE <speaker> [{allowed_languages[0]}]:"
+            )
+        if any(segment.get("translation_pair") for segment in dialogue_segments):
+            issues.append(
+                "simple single-language DIALOGUE must not include a translation "
+                "pair ID"
+            )
+    if language_mode == "bilingual" and narration_segments:
+        issues.append(
+            "bilingual AV mode permits paired DIALOGUE tracks only; remove VO "
+            "and perform the approved two-language speaker turns"
+        )
+    if language_mode == "narrator" and beats:
+        audible_beat_count = sum(bool(beat["audible"]) for beat in beats)
+        maximum_audible_beats = max(1, math.floor(len(beats) * 0.6))
+        if audible_beat_count > maximum_audible_beats:
+            issues.append(
+                "narrator AV occupancy is too high: use VO in at most "
+                f"{maximum_audible_beats} of {len(beats)} timed beats and leave "
+                "the remaining beats fully carried by VISUAL and SOUND"
+            )
+
+    if language_mode == "bilingual":
         if (
             len(allowed_languages) != 2
             or allowed_languages[0] == allowed_languages[1]
@@ -1755,9 +1981,7 @@ def _parse_custom_film_av_screenplay(
                     "bilingual translation pair turns must use one exact speaker"
                 )
 
-    if issues:
-        return None, list(dict.fromkeys(issues))
-    return {
+    parsed_result = {
         "format": "custom_film_av_v1",
         "title": header.group("title").strip(),
         "exact_seconds": exact_seconds,
@@ -1784,7 +2008,19 @@ def _parse_custom_film_av_screenplay(
             }
             for beat in beats
         ],
-    }, []
+    }
+    if issues:
+        unique_issues = list(dict.fromkeys(issues))
+        if all(
+            issue.startswith("narrator AV occupancy is too high:")
+            for issue in unique_issues
+        ):
+            # Occupancy is a semantic AV composition gate, not a malformed
+            # screenplay. Preserve the parsed tracks so the same validation
+            # pass can also report grounding drift.
+            return parsed_result, unique_issues
+        return None, unique_issues
+    return parsed_result, []
 
 
 def _custom_film_av_narration_text(raw_segments: Any) -> str:
@@ -3318,6 +3554,11 @@ class SharedSectionProductionSeams:
             if av_screenplay_mode
             else _ExactSectionConfig(request.exact_seconds)
         )
+        canonical_av_languages = (
+            _custom_film_av_language_labels(request.language)
+            if av_screenplay_mode
+            else ()
+        )
         film_world_contract, film_world_context = (
             _script_shared_film_world_contract(
                 request.story_arc,
@@ -3445,6 +3686,14 @@ class SharedSectionProductionSeams:
             raise CustomFilmContractError(
                 "Custom Film script provider returned no section script"
             )
+        language_tag_normalizations = 0
+        if av_screenplay_mode:
+            script_text, language_tag_normalizations = (
+                _canonicalize_custom_film_av_language_tags(
+                    script_text,
+                    canonical_languages=canonical_av_languages,
+                )
+            )
         import script_quality
 
         def deterministic_validation(
@@ -3461,6 +3710,7 @@ class SharedSectionProductionSeams:
                         if str(request.language.get("mode") or "") == "bilingual"
                         else None
                     ),
+                    canonical_languages=canonical_av_languages,
                 )
                 if parsed is not None:
                     av_issues.extend(
@@ -3512,6 +3762,7 @@ class SharedSectionProductionSeams:
             current_text: str,
             current_issues: list[str],
         ) -> tuple[str, list[str], int, dict[str, Any]]:
+            nonlocal language_tag_normalizations
             rounds = 0
             validation: dict[str, Any] = (
                 generated.get("validation")
@@ -3534,6 +3785,14 @@ class SharedSectionProductionSeams:
                 if not edited:
                     break
                 current_text = str(edited[0].get("text") or "").strip()
+                if av_screenplay_mode:
+                    current_text, normalized = (
+                        _canonicalize_custom_film_av_language_tags(
+                            current_text,
+                            canonical_languages=canonical_av_languages,
+                        )
+                    )
+                    language_tag_normalizations += normalized
                 shared_validation = (
                     {}
                     if av_screenplay_mode
@@ -3662,6 +3921,14 @@ class SharedSectionProductionSeams:
             quality_passes += 1
             quality_edit_rounds += edit_rounds
             script_text = str(final_scenes[0].get("text") or "").strip()
+            if av_screenplay_mode:
+                script_text, normalized = (
+                    _canonicalize_custom_film_av_language_tags(
+                        script_text,
+                        canonical_languages=canonical_av_languages,
+                    )
+                )
+                language_tag_normalizations += normalized
             shared_validation = (
                 {}
                 if av_screenplay_mode
@@ -3725,6 +3992,7 @@ class SharedSectionProductionSeams:
                     "deterministic_edit_rounds": deterministic_edit_rounds,
                     "quality_edit_rounds": quality_edit_rounds,
                     "quality_passes": quality_passes,
+                    "language_tag_normalizations": language_tag_normalizations,
                 },
             },
             "shared_validation": final_validation,
