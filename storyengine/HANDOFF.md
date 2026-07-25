@@ -1,28 +1,25 @@
-# HANDOFF - 2026-07-24 - Director surface planned (no code shipped); prior clip-quality work still open
+# HANDOFF - 2026-07-24 - Director Chat Phase 0 shipped and verified (not deployed)
 
 ## State
-- Prod: `00c04cb5` healthy (se health: backend+frontend active, api healthy, active_tasks 0,
-  no deploy lock). Last deploy 2026-07-25T04:59:14Z `m7-custom-film-inference-diagnostics`
-  (8a51b1b3 -> 00c04cb5). **Custom Film is under active development by another session -
-  check before touching those files.**
-- Branch: `feat/per-card-parallel-clips`, **90 commits behind main**. Uncommitted: `HANDOFF.md`
-  (this file). main is at `b7944b46`.
-- What happened this session: **planning only, zero code shipped, nothing deployed.**
-  - Tore down 32 screenshots of OpenArt's Director mode (notes in session scratchpad).
-  - Surveyed our chat surface, render paths, and the Custom Film system against `main`.
-  - Wrote `DIRECTOR-CHAT-PLAN.md` (v2) - 8 phases, reviewed and approved.
-  - Product decisions recorded in memory (`storyengine-director-surface-thesis`).
+- Prod: unchanged, nothing deployed this session. All work is local on branch `feat/director-chat`.
+- Branch: `feat/director-chat`, 5 commits off `main`@f7eaab1a. Build clean (0 errors, 0 warnings,
+  34 routes), `npx tsc --noEmit` exits 0.
+- **Phase 0 of DIRECTOR-CHAT-PLAN.md is COMPLETE and independently verified.** Tailwind v4 `@theme`
+  tokens in `frontend/src/app/globals.css` (additive, +43/-0); shared components harvested out of
+  `ScenesWorkspaceTab.tsx` into `frontend/src/components/canvas-shared/`; `frontend/src/hooks/
+  use-video-refresh.ts` created and adopted by nobody. Evidence in `tasks/DIRECTOR-CHAT-CHECKLIST.md`.
+- **Local `main` is 3 commits behind `origin/main`** - PR #474 "Run approved Custom Films through
+  final assembly" landed after this branch was cut. Fetch and merge before Phase 1.
+- Custom Film remains under active development by another session. Phase 0 touched none of it;
+  Phase 5.3 of the plan is the first chunk that will.
 
 ## Next action (start here cold)
-Execute Phase 0 of `~/economy-fastforward/storyengine/DIRECTOR-CHAT-PLAN.md`. Read the whole
-plan first, especially "Before You Start" and "The Product Thesis". Branch off main:
+Phase 1 of `~/economy-fastforward/storyengine/DIRECTOR-CHAT-PLAN.md` - "Shell and Style Library"
+(Director context + surface layout, chat on the left, Style Library home showing saved recipes plus
+the four presets, canvas header with cost pill). Ryan has NOT yet approved starting Phase 1 - ask first.
 
-    git checkout main && git pull && git checkout -b feat/director-chat
-
-Phase 0 is three independent, no-visible-change tasks: Tailwind v4 `@theme` tokens in
-`frontend/src/app/globals.css`; harvest `BoardLightbox` / `ModelOverrideSheet` /
-`CameraPresetSheet` / `SegmentCard` / parsers out of `ScenesWorkspaceTab.tsx` into a new
-`frontend/src/components/canvas-shared/`; create `frontend/src/hooks/use-video-refresh.ts`.
+Before starting: `git checkout main && git pull --no-rebase && git checkout feat/director-chat &&
+git merge main` to pick up the 3 new origin commits.
 
 ## Open threads
 - **Ryan owes (carried from 2026-07-23, still open):** re-roll s113/s114/s122 in the UI
@@ -54,3 +51,10 @@ Phase 0 is three independent, no-visible-change tasks: Tailwind v4 `@theme` toke
   of a branch without disturbing the working checkout.
 - HANDOFF.md was uncommitted here, so "overwrite it, git has history" was false. Read before
   overwriting; the 2026-07-23 content was carried forward above, backup in session scratchpad.
+- The plan's own instructions can be stale even when freshly written. Task 0.2 told the worker to
+  rename `MediaLightbox` -> `BoardLightbox`; main had already done it. Task 0.3's query-key list was
+  short by 4 keys. Brief workers to grep and verify the spec, not just execute it.
+- Verifying a Tailwind v4 `@theme` block by grepping compiled CSS is worthless - JIT strips unused
+  classes, so absence proves nothing. Compile `globals.css` through Tailwind's own `compile()` API
+  with an explicit candidate list instead. That is what proved `--color-red` does not shadow
+  `--color-red-500`.

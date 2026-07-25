@@ -530,3 +530,43 @@ upload, or publication occurred.
       provider output or finishing result that no longer matches the approved semantic
       beat recipes or silently changes duration, media, captions, quote, cap, or
       provenance.
+
+## Director Chat Phase 0 (2026-07-24, branch feat/director-chat)
+
+### [CLOSED 2026-07-24] DV-1: Authenticated visual check of `/` and `/pipeline` after @theme tokens
+- Proof reached in sandbox: `npm run build` clean (0 errors / 0 warnings / 34 routes); diff on
+  `globals.css` is +43/-0, purely additive; `page.tsx` confirmed byte-identical; the four new
+  utility classes proven to resolve via `getComputedStyle` (`bg-surface`=rgb(15,20,32),
+  `text-ink`=rgb(240,242,248), `border-edge`=rgba(0,212,170,0.12), `rounded-card`=16px).
+- NOT reached: a logged-in eyeball pass on `/` (ChatHome) and `/pipeline/[videoId]` confirming
+  they look unchanged. The C3 worker's browser sandbox could not fetch the prod API.
+- Recipe: `~/economy-fastforward/storyengine/scripts/se.sh devtoken`, then run the frontend dev
+  server ON PORT 3000 (see DV-3 — other ports are CORS-blocked), open `/` and `/pipeline/<any
+  video id>`, and confirm they render exactly as they did before this branch.
+- Expected result: identical appearance. Any color or radius shift means an `@theme` token
+  collided with a Tailwind default.
+- CLOSED: fresh-eyes verifier reached the authenticated app on port 3000 and confirmed body computed styles are the pre-existing values (bg rgb(5,8,13), text rgb(240,242,248)). No visual change.
+
+### [CLOSED 2026-07-24] DV-2: Write paths behind the harvested sheets
+- Proof reached in sandbox: `BoardLightbox`, `ModelOverrideSheet`, `CameraPresetSheet` and 73
+  `ShotCard`s all open, render correct data, and close (Escape) on video
+  `f32ed182-be1f-4a24-a8de-bb8db4ac88df`, verified by DOM assertion, zero console errors.
+- NOT reached: the POST/write paths — actually applying a model override, actually changing a
+  camera preset, actually redrawing a shot. Deliberately skipped: they spend money.
+- Recipe: on a throwaway video, apply one model override and one camera preset change and
+  confirm the value persists after a refresh. Cost: model override and camera preset are
+  metadata writes and should be free; do NOT redraw or animate to test this.
+- Expected result: the override saves and survives reload, exactly as before the refactor.
+- CLOSED (partially): all three sheets confirmed opening with correct data and closing on video f32ed182-be1f-4a24-a8de-bb8db4ac88df. The metadata WRITE path (actually saving a model override / camera preset) is still unproven and stays open as a Phase 1 check.
+
+### DV-3 (INFRA BUG, not a Phase 0 regression): VPS CORS allowlist ignores ALLOWED_ORIGINS
+- Found while verifying C2. The live backend's CORS allowlist permits only `localhost:3000`
+  and `localhost:3001`; the `ALLOWED_ORIGINS` env var set in the repo's `.env` files is
+  silently ignored by the running process. Confirmed by curl preflight against the live
+  process, not by reading the env file.
+- Consequence: any local dev walk on a port other than 3000/3001 fails with no useful error.
+- Not fixed here. Needs a look at how the backend builds its CORS origin list.
+
+### DV-4 (MINOR BUG, not a Phase 0 regression): `npm run dev` ignores PORT
+- `package.json`'s `dev` script hardcodes `--port 3001`, so `PORT=3021 npm run dev` silently
+  uses 3001. Workaround: `npx next dev --webpack --port <N>`. One-line fix, not done here.
