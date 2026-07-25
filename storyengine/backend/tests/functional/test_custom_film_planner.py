@@ -478,6 +478,137 @@ class SequencedPlannerClient:
         return json.dumps(output) if isinstance(output, dict) else output
 
 
+def test_exact_standalone_realistic_prompt_repairs_long_focus_and_compiles(
+    manifest,
+):
+    request = (
+        "Create a five-minute standalone cinematic film about a citywide "
+        "communications blackout and the investigation that restores the network.\n"
+        "Use a realistic, grounded visual world with photorealistic people, "
+        "believable locations, natural lighting, cinematic live-action camera work, "
+        "realistic documents, maps, radios, infrastructure, and environmental detail.\n"
+        "Tell the story in this order:\n"
+        "A citywide communications blackout begins without warning.\n"
+        "Investigators connect outage locations, maintenance records, and physical "
+        "evidence.\n"
+        "Mara gives bilingual witness testimony and discovers a hidden signal inside "
+        "a radio transmission.\n"
+        "Engineers reconnect the failed network in the correct sequence and restore "
+        "the city.\n"
+        "Reveal how StoryEngine planned the story, coordinated the media, motion "
+        "graphics, captions, sound, and editing, and assembled them into one finished "
+        "film.\n"
+        "Mix cinematic footage, animated imagery, maps, evidence graphics, timelines, "
+        "captions, camera movement, sound design, and interface visuals throughout "
+        "the scenes. Do not separate them into technology demonstrations.\n"
+        "Treat this film as independent from my normal channel identity. Do not reuse "
+        "my usual art style, palette, recurring characters, or visual world. Keep "
+        "only subtle StoryEngine turquoise accents and the final StoryEngine product "
+        "reveal."
+    )
+    focuses = [
+        "A citywide communications blackout begins without warning",
+        "Investigators connect outage locations, maintenance records, and physical evidence",
+        (
+            "Mara gives bilingual witness testimony and discovers a hidden signal "
+            "inside a radio transmission"
+        ),
+        (
+            "Engineers reconnect the failed network in the correct sequence and "
+            "restore the city"
+        ),
+        (
+            "Reveal how StoryEngine planned the story, coordinated the media, motion "
+            "graphics, captions, sound, and editing, and assembled them into one "
+            "finished film"
+        ),
+    ]
+    roles = ["opening", "evidence", "case_study", "resolution", "closing"]
+    capabilities = [
+        _beat("motion.signal_pulse", intents=["cinematic", "outage"]),
+        _beat(
+            "motion.outage_map",
+            "motion.evidence_board",
+            intents=["map", "evidence", "documents"],
+        ),
+        _beat(
+            "motion.radio_waveform",
+            "motion.bilingual_captions",
+            dialogue=True,
+            captions=True,
+            intents=["witness", "radio", "signal"],
+        ),
+        _beat(
+            "motion.network_explainer",
+            intents=["network", "recovery"],
+        ),
+        _beat(
+            "motion.storyengine_reveal",
+            intents=["product", "recovery"],
+        ),
+    ]
+    repaired = {
+        "sections": [
+            {
+                "role": role,
+                "focus": focus,
+                "duration_weight": 1,
+                "structure_source": (
+                    "bilingual_character_animation"
+                    if role == "case_study"
+                    else "animated_investigative_documentary"
+                ),
+                "writing_source": "animated_investigative_documentary",
+                "visual_source": "animated_investigative_documentary",
+                "beats": [beat],
+            }
+            for role, focus, beat in zip(roles, focuses, capabilities)
+        ]
+    }
+    invalid = copy.deepcopy(repaired)
+    invalid["sections"][0]["focus"] = "A blackout strikes the entire city"
+    client = SequencedPlannerClient([invalid, repaired])
+
+    compiled = asyncio.run(
+        planner.plan_custom_film(
+            request,
+            manifest,
+            client,
+            total_duration_seconds=300,
+        )
+    )
+
+    assert len(client.calls) == 2
+    assert len(compiled.planner_proposal["sections"]) == 5
+    assert compiled.planner_proposal["sections"][4]["focus"] == focuses[4]
+    assert len(focuses[4]) > 120
+    assert len(focuses[4]) <= planner.MAX_PLANNER_FOCUS_CHARS
+    assert f"at most {planner.MAX_PLANNER_FOCUS_CHARS} characters" in (
+        client.calls[1]["prompt"]
+    )
+
+
+def test_focus_character_bound_is_shared_and_over_limit_fails(manifest):
+    schema = planner.planner_json_schema()["$defs"]
+    reuse_schema = planner.ReuseFocusProposal.model_json_schema()["$defs"]
+    assert planner.MAX_PLANNER_FOCUS_CHARS == 240
+    assert schema["PlannerSection"]["properties"]["focus"]["maxLength"] == 240
+    assert reuse_schema["ReuseFocusSection"]["properties"]["focus"]["maxLength"] == 240
+
+    over_limit = "x" * (planner.MAX_PLANNER_FOCUS_CHARS + 1)
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            f"Make a custom film about {over_limit}",
+            _proposal(over_limit),
+            manifest,
+            total_duration_seconds=30,
+        )
+    with pytest.raises(planner.ValidationError):
+        planner.ReuseFocusProposal.model_validate(
+            {"sections": [{"focus": over_limit}]}
+        )
+
+
 def test_planner_repairs_one_ungrounded_focus_then_compiles(manifest, caplog):
     client = SequencedPlannerClient(
         [_proposal("unrelated topic"), _proposal("steel")]
