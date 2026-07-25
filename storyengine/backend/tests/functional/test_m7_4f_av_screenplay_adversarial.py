@@ -38,6 +38,22 @@ def _bilingual_screenplay() -> str:
     )
 
 
+def _with_boundary_carries(
+    screenplay: str,
+    *,
+    carry_in: str,
+    carry_out: str,
+) -> str:
+    lines = screenplay.splitlines()
+    first_in = next(index for index, line in enumerate(lines) if line.startswith("CARRY-IN: "))
+    last_out = max(
+        index for index, line in enumerate(lines) if line.startswith("CARRY-OUT: ")
+    )
+    lines[first_in] = f"CARRY-IN: {carry_in}"
+    lines[last_out] = f"CARRY-OUT: {carry_out}"
+    return "\n".join(lines)
+
+
 def test_all_narrated_character_actions_fail_closed():
     bad = "\n".join(
         (
@@ -182,34 +198,12 @@ def test_av_grounding_allows_sentence_starts_but_rejects_mid_sentence_names():
     assert any("Chicago" in issue and "ERCOT" in issue for issue in grounding)
 
 
-@pytest.mark.parametrize(
-    ("old", "new", "anchor"),
-    [
-        (
-            "Mara studies a pulsing signal on the console.",
-            "Chicago signals pulse on the console.",
-            "Chicago",
-        ),
-        (
+def test_av_grounding_rejects_sentence_initial_acronym_deterministically():
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay().replace(
             "A relay clicks beneath quiet room tone.",
             "ERCOT relays click beneath quiet room tone.",
-            "ERCOT",
         ),
-        ("CARRY-IN: silent console", "CARRY-IN: Chicago console", "Chicago"),
-        (
-            "The signal is back.",
-            "Chicago confirms the signal is back.",
-            "Chicago",
-        ),
-    ],
-)
-def test_av_grounding_rejects_entities_at_start_of_every_factual_track(
-    old,
-    new,
-    anchor,
-):
-    parsed, issues = production._parse_custom_film_av_screenplay(
-        _bilingual_screenplay().replace(old, new),
         exact_seconds=12,
         language_mode="bilingual",
         approved_languages=("en", "es"),
@@ -219,7 +213,46 @@ def test_av_grounding_rejects_entities_at_start_of_every_factual_track(
         parsed,
         approved_context="case_study\nFollow Mara and the approved signal",
     )
-    assert any(anchor in issue for issue in grounding)
+    assert any("ERCOT" in issue for issue in grounding)
+
+
+@pytest.mark.parametrize("ordinary_noun", ["Control", "Lights", "Map"])
+def test_av_grounding_allows_ordinary_sentence_initial_visual_nouns(
+    ordinary_noun,
+):
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay().replace(
+            "Mara studies a pulsing signal on the console.",
+            f"{ordinary_noun} shifts as the approved signal returns.",
+        ),
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert issues == []
+
+    assert production._custom_film_av_grounding_issues(
+        parsed,
+        approved_context="case_study\nFollow Mara and the approved signal",
+    ) == []
+
+
+def test_sentence_initial_title_case_entity_is_deferred_to_semantic_gate():
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay().replace(
+            "Mara studies a pulsing signal on the console.",
+            "Texas routes the approved signal through the console.",
+        ),
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert issues == []
+
+    assert production._custom_film_av_grounding_issues(
+        parsed,
+        approved_context="case_study\nFollow Mara and the approved signal",
+    ) == []
 
 
 def test_dialogue_speaker_requires_exact_approved_identity_not_prefix_alias():
@@ -459,6 +492,348 @@ def _quality_pass(scenes):
     }
 
 
+def test_arc_derived_carry_binding_is_exact_across_adjacent_sections():
+    arc = (
+        {"order_index": 0, "purpose": "The blackout begins"},
+        {"order_index": 1, "purpose": "Mara finds the control map"},
+        {"order_index": 2, "purpose": "The engineer restores StoryEngine"},
+    )
+
+    first_contract, first_in, first_out = production._script_av_carry_binding(
+        arc,
+        current_order_index=0,
+    )
+    second_contract, second_in, second_out = production._script_av_carry_binding(
+        arc,
+        current_order_index=1,
+    )
+
+    assert first_in == "approved opening state — The blackout begins"
+    assert first_out == second_in == (
+        "approved transition state — Mara finds the control map"
+    )
+    assert second_out == (
+        "approved transition state — The engineer restores StoryEngine"
+    )
+    assert f"REQUIRED FINAL CARRY-OUT: {first_out}" in first_contract
+    assert f"REQUIRED FIRST CARRY-IN: {second_in}" in second_contract
+
+
+@pytest.mark.asyncio
+async def test_54_second_av_prompt_uses_sparse_band_and_visual_first_narrator_law(
+    monkeypatch,
+):
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "opening",
+            "purpose": "The blackout reaches the control room",
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "resolution",
+            "purpose": "The map guides the engineer to StoryEngine",
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=54),
+            role="opening",
+            purpose="The blackout reaches the control room",
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "6" * 64,
+    )
+    spoken = " ".join(["approved control signal returns"] * 5)
+    candidate = "\n".join(
+        (
+            "[AV SECTION — BLACKOUT | 0:00 - 0:54]",
+            "[BEAT 1 | 0:00 - 0:54]",
+            "VISUAL: Control lights shift across the approved room map.",
+            "SOUND: Low electrical ambience steadies.",
+            f"VO [en]: {spoken}",
+            (
+                "CARRY-IN: approved opening state — The blackout reaches the "
+                "control room"
+            ),
+            (
+                "CARRY-OUT: approved transition state — The map guides the "
+                "engineer to StoryEngine"
+            ),
+        )
+    )
+    observed = {}
+    inserted = []
+
+    class Connection:
+        async def fetchrow(self, _sql, *args):
+            inserted.append(args[4])
+            return {"id": args[0]}
+
+        async def execute(self, _sql, *_args):
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def generate(_client, brief, *, config, profile):
+        observed["guidance"] = brief["writer_guidance"]
+        observed["config"] = config
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        observed["rules"] = kwargs["rules_text"]
+        return _quality_pass(scenes)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    await seams._script(request)
+
+    assert isinstance(observed["config"], production._AVSectionConfig)
+    assert (
+        observed["config"].script_min_words,
+        observed["config"].script_max_words,
+    ) == (14, 119)
+    assert observed["config"].total_script_words == 66
+    assert "CINEMATIC SPARSE SPOKEN BAND: 14-119" in observed["guidance"]
+    assert "EXACT SPOKEN WORD BAND: 121-149" not in observed["guidance"]
+    assert "visual action and sound must carry the scene" in observed["guidance"]
+    assert "narrator-led voice-over" not in observed["guidance"]
+    assert "shared_film_world_progression" in observed["rules"]
+    assert inserted == [candidate]
+
+
+def test_54_second_wall_to_wall_vo_is_rejected():
+    spoken = " ".join(["approved signal"] * 60)
+    screenplay = "\n".join(
+        (
+            "[AV SECTION — OVERFULL | 0:00 - 0:54]",
+            "[BEAT 1 | 0:00 - 0:54]",
+            "VISUAL: The approved signal fills the control screen.",
+            "SOUND: Low room tone continues.",
+            f"VO [en]: {spoken}",
+            "CARRY-IN: approved opening state",
+            "CARRY-OUT: approved final state",
+        )
+    )
+
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        screenplay,
+        exact_seconds=54,
+        language_mode="narrator",
+    )
+
+    assert parsed is None
+    assert "AV screenplay is action-heavy or wall-to-wall spoken narration" in issues
+
+
+@pytest.mark.asyncio
+async def test_sentence_initial_texas_drift_is_rejected_by_semantic_hard_gate(
+    monkeypatch,
+):
+    purpose = "Follow Mara and the approved signal"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "case_study",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=12),
+            role="case_study",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "5" * 64,
+    )
+    candidate = "\n".join(
+        (
+            "[AV SECTION — SIGNAL | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: Texas routes the approved signal across Mara's console.",
+            "SOUND: A relay clicks.",
+            "VO [en]: The approved signal returns.",
+            (
+                "CARRY-IN: approved opening state — Follow Mara and the "
+                "approved signal"
+            ),
+            (
+                "CARRY-OUT: approved final state — Follow Mara and the "
+                "approved signal"
+            ),
+        )
+    )
+
+    async def generate(*_args, **_kwargs):
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        assert (
+            "unapproved sentence-initial title-case candidate"
+            in kwargs["rules_text"]
+        )
+        return {
+            "scenes": copy.deepcopy(scenes),
+            "critique": SimpleNamespace(
+                verdict="fail",
+                score=20,
+                failing_gates=["approved_purpose_grounding"],
+                violations=["Texas is absent from the approved film world"],
+                rule_verdicts=[],
+                needs_revision=True,
+            ),
+            "needs_review": True,
+            "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
+        }
+
+    database_touched = False
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("semantic rejection must happen before persistence")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed visual-story quality before voice or imagery",
+    ):
+        await seams._script(request)
+    assert database_touched is False
+
+
+@pytest.mark.asyncio
+async def test_carry_mismatch_repairs_with_exact_arc_derived_binding(
+    monkeypatch,
+):
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-first",
+            "role": "opening",
+            "purpose": "The blackout reaches the room",
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-middle",
+            "role": "evidence",
+            "purpose": "Mara finds the control map",
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 2,
+            "section_id": "section-final",
+            "role": "resolution",
+            "purpose": "The engineer restores StoryEngine",
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", section_id="section-middle", seconds=12),
+            order_index=1,
+            role="evidence",
+            purpose="Mara finds the control map",
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "4" * 64,
+    )
+    base = "\n".join(
+        (
+            "[AV SECTION — MAP | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: Mara follows the approved control map.",
+            "SOUND: Low electrical ambience steadies.",
+            "VO [en]: The approved map reveals the next state.",
+            "CARRY-IN: wrong prior state",
+            "CARRY-OUT: wrong next state",
+        )
+    )
+    repaired = _with_boundary_carries(
+        base,
+        carry_in="approved transition state — Mara finds the control map",
+        carry_out=(
+            "approved transition state — The engineer restores StoryEngine"
+        ),
+    )
+    repair_violations = []
+    inserted = []
+
+    class Connection:
+        async def fetchrow(self, _sql, *args):
+            inserted.append(args[4])
+            return {"id": args[0]}
+
+        async def execute(self, _sql, *_args):
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def generate(*_args, **_kwargs):
+        return {"script": base, "validation": {"valid": True, "issues": []}}
+
+    async def edit(_scenes, violations, **_kwargs):
+        repair_violations.extend(violations)
+        return [{"scene": 1, "text": repaired}]
+
+    async def quality(_tenant, _video, scenes, **_kwargs):
+        return _quality_pass(scenes)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    await seams._script(request)
+
+    repair_text = "\n".join(repair_violations)
+    assert "AV first CARRY-IN must exactly match" in repair_text
+    assert (
+        "REQUIRED FIRST CARRY-IN: approved transition state — Mara finds the "
+        "control map"
+    ) in repair_text
+    assert (
+        "REQUIRED FINAL CARRY-OUT: approved transition state — The engineer "
+        "restores StoryEngine"
+    ) in repair_text
+    assert inserted == [repaired]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("matching_carry", [True, False])
 async def test_last_script_barrier_is_preinsert_exact_and_selects_dialogue_route(
@@ -497,14 +872,22 @@ async def test_last_script_barrier_is_preinsert_exact_and_selects_dialogue_route
         (),
         "custom-film-op:" + "8" * 64,
     )
-    candidate = _bilingual_screenplay()
-    prior_text = _bilingual_screenplay().replace(
-        "CARRY-OUT: shared signal",
-        (
-            "CARRY-OUT: silent console"
-            if matching_carry
-            else "CARRY-OUT: unrelated evidence"
+    transition = (
+        "approved transition state — Land Mara and the approved ending"
+    )
+    candidate = _with_boundary_carries(
+        _bilingual_screenplay(),
+        carry_in=transition,
+        carry_out=(
+            "approved final state — Land Mara and the approved ending"
         ),
+    )
+    prior_text = _with_boundary_carries(
+        _bilingual_screenplay(),
+        carry_in=(
+            "approved opening state — Follow Mara and the approved signal"
+        ),
+        carry_out=transition if matching_carry else "unrelated evidence",
     )
     prior_parsed, prior_issues = production._parse_custom_film_av_screenplay(
         prior_text,
