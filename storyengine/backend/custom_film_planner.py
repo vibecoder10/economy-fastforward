@@ -53,6 +53,7 @@ PUBLIC_SOURCE = Literal[
 
 CUSTOM_FILM_SECTION_NAMESPACE = UUID("7c75538d-0114-4a43-a745-7587e45a6b91")
 MAX_PLANNER_SECTIONS = 12
+MAX_PLANNER_BEATS_PER_SECTION = 4
 ROLE_PURPOSES = {
     "full_film": "Carry one coherent approach through the whole film about {focus}",
     "opening": "Set up {focus} and give the audience a reason to keep watching",
@@ -253,6 +254,16 @@ PUBLIC_ORCHESTRATION_CAPABILITIES = (
 PUBLIC_ORCHESTRATION_CAPABILITY_IDS = frozenset(
     capability["id"] for capability in PUBLIC_ORCHESTRATION_CAPABILITIES
 )
+PUBLIC_ORCHESTRATION_SIGNAL_RULES = {
+    "allowed_intents": sorted(ALLOWED_INTENTS),
+    "allowed_handoffs": sorted(ALLOWED_HANDOFFS),
+    "compatibility": [
+        "captions=true may request ordinary approved captions without motion.bilingual_captions",
+        "motion.bilingual_captions requires captions=true",
+        "dialogue=true requires captions=true",
+        "a humanize beat with dialogue=true must use video or adaptive media",
+    ],
+}
 
 
 class PlannerBeat(_StrictModel):
@@ -260,13 +271,34 @@ class PlannerBeat(_StrictModel):
         "establish", "investigate", "humanize", "explain", "reveal", "transition"
     ]
     duration_weight: Decimal = Field(gt=0, le=1_000_000)
-    capability_ids: list[str] = Field(min_length=2, max_length=11)
-    media_kind: Literal["image", "video", "adaptive"]
-    dialogue: bool
-    captions: bool
-    intents: list[str] = Field(min_length=1, max_length=8)
+    capability_ids: list[str] = Field(
+        min_length=2,
+        max_length=11,
+        description=(
+            "Public capability IDs. motion.bilingual_captions requires captions=true."
+        ),
+    )
+    media_kind: Literal["image", "video", "adaptive"] = Field(
+        description=(
+            "A humanize beat with dialogue=true must use video or adaptive media."
+        )
+    )
+    dialogue: bool = Field(description="dialogue=true requires captions=true.")
+    captions: bool = Field(
+        description=(
+            "Whether approved captions are present; ordinary captions do not require "
+            "motion.bilingual_captions."
+        )
+    )
+    intents: list[str] = Field(
+        min_length=1,
+        max_length=8,
+        json_schema_extra={
+            "items": {"type": "string", "enum": sorted(ALLOWED_INTENTS)}
+        },
+    )
     energy: int = Field(ge=0, le=3)
-    handoff: str
+    handoff: str = Field(json_schema_extra={"enum": sorted(ALLOWED_HANDOFFS)})
 
     @field_validator("capability_ids")
     @classmethod
@@ -298,9 +330,9 @@ class PlannerBeat(_StrictModel):
     @model_validator(mode="after")
     def validate_compatibility(self) -> "PlannerBeat":
         has_bilingual = "motion.bilingual_captions" in self.capability_ids
-        if self.captions != has_bilingual:
+        if has_bilingual and not self.captions:
             raise ValueError(
-                "Caption signal and bilingual caption capability disagree"
+                "Bilingual caption capability requires the caption signal"
             )
         if self.dialogue and not self.captions:
             raise ValueError("Dialogue beats require an approved caption treatment")
@@ -324,7 +356,11 @@ class PlannerSection(_StrictModel):
     structure_source: PUBLIC_SOURCE
     writing_source: PUBLIC_SOURCE
     visual_source: PUBLIC_SOURCE
-    beats: list[PlannerBeat] | None = Field(default=None, min_length=1, max_length=12)
+    beats: list[PlannerBeat] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_PLANNER_BEATS_PER_SECTION,
+    )
 
     @field_validator("role")
     @classmethod
@@ -562,7 +598,11 @@ def _planner_prompt(
         "captions, and audio when the story benefits. Every beat must include "
         "`media.approved_primary` and `audio.motion_system`; use secondary media "
         "and multiple motion capabilities when compositionally useful. Signals "
-        "describe narrative content, never provider/model internals. "
+        "describe narrative content, never provider/model internals. Use one to "
+        f"{MAX_PLANNER_BEATS_PER_SECTION} purposeful beats per section and follow "
+        "the signal rules exactly.\n\n"
+        f"ORCHESTRATION SIGNAL RULES:\n"
+        f"{canonical_json(PUBLIC_ORCHESTRATION_SIGNAL_RULES)}\n\n"
         "Use two to six purposeful sections unless the creator clearly asks for a "
         "different count.\n\n"
         f"PUBLIC SOURCES:\n{canonical_json(sources)}\n\n"
@@ -900,7 +940,7 @@ async def plan_custom_film(
                 "You are a constrained film-structure planner. Follow the JSON schema "
                 "exactly and never propose providers, prices, runtime knobs, or actions."
             ),
-            max_tokens=2_000,
+            max_tokens=6_000,
             temperature=0,
         )
         parsed = _extract_json_object(raw)

@@ -413,6 +413,140 @@ class FakePlannerClient:
         return json.dumps(self.payload)
 
 
+def test_exact_flagship_request_accepts_generic_and_bilingual_caption_signals(
+    manifest,
+):
+    request = (
+        "Make me the ultimate cinematic five-minute Custom Film about the day "
+        "the internet went dark. Use exactly four acts: a 45-second thriller "
+        "opening; a 105-second investigation through a fictional outage map, "
+        "evidence board, and incident timeline; a 90-second bilingual witness "
+        "sequence where Mara reveals a hidden recovery key through a radio "
+        "transmission; and a 60-second four-node network explanation, city "
+        "reconnection, and StoryEngine product reveal. Keep the same evolving "
+        "turquoise signal pulse across all four acts. Keep all important faces, "
+        "evidence, captions, and product UI crop-safe for 9:16 excerpts. Use my "
+        "connected accounts only and do not exceed a $15 hard spending cap."
+    )
+    response = _flagship_proposal()
+    opening_followup = copy.deepcopy(response["sections"][0]["beats"][0])
+    opening_followup.update(
+        {
+            "narrative_function": "transition",
+            "duration_weight": 1,
+            "intents": ["outage", "signal", "transition"],
+            "energy": 1,
+            "handoff": "pulse_to_route",
+        }
+    )
+    response["sections"][0]["beats"].append(opening_followup)
+    evidence_followup = copy.deepcopy(response["sections"][1]["beats"][0])
+    evidence_followup.update(
+        {
+            "narrative_function": "investigate",
+            "duration_weight": 2,
+            "intents": ["evidence", "timeline", "transition"],
+            "energy": 3,
+            "handoff": "connector_to_waveform",
+        }
+    )
+    response["sections"][1]["beats"].append(evidence_followup)
+    exact_focuses = [
+        "day the internet went dark",
+        "fictional outage map, evidence board, and incident timeline",
+        "Mara reveals a hidden recovery key through a radio transmission",
+        "four-node network explanation, city reconnection, and StoryEngine product reveal",
+    ]
+    for section, focus in zip(response["sections"], exact_focuses):
+        section["focus"] = focus
+        # The creator requested caption-safe composition for the whole film.
+        # Only the Mara beat needs the specifically bilingual treatment.
+        for beat in section["beats"]:
+            beat["captions"] = True
+    client = FakePlannerClient(response)
+
+    compiled = asyncio.run(
+        planner.plan_custom_film(
+            request,
+            manifest,
+            client,
+            total_duration_seconds=300,
+        )
+    )
+
+    assert [section["focus"] for section in compiled.planner_proposal["sections"]] == (
+        exact_focuses
+    )
+    assert [len(section["beats"]) for section in compiled.planner_proposal["sections"]] == [
+        2,
+        2,
+        1,
+        1,
+    ]
+    # This representative multi-beat response remains comfortably below the
+    # bounded 6,000-token generation ceiling (using a conservative 4 chars/token).
+    assert len(json.dumps(response)) < 6_000 * 4
+    assert client.calls[0]["max_tokens"] == 6_000
+    planning_prompt = client.calls[0]["prompt"]
+    for value in sorted(orchestration.ALLOWED_INTENTS):
+        assert f'"{value}"' in planning_prompt
+    for value in sorted(orchestration.ALLOWED_HANDOFFS):
+        assert f'"{value}"' in planning_prompt
+    assert "motion.bilingual_captions requires captions=true" in planning_prompt
+    beat_schema = planner.planner_json_schema()["$defs"]["PlannerBeat"][
+        "properties"
+    ]
+    assert beat_schema["intents"]["items"]["enum"] == sorted(
+        orchestration.ALLOWED_INTENTS
+    )
+    assert beat_schema["handoff"]["enum"] == sorted(
+        orchestration.ALLOWED_HANDOFFS
+    )
+    planner_section_schema = planner.planner_json_schema()["$defs"][
+        "PlannerSection"
+    ]["properties"]
+    assert planner.MAX_PLANNER_BEATS_PER_SECTION == 4
+    assert planner_section_schema["beats"]["anyOf"][0]["maxItems"] == 4
+    assert "ordinary captions do not require" in beat_schema["captions"][
+        "description"
+    ]
+    assert "dialogue=true requires captions=true" in beat_schema["dialogue"][
+        "description"
+    ]
+
+
+def test_bilingual_caption_capability_still_requires_caption_signal(manifest):
+    request = "Make a film about a bilingual witness"
+    response = _proposal("bilingual witness")
+    response["sections"][0]["beats"] = [
+        _beat("motion.bilingual_captions", captions=False)
+    ]
+
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            request,
+            response,
+            manifest,
+            total_duration_seconds=30,
+        )
+
+
+def test_five_valid_beats_exceed_planner_section_contract(manifest):
+    request = "Make a film about a bilingual witness"
+    response = _proposal("bilingual witness")
+    response["sections"][0]["beats"] = [
+        copy.deepcopy(_beat("motion.signal_pulse")) for _ in range(5)
+    ]
+
+    with pytest.raises(planner.CustomFilmPlannerError):
+        planner.compile_planner_proposal(
+            request,
+            response,
+            manifest,
+            total_duration_seconds=30,
+        )
+
+
 def test_fake_planner_fixture_compiles_to_stable_hidden_plan(manifest):
     first_client = FakePlannerClient(_proposal("hidden cost of fast fashion"))
     second_client = FakePlannerClient(
