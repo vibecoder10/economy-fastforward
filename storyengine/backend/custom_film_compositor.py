@@ -575,15 +575,12 @@ def build_assembly_manifest(
         voice_parent_id = _parent_operation_id(
             tenant_id, runtime_job_id, voice_adapter
         )
+        narration_scene_ids: list[str] = []
         if section["dialogue_audio"] == "voice_over":
             supplement_voice_urls = list(
                 supplement.get("voice_over_urls") or []
             )
-            if len(supplement_voice_urls) != len(assigned_scene_ids):
-                raise CustomFilmContractError(
-                    "Custom Film exact voice-over inputs are incomplete"
-                )
-            for scene_index, scene_id in enumerate(assigned_scene_ids):
+            for scene_id in assigned_scene_ids:
                 voice_child_id = "custom-film-op:" + canonical_hash(
                     {
                         "parent_operation_id": voice_parent_id,
@@ -594,26 +591,73 @@ def build_assembly_manifest(
                     operations_by_id[voice_child_id]["result"],
                     "voice child result",
                 )
-                artifacts = voice_result.get("artifacts")
-                if not isinstance(artifacts, list) or len(artifacts) != 1:
+                if voice_result.get("scene_ids") != [scene_id]:
                     raise CustomFilmContractError(
-                        "Custom Film voice child has incomplete artifacts"
+                        "Custom Film voice child scene identity changed"
+                    )
+                artifacts = voice_result.get("artifacts")
+                voiced_scene_ids = voice_result.get("voiced_scene_ids")
+                total_chars = voice_result.get("total_chars")
+                current_scene = scene_rows_by_id[scene_id]
+                current_url = str(
+                    current_scene.get("voice_over_url") or ""
+                ).strip()
+                current_status = str(
+                    current_scene.get("voice_status") or ""
+                ).strip()
+                coherent_zero_narration = (
+                    type(total_chars) is int
+                    and total_chars == 0
+                    and artifacts == []
+                    and voiced_scene_ids == []
+                    and not current_url
+                    and not current_status
+                )
+                if coherent_zero_narration:
+                    continue
+                positive_total_chars_valid = (
+                    total_chars is None
+                    or (
+                        type(total_chars) is int
+                        and total_chars > 0
+                    )
+                )
+                if (
+                    not positive_total_chars_valid
+                    or not isinstance(artifacts, list)
+                    or len(artifacts) != 1
+                    or voiced_scene_ids != [scene_id]
+                    or not current_url
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film voice child narration evidence is incomplete"
                     )
                 artifact = _mapping(artifacts[0], "voice artifact")
-                current_scene = scene_rows_by_id[scene_id]
                 artifact_id = str(artifact.get("artifact_id") or "")
+                narration_index = len(narration_scene_ids)
                 if (
                     artifact.get("scene_id") != scene_id
                     or artifact.get("artifact_url")
-                    != current_scene.get("voice_over_url")
-                    or str(current_scene.get("voice_status") or "")
+                    != current_url
+                    or current_status
                     != f"custom-film-voice:{artifact_id}"
-                    or supplement_voice_urls[scene_index]
-                    != current_scene.get("voice_over_url")
+                    or narration_index >= len(supplement_voice_urls)
+                    or supplement_voice_urls[narration_index] != current_url
                 ):
                     raise CustomFilmContractError(
                         "Custom Film current voice artifact drifted from its child operation"
                     )
+                narration_scene_ids.append(scene_id)
+            if narration_scene_ids and len(narration_scene_ids) != len(
+                assigned_scene_ids
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film mixed narration timelines are unsupported"
+                )
+            if len(supplement_voice_urls) != len(narration_scene_ids):
+                raise CustomFilmContractError(
+                    "Custom Film exact voice-over inputs are incomplete"
+                )
         duration_seconds = _exact_int(
             section.get("duration_seconds"), "section seconds", 1
         )
@@ -901,8 +945,9 @@ def build_assembly_manifest(
         voice_durations = list(
             supplement.get("voice_over_duration_ms") or []
         )
+        section_uses_narration = bool(narration_scene_ids)
         if section["dialogue_audio"] == "voice_over" and (
-            len(voice_urls) != len(scenes_by_section[section_id])
+            len(voice_urls) != len(narration_scene_ids)
             or (
                 require_source_hashes
                 and (
@@ -920,7 +965,7 @@ def build_assembly_manifest(
             raise CustomFilmContractError(
                 "Custom Film exact voice-over inputs are incomplete"
             )
-        if section["dialogue_audio"] == "voice_over":
+        if section["dialogue_audio"] == "voice_over" and section_uses_narration:
             if require_source_hashes:
                 source_voice_ms = sum(
                     _exact_int(value, "voice source duration", 1)
@@ -1026,7 +1071,10 @@ def build_assembly_manifest(
                 "audio": {
                     "mode": (
                         "source_clip"
-                        if section["dialogue_audio"] == "grok_native"
+                        if (
+                            section["dialogue_audio"] == "grok_native"
+                            or not section_uses_narration
+                        )
                         else "voice_over"
                     ),
                     "source_urls": voice_urls,
@@ -2250,13 +2298,6 @@ async def _load_current_inputs(
                     for row in values
                     if str(row.get("voice_over_url") or "").strip()
                 ]
-                if (
-                    section["dialogue_audio"] == "voice_over"
-                    and len(voice_over_urls) != len(values)
-                ):
-                    raise CustomFilmContractError(
-                        "Custom Film current narration artifacts are incomplete"
-                    )
                 section_supplements[str(section["section_id"])] = {
                     "voice_over_urls": voice_over_urls,
                     "voice_over_sha256": [],

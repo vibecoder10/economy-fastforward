@@ -365,6 +365,15 @@ def _fixture() -> dict:
                     }
                 ]
             child_result = {"scene_ids": [scene_id], "artifacts": artifacts}
+            if adapter.stage == "voice":
+                child_result.update(
+                    {
+                        "voiced_scene_ids": (
+                            [scene_id] if artifacts else []
+                        ),
+                        "total_chars": 100 if artifacts else 0,
+                    }
+                )
             providers.append(
                 {
                     "tenant_id": TENANT,
@@ -428,6 +437,138 @@ def _build(values: dict) -> dict:
         provenance_rows=values["provenance_rows"],
         section_supplements=values["section_supplements"],
     )
+
+
+def _voice_child(values: dict, section_id: str) -> tuple[dict, dict]:
+    scene_id = next(
+        row["script_id"]
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    child_row = next(
+        row
+        for row in values["provider_rows"]
+        if ":voice:scene:" in row["stage_key"]
+        and row["result"]["scene_ids"] == [scene_id]
+    )
+    parent_row = next(
+        row
+        for row in values["provider_rows"]
+        if any(
+            child["operation_id"] == child_row["operation_id"]
+            for child in row["result"].get("child_operations", [])
+        )
+    )
+    return child_row, parent_row
+
+
+def _set_zero_narration(values: dict, section_id: str) -> str:
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    scene_id = scene["script_id"]
+    scene["voice_over_url"] = None
+    scene["voice_status"] = None
+    supplement = values["section_supplements"][section_id]
+    supplement["voice_over_urls"] = []
+    supplement["voice_over_sha256"] = []
+    supplement["voice_over_duration_ms"] = []
+    child_row, parent_row = _voice_child(values, section_id)
+    result = {
+        "scene_ids": [scene_id],
+        "voiced_scene_ids": [],
+        "total_chars": 0,
+        "artifacts": [],
+    }
+    child_row["result"] = result
+    parent_row["result"]["child_operations"][0]["result"] = result
+    return scene_id
+
+
+def test_manifest_accepts_exact_zero_narration_child_for_dialogue_only_voiceover():
+    values = _fixture()
+    section_id = values["envelope"]["sections"][2]["section_id"]
+    _set_zero_narration(values, section_id)
+
+    manifest = _build(values)
+
+    section = next(
+        row for row in manifest["sections"] if row["section_id"] == section_id
+    )
+    assert section["audio"]["mode"] == "source_clip"
+    assert section["audio"]["source_urls"] == []
+    assert section["audio"]["source_sha256"] == []
+    assert section["audio"]["timing_transform"]["mode"] == "source_clip"
+
+
+def test_manifest_accepts_legacy_positive_voice_child_without_total_chars():
+    values = _fixture()
+    section_id = values["envelope"]["sections"][0]["section_id"]
+    child_row, _ = _voice_child(values, section_id)
+    child_row["result"]["total_chars"] = None
+
+    manifest = _build(values)
+
+    section = next(
+        row for row in manifest["sections"] if row["section_id"] == section_id
+    )
+    assert section["audio"]["mode"] == "voice_over"
+    assert section["audio"]["source_urls"] == ["fixture://voice-0"]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "stale_current_voice",
+        "artifact_without_chars",
+        "voiced_without_artifact",
+        "missing_total_chars",
+    ],
+)
+def test_manifest_rejects_incoherent_zero_narration_evidence(tamper):
+    values = _fixture()
+    section_id = values["envelope"]["sections"][2]["section_id"]
+    scene_id = _set_zero_narration(values, section_id)
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    child_row, _ = _voice_child(values, section_id)
+    if tamper == "stale_current_voice":
+        scene["voice_over_url"] = "fixture://stale-voice"
+        scene["voice_status"] = "custom-film-voice:stale"
+    elif tamper == "artifact_without_chars":
+        child_row["result"]["artifacts"] = [
+            {
+                "scene_id": scene_id,
+                "artifact_id": "stale",
+                "artifact_url": "fixture://stale-voice",
+            }
+        ]
+    elif tamper == "voiced_without_artifact":
+        child_row["result"]["voiced_scene_ids"] = [scene_id]
+    else:
+        child_row["result"]["total_chars"] = None
+
+    with pytest.raises(contract.CustomFilmContractError):
+        _build(values)
+
+
+def test_manifest_still_requires_exact_current_artifact_for_positive_narration():
+    values = _fixture()
+    section_id = values["envelope"]["sections"][0]["section_id"]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    scene["voice_over_url"] = "fixture://changed-after-completion"
+
+    with pytest.raises(contract.CustomFilmContractError):
+        _build(values)
 
 
 def test_running_runtime_is_assembly_eligible_only_for_exact_complete_worker():
