@@ -1,5 +1,18 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
+## Active mission — M7 REAL-WORLD CUSTOM FILM PLANNER REPAIR
+
+### Definition of Complete
+1. The exact five-minute realistic flagship request that failed twice can produce a valid, creator-safe Custom Film plan without weakening provider/model, pricing, approval, or generation boundaries.
+2. Every planner-controlled enum and compatibility rule needed to form valid orchestration beats is visible in the planner contract; the model is never expected to guess hidden accepted values.
+3. The response budget safely accommodates the layered beat plan the schema invites, while section and beat limits remain bounded and no provider work or paid generation starts.
+4. Focused regression tests cover the real prompt, rich multi-beat output, malformed/unsafe rejection, and unchanged no-charge failure behavior.
+5. The repaired chat path is deployed only through the sanctioned zero-active-work drain, then verified with a no-generation plan request before any BYOK approval.
+
+### Chunks
+- [x] M7-1 PLANNER CONTRACT + REGRESSION: reproduced the exact flagship failure: ordinary `captions=true` beats were incorrectly rejected unless they requested the specifically bilingual primitive, while legal intents/handoffs and compatibility rules were hidden and the expanded beat response retained its old 2,000-token ceiling. The repair accepts approved ordinary captions, retains bilingual/dialogue/media safety, exposes the canonical signal contract, and uses one named four-beat limit across prompt/schema/validation with a bounded 6,000-token response ceiling. The exact runbook regression exercises a representative 2/2/1/1 blueprint; four beats pass and five fail. Independent re-review accepted the boundary, planner 77/77 and the complete Custom Film set 351/351 pass locally with no provider call, spend, database write, or deployment.
+- [ ] M7-2 SAFE DEPLOY + LIVE PLAN PROOF: independently review, deploy through zero-active-work drain, and confirm the real prompt reaches the approval blueprint with no provider generation or charge.
+
 ## Active mission — M6 LAYERED CUSTOM FILM ORCHESTRATION
 
 ### Definition of Complete
