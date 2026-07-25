@@ -1326,11 +1326,15 @@ async def test_magic_button_resolution_semantic_failure_never_persists(
         assert "Repeated console commands" in context
         assert "parallel operators performing the same action" in context
         assert "Convert concrete evidence or state earned in earlier approved sections" in context
-        assert "Do not invent technical labels, component counts, sectors, or obstacles" in context
+        assert "Do not invent technical labels, component counts, sectors, geographic" in context
+        assert "directional qualifiers" in context
+        assert "Use unlabeled relative visual state" in context
         assert "APPROVED VISUAL BEAT PLAN" in context
         assert "NetworkExplainer" in context
         assert "motion.network_explainer" in context
         assert "Never speak, caption, diagram, or expose raw component names" in context
+        assert "authorizes that visual form only" in context
+        assert "does not authorize new locations, directional geography" in context
     assert "approved_visual_plan_fidelity" in observed["rules"]
     assert database_touched is False
 
