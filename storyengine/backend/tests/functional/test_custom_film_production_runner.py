@@ -13,6 +13,7 @@ if str(VIDEO_PIPELINE) not in sys.path:
 
 import custom_film_production_runner as production
 import custom_film_provider_operations as operations
+import pipeline_executor
 import worker
 from custom_film_contract import CustomFilmContractError
 from custom_film_section_runtime import SectionStageAdapter
@@ -1042,6 +1043,10 @@ async def test_worker_installs_concrete_runner_while_legacy_handlers_stay_unchan
     monkeypatch,
 ):
     captured = {}
+    render_calls = []
+    publication_calls = []
+    runtime_hash = "c" * 64
+    runtime_job_id = "custom-film-runtime:" + runtime_hash
 
     async def consume(tenant_id, video_id, job_id, **kwargs):
         captured.update(
@@ -1050,27 +1055,163 @@ async def test_worker_installs_concrete_runner_while_legacy_handlers_stay_unchan
             job_id=job_id,
             **kwargs,
         )
-        return {"status": "completed"}
+        finalization = await kwargs["finalizer"](
+            tenant_id,
+            video_id,
+            job_id,
+            {"video_id": video_id, "runtime_hash": runtime_hash},
+        )
+        return {"status": "completed", "finalization": finalization}
+
+    class Executor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_render(self, video_id, **kwargs):
+            render_calls.append((self.tenant_id, video_id, kwargs))
+            return {
+                "status": "rendered",
+                "final_video_url": "storage://exact-film",
+                "render_engine": "remotion",
+            }
+
+        async def run_upload(self, *_args, **_kwargs):
+            publication_calls.append("upload")
+            raise AssertionError("automatic finalization must not publish")
 
     monkeypatch.setattr(
         "custom_film_section_runtime.consume_runtime_schedule",
         consume,
     )
+    monkeypatch.setattr("pipeline_executor.PipelineExecutor", Executor)
     result = await worker.arq_run_custom_film_runtime(
         {"job_try": 1},
         "video-1",
         "tenant-1",
         2,
-        "custom-film-runtime:" + "c" * 64,
+        runtime_job_id,
     )
     assert result["status"] == "completed"
+    assert result["finalization"]["final_video_url"] == "storage://exact-film"
     assert isinstance(
         captured["stage_runner"],
         production.CustomFilmProductionRunner,
     )
+    assert callable(captured["finalizer"])
     assert captured["attempt"] == 2
+    assert render_calls == [
+        (
+            "tenant-1",
+            "video-1",
+            {"custom_film_runtime_job_id": runtime_job_id},
+        )
+    ]
+    assert publication_calls == []
     assert worker.arq_run_script.__name__ == "arq_run_script"
     assert worker.arq_run_voice.__name__ == "arq_run_voice"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "render_result",
+    [
+        {"status": "failed", "error": "renderer stopped"},
+        {"status": "rendered", "render_engine": "remotion"},
+        {
+            "status": "rendered",
+            "final_video_url": "storage://film",
+            "render_engine": "unknown",
+        },
+    ],
+)
+async def test_worker_rejects_incomplete_final_artifact_result(
+    monkeypatch,
+    render_result,
+):
+    runtime_hash = "d" * 64
+    runtime_job_id = "custom-film-runtime:" + runtime_hash
+
+    async def consume(tenant_id, video_id, job_id, **kwargs):
+        return await kwargs["finalizer"](
+            tenant_id,
+            video_id,
+            job_id,
+            {"video_id": video_id, "runtime_hash": runtime_hash},
+        )
+
+    class Executor:
+        def __init__(self, _tenant_id):
+            pass
+
+        async def run_render(self, _video_id, **_kwargs):
+            return copy.deepcopy(render_result)
+
+    monkeypatch.setattr(
+        "custom_film_section_runtime.consume_runtime_schedule",
+        consume,
+    )
+    monkeypatch.setattr("pipeline_executor.PipelineExecutor", Executor)
+    with pytest.raises(
+        CustomFilmContractError,
+        match="no exact final artifact",
+    ):
+        await worker.arq_run_custom_film_runtime(
+            {"job_try": 1},
+            "video-1",
+            "tenant-1",
+            1,
+            runtime_job_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_custom_film_render_forwards_exact_active_runtime_only(
+    monkeypatch,
+):
+    runtime_job_id = "custom-film-runtime:" + ("e" * 64)
+    captured = {}
+    executor = object.__new__(pipeline_executor.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+
+    async def log_activity(*_args, **_kwargs):
+        return None
+
+    async def log_transition(*_args, **_kwargs):
+        return None
+
+    async def charge(*_args, **_kwargs):
+        return None
+
+    async def render(video_id, tenant_id, **kwargs):
+        captured.update(video_id=video_id, tenant_id=tenant_id, **kwargs)
+        return {
+            "status": "rendered",
+            "video_id": video_id,
+            "final_video_url": "storage://exact-film",
+            "render_engine": "remotion",
+            "section_count": 4,
+            "duration_seconds": 300,
+            "resolution": "1920x1080",
+        }
+
+    executor._log_activity = log_activity
+    executor._log_transition = log_transition
+    executor._charge_render_minutes = charge
+    monkeypatch.setattr(
+        "custom_film_compositor.render_custom_film_video",
+        render,
+    )
+    result = await executor._run_custom_film_render(
+        "video-1",
+        {"video_title": "Exact film"},
+        "ready_for_scripting",
+        runtime_job_id=runtime_job_id,
+    )
+    assert result["status"] == "rendered"
+    assert captured["runtime_job_id"] == runtime_job_id
+    assert captured["render_engine"] == "showcase_auto"
+    assert callable(captured["remotion_renderer"])
+    assert "run_upload" not in captured
 
 
 @pytest.mark.asyncio

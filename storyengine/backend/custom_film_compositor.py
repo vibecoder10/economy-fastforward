@@ -2029,8 +2029,59 @@ def custom_film_output_dimensions(
     return output_dimensions
 
 
+def _validated_runtime_task_for_assembly(
+    task_value: Mapping[str, Any] | None,
+    *,
+    tenant_id: str,
+    video_id: str,
+    expected_runtime_job_id: str | None,
+) -> dict[str, Any]:
+    """Accept a completed runtime, or the exact fully-checkpointed active worker."""
+    if not task_value:
+        raise CustomFilmContractError(
+            "Custom Film section runtime is not durably complete"
+        )
+    task = dict(task_value)
+    envelope = _mapping(task.get("runtime_envelope"), "runtime envelope")
+    runtime_hash = str(envelope.get("runtime_hash") or "")
+    runtime_job_id = str(task.get("job_id") or "")
+    if (
+        str(envelope.get("video_id") or "") != video_id
+        or runtime_job_id != f"custom-film-runtime:{runtime_hash}"
+    ):
+        raise CustomFilmContractError("Custom Film runtime identity changed")
+    status = str(task.get("status") or "")
+    if status == "completed":
+        if (
+            expected_runtime_job_id is not None
+            and runtime_job_id != expected_runtime_job_id
+        ):
+            raise CustomFilmContractError("Custom Film runtime job identity changed")
+        return envelope
+    if (
+        status != "running"
+        or expected_runtime_job_id is None
+        or runtime_job_id != expected_runtime_job_id
+    ):
+        raise CustomFilmContractError(
+            "Custom Film section runtime is not durably complete"
+        )
+    from custom_film_section_runtime import validate_complete_runtime_progress
+
+    validate_complete_runtime_progress(
+        tenant_id=tenant_id,
+        runtime_job_id=runtime_job_id,
+        envelope_value=envelope,
+        progress_value=task.get("runtime_progress"),
+    )
+    return envelope
+
+
 async def _load_current_inputs(
-    tenant_id: str, video_id: str
+    tenant_id: str,
+    video_id: str,
+    *,
+    expected_runtime_job_id: str | None = None,
 ) -> dict[str, Any]:
     """Read every assembly input in one repeatable-read snapshot."""
     import database
@@ -2050,23 +2101,34 @@ async def _load_current_inputs(
                 raise CustomFilmContractError(
                     "Custom Film current video plan pointer is missing"
                 )
-            task = await conn.fetchrow(
-                """SELECT job_id, runtime_envelope, runtime_progress, status
-                   FROM background_tasks
-                   WHERE tenant_id = $1::uuid AND video_id = $2::uuid
-                     AND task_type = 'custom_film_runtime'
-                   ORDER BY created_at DESC
-                   LIMIT 1""",
-                tenant_id,
-                video_id,
-            )
-            if not task or task.get("status") != "completed":
-                raise CustomFilmContractError(
-                    "Custom Film section runtime is not durably complete"
+            if expected_runtime_job_id is None:
+                task = await conn.fetchrow(
+                    """SELECT job_id, runtime_envelope, runtime_progress, status
+                       FROM background_tasks
+                       WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                         AND task_type = 'custom_film_runtime'
+                       ORDER BY created_at DESC
+                       LIMIT 1""",
+                    tenant_id,
+                    video_id,
                 )
-            envelope = _mapping(task["runtime_envelope"], "runtime envelope")
-            if str(envelope.get("video_id") or "") != video_id:
-                raise CustomFilmContractError("Custom Film runtime identity changed")
+            else:
+                task = await conn.fetchrow(
+                    """SELECT job_id, runtime_envelope, runtime_progress, status
+                       FROM background_tasks
+                       WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                         AND task_type = 'custom_film_runtime' AND job_id = $3
+                       LIMIT 1""",
+                    tenant_id,
+                    video_id,
+                    expected_runtime_job_id,
+                )
+            envelope = _validated_runtime_task_for_assembly(
+                task,
+                tenant_id=tenant_id,
+                video_id=video_id,
+                expected_runtime_job_id=expected_runtime_job_id,
+            )
             if (
                 str(video.get("custom_film_plan_id") or "")
                 != str(envelope.get("plan_id") or "")
@@ -2341,6 +2403,7 @@ async def render_custom_film_video(
     render_engine: str | None = None,
     remotion_renderer: RemotionRenderer | None = None,
     pre_journal_fallback: str = "forbid",
+    runtime_job_id: str | None = None,
 ) -> dict[str, Any]:
     """Production render door with durable render/upload reconciliation.
 
@@ -2359,7 +2422,11 @@ async def render_custom_film_video(
     download = downloader or _default_download
     upload = uploader or _default_upload
     readback = storage_reader or _default_readback
-    inputs = await _load_current_inputs(tenant_id, video_id)
+    inputs = await _load_current_inputs(
+        tenant_id,
+        video_id,
+        expected_runtime_job_id=runtime_job_id,
+    )
     pool = await database.get_pool()
     runtime_hash = str(inputs["envelope"]["runtime_hash"])
     runtime_job_id = str(inputs["runtime_job_id"])

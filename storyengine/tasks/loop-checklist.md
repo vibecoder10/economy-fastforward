@@ -1,5 +1,20 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
+## Active mission — M7-4 APPROVAL-TO-FINISHED-FILM TRUTH
+
+### Definition of Complete
+1. A successful Custom Film approval atomically schedules exactly one durable paid runtime, and the production card never claims work started when that transaction failed.
+2. The approved runtime automatically advances through every section stage and then the exact Remotion/FFmpeg assembly boundary to one verified finished artifact; Ryan does not need to keep the chat open or manually discover a render step.
+3. Failed, interrupted, duplicate, or retried work remains durable and idempotent, does not duplicate provider spend, and exposes a truthful recoverable state.
+4. The live database trigger repair preserves recipe, plan, and section immutability while allowing only the existing coupled approval fields to be consumed.
+5. Backend, frontend, browser, queue, migration, and no-provider integration proof pass before deployment. Live migration/deploy and the already-approved exact $8.52 paid retry remain explicitly gated.
+
+### Chunks
+- [x] M7-4A ROOT CAUSE + LOCAL TRIGGER REPAIR: production approval failed before reservation with `record "new" has no field "recipe_family_id"` because one shared PostgreSQL trigger function referenced recipe-only fields while updating a plan row. Migration 132 and fresh-schema parity replace it with table-specific recipe, plan, and section functions without weakening any immutable field. Independent review ACCEPTED; 61 focused approval/runtime/contract tests pass locally. No live migration, task, generation, or charge occurred.
+- [x] M7-4B AUTOMATIC FINALIZATION: after the complete exact stage prefix is durably checkpointed, the active runtime calls the existing Custom Film render door with its deterministic runtime job ID. The compositor accepts a running task only when that exact job has the full ordered progress prefix and no in-flight operation, then retains renderer selection, assembly journal, private storage/readback, artifact verification, and video finalization. A failed render retries without replaying provider stages; no publication path is reachable. The complete Custom Film functional set passes 386/386, and independent review ACCEPTED.
+- [x] M7-4C UI TRUTH + BROWSER PROOF: Building/Open now requires durable `phase=created` plus video ID. Thrown approval failures and resolved `phase=plan` failures clear false progress and restore the exact actionable approval card; server replacement cards win and reload uses the same truth gate. Focused frontend proof passes 4/4 plus TypeScript, and independent re-review ACCEPTED after rejecting the first catch-only implementation.
+- [ ] M7-4D SAFE LIVE GATE: after Ryan separately approves migration 132 and deployment, apply through the zero-active-work drain, prove live triggers/queue/UI, and retry the already-approved exact $8.52 production once. Upload and publication remain separately gated.
+
 ## Active mission — M7 REAL-WORLD CUSTOM FILM PLANNER REPAIR
 
 ### Definition of Complete

@@ -591,7 +591,13 @@ async def test_durable_v2_remotion_controls_retry_before_source_io(
     async def get_pool():
         return Pool()
 
-    async def load_inputs(_tenant_id, _video_id):
+    async def load_inputs(
+        _tenant_id,
+        _video_id,
+        *,
+        expected_runtime_job_id=None,
+    ):
+        assert expected_runtime_job_id is None
         return {
             "runtime_job_id": f"custom-film-runtime:{runtime_hash}",
             "envelope": {"runtime_hash": runtime_hash},

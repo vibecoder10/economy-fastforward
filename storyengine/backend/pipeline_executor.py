@@ -16115,7 +16115,12 @@ separate scenes."""
         }
 
     async def _run_custom_film_render(
-        self, video_id: str, video: dict, current_status: str
+        self,
+        video_id: str,
+        video: dict,
+        current_status: str,
+        *,
+        runtime_job_id: str | None = None,
     ) -> dict:
         """One render-door dispatch into the dedicated section compositor."""
         bot_name = "Render Bot"
@@ -16142,6 +16147,7 @@ separate scenes."""
             on_progress=_progress,
             render_engine=AUTOMATIC_RENDER_POLICY,
             remotion_renderer=run_remotion_renderer,
+            runtime_job_id=runtime_job_id,
         )
         if result.get("status") != "rendered" or not result.get("final_video_url"):
             raise RuntimeError("Custom Film compositor returned no exact final artifact")
@@ -16187,7 +16193,13 @@ separate scenes."""
         except Exception:
             pass
 
-    async def run_render(self, video_id: str, orientation: str = "auto") -> dict:
+    async def run_render(
+        self,
+        video_id: str,
+        orientation: str = "auto",
+        *,
+        custom_film_runtime_job_id: str | None = None,
+    ) -> dict:
         """Render final video.
 
         C57 audit fix: routes/pipeline.py::run_render (the HTTP door) calls
@@ -16230,7 +16242,10 @@ separate scenes."""
             # Media/provider callers remain profile-agnostic.
             if video.get("custom_film_plan_id"):
                 return await self._run_custom_film_render(
-                    video_id, video, current_status
+                    video_id,
+                    video,
+                    current_status,
+                    runtime_job_id=custom_film_runtime_job_id,
                 )
 
             # grok_native videos carry Grok's dialogue baked into each clip, so
