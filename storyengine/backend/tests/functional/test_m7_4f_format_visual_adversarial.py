@@ -327,6 +327,8 @@ async def test_visually_generic_nonconvergence_remains_fail_closed(
     constraints = quality_calls[0][1]["edit_constraints"][0]
     assert "visual_story_readiness" in rules
     assert "role_structure_quality" in rules
+    assert "story_arc_continuity" not in rules
+    assert "story_arc_continuity" not in quality_calls[0][1]["severity_by_rule"]
     assert "Open on the strongest concrete visible proof" in rules
     assert "Escalate across distinct approved evidence types" in rules
     assert "Every narrative beat must name a concrete visible subject" in constraints

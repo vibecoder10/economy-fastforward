@@ -181,6 +181,17 @@ def test_other_story_arc_sections_never_authorize_current_section_facts():
     assert any("Chicago" in issue for issue in issues)
 
 
+def test_empty_story_arc_does_not_misclassify_direct_adapter_as_final_section():
+    assert production._script_story_arc_guidance(
+        (),
+        current_order_index=0,
+    ) == ""
+    assert production._script_story_arc_continuity_law(
+        (),
+        current_order_index=0,
+    ) == ""
+
+
 class _Executor:
     def __init__(self):
         self._pipeline = SimpleNamespace(anthropic=object())
@@ -262,3 +273,131 @@ async def test_full_envelope_arc_reaches_script_prompt_with_current_section_mark
     assert "SECTION 1 [CURRENT SECTION] — ROLE: evidence" in guidance
     assert "SECTION 2 — ROLE: explanation" in guidance
     assert "Use this ordered arc only for continuity, non-duplication" in guidance
+
+
+@pytest.mark.asyncio
+async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
+    monkeypatch,
+):
+    arc = (
+        {
+            "order_index": 0,
+            "role": "resolution",
+            "purpose": "Show the approved system restored",
+        },
+        {
+            "order_index": 1,
+            "role": "closing",
+            "purpose": "Land the approved final synthesis",
+        },
+    )
+    adapter = replace(
+        _adapter("script", seconds=12),
+        role="resolution",
+        purpose="Show the approved system restored",
+        story_arc=arc,
+    )
+    request = production._request(
+        adapter,
+        (),
+        "custom-film-op:" + "5" * 64,
+    )
+    invented = _marked(
+        "Show the approved system restored as panels brighten and 47 indicators "
+        "return across the visible display."
+    )
+    generic_threat = _marked(
+        "Show the approved system restored as panels brighten across the visible "
+        "display. Yet the same mechanism can be taken down anytime."
+    )
+    clean_handoff = _marked(
+        "Show the approved system restored as panels brighten across the visible "
+        "display. The restored frame settles, carrying the earned result toward "
+        "the closing synthesis."
+    )
+    deterministic_calls = []
+    semantic_calls = []
+
+    async def generate(_client, _brief, **_kwargs):
+        return {"script": invented, "validation": {"valid": True, "issues": []}}
+
+    async def edit(_scenes, violations, **_kwargs):
+        deterministic_calls.append(list(violations))
+        return [{"scene": 1, "text": generic_threat}]
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        semantic_calls.append((copy.deepcopy(scenes), kwargs))
+        return {
+            "scenes": [{"scene": 1, "text": clean_handoff}],
+            "critique": SimpleNamespace(
+                verdict="pass",
+                score=97,
+                failing_gates=[],
+                violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
+            ),
+            "needs_review": False,
+            "edit_rounds": 1,
+            "regenerated": False,
+            "changed": True,
+        }
+
+    class Connection:
+        def __init__(self):
+            self.saved_text = None
+
+        async def fetchrow(self, sql, *args):
+            assert "INSERT INTO scripts" in sql
+            self.saved_text = args[4]
+            return {"id": args[0]}
+
+        async def execute(self, sql, *_args):
+            assert "UPDATE videos" in sql
+            return "UPDATE 1"
+
+    conn = Connection()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    assert len(deterministic_calls) == 1
+    deterministic_context = deterministic_calls[0][-1]
+    semantic_context = semantic_calls[0][1]["edit_constraints"][0]
+    for context in (deterministic_context, semantic_context):
+        assert "EXCLUSIVE APPROVED SECTION CONTRACT" in context
+        assert "SECTION 1 [CURRENT SECTION] — ROLE: resolution" in context
+        assert (
+            "SECTION 2 — ROLE: closing; "
+            "PURPOSE: Land the approved final synthesis"
+        ) in context
+        assert "Use that next purpose only as the direction of the handoff" in context
+        assert "Do not state, preview, duplicate" in context
+    rules = semantic_calls[0][1]["rules_text"]
+    assert "story_arc_continuity:" in rules
+    assert "Reject a generic threat, warning, or open loop" in rules
+    assert (
+        semantic_calls[0][1]["severity_by_rule"]["story_arc_continuity"]
+        == "hard_gate"
+    )
+    assert production._script_grounding_issues(
+        clean_handoff,
+        approved_context="resolution\nShow the approved system restored",
+        config=production._ExactSectionConfig(12),
+        generator_validation={"valid": True, "issues": []},
+    ) == []
+    assert "taken down anytime" not in conn.saved_text
+    assert "closing synthesis" in conn.saved_text
+    assert result["quality_verdict"] == "pass"

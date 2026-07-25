@@ -1276,6 +1276,50 @@ def _script_story_arc_guidance(
     return "\n".join(lines)
 
 
+def _script_story_arc_continuity_law(
+    story_arc: tuple[Mapping[str, Any], ...],
+    *,
+    current_order_index: int,
+) -> str:
+    """Turn the structure-only arc into an explicit ending obligation."""
+
+    if not story_arc:
+        return ""
+    ordered_arc = sorted(
+        story_arc,
+        key=lambda item: int(item.get("order_index", -1)),
+    )
+    next_section = next(
+        (
+            item
+            for item in ordered_arc
+            if int(item.get("order_index", -1)) > current_order_index
+        ),
+        None,
+    )
+    if next_section is None:
+        ending_law = (
+            "CONTINUITY ENDING LAW: This is the final approved section. Land "
+            "the earned final image or takeaway without a generic threat, new "
+            "open loop, or new factual claim."
+        )
+    else:
+        next_order = int(next_section.get("order_index", -1))
+        next_role = str(next_section.get("role") or "")
+        next_purpose = str(next_section.get("purpose") or "")
+        ending_law = (
+            "CONTINUITY ENDING LAW: End this current section with a clean "
+            f"structural handoff toward SECTION {next_order + 1}, whose approved "
+            f"ROLE is '{next_role}' and PURPOSE is '{next_purpose}'. Use that "
+            "next purpose only as the direction of the handoff. Do not state, "
+            "preview, duplicate, or treat any next-section subject, person, "
+            "place, organization, event, date, number, example, or case study "
+            "as an authorized fact in the current section. Reject a generic "
+            "threat, warning, or open loop that does not earn this handoff."
+        )
+    return ending_law
+
+
 def _script_approved_contract(
     *,
     role: str,
@@ -2648,6 +2692,24 @@ class SharedSectionProductionSeams:
             request.story_arc,
             current_order_index=request.order_index,
         )
+        story_arc_ending_law = _script_story_arc_continuity_law(
+            request.story_arc,
+            current_order_index=request.order_index,
+        )
+        story_arc_continuity_rule = "\n".join(
+            part
+            for part in (story_arc_guidance, story_arc_ending_law)
+            if part
+        )
+        repair_context = "\n".join(
+            part
+            for part in (
+                approved_contract,
+                story_arc_guidance,
+                story_arc_ending_law,
+            )
+            if part
+        )
         role_structure_law = _script_role_structure_law(request.role)
         brief = {
             "headline": request.purpose,
@@ -2659,7 +2721,11 @@ class SharedSectionProductionSeams:
                 f"The spoken result must fit exactly {request.exact_seconds} seconds.\n"
                 + approved_contract
                 + "\n"
-                + (story_arc_guidance + "\n" if story_arc_guidance else "")
+                + (
+                    story_arc_continuity_rule + "\n"
+                    if story_arc_continuity_rule
+                    else ""
+                )
                 + f"Language mode is '{request.language.get('mode')}', dialogue "
                 f"audio is '{request.dialogue_audio}', and dubbing mode is "
                 f"'{request.dubbing.get('mode')}'. "
@@ -2710,7 +2776,7 @@ class SharedSectionProductionSeams:
                         *current_issues,
                         (
                             "EDIT CONSTRAINTS — these remain mandatory on every "
-                            "repair:\n" + approved_contract
+                            "repair:\n" + repair_context
                         ),
                     ],
                     client=client,
@@ -2753,23 +2819,32 @@ class SharedSectionProductionSeams:
                 "before voice or imagery: " + "; ".join(deterministic_issues)
             )
 
-        rules_text = "\n".join(
-            (
-                "approved_purpose_grounding: The script must stay entirely "
-                f"within this approved section context: {approved_context}. "
-                "Reject any unrelated person, place, organization, event, date, "
-                "number, case study, conspiracy, or adjacent topic.",
-                "visual_story_readiness: The script must tell a coherent, "
-                "specific visual story. Each beat must provide concrete action, "
-                "evidence, environment, character behavior, or an observable "
-                "change that the approved stills or clips can show; reject generic "
-                "exposition, disconnected claims, and non-visual filler.",
-                "role_structure_quality: Apply this film-agnostic structural "
-                f"law for the approved '{request.role}' role: "
-                f"{role_structure_law} The ordered story arc may guide continuity "
-                "and handoff only; it cannot authorize facts from another section.",
+        rules = [
+            "approved_purpose_grounding: The script must stay entirely "
+            f"within this approved section context: {approved_context}. "
+            "Reject any unrelated person, place, organization, event, date, "
+            "number, case study, conspiracy, or adjacent topic.",
+            "visual_story_readiness: The script must tell a coherent, "
+            "specific visual story. Each beat must provide concrete action, "
+            "evidence, environment, character behavior, or an observable "
+            "change that the approved stills or clips can show; reject generic "
+            "exposition, disconnected claims, and non-visual filler.",
+            "role_structure_quality: Apply this film-agnostic structural "
+            f"law for the approved '{request.role}' role: "
+            f"{role_structure_law} The ordered story arc may guide continuity "
+            "and handoff only; it cannot authorize facts from another section.",
+        ]
+        severity_by_rule = {
+            "approved_purpose_grounding": "hard_gate",
+            "visual_story_readiness": "hard_gate",
+            "role_structure_quality": "hard_gate",
+        }
+        if story_arc_continuity_rule:
+            rules.append(
+                "story_arc_continuity: " + story_arc_continuity_rule
             )
-        )
+            severity_by_rule["story_arc_continuity"] = "hard_gate"
+        rules_text = "\n".join(rules)
         grade = None
         quality_edit_rounds = 0
         quality_passes = 0
@@ -2785,16 +2860,12 @@ class SharedSectionProductionSeams:
                 title=request.purpose,
                 hook=f"{request.role}: {request.purpose}",
                 rules_text=rules_text,
-                severity_by_rule={
-                    "approved_purpose_grounding": "hard_gate",
-                    "visual_story_readiness": "hard_gate",
-                    "role_structure_quality": "hard_gate",
-                },
+                severity_by_rule=severity_by_rule,
                 max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
                 edit_constraints=[
                     (
                         "EDIT CONSTRAINTS — these remain mandatory on every "
-                        "repair:\n" + approved_contract
+                        "repair:\n" + repair_context
                     )
                 ],
             )
