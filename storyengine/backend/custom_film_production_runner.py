@@ -990,6 +990,25 @@ class _ExactSectionConfig:
         self.scenes_per_act = 1
 
 
+class _AVSectionConfig(_ExactSectionConfig):
+    """Generator targets aligned with the deterministic sparse-speech gate."""
+
+    def __init__(self, exact_seconds: int):
+        super().__init__(exact_seconds)
+        self.script_min_words = max(3, round(exact_seconds * 0.25))
+        self.script_max_words = max(
+            self.script_min_words,
+            round(exact_seconds * 2.2),
+        )
+        self.total_script_words = round(
+            (self.script_min_words + self.script_max_words) / 2
+        )
+        self.words_per_clip = max(
+            1,
+            round(self.total_script_words / self.total_clips),
+        )
+
+
 _SCRIPT_REPAIR_ATTEMPTS = 2
 _SCRIPT_CONVERGENCE_PASSES = 2
 _SCRIPT_GROUNDING_STOPWORDS = frozenset(
@@ -1259,9 +1278,11 @@ def _script_story_arc_guidance(
         "=== APPROVED STORY ARC (STRUCTURE ONLY — NOT A FACTUAL SOURCE) ===",
         (
             "Use this ordered arc only for continuity, non-duplication, "
-            "escalation, and the handoff between sections. Other sections' "
-            "purposes do not authorize any subject, person, place, organization, "
-            "event, date, number, example, or case study in this section."
+            "escalation, and the handoff between sections. Factual authorization "
+            "comes only from the separate approved section/shared-film-world "
+            "contracts, never from this structural block by itself. Other "
+            "sections' purposes do not authorize facts through this structural "
+            "block."
         ),
     ]
     for item in story_arc:
@@ -1274,6 +1295,54 @@ def _script_story_arc_guidance(
         )
     lines.append("=== END APPROVED STORY ARC ===")
     return "\n".join(lines)
+
+
+def _script_shared_film_world_contract(
+    story_arc: tuple[Mapping[str, Any], ...],
+    *,
+    current_order_index: int,
+) -> tuple[str, str]:
+    """Compile plan-authored facts into a shared world with ordered reveals."""
+
+    if not story_arc:
+        return "", ""
+    ordered = sorted(
+        story_arc,
+        key=lambda item: int(item.get("order_index", -1)),
+    )
+    factual_context = "\n".join(
+        str(item.get("purpose") or "").strip()
+        for item in ordered
+        if str(item.get("purpose") or "").strip()
+    )
+    lines = [
+        "=== APPROVED SHARED FILM WORLD ===",
+        (
+            "The people, places, organizations, objects, signals, evidence, "
+            "events, and explicit numeric/date facts named in the approved plan "
+            "purposes below belong to the film's approved world. They may be "
+            "reused for concrete cinematic continuity; add no adjacent fact."
+        ),
+    ]
+    for item in ordered:
+        order = int(item.get("order_index", -1))
+        marker = " [CURRENT SECTION]" if order == current_order_index else ""
+        lines.append(
+            f"SECTION {order + 1}{marker} APPROVED PURPOSE: "
+            f"{str(item.get('purpose') or '')}"
+        )
+    lines.extend(
+        (
+            (
+                "PROGRESSION LAW: Shared-world existence is not permission to "
+                "reveal a later section's discovery, outcome, explanation, or "
+                "payoff early. Use only what the current approved purpose needs, "
+                "avoid duplication, and carry concrete state forward."
+            ),
+            "=== END APPROVED SHARED FILM WORLD ===",
+        )
+    )
+    return "\n".join(lines), factual_context
 
 
 def _script_story_arc_continuity_law(
@@ -1311,13 +1380,63 @@ def _script_story_arc_continuity_law(
             "CONTINUITY ENDING LAW: End this current section with a clean "
             f"structural handoff toward SECTION {next_order + 1}, whose approved "
             f"ROLE is '{next_role}' and PURPOSE is '{next_purpose}'. Use that "
-            "next purpose only as the direction of the handoff. Do not state, "
-            "preview, duplicate, or treat any next-section subject, person, "
-            "place, organization, event, date, number, example, or case study "
-            "as an authorized fact in the current section. Reject a generic "
-            "threat, warning, or open loop that does not earn this handoff."
+            "next purpose only as the direction of the handoff. Shared-world "
+            "people, places, objects, and events may remain visibly continuous. "
+            "Do not state, preview, duplicate, or prematurely resolve the later section's "
+            "discovery, explanation, outcome, or payoff. Reject a generic threat, "
+            "warning, or open loop that does not earn this handoff."
         )
     return ending_law
+
+
+def _script_av_carry_binding(
+    story_arc: tuple[Mapping[str, Any], ...],
+    *,
+    current_order_index: int,
+) -> tuple[str, str, str]:
+    """Derive identity-safe cross-section state from the hashed ordered plan."""
+
+    ordered = sorted(
+        story_arc,
+        key=lambda item: int(item.get("order_index", -1)),
+    )
+    current_position = next(
+        (
+            index
+            for index, item in enumerate(ordered)
+            if int(item.get("order_index", -1)) == current_order_index
+        ),
+        None,
+    )
+    if current_position is None:
+        return "", "", ""
+    current_purpose = str(ordered[current_position].get("purpose") or "").strip()
+    required_carry_in = (
+        f"approved opening state — {current_purpose}"
+        if current_position == 0
+        else f"approved transition state — {current_purpose}"
+    )
+    if current_position + 1 < len(ordered):
+        next_purpose = str(
+            ordered[current_position + 1].get("purpose") or ""
+        ).strip()
+        required_carry_out = f"approved transition state — {next_purpose}"
+    else:
+        required_carry_out = f"approved final state — {current_purpose}"
+    contract = "\n".join(
+        (
+            "=== APPROVED EXACT CARRY BINDING ===",
+            f"REQUIRED FIRST CARRY-IN: {required_carry_in}",
+            f"REQUIRED FINAL CARRY-OUT: {required_carry_out}",
+            (
+                "These exact phrases are structural continuity state derived "
+                "from the approved ordered plan. Copy them verbatim. They do not "
+                "authorize any new fact or early reveal."
+            ),
+            "=== END APPROVED EXACT CARRY BINDING ===",
+        )
+    )
+    return contract, required_carry_in, required_carry_out
 
 
 _AV_HEADER_PATTERN = re.compile(
@@ -1342,30 +1461,6 @@ _AV_ACTION_LEAK_PATTERN = re.compile(
     r"turns|rewinds|opens|closes|moves|crosses|reaches|points|nods))\b",
     re.IGNORECASE,
 )
-_AV_COMMON_SENTENCE_STARTS = frozenset(
-    {
-        "a",
-        "an",
-        "approved",
-        "as",
-        "closing",
-        "final",
-        "inside",
-        "low",
-        "meanwhile",
-        "opening",
-        "outside",
-        "quiet",
-        "soft",
-        "that",
-        "the",
-        "this",
-        "visible",
-        "when",
-    }
-)
-
-
 def _av_timestamp_seconds(value: str) -> int:
     minutes, seconds = value.split(":", 1)
     parsed_minutes = int(minutes)
@@ -1402,6 +1497,11 @@ def _custom_film_av_language_pair(
 
 def _custom_film_av_contract(request: SectionProductionRequest) -> str:
     end = f"{request.exact_seconds // 60}:{request.exact_seconds % 60:02d}"
+    minimum_spoken_words = max(3, round(request.exact_seconds * 0.25))
+    maximum_spoken_words = max(
+        minimum_spoken_words,
+        round(request.exact_seconds * 2.2),
+    )
     bilingual = str(request.language.get("mode") or "") == "bilingual"
     approved_languages = _custom_film_av_language_pair(request.language)
     return "\n".join(
@@ -1427,6 +1527,12 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
                 "TIMING LAW: Beats start at 0:00, are gapless/non-overlapping, "
                 f"and end exactly at {end}. Spoken coverage is cinematic and "
                 "sufficient, not wall-to-wall narration."
+            ),
+            (
+                "CINEMATIC SPARSE SPOKEN BAND: "
+                f"{minimum_spoken_words}-{maximum_spoken_words} total audible "
+                "words across VO and dialogue. This is a ceiling/floor for the "
+                "whole AV timeline, not a request to fill every second with VO."
             ),
             (
                 "TRACK SEPARATION LAW: VISUAL, SOUND, timing, and carry text are "
@@ -1556,8 +1662,9 @@ def _parse_custom_film_av_screenplay(
         for required in ("visual", "sound", "carry_in", "carry_out"):
             if not beat[required]:
                 issues.append(f"AV beat {index} is missing {required}")
-        if prior_carry is not None and (
-            str(beat["carry_in"]).strip().casefold() != prior_carry.casefold()
+        if (
+            prior_carry is not None
+            and str(beat["carry_in"]).strip() != prior_carry
         ):
             issues.append("AV beat carry-out must exactly match the next carry-in")
         prior_carry = str(beat["carry_out"] or "").strip()
@@ -1746,8 +1853,13 @@ def _custom_film_av_grounding_issues(
         at_line_start = not before[line_start:].strip()
         trimmed_before = before.rstrip()
         at_sentence_start = not trimmed_before or trimmed_before[-1:] in ".!?"
-        if (at_line_start or at_sentence_start) and (
-            token.casefold() in _AV_COMMON_SENTENCE_STARTS
+        # Sentence-initial title case is grammatically ambiguous: ordinary
+        # visual nouns capitalize there too. Defer those candidates to the
+        # semantic hard critic. Acronyms/all-caps and non-initial title case
+        # remain deterministic lexical gates.
+        if (
+            (at_line_start or at_sentence_start)
+            and not token.isupper()
         ):
             continue
         if (
@@ -1788,7 +1900,7 @@ def _validate_custom_film_av_arc(
             continue
         carry_in = str(visual_beats[0].get("carry_in") or "").strip()
         carry_out = str(visual_beats[-1].get("carry_out") or "").strip()
-        if previous_out is not None and carry_in.casefold() != previous_out.casefold():
+        if previous_out is not None and carry_in != previous_out:
             issues.append(
                 f"AV section {index - 1} carry-out does not match section "
                 f"{index} carry-in"
@@ -1817,18 +1929,36 @@ def _script_approved_contract(
             "=== EXCLUSIVE APPROVED SECTION CONTRACT ===",
             f"APPROVED ROLE: {role}",
             f"APPROVED PURPOSE: {purpose}",
-            f"EXACT SPOKEN DURATION: {exact_seconds} seconds",
             (
-                "EXACT SPOKEN WORD BAND: "
-                f"{config.script_min_words}-{config.script_max_words} words "
+                f"EXACT AV TIMELINE DURATION: {exact_seconds} seconds"
+                if av_screenplay
+                else f"EXACT SPOKEN DURATION: {exact_seconds} seconds"
+            ),
+            (
+                (
+                    "CINEMATIC SPARSE SPOKEN BAND: "
+                    if av_screenplay
+                    else "EXACT SPOKEN WORD BAND: "
+                )
+                + f"{config.script_min_words}-{config.script_max_words} words "
                 f"(target {config.total_script_words})"
             ),
             (
-                "GROUNDING LAW: The approved role and purpose above are the "
-                "only source for the section's subject, people, places, "
-                "organizations, events, dates, numbers, examples, and case "
-                "studies. They may describe a real or fictional topic; do not "
-                "assume either and do not add adjacent material."
+                (
+                    "GROUNDING LAW: The approved current purpose and the separate "
+                    "approved shared-film-world contract are the only sources for "
+                    "subjects, people, places, organizations, events, dates, "
+                    "numbers, examples, and case studies. Shared-world facts must "
+                    "still obey the ordered progression law; add no adjacent fact."
+                )
+                if av_screenplay
+                else (
+                    "GROUNDING LAW: The approved role and purpose above are the "
+                    "only source for the section's subject, people, places, "
+                    "organizations, events, dates, numbers, examples, and case "
+                    "studies. They may describe a real or fictional topic; do not "
+                    "assume either and do not add adjacent material."
+                )
             ),
             (
                 (
@@ -3174,7 +3304,6 @@ class SharedSectionProductionSeams:
             video.get("video_title") or video.get("headline") or "Untitled"
         )
         approved_context = f"{request.role}\n{request.purpose}"
-        config = _ExactSectionConfig(request.exact_seconds)
         av_screenplay_mode = (
             request.render_mode == "coverage"
             and bool(request.story_arc)
@@ -3183,6 +3312,34 @@ class SharedSectionProductionSeams:
                 and str(item.get("render_mode") or "")
                 for item in request.story_arc
             )
+        )
+        config = (
+            _AVSectionConfig(request.exact_seconds)
+            if av_screenplay_mode
+            else _ExactSectionConfig(request.exact_seconds)
+        )
+        film_world_contract, film_world_context = (
+            _script_shared_film_world_contract(
+                request.story_arc,
+                current_order_index=request.order_index,
+            )
+            if av_screenplay_mode
+            else ("", "")
+        )
+        approved_grounding_context = "\n".join(
+            part for part in (approved_context, film_world_context) if part
+        )
+        (
+            carry_binding_contract,
+            required_first_carry_in,
+            required_final_carry_out,
+        ) = (
+            _script_av_carry_binding(
+                request.story_arc,
+                current_order_index=request.order_index,
+            )
+            if av_screenplay_mode
+            else ("", "", "")
         )
         approved_contract = _script_approved_contract(
             role=request.role,
@@ -3212,6 +3369,8 @@ class SharedSectionProductionSeams:
             for part in (
                 approved_contract,
                 av_contract,
+                film_world_contract,
+                carry_binding_contract,
                 story_arc_guidance,
                 story_arc_ending_law,
             )
@@ -3237,6 +3396,12 @@ class SharedSectionProductionSeams:
                 + approved_contract
                 + "\n"
                 + (av_contract + "\n" if av_contract else "")
+                + (film_world_contract + "\n" if film_world_contract else "")
+                + (
+                    carry_binding_contract + "\n"
+                    if carry_binding_contract
+                    else ""
+                )
                 + (
                     story_arc_continuity_rule + "\n"
                     if story_arc_continuity_rule
@@ -3254,7 +3419,14 @@ class SharedSectionProductionSeams:
                         "performance; do not add a separate narrator track. "
                         if request.language.get("mode")
                         == "simple_single_language"
-                        else "Write this section as narrator-led voice-over. "
+                        else (
+                            "Use only sparse connective VO for information that "
+                            "visuals and sound cannot carry. Do not invent "
+                            "character dialogue in this narrator section; visual "
+                            "action and sound must carry the scene. "
+                            if av_screenplay_mode
+                            else "Write this section as narrator-led voice-over. "
+                        )
                     )
                 )
                 + "The approved quality laws are: "
@@ -3294,9 +3466,27 @@ class SharedSectionProductionSeams:
                     av_issues.extend(
                         _custom_film_av_grounding_issues(
                             parsed,
-                            approved_context=approved_context,
+                            approved_context=approved_grounding_context,
                         )
                     )
+                    visual_beats = parsed.get("visual_beats") or []
+                    if visual_beats:
+                        if (
+                            str(visual_beats[0].get("carry_in") or "").strip()
+                            != required_first_carry_in
+                        ):
+                            av_issues.append(
+                                "AV first CARRY-IN must exactly match the "
+                                "approved carry binding"
+                            )
+                        if (
+                            str(visual_beats[-1].get("carry_out") or "").strip()
+                            != required_final_carry_out
+                        ):
+                            av_issues.append(
+                                "AV final CARRY-OUT must exactly match the "
+                                "approved carry binding"
+                            )
                 return av_issues, {
                     "valid": not av_issues,
                     "issues": av_issues,
@@ -3382,9 +3572,13 @@ class SharedSectionProductionSeams:
 
         rules = [
             "approved_purpose_grounding: The script must stay entirely "
-            f"within this approved section context: {approved_context}. "
+            f"within this approved section/shared-film-world context: "
+            f"{approved_grounding_context}. "
             "Reject any unrelated person, place, organization, event, date, "
-            "number, case study, conspiracy, or adjacent topic.",
+            "number, case study, conspiracy, or adjacent topic. Treat an "
+            "unapproved sentence-initial title-case candidate as potential "
+            "entity drift even though lexical validation cannot distinguish it "
+            "from an ordinary capitalized visual noun.",
             "visual_story_readiness: The script must tell a coherent, "
             "specific visual story. Each beat must provide concrete action, "
             "evidence, environment, character behavior, or an observable "
@@ -3393,7 +3587,9 @@ class SharedSectionProductionSeams:
             "role_structure_quality: Apply this film-agnostic structural "
             f"law for the approved '{request.role}' role: "
             f"{role_structure_law} The ordered story arc may guide continuity "
-            "and handoff only; it cannot authorize facts from another section.",
+            "and handoff but is not itself a factual source. Explicitly "
+            "plan-authored shared-film-world facts may persist across sections "
+            "only under the progression and no-early-reveal law.",
         ]
         severity_by_rule = {
             "approved_purpose_grounding": "hard_gate",
@@ -3406,6 +3602,14 @@ class SharedSectionProductionSeams:
             )
             severity_by_rule["story_arc_continuity"] = "hard_gate"
         if av_screenplay_mode:
+            rules.append(
+                "shared_film_world_progression: Named facts explicitly present "
+                "anywhere in the approved ordered plan may persist across "
+                "sections, but this section must not reveal, explain, resolve, "
+                "or duplicate a later section's discovery, outcome, or payoff. "
+                "Reject premature reveals and repeated progression."
+            )
+            severity_by_rule["shared_film_world_progression"] = "hard_gate"
             rules.append(
                 "av_screenplay_performance: The coverage section must play as "
                 "a believable audiovisual scene. Audible VO/dialogue may contain "

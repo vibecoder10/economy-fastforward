@@ -347,7 +347,10 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
                 f"VISUAL: {visual}",
                 "SOUND: Low electrical ambience rises into a clear tone.",
                 f"VO [en]: {vo}",
-                "CARRY-IN: dormant display",
+                (
+                    "CARRY-IN: approved opening state — Show the approved "
+                    "system restored"
+                ),
                 f"CARRY-OUT: {carry_out}",
             )
         )
@@ -355,17 +358,23 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
     invented = av_screenplay(
         visual="The approved system waits in darkness.",
         vo="Mara sits at the console and rewinds the restored signal.",
-        carry_out="restored frame",
+        carry_out=(
+            "approved transition state — Land the approved final synthesis"
+        ),
     )
     generic_threat = av_screenplay(
         visual="The approved system brightens across the visible display.",
         vo="The approved system is restored, but it can be taken down anytime.",
-        carry_out="restored frame",
+        carry_out=(
+            "approved transition state — Land the approved final synthesis"
+        ),
     )
     clean_handoff = av_screenplay(
         visual="The restored frame settles and fills the visible display.",
         vo="The approved system is restored, carrying the earned result forward.",
-        carry_out="closing synthesis",
+        carry_out=(
+            "approved transition state — Land the approved final synthesis"
+        ),
     )
     deterministic_calls = []
     semantic_calls = []
@@ -458,7 +467,7 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
         "The approved system is restored"
     )
     assert "taken down anytime" not in conn.saved_text
-    assert "closing synthesis" in conn.saved_text
+    assert "Land the approved final synthesis" in conn.saved_text
     assert '"format": "custom_film_av_v1"' in conn.validation
     assert '"type": "narration"' in conn.dialogue_segments
     assert result["quality_verdict"] == "pass"
