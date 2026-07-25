@@ -1343,7 +1343,11 @@ def _script_role_structure_law(role: str) -> str:
             "confirmation before the next step begins, and the chain must "
             "escalate toward the approved result. Convert concrete evidence or "
             "state earned in earlier approved sections into the actions that "
-            "solve the problem. Repeated console commands, repeated indicator "
+            "solve the problem. When the current purpose brings prior evidence "
+            "to a conclusion, each distinct approved evidence type, object, or "
+            "signal must visibly change a different decision or action; do not "
+            "collapse them all into one map, interface, or explanation. "
+            "Repeated console commands, repeated indicator "
             "changes, ordinal steps, or parallel operators performing the same "
             "action are list-like repetition, not escalation. Each middle beat "
             "must materially change the kind of work on screen: apply a distinct "
@@ -1475,6 +1479,11 @@ def _script_approved_visual_plan_contract(
             (
                 "FIDELITY LAW: The screenplay may subdivide timing into more "
                 "shots, but it must preserve this ordered visual progression. "
+                "These are macro visual phases, never a one-to-one required "
+                "count of timed screenplay beats. Layer their visual grammar "
+                "across the actions; a map, timeline, overlay, transform, or "
+                "signal pulse may clarify causal state but must never perform "
+                "or replace the characters' decisive action. "
                 "A generic substitute that ignores these approved components "
                 "fails visual-story quality."
             ),
@@ -4014,6 +4023,23 @@ class SharedSectionProductionSeams:
                     )
                     visual_beats = parsed.get("visual_beats") or []
                     if visual_beats:
+                        normalized_role = (
+                            request.role.strip()
+                            .casefold()
+                            .replace("-", "_")
+                            .replace(" ", "_")
+                        )
+                        if (
+                            normalized_role == "resolution"
+                            and request.exact_seconds >= 30
+                            and len(visual_beats) < 4
+                        ):
+                            av_issues.append(
+                                "AV resolution of 30 seconds or longer requires "
+                                "at least four timed beats so decision, distinct "
+                                "dependent actions, confirmations, and final "
+                                "proof cannot collapse into macro visual phases"
+                            )
                         if (
                             str(visual_beats[0].get("carry_in") or "").strip()
                             != required_first_carry_in
