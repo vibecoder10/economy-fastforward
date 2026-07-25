@@ -23,7 +23,8 @@ import {
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { ChatHome } from "@/components/chat/ChatHome";
+import { DirectorProvider } from "@/components/director/DirectorContext";
+import { DirectorSurface } from "@/components/director/DirectorSurface";
 
 export default function HomePage() {
   const { user, isLoading: authLoading } = useAuth();
@@ -42,9 +43,24 @@ export default function HomePage() {
     return <LandingPage />;
   }
 
-  // Authenticated: the chat-first creative producer is now the home screen.
-  // The full dashboard lives at /dashboard (and in the sidebar).
-  return <ChatHome />;
+  // Authenticated: the Director surface (home screen + chat/canvas) replaces
+  // the plain chat-first home (DIRECTOR-CHAT-PLAN.md Task 1.3 Step 4). The
+  // full dashboard lives at /dashboard (and in the sidebar).
+  //
+  // `fixed inset-0` (not h-full/h-screen): AuthenticatedShell's <main> wraps
+  // page children in a padded, sidebar-margined, non-height-bound box
+  // (`md:ml-60` + `mx-auto max-w-[1400px] px-4 pt-20 ...`, see
+  // AuthenticatedShell.tsx). DirectorSurface/DirectorHome need a real,
+  // unpadded viewport box to lay out their columns and internal scrolling —
+  // the same fix the throwaway director-preview route proved out and that
+  // this chunk's job is to carry into the real page.
+  return (
+    <div className="fixed inset-0 z-50 bg-void">
+      <DirectorProvider>
+        <DirectorSurface />
+      </DirectorProvider>
+    </div>
+  );
 }
 
 /* ─── Landing Page (unauthenticated) ─── */
