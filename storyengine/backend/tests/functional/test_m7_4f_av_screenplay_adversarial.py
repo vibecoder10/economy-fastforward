@@ -308,6 +308,49 @@ def test_approved_designations_and_ordinary_lowercase_nouns_remain_valid():
     ) == []
 
 
+@pytest.mark.parametrize(
+    ("probe", "expected"),
+    [
+        (
+            "unit echo station golf sector hotel team india channel lima",
+            {"echo", "golf", "hotel", "india", "lima"},
+        ),
+        (
+            (
+                "node mike site november code oscar phase papa unit uniform "
+                "station x-ray"
+            ),
+            {"mike", "november", "oscar", "papa", "uniform", "x-ray"},
+        ),
+        (
+            "unit alfa node alpha sector xray",
+            {"alfa", "alpha", "xray"},
+        ),
+    ],
+)
+def test_full_contextual_nato_designation_vocabulary(probe, expected):
+    assert production._script_designation_word_anchors(probe) == expected
+
+
+def test_contextual_nato_words_remain_ordinary_when_standalone():
+    ordinary = (
+        "an echo fades through the hotel lobby beside a golf course while "
+        "uniform fabric, india ink, and whiskey sit on display"
+    )
+
+    assert production._script_designation_word_anchors(ordinary) == set()
+
+
+def test_approved_context_subtracts_contextual_nato_designations():
+    factual = "unit echo meets station x-ray beside node mike"
+    approved = "Follow unit echo, station x-ray, and node mike"
+
+    assert (
+        production._script_designation_word_anchors(factual)
+        - production._script_designation_word_anchors(approved)
+    ) == set()
+
+
 def test_dialogue_speaker_requires_exact_approved_identity_not_prefix_alias():
     parsed, issues = production._parse_custom_film_av_screenplay(
         _bilingual_screenplay().replace("DIALOGUE Mara", "DIALOGUE Mar"),
