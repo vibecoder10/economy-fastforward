@@ -157,6 +157,40 @@ def test_adapter_resolves_every_section_dimension_and_exact_seconds():
     assert animated["quality_laws"][-1] == "motion_prompt_presence"
 
 
+def test_scripts_first_schedule_gets_rich_arc_while_legacy_hash_shape_stays_old():
+    envelope = _envelope()
+    envelope["execution_model"] = (
+        custom_film_runtime.SCRIPTS_FIRST_AV_EXECUTION_MODEL
+    )
+    envelope["stage_plan"] = sorted(
+        envelope["stage_plan"],
+        key=lambda item: (
+            0 if item["stage"] == "script" else 1,
+            item["order_index"],
+            ["voice", "pictures", "motion", "clips", "quality"].index(
+                item["stage"]
+            )
+            if item["stage"] != "script"
+            else 0,
+        ),
+    )
+    _rehash(envelope)
+
+    script = next(
+        adapter
+        for adapter in section_runtime.compile_stage_adapters(envelope)
+        if adapter.stage == "script"
+    )
+
+    assert set(script.story_arc[0]) == {
+        "order_index",
+        "section_id",
+        "role",
+        "purpose",
+        "render_mode",
+    }
+
+
 def test_adapter_values_are_immutable_and_provider_copy_is_detached():
     adapter = section_runtime.compile_stage_adapters(_envelope())[0]
     with pytest.raises(TypeError):

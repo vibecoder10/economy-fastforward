@@ -55,6 +55,7 @@ def test_all_narrated_character_actions_fail_closed():
         bad,
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
 
     assert parsed is None
@@ -67,6 +68,7 @@ def test_corrected_bilingual_visual_dialogue_sound_split_parses_for_persistence(
         _bilingual_screenplay(),
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
 
     assert issues == []
@@ -120,6 +122,7 @@ def test_gap_or_carry_break_rejects_disconnected_beats():
         broken,
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
 
     assert parsed is None
@@ -136,6 +139,7 @@ def test_av_tracks_keep_current_section_grounding_exclusive():
         text,
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     assert issues == []
 
@@ -153,6 +157,7 @@ def test_av_grounding_allows_sentence_starts_but_rejects_mid_sentence_names():
         _bilingual_screenplay(),
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     assert issues == []
     assert production._custom_film_av_grounding_issues(
@@ -167,6 +172,7 @@ def test_av_grounding_allows_sentence_starts_but_rejects_mid_sentence_names():
         ),
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     assert drift_issues == []
     grounding = production._custom_film_av_grounding_issues(
@@ -176,11 +182,116 @@ def test_av_grounding_allows_sentence_starts_but_rejects_mid_sentence_names():
     assert any("Chicago" in issue and "ERCOT" in issue for issue in grounding)
 
 
+@pytest.mark.parametrize(
+    ("old", "new", "anchor"),
+    [
+        (
+            "Mara studies a pulsing signal on the console.",
+            "Chicago signals pulse on the console.",
+            "Chicago",
+        ),
+        (
+            "A relay clicks beneath quiet room tone.",
+            "ERCOT relays click beneath quiet room tone.",
+            "ERCOT",
+        ),
+        ("CARRY-IN: silent console", "CARRY-IN: Chicago console", "Chicago"),
+        (
+            "The signal is back.",
+            "Chicago confirms the signal is back.",
+            "Chicago",
+        ),
+    ],
+)
+def test_av_grounding_rejects_entities_at_start_of_every_factual_track(
+    old,
+    new,
+    anchor,
+):
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay().replace(old, new),
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert issues == []
+    grounding = production._custom_film_av_grounding_issues(
+        parsed,
+        approved_context="case_study\nFollow Mara and the approved signal",
+    )
+    assert any(anchor in issue for issue in grounding)
+
+
+def test_dialogue_speaker_requires_exact_approved_identity_not_prefix_alias():
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay().replace("DIALOGUE Mara", "DIALOGUE Mar"),
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert issues == []
+    grounding = production._custom_film_av_grounding_issues(
+        parsed,
+        approved_context="case_study\nFollow Mara and the approved signal",
+    )
+    assert any("Mar" in issue for issue in grounding)
+
+
+def test_bilingual_language_contract_rejects_third_or_unapproved_labels():
+    third = _bilingual_screenplay().replace(
+        "DIALOGUE Mara [es | pair=signal-1]: La señal ha vuelto.",
+        "\n".join(
+            (
+                "DIALOGUE Mara [es | pair=signal-1]: La señal ha vuelto.",
+                "DIALOGUE Mara [fr | pair=signal-1]: Le signal est revenu.",
+            )
+        ),
+    )
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        third,
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+    assert parsed is None
+    assert "bilingual dialogue must use exactly the two approved languages" in issues
+    assert (
+        "bilingual translation pairs must contain exactly both approved languages"
+        in issues
+    )
+
+    _, default_issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay(),
+        exact_seconds=12,
+        language_mode="bilingual",
+    )
+    assert "bilingual dialogue must use exactly the two approved languages" in default_issues
+
+
+def test_generated_av_contract_names_exact_configured_language_labels():
+    request = production._request(
+        replace(
+            _adapter("script"),
+            language={"mode": "bilingual", "languages": ["es", "en"]},
+            dubbing={"enabled": True, "mode": "speech_to_speech"},
+            segmentation={"mode": "speaker_turn"},
+        ),
+        (),
+        "custom-film-op:" + "7" * 64,
+    )
+
+    contract = production._custom_film_av_contract(request)
+
+    assert "labels 'es' and 'en'" in contract
+    assert "No third language label is allowed" in contract
+
+
 def test_whole_arc_requires_concrete_carry_between_sections():
     first, first_issues = production._parse_custom_film_av_screenplay(
         _bilingual_screenplay(),
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     second_text = _bilingual_screenplay().replace(
         "CARRY-IN: silent console",
@@ -191,6 +302,7 @@ def test_whole_arc_requires_concrete_carry_between_sections():
         second_text,
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     assert first_issues == second_issues == []
 
@@ -204,6 +316,7 @@ def test_five_disconnected_sections_fail_whole_arc_cause_and_effect():
         _bilingual_screenplay(),
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     assert issues == []
     sections = []
@@ -315,7 +428,7 @@ async def test_last_script_barrier_is_preinsert_exact_and_selects_dialogue_route
             order_index=1,
             role="closing",
             purpose="Land Mara and the approved ending",
-            language={"mode": "bilingual"},
+            language={"mode": "bilingual", "languages": ["en", "es"]},
             dubbing={"enabled": True, "mode": "speech_to_speech"},
             segmentation={"mode": "speaker_turn"},
             story_arc=arc,
@@ -336,6 +449,7 @@ async def test_last_script_barrier_is_preinsert_exact_and_selects_dialogue_route
         prior_text,
         exact_seconds=12,
         language_mode="bilingual",
+        approved_languages=("en", "es"),
     )
     assert prior_issues == []
     inserted = []

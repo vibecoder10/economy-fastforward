@@ -1342,6 +1342,28 @@ _AV_ACTION_LEAK_PATTERN = re.compile(
     r"turns|rewinds|opens|closes|moves|crosses|reaches|points|nods))\b",
     re.IGNORECASE,
 )
+_AV_COMMON_SENTENCE_STARTS = frozenset(
+    {
+        "a",
+        "an",
+        "approved",
+        "as",
+        "closing",
+        "final",
+        "inside",
+        "low",
+        "meanwhile",
+        "opening",
+        "outside",
+        "quiet",
+        "soft",
+        "that",
+        "the",
+        "this",
+        "visible",
+        "when",
+    }
+)
 
 
 def _av_timestamp_seconds(value: str) -> int:
@@ -1353,9 +1375,35 @@ def _av_timestamp_seconds(value: str) -> int:
     return parsed_minutes * 60 + parsed_seconds
 
 
+def _custom_film_av_language_pair(
+    language: Mapping[str, Any],
+) -> tuple[str, str]:
+    raw_languages = language.get("languages")
+    if (
+        isinstance(raw_languages, (list, tuple))
+        and len(raw_languages) == 2
+        and all(str(value).strip() for value in raw_languages)
+    ):
+        return tuple(str(value).strip().casefold() for value in raw_languages)
+    source = str(
+        language.get("source_language")
+        or language.get("source")
+        or ""
+    ).strip().casefold()
+    target = str(
+        language.get("target_language")
+        or language.get("target")
+        or ""
+    ).strip().casefold()
+    if source and target and source != target:
+        return source, target
+    return "source", "target"
+
+
 def _custom_film_av_contract(request: SectionProductionRequest) -> str:
     end = f"{request.exact_seconds // 60}:{request.exact_seconds % 60:02d}"
     bilingual = str(request.language.get("mode") or "") == "bilingual"
+    approved_languages = _custom_film_av_language_pair(request.language)
     return "\n".join(
         (
             "=== CUSTOM FILM COVERAGE AV SCREENPLAY CONTRACT ===",
@@ -1387,8 +1435,11 @@ def _custom_film_av_contract(request: SectionProductionRequest) -> str:
             ),
             (
                 "BILINGUAL PERFORMANCE LAW: Require actual performed turns by "
-                "the same on-screen speaker in two languages; every translation "
-                "pair ID must occur in both languages for lip-sync-ready segments."
+                "the same on-screen speaker in exactly the two approved language "
+                f"labels '{approved_languages[0]}' and "
+                f"'{approved_languages[1]}'; every translation pair ID must "
+                "occur once in each approved language for lip-sync-ready segments. "
+                "No third language label is allowed."
                 if bilingual
                 else "LANGUAGE LAW: Use only the approved performed language mode."
             ),
@@ -1407,6 +1458,7 @@ def _parse_custom_film_av_screenplay(
     *,
     exact_seconds: int,
     language_mode: str,
+    approved_languages: tuple[str, str] | None = None,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Parse the coverage-only AV DSL and fail closed on ambiguous tracks."""
 
@@ -1534,6 +1586,17 @@ def _parse_custom_film_av_screenplay(
         issues.append("AV screenplay is action-heavy or wall-to-wall spoken narration")
 
     if language_mode == "bilingual":
+        allowed_languages = tuple(
+            language.casefold()
+            for language in (
+                approved_languages or ("source", "target")
+            )
+        )
+        if (
+            len(allowed_languages) != 2
+            or allowed_languages[0] == allowed_languages[1]
+        ):
+            issues.append("bilingual approved language contract is invalid")
         dialogue = [
             segment for segment in audible_segments if segment["type"] == "dialogue"
         ]
@@ -1548,12 +1611,24 @@ def _parse_custom_film_av_screenplay(
                 issues.append("bilingual dialogue turn is missing a translation pair")
             else:
                 pairs.setdefault(pair, set()).add(segment["language"])
-        if not any(len(languages) >= 2 for languages in speakers.values()):
+        observed_languages = {
+            segment["language"].casefold() for segment in dialogue
+        }
+        if observed_languages != set(allowed_languages):
+            issues.append(
+                "bilingual dialogue must use exactly the two approved languages"
+            )
+        if not any(
+            languages == set(allowed_languages)
+            for languages in speakers.values()
+        ):
             issues.append(
                 "bilingual section requires one on-screen speaker performing in two languages"
             )
-        if any(len(languages) < 2 for languages in pairs.values()):
-            issues.append("bilingual translation pairs must contain both languages")
+        if any(languages != set(allowed_languages) for languages in pairs.values()):
+            issues.append(
+                "bilingual translation pairs must contain exactly both approved languages"
+            )
 
     if issues:
         return None, list(dict.fromkeys(issues))
@@ -1642,30 +1717,36 @@ def _custom_film_av_grounding_issues(
             "AV screenplay introduces number-word anchors absent from the "
             "approved section: " + ", ".join(unsupported_number_words[:6])
         )
-    approved_casefold = approved_context.casefold()
+    approved_tokens = {
+        token.casefold() for token in _SCRIPT_WORD_PATTERN.findall(approved_context)
+    }
     unsupported_named: list[str] = []
     for match in _SCRIPT_NAMED_TOKEN_PATTERN.finditer(factual_text):
         token = match.group(0)
         before = factual_text[: match.start()]
         line_start = before.rfind("\n") + 1
-        if not before[line_start:].strip():
-            continue
+        at_line_start = not before[line_start:].strip()
         trimmed_before = before.rstrip()
-        if not trimmed_before or trimmed_before[-1:] in ".!?":
+        at_sentence_start = not trimmed_before or trimmed_before[-1:] in ".!?"
+        if (at_line_start or at_sentence_start) and (
+            token.casefold() in _AV_COMMON_SENTENCE_STARTS
+        ):
             continue
         if (
-            token.casefold() not in approved_casefold
+            token.casefold() not in approved_tokens
             and token not in {"I"}
             and token.casefold() not in _SCRIPT_GROUNDING_STOPWORDS
         ):
             unsupported_named.append(token)
     for segment in parsed.get("dialogue_segments") or []:
-        if (
-            isinstance(segment, Mapping)
-            and segment.get("type") == "dialogue"
-            and str(segment.get("speaker") or "").casefold() not in approved_casefold
-        ):
-            unsupported_named.append(str(segment.get("speaker") or ""))
+        if isinstance(segment, Mapping) and segment.get("type") == "dialogue":
+            speaker = str(segment.get("speaker") or "").strip()
+            if speaker and not re.search(
+                rf"(?<!\w){re.escape(speaker)}(?!\w)",
+                approved_context,
+                re.IGNORECASE,
+            ):
+                unsupported_named.append(speaker)
     unsupported_named = sorted(set(unsupported_named))
     if unsupported_named:
         issues.append(
@@ -3077,7 +3158,13 @@ class SharedSectionProductionSeams:
         approved_context = f"{request.role}\n{request.purpose}"
         config = _ExactSectionConfig(request.exact_seconds)
         av_screenplay_mode = (
-            request.render_mode == "coverage" and bool(request.story_arc)
+            request.render_mode == "coverage"
+            and bool(request.story_arc)
+            and all(
+                str(item.get("section_id") or "")
+                and str(item.get("render_mode") or "")
+                for item in request.story_arc
+            )
         )
         approved_contract = _script_approved_contract(
             role=request.role,
@@ -3179,6 +3266,11 @@ class SharedSectionProductionSeams:
                     current_text,
                     exact_seconds=request.exact_seconds,
                     language_mode=str(request.language.get("mode") or ""),
+                    approved_languages=(
+                        _custom_film_av_language_pair(request.language)
+                        if str(request.language.get("mode") or "") == "bilingual"
+                        else None
+                    ),
                 )
                 if parsed is not None:
                     av_issues.extend(

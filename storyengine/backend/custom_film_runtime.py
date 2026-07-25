@@ -19,6 +19,7 @@ from production_styles import runtime_values_from_knobs
 
 
 RUNTIME_VERSION = "custom-film-runtime-v1"
+SCRIPTS_FIRST_AV_EXECUTION_MODEL = "scripts_first_av_v1"
 
 
 def _object(value: Any, name: str) -> dict[str, Any]:
@@ -152,6 +153,7 @@ class RuntimePlan:
     def _envelope_base(self) -> dict[str, Any]:
         return {
             "runtime_version": RUNTIME_VERSION,
+            "execution_model": SCRIPTS_FIRST_AV_EXECUTION_MODEL,
             "video_id": self.video_id,
             "plan_id": self.plan_id,
             "plan_hash": self.plan_hash,

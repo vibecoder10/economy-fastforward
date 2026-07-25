@@ -17,7 +17,11 @@ from typing import Any, Mapping, Protocol
 import database
 import generation_claims
 from custom_film_contract import CustomFilmContractError
-from custom_film_runtime import RUNTIME_VERSION, validate_runtime_envelope
+from custom_film_runtime import (
+    RUNTIME_VERSION,
+    SCRIPTS_FIRST_AV_EXECUTION_MODEL,
+    validate_runtime_envelope,
+)
 from error_utils import humanize_error
 
 
@@ -454,17 +458,33 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
     ]
     if actual_plan not in (legacy_expected_plan, scripts_first_expected_plan):
         raise CustomFilmContractError("Custom Film runtime stage plan is stale")
+    scripts_first_schedule = (
+        envelope.get("execution_model")
+        == SCRIPTS_FIRST_AV_EXECUTION_MODEL
+    )
+    if scripts_first_schedule and actual_plan != scripts_first_expected_plan:
+        raise CustomFilmContractError(
+            "Custom Film scripts-first execution model has a stale stage plan"
+        )
 
     adapters: list[SectionStageAdapter] = []
     story_arc = tuple(
         _freeze(
-            {
-                "order_index": int(section["order_index"]),
-                "section_id": str(section.get("section_id") or ""),
-                "role": str(section.get("role") or ""),
-                "purpose": str(section.get("purpose") or ""),
-                "render_mode": str(section.get("render_mode") or ""),
-            }
+            (
+                {
+                    "order_index": int(section["order_index"]),
+                    "section_id": str(section.get("section_id") or ""),
+                    "role": str(section.get("role") or ""),
+                    "purpose": str(section.get("purpose") or ""),
+                    "render_mode": str(section.get("render_mode") or ""),
+                }
+                if scripts_first_schedule
+                else {
+                    "order_index": int(section["order_index"]),
+                    "role": str(section.get("role") or ""),
+                    "purpose": str(section.get("purpose") or ""),
+                }
+            )
         )
         for section in sorted(
             sections_by_id.values(),

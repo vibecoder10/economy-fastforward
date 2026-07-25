@@ -14,6 +14,7 @@ if str(VIDEO_PIPELINE) not in sys.path:
 
 import custom_film_production_runner as production
 import custom_film_section_runtime as section_runtime
+from custom_film_contract import canonical_hash
 from test_custom_film_production_runner import _Pool, _adapter
 from test_custom_film_section_runtime import _envelope
 
@@ -160,6 +161,34 @@ def test_story_arc_is_script_only_and_does_not_churn_non_script_request_identity
     assert script.payload()["story_arc"] == list(arc)
 
 
+def test_legacy_interleaved_script_request_hash_remains_2f7b4c9d_compatible():
+    adapter = next(
+        item
+        for item in section_runtime.compile_stage_adapters(_envelope())
+        if item.stage == "script" and item.order_index == 0
+    )
+    assert all(
+        set(item) == {"order_index", "role", "purpose"}
+        for item in adapter.story_arc
+    )
+    request = production._request(
+        adapter,
+        (),
+        "custom-film-op:" + "a" * 64,
+    )
+    expected_request_hash = (
+        "9597db1bfb1564500b64ce7e82959d6e9c7948c656d72010eb4b604c182832d1"
+    )
+
+    assert canonical_hash(request.payload()) == expected_request_hash
+    spec = production.CustomFilmProductionRunner("tenant-1").operation_spec(
+        adapter,
+        (),
+        request.operation_id,
+    )
+    assert spec.request_hash == expected_request_hash
+
+
 def test_other_story_arc_sections_never_authorize_current_section_facts():
     arc = (
         {"order_index": 0, "role": "evidence", "purpose": "Show evidence"},
@@ -286,13 +315,17 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
     arc = (
         {
             "order_index": 0,
+            "section_id": "section-a",
             "role": "resolution",
             "purpose": "Show the approved system restored",
+            "render_mode": "coverage",
         },
         {
             "order_index": 1,
+            "section_id": "section-closing",
             "role": "closing",
             "purpose": "Land the approved final synthesis",
+            "render_mode": "coverage",
         },
     )
     adapter = replace(
