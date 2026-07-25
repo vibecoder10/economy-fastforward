@@ -32,10 +32,15 @@
   Wide and centered 9:16 contacts plus every second from 4:45–5:00 passed direct and
   independent creative review. Backend Custom Film tests pass 348/348; Remotion tests
   pass 34/34; frontend typecheck and the 34-route production build pass.
-- M6 is not deployed. The production host remains on accepted M5 behavior until Ryan
-  separately authorizes pushing this isolated branch and the zero-active-work
-  `--with-frontend --with-remotion` activation. No provider call or paid flagship
-  footage exists; the refreshed pre-script estimate remains $5.57 under a hard $15 cap.
+- M6 deployed through PR #462 at production commit
+  `3ed9e61a44dec1bd68799be61dc483357a3248d5` using the zero-active-work
+  `--with-frontend --with-remotion` drain path. Backend, frontend, worker, Redis/arq,
+  Chromium/Remotion, storage, migrations, HTTP health, and automatic undrain passed.
+  The deployed renderer hash exactly matches local approval identity
+  `0274c862e7489f03c05d0b256c8ae818ededeb9ed442225ee67f55c618357abd`;
+  the host resolved all 34 recipes/7,200 frames and rendered the accepted frame-7080
+  product composition. No provider call or paid flagship footage exists; the refreshed
+  pre-script estimate remains $5.57 under a hard $15 cap.
 
 ## Custom Film flagship Remotion production activation (M5, 2026-07-24)
 
