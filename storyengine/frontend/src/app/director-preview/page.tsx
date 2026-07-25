@@ -28,8 +28,17 @@ function DirectorPreviewInner() {
 }
 
 export default function DirectorPreviewPage() {
+  // `fixed inset-0` (not h-screen/w-screen) — this route renders inside
+  // AuthenticatedShell's padded, sidebar-margined main content area
+  // (`md:ml-60` + `max-w-[1400px]` + padding, see AuthenticatedShell.tsx).
+  // `w-screen`/`h-screen` compute against the real viewport but the div's
+  // OFFSET still comes from that ancestor padding/margin, so the box
+  // overflowed ~290px past the right edge of the window (verified via
+  // Chunk 1.E's browser walk — Build button rendered at x≈1656 on a 1434px
+  // viewport). `fixed inset-0` escapes the padded flow entirely instead,
+  // which is what a full-bleed app-shell preview route wants anyway.
   return (
-    <div className="h-screen w-screen bg-void">
+    <div className="fixed inset-0 z-50 bg-void">
       <DirectorProvider>
         <DirectorPreviewInner />
       </DirectorProvider>
