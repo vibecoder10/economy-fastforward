@@ -176,10 +176,17 @@ def test_scripts_first_schedule_gets_rich_arc_while_legacy_hash_shape_stays_old(
     )
     _rehash(envelope)
 
-    script = next(
+    adapters = section_runtime.compile_stage_adapters(envelope)
+    script = next(adapter for adapter in adapters if adapter.stage == "script")
+    quality = next(
         adapter
-        for adapter in section_runtime.compile_stage_adapters(envelope)
-        if adapter.stage == "script"
+        for adapter in adapters
+        if adapter.stage == "quality" and adapter.section_id == script.section_id
+    )
+    voice = next(
+        adapter
+        for adapter in adapters
+        if adapter.stage == "voice" and adapter.section_id == script.section_id
     )
 
     assert set(script.story_arc[0]) == {
@@ -191,6 +198,10 @@ def test_scripts_first_schedule_gets_rich_arc_while_legacy_hash_shape_stays_old(
         "approved_visual_beats",
     }
     assert script.story_arc[0]["approved_visual_beats"] == ()
+    assert quality.story_arc == script.story_arc
+    assert voice.story_arc == ()
+    with pytest.raises(TypeError):
+        quality.story_arc[0]["purpose"] = "mutated"
 
 
 def test_scripts_first_schedule_routes_approved_visual_plan_into_script_arc():

@@ -503,7 +503,16 @@ def _request(
         estimated_media=adapter.estimated_media,
         expected_still_images=still_images,
         expected_animation_clips=animation_clips,
-        story_arc=adapter.story_arc if adapter.stage == "script" else (),
+        # Quality needs the same approved film-world, carry, and visual-plan
+        # context used by the script gate. Keep it out of the serialized
+        # non-script payload: runtime_hash already binds the immutable envelope,
+        # so restoring this in-memory context does not churn operation or
+        # provenance identities.
+        story_arc=(
+            adapter.story_arc
+            if adapter.stage in {"script", "quality"}
+            else ()
+        ),
     )
 
 
@@ -4599,7 +4608,7 @@ class SharedSectionProductionSeams:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT id, scene, scene_text, voice_id, voice_status,
-                          voice_over_url, dialogue_segments
+                          voice_over_url, dialogue_segments, script_validation
                    FROM scripts
                    WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                      AND id = ANY($3::uuid[])
@@ -4847,50 +4856,208 @@ class SharedSectionProductionSeams:
             "artifacts": artifacts,
         }
 
+    async def _quality_script_preflight(
+        self,
+        request: SectionProductionRequest,
+        rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Revalidate durable prior strict AV evidence without a drifting critic.
+
+        This late gate does not claim a new rendered semantic judgment. The
+        strict contextual AV critic already ran before voice or imagery; here
+        we prove that exact approved text still owns that validation and the
+        current runtime's completed script operation.
+        """
+
+        if not rows:
+            raise CustomFilmContractError(
+                "Custom Film quality found no assigned screenplay"
+            )
+        expected_hashes = [
+            {
+                "scene_id": str(row["id"]),
+                "scene_text_hash": canonical_hash(
+                    {
+                        "scene_id": str(row["id"]),
+                        "scene_text": str(row.get("scene_text") or ""),
+                    }
+                ),
+            }
+            for row in rows
+        ]
+        import database
+
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            operation_rows = await conn.fetch(
+                """SELECT result
+                   FROM custom_film_provider_operations
+                   WHERE tenant_id = $1::uuid AND video_id = $2::uuid
+                     AND runtime_job_id = $3 AND stage_key = $4
+                     AND state = 'completed'""",
+                self.tenant_id,
+                request.video_id,
+                f"custom-film-runtime:{request.runtime_hash}",
+                f"{request.order_index}:{request.section_id}:script",
+            )
+        if len(operation_rows) != 1:
+            raise CustomFilmContractError(
+                "Custom Film quality found no exact completed script operation"
+            )
+        operation_result = operation_rows[0].get("result")
+        if isinstance(operation_result, str):
+            try:
+                operation_result = json.loads(operation_result)
+            except ValueError:
+                operation_result = None
+        if (
+            not isinstance(operation_result, Mapping)
+            or operation_result.get("scene_ids") != list(request.scene_ids)
+            or operation_result.get("scene_text_hashes") != expected_hashes
+        ):
+            raise CustomFilmContractError(
+                "Custom Film quality found changed screenplay evidence"
+            )
+
+        scores: list[int] = []
+        validated_av_sections = 0
+        for row in rows:
+            validation = row.get("script_validation")
+            if isinstance(validation, str):
+                try:
+                    validation = json.loads(validation)
+                except ValueError:
+                    validation = None
+            custom = (
+                validation.get("custom_film")
+                if isinstance(validation, Mapping)
+                else None
+            )
+            shared = (
+                validation.get("shared_validation")
+                if isinstance(validation, Mapping)
+                else None
+            )
+            preflight = (
+                custom.get("preflight")
+                if isinstance(custom, Mapping)
+                else None
+            )
+            if (
+                not isinstance(custom, Mapping)
+                or custom.get("section_id") != request.section_id
+                or custom.get("exact_seconds") != request.exact_seconds
+                or custom.get("script_profile") != request.script_profile
+                or not isinstance(preflight, Mapping)
+                or preflight.get("verdict") != "pass"
+                or type(preflight.get("score")) is not int
+                or not isinstance(shared, Mapping)
+                or shared.get("valid") is not True
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film quality found unapproved screenplay validation"
+                )
+            scores.append(int(preflight["score"]))
+
+            script_text = str(row.get("scene_text") or "")
+            if request.render_mode == "coverage":
+                parsed, issues = _parse_custom_film_av_screenplay(
+                    script_text,
+                    exact_seconds=request.exact_seconds,
+                    language_mode=str(request.language.get("mode") or ""),
+                    approved_languages=(
+                        _custom_film_av_language_pair(request.language)
+                        if str(request.language.get("mode") or "")
+                        == "bilingual"
+                        else None
+                    ),
+                    canonical_languages=_custom_film_av_language_labels(
+                        request.language
+                    ),
+                )
+                _world_contract, film_world_context = (
+                    _script_shared_film_world_contract(
+                        request.story_arc,
+                        current_order_index=request.order_index,
+                    )
+                )
+                approved_context = "\n".join(
+                    part
+                    for part in (
+                        f"{request.role}\n{request.purpose}",
+                        film_world_context,
+                    )
+                    if part
+                )
+                if isinstance(parsed, Mapping):
+                    issues.extend(
+                        _custom_film_av_grounding_issues(
+                            parsed,
+                            approved_context=approved_context,
+                        )
+                    )
+                    (
+                        _carry_contract,
+                        required_carry_in,
+                        required_carry_out,
+                    ) = _script_av_carry_binding(
+                        request.story_arc,
+                        current_order_index=request.order_index,
+                    )
+                    visual_beats = parsed.get("visual_beats") or []
+                    if (
+                        not visual_beats
+                        or str(visual_beats[0].get("carry_in") or "")
+                        != required_carry_in
+                        or str(visual_beats[-1].get("carry_out") or "")
+                        != required_carry_out
+                    ):
+                        issues.append(
+                            "AV screenplay carry binding changed after approval"
+                        )
+                stored_parsed = shared.get("parsed")
+                if (
+                    issues
+                    or not isinstance(parsed, Mapping)
+                    or not isinstance(stored_parsed, Mapping)
+                    or _plain(parsed) != _plain(stored_parsed)
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film quality found changed AV screenplay "
+                        "grounding or structure"
+                    )
+                validated_av_sections += 1
+            else:
+                issues = _script_grounding_issues(
+                    script_text,
+                    approved_context=f"{request.role}\n{request.purpose}",
+                    config=_ExactSectionConfig(request.exact_seconds),
+                    generator_validation=shared,
+                )
+                if issues:
+                    raise CustomFilmContractError(
+                        "Custom Film quality found changed screenplay grounding"
+                    )
+        return {
+            "script_validation": "durable_prior_strict_preflight_revalidated",
+            "script_quality_score": min(scores),
+            "validated_av_sections": validated_av_sections,
+            "quality_evaluation": (
+                "durable_prior_strict_av_preflight_and_exact_media_evidence"
+            ),
+        }
+
     async def _quality(self, request: SectionProductionRequest) -> dict[str, Any]:
         rows = await self._scene_rows(request)
+        script_evidence = await self._quality_script_preflight(request, rows)
         timing_evidence = await self._quality_media_preflight(request)
-        executor = await self._ready_executor()
-        client = getattr(executor._pipeline, "anthropic", None)
-        if client is None:
-            raise CustomFilmContractError(
-                "Tenant text-generation key is unavailable"
-            )
-        import script_quality
-
-        script_text = "\n\n".join(str(row.get("scene_text") or "") for row in rows)
-        rules_text = "\n".join(
-            f"{law}: This approved section must satisfy {law.replace('_', ' ')}."
-            for law in request.quality_laws
-        )
-        severity = {law: "hard_gate" for law in request.quality_laws}
-        grade = await script_quality.critique_script(
-            self.tenant_id,
-            request.video_id,
-            {
-                "script": script_text,
-                "title": request.purpose,
-                "niche": request.role,
-            },
-            rules_text=rules_text,
-            severity_by_rule=severity,
-            client=client,
-        )
-        if "grade unavailable - failed open" in grade.failing_gates:
-            raise CustomFilmContractError(
-                "Custom Film section quality laws could not be evaluated"
-            )
-        if grade.needs_revision:
-            raise CustomFilmContractError(
-                "Custom Film section failed approved quality laws: "
-                + "; ".join(grade.violations)
-            )
         return {
             "scene_ids": list(request.scene_ids),
             "quality_laws": list(request.quality_laws),
-            "verdict": grade.verdict,
-            "score": grade.score,
+            "verdict": "pass",
+            "score": script_evidence["script_quality_score"],
             "exact_seconds": request.exact_seconds,
+            **script_evidence,
             **timing_evidence,
         }
 

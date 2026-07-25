@@ -592,7 +592,16 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
                 image_source=str(section["image_source"]),
                 provenance=_freeze(section["provenance"]),
                 estimated_media=_freeze(section["estimated_media"]),
-                story_arc=story_arc if stage == "script" else (),
+                # Opening/final section quality must revalidate against the
+                # same immutable film-world and carry context as script
+                # approval. SectionProductionRequest.payload intentionally
+                # serializes story_arc only for script, preserving all existing
+                # non-script operation identities.
+                story_arc=(
+                    story_arc
+                    if stage in {"script", "quality"}
+                    else ()
+                ),
             )
         )
     return tuple(adapters)

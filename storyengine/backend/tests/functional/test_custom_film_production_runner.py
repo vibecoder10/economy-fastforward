@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -695,7 +696,7 @@ async def test_grok_native_voice_is_local_idempotent_and_never_calls_voice_clien
 
 
 @pytest.mark.asyncio
-async def test_shared_quality_seam_passes_approved_laws_to_real_critic_contract(
+async def test_shared_quality_seam_uses_deterministic_script_and_media_evidence(
     monkeypatch,
 ):
     request = production._request(
@@ -709,27 +710,24 @@ async def test_shared_quality_seam_passes_approved_laws_to_real_critic_contract(
     async def rows(_request):
         return [{"id": "scene-1", "scene": 1, "scene_text": "Sourced evidence."}]
 
-    class Executor:
-        def __init__(self):
-            self._pipeline = SimpleNamespace(anthropic=object())
-
-        async def _ensure_initialized(self):
-            return None
-
     async def critique(*args, **kwargs):
         calls.append((args, kwargs))
-        return SimpleNamespace(
-            failing_gates=[],
-            needs_revision=False,
-            verdict="pass",
-            score=97,
-        )
+        raise AssertionError("final quality must not rerun the generic critic")
 
     monkeypatch.setattr(seams, "_scene_rows", rows)
+    async def script_preflight(_request, _rows):
+        return {
+            "script_validation": "durable_prior_strict_preflight_revalidated",
+            "script_quality_score": 97,
+            "validated_av_sections": 1,
+            "quality_evaluation": (
+                "durable_prior_strict_av_preflight_and_exact_media_evidence"
+            ),
+        }
+    monkeypatch.setattr(seams, "_quality_script_preflight", script_preflight)
     async def media_preflight(_request):
         return {"timing_status": "exact", "timing_transforms": []}
     monkeypatch.setattr(seams, "_quality_media_preflight", media_preflight)
-    seams._executor = Executor()
     monkeypatch.setattr("script_quality.critique_script", critique)
     result = await seams._quality(request)
     assert result["quality_laws"] == [
@@ -737,11 +735,212 @@ async def test_shared_quality_seam_passes_approved_laws_to_real_critic_contract(
         "visual_cue_fidelity",
     ]
     assert result["exact_seconds"] == 17
-    assert "source_grounding:" in calls[0][1]["rules_text"]
-    assert calls[0][1]["severity_by_rule"] == {
-        "source_grounding": "hard_gate",
-        "visual_cue_fidelity": "hard_gate",
+    assert (
+        result["script_validation"]
+        == "durable_prior_strict_preflight_revalidated"
+    )
+    assert result["score"] == 97
+    assert calls == []
+
+
+def test_quality_request_restores_story_arc_without_changing_operation_payload():
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": "Show the sourced evidence",
+            "render_mode": "coverage",
+        },
+    )
+    adapter = replace(_adapter("quality"), story_arc=arc)
+    request = production._request(
+        adapter,
+        ("scene-1",),
+        "custom-film-op:" + "9" * 64,
+    )
+
+    assert request.story_arc == arc
+    assert "story_arc" not in request.payload()
+
+
+def _approved_quality_screenplay() -> tuple[str, dict]:
+    purpose = "Show the sourced evidence"
+    text = "\n".join(
+        (
+            "[AV SECTION — EVIDENCE | 0:00 - 0:12]",
+            "[BEAT 1 | 0:00 - 0:12]",
+            "VISUAL: Sourced evidence changes on screen.",
+            "SOUND: Room tone shifts.",
+            "VO [en]: The sourced evidence changes.",
+            f"CARRY-IN: approved opening state — {purpose}",
+            f"CARRY-OUT: approved final state — {purpose}",
+        )
+    )
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        text,
+        exact_seconds=12,
+        language_mode="narrator",
+        canonical_languages=("en",),
+    )
+    assert issues == []
+    assert parsed is not None
+    validation = {
+        "custom_film": {
+            "section_id": "section-a",
+            "exact_seconds": 12,
+            "script_profile": "neutral_v1",
+            "preflight": {"verdict": "pass", "score": 91},
+        },
+        "shared_validation": {
+            "valid": True,
+            "issues": [],
+            "parsed": parsed,
+        },
     }
+    return text, validation
+
+
+@pytest.mark.asyncio
+async def test_quality_script_preflight_accepts_promoted_validation_when_current_op_binds_text(
+    monkeypatch,
+):
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": "Show the sourced evidence",
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(_adapter("quality"), story_arc=arc),
+        ("scene-1",),
+        "custom-film-op:" + "8" * 64,
+    )
+    text, validation = _approved_quality_screenplay()
+    # Promoted runtimes deliberately reuse immutable validation from an older
+    # runtime; the current completed script operation is the text binding.
+    validation["custom_film"]["runtime_hash"] = "older-runtime"
+    expected_hash = production.canonical_hash(
+        {"scene_id": "scene-1", "scene_text": text}
+    )
+
+    class Connection:
+        async def fetch(self, _sql, *_args):
+            return [
+                {
+                    "result": json.dumps(
+                        {
+                            "scene_ids": ["scene-1"],
+                            "scene_text_hashes": [
+                                {
+                                    "scene_id": "scene-1",
+                                    "scene_text_hash": expected_hash,
+                                }
+                            ],
+                        }
+                    )
+                }
+            ]
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    monkeypatch.setattr("database.get_pool", get_pool)
+    result = await production.SharedSectionProductionSeams(
+        "tenant-1"
+    )._quality_script_preflight(
+        request,
+        [
+            {
+                "id": "scene-1",
+                "scene_text": text,
+                "script_validation": json.dumps(validation),
+            }
+        ],
+    )
+
+    assert result == {
+        "script_validation": "durable_prior_strict_preflight_revalidated",
+        "script_quality_score": 91,
+        "validated_av_sections": 1,
+        "quality_evaluation": (
+            "durable_prior_strict_av_preflight_and_exact_media_evidence"
+        ),
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "drift",
+    ["text", "preflight", "missing_validation", "malformed_validation"],
+)
+async def test_quality_script_preflight_rejects_changed_text_or_invalid_validation(
+    monkeypatch,
+    drift,
+):
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "evidence",
+            "purpose": "Show the sourced evidence",
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(_adapter("quality"), story_arc=arc),
+        ("scene-1",),
+        "custom-film-op:" + "7" * 64,
+    )
+    text, validation = _approved_quality_screenplay()
+    expected_hash = production.canonical_hash(
+        {"scene_id": "scene-1", "scene_text": text}
+    )
+    if drift == "text":
+        text += "\nVISUAL: Unapproved mutation."
+    elif drift == "preflight":
+        validation["custom_film"]["preflight"]["verdict"] = "revise"
+    elif drift == "missing_validation":
+        validation = None
+    else:
+        validation = "{"
+
+    class Connection:
+        async def fetch(self, _sql, *_args):
+            return [
+                {
+                    "result": {
+                        "scene_ids": ["scene-1"],
+                        "scene_text_hashes": [
+                            {
+                                "scene_id": "scene-1",
+                                "scene_text_hash": expected_hash,
+                            }
+                        ],
+                    }
+                }
+            ]
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    monkeypatch.setattr("database.get_pool", get_pool)
+    with pytest.raises(CustomFilmContractError):
+        await production.SharedSectionProductionSeams(
+            "tenant-1"
+        )._quality_script_preflight(
+            request,
+            [
+                {
+                    "id": "scene-1",
+                    "scene_text": text,
+                    "script_validation": validation,
+                }
+            ],
+        )
 
 
 @pytest.mark.asyncio
