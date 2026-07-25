@@ -903,6 +903,60 @@ def test_held_149_word_opening_fails_exact_timing_and_grounding_before_quality()
     assert any("ERCOT" in issue and "Texas" in issue for issue in issues)
 
 
+def test_grounding_ignores_document_headers_and_sentence_start_capitalization():
+    config = production._ExactSectionConfig(12)
+    script = (
+        "# NARRATION SCRIPT\n\n"
+        "## Reviews\n\n"
+        "**OPENING NOTES**\n\n"
+        "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
+        "Reviews begin as the blackout darkens a visible communications panel. "
+        "The camera follows the failed signal across the room.\n\n"
+        "Warning lights vanish while radios remain silent and waiting."
+    )
+
+    prose = production._script_spoken_prose(script)
+    assert "NARRATION" not in prose
+    assert "SCRIPT" not in prose
+    assert "OPENING NOTES" not in prose
+    assert "Reviews begin" in prose
+    assert production._script_grounding_issues(
+        script,
+        approved_context=(
+            "opening\nSet up the blackout and give the audience a reason "
+            "to keep watching"
+        ),
+        config=config,
+        generator_validation={
+            "valid": False,
+            "issues": ["Script too long: 36 words (maximum 35)"],
+        },
+    ) == []
+
+
+def test_grounding_still_rejects_mid_sentence_unapproved_proper_nouns():
+    config = production._ExactSectionConfig(12)
+    script_base = (
+        "The blackout begins on a dark panel. The camera cuts to Chicago and "
+        "the Mercantile Exchange while an ERCOT report appears."
+    )
+    script = script_base + " " + " ".join(
+        ["blackout"] * (30 - production._script_word_count(script_base))
+    )
+
+    issues = production._script_grounding_issues(
+        script,
+        approved_context="opening\nSet up the blackout without warning",
+        config=config,
+        generator_validation={"valid": True, "issues": []},
+    )
+
+    assert any(
+        all(name in issue for name in ("Chicago", "Mercantile", "Exchange", "ERCOT"))
+        for issue in issues
+    )
+
+
 @pytest.mark.asyncio
 async def test_shared_script_repairs_same_draft_then_passes_early_visual_story_gate(
     monkeypatch,

@@ -1034,6 +1034,14 @@ _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     }
 )
 _SCRIPT_MARKER_PATTERN = re.compile(r"\[(?:ACT|SCENE)\b[^\]]*\]", re.IGNORECASE)
+_SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}#{1,6}\s+\S")
+_SCRIPT_EMPHASIS_HEADING_PATTERN = re.compile(
+    r"^\s*(?:\*\*|__)[^*_]+(?:\*\*|__)\s*$"
+)
+_SCRIPT_SETEXT_PATTERN = re.compile(r"^\s*(?:=+|-+)\s*$")
+_SCRIPT_ALL_CAPS_HEADING_PATTERN = re.compile(
+    r"^\s*[A-Z][A-Z0-9'’ -]{2,80}\s*$"
+)
 _SCRIPT_NUMBER_PATTERN = re.compile(
     r"(?<![\w])(?:18|19|20)\d{2}(?![\w])|(?<![\w])\d+(?:\.\d+)?%?(?![\w])"
 )
@@ -1041,7 +1049,37 @@ _SCRIPT_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-�
 
 
 def _script_word_count(script_text: str) -> int:
-    return len(_SCRIPT_WORD_PATTERN.findall(script_text))
+    return len(_SCRIPT_WORD_PATTERN.findall(_script_spoken_prose(script_text)))
+
+
+def _script_spoken_prose(script_text: str) -> str:
+    """Remove generated document chrome while preserving spoken paragraphs."""
+
+    without_markers = _SCRIPT_MARKER_PATTERN.sub("", script_text)
+    lines = without_markers.replace("```", "").splitlines()
+    spoken: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        next_is_setext = (
+            index + 1 < len(lines)
+            and bool(_SCRIPT_SETEXT_PATTERN.fullmatch(lines[index + 1]))
+        )
+        if (
+            not stripped
+            or _SCRIPT_MARKDOWN_HEADING_PATTERN.match(line)
+            or _SCRIPT_EMPHASIS_HEADING_PATTERN.fullmatch(line)
+            or _SCRIPT_ALL_CAPS_HEADING_PATTERN.fullmatch(line)
+            or next_is_setext
+            or _SCRIPT_SETEXT_PATTERN.fullmatch(line)
+        ):
+            spoken.append("")
+            index += 2 if next_is_setext else 1
+            continue
+        spoken.append(line)
+        index += 1
+    return "\n".join(spoken)
 
 
 def _script_approved_contract(
@@ -1108,12 +1146,18 @@ def _script_grounding_issues(
     if isinstance(generator_validation, Mapping):
         validation_issues = generator_validation.get("issues")
         if generator_validation.get("valid") is False:
-            detail = (
-                "; ".join(str(issue) for issue in validation_issues[:4])
-                if isinstance(validation_issues, list)
-                else "shared script validation failed"
-            )
-            issues.append(detail)
+            if isinstance(validation_issues, list):
+                actionable = [
+                    str(issue)
+                    for issue in validation_issues
+                    if not str(issue).startswith(
+                        ("Script too short:", "Script too long:")
+                    )
+                ]
+                if actionable:
+                    issues.append("; ".join(actionable[:4]))
+            else:
+                issues.append("shared script validation failed")
 
     approved_words = {
         word.casefold()
@@ -1126,7 +1170,7 @@ def _script_grounding_issues(
     if approved_words and not approved_words.intersection(script_words):
         issues.append("script does not retain a distinctive approved focus term")
 
-    prose = _SCRIPT_MARKER_PATTERN.sub("", script_text)
+    prose = _script_spoken_prose(script_text)
     approved_numbers = set(_SCRIPT_NUMBER_PATTERN.findall(approved_context))
     unsupported_numbers = sorted(
         set(_SCRIPT_NUMBER_PATTERN.findall(prose)) - approved_numbers
@@ -1141,8 +1185,12 @@ def _script_grounding_issues(
     unsupported_named: list[str] = []
     for match in re.finditer(r"\b(?:[A-Z]{2,}|[A-Z][a-z]{2,})\b", prose):
         token = match.group(0)
-        before = prose[: match.start()].rstrip()
-        if not before or before[-1:] in ".!?":
+        before = prose[: match.start()]
+        line_start = before.rfind("\n") + 1
+        if not before[line_start:].strip():
+            continue
+        trimmed_before = before.rstrip()
+        if not trimmed_before or trimmed_before[-1:] in ".!?":
             continue
         if token.casefold() in approved_casefold:
             continue
