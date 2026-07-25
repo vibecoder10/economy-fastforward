@@ -70,8 +70,9 @@ async def enqueue_stage(
         video_id,
         tenant_id,
         attempt,
+        # arq reserves _job_id here. Timeouts belong to WorkerSettings.func();
+        # this installed arq version treats `_job_timeout` as a handler kwarg.
         _job_id=job_id,
-        _job_timeout=7200,  # 2h max per stage (render can be long)
         **stage_kwargs,
     )
     if job is None:

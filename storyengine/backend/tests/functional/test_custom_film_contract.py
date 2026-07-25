@@ -2,6 +2,7 @@ import asyncio
 import copy
 import inspect
 import json
+import re
 from pathlib import Path
 from uuid import UUID
 
@@ -598,6 +599,114 @@ def test_migration_128_enforces_active_name_lifecycle_without_deleting_history()
     assert "NEW.created_at" in migration
     assert "updated_at cannot change alone" in migration
     assert "name_key = lower(regexp_replace(btrim(name)" in migration
+
+
+def test_migration_132_uses_table_specific_custom_film_immutability_triggers():
+    root = Path(__file__).resolve().parents[3]
+    migration_path = (
+        root
+        / "backend"
+        / "migrations"
+        / "132_custom_film_table_specific_immutability.sql"
+    )
+    assert migration_path.exists()
+    migration = migration_path.read_text()
+    schema = (root / "schema.sql").read_text()
+
+    function_names = (
+        "protect_custom_film_recipe_contract",
+        "protect_custom_film_plan_contract",
+        "protect_custom_film_section_contract",
+    )
+
+    def function_body(sql, function_name):
+        match = re.search(
+            rf"CREATE OR REPLACE FUNCTION {function_name}\(\)"
+            rf".*?AS \$\$(.*?)\$\$;",
+            sql,
+            flags=re.DOTALL,
+        )
+        assert match, f"missing {function_name}"
+        return match.group(1)
+
+    for sql in (migration, schema):
+        bodies = {
+            name: function_body(sql, name)
+            for name in function_names
+        }
+        recipe_body = bodies["protect_custom_film_recipe_contract"]
+        plan_body = bodies["protect_custom_film_plan_contract"]
+        section_body = bodies["protect_custom_film_section_contract"]
+
+        for field in (
+            "id",
+            "tenant_id",
+            "recipe_family_id",
+            "version",
+            "compatibility_version",
+            "recipe",
+            "signature",
+            "created_at",
+        ):
+            assert f"NEW.{field}" in recipe_body
+            assert f"OLD.{field}" in recipe_body
+        assert "(NEW.name, NEW.name_key, NEW.archived_at)" in recipe_body
+        assert "NEW.updated_at <= OLD.updated_at" in recipe_body
+        assert "updated_at cannot change alone" in recipe_body
+
+        for field in (
+            "id",
+            "tenant_id",
+            "video_id",
+            "revision",
+            "compatibility_version",
+            "plan",
+            "plan_hash",
+            "quote_inputs",
+            "quote_inputs_hash",
+            "created_at",
+        ):
+            assert f"NEW.{field}" in plan_body
+            assert f"OLD.{field}" in plan_body
+        # Approval consumption may set or clear these together under the table
+        # CHECK constraint without changing the immutable plan revision.
+        assert "NEW.approval_hash" not in plan_body
+        assert "NEW.approved_at" not in plan_body
+        assert "recipe_family_id" not in plan_body
+
+        assert "RAISE EXCEPTION 'Custom Film section contracts are immutable'" in (
+            section_body
+        )
+        assert all("TG_TABLE_NAME" not in body for body in bodies.values())
+        for table, function_name in (
+            ("custom_film_recipes", function_names[0]),
+            ("custom_film_plans", function_names[1]),
+            ("custom_film_sections", function_names[2]),
+        ):
+            assert f"DROP TRIGGER IF EXISTS {table}_immutable" in sql
+            assert f"EXECUTE FUNCTION {function_name}()" in sql
+
+    first_trigger_drop = migration.index(
+        "DROP TRIGGER IF EXISTS custom_film_recipes_immutable"
+    )
+    assert all(
+        migration.index(f"CREATE OR REPLACE FUNCTION {name}()")
+        < first_trigger_drop
+        for name in function_names
+    )
+    shared_drop = migration.index(
+        "DROP FUNCTION IF EXISTS protect_custom_film_immutable_contract()"
+    )
+    assert shared_drop > max(
+        migration.index(f"EXECUTE FUNCTION {name}()")
+        for name in function_names
+    )
+    assert "CREATE OR REPLACE FUNCTION protect_custom_film_immutable_contract()" not in (
+        migration
+    )
+    assert "CREATE OR REPLACE FUNCTION protect_custom_film_immutable_contract()" not in (
+        schema
+    )
 
 
 @pytest.mark.asyncio

@@ -53,6 +53,23 @@ class VideoDetail(VideoSummary):
     # NULL = normal (clip stitch / narrator). 'static_docu' = static-image
     # documentary: images held over narration, no animate stage.
     render_mode: Optional[str] = None
+    # 'character_dialogue' | 'narration_only' | None (unanalyzed). Exposed
+    # only so the frontend can show WHY sound_effects_supported is false —
+    # nothing reads this for its own sake yet.
+    dialogue_mode: Optional[str] = None
+    # Whether run_render (backend/pipeline_executor.py) will mix this video's
+    # assets.sound_effect_url into the final render — computed by
+    # status_map.render_path_plays_sfx, the single source of truth every
+    # backend guard (routes/pipeline.py's sound endpoints, actions.py's
+    # "sound" verb, pipeline_executor.py's auto-advance skip) already reads.
+    # True (the historical default) for every video with no custom_film_plan_id/
+    # static_docu render_mode/grok_native dialogue_audio/character_dialogue
+    # dialogue_mode — i.e. every existing video before this field existed.
+    sound_effects_supported: bool = True
+    # Human-readable reason sound_effects_supported is False, or None when
+    # it's True. Same computation as sound_effects_supported (status_map.
+    # render_path_sfx_block_reason) — never re-derive this text elsewhere.
+    sound_effects_unsupported_reason: Optional[str] = None
     # Channel-style routing guardrail (migration 089/C13b): 'animated' |
     # 'realistic' | None (undeclared — the router's money-safe default,
     # never upgrading tiers until a channel opts in). C14 surfaces this as

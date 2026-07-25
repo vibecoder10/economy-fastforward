@@ -11825,3 +11825,63 @@ control writes without losing the video, approval, or confirmation.
   flagship footage. A real BYOK substitution requires the refreshed exact quote
   no higher than $15 and Ryan's separate explicit paid-run approval. Upload and
   publication remain separately gated.
+
+# Custom Film table-specific immutability triggers (added 2026-07-24)
+
+- Migration 132 replaces the shared polymorphic Custom Film UPDATE trigger with
+  separate recipe, plan, and section trigger functions. PostgreSQL record-field
+  resolution could otherwise evaluate recipe-only fields such as
+  `recipe_family_id` while consuming a plan approval and reject the transaction
+  before scheduling.
+- Recipe lifecycle protections, immutable plan identity, and fully immutable
+  section contracts remain unchanged. Only the plan approval hash/timestamp pair
+  remains consumable under the existing table CHECK constraint.
+- `schema.sql` mirrors the migration. The migration is reapply-safe and removes
+  the unsafe shared function only after all replacement triggers are attached.
+  It has not been applied to the live database; live migration and deployment
+  remain separately approval-gated.
+
+# Custom Film approval-to-private-artifact continuation (added 2026-07-24)
+
+- The exact durable Custom Film runtime invokes final assembly only after every
+  ordered section stage is durably checkpointed. The compositor may read an
+  active runtime only when given its exact deterministic job ID and when
+  progress proves the complete ordered prefix with no in-flight provider work.
+- Remotion/FFmpeg selection, assembly journaling, artifact hashing, media probe,
+  private storage upload, and readback remain inside the existing exact
+  compositor boundary. Render retries skip completed provider stages and resume
+  the same assembly identity; this continuation never calls YouTube publication.
+- The chat tracker requires both `phase=created` and a durable video ID.
+  Approval failures returned as either exceptions or normal `phase=plan`
+  responses clear false progress and restore an actionable exact approval card;
+  a server-returned replacement approval card takes precedence.
+- Queue timeouts are owned by each registered `WorkerSettings.func`. The
+  installed arq enqueue API does not reserve `_job_timeout`; passing it at
+  enqueue time serializes it into the handler kwargs. `enqueue_stage` therefore
+  passes only arq's supported `_job_id` metadata plus genuine stage kwargs.
+
+# Custom Film exact image-BOM enforcement (added 2026-07-24)
+
+- Approval-bound coverage carries one explicit auxiliary-image policy that
+  forbids both automatic cast-sheet generation and automatic character
+  population. A missing or mutated policy fails before image work.
+- Custom Film coverage may render its approved still allocation without a cast
+  reference. Existing locked references remain usable inputs, but StoryEngine
+  cannot create an extra reference image outside the approved bill of
+  materials. The stored still total must still equal the exact section count.
+- The policy is added to a fresh runtime payload without changing the approved
+  request hash, deterministic operation IDs, or existing retry lookup. Shared
+  non-Custom-Film coverage retains its legacy automatic-cast behavior.
+- A live exact-$8.52 runtime completed its first script and voice before this
+  gap was discovered. It is intentionally held failed with picture
+  reconciliation required: an auxiliary provider submission was not part of
+  the approved quote and cannot be silently treated as authorized. Paid
+  continuation requires a refreshed exact cumulative/remaining cap approval;
+  upload and publication remain separate gates.
+- PR #476 deployed this law at production revision `dfc0b079` through the
+  zero-active-work drain. Post-deploy backend, frontend, Redis/arq, storage,
+  automatic undrain, and zero-task checks passed. Read-only accounting found
+  one durable script and voice, no images or clips, no ledger rows, and no
+  queryable provider operation/result for the unresolved image submission.
+  The conservative next approval is therefore an exact cumulative cap of
+  $8.57: the prior $8.52 ceiling plus one $0.05 possible auxiliary image.

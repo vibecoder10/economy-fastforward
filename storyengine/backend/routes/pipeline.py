@@ -25,6 +25,7 @@ from pipeline_executor import PipelineExecutor
 from status_map import (
     to_supabase, to_pipeline, get_next_status_supabase, is_at_or_past_stage,
     stage_enabled_in_plan, friendly_state, parse_stage_plan, normalize_stage_plan,
+    render_path_plays_sfx, render_path_sfx_block_reason,
 )
 from job_queue import enqueue_stage
 from task_store import db_persist_task
@@ -607,6 +608,34 @@ def _require_stage_enabled(video: dict, stage: str):
         raise HTTPException(
             status_code=400,
             detail=f"{label} is turned off for this video — it was switched off when the video was created.",
+        )
+
+
+def _require_render_path_plays_sfx(video: dict):
+    """Refuse a manual sound-generation trigger when this video's render path
+    will never mix the result into the final video.
+
+    Only ONE of run_render's five dispatch branches (pipeline_executor.py)
+    ever plays assets.sound_effect_url — see status_map.render_path_plays_sfx
+    for the full branch list. Generating sound prompts/effects for a video on
+    one of the other four paths is real money (~$0.05/effect via Kie.ai
+    ElevenLabs Sound Effect V2) spent on an artifact render then silently
+    throws away. Defense-in-depth alongside the auto-advance skip in
+    pipeline_executor.py's _run_next_step_status_map — this is the endpoint
+    a human (or a direct API call) can still hit manually.
+
+    The video row must include custom_film_plan_id, render_mode,
+    dialogue_audio, and dialogue_mode.
+    """
+    if not render_path_plays_sfx(video):
+        reason = render_path_sfx_block_reason(video) or "this render path drops sound effects."
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Sound design/effects won't be used for this video — "
+                f"{reason} Generating them would spend money on an artifact "
+                "the render throws away."
+            ),
         )
 
 
@@ -2174,13 +2203,15 @@ async def run_sound_prompts(
 ):
     """Generate sound design prompts for a video."""
     video = await fetch_one(
-        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages, custom_film_plan_id, render_mode, "
+        "dialogue_audio, dialogue_mode FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
     _require_stage_enabled(video, "sound")
+    _require_render_path_plays_sfx(video)
 
     if not is_at_or_past_stage(video["status"], "ready_for_sound_design"):
         raise HTTPException(
@@ -2218,13 +2249,15 @@ async def run_sound_effects(
 ):
     """Generate sound effects for a video."""
     video = await fetch_one(
-        "SELECT id, status, pipeline_stages FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, status, pipeline_stages, custom_film_plan_id, render_mode, "
+        "dialogue_audio, dialogue_mode FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
     _require_stage_enabled(video, "sound")
+    _require_render_path_plays_sfx(video)
 
     if not is_at_or_past_stage(video["status"], "ready_for_sound_effects"):
         raise HTTPException(

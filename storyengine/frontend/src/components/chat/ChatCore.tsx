@@ -49,6 +49,11 @@ import {
 } from "@/lib/api";
 import { PasswordInput } from "@/components/forms";
 import { withMediaAuth } from "@/lib/utils";
+import {
+  durableCreatedVideoId,
+  failedCustomFilmApprovalCards,
+  resolvedCustomFilmApprovalCards,
+} from "@/lib/custom-film-approval-truth";
 
 // localStorage keys for the OAuth round-trip during onboarding: the connect
 // button stashes the active conversation so ChatCore can resume it when Google
@@ -283,6 +288,10 @@ export function ChatCore({
 
   async function turn(req: ChatTurnRequest, userBubble?: string) {
     if (sending) return;
+    const failedApprovalCards = failedCustomFilmApprovalCards(
+      req,
+      lastCards,
+    );
     if (userBubble) setMessages((m) => [...m, { role: "user", text: userBubble }]);
     setSending(true);
     setPicks({});
@@ -299,15 +308,43 @@ export function ChatCore({
       try { localStorage.setItem(cidKey, res.conversation_id); } catch { /* private mode */ }
       // Only the home flow flips into the "created" tracker view; the dock stays a
       // plain thread (live progress comes from the pipeline page itself).
-      if (res.video_id && !docked) setCreatedVideoId(res.video_id);
+      const durableVideoId = durableCreatedVideoId(res);
+      if (!docked) {
+        if (durableVideoId) {
+          setCreatedVideoId(durableVideoId);
+        } else if (failedApprovalCards) {
+          // HTTP success is not durable approval when the server remains in
+          // plan. Keep the approval gate visible and remove false progress.
+          setCreatedVideoId(null);
+        }
+      }
+      const responseCards = resolvedCustomFilmApprovalCards(
+        req,
+        res,
+        lastCards,
+      );
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: res.assistant_text, cards: res.cards, plan: res.plan },
+        {
+          role: "assistant",
+          text: res.assistant_text,
+          cards: responseCards,
+          plan: res.plan,
+        },
       ]);
     } catch (e) {
+      if (failedApprovalCards && !docked) {
+        // A reserved video id is not proof that approval succeeded. Keep the
+        // exact approval card actionable and remove fabricated progress UI.
+        setCreatedVideoId(null);
+      }
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: e instanceof Error ? e.message : "Something went wrong — try again." },
+        {
+          role: "assistant",
+          text: e instanceof Error ? e.message : "Something went wrong — try again.",
+          cards: failedApprovalCards,
+        },
       ]);
     } finally {
       setSending(false);
@@ -372,7 +409,7 @@ export function ChatCore({
           if (!cancelled && data.messages?.length) {
             setConversationId(data.conversation_id);
             setMessages(data.messages.map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
-            setCreatedVideoId(data.video_id ?? null);
+            setCreatedVideoId(durableCreatedVideoId(data));
             setChecking(false);
             return;
           }
@@ -454,7 +491,7 @@ export function ChatCore({
       const data = await getChatConversationById(cid);
       setConversationId(data.conversation_id);
       setMessages((data.messages || []).map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
-      setCreatedVideoId(data.video_id ?? null);
+      setCreatedVideoId(durableCreatedVideoId(data));
       try { localStorage.setItem(CHAT_CID_KEY, cid); } catch { /* private mode */ }
     } catch {
       /* gone — keep current state */

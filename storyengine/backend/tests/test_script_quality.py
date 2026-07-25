@@ -223,7 +223,13 @@ def test_orchestrator_revise_verdict_converges_within_edit_rounds():
     scenes = _scenes("Hey everyone, welcome back.", "The rest.")
     edited_raw = "@@@SCENE 1@@@\nAt 2am the alarm went off.\n@@@SCENE 2@@@\nThe rest."
     client = FakeClient([_json_revise(), edited_raw, _json_pass()])
-    outcome = asyncio.run(sq.run_critique_and_edit("t", "v", scenes, client=client))
+    outcome = asyncio.run(sq.run_critique_and_edit(
+        "t",
+        "v",
+        scenes,
+        client=client,
+        edit_constraints=["Keep the approved subject and 100-120 word band."],
+    ))
     assert outcome["critique"].verdict == "pass"
     assert outcome["needs_review"] is False
     assert outcome["edit_rounds"] == 1
@@ -231,6 +237,9 @@ def test_orchestrator_revise_verdict_converges_within_edit_rounds():
     assert outcome["changed"] is True
     assert outcome["scenes"][0]["text"] == "At 2am the alarm went off."
     assert len(client.calls) == 3, "grade, edit, re-grade — never a fresh re-roll for 'revise'"
+    assert "Keep the approved subject and 100-120 word band." in (
+        client.calls[1]["prompt"]
+    )
 
 
 def test_orchestrator_revise_verdict_still_failing_after_bound_is_needs_review():

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ if str(VIDEO_PIPELINE) not in sys.path:
 
 import custom_film_production_runner as production
 import custom_film_provider_operations as operations
+import pipeline_executor
 import worker
 from custom_film_contract import CustomFilmContractError
 from custom_film_section_runtime import SectionStageAdapter
@@ -779,8 +781,32 @@ async def test_shared_script_seam_uses_profile_purpose_language_exact_seconds_an
     async def generate(client, brief, **kwargs):
         calls.append((client, copy.deepcopy(brief), kwargs))
         return {
-            "script": "A bilingual sourced explanation.",
+            "script": (
+                    "[ACT 1 — EXPLANATION | 0:00 - 0:19 | ~48 words]\n"
+                "The sourced mechanism appears on screen as a marked diagram. "
+                "A hand traces the connection while the bilingual explanation "
+                "names what changes and why it matters. The camera moves closer "
+                "to the decisive link, then returns to the full system so the "
+                "audience can see the result."
+            ),
             "validation": {"valid": True},
+        }
+
+    async def pass_quality(*_args, **kwargs):
+        return {
+            "scenes": copy.deepcopy(_args[2]),
+            "critique": SimpleNamespace(
+                verdict="pass",
+                score=98,
+                failing_gates=[],
+                violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
+            ),
+            "needs_review": False,
+            "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
         }
 
     class Connection:
@@ -809,6 +835,14 @@ async def test_shared_script_seam_uses_profile_purpose_language_exact_seconds_an
         generate,
     )
     monkeypatch.setattr(
+        "script.brief_translator.script_generator.validate_script",
+        lambda *_args, **_kwargs: {"valid": True, "issues": []},
+    )
+    monkeypatch.setattr(
+        "script_quality.run_critique_and_edit",
+        pass_quality,
+    )
+    monkeypatch.setattr(
         "shared.profiles.script.load_script_profile",
         lambda profile_id: profile
         if profile_id == "power_doctrine_v2"
@@ -829,6 +863,482 @@ async def test_shared_script_seam_uses_profile_purpose_language_exact_seconds_an
     assert "bilingual speaker turns" in guidance
     assert "speech_to_speech" in guidance
     assert "source_grounding" in guidance
+    assert calls[0][1]["thesis"] == "Explain why the mechanism matters"
+    assert calls[0][1]["headline"] == "Explain why the mechanism matters"
+    assert calls[0][1]["executive_hook"] == (
+        "explanation: Explain why the mechanism matters"
+    )
+    assert "fact_sheet" not in calls[0][1]
+    assert first["quality_verdict"] == "pass"
+
+
+def test_held_149_word_opening_fails_exact_timing_and_grounding_before_quality():
+    config = production._ExactSectionConfig(45)
+    drift_base = (
+        "A communications blackout begins without warning. "
+        "The camera cuts to Texas, where ERCOT officials revisit the 2021 power "
+        "grid collapse and a conspiracy about frozen turbines."
+    )
+    drift = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:45 | ~112 words]\n"
+        + drift_base
+        + " "
+        + " ".join(
+            ["unrelated"] * (149 - production._script_word_count(drift_base))
+        )
+    )
+    words = production._script_word_count(drift)
+    assert words == 149
+
+    issues = production._script_grounding_issues(
+        drift,
+        approved_context=(
+            "A citywide communications blackout begins without warning\n"
+            "opening\n"
+            "Set up A citywide communications blackout begins without warning "
+            "and give the audience a reason to keep watching"
+        ),
+        config=config,
+        generator_validation={"valid": True},
+    )
+
+    assert config.script_max_words == 123
+    assert any("149 is outside the approved section range" in issue for issue in issues)
+    assert any("2021" in issue for issue in issues)
+    assert any("ERCOT" in issue and "Texas" in issue for issue in issues)
+
+
+def test_grounding_rejects_document_headers_before_canonical_marker():
+    config = production._ExactSectionConfig(12)
+    script = (
+        "# NARRATION SCRIPT\n\n"
+        "## Reviews\n\n"
+        "**OPENING NOTES**\n\n"
+        "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
+        "Reviews begin as the blackout darkens a visible communications panel. "
+        "The camera follows the failed signal across the room.\n\n"
+        "Warning lights vanish while radios remain silent and waiting."
+    )
+
+    prose = production._script_spoken_prose(script)
+    assert "NARRATION" not in prose
+    assert "SCRIPT" not in prose
+    assert "OPENING NOTES" not in prose
+    assert "Reviews begin" in prose
+    assert production._script_grounding_issues(
+        script,
+        approved_context=(
+            "opening\nSet up the blackout and give the audience a reason "
+            "to keep watching"
+        ),
+        config=config,
+        generator_validation={
+            "valid": False,
+            "issues": ["Script too long: 36 words (maximum 35)"],
+        },
+    ) == [
+        "canonical ACT marker must be the first non-whitespace content; remove "
+        "every planning note, heading, separator, emphasis block, or prose "
+        "prefix before it"
+    ]
+
+
+def test_grounding_still_rejects_mid_sentence_unapproved_proper_nouns():
+    config = production._ExactSectionConfig(12)
+    script_base = (
+        "The blackout begins on a dark panel. The camera cuts to Chicago and "
+        "the Mercantile Exchange while an ERCOT report appears."
+    )
+    script = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
+        + script_base
+        + " "
+        + " ".join(
+            ["blackout"] * (30 - production._script_word_count(script_base))
+        )
+    )
+
+    issues = production._script_grounding_issues(
+        script,
+        approved_context="opening\nSet up the blackout without warning",
+        config=config,
+        generator_validation={"valid": True, "issues": []},
+    )
+
+    assert any(
+        all(name in issue for name in ("Chicago", "Mercantile", "Exchange", "ERCOT"))
+        for issue in issues
+    )
+
+
+@pytest.mark.asyncio
+async def test_shared_script_repairs_same_draft_then_passes_early_visual_story_gate(
+    monkeypatch,
+):
+    request = production._request(
+        _adapter("script", seconds=45),
+        (),
+        "custom-film-op:" + "9" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    drift_base = (
+        "A sourced evidence opening begins. "
+        "The camera cuts to Texas, where ERCOT officials revisit the 2021 power "
+        "grid collapse and a conspiracy about frozen turbines."
+    )
+    drift = (
+        "[ACT 1 — OPENING | 0:00 - 0:45 | ~112 words]\n"
+        + drift_base
+        + " "
+        + " ".join(
+            ["unrelated"] * (149 - production._script_word_count(drift_base))
+        )
+    )
+    assert production._script_word_count(drift) == 149
+    corrected = (
+        "[ACT 1 — OPENING | 0:00 - 0:45 | ~112 words]\n"
+        + " ".join(
+            [
+                "sourced",
+                "evidence",
+                "appears",
+                "as",
+                "a",
+                "visible",
+                "signal",
+                "moving",
+                "across",
+                "a",
+                "dark",
+                "map",
+                "while",
+                "the",
+                "camera",
+                "follows",
+                "each",
+                "connection",
+                "and",
+                "reveals",
+                "the",
+                "mechanism",
+            ]
+            * 5
+        )
+    )
+    assert 101 <= production._script_word_count(corrected) <= 123
+    edit_calls = []
+    quality_calls = []
+
+    class Executor:
+        def __init__(self):
+            self._pipeline = SimpleNamespace(anthropic=object())
+
+        async def _ensure_initialized(self):
+            return None
+
+        async def _get_video(self, _video_id):
+            return {
+                "video_title": "Sourced evidence",
+                "research_payload": {
+                    "thesis": "Texas power-grid conspiracy",
+                    "executive_hook": "ERCOT in 2021",
+                },
+            }
+
+    async def generate(_client, brief, **_kwargs):
+        assert brief["thesis"] == "Show the sourced evidence"
+        assert "research_payload" not in brief
+        assert "Texas power-grid conspiracy" not in str(brief)
+        return {"script": drift, "validation": {"valid": True}}
+
+    async def edit(scenes, violations, **_kwargs):
+        edit_calls.append((copy.deepcopy(scenes), list(violations)))
+        return [{"scene": 1, "text": corrected}]
+
+    async def critique(_tenant, _video, scenes, **kwargs):
+        quality_calls.append((copy.deepcopy(scenes), kwargs))
+        return {
+            "scenes": copy.deepcopy(scenes),
+            "critique": SimpleNamespace(
+                verdict="pass",
+                score=96,
+                failing_gates=[],
+                violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
+            ),
+            "needs_review": False,
+            "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
+        }
+
+    class Connection:
+        def __init__(self):
+            self.saved_text = None
+
+        async def fetchrow(self, sql, *args):
+            assert "INSERT INTO scripts" in sql
+            self.saved_text = args[4]
+            return {"id": args[0]}
+
+        async def execute(self, sql, *_args):
+            assert "UPDATE videos" in sql
+            return "UPDATE 1"
+
+    conn = Connection()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    seams._executor = Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr(
+        "script_quality.edit_draft_with_violations",
+        edit,
+    )
+    monkeypatch.setattr(
+        "script_quality.run_critique_and_edit",
+        critique,
+    )
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    assert len(edit_calls) == 1
+    assert any("149 is outside" in issue for issue in edit_calls[0][1])
+    assert len(quality_calls) == 1
+    assert "approved_purpose_grounding" in quality_calls[0][1]["rules_text"]
+    assert "visual_story_readiness" in quality_calls[0][1]["rules_text"]
+    assert conn.saved_text == corrected
+    assert result["quality_verdict"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_live_shaped_chicago_drift_repair_receives_exclusive_context_and_band(
+    monkeypatch,
+):
+    purpose = (
+        "Set up The blackout begins without warning and give the audience "
+        "a reason to keep watching"
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=54),
+            role="opening",
+            purpose=purpose,
+        ),
+        (),
+        "custom-film-op:" + "6" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    drift_base = (
+        "The blackout begins without warning. The camera jumps to Chicago at "
+        "2 AM, where the Chicago Mercantile Exchange reports a 4.2 shift across "
+        "47 contracts and invents an unrelated market explanation."
+    )
+    drift = drift_base + " " + " ".join(
+        ["unrelated"] * (162 - production._script_word_count(drift_base))
+    )
+    corrected_base = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:54 | ~135 words]\n"
+        "The blackout begins without warning. A dark communications panel "
+        "loses each signal in sequence while the camera follows the visible "
+        "failure across the room. Warning lights vanish, silent radios line "
+        "the desk, and a map dims connection by connection. The people waiting "
+        "for a response look toward the last active receiver as its pulse "
+        "fades. Each concrete image tightens the same question: what interrupted "
+        "the network, and where should the investigation begin?"
+    )
+    corrected = corrected_base + " " + " ".join(
+        ["blackout"] * (135 - production._script_word_count(corrected_base))
+    )
+    edit_calls = []
+
+    class Executor:
+        def __init__(self):
+            self._pipeline = SimpleNamespace(anthropic=object())
+
+        async def _ensure_initialized(self):
+            return None
+
+        async def _get_video(self, _video_id):
+            return {"video_title": "The blackout begins without warning"}
+
+    async def generate(_client, brief, **_kwargs):
+        guidance = brief["writer_guidance"]
+        assert "APPROVED ROLE: opening" in guidance
+        assert f"APPROVED PURPOSE: {purpose}" in guidance
+        assert "EXACT SPOKEN DURATION: 54 seconds" in guidance
+        assert "may describe a real or fictional topic; do not assume either" in guidance
+        return {"script": drift, "validation": {"valid": True, "issues": []}}
+
+    async def edit(_scenes, violations, **_kwargs):
+        edit_calls.append(list(violations))
+        return [{"scene": 1, "text": corrected}]
+
+    async def pass_quality(_tenant, _video, scenes, **_kwargs):
+        assert f"APPROVED PURPOSE: {purpose}" in _kwargs["edit_constraints"][0]
+        assert "121-149 words (target 135)" in _kwargs["edit_constraints"][0]
+        return {
+            "scenes": copy.deepcopy(scenes),
+            "critique": SimpleNamespace(
+                verdict="pass",
+                score=97,
+                failing_gates=[],
+                violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
+            ),
+            "needs_review": False,
+            "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
+        }
+
+    class Connection:
+        def __init__(self):
+            self.saved_text = None
+
+        async def fetchrow(self, sql, *args):
+            assert "INSERT INTO scripts" in sql
+            self.saved_text = args[4]
+            return {"id": args[0]}
+
+        async def execute(self, sql, *_args):
+            assert "UPDATE videos" in sql
+            return "UPDATE 1"
+
+    conn = Connection()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    seams._executor = Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr(
+        "script_quality.edit_draft_with_violations",
+        edit,
+    )
+    monkeypatch.setattr(
+        "script_quality.run_critique_and_edit",
+        pass_quality,
+    )
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    config = production._ExactSectionConfig(54)
+    assert config.total_script_words == 135
+    assert config.script_max_words == 149
+    assert 122 <= production._script_word_count(corrected) <= 149
+    assert len(edit_calls) == 1
+    constraints = edit_calls[0][-1]
+    assert f"APPROVED PURPOSE: {purpose}" in constraints
+    assert (
+        f"{config.script_min_words}-{config.script_max_words} words "
+        f"(target {config.total_script_words})"
+    ) in constraints
+    assert "Chicago" not in constraints
+    assert conn.saved_text == corrected
+    assert result["quality_verdict"] == "pass"
+
+
+def test_grounding_allows_real_names_and_numbers_when_approved_purpose_names_them():
+    config = production._ExactSectionConfig(54)
+    approved_context = (
+        "evidence\nPresent Chicago Mercantile Exchange figures from 1972 at "
+        "2 AM, including 4.2 and 47"
+    )
+    script_base = (
+        "[ACT 1 — MARKET EVIDENCE | 0:00 - 0:54 | ~135 words]\n"
+        "The camera enters the Chicago Mercantile Exchange and finds the 1972 "
+        "record marked 2 AM. A clerk traces 4.2 beside 47 on the approved page."
+    )
+    script = script_base + " " + " ".join(
+        ["record"] * (135 - production._script_word_count(script_base))
+    )
+
+    assert production._script_grounding_issues(
+        script,
+        approved_context=approved_context,
+        config=config,
+        generator_validation={"valid": True, "issues": []},
+    ) == []
+
+
+@pytest.mark.asyncio
+async def test_unrepaired_script_drift_fails_before_persistence_voice_or_imagery(
+    monkeypatch,
+):
+    request = production._request(
+        _adapter("script", seconds=45),
+        (),
+        "custom-film-op:" + "8" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    drift_base = (
+        "A sourced evidence opening begins. "
+        "The camera cuts to Texas, where ERCOT officials revisit the 2021 power "
+        "grid collapse and a conspiracy about frozen turbines."
+    )
+    drift = drift_base + " " + " ".join(
+        ["unrelated"] * (149 - production._script_word_count(drift_base))
+    )
+    edit_attempts = 0
+
+    class Executor:
+        def __init__(self):
+            self._pipeline = SimpleNamespace(anthropic=object())
+
+        async def _ensure_initialized(self):
+            return None
+
+        async def _get_video(self, _video_id):
+            return {"video_title": "Sourced evidence"}
+
+    async def generate(*_args, **_kwargs):
+        return {"script": drift, "validation": {"valid": True}}
+
+    async def cannot_repair(*_args, **_kwargs):
+        nonlocal edit_attempts
+        edit_attempts += 1
+        return None
+
+    async def forbidden_quality(*_args, **_kwargs):
+        raise AssertionError("visual critic cannot run on deterministic drift")
+
+    async def forbidden_pool():
+        raise AssertionError("failed script cannot reach durable persistence")
+
+    seams._executor = Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr(
+        "script_quality.edit_draft_with_violations",
+        cannot_repair,
+    )
+    monkeypatch.setattr(
+        "script_quality.run_critique_and_edit",
+        forbidden_quality,
+    )
+    monkeypatch.setattr("database.get_pool", forbidden_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed approved timing/grounding before voice or imagery",
+    ):
+        await seams._script(request)
+
+    assert edit_attempts == 1
 
 
 @pytest.mark.asyncio
@@ -1042,6 +1552,10 @@ async def test_worker_installs_concrete_runner_while_legacy_handlers_stay_unchan
     monkeypatch,
 ):
     captured = {}
+    render_calls = []
+    publication_calls = []
+    runtime_hash = "c" * 64
+    runtime_job_id = "custom-film-runtime:" + runtime_hash
 
     async def consume(tenant_id, video_id, job_id, **kwargs):
         captured.update(
@@ -1050,27 +1564,163 @@ async def test_worker_installs_concrete_runner_while_legacy_handlers_stay_unchan
             job_id=job_id,
             **kwargs,
         )
-        return {"status": "completed"}
+        finalization = await kwargs["finalizer"](
+            tenant_id,
+            video_id,
+            job_id,
+            {"video_id": video_id, "runtime_hash": runtime_hash},
+        )
+        return {"status": "completed", "finalization": finalization}
+
+    class Executor:
+        def __init__(self, tenant_id):
+            self.tenant_id = tenant_id
+
+        async def run_render(self, video_id, **kwargs):
+            render_calls.append((self.tenant_id, video_id, kwargs))
+            return {
+                "status": "rendered",
+                "final_video_url": "storage://exact-film",
+                "render_engine": "remotion",
+            }
+
+        async def run_upload(self, *_args, **_kwargs):
+            publication_calls.append("upload")
+            raise AssertionError("automatic finalization must not publish")
 
     monkeypatch.setattr(
         "custom_film_section_runtime.consume_runtime_schedule",
         consume,
     )
+    monkeypatch.setattr("pipeline_executor.PipelineExecutor", Executor)
     result = await worker.arq_run_custom_film_runtime(
         {"job_try": 1},
         "video-1",
         "tenant-1",
         2,
-        "custom-film-runtime:" + "c" * 64,
+        runtime_job_id,
     )
     assert result["status"] == "completed"
+    assert result["finalization"]["final_video_url"] == "storage://exact-film"
     assert isinstance(
         captured["stage_runner"],
         production.CustomFilmProductionRunner,
     )
+    assert callable(captured["finalizer"])
     assert captured["attempt"] == 2
+    assert render_calls == [
+        (
+            "tenant-1",
+            "video-1",
+            {"custom_film_runtime_job_id": runtime_job_id},
+        )
+    ]
+    assert publication_calls == []
     assert worker.arq_run_script.__name__ == "arq_run_script"
     assert worker.arq_run_voice.__name__ == "arq_run_voice"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "render_result",
+    [
+        {"status": "failed", "error": "renderer stopped"},
+        {"status": "rendered", "render_engine": "remotion"},
+        {
+            "status": "rendered",
+            "final_video_url": "storage://film",
+            "render_engine": "unknown",
+        },
+    ],
+)
+async def test_worker_rejects_incomplete_final_artifact_result(
+    monkeypatch,
+    render_result,
+):
+    runtime_hash = "d" * 64
+    runtime_job_id = "custom-film-runtime:" + runtime_hash
+
+    async def consume(tenant_id, video_id, job_id, **kwargs):
+        return await kwargs["finalizer"](
+            tenant_id,
+            video_id,
+            job_id,
+            {"video_id": video_id, "runtime_hash": runtime_hash},
+        )
+
+    class Executor:
+        def __init__(self, _tenant_id):
+            pass
+
+        async def run_render(self, _video_id, **_kwargs):
+            return copy.deepcopy(render_result)
+
+    monkeypatch.setattr(
+        "custom_film_section_runtime.consume_runtime_schedule",
+        consume,
+    )
+    monkeypatch.setattr("pipeline_executor.PipelineExecutor", Executor)
+    with pytest.raises(
+        CustomFilmContractError,
+        match="no exact final artifact",
+    ):
+        await worker.arq_run_custom_film_runtime(
+            {"job_try": 1},
+            "video-1",
+            "tenant-1",
+            1,
+            runtime_job_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_custom_film_render_forwards_exact_active_runtime_only(
+    monkeypatch,
+):
+    runtime_job_id = "custom-film-runtime:" + ("e" * 64)
+    captured = {}
+    executor = object.__new__(pipeline_executor.PipelineExecutor)
+    executor.tenant_id = "tenant-1"
+
+    async def log_activity(*_args, **_kwargs):
+        return None
+
+    async def log_transition(*_args, **_kwargs):
+        return None
+
+    async def charge(*_args, **_kwargs):
+        return None
+
+    async def render(video_id, tenant_id, **kwargs):
+        captured.update(video_id=video_id, tenant_id=tenant_id, **kwargs)
+        return {
+            "status": "rendered",
+            "video_id": video_id,
+            "final_video_url": "storage://exact-film",
+            "render_engine": "remotion",
+            "section_count": 4,
+            "duration_seconds": 300,
+            "resolution": "1920x1080",
+        }
+
+    executor._log_activity = log_activity
+    executor._log_transition = log_transition
+    executor._charge_render_minutes = charge
+    monkeypatch.setattr(
+        "custom_film_compositor.render_custom_film_video",
+        render,
+    )
+    result = await executor._run_custom_film_render(
+        "video-1",
+        {"video_title": "Exact film"},
+        "ready_for_scripting",
+        runtime_job_id=runtime_job_id,
+    )
+    assert result["status"] == "rendered"
+    assert captured["runtime_job_id"] == runtime_job_id
+    assert captured["render_engine"] == "showcase_auto"
+    assert callable(captured["remotion_renderer"])
+    assert "run_upload" not in captured
 
 
 @pytest.mark.asyncio
@@ -1332,6 +1982,10 @@ async def test_shared_picture_seam_routes_real_static_and_coverage_inputs(
         "visual_cue"
     )
     assert captured[1][3]["section_contract"]["exact_seconds"] == 31
+    assert captured[1][3]["section_contract"]["auxiliary_image_policy"] == {
+        "auto_cast_generation": "forbidden",
+        "auto_character_population": "forbidden",
+    }
     assert recorded == [
         (
             "static_docu",

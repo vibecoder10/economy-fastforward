@@ -190,14 +190,49 @@ async def arq_run_custom_film_runtime(
     runtime_job_id: str,
 ) -> dict:
     """Consume the durable section schedule through operation-aware seams."""
+    from custom_film_contract import CustomFilmContractError
     from custom_film_production_runner import CustomFilmProductionRunner
     from custom_film_section_runtime import consume_runtime_schedule
+    from pipeline_executor import PipelineExecutor
+
+    async def _finalize(
+        finalizer_tenant_id: str,
+        finalizer_video_id: str,
+        finalizer_runtime_job_id: str,
+        envelope,
+    ) -> dict:
+        if (
+            finalizer_tenant_id != tenant_id
+            or finalizer_video_id != video_id
+            or finalizer_runtime_job_id != runtime_job_id
+            or str(envelope.get("video_id") or "") != video_id
+            or str(envelope.get("runtime_hash") or "")
+            != runtime_job_id.removeprefix("custom-film-runtime:")
+        ):
+            raise CustomFilmContractError(
+                "Custom Film finalizer runtime identity changed"
+            )
+        result = await PipelineExecutor(tenant_id).run_render(
+            video_id,
+            custom_film_runtime_job_id=runtime_job_id,
+        )
+        if (
+            not isinstance(result, dict)
+            or result.get("status") != "rendered"
+            or not str(result.get("final_video_url") or "").strip()
+            or result.get("render_engine") not in {"ffmpeg", "remotion"}
+        ):
+            raise CustomFilmContractError(
+                "Custom Film finalizer returned no exact final artifact"
+            )
+        return result
 
     return await consume_runtime_schedule(
         tenant_id,
         video_id,
         runtime_job_id,
         stage_runner=CustomFilmProductionRunner(tenant_id),
+        finalizer=_finalize,
         attempt=attempt,
     )
 

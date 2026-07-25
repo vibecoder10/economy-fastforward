@@ -30,6 +30,7 @@ if str(PIPELINE_PATH) not in sys.path:
 from shared.skill_registry import get_registry, SkillManifest
 from shared.channel_profile import CLAUDE_MODELS
 from database import fetch_one, fetch_all, execute
+from status_map import render_path_plays_sfx, render_path_sfx_block_reason
 
 
 # --- Models ---
@@ -146,6 +147,25 @@ class ClaudeOrchestrator:
         if user_intent:
             intent_text = f"\n\nUser Intent: {user_intent}"
 
+        # shared/skill_registry.py's manifests know nothing about a specific
+        # video's render_mode/dialogue_audio/dialogue_mode/custom_film_plan_id
+        # (they're generic, video-agnostic skill descriptions), so the ONE
+        # place this video's real render path can be checked is here, per
+        # decision, from the actual video row. status_map.render_path_plays_sfx
+        # mirrors run_render's dispatch exactly — same helper `execute()` uses
+        # below to hard-refuse if Claude proposes "sound" anyway, so this note
+        # is a cost-saving nudge (skip the pointless suggestion), not the
+        # enforcement (that's execute()'s job, and run_sound_prompts/
+        # run_sound_effects's inner guard is the real backstop).
+        sfx_text = ""
+        if not render_path_plays_sfx(video):
+            sfx_reason = render_path_sfx_block_reason(video) or "this render path drops sound effects."
+            sfx_text = (
+                f"\n\nIMPORTANT: sound design/effects are NOT available for this video — "
+                f"{sfx_reason} Do NOT select skill_id \"sound\" for this video under any "
+                f"circumstances; skip straight past that stage."
+            )
+
         return f"""You are the pipeline orchestrator for a YouTube video production system.
 Your job: decide which skill to invoke next for this video.
 
@@ -158,6 +178,7 @@ Current Video:
 {learnings_text}
 {activity_text}
 {intent_text}
+{sfx_text}
 
 Based on the video's current status and context, decide:
 1. Which skill to invoke next (skill_id from the list above)
@@ -248,7 +269,18 @@ Respond with a JSON object:
             return self._fallback_decision(video)
 
     def _fallback_decision(self, video: Dict[str, Any]) -> Decision:
-        """Fallback when Claude API fails — use status-based routing."""
+        """Fallback when Claude API fails — use status-based routing.
+
+        Deliberately still proposes skill_id="sound" for a blocked video (the
+        same as before this guard existed) rather than special-casing it here
+        — execute() below is where BOTH this fallback's decision and decide()'s
+        own live-Claude decision converge before anything runs, so that is the
+        one place that needs to know about render_path_plays_sfx, not this
+        one too. Special-casing it here as well would either duplicate that
+        check or (worse) return a plain "skip" that never actually advances
+        the video's status, parking it exactly like the bug this guard exists
+        to prevent.
+        """
         status = video.get("status", "")
         skills = self._registry.get_skills_for_status(status)
 
@@ -322,6 +354,37 @@ Respond with a JSON object:
                 decision=decision,
                 error=f"No executor method for skill '{decision.skill_id}'",
             )
+
+        # SFX guard, fail-fast layer: _build_context_prompt already tells
+        # Claude not to propose "sound" for a blocked video, but Claude can
+        # still ignore that (low-confidence call, stale context, a model that
+        # doesn't follow instructions), and _fallback_decision (used when the
+        # live Claude call itself fails) is purely status-driven and doesn't
+        # know about render paths at all — so both converge HERE, the one
+        # place every decision.skill_id=="sound" is about to actually run,
+        # before this ever reaches run_sound_prompts's `await self.
+        # _ensure_initialized()` / bot_activity "started" log / prompt-
+        # override load. Delegates to the executor's OWN
+        # `_skip_sound_stage` (the same helper _run_next_step_status_map and
+        # run_sound_prompts/run_sound_effects's inner guard use) so the video
+        # actually advances past the stage here too, not just a reported
+        # no-op — this check existing or not, run_sound_prompts/
+        # run_sound_effects's own inner render_path_plays_sfx check is still
+        # the real backstop that makes "no spend on a render path that drops
+        # the result" true for every caller.
+        if decision.skill_id == "sound":
+            video = await self._get_video_context(video_id)
+            if video and not render_path_plays_sfx(video):
+                current_status = video.get("status")
+                from status_map import get_next_status_supabase
+                natural_next = get_next_status_supabase(current_status) or current_status
+                skip_result = await executor._skip_sound_stage(
+                    video_id, video, current_status, natural_next)
+                return OrchestratorResult(
+                    success=True,
+                    decision=decision,
+                    execution_result=skip_result,
+                )
 
         try:
             # Log the decision

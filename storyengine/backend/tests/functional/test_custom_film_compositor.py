@@ -430,6 +430,87 @@ def _build(values: dict) -> dict:
     )
 
 
+def test_running_runtime_is_assembly_eligible_only_for_exact_complete_worker():
+    values = _fixture()
+    task = {
+        "job_id": values["runtime_job_id"],
+        "runtime_envelope": values["envelope"],
+        "runtime_progress": values["runtime_progress"],
+        "status": "running",
+    }
+    accepted = compositor._validated_runtime_task_for_assembly(
+        task,
+        tenant_id=TENANT,
+        video_id=VIDEO,
+        expected_runtime_job_id=values["runtime_job_id"],
+    )
+    assert accepted["runtime_hash"] == values["envelope"]["runtime_hash"]
+
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="not durably complete",
+    ):
+        compositor._validated_runtime_task_for_assembly(
+            task,
+            tenant_id=TENANT,
+            video_id=VIDEO,
+            expected_runtime_job_id=None,
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["incomplete", "reordered", "in_flight", "wrong_job", "wrong_video"],
+)
+def test_running_runtime_assembly_gate_rejects_incomplete_or_changed_identity(tamper):
+    values = _fixture()
+    task = {
+        "job_id": values["runtime_job_id"],
+        "runtime_envelope": copy.deepcopy(values["envelope"]),
+        "runtime_progress": copy.deepcopy(values["runtime_progress"]),
+        "status": "running",
+    }
+    expected_job_id = values["runtime_job_id"]
+    if tamper == "incomplete":
+        task["runtime_progress"]["completed_stage_keys"].pop()
+        task["runtime_progress"]["last_stage_key"] = task["runtime_progress"][
+            "completed_stage_keys"
+        ][-1]
+    elif tamper == "reordered":
+        task["runtime_progress"]["completed_stage_keys"][:2] = reversed(
+            task["runtime_progress"]["completed_stage_keys"][:2]
+        )
+    elif tamper == "in_flight":
+        task["runtime_progress"]["completed_stage_keys"].pop()
+        task["runtime_progress"]["last_stage_key"] = task["runtime_progress"][
+            "completed_stage_keys"
+        ][-1]
+        next_adapter = custom_film_section_runtime.compile_stage_adapters(
+            task["runtime_envelope"]
+        )[len(task["runtime_progress"]["completed_stage_keys"])]
+        task["runtime_progress"]["in_flight"] = {
+            "stage_key": next_adapter.stage_key,
+            "operation_id": custom_film_section_runtime._operation_id(
+                TENANT,
+                expected_job_id,
+                next_adapter,
+            ),
+            "state": "started",
+        }
+    elif tamper == "wrong_job":
+        expected_job_id = "custom-film-runtime:" + ("f" * 64)
+    else:
+        task["runtime_envelope"]["video_id"] = "changed-video"
+
+    with pytest.raises(contract.CustomFilmContractError):
+        compositor._validated_runtime_task_for_assembly(
+            task,
+            tenant_id=TENANT,
+            video_id=VIDEO,
+            expected_runtime_job_id=expected_job_id,
+        )
+
+
 def test_manifest_is_exact_ordered_versioned_and_executes_6s_to_37s():
     values = _fixture()
     transform = {
@@ -939,7 +1020,13 @@ async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
     async def get_pool():
         return Pool()
 
-    async def load_inputs(_tenant_id, _video_id):
+    async def load_inputs(
+        _tenant_id,
+        _video_id,
+        *,
+        expected_runtime_job_id=None,
+    ):
+        assert expected_runtime_job_id is None
         return {
             "runtime_job_id": runtime_job_id,
             "envelope": {"runtime_hash": runtime_hash},
