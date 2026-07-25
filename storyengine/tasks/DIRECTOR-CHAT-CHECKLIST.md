@@ -98,3 +98,34 @@ Clickable mockup at `tasks/director-mockup/index.html` - Ryan reviewed and appro
 Phase 1 against it. All product decisions and the Phase 1 scope shift are recorded in `HANDOFF.md`.
 Key finding that reshaped Phase 1: zero Custom Film recipes have ever been saved, so the valuable
 build is the SAVE action, not the library shelf.
+
+## OUTCOME — 2026-07-25: Phase 1 BUILT (not deployed)
+
+Branch `feat/director-chat`, 13 commits off `main`:
+
+Seven chunks built and committed:
+- 1.A Director context, surface shell, canvas empty state - `458fba73`
+- 1.C ChatCore reports and receives the current video - `b5925e83`
+- 1.B Read-only `GET /api/custom-film/recipes` route - `f1e29d0f`
+- 1.D Director home and Style Library - `32bab748`
+- 1.E Canvas header, five-tab rail, gold "Lock this as a style" button - `8cd98a13`
+- 1.F Serve the Director surface at `/` and `/chat` - `23674f51`
+- Composer containment fix in ChatCore - `9d210181`
+
+Decisions recorded for future phases (do not re-litigate):
+- Altitude tabs are `Shot | Scene | Timeline` with Scene active by default, overriding the plan's `Board | Shot | Timeline`.
+- Right rail has five tabs with Cast and Environments as separate tabs, not the plan's four-tab "Cast & World".
+- Channel cards use approved plain-English labels. Backend `/api/production-styles` still returns old internal names; frontend maps them via `CHANNEL_CARDS`.
+- No "last used" field shown anywhere.
+- Describe-it, clone-a-video, and save-style flows are presentational. No compose API and no save endpoint wired yet.
+
+Lessons for next session:
+- Subagents land work silently in different worktrees. Every brief must state absolute working directory and require workers to verify the branch before writing. Verify against the destination tree, not the report alone.
+- TanStack Query v5 can settle into `status:"pending", fetchStatus:"paused"` where both `isLoading` and `isError` are false. Branch on `status` and `fetchStatus` directly, not those shortcuts. An API failure rendered as empty state when the component branched on the wrong flags.
+- `position: fixed` inside a bounded column is scoped by giving the column a transform (creating a containing block). Fixed the composer without touching the shared file, but traps any other fixed overlays the child renders.
+
+Four items deferred to post-deploy verification (see `DIRECTOR-CHAT-DEFERRED.md`):
+- `GET /api/custom-film/recipes` returning live 200
+- Saved-styles empty state rendering on screen
+- Build button end-to-end spend
+- Populated Scene altitude view
