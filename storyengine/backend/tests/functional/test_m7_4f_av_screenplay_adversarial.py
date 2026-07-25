@@ -1417,6 +1417,103 @@ async def test_staged_multi_step_resolution_passes_and_persists(
 
 
 @pytest.mark.asyncio
+async def test_long_resolution_with_only_macro_visual_phases_fails_before_quality(
+    monkeypatch,
+):
+    purpose = "Restore the approved system safely"
+    next_purpose = "Land the approved restored system"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "resolution",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "closing",
+            "purpose": next_purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=30),
+            role="resolution",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "7" * 64,
+    )
+    candidate = "\n".join(
+        (
+            "[AV SECTION — RESTORE | 0:00 - 0:30]",
+            "[BEAT 1 | 0:00 - 0:10]",
+            "VISUAL: The engineer studies the approved fault map.",
+            "SOUND: The approved signal pulses.",
+            (
+                "VO [en]: The approved evidence sets the sequence; each "
+                "connection must visibly confirm before restoration continues."
+            ),
+            f"CARRY-IN: approved opening state — {purpose}",
+            "CARRY-OUT: approved sequence",
+            "[BEAT 2 | 0:10 - 0:20]",
+            "VISUAL: The engineer applies the approved sequence.",
+            "SOUND: The approved connection confirms.",
+            "CARRY-IN: approved sequence",
+            "CARRY-OUT: approved confirmation",
+            "[BEAT 3 | 0:20 - 0:30]",
+            "VISUAL: The approved restored system becomes visibly stable.",
+            "SOUND: The approved system tone steadies.",
+            "CARRY-IN: approved confirmation",
+            f"CARRY-OUT: approved transition state — {next_purpose}",
+        )
+    )
+    repair_violations = []
+    database_touched = False
+
+    async def generate(*_args, **_kwargs):
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def edit(scenes, violations, **_kwargs):
+        repair_violations.extend(violations)
+        return copy.deepcopy(scenes)
+
+    async def quality(*_args, **_kwargs):
+        raise AssertionError("macro-only resolution must fail before semantic quality")
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("macro-only resolution must not persist")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed approved timing/grounding before voice or imagery",
+    ):
+        await seams._script(request)
+
+    assert any(
+        "requires at least four timed beats" in violation
+        for violation in repair_violations
+    )
+    assert database_touched is False
+
+
+@pytest.mark.asyncio
 async def test_two_malformed_strict_critic_responses_fail_before_persistence(
     monkeypatch,
 ):
