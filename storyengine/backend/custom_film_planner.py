@@ -60,6 +60,7 @@ PUBLIC_SOURCE = Literal[
     "photo_documentary",
     "animated_investigative_documentary",
 ]
+PlannerRole = Literal[*sorted(RECIPE_ROLES)]
 
 CUSTOM_FILM_SECTION_NAMESPACE = UUID("7c75538d-0114-4a43-a745-7587e45a6b91")
 MAX_PLANNER_SECTIONS = 12
@@ -519,7 +520,7 @@ class PlannerBeat(_StrictModel):
 class PlannerSection(_StrictModel):
     """The complete and deliberately small authority granted to the model."""
 
-    role: str
+    role: PlannerRole
     focus: str = Field(min_length=1, max_length=120)
     duration_weight: Decimal = Field(gt=0, le=1_000_000)
     structure_source: PUBLIC_SOURCE
@@ -531,12 +532,6 @@ class PlannerSection(_StrictModel):
         max_length=MAX_PLANNER_BEATS_PER_SECTION,
     )
 
-    @field_validator("role")
-    @classmethod
-    def validate_role(cls, value: str) -> str:
-        if value not in RECIPE_ROLES:
-            raise ValueError(f"Unknown section role: {value}")
-        return value
 
 class PlannerProposal(_StrictModel):
     sections: list[PlannerSection] = Field(min_length=1, max_length=MAX_PLANNER_SECTIONS)
