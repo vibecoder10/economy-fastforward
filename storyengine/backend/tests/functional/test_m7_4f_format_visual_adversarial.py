@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -56,6 +57,120 @@ def _passing_quality(scenes):
         "regenerated": False,
         "changed": False,
     }
+
+
+def test_canonical_marker_first_with_narration_after_it_passes_output_boundary():
+    canonical = _marked(
+        _spoken(
+            "A visible record changes on the monitor while the camera follows "
+            "the sourced evidence across the room."
+        )
+    )
+
+    assert production._script_output_format_issues(
+        canonical,
+        config=production._ExactSectionConfig(12),
+    ) == []
+
+
+@pytest.mark.parametrize("terminal_chrome", ["---", "```", "END", "***"])
+def test_terminal_document_chrome_after_narration_is_rejected(terminal_chrome):
+    script = _marked(
+        _spoken(
+            "A visible record changes on the monitor while the camera follows "
+            "the sourced evidence across the room."
+        )
+    )
+
+    issues = production._script_output_format_issues(
+        script + "\n" + terminal_chrome,
+        config=production._ExactSectionConfig(12),
+    )
+
+    assert issues == [
+        "script has trailing document chrome after narration; remove the "
+        "terminal fence, horizontal rule, or END wrapper"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_neutral_angle_preface_is_removed_before_word_count_and_persistence(
+    monkeypatch,
+):
+    adapter = replace(
+        _adapter("script", seconds=12, profile="neutral_v1"),
+        role="case_study",
+        purpose="Follow the approved case study",
+    )
+    request = production._request(
+        adapter,
+        (),
+        "custom-film-op:" + "6" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    narration = _spoken(
+        "Follow the approved case study as a visible record changes on the "
+        "monitor and the camera tracks its consequence through the room."
+    )
+    canonical = _marked(narration)
+    generated_with_preface = (
+        "# ANGLE SELECTION\n\n"
+        "**ANGLE:** Begin with a planning explanation that must never be spoken.\n\n"
+        "---\n\n"
+        + canonical
+    )
+    edit_calls = []
+
+    async def generate(*_args, **_kwargs):
+        return {
+            "script": generated_with_preface,
+            "validation": {"valid": True, "issues": []},
+        }
+
+    async def edit(_scenes, violations, **_kwargs):
+        edit_calls.append(list(violations))
+        return [{"scene": 1, "text": canonical}]
+
+    async def quality(_tenant, _video, scenes, **_kwargs):
+        return _passing_quality(scenes)
+
+    class Connection:
+        def __init__(self):
+            self.saved_text = None
+
+        async def fetchrow(self, sql, *args):
+            assert "INSERT INTO scripts" in sql
+            self.saved_text = args[4]
+            return {"id": args[0]}
+
+        async def execute(self, sql, *_args):
+            assert "UPDATE videos" in sql
+            return "UPDATE 1"
+
+    conn = Connection()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.edit_draft_with_violations", edit)
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    assert len(edit_calls) == 1
+    assert any(
+        "canonical ACT marker must be the first non-whitespace content" in issue
+        for issue in edit_calls[0]
+    )
+    assert not any("spoken word count" in issue for issue in edit_calls[0])
+    assert conn.saved_text == canonical
+    assert result["quality_verdict"] == "pass"
 
 
 @pytest.mark.asyncio

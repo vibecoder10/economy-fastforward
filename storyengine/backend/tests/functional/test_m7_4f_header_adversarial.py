@@ -20,7 +20,6 @@ def test_spoken_prose_preserves_plausible_bold_emphatic_sentence():
 
 def test_bold_spoken_facts_still_reach_grounding_checks():
     base = (
-        "# NARRATION SCRIPT\n\n"
         "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
         "**At 2 AM, Chicago failed.**\n"
         "A camera follows the blackout signal across the room."
@@ -58,7 +57,6 @@ def test_fenced_formatted_prose_keeps_factual_words_visible():
 
 def test_punctuated_all_caps_spoken_sentence_does_not_become_named_anchors():
     base = (
-        "# NARRATION SCRIPT\n\n"
         "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
         "THE BLACKOUT CONTINUED!\n"
         "A camera follows the failed blackout signal across the dark room."
@@ -82,8 +80,13 @@ def test_short_unapproved_acronym_still_fails_deterministic_grounding():
         "The blackout spreads across the visible panel while a camera routes "
         "the unexplained signal through CME and back into the dark room."
     )
-    script = base + " " + " ".join(
-        ["blackout"] * (30 - production._script_word_count(base))
+    script = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:12 | ~30 words]\n"
+        + base
+        + " "
+        + " ".join(
+            ["blackout"] * (30 - production._script_word_count(base))
+        )
     )
 
     issues = production._script_grounding_issues(
