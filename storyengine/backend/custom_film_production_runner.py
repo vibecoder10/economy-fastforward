@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import uuid
 from dataclasses import dataclass, replace
 from decimal import Decimal
@@ -982,6 +983,254 @@ class _ExactSectionConfig:
         self.act_count = 1
         self.clips_per_act = self.total_clips
         self.scenes_per_act = 1
+
+
+_SCRIPT_REPAIR_ATTEMPTS = 2
+_SCRIPT_GROUNDING_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "again",
+        "against",
+        "also",
+        "among",
+        "because",
+        "before",
+        "being",
+        "between",
+        "bring",
+        "carry",
+        "clear",
+        "conclusion",
+        "evidence",
+        "film",
+        "give",
+        "into",
+        "leave",
+        "main",
+        "make",
+        "present",
+        "reason",
+        "section",
+        "show",
+        "strongest",
+        "takeaway",
+        "that",
+        "their",
+        "there",
+        "these",
+        "they",
+        "this",
+        "through",
+        "understand",
+        "watching",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "with",
+        "within",
+    }
+)
+_SCRIPT_MARKER_PATTERN = re.compile(r"\[(?:ACT|SCENE)\b[^\]]*\]", re.IGNORECASE)
+_SCRIPT_NUMBER_PATTERN = re.compile(
+    r"(?<![\w])(?:18|19|20)\d{2}(?![\w])|(?<![\w])\d+(?:\.\d+)?%?(?![\w])"
+)
+_SCRIPT_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'-]*")
+
+
+def _script_word_count(script_text: str) -> int:
+    return len(_SCRIPT_WORD_PATTERN.findall(script_text))
+
+
+def _script_grounding_issues(
+    script_text: str,
+    *,
+    approved_context: str,
+    config: _ExactSectionConfig,
+    generator_validation: Any,
+) -> list[str]:
+    """Deterministic, provider-independent guard before a script is persisted.
+
+    The shared generator deliberately treats its validation report as advisory.
+    Custom Film cannot: voice and imagery immediately follow this stage, so the
+    exact approved section timing and grounding must fail closed here.
+    """
+
+    issues: list[str] = []
+    word_count = _script_word_count(script_text)
+    if not config.script_min_words <= word_count <= config.script_max_words:
+        issues.append(
+            "spoken word count "
+            f"{word_count} is outside the approved section range "
+            f"{config.script_min_words}-{config.script_max_words}"
+        )
+
+    if isinstance(generator_validation, Mapping):
+        validation_issues = generator_validation.get("issues")
+        if generator_validation.get("valid") is False:
+            detail = (
+                "; ".join(str(issue) for issue in validation_issues[:4])
+                if isinstance(validation_issues, list)
+                else "shared script validation failed"
+            )
+            issues.append(detail)
+
+    approved_words = {
+        word.casefold()
+        for word in _SCRIPT_WORD_PATTERN.findall(approved_context)
+        if len(word) >= 4 and word.casefold() not in _SCRIPT_GROUNDING_STOPWORDS
+    }
+    script_words = {
+        word.casefold() for word in _SCRIPT_WORD_PATTERN.findall(script_text)
+    }
+    if approved_words and not approved_words.intersection(script_words):
+        issues.append("script does not retain a distinctive approved focus term")
+
+    prose = _SCRIPT_MARKER_PATTERN.sub("", script_text)
+    approved_numbers = set(_SCRIPT_NUMBER_PATTERN.findall(approved_context))
+    unsupported_numbers = sorted(
+        set(_SCRIPT_NUMBER_PATTERN.findall(prose)) - approved_numbers
+    )
+    if unsupported_numbers:
+        issues.append(
+            "script introduces number/date anchors absent from the approved "
+            "section: " + ", ".join(unsupported_numbers[:6])
+        )
+
+    approved_casefold = approved_context.casefold()
+    unsupported_named: list[str] = []
+    for match in re.finditer(r"\b(?:[A-Z]{2,}|[A-Z][a-z]{2,})\b", prose):
+        token = match.group(0)
+        before = prose[: match.start()].rstrip()
+        if not before or before[-1:] in ".!?":
+            continue
+        if token.casefold() in approved_casefold:
+            continue
+        if token in {"I"} or token.casefold() in _SCRIPT_GROUNDING_STOPWORDS:
+            continue
+        unsupported_named.append(token)
+    if unsupported_named:
+        issues.append(
+            "script introduces named anchors absent from the approved section: "
+            + ", ".join(sorted(set(unsupported_named))[:6])
+        )
+    return issues
+
+
+def _validated_early_quality_result(
+    value: Any,
+    *,
+    original_scenes: list[dict[str, Any]],
+) -> tuple[Any, list[dict[str, Any]], int]:
+    """Accept only one internally consistent, unambiguous critic pass."""
+
+    failure_prefix = (
+        "Custom Film section script failed visual-story quality before "
+        "voice or imagery: "
+    )
+
+    def fail(detail: str) -> None:
+        raise CustomFilmContractError(failure_prefix + detail)
+
+    expected_keys = {
+        "scenes",
+        "critique",
+        "needs_review",
+        "edit_rounds",
+        "regenerated",
+        "changed",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        fail("quality orchestration result shape is invalid")
+    if type(value["needs_review"]) is not bool:
+        fail("quality review flag is invalid")
+    if type(value["regenerated"]) is not bool or value["regenerated"]:
+        fail("quality regeneration flag is invalid")
+    edit_rounds = value["edit_rounds"]
+    if (
+        type(edit_rounds) is not int
+        or edit_rounds < 0
+        or edit_rounds > _SCRIPT_REPAIR_ATTEMPTS
+    ):
+        fail("quality edit-round count is invalid")
+    if type(value["changed"]) is not bool:
+        fail("quality changed flag is invalid")
+
+    raw_scenes = value["scenes"]
+    if (
+        not isinstance(raw_scenes, list)
+        or len(raw_scenes) != 1
+        or not isinstance(raw_scenes[0], Mapping)
+        or set(raw_scenes[0]) != {"scene", "text"}
+        or raw_scenes[0].get("scene") != 1
+        or not isinstance(raw_scenes[0].get("text"), str)
+        or not raw_scenes[0]["text"].strip()
+    ):
+        fail("quality edit changed or invalidated scene assignments")
+    scenes = [
+        {"scene": 1, "text": str(raw_scenes[0]["text"]).strip()}
+    ]
+    if value["changed"] != (scenes != original_scenes):
+        fail("quality changed flag contradicts the returned script")
+
+    grade = value["critique"]
+    required_grade_fields = (
+        "verdict",
+        "score",
+        "failing_gates",
+        "violations",
+        "rule_verdicts",
+        "needs_revision",
+    )
+    if any(not hasattr(grade, field) for field in required_grade_fields):
+        fail("quality critique result shape is invalid")
+    verdict = getattr(grade, "verdict")
+    score = getattr(grade, "score")
+    failing_gates = getattr(grade, "failing_gates")
+    violations = getattr(grade, "violations")
+    rule_verdicts = getattr(grade, "rule_verdicts")
+    needs_revision = getattr(grade, "needs_revision")
+    if (
+        not isinstance(verdict, str)
+        or type(score) is not int
+        or not 0 <= score <= 100
+        or not isinstance(failing_gates, list)
+        or any(not isinstance(item, str) for item in failing_gates)
+        or not isinstance(violations, list)
+        or any(not isinstance(item, str) for item in violations)
+        or not isinstance(rule_verdicts, list)
+        or type(needs_revision) is not bool
+    ):
+        fail("quality critique result fields are invalid")
+    for rule_verdict in rule_verdicts:
+        if (
+            not hasattr(rule_verdict, "rule")
+            or not isinstance(rule_verdict.rule, str)
+            or not hasattr(rule_verdict, "passed")
+            or type(rule_verdict.passed) is not bool
+        ):
+            fail("quality rule verdict shape is invalid")
+        if not rule_verdict.passed:
+            fail(f"quality rule failed: {rule_verdict.rule or 'unnamed rule'}")
+    if (
+        verdict.strip().casefold() != "pass"
+        or value["needs_review"]
+        or needs_revision
+        or failing_gates
+        or violations
+    ):
+        named = [
+            verdict,
+            *failing_gates,
+            *violations,
+        ]
+        fail(
+            "critic did not return an unambiguous pass"
+            + (": " + "; ".join(dict.fromkeys(named)) if named else "")
+        )
+    return grade, scenes, edit_rounds
 
 
 class SharedSectionProductionSeams:
@@ -1987,30 +2236,33 @@ class SharedSectionProductionSeams:
             raise CustomFilmContractError(
                 "Tenant text-generation key is unavailable"
             )
-        from script.brief_translator.script_generator import generate_script
+        from script.brief_translator.script_generator import (
+            generate_script,
+            validate_script,
+        )
         from shared.profiles.script import load_script_profile
 
         profile = load_script_profile(request.script_profile)
-        raw_research = video.get("research_payload") or {}
-        if isinstance(raw_research, str):
-            try:
-                raw_research = json.loads(raw_research)
-            except (json.JSONDecodeError, TypeError):
-                raw_research = {}
-        research = dict(raw_research) if isinstance(raw_research, Mapping) else {}
-        title = str(video.get("video_title") or video.get("headline") or "Untitled")
+        video_title = str(
+            video.get("video_title") or video.get("headline") or "Untitled"
+        )
+        approved_context = f"{request.role}\n{request.purpose}"
+        config = _ExactSectionConfig(request.exact_seconds)
         brief = {
-            **research,
-            "headline": title,
-            "thesis": str(research.get("thesis") or request.purpose),
-            "executive_hook": str(
-                research.get("executive_hook")
-                or f"{request.role}: {request.purpose}"
-            ),
+            "headline": request.purpose,
+            "thesis": request.purpose,
+            "executive_hook": f"{request.role}: {request.purpose}",
             "writer_guidance": (
                 f"Write only section {request.order_index + 1}. Its role is "
                 f"'{request.role}' and its exact purpose is: {request.purpose}. "
                 f"The spoken result must fit exactly {request.exact_seconds} seconds. "
+                "The role, purpose, title, and exact duration in this instruction "
+                "are the complete approved grounding context. Do not introduce an "
+                "unapproved person, place, organization, event, date, number, "
+                "case study, or adjacent topic. Keep the approved focus explicit "
+                "throughout. Write a concrete visual story: every narrative beat "
+                "must give the approved stills or clips something specific and "
+                "relevant to show. "
                 f"Language mode is '{request.language.get('mode')}', dialogue "
                 f"audio is '{request.dialogue_audio}', and dubbing mode is "
                 f"'{request.dubbing.get('mode')}'. "
@@ -2034,13 +2286,104 @@ class SharedSectionProductionSeams:
         generated = await generate_script(
             client,
             brief,
-            config=_ExactSectionConfig(request.exact_seconds),
+            config=config,
             profile=profile,
         )
         script_text = str(generated.get("script") or "").strip()
         if not script_text:
             raise CustomFilmContractError(
                 "Custom Film script provider returned no section script"
+            )
+        import script_quality
+
+        deterministic_issues = _script_grounding_issues(
+            script_text,
+            approved_context=approved_context,
+            config=config,
+            generator_validation=generated.get("validation"),
+        )
+        deterministic_edit_rounds = 0
+        while (
+            deterministic_issues
+            and deterministic_edit_rounds < _SCRIPT_REPAIR_ATTEMPTS
+        ):
+            edited = await script_quality.edit_draft_with_violations(
+                [{"scene": 1, "text": script_text}],
+                deterministic_issues,
+                client=client,
+            )
+            deterministic_edit_rounds += 1
+            if not edited:
+                break
+            script_text = str(edited[0].get("text") or "").strip()
+            edited_validation = validate_script(
+                script_text,
+                config=config,
+                profile=profile,
+            )
+            deterministic_issues = _script_grounding_issues(
+                script_text,
+                approved_context=approved_context,
+                config=config,
+                generator_validation=edited_validation,
+            )
+        if deterministic_issues:
+            raise CustomFilmContractError(
+                "Custom Film section script failed approved timing/grounding "
+                "before voice or imagery: " + "; ".join(deterministic_issues)
+            )
+
+        rules_text = "\n".join(
+            (
+                "approved_purpose_grounding: The script must stay entirely "
+                f"within this approved section context: {approved_context}. "
+                "Reject any unrelated person, place, organization, event, date, "
+                "number, case study, conspiracy, or adjacent topic.",
+                "visual_story_readiness: The script must tell a coherent, "
+                "specific visual story. Each beat must provide concrete action, "
+                "evidence, environment, character behavior, or an observable "
+                "change that the approved stills or clips can show; reject generic "
+                "exposition, disconnected claims, and non-visual filler.",
+            )
+        )
+        critic_input_scenes = [{"scene": 1, "text": script_text}]
+        quality_result = await script_quality.run_critique_and_edit(
+            self.tenant_id,
+            request.video_id,
+            critic_input_scenes,
+            client=client,
+            niche=request.role,
+            title=request.purpose,
+            hook=f"{request.role}: {request.purpose}",
+            rules_text=rules_text,
+            severity_by_rule={
+                "approved_purpose_grounding": "hard_gate",
+                "visual_story_readiness": "hard_gate",
+            },
+            max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
+        )
+        grade, final_scenes, quality_edit_rounds = (
+            _validated_early_quality_result(
+                quality_result,
+                original_scenes=critic_input_scenes,
+            )
+        )
+        script_text = str(final_scenes[0].get("text") or "").strip()
+        final_validation = validate_script(
+            script_text,
+            config=config,
+            profile=profile,
+        )
+        final_issues = _script_grounding_issues(
+            script_text,
+            approved_context=approved_context,
+            config=config,
+            generator_validation=final_validation,
+        )
+        if final_issues:
+            raise CustomFilmContractError(
+                "Custom Film section script failed visual-story quality before "
+                "voice or imagery: " + "; ".join(dict.fromkeys(final_issues))
             )
         scene_id = str(
             uuid.uuid5(
@@ -2068,7 +2411,7 @@ class SharedSectionProductionSeams:
                 request.video_id,
                 request.order_index + 1,
                 script_text,
-                title,
+                video_title,
                 "1SM7GgM6IMuvQlz2BwM3",
                 json.dumps(
                     {
@@ -2077,8 +2420,16 @@ class SharedSectionProductionSeams:
                             "section_id": request.section_id,
                             "exact_seconds": request.exact_seconds,
                             "script_profile": request.script_profile,
+                            "preflight": {
+                                "verdict": grade.verdict,
+                                "score": grade.score,
+                                "deterministic_edit_rounds": (
+                                    deterministic_edit_rounds
+                                ),
+                                "quality_edit_rounds": quality_edit_rounds,
+                            },
                         },
-                        "shared_validation": generated.get("validation") or {},
+                        "shared_validation": final_validation,
                     },
                     sort_keys=True,
                 ),
@@ -2115,6 +2466,8 @@ class SharedSectionProductionSeams:
             "script_profile": request.script_profile,
             "role": request.role,
             "purpose": request.purpose,
+            "quality_verdict": grade.verdict,
+            "quality_score": grade.score,
         }
 
     async def _scene_rows(
