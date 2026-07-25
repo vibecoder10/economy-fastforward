@@ -92,3 +92,9 @@ Carried risks for whoever starts Phase 1:
 - Misclick hazard for future verifiers: on an unanimated shot the DOM puts an inert
   prompt-disclosure toggle immediately next to the real "Animate · $0.09" button in tab order.
   Cross-check the cost ledger after any click.
+
+## 2026-07-25: Mockup approved, Phase 1 scoped
+Clickable mockup at `tasks/director-mockup/index.html` - Ryan reviewed and approved it. Build
+Phase 1 against it. All product decisions and the Phase 1 scope shift are recorded in `HANDOFF.md`.
+Key finding that reshaped Phase 1: zero Custom Film recipes have ever been saved, so the valuable
+build is the SAVE action, not the library shelf.
