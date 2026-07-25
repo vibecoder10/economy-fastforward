@@ -986,6 +986,7 @@ class _ExactSectionConfig:
 
 
 _SCRIPT_REPAIR_ATTEMPTS = 2
+_SCRIPT_CONVERGENCE_PASSES = 2
 _SCRIPT_GROUNDING_STOPWORDS = frozenset(
     {
         "about",
@@ -2412,43 +2413,60 @@ class SharedSectionProductionSeams:
             )
         import script_quality
 
+        async def repair_deterministic_issues(
+            current_text: str,
+            current_issues: list[str],
+        ) -> tuple[str, list[str], int, dict[str, Any]]:
+            rounds = 0
+            validation: dict[str, Any] = (
+                generated.get("validation")
+                if isinstance(generated.get("validation"), dict)
+                else {}
+            )
+            while current_issues and rounds < _SCRIPT_REPAIR_ATTEMPTS:
+                edited = await script_quality.edit_draft_with_violations(
+                    [{"scene": 1, "text": current_text}],
+                    [
+                        *current_issues,
+                        (
+                            "EDIT CONSTRAINTS — these remain mandatory on every "
+                            "repair:\n" + approved_contract
+                        ),
+                    ],
+                    client=client,
+                )
+                rounds += 1
+                if not edited:
+                    break
+                current_text = str(edited[0].get("text") or "").strip()
+                validation = validate_script(
+                    current_text,
+                    config=config,
+                    profile=profile,
+                )
+                current_issues = _script_grounding_issues(
+                    current_text,
+                    approved_context=approved_context,
+                    config=config,
+                    generator_validation=validation,
+                )
+            return current_text, current_issues, rounds, validation
+
         deterministic_issues = _script_grounding_issues(
             script_text,
             approved_context=approved_context,
             config=config,
             generator_validation=generated.get("validation"),
         )
-        deterministic_edit_rounds = 0
-        while (
-            deterministic_issues
-            and deterministic_edit_rounds < _SCRIPT_REPAIR_ATTEMPTS
-        ):
-            edited = await script_quality.edit_draft_with_violations(
-                [{"scene": 1, "text": script_text}],
-                [
-                    *deterministic_issues,
-                    (
-                        "EDIT CONSTRAINTS — these remain mandatory on every "
-                        "repair:\n" + approved_contract
-                    ),
-                ],
-                client=client,
-            )
-            deterministic_edit_rounds += 1
-            if not edited:
-                break
-            script_text = str(edited[0].get("text") or "").strip()
-            edited_validation = validate_script(
-                script_text,
-                config=config,
-                profile=profile,
-            )
-            deterministic_issues = _script_grounding_issues(
-                script_text,
-                approved_context=approved_context,
-                config=config,
-                generator_validation=edited_validation,
-            )
+        (
+            script_text,
+            deterministic_issues,
+            deterministic_edit_rounds,
+            final_validation,
+        ) = await repair_deterministic_issues(
+            script_text,
+            deterministic_issues,
+        )
         if deterministic_issues:
             raise CustomFilmContractError(
                 "Custom Film section script failed approved timing/grounding "
@@ -2468,50 +2486,74 @@ class SharedSectionProductionSeams:
                 "exposition, disconnected claims, and non-visual filler.",
             )
         )
-        critic_input_scenes = [{"scene": 1, "text": script_text}]
-        quality_result = await script_quality.run_critique_and_edit(
-            self.tenant_id,
-            request.video_id,
-            critic_input_scenes,
-            client=client,
-            niche=request.role,
-            title=request.purpose,
-            hook=f"{request.role}: {request.purpose}",
-            rules_text=rules_text,
-            severity_by_rule={
-                "approved_purpose_grounding": "hard_gate",
-                "visual_story_readiness": "hard_gate",
-            },
-            max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
-            edit_constraints=[
-                (
-                    "EDIT CONSTRAINTS — these remain mandatory on every "
-                    "repair:\n" + approved_contract
-                )
-            ],
-        )
-        grade, final_scenes, quality_edit_rounds = (
-            _validated_early_quality_result(
+        grade = None
+        quality_edit_rounds = 0
+        quality_passes = 0
+        converged = False
+        for _ in range(_SCRIPT_CONVERGENCE_PASSES):
+            critic_input_scenes = [{"scene": 1, "text": script_text}]
+            quality_result = await script_quality.run_critique_and_edit(
+                self.tenant_id,
+                request.video_id,
+                critic_input_scenes,
+                client=client,
+                niche=request.role,
+                title=request.purpose,
+                hook=f"{request.role}: {request.purpose}",
+                rules_text=rules_text,
+                severity_by_rule={
+                    "approved_purpose_grounding": "hard_gate",
+                    "visual_story_readiness": "hard_gate",
+                },
+                max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
+                edit_constraints=[
+                    (
+                        "EDIT CONSTRAINTS — these remain mandatory on every "
+                        "repair:\n" + approved_contract
+                    )
+                ],
+            )
+            grade, final_scenes, edit_rounds = _validated_early_quality_result(
                 quality_result,
                 original_scenes=critic_input_scenes,
             )
-        )
-        script_text = str(final_scenes[0].get("text") or "").strip()
-        final_validation = validate_script(
-            script_text,
-            config=config,
-            profile=profile,
-        )
-        final_issues = _script_grounding_issues(
-            script_text,
-            approved_context=approved_context,
-            config=config,
-            generator_validation=final_validation,
-        )
-        if final_issues:
+            quality_passes += 1
+            quality_edit_rounds += edit_rounds
+            script_text = str(final_scenes[0].get("text") or "").strip()
+            final_validation = validate_script(
+                script_text,
+                config=config,
+                profile=profile,
+            )
+            final_issues = _script_grounding_issues(
+                script_text,
+                approved_context=approved_context,
+                config=config,
+                generator_validation=final_validation,
+            )
+            if not final_issues:
+                converged = True
+                break
+            (
+                script_text,
+                final_issues,
+                repair_rounds,
+                final_validation,
+            ) = await repair_deterministic_issues(
+                script_text,
+                final_issues,
+            )
+            deterministic_edit_rounds += repair_rounds
+            if final_issues:
+                raise CustomFilmContractError(
+                    "Custom Film section script failed visual-story quality "
+                    "before voice or imagery: "
+                    + "; ".join(dict.fromkeys(final_issues))
+                )
+        if not converged or grade is None:
             raise CustomFilmContractError(
-                "Custom Film section script failed visual-story quality before "
-                "voice or imagery: " + "; ".join(dict.fromkeys(final_issues))
+                "Custom Film section script quality gates did not converge "
+                "before voice or imagery"
             )
         scene_id = str(
             uuid.uuid5(
@@ -2555,6 +2597,7 @@ class SharedSectionProductionSeams:
                                     deterministic_edit_rounds
                                 ),
                                 "quality_edit_rounds": quality_edit_rounds,
+                                "quality_passes": quality_passes,
                             },
                         },
                         "shared_validation": final_validation,
