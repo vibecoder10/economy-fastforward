@@ -25,6 +25,7 @@ WHO="${1:?usage: vps-deploy.sh <session-name> [--with-frontend] [--with-remotion
 shift || true
 ARGS="${*:-}"
 DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-7200}"
+KILL_BIN="${STORYENGINE_KILL_BIN:-/bin/kill}"
 
 if [ -f "$LOCK" ] && [[ "$ARGS" != *--force* ]]; then
   echo "DEPLOY BLOCKED — another session holds the lock:"
@@ -139,6 +140,50 @@ if [ "$BACKEND_OK" != "1" ]; then
   exit 1
 fi
 echo "backend health: verified (drain still enabled)"
+
+# Restart the arq worker from the same freshly pulled checkout. A backend-only
+# restart leaves a long-lived worker importing the previous Python source.
+# Resolve and kill only this unit's exact MainPID; NEVER pkill by command line.
+WORKER_UNIT="storyengine-worker.service"
+WORKER_PID=$(systemctl show -p MainPID --value "$WORKER_UNIT")
+if [ -z "$WORKER_PID" ] || [ "$WORKER_PID" = "0" ]; then
+  echo "DEPLOY FAILED — worker unit has no exact MainPID to restart." >&2
+  exit 1
+fi
+"$KILL_BIN" -9 "$WORKER_PID"
+
+NEW_WORKER_PID=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if systemctl is-active --quiet "$WORKER_UNIT"; then
+    NEW_WORKER_PID=$(systemctl show -p MainPID --value "$WORKER_UNIT")
+    if [ -n "$NEW_WORKER_PID" ] \
+      && [ "$NEW_WORKER_PID" != "0" ] \
+      && [ "$NEW_WORKER_PID" != "$WORKER_PID" ]; then
+      break
+    fi
+  fi
+  sleep 3
+done
+if [ -z "$NEW_WORKER_PID" ] \
+  || [ "$NEW_WORKER_PID" = "0" ] \
+  || [ "$NEW_WORKER_PID" = "$WORKER_PID" ]; then
+  echo "DEPLOY FAILED — worker did not restart with a fresh exact MainPID." >&2
+  exit 1
+fi
+
+EXPECTED_WORKER_DIR=$(readlink -f "$REPO/storyengine/backend" 2>/dev/null || true)
+WORKER_DIR=$(systemctl show -p WorkingDirectory --value "$WORKER_UNIT")
+WORKER_DIR=$(readlink -f "$WORKER_DIR" 2>/dev/null || true)
+WORKER_EXEC=$(systemctl show -p ExecStart --value "$WORKER_UNIT")
+if [ "$WORKER_DIR" != "$EXPECTED_WORKER_DIR" ] \
+  || [[ "$WORKER_EXEC" != *"$EXPECTED_WORKER_DIR/"* ]]; then
+  echo "DEPLOY FAILED — worker is not running from the deployed checkout." >&2
+  echo "worker directory: ${WORKER_DIR:-missing}" >&2
+  echo "worker exec: ${WORKER_EXEC:-missing}" >&2
+  exit 1
+fi
+echo "worker: active (pid $NEW_WORKER_PID)"
+echo "worker code parity: commit=$AFTER directory=$WORKER_DIR"
 
 if [[ "$ARGS" == *--with-frontend* ]]; then
   (cd storyengine/frontend && npm run build)
