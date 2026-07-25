@@ -41,6 +41,22 @@
 
   /* Radius -> rounded-card */
   --radius-card: var(--card-radius);
+
+  /* Director surface additions (Chunk 1.A, mockup token reconciliation,
+     storyengine/tasks/director-mockup/index.html). Every mockup token that
+     already had an EXACT value match in this file (--bg-void, --bg-surface,
+     --bg-sunk == --bg-deep, --text-primary, --line == --border, --accent ==
+     --turquoise, --red, --r == --card-radius) reuses the existing utility
+     above and gets no new entry here. The five below had no exact-value
+     match anywhere in this file, so they are new, additive tokens named
+     after the mockup's own variable names to keep the mapping unambiguous
+     for later Director chunks. */
+  --color-raise: var(--bg-raise);
+  --color-dim: var(--text-dim);
+  --color-faint: var(--text-faint);
+  --color-line-soft: var(--line-soft);
+  --color-gold-director: var(--gold-director);
+  --radius-card-sm: var(--card-radius-sm);
 }
 
 /* Google Fonts loaded in layout.tsx via next/font or <link> */
@@ -115,6 +131,18 @@
   /* Cards */
   --card-radius: 16px;
   --card-padding: var(--space-lg);
+  --card-radius-sm: 10px;
+
+  /* Director surface tokens (Chunk 1.A, mockup token reconciliation).
+     These four had no exact-value match among the vars above, so they are
+     new additive vars, named after the mockup's own variable names
+     (director-mockup/index.html) rather than reusing a near-but-not-equal
+     existing var. Nothing above was renamed or removed. */
+  --bg-raise: #151B29;
+  --text-dim: #9AA3B8;
+  --text-faint: #5F6980;
+  --line-soft: rgba(255, 255, 255, 0.07);
+  --gold-director: #F5C451;
 
   /* Glass effect */
   --glass-bg: rgba(15, 22, 38, 0.65);
