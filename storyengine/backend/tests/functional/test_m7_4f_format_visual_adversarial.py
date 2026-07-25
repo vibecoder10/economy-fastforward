@@ -139,6 +139,8 @@ async def test_deterministic_repair_restores_exact_act_marker_and_removes_end_wr
             "0:00 - 0:12 | ~30 words]"
         ) in contract
         assert "Do not replace the bracketed marker with ACT/END prose" in contract
+        assert "Open on the strongest concrete visible proof" in contract
+        assert "Escalate across distinct approved evidence types" in contract
     assert conn.saved_text == corrected
     assert "\nEND" not in conn.saved_text
 
@@ -209,5 +211,10 @@ async def test_visually_generic_nonconvergence_remains_fail_closed(
     rules = quality_calls[0][1]["rules_text"]
     constraints = quality_calls[0][1]["edit_constraints"][0]
     assert "visual_story_readiness" in rules
+    assert "role_structure_quality" in rules
+    assert "Open on the strongest concrete visible proof" in rules
+    assert "Escalate across distinct approved evidence types" in rules
     assert "Every narrative beat must name a concrete visible subject" in constraints
     assert "Replace abstract summary, generic stakes, promises" in constraints
+    assert "Open on the strongest concrete visible proof" in constraints
+    assert "Escalate across distinct approved evidence types" in constraints
