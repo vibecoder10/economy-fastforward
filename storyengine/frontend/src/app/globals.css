@@ -1,5 +1,48 @@
 @import "tailwindcss";
 
+/* Director surface theme tokens (Phase 0, Task 0.1).
+   Tailwind v4 has no tailwind.config.* — utility classes like `bg-surface`
+   or `text-ink` only exist if a matching `--color-*` (or `--radius-*`)
+   variable is declared inside an `@theme` block. Every token below mirrors
+   (via var()) an existing `:root` variable further down this file so there
+   is a single source of truth for the hex/rgba value — nothing here is a
+   duplicated literal.
+
+   Scoping rule: `--text-primary` is renamed to `--color-ink` ONLY inside
+   this block (so it generates `text-ink`, not `text-text-primary`). The
+   original `--text-primary` variable in `:root` below, and every existing
+   `var(--text-primary)` usage across the app, is untouched. This block is
+   purely additive. */
+@theme {
+  /* Background hierarchy -> bg-void / bg-deep / bg-surface / bg-elevated */
+  --color-void: var(--bg-void);
+  --color-deep: var(--bg-deep);
+  --color-surface: var(--bg-surface);
+  --color-elevated: var(--bg-elevated);
+
+  /* Accents -> bg-turquoise/text-turquoise, bg-gold/text-gold, etc. */
+  --color-turquoise: var(--turquoise);
+  --color-gold: var(--gold);
+  --color-gold-bright: var(--gold-bright);
+  --color-orange: var(--orange);
+  --color-red: var(--red);
+  --color-green: var(--green);
+  --color-purple: var(--purple);
+  --color-yellow: var(--yellow);
+
+  /* Text -> text-ink (renamed from --text-primary), text-secondary, text-tertiary */
+  --color-ink: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-tertiary);
+
+  /* Borders -> border-edge / border-edge-subtle */
+  --color-edge: var(--border);
+  --color-edge-subtle: var(--border-subtle);
+
+  /* Radius -> rounded-card */
+  --radius-card: var(--card-radius);
+}
+
 /* Google Fonts loaded in layout.tsx via next/font or <link> */
 
 :root {
