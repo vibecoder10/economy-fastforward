@@ -1072,7 +1072,7 @@ _SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(
 _SCRIPT_EMPHASIS_LINE_PATTERN = re.compile(
     r"^\s*(?:\*\*|__)(?P<body>.+?)(?:\*\*|__)\s*$"
 )
-_SCRIPT_FENCE_PATTERN = re.compile(r"^\s*```[A-Za-z0-9_-]*\s*$")
+_SCRIPT_FENCE_PATTERN = re.compile(r"^\s*(?:`{3,}|~{3,})[^\r\n]*$")
 _SCRIPT_SETEXT_PATTERN = re.compile(r"^\s*(?:=+|-+)\s*$")
 _SCRIPT_HORIZONTAL_RULE_PATTERN = re.compile(
     r"^\s*(?:(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,})$"
@@ -1377,12 +1377,28 @@ def _script_output_format_issues(
     ]
     if trailing_lines:
         terminal = trailing_lines[-1]
+        normalized_terminal = terminal.strip()
+        for _ in range(2):
+            heading = _SCRIPT_MARKDOWN_HEADING_PATTERN.fullmatch(
+                normalized_terminal
+            )
+            if heading:
+                normalized_terminal = heading.group("body").strip()
+                continue
+            emphasis = _SCRIPT_EMPHASIS_LINE_PATTERN.fullmatch(
+                normalized_terminal
+            )
+            if emphasis:
+                normalized_terminal = emphasis.group("body").strip()
+                continue
+            break
         if (
             _SCRIPT_FENCE_PATTERN.fullmatch(terminal)
-            or _SCRIPT_HORIZONTAL_RULE_PATTERN.fullmatch(terminal)
+            or _SCRIPT_FENCE_PATTERN.fullmatch(normalized_terminal)
+            or _SCRIPT_HORIZONTAL_RULE_PATTERN.fullmatch(normalized_terminal)
             or re.fullmatch(
                 r"\s*(?:END|SCRIPT\s+END|END\s+SCRIPT)\s*[.!]?\s*",
-                terminal,
+                normalized_terminal,
                 re.IGNORECASE,
             )
         ):
