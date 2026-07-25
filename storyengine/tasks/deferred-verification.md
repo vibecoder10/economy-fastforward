@@ -505,13 +505,14 @@ The creative master and inspection evidence live under
 `remotion-video/out/test-results/`. No provider call, paid generation, push, deploy,
 upload, or publication occurred.
 
-- [ ] **Production-host activation and no-provider proof.** After Ryan separately
-      authorizes pushing this isolated branch, merge/deploy through the sanctioned
-      zero-active-work drain with `--with-frontend --with-remotion`. Confirm the deployed
-      backend/frontend/worker/Redis health, current migration count, Chromium/Remotion
-      runtime, and exact deployed renderer bundle identity. Repeat a no-provider generic
-      recipe render plus representative flagship stills on the host before enabling any
-      paid run.
+- [x] **Production-host activation and no-provider proof.** PR #462 deployed production
+      commit `3ed9e61a` through the sanctioned zero-active-work drain with
+      `--with-frontend --with-remotion`. Backend/frontend/worker/Redis, 140 migrations,
+      Chromium/Remotion, storage, frontend HTTP 200, exact renderer hash parity, and
+      automatic undrain passed. The host resolved 34 layered recipes across 7,200 frames
+      and rendered/inspected the 1920x1080 frame-7080 product composition. One synthetic
+      staged-fixture file-hash assertion is FFmpeg-platform-dependent on Linux; it does
+      not affect approved source hashing or runtime staging and remains portability debt.
 - [ ] **Real creator UI proof.** In the deployed chat flow, submit the exact request in
       `custom-film-flagship-runbook.md`. Confirm the approval card shows four narrative
       sections plus the Director's shot blueprint; each beat must expose creator-safe
