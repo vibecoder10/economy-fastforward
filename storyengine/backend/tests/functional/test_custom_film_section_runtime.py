@@ -1111,8 +1111,29 @@ async def test_queue_requires_and_forwards_durable_runtime_job_id():
         def __init__(self):
             self.call = None
 
-        async def enqueue_job(self, *args, **kwargs):
-            self.call = (args, kwargs)
+        async def enqueue_job(
+            self,
+            function,
+            *args,
+            _job_id=None,
+            _queue_name=None,
+            _defer_until=None,
+            _defer_by=None,
+            _expires=None,
+            _job_try=None,
+            **handler_kwargs,
+        ):
+            self.call = {
+                "function": function,
+                "args": args,
+                "job_id": _job_id,
+                "queue_name": _queue_name,
+                "defer_until": _defer_until,
+                "defer_by": _defer_by,
+                "expires": _expires,
+                "job_try": _job_try,
+                "handler_kwargs": handler_kwargs,
+            }
             return object()
 
     pool = Pool()
@@ -1129,8 +1150,31 @@ async def test_queue_requires_and_forwards_durable_runtime_job_id():
         runtime_job_id=runtime_job_id,
     )
     assert queued == f"custom-film-worker:{runtime_job_id}:1"
-    assert pool.call[0][0] == "arq_run_custom_film_runtime"
-    assert pool.call[1]["runtime_job_id"] == runtime_job_id
+    assert pool.call == {
+        "function": "arq_run_custom_film_runtime",
+        "args": ("video-1", "tenant-1", 1),
+        "job_id": f"custom-film-worker:{runtime_job_id}:1",
+        "queue_name": None,
+        "defer_until": None,
+        "defer_by": None,
+        "expires": None,
+        "job_try": None,
+        "handler_kwargs": {"runtime_job_id": runtime_job_id},
+    }
+    assert "_job_timeout" not in pool.call["handler_kwargs"]
+
+    await job_queue.enqueue_stage(
+        pool,
+        "thumbnail",
+        "video-2",
+        "tenant-1",
+        attempt=2,
+        force=True,
+    )
+    assert pool.call["function"] == "arq_run_thumbnail"
+    assert pool.call["args"] == ("video-2", "tenant-1", 2)
+    assert pool.call["job_id"] == "thumbnail:video-2:2"
+    assert pool.call["handler_kwargs"] == {"force": True}
 
 
 @pytest.mark.asyncio

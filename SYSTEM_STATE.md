@@ -11855,3 +11855,7 @@ control writes without losing the video, approval, or confirmation.
   Approval failures returned as either exceptions or normal `phase=plan`
   responses clear false progress and restore an actionable exact approval card;
   a server-returned replacement approval card takes precedence.
+- Queue timeouts are owned by each registered `WorkerSettings.func`. The
+  installed arq enqueue API does not reserve `_job_timeout`; passing it at
+  enqueue time serializes it into the handler kwargs. `enqueue_stage` therefore
+  passes only arq's supported `_job_id` metadata plus genuine stage kwargs.
