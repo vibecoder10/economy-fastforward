@@ -799,9 +799,13 @@ async def test_shared_script_seam_uses_profile_purpose_language_exact_seconds_an
                 score=98,
                 failing_gates=[],
                 violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
             ),
             "needs_review": False,
             "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
         }
 
     class Connection:
@@ -986,9 +990,13 @@ async def test_shared_script_repairs_same_draft_then_passes_early_visual_story_g
                 score=96,
                 failing_gates=[],
                 violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
             ),
             "needs_review": False,
             "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
         }
 
     class Connection:

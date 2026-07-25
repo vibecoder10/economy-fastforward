@@ -1119,6 +1119,120 @@ def _script_grounding_issues(
     return issues
 
 
+def _validated_early_quality_result(
+    value: Any,
+    *,
+    original_scenes: list[dict[str, Any]],
+) -> tuple[Any, list[dict[str, Any]], int]:
+    """Accept only one internally consistent, unambiguous critic pass."""
+
+    failure_prefix = (
+        "Custom Film section script failed visual-story quality before "
+        "voice or imagery: "
+    )
+
+    def fail(detail: str) -> None:
+        raise CustomFilmContractError(failure_prefix + detail)
+
+    expected_keys = {
+        "scenes",
+        "critique",
+        "needs_review",
+        "edit_rounds",
+        "regenerated",
+        "changed",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_keys:
+        fail("quality orchestration result shape is invalid")
+    if type(value["needs_review"]) is not bool:
+        fail("quality review flag is invalid")
+    if type(value["regenerated"]) is not bool or value["regenerated"]:
+        fail("quality regeneration flag is invalid")
+    edit_rounds = value["edit_rounds"]
+    if (
+        type(edit_rounds) is not int
+        or edit_rounds < 0
+        or edit_rounds > _SCRIPT_REPAIR_ATTEMPTS
+    ):
+        fail("quality edit-round count is invalid")
+    if type(value["changed"]) is not bool:
+        fail("quality changed flag is invalid")
+
+    raw_scenes = value["scenes"]
+    if (
+        not isinstance(raw_scenes, list)
+        or len(raw_scenes) != 1
+        or not isinstance(raw_scenes[0], Mapping)
+        or set(raw_scenes[0]) != {"scene", "text"}
+        or raw_scenes[0].get("scene") != 1
+        or not isinstance(raw_scenes[0].get("text"), str)
+        or not raw_scenes[0]["text"].strip()
+    ):
+        fail("quality edit changed or invalidated scene assignments")
+    scenes = [
+        {"scene": 1, "text": str(raw_scenes[0]["text"]).strip()}
+    ]
+    if value["changed"] != (scenes != original_scenes):
+        fail("quality changed flag contradicts the returned script")
+
+    grade = value["critique"]
+    required_grade_fields = (
+        "verdict",
+        "score",
+        "failing_gates",
+        "violations",
+        "rule_verdicts",
+        "needs_revision",
+    )
+    if any(not hasattr(grade, field) for field in required_grade_fields):
+        fail("quality critique result shape is invalid")
+    verdict = getattr(grade, "verdict")
+    score = getattr(grade, "score")
+    failing_gates = getattr(grade, "failing_gates")
+    violations = getattr(grade, "violations")
+    rule_verdicts = getattr(grade, "rule_verdicts")
+    needs_revision = getattr(grade, "needs_revision")
+    if (
+        not isinstance(verdict, str)
+        or type(score) is not int
+        or not 0 <= score <= 100
+        or not isinstance(failing_gates, list)
+        or any(not isinstance(item, str) for item in failing_gates)
+        or not isinstance(violations, list)
+        or any(not isinstance(item, str) for item in violations)
+        or not isinstance(rule_verdicts, list)
+        or type(needs_revision) is not bool
+    ):
+        fail("quality critique result fields are invalid")
+    for rule_verdict in rule_verdicts:
+        if (
+            not hasattr(rule_verdict, "rule")
+            or not isinstance(rule_verdict.rule, str)
+            or not hasattr(rule_verdict, "passed")
+            or type(rule_verdict.passed) is not bool
+        ):
+            fail("quality rule verdict shape is invalid")
+        if not rule_verdict.passed:
+            fail(f"quality rule failed: {rule_verdict.rule or 'unnamed rule'}")
+    if (
+        verdict.strip().casefold() != "pass"
+        or value["needs_review"]
+        or needs_revision
+        or failing_gates
+        or violations
+    ):
+        named = [
+            verdict,
+            *failing_gates,
+            *violations,
+        ]
+        fail(
+            "critic did not return an unambiguous pass"
+            + (": " + "; ".join(dict.fromkeys(named)) if named else "")
+        )
+    return grade, scenes, edit_rounds
+
+
 class SharedSectionProductionSeams:
     """Default bridge into StoryEngine's existing shared production code."""
 
@@ -2232,10 +2346,11 @@ class SharedSectionProductionSeams:
                 "exposition, disconnected claims, and non-visual filler.",
             )
         )
+        critic_input_scenes = [{"scene": 1, "text": script_text}]
         quality_result = await script_quality.run_critique_and_edit(
             self.tenant_id,
             request.video_id,
-            [{"scene": 1, "text": script_text}],
+            critic_input_scenes,
             client=client,
             niche=request.role,
             title=request.purpose,
@@ -2247,12 +2362,12 @@ class SharedSectionProductionSeams:
             },
             max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
         )
-        grade = quality_result["critique"]
-        final_scenes = quality_result.get("scenes") or []
-        if len(final_scenes) != 1:
-            raise CustomFilmContractError(
-                "Custom Film section script quality edit changed scene assignments"
+        grade, final_scenes, quality_edit_rounds = (
+            _validated_early_quality_result(
+                quality_result,
+                original_scenes=critic_input_scenes,
             )
+        )
         script_text = str(final_scenes[0].get("text") or "").strip()
         final_validation = validate_script(
             script_text,
@@ -2265,10 +2380,6 @@ class SharedSectionProductionSeams:
             config=config,
             generator_validation=final_validation,
         )
-        if "grade unavailable - failed open" in grade.failing_gates:
-            final_issues.append("visual-story quality grade was unavailable")
-        if quality_result.get("needs_review"):
-            final_issues.extend(grade.violations)
         if final_issues:
             raise CustomFilmContractError(
                 "Custom Film section script failed visual-story quality before "
@@ -2315,9 +2426,7 @@ class SharedSectionProductionSeams:
                                 "deterministic_edit_rounds": (
                                     deterministic_edit_rounds
                                 ),
-                                "quality_edit_rounds": int(
-                                    quality_result.get("edit_rounds") or 0
-                                ),
+                                "quality_edit_rounds": quality_edit_rounds,
                             },
                         },
                         "shared_validation": final_validation,
