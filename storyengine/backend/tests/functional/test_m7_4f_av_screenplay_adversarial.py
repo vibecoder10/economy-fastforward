@@ -1055,6 +1055,242 @@ async def test_terminal_wrong_track_repairs_fail_before_persistence(
     assert database_touched is False
 
 
+def _resolution_screenplay(*, staged: bool) -> str:
+    if staged:
+        visuals = (
+            "The engineer isolates the approved fault branch.",
+            "The diagnostic panel visibly confirms branch isolation.",
+            "The engineer routes the approved backup signal through the console.",
+            "The load panel steadies as the approved system lights return.",
+        )
+        sounds = (
+            "A breaker opens and the fault hum stops.",
+            "A diagnostic tone confirms the isolated state.",
+            "Relays engage in a rising sequence.",
+            "The room tone settles under a stable signal.",
+        )
+        carries = (
+            "approved fault map",
+            "isolated branch",
+            "confirmed isolation",
+            "routed backup signal",
+            "approved restored system",
+        )
+    else:
+        visuals = (
+            "The engineer pulls the approved restore switch once.",
+            "Every control panel automatically returns online.",
+            "A montage shows the approved system lights returning.",
+            "The final display announces the approved system is restored.",
+        )
+        sounds = (
+            "A switch clicks.",
+            "A single automatic tone rises.",
+            "Music swells beneath the montage.",
+            "A bright confirmation chime rings.",
+        )
+        carries = (
+            "approved fault map",
+            "pulled restore switch",
+            "automatic recovery",
+            "returning light montage",
+            "approved restored system",
+        )
+    lines = ["[AV SECTION — RESTORE | 0:00 - 0:40]"]
+    for index, (visual, sound) in enumerate(zip(visuals, sounds), start=1):
+        lines.extend(
+            (
+                f"[BEAT {index} | 0:{(index - 1) * 10:02d} - "
+                f"0:{index * 10:02d}]",
+                f"VISUAL: {visual}",
+                f"SOUND: {sound}",
+            )
+        )
+        if index in {1, 3}:
+            lines.append(
+                "VO [en]: The approved restoration advances through visible "
+                "confirmation."
+            )
+        lines.extend(
+            (
+                f"CARRY-IN: {carries[index - 1]}",
+                f"CARRY-OUT: {carries[index]}",
+            )
+        )
+    return "\n".join(lines)
+
+
+@pytest.mark.asyncio
+async def test_magic_button_resolution_semantic_failure_never_persists(
+    monkeypatch,
+):
+    purpose = "Restore the approved system safely"
+    next_purpose = "Land the approved restored system"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "resolution",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "closing",
+            "purpose": next_purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=40),
+            role="resolution",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "e" * 64,
+    )
+    candidate = _with_boundary_carries(
+        _resolution_screenplay(staged=False),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    observed = {}
+    database_touched = False
+
+    async def generate(_client, brief, **_kwargs):
+        observed["guidance"] = brief["writer_guidance"]
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        observed["rules"] = kwargs["rules_text"]
+        observed["repair"] = kwargs["edit_constraints"][0]
+        return {
+            "scenes": copy.deepcopy(scenes),
+            "critique": SimpleNamespace(
+                verdict="fail",
+                score=35,
+                failing_gates=["role_structure_quality"],
+                violations=[
+                    "one switch plus automatic recovery does not prove a "
+                    "dependent causal resolution"
+                ],
+                rule_verdicts=[],
+                needs_revision=True,
+            ),
+            "needs_review": True,
+            "edit_rounds": 2,
+            "regenerated": False,
+            "changed": False,
+        }
+
+    async def get_pool():
+        nonlocal database_touched
+        database_touched = True
+        raise AssertionError("failed resolution must not persist")
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    with pytest.raises(
+        CustomFilmContractError,
+        match="failed visual-story quality before voice or imagery",
+    ):
+        await seams._script(request)
+
+    for context in (
+        observed["guidance"],
+        observed["repair"],
+        observed["rules"],
+    ):
+        assert "multiple dependent visible actions or decisions" in context
+        assert "single switch, button, command, automatic recovery, or montage" in context
+        assert "observable confirmation before the next step" in context
+    assert database_touched is False
+
+
+@pytest.mark.asyncio
+async def test_staged_multi_step_resolution_passes_and_persists(
+    monkeypatch,
+):
+    purpose = "Restore the approved system safely"
+    next_purpose = "Land the approved restored system"
+    arc = (
+        {
+            "order_index": 0,
+            "section_id": "section-a",
+            "role": "resolution",
+            "purpose": purpose,
+            "render_mode": "coverage",
+        },
+        {
+            "order_index": 1,
+            "section_id": "section-b",
+            "role": "closing",
+            "purpose": next_purpose,
+            "render_mode": "coverage",
+        },
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=40),
+            role="resolution",
+            purpose=purpose,
+            story_arc=arc,
+        ),
+        (),
+        "custom-film-op:" + "d" * 64,
+    )
+    candidate = _with_boundary_carries(
+        _resolution_screenplay(staged=True),
+        carry_in=f"approved opening state — {purpose}",
+        carry_out=f"approved transition state — {next_purpose}",
+    )
+    inserted = []
+
+    class Connection:
+        async def fetchrow(self, _sql, *args):
+            inserted.append(args[4])
+            return {"id": args[0]}
+
+        async def execute(self, _sql, *_args):
+            return "UPDATE 1"
+
+    async def get_pool():
+        return _Pool(Connection())
+
+    async def generate(*_args, **_kwargs):
+        return {"script": candidate, "validation": {"valid": True, "issues": []}}
+
+    async def quality(_tenant, _video, scenes, **kwargs):
+        assert "multiple dependent visible actions or decisions" in kwargs[
+            "rules_text"
+        ]
+        return _quality_pass(scenes)
+
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    seams._executor = _Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr("script_quality.run_critique_and_edit", quality)
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    assert inserted == [candidate]
+    assert result["quality_verdict"] == "pass"
+
+
 def test_whole_arc_requires_concrete_carry_between_sections():
     first, first_issues = production._parse_custom_film_av_screenplay(
         _bilingual_screenplay(),

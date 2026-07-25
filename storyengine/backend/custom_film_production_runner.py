@@ -1248,9 +1248,14 @@ def _script_role_structure_law(role: str) -> str:
             "distinct visual beats, then end on an earned insight or handoff."
         ),
         "resolution": (
-            "Open on the decisive approved action or change. Show the causal "
-            "resolution in ordered visible beats with escalating confirmation, "
-            "then end by proving the result and handing off cleanly."
+            "Open on the first decisive approved action or decision. Resolve the "
+            "approved problem through multiple dependent visible actions or "
+            "decisions across distinct beats; every step must receive observable "
+            "confirmation before the next step begins, and the chain must "
+            "escalate toward the approved result. A single switch, button, "
+            "command, automatic recovery, or montage must never resolve the "
+            "whole problem. The final beat must visibly prove the approved "
+            "result and hand off cleanly without a generic renewed threat."
         ),
         "closing": (
             "Open on the earned payoff. Synthesize the approved through-line "
@@ -3669,6 +3674,15 @@ class SharedSectionProductionSeams:
             for part in (story_arc_guidance, story_arc_ending_law)
             if part
         )
+        role_structure_law = _script_role_structure_law(request.role)
+        role_structure_contract = "\n".join(
+            (
+                "=== APPROVED ROLE STRUCTURE LAW ===",
+                f"ROLE: {request.role}",
+                role_structure_law,
+                "=== END APPROVED ROLE STRUCTURE LAW ===",
+            )
+        )
         repair_context = "\n".join(
             part
             for part in (
@@ -3676,12 +3690,12 @@ class SharedSectionProductionSeams:
                 av_contract,
                 film_world_contract,
                 carry_binding_contract,
+                role_structure_contract,
                 story_arc_guidance,
                 story_arc_ending_law,
             )
             if part
         )
-        role_structure_law = _script_role_structure_law(request.role)
         brief = {
             "headline": request.purpose,
             "thesis": request.purpose,
@@ -3699,6 +3713,8 @@ class SharedSectionProductionSeams:
                     )
                 )
                 + approved_contract
+                + "\n"
+                + role_structure_contract
                 + "\n"
                 + (av_contract + "\n" if av_contract else "")
                 + (film_world_contract + "\n" if film_world_contract else "")
