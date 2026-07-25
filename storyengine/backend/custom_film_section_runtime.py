@@ -467,6 +467,66 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
             "Custom Film scripts-first execution model has a stale stage plan"
         )
 
+    approved_visual_beats: dict[int, list[dict[str, Any]]] = {}
+    quote_inputs = envelope.get("quote_inputs")
+    if scripts_first_schedule and isinstance(quote_inputs, Mapping):
+        orchestration = quote_inputs.get("orchestration")
+        if isinstance(orchestration, Mapping):
+            beat_plan = orchestration.get("approved_beat_plan")
+            if isinstance(beat_plan, Mapping):
+                recipes = beat_plan.get("recipes")
+                if isinstance(recipes, list):
+                    for raw_recipe in recipes:
+                        if not isinstance(raw_recipe, Mapping):
+                            continue
+                        section_index = raw_recipe.get("sectionIndex")
+                        if (
+                            type(section_index) is not int
+                            or section_index not in range(len(sections_by_id))
+                        ):
+                            continue
+                        signals = raw_recipe.get("signals")
+                        transition = raw_recipe.get("transition")
+                        capabilities = raw_recipe.get("requestedCapabilities")
+                        approved_visual_beats.setdefault(section_index, []).append(
+                            {
+                                "narrative_function": str(
+                                    raw_recipe.get("narrativeFunction") or ""
+                                ),
+                                "presentation": str(
+                                    raw_recipe.get("presentation") or ""
+                                ),
+                                "intents": [
+                                    str(value)
+                                    for value in (
+                                        signals.get("intents", [])
+                                        if isinstance(signals, Mapping)
+                                        else []
+                                    )
+                                    if str(value).strip()
+                                ],
+                                "handoff": (
+                                    str(signals.get("handoff") or "")
+                                    if isinstance(signals, Mapping)
+                                    else ""
+                                ),
+                                "transition": (
+                                    str(transition.get("mode") or "")
+                                    if isinstance(transition, Mapping)
+                                    else ""
+                                ),
+                                "motion_capabilities": [
+                                    str(value)
+                                    for value in (
+                                        capabilities
+                                        if isinstance(capabilities, list)
+                                        else []
+                                    )
+                                    if str(value).startswith("motion.")
+                                ],
+                            }
+                        )
+
     adapters: list[SectionStageAdapter] = []
     story_arc = tuple(
         _freeze(
@@ -477,6 +537,10 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
                     "role": str(section.get("role") or ""),
                     "purpose": str(section.get("purpose") or ""),
                     "render_mode": str(section.get("render_mode") or ""),
+                    "approved_visual_beats": approved_visual_beats.get(
+                        int(section["order_index"]),
+                        [],
+                    ),
                 }
                 if scripts_first_schedule
                 else {

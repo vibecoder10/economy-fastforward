@@ -1408,6 +1408,74 @@ def _script_story_arc_guidance(
     return "\n".join(lines)
 
 
+def _script_approved_visual_plan_contract(
+    story_arc: tuple[Mapping[str, Any], ...],
+    *,
+    current_order_index: int,
+) -> str:
+    """Expose already-approved orchestration as film grammar, not new facts."""
+
+    current = next(
+        (
+            item
+            for item in story_arc
+            if int(item.get("order_index", -1)) == current_order_index
+        ),
+        None,
+    )
+    if current is None:
+        return ""
+    beats = current.get("approved_visual_beats")
+    if not isinstance(beats, (list, tuple)) or not beats:
+        return ""
+    lines = [
+        "=== APPROVED VISUAL BEAT PLAN ===",
+        (
+            "These plan-selected components are mandatory screen-language "
+            "grounding for this section. Use them in order to shape cinematic "
+            "coverage and transitions, while the approved purpose/shared world "
+            "remain the only source of story facts. Translate component names "
+            "into diegetic shots, match cuts, layered visual motifs, and "
+            "observable action. Never speak, caption, diagram, or expose raw "
+            "component names, capability identifiers, handoff tokens, or "
+            "orchestration schema."
+        ),
+    ]
+    for index, raw_beat in enumerate(beats, start=1):
+        if not isinstance(raw_beat, Mapping):
+            continue
+        intents = ", ".join(
+            str(value)
+            for value in raw_beat.get("intents", ())
+            if str(value).strip()
+        )
+        capabilities = ", ".join(
+            str(value)
+            for value in raw_beat.get("motion_capabilities", ())
+            if str(value).strip()
+        )
+        lines.append(
+            f"VISUAL PLAN BEAT {index}: "
+            f"narrative function={str(raw_beat.get('narrative_function') or '')}; "
+            f"presentation={str(raw_beat.get('presentation') or '')}; "
+            f"visual intents={intents}; motion grammar={capabilities}; "
+            f"transition={str(raw_beat.get('transition') or '')}; "
+            f"handoff={str(raw_beat.get('handoff') or '')}"
+        )
+    lines.extend(
+        (
+            (
+                "FIDELITY LAW: The screenplay may subdivide timing into more "
+                "shots, but it must preserve this ordered visual progression. "
+                "A generic substitute that ignores these approved components "
+                "fails visual-story quality."
+            ),
+            "=== END APPROVED VISUAL BEAT PLAN ===",
+        )
+    )
+    return "\n".join(lines)
+
+
 def _script_shared_film_world_contract(
     story_arc: tuple[Mapping[str, Any], ...],
     *,
@@ -3788,6 +3856,10 @@ class SharedSectionProductionSeams:
             request.story_arc,
             current_order_index=request.order_index,
         )
+        approved_visual_plan_contract = _script_approved_visual_plan_contract(
+            request.story_arc,
+            current_order_index=request.order_index,
+        )
         story_arc_ending_law = _script_story_arc_continuity_law(
             request.story_arc,
             current_order_index=request.order_index,
@@ -3812,6 +3884,7 @@ class SharedSectionProductionSeams:
                 approved_contract,
                 av_contract,
                 film_world_contract,
+                approved_visual_plan_contract,
                 carry_binding_contract,
                 role_structure_contract,
                 story_arc_guidance,
@@ -3841,6 +3914,11 @@ class SharedSectionProductionSeams:
                 + "\n"
                 + (av_contract + "\n" if av_contract else "")
                 + (film_world_contract + "\n" if film_world_contract else "")
+                + (
+                    approved_visual_plan_contract + "\n"
+                    if approved_visual_plan_contract
+                    else ""
+                )
                 + (
                     carry_binding_contract + "\n"
                     if carry_binding_contract
@@ -4074,6 +4152,17 @@ class SharedSectionProductionSeams:
                 "story_arc_continuity: " + story_arc_continuity_rule
             )
             severity_by_rule["story_arc_continuity"] = "hard_gate"
+        if approved_visual_plan_contract:
+            rules.append(
+                "approved_visual_plan_fidelity: Preserve the ordered "
+                "plan-selected visual functions, presentations, intents, motion "
+                "grammar, and transitions as cinematic coverage. Reject generic "
+                "substitutes that ignore them and reject scripts that speak, "
+                "caption, diagram, or expose their raw component names, "
+                "capability identifiers, handoff tokens, or orchestration schema. "
+                + approved_visual_plan_contract
+            )
+            severity_by_rule["approved_visual_plan_fidelity"] = "hard_gate"
         if av_screenplay_mode:
             rules.append(
                 "shared_film_world_progression: Named facts explicitly present "

@@ -188,7 +188,72 @@ def test_scripts_first_schedule_gets_rich_arc_while_legacy_hash_shape_stays_old(
         "role",
         "purpose",
         "render_mode",
+        "approved_visual_beats",
     }
+    assert script.story_arc[0]["approved_visual_beats"] == ()
+
+
+def test_scripts_first_schedule_routes_approved_visual_plan_into_script_arc():
+    envelope = _envelope()
+    envelope["execution_model"] = (
+        custom_film_runtime.SCRIPTS_FIRST_AV_EXECUTION_MODEL
+    )
+    envelope["stage_plan"] = sorted(
+        envelope["stage_plan"],
+        key=lambda item: (
+            0 if item["stage"] == "script" else 1,
+            item["order_index"],
+            ["voice", "pictures", "motion", "clips", "quality"].index(
+                item["stage"]
+            )
+            if item["stage"] != "script"
+            else 0,
+        ),
+    )
+    envelope["quote_inputs"] = {
+        "orchestration": {
+            "approved_beat_plan": {
+                "recipes": [
+                    {
+                        "sectionIndex": 1,
+                        "narrativeFunction": "reveal",
+                        "presentation": "NetworkExplainer",
+                        "requestedCapabilities": [
+                            "media.approved_primary",
+                            "motion.network_explainer",
+                            "motion.incident_timeline",
+                        ],
+                        "signals": {
+                            "intents": ["network", "timeline", "recovery"],
+                            "handoff": "network_to_master",
+                        },
+                        "transition": {"mode": "transform-carry"},
+                    }
+                ]
+            }
+        }
+    }
+    _rehash(envelope)
+
+    script = next(
+        adapter
+        for adapter in section_runtime.compile_stage_adapters(envelope)
+        if adapter.stage == "script" and adapter.order_index == 1
+    )
+
+    assert script.story_arc[1]["approved_visual_beats"] == (
+        {
+            "narrative_function": "reveal",
+            "presentation": "NetworkExplainer",
+            "intents": ("network", "timeline", "recovery"),
+            "handoff": "network_to_master",
+            "transition": "transform-carry",
+            "motion_capabilities": (
+                "motion.network_explainer",
+                "motion.incident_timeline",
+            ),
+        },
+    )
 
 
 def test_adapter_values_are_immutable_and_provider_copy_is_detached():
