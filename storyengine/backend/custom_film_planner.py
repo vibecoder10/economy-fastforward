@@ -65,6 +65,7 @@ PlannerRole = Literal[*sorted(RECIPE_ROLES)]
 CUSTOM_FILM_SECTION_NAMESPACE = UUID("7c75538d-0114-4a43-a745-7587e45a6b91")
 MAX_PLANNER_SECTIONS = 12
 MAX_PLANNER_BEATS_PER_SECTION = 4
+MAX_PLANNER_FOCUS_CHARS = 240
 ROLE_PURPOSES = {
     "full_film": "Carry one coherent approach through the whole film about {focus}",
     "opening": "Set up {focus} and give the audience a reason to keep watching",
@@ -538,7 +539,7 @@ class PlannerSection(_StrictModel):
     """The complete and deliberately small authority granted to the model."""
 
     role: PlannerRole
-    focus: str = Field(min_length=1, max_length=120)
+    focus: str = Field(min_length=1, max_length=MAX_PLANNER_FOCUS_CHARS)
     duration_weight: Decimal = Field(gt=0, le=1_000_000)
     structure_source: PUBLIC_SOURCE
     writing_source: PUBLIC_SOURCE
@@ -555,7 +556,7 @@ class PlannerProposal(_StrictModel):
 
 
 class ReuseFocusSection(_StrictModel):
-    focus: str = Field(min_length=1, max_length=120)
+    focus: str = Field(min_length=1, max_length=MAX_PLANNER_FOCUS_CHARS)
 
 
 class ReuseFocusProposal(_StrictModel):
@@ -781,7 +782,8 @@ def _planner_prompt(
         "approval, or any generation instruction. For each `focus`, copy a concise "
         "exact content-topic phrase from the creator request, not Custom Film or "
         "production-treatment boilerplate and not an internal field/profile name; "
-        "on a revision it may instead exactly reuse that section's prior focus. "
+        f"keep it at most {MAX_PLANNER_FOCUS_CHARS} characters. "
+        "On a revision it may instead exactly reuse that section's prior focus. "
         "Never paraphrase or invent focus text. "
         "StoryEngine derives creator-facing purpose text from role + validated focus. "
         "For every NEW plan, include ordered `beats`. Choose only capability IDs "
@@ -816,9 +818,10 @@ def _planner_repair_prompt(
         "every valid field; replace only fields that violate the schema or grounding "
         "contract. Every `role` must be copied exactly from the canonical role "
         "catalog. Every `focus` must be a concise exact contiguous substring copied "
-        "from the creator request, never a paraphrase. Descriptive chapter language "
-        "belongs in focus or beats. Do not add providers, models, prices, approvals, "
-        "actions, runtime knobs, or generation instructions.\n\n"
+        "from the creator request, never a paraphrase, and must be at most "
+        f"{MAX_PLANNER_FOCUS_CHARS} characters. Descriptive chapter language belongs "
+        "in focus or beats. Do not add providers, models, prices, approvals, actions, "
+        "runtime knobs, or generation instructions.\n\n"
         f"CANONICAL ROLE CATALOG:\n{canonical_json(PUBLIC_ROLE_CATALOG)}\n\n"
         f"ORCHESTRATION CAPABILITY CATALOG ({CAPABILITY_CATALOG_VERSION}):\n"
         f"{canonical_json(PUBLIC_ORCHESTRATION_CAPABILITIES)}\n\n"
