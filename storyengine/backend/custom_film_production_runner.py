@@ -4422,8 +4422,8 @@ class SharedSectionProductionSeams:
                         AND s.video_id = css.video_id
                        WHERE css.tenant_id = $1::uuid
                          AND css.video_id = $2::uuid
-                         AND css.plan_id = $3
-                         AND css.section_id = ANY($4::text[])
+                         AND css.plan_id = $3::uuid
+                         AND css.section_id = ANY($4::uuid[])
                        ORDER BY css.scene_order""",
                     self.tenant_id,
                     request.video_id,
