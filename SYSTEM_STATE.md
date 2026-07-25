@@ -11825,3 +11825,18 @@ control writes without losing the video, approval, or confirmation.
   flagship footage. A real BYOK substitution requires the refreshed exact quote
   no higher than $15 and Ryan's separate explicit paid-run approval. Upload and
   publication remain separately gated.
+
+# Custom Film table-specific immutability triggers (added 2026-07-24)
+
+- Migration 132 replaces the shared polymorphic Custom Film UPDATE trigger with
+  separate recipe, plan, and section trigger functions. PostgreSQL record-field
+  resolution could otherwise evaluate recipe-only fields such as
+  `recipe_family_id` while consuming a plan approval and reject the transaction
+  before scheduling.
+- Recipe lifecycle protections, immutable plan identity, and fully immutable
+  section contracts remain unchanged. Only the plan approval hash/timestamp pair
+  remains consumable under the existing table CHECK constraint.
+- `schema.sql` mirrors the migration. The migration is reapply-safe and removes
+  the unsafe shared function only after all replacement triggers are attached.
+  It has not been applied to the live database; live migration and deployment
+  remain separately approval-gated.
