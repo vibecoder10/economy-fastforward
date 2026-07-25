@@ -34,7 +34,7 @@ import {
   getDiscoveryIdeas, getDiscoveryStatus, refreshDiscoveryIdeas,
   launchIdea, dismissIdea, getUserPreferences, setUserPreference,
   getReadinessStatus, setApiKey, testApiKey,
-  getNicheChannels, suggestTitles, getStyleDefault,
+  getNicheChannels, suggestTitles, getStyleDefault, getProductionStyles,
   type VideoSummary, type DiscoveryIdea, type ProductionStyleId, type TitleOption, type TitleSuggestion,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -347,6 +347,22 @@ export default function VideosPage() {
   // Which pipeline steps to run for the new video (all on = full video).
   // The stage panel is the single source of truth for research/voice/etc.
   const [newStages, setNewStages] = useState<Record<string, boolean>>(ALL_STAGES_ON);
+  // Same query key/queryFn ProductionStyleSelector uses below — react-query
+  // dedupes it, so this is not a second fetch. We only need it to read the
+  // selected style's render_mode: a static-documentary style never plays
+  // sound effects (status_map.render_path_plays_sfx's render_mode branch,
+  // mirrored here — the ONLY branch of that helper decidable before a video
+  // exists. dialogue_audio/dialogue_mode/custom_film_plan_id are set
+  // post-creation; the real, authoritative check for an EXISTING video is
+  // video.sound_effects_supported from the backend, read in SoundTab.tsx —
+  // never recomputed there).
+  const { data: productionStylesData } = useQuery({
+    queryKey: ["production-styles"],
+    queryFn: getProductionStyles,
+    staleTime: 5 * 60 * 1000,
+  });
+  const selectedProductionStyle = productionStylesData?.styles?.find((s) => s.id === newProductionStyleId);
+  const newStyleBlocksSfx = selectedProductionStyle?.knobs.render_mode === "static_docu";
   // Optional reference link to copy a video's style from (onto our topic).
   const [newReferenceUrl, setNewReferenceUrl] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -472,6 +488,16 @@ export default function VideosPage() {
   }, [createModalOpen, savedStagePreset]);
   const stagesMatchPreset = !!savedStagePreset &&
     STAGE_KEYS.every((k) => (savedStagePreset[k] ?? true) === !!newStages[k]);
+  // A static-documentary production style never plays sound effects (see
+  // newStyleBlocksSfx above) — turn "sound" off the same way a manual toggle
+  // would (pulling in/dropping prerequisites via applyStageToggle) whenever
+  // the selected style makes it unusable, so a creator can't leave it
+  // switched on and pay for prompts/effects the render will drop.
+  useEffect(() => {
+    if (newStyleBlocksSfx) {
+      setNewStages((prev) => (prev.sound ? applyStageToggle(prev, "sound") : prev));
+    }
+  }, [newStyleBlocksSfx]);
   const lockStagePreset = () => {
     const key = stagePresetKey();
     setUserPreference(key, newStages).catch(() => {});
@@ -1575,22 +1601,33 @@ export default function VideosPage() {
             <div className="space-y-1.5">
               {PIPELINE_STAGES.map((stage) => {
                 const on = newStages[stage.key];
+                // Sound is force-off when the selected production style
+                // never plays sound effects (see newStyleBlocksSfx above).
+                const stageDisabled = stage.key === "sound" && newStyleBlocksSfx;
                 return (
                   <button
                     key={stage.key}
                     type="button"
-                    onClick={() => setNewStages((prev) => applyStageToggle(prev, stage.key))}
-                    className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-all text-xs cursor-pointer"
+                    disabled={stageDisabled}
+                    onClick={() => !stageDisabled && setNewStages((prev) => applyStageToggle(prev, stage.key))}
+                    title={stageDisabled
+                      ? "This production style is a static-documentary render — it never mixes in sound effects, so sound design/effects would just be wasted spend."
+                      : undefined}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-all text-xs"
                     style={{
                       background: on ? "rgba(0,212,170,0.08)" : "var(--bg-elevated)",
                       border: `1px solid ${on ? "var(--turquoise)" : "var(--border)"}`,
+                      opacity: stageDisabled ? 0.5 : 1,
+                      cursor: stageDisabled ? "not-allowed" : "pointer",
                     }}
                   >
                     <div className="text-left">
                       <div className="font-medium flex items-center gap-1.5" style={{ color: "var(--text-primary)" }}>
                         {stage.label}
                       </div>
-                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>{stage.desc}</div>
+                      <div style={{ color: "var(--text-tertiary)", fontSize: "10px" }}>
+                        {stageDisabled ? "Not available for this production style" : stage.desc}
+                      </div>
                     </div>
                     <span
                       aria-hidden

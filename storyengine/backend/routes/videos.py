@@ -15,7 +15,10 @@ from models import (
 )
 from database import fetch_all, fetch_one, execute, safe_column
 from error_utils import humanize_error
-from status_map import get_next_status_supabase, normalize_stage_plan, first_status_for_plan
+from status_map import (
+    get_next_status_supabase, normalize_stage_plan, first_status_for_plan,
+    render_path_plays_sfx, render_path_sfx_block_reason,
+)
 import production_guide
 from prompt_defaults import VIDEO_MOTION_SYSTEM_PROMPT, SCRIPT_SYSTEM_PROMPT, THUMBNAIL_SYSTEM_PROMPT, SOUND_CURATION_SYSTEM_PROMPT, SOUND_GENERATION_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT
 from typing import Optional, Any
@@ -701,7 +704,7 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
                   custom_film_plan_hash, custom_film_quote_inputs_hash,
                   custom_film_approval_hash, custom_film_approved_at::text,
                   image_model_override, video_model,
-                  dialogue_audio, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
+                  dialogue_audio, dialogue_mode, render_mode, render_style, skip_voice, pipeline_stages, research_skipped,
                   video_length_minutes, youtube_url, final_video_url, total_cost, max_spend, views, ctr, avg_retention,
                   impressions, likes, comments, performance_verdict,
                   source_views, source_channel, source_urls,
@@ -828,7 +831,17 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         # banner re-offered "Lock the story" on already-locked videos.
         story_locked_at=r.get("story_locked_at"),
         dialogue_audio=r.get("dialogue_audio"),
+        dialogue_mode=r.get("dialogue_mode"),
         render_mode=r.get("render_mode"),
+        # Whether run_render will mix this video's sound effects into the
+        # final output — the ONE source of truth (status_map.
+        # render_path_plays_sfx) shared with routes/pipeline.py's sound
+        # endpoints, actions.py's "sound" verb, and pipeline_executor.py's
+        # auto-advance skip. The frontend reads this instead of re-deriving
+        # the custom_film_plan_id/render_mode/dialogue_audio/dialogue_mode
+        # branches in TypeScript.
+        sound_effects_supported=render_path_plays_sfx(r),
+        sound_effects_unsupported_reason=render_path_sfx_block_reason(r),
         # Channel-style routing guardrail (migration 089/C13b): surfaced in
         # C14 as the "Channel look" control (Animated / Realistic / Auto).
         render_style=r.get("render_style"),

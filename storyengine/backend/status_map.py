@@ -410,6 +410,71 @@ def stage_enabled_in_plan(stage: str, plan_value) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Sound-effects render-path guard (audit: SFX generated but silently dropped)
+# ---------------------------------------------------------------------------
+#
+# assets.sound_effect_url / sound_volume / sound_prompt are written by the
+# sound stage, but only ONE of run_render's five dispatch branches
+# (pipeline_executor.py::run_render, def ~line 16190) ever mixes them into
+# the final video — the legacy fallback that calls self._pipeline.
+# run_render_bot() (render/run.py -> upload/run_package.py -> remotion-video
+# Scene.tsx). The other four branches (Custom Film, static-documentary,
+# grok_native stitch, character-dialogue perform) each use a render pipeline
+# with a closed audio schema that has no SFX track at all. A video routed to
+# one of those four can still pay for sound generation (~$0.05/effect via
+# Kie.ai ElevenLabs Sound Effect V2) that render then silently throws away.
+#
+# _render_path_sfx_reason is the ONLY place that branch logic lives — it
+# mirrors run_render's dispatch order EXACTLY (see the comment there,
+# "SFX guard"), in the SAME order, so the two can never quietly drift apart.
+# Every caller that needs the yes/no answer or the human-readable reason goes
+# through the two thin wrappers below it, never re-derives the branches.
+def _render_path_sfx_reason(video: Optional[dict]) -> str:
+    """Empty string when this video's render path will mix in sound effects;
+    otherwise a human-readable reason it won't. Internal — call
+    render_path_plays_sfx() or render_path_sfx_block_reason(), not this
+    function, from outside this module."""
+    video = video or {}
+    if video.get("custom_film_plan_id"):
+        return ("this video uses the Custom Film render path, which has a "
+                 "closed audio schema and never mixes in sound effects.")
+    if (video.get("render_mode") or "") == "static_docu":
+        return ("this video is a static-documentary render (held images over "
+                 "narration), which has no sound-effects track.")
+    # dialogue_audio defaults to 'voice_over' when NULL/unset — only an
+    # EXPLICIT 'grok_native' routes to the clip-stitch render, exactly like
+    # run_render's `(video.get("dialogue_audio") or "voice_over")` check.
+    if (video.get("dialogue_audio") or "voice_over") == "grok_native":
+        return ("this video uses Grok-native dialogue (clips stitched in "
+                 "playback order), which never mixes in a separate "
+                 "sound-effects track.")
+    # dialogue_mode defaults to "" (falsy) when NULL/unset — only an EXPLICIT
+    # 'character_dialogue' routes to the performance-track render, exactly
+    # like run_render's `(video.get("dialogue_mode") or "") == ...` check.
+    if (video.get("dialogue_mode") or "") == "character_dialogue":
+        return ("this video uses character-dialogue performance rendering, "
+                 "which has no sound-effects track.")
+    return ""
+
+
+def render_path_plays_sfx(video: dict) -> bool:
+    """True only when run_render (pipeline_executor.py) falls through to the
+    legacy Remotion bot — the ONE render path that mixes
+    assets.sound_effect_url into the final output. See
+    render_path_sfx_block_reason() for why, when False, and the comment on
+    run_render's dispatch block for the branch order this must mirror
+    exactly."""
+    return _render_path_sfx_reason(video) == ""
+
+
+def render_path_sfx_block_reason(video: dict) -> Optional[str]:
+    """Human-readable reason this video's render path drops sound effects, or
+    None when they'll play normally. Computed by the SAME internal branch
+    logic as render_path_plays_sfx(), so the two can never disagree."""
+    return _render_path_sfx_reason(video) or None
+
+
+# ---------------------------------------------------------------------------
 # Friendly progress states (chat-first UI)
 # ---------------------------------------------------------------------------
 #

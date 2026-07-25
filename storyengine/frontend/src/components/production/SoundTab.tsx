@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { Play, Pause, Volume2, Zap, SkipForward, Loader2, ChevronRight } from "lucide-react";
+import { Play, Pause, Volume2, Zap, SkipForward, Loader2, ChevronRight, AlertTriangle } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SegmentBadge } from "@/components/ui/SegmentBadge";
@@ -178,6 +178,13 @@ export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
   const skippedCount = scenes.filter((s) => s.sfxStatus === "skipped").length;
   const pendingCount = scenes.filter((s) => s.sfxStatus === "pending").length;
   const estimatedCost = (generatedCount + pendingCount) * 0.05;
+
+  // Backend-computed flag (status_map.render_path_plays_sfx, surfaced via
+  // GET /api/videos/{id} as sound_effects_supported) — never re-derive the
+  // custom_film_plan_id/render_mode/dialogue_audio/dialogue_mode condition
+  // here. Defaults to true so every video predating this field (the entire
+  // legacy fallback path) keeps generating sound exactly as before.
+  const sfxSupported = video.sound_effects_supported !== false;
 
   // No prompts generated yet
   const hasAnyPrompts = scenes.some((s) => s.sfxStatus !== "skipped" && s.soundPrompt !== "No prompt");
@@ -375,6 +382,18 @@ export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
           </div>
         </GlassCard>
 
+        {!sfxSupported && (
+          <div
+            className="rounded-xl px-3 py-2.5 flex items-start gap-2"
+            style={{ background: "rgba(255,180,0,0.08)", border: "1px solid rgba(255,180,0,0.25)" }}
+          >
+            <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+              Sound generation is off for this video —{" "}
+              {video.sound_effects_unsupported_reason || "this render path drops sound effects."}
+            </p>
+          </div>
+        )}
         <div className="space-y-2">
           {!hasAnyPrompts ? (
             <ActionButton
@@ -383,7 +402,7 @@ export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
               icon={generating || taskRunning ? Loader2 : Zap}
               className="w-full"
               onClick={() => handleGenerate("sound-prompts")}
-              disabled={generating || taskRunning}
+              disabled={generating || taskRunning || !sfxSupported}
             >
               {taskRunning ? (taskMessage || "Generating...") : "Generate Sound Prompts"}
             </ActionButton>
@@ -395,7 +414,7 @@ export function SoundTab({ video, onAdvanced, taskWatcher }: SoundTabProps) {
                 icon={generating || taskRunning ? Loader2 : Zap}
                 className="w-full"
                 onClick={() => handleGenerate("sound-effects")}
-                disabled={generating || taskRunning}
+                disabled={generating || taskRunning || !sfxSupported}
               >
                 {taskRunning ? (taskMessage || "Generating...") : "Generate All SFX"}
               </ActionButton>

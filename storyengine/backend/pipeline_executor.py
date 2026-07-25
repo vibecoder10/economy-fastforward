@@ -51,7 +51,11 @@ for bot_dir in ["script", "voice", "image_prompts", "images", "video_motion",
 from database import fetch_one, fetch_all, execute
 from generation_ledger import record_ledger_entry
 from error_utils import humanize_error, user_facing
-from status_map import to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage, resolve_planned_status, get_next_status_supabase
+from status_map import (
+    to_supabase, to_pipeline, get_bot_name, STAGE_BOT_MAP, is_at_or_past_stage,
+    resolve_planned_status, get_next_status_supabase, STAGE_ORDER,
+    render_path_plays_sfx, render_path_sfx_block_reason,
+)
 from vault import get_secret
 from extraction import extract_grid
 from storage import upload_from_url
@@ -7298,24 +7302,44 @@ class PipelineExecutor:
 
     @staticmethod
     def _enabled_stages(video: Optional[dict]) -> Optional[list]:
-        """The video's per-video stage plan (list of enabled stage keys), or
-        None for 'run the full pipeline'. Reads the pipeline_stages JSONB column,
-        tolerating either a parsed list or a JSON string (asyncpg returns JSONB
-        as a str unless a codec is set)."""
-        if not video:
-            return None
-        raw = video.get("pipeline_stages")
-        if raw is None:
-            return None
-        if isinstance(raw, str):
-            import json
-            try:
-                raw = json.loads(raw)
-            except Exception:
-                return None
-        if isinstance(raw, list) and raw:
-            return raw
-        return None
+        """The video's EFFECTIVE stage plan (list of enabled stage keys), or
+        None for 'run the full pipeline with no exclusions'.
+
+        Two sources feed this, both additive (either can shrink the plan,
+        never grow it back):
+
+        1. The creator's pipeline_stages JSONB column — reads either a parsed
+           list or a JSON string (asyncpg returns JSONB as a str unless a
+           codec is set).
+        2. status_map.render_path_plays_sfx(video) — a video whose render
+           path can never mix in sound effects (Custom Film, static_docu,
+           grok_native, character_dialogue — see the comment on run_render's
+           dispatch block) has 'sound' force-excluded here even when the
+           creator never touched the stage plan. This is what lets the single
+           status-advance chokepoint below (_update_video_status /
+           _skip_disabled_next) route every future transition around the
+           sound stage automatically, the same way a creator-disabled stage
+           already gets skipped — no parallel skip mechanism.
+        """
+        stages: Optional[list] = None
+        if video:
+            raw = video.get("pipeline_stages")
+            if raw is not None:
+                if isinstance(raw, str):
+                    import json
+                    try:
+                        raw = json.loads(raw)
+                    except Exception:
+                        raw = None
+                if isinstance(raw, list) and raw:
+                    stages = list(raw)
+
+        if not render_path_plays_sfx(video):
+            if stages is None:
+                stages = [s for s in STAGE_ORDER if s != "sound"]
+            elif "sound" in stages:
+                stages = [s for s in stages if s != "sound"]
+        return stages
 
     @staticmethod
     def _skip_disabled_next(video: dict, natural_next: str) -> str:
@@ -13677,6 +13701,39 @@ separate scenes."""
                 "message": gate_message,
             }
 
+        # SFX guard (status_map.render_path_plays_sfx — see run_render's
+        # dispatch comment): there's no approval gate on ready_for_sound_design/
+        # ready_for_sound_effects, so a video whose render path can never play
+        # sound effects must be moved past this stage here, not run through
+        # run_sound_prompts/run_sound_effects (which would spend real money on
+        # generations render then throws away) and not left to sit here
+        # forever. _enabled_stages() already excludes "sound" for these videos
+        # going forward, so any FUTURE status write reroutes around it — but a
+        # video that reached this status BEFORE this guard existed needs an
+        # explicit skip-and-advance the first time it's next-stepped. Mirrors
+        # _full_auto_pass_gate's "skip a stage, advance to the next status"
+        # shape exactly (same get_next_status_supabase + _update_video_status
+        # + _log_transition sequence), just triggered by a different reason.
+        if current_status in ("ready_for_sound_design", "ready_for_sound_effects") and not render_path_plays_sfx(video):
+            natural_next = get_next_status_supabase(current_status)
+            # _skip_disabled_next resolves the SAME reroute _update_video_status
+            # applies internally (both read _enabled_stages, which now excludes
+            # "sound" for this video) — compute it explicitly here so the
+            # returned "status" always matches what actually gets written,
+            # instead of reporting the un-rerouted natural-next status.
+            next_status = self._skip_disabled_next(video, natural_next) if natural_next else None
+            reason = render_path_sfx_block_reason(video) or "this render path drops sound effects."
+            if next_status:
+                await self._update_video_status(video_id, next_status, video)
+                await self._log_transition(
+                    video_id, current_status, next_status, triggered_by="sfx_guard_skip")
+            return {
+                "status": next_status or "idle",
+                "video_id": video_id,
+                "skipped_stage": "sound",
+                "message": f"Sound stage skipped — {reason}",
+            }
+
         # Map status to handler
         handlers = {
             "idea_logged": self.run_research,
@@ -16225,6 +16282,19 @@ separate scenes."""
                 return {"status": "failed", "error": "Video not found"}
 
             current_status = video.get("status")
+
+            # SFX guard: the four early-return branches below (custom_film,
+            # static_docu, grok_native stitch, character_dialogue perform)
+            # each render through a closed audio schema with no sound-effects
+            # track — only the fallback at the bottom of this dispatch (the
+            # legacy Remotion bot) ever mixes in assets.sound_effect_url.
+            # status_map.render_path_plays_sfx() mirrors this exact branch
+            # order so every other caller (routes/pipeline.py's sound
+            # endpoints, actions.py's "sound" verb, the auto-advance status
+            # map, the frontend's Sound tab / stage checkbox) can answer
+            # "will SFX play?" without re-deriving these branches — if you
+            # change the order or the conditions here, update that function
+            # too, in the same order, or the two will drift.
 
             # Custom Film is interpreted exactly once at the render boundary.
             # Media/provider callers remain profile-agnostic.
