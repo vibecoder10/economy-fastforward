@@ -19,6 +19,7 @@ from production_styles import runtime_values_from_knobs
 
 
 RUNTIME_VERSION = "custom-film-runtime-v1"
+SCRIPTS_FIRST_AV_EXECUTION_MODEL = "scripts_first_av_v1"
 
 
 def _object(value: Any, name: str) -> dict[str, Any]:
@@ -126,23 +127,25 @@ class RuntimePlan:
         return canonical_hash(self._envelope_base())
 
     def stage_plan(self) -> tuple[dict[str, Any], ...]:
-        work: list[dict[str, Any]] = []
+        scripts: list[dict[str, Any]] = []
+        downstream: list[dict[str, Any]] = []
         for section in self.sections:
             stages = ["script", "voice", "pictures"]
             if bool(section.animation.get("enabled")):
                 stages.extend(("motion", "clips"))
             stages.append("quality")
             for stage in stages:
-                work.append(
-                    {
-                        "section_id": section.section_id,
-                        "order_index": section.order_index,
-                        "stage": stage,
-                        "duration_seconds": section.duration_seconds,
-                        "values": section.stage_values(),
-                    }
-                )
-        return tuple(work)
+                item = {
+                    "section_id": section.section_id,
+                    "order_index": section.order_index,
+                    "stage": stage,
+                    "duration_seconds": section.duration_seconds,
+                    "values": section.stage_values(),
+                }
+                (scripts if stage == "script" else downstream).append(item)
+        # New schedules establish a whole-film screenplay barrier: every
+        # script must pass before any voice, imagery, motion, or clip work.
+        return tuple((*scripts, *downstream))
 
     def envelope(self) -> dict[str, Any]:
         return {"runtime_hash": self.runtime_hash, **self._envelope_base()}
@@ -150,6 +153,7 @@ class RuntimePlan:
     def _envelope_base(self) -> dict[str, Any]:
         return {
             "runtime_version": RUNTIME_VERSION,
+            "execution_model": SCRIPTS_FIRST_AV_EXECUTION_MODEL,
             "video_id": self.video_id,
             "plan_id": self.plan_id,
             "plan_hash": self.plan_hash,

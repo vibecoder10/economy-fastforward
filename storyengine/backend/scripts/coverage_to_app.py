@@ -2435,6 +2435,17 @@ def _dialogue_turns(scene_text: str):
     diverging copies of this logic is exactly how lines ended up on the wrong
     shots (2026-07-02). Same-speaker lines separated by narration are separate
     turns; only adjacent lines merge."""
+    av_turns = [
+        (match.group("speaker").strip(), match.group("text").strip())
+        for match in re.finditer(
+            r"(?m)^DIALOGUE (?P<speaker>[A-Za-z][A-Za-z .'-]{0,40}) "
+            r"\[[a-z]{2,8}(?: \| pair=[A-Za-z0-9_-]+)?\]: "
+            r"(?P<text>\S.*)$",
+            scene_text or "",
+        )
+    ]
+    if av_turns:
+        return av_turns
     from storyboard.coverage import _scene_turns
     return _scene_turns(scene_text or "")
 

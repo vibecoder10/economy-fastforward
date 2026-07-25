@@ -129,10 +129,10 @@ async def test_compiler_carries_exact_seconds_ids_and_every_major_runtime_seam()
     stages = [(row["section_id"], row["stage"]) for row in compiled.stage_plan()]
     assert stages == [
         (static.section_id, "script"),
+        (animated.section_id, "script"),
         (static.section_id, "voice"),
         (static.section_id, "pictures"),
         (static.section_id, "quality"),
-        (animated.section_id, "script"),
         (animated.section_id, "voice"),
         (animated.section_id, "pictures"),
         (animated.section_id, "motion"),

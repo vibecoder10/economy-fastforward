@@ -1276,12 +1276,534 @@ def _script_story_arc_guidance(
     return "\n".join(lines)
 
 
+def _script_story_arc_continuity_law(
+    story_arc: tuple[Mapping[str, Any], ...],
+    *,
+    current_order_index: int,
+) -> str:
+    """Turn the structure-only arc into an explicit ending obligation."""
+
+    if not story_arc:
+        return ""
+    ordered_arc = sorted(
+        story_arc,
+        key=lambda item: int(item.get("order_index", -1)),
+    )
+    next_section = next(
+        (
+            item
+            for item in ordered_arc
+            if int(item.get("order_index", -1)) > current_order_index
+        ),
+        None,
+    )
+    if next_section is None:
+        ending_law = (
+            "CONTINUITY ENDING LAW: This is the final approved section. Land "
+            "the earned final image or takeaway without a generic threat, new "
+            "open loop, or new factual claim."
+        )
+    else:
+        next_order = int(next_section.get("order_index", -1))
+        next_role = str(next_section.get("role") or "")
+        next_purpose = str(next_section.get("purpose") or "")
+        ending_law = (
+            "CONTINUITY ENDING LAW: End this current section with a clean "
+            f"structural handoff toward SECTION {next_order + 1}, whose approved "
+            f"ROLE is '{next_role}' and PURPOSE is '{next_purpose}'. Use that "
+            "next purpose only as the direction of the handoff. Do not state, "
+            "preview, duplicate, or treat any next-section subject, person, "
+            "place, organization, event, date, number, example, or case study "
+            "as an authorized fact in the current section. Reject a generic "
+            "threat, warning, or open loop that does not earn this handoff."
+        )
+    return ending_law
+
+
+_AV_HEADER_PATTERN = re.compile(
+    r"^\[AV SECTION — (?P<title>[^\]\n|]{1,80}) \| "
+    r"0:00 - (?P<end>\d+:\d{2})\]\r?$"
+)
+_AV_BEAT_PATTERN = re.compile(
+    r"^\[BEAT (?P<number>\d+) \| (?P<start>\d+:\d{2}) - "
+    r"(?P<end>\d+:\d{2})\]\r?$"
+)
+_AV_DIALOGUE_PATTERN = re.compile(
+    r"^DIALOGUE (?P<speaker>[A-Za-z][A-Za-z .'-]{0,40}) "
+    r"\[(?P<language>[a-z]{2,8})(?: \| pair=(?P<pair>[A-Za-z0-9_-]+))?\]: "
+    r"(?P<text>\S.*)$"
+)
+_AV_VO_PATTERN = re.compile(
+    r"^VO \[(?P<language>[a-z]{2,8})\]: (?P<text>\S.*)$"
+)
+_AV_ACTION_LEAK_PATTERN = re.compile(
+    r"\b(?:camera|shot|close-up|wide shot|we see|"
+    r"(?:she|he|they|[A-Z][a-z]+)\s+(?:sits|stands|walks|runs|looks|"
+    r"turns|rewinds|opens|closes|moves|crosses|reaches|points|nods))\b",
+    re.IGNORECASE,
+)
+_AV_COMMON_SENTENCE_STARTS = frozenset(
+    {
+        "a",
+        "an",
+        "approved",
+        "as",
+        "closing",
+        "final",
+        "inside",
+        "low",
+        "meanwhile",
+        "opening",
+        "outside",
+        "quiet",
+        "soft",
+        "that",
+        "the",
+        "this",
+        "visible",
+        "when",
+    }
+)
+
+
+def _av_timestamp_seconds(value: str) -> int:
+    minutes, seconds = value.split(":", 1)
+    parsed_minutes = int(minutes)
+    parsed_seconds = int(seconds)
+    if parsed_seconds >= 60:
+        raise ValueError("seconds component is out of range")
+    return parsed_minutes * 60 + parsed_seconds
+
+
+def _custom_film_av_language_pair(
+    language: Mapping[str, Any],
+) -> tuple[str, str]:
+    raw_languages = language.get("languages")
+    if (
+        isinstance(raw_languages, (list, tuple))
+        and len(raw_languages) == 2
+        and all(str(value).strip() for value in raw_languages)
+    ):
+        return tuple(str(value).strip().casefold() for value in raw_languages)
+    source = str(
+        language.get("source_language")
+        or language.get("source")
+        or ""
+    ).strip().casefold()
+    target = str(
+        language.get("target_language")
+        or language.get("target")
+        or ""
+    ).strip().casefold()
+    if source and target and source != target:
+        return source, target
+    return "source", "target"
+
+
+def _custom_film_av_contract(request: SectionProductionRequest) -> str:
+    end = f"{request.exact_seconds // 60}:{request.exact_seconds % 60:02d}"
+    bilingual = str(request.language.get("mode") or "") == "bilingual"
+    approved_languages = _custom_film_av_language_pair(request.language)
+    return "\n".join(
+        (
+            "=== CUSTOM FILM COVERAGE AV SCREENPLAY CONTRACT ===",
+            (
+                "Return a believable audiovisual screenplay, never a narrator "
+                "reading camera directions or character actions."
+            ),
+            f"HEADER: [AV SECTION — <SHORT TITLE> | 0:00 - {end}]",
+            "For every contiguous timed beat use:",
+            "[BEAT <N> | <M:SS> - <M:SS>]",
+            "VISUAL: camera-visible action, environment, props, and transition",
+            "SOUND: diegetic sound effects or ambience",
+            "VO [<language>]: sparse information only when visuals/dialogue cannot carry it",
+            (
+                "DIALOGUE <speaker> [<language> | pair=<translation-id>]: "
+                "exact performed words"
+            ),
+            "CARRY-IN: concrete object, signal, evidence, or state entering the beat",
+            "CARRY-OUT: concrete object, signal, evidence, or changed state leaving the beat",
+            (
+                "TIMING LAW: Beats start at 0:00, are gapless/non-overlapping, "
+                f"and end exactly at {end}. Spoken coverage is cinematic and "
+                "sufficient, not wall-to-wall narration."
+            ),
+            (
+                "TRACK SEPARATION LAW: VISUAL, SOUND, timing, and carry text are "
+                "never audible. VO and DIALOGUE contain spoken words only. "
+                "Character actions belong in VISUAL, never third-person VO."
+            ),
+            (
+                "BILINGUAL PERFORMANCE LAW: Require actual performed turns by "
+                "the same on-screen speaker in exactly the two approved language "
+                f"labels '{approved_languages[0]}' and "
+                f"'{approved_languages[1]}'; every translation pair ID must "
+                "occur once in each approved language for lip-sync-ready segments. "
+                "No third language label is allowed."
+                if bilingual
+                else "LANGUAGE LAW: Use only the approved performed language mode."
+            ),
+            (
+                "CAUSE-AND-EFFECT LAW: Every beat changes visible state; each "
+                "CARRY-OUT must exactly match the next beat's CARRY-IN. The final "
+                "carry must earn the next approved section handoff."
+            ),
+            "=== END CUSTOM FILM COVERAGE AV SCREENPLAY CONTRACT ===",
+        )
+    )
+
+
+def _parse_custom_film_av_screenplay(
+    text: str,
+    *,
+    exact_seconds: int,
+    language_mode: str,
+    approved_languages: tuple[str, str] | None = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """Parse the coverage-only AV DSL and fail closed on ambiguous tracks."""
+
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    if not lines:
+        return None, ["AV screenplay is empty"]
+    header = _AV_HEADER_PATTERN.fullmatch(lines[0])
+    if not header:
+        return None, ["AV screenplay must begin with the canonical AV SECTION header"]
+    try:
+        if _av_timestamp_seconds(header.group("end")) != exact_seconds:
+            return None, ["AV screenplay header duration is not exact"]
+    except ValueError:
+        return None, ["AV screenplay header timestamp is malformed"]
+
+    beats: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    issues: list[str] = []
+    for line in lines[1:]:
+        beat_match = _AV_BEAT_PATTERN.fullmatch(line)
+        if beat_match:
+            if current is not None:
+                beats.append(current)
+            try:
+                start = _av_timestamp_seconds(beat_match.group("start"))
+                end = _av_timestamp_seconds(beat_match.group("end"))
+            except ValueError:
+                issues.append("AV beat timestamp is malformed")
+                start = end = -1
+            current = {
+                "beat": int(beat_match.group("number")),
+                "start_seconds": start,
+                "end_seconds": end,
+                "visual": None,
+                "sound": None,
+                "carry_in": None,
+                "carry_out": None,
+                "audible": [],
+            }
+            continue
+        if current is None:
+            issues.append("AV screenplay contains content outside a timed beat")
+            continue
+        matched_field = False
+        for prefix, key in (
+            ("VISUAL: ", "visual"),
+            ("SOUND: ", "sound"),
+            ("CARRY-IN: ", "carry_in"),
+            ("CARRY-OUT: ", "carry_out"),
+        ):
+            if line.startswith(prefix):
+                if current[key] is not None:
+                    issues.append(f"AV beat repeats {key}")
+                current[key] = line[len(prefix) :].strip()
+                matched_field = True
+                break
+        if matched_field:
+            continue
+        vo = _AV_VO_PATTERN.fullmatch(line)
+        dialogue = _AV_DIALOGUE_PATTERN.fullmatch(line)
+        if vo:
+            current["audible"].append(
+                {
+                    "type": "narration",
+                    "language": vo.group("language"),
+                    "text": vo.group("text").strip(),
+                }
+            )
+        elif dialogue:
+            current["audible"].append(
+                {
+                    "type": "dialogue",
+                    "speaker": dialogue.group("speaker").strip(),
+                    "language": dialogue.group("language"),
+                    "translation_pair": dialogue.group("pair"),
+                    "text": dialogue.group("text").strip(),
+                }
+            )
+        else:
+            issues.append("AV screenplay contains a malformed or unknown track tag")
+    if current is not None:
+        beats.append(current)
+    if not beats:
+        issues.append("AV screenplay contains no timed beats")
+
+    audible_segments: list[dict[str, Any]] = []
+    expected_start = 0
+    prior_carry: str | None = None
+    for index, beat in enumerate(beats, start=1):
+        if beat["beat"] != index:
+            issues.append("AV beat numbers must be contiguous from one")
+        if beat["start_seconds"] != expected_start or beat["end_seconds"] <= expected_start:
+            issues.append("AV beat timing must be contiguous and positive")
+        expected_start = beat["end_seconds"]
+        for required in ("visual", "sound", "carry_in", "carry_out"):
+            if not beat[required]:
+                issues.append(f"AV beat {index} is missing {required}")
+        if prior_carry is not None and (
+            str(beat["carry_in"]).strip().casefold() != prior_carry.casefold()
+        ):
+            issues.append("AV beat carry-out must exactly match the next carry-in")
+        prior_carry = str(beat["carry_out"] or "").strip()
+        for segment in beat["audible"]:
+            if _AV_ACTION_LEAK_PATTERN.search(segment["text"]):
+                issues.append("visual/action direction leaked into an audible segment")
+            if re.search(r"\b(?:VISUAL|SOUND|CARRY-(?:IN|OUT)|BEAT)\s*:", segment["text"]):
+                issues.append("screenplay track tags leaked into an audible segment")
+            audible_segments.append(
+                {
+                    **segment,
+                    "start_seconds": beat["start_seconds"],
+                    "end_seconds": beat["end_seconds"],
+                }
+            )
+    if expected_start != exact_seconds:
+        issues.append("AV beats do not end at the exact section duration")
+
+    spoken_words = sum(
+        len(_SCRIPT_WORD_PATTERN.findall(segment["text"]))
+        for segment in audible_segments
+    )
+    if spoken_words < max(3, round(exact_seconds * 0.25)):
+        issues.append("AV screenplay has insufficient cinematic spoken coverage")
+    if spoken_words > round(exact_seconds * 2.2):
+        issues.append("AV screenplay is action-heavy or wall-to-wall spoken narration")
+
+    if language_mode == "bilingual":
+        allowed_languages = tuple(
+            language.casefold()
+            for language in (
+                approved_languages or ("source", "target")
+            )
+        )
+        if (
+            len(allowed_languages) != 2
+            or allowed_languages[0] == allowed_languages[1]
+        ):
+            issues.append("bilingual approved language contract is invalid")
+        dialogue = [
+            segment for segment in audible_segments if segment["type"] == "dialogue"
+        ]
+        speakers: dict[str, set[str]] = {}
+        pairs: dict[str, list[tuple[str, str]]] = {}
+        for segment in dialogue:
+            speaker_identity = segment["speaker"].strip().casefold()
+            language_identity = segment["language"].casefold()
+            speakers.setdefault(speaker_identity, set()).add(
+                language_identity
+            )
+            pair = str(segment.get("translation_pair") or "")
+            if not pair:
+                issues.append("bilingual dialogue turn is missing a translation pair")
+            else:
+                pairs.setdefault(pair, []).append(
+                    (speaker_identity, language_identity)
+                )
+        observed_languages = {
+            segment["language"].casefold() for segment in dialogue
+        }
+        if observed_languages != set(allowed_languages):
+            issues.append(
+                "bilingual dialogue must use exactly the two approved languages"
+            )
+        if not any(
+            languages == set(allowed_languages)
+            for languages in speakers.values()
+        ):
+            issues.append(
+                "bilingual section requires one on-screen speaker performing in two languages"
+            )
+        for turns in pairs.values():
+            turn_languages = [language for _speaker, language in turns]
+            if (
+                len(turns) != 2
+                or set(turn_languages) != set(allowed_languages)
+                or any(
+                    turn_languages.count(language) != 1
+                    for language in allowed_languages
+                )
+            ):
+                issues.append(
+                    "bilingual translation pairs must contain exactly both "
+                    "approved languages"
+                )
+            if len({speaker for speaker, _language in turns}) != 1:
+                issues.append(
+                    "bilingual translation pair turns must use one exact speaker"
+                )
+
+    if issues:
+        return None, list(dict.fromkeys(issues))
+    return {
+        "format": "custom_film_av_v1",
+        "title": header.group("title").strip(),
+        "exact_seconds": exact_seconds,
+        "spoken_words": spoken_words,
+        "beats": beats,
+        "dialogue_segments": audible_segments,
+        "visual_beats": [
+            {
+                "beat": beat["beat"],
+                "start_seconds": beat["start_seconds"],
+                "end_seconds": beat["end_seconds"],
+                "visual": beat["visual"],
+                "carry_in": beat["carry_in"],
+                "carry_out": beat["carry_out"],
+            }
+            for beat in beats
+        ],
+        "sound_beats": [
+            {
+                "beat": beat["beat"],
+                "start_seconds": beat["start_seconds"],
+                "end_seconds": beat["end_seconds"],
+                "sound": beat["sound"],
+            }
+            for beat in beats
+        ],
+    }, []
+
+
+def _custom_film_av_narration_text(raw_segments: Any) -> str:
+    if isinstance(raw_segments, str):
+        try:
+            raw_segments = json.loads(raw_segments)
+        except ValueError:
+            return ""
+    if not isinstance(raw_segments, list):
+        return ""
+    return "\n\n".join(
+        str(segment.get("text") or "").strip()
+        for segment in raw_segments
+        if isinstance(segment, Mapping)
+        and segment.get("type") == "narration"
+        and str(segment.get("text") or "").strip()
+    )
+
+
+def _custom_film_av_grounding_issues(
+    parsed: Mapping[str, Any],
+    *,
+    approved_context: str,
+) -> list[str]:
+    factual_parts: list[str] = []
+    for beat in parsed.get("beats") or []:
+        if not isinstance(beat, Mapping):
+            continue
+        factual_parts.extend(
+            str(beat.get(key) or "")
+            for key in ("visual", "sound", "carry_in", "carry_out")
+        )
+        factual_parts.extend(
+            str(segment.get("text") or "")
+            for segment in beat.get("audible") or []
+            if isinstance(segment, Mapping)
+        )
+    factual_text = "\n".join(factual_parts)
+    issues: list[str] = []
+    approved_numbers = set(_SCRIPT_NUMBER_PATTERN.findall(approved_context))
+    unsupported_numbers = sorted(
+        set(_SCRIPT_NUMBER_PATTERN.findall(factual_text)) - approved_numbers
+    )
+    if unsupported_numbers:
+        issues.append(
+            "AV screenplay introduces number/date anchors absent from the "
+            "approved section: " + ", ".join(unsupported_numbers[:6])
+        )
+    unsupported_number_words = sorted(
+        _script_number_word_anchors(factual_text)
+        - _script_number_word_anchors(approved_context)
+    )
+    if unsupported_number_words:
+        issues.append(
+            "AV screenplay introduces number-word anchors absent from the "
+            "approved section: " + ", ".join(unsupported_number_words[:6])
+        )
+    approved_tokens = {
+        token.casefold() for token in _SCRIPT_WORD_PATTERN.findall(approved_context)
+    }
+    unsupported_named: list[str] = []
+    for match in _SCRIPT_NAMED_TOKEN_PATTERN.finditer(factual_text):
+        token = match.group(0)
+        before = factual_text[: match.start()]
+        line_start = before.rfind("\n") + 1
+        at_line_start = not before[line_start:].strip()
+        trimmed_before = before.rstrip()
+        at_sentence_start = not trimmed_before or trimmed_before[-1:] in ".!?"
+        if (at_line_start or at_sentence_start) and (
+            token.casefold() in _AV_COMMON_SENTENCE_STARTS
+        ):
+            continue
+        if (
+            token.casefold() not in approved_tokens
+            and token not in {"I"}
+            and token.casefold() not in _SCRIPT_GROUNDING_STOPWORDS
+        ):
+            unsupported_named.append(token)
+    for segment in parsed.get("dialogue_segments") or []:
+        if isinstance(segment, Mapping) and segment.get("type") == "dialogue":
+            speaker = str(segment.get("speaker") or "").strip()
+            if speaker and not re.search(
+                rf"(?<!\w){re.escape(speaker)}(?!\w)",
+                approved_context,
+                re.IGNORECASE,
+            ):
+                unsupported_named.append(speaker)
+    unsupported_named = sorted(set(unsupported_named))
+    if unsupported_named:
+        issues.append(
+            "AV screenplay introduces named anchors absent from the approved "
+            "section: " + ", ".join(unsupported_named[:6])
+        )
+    return issues
+
+
+def _validate_custom_film_av_arc(
+    parsed_sections: list[Mapping[str, Any]],
+) -> list[str]:
+    """Whole-film cause/effect proof used before any downstream media stage."""
+
+    issues: list[str] = []
+    previous_out: str | None = None
+    for index, parsed in enumerate(parsed_sections, start=1):
+        visual_beats = parsed.get("visual_beats") or []
+        if not visual_beats:
+            issues.append(f"AV section {index} has no visual beats")
+            continue
+        carry_in = str(visual_beats[0].get("carry_in") or "").strip()
+        carry_out = str(visual_beats[-1].get("carry_out") or "").strip()
+        if previous_out is not None and carry_in.casefold() != previous_out.casefold():
+            issues.append(
+                f"AV section {index - 1} carry-out does not match section "
+                f"{index} carry-in"
+            )
+        previous_out = carry_out
+    return issues
+
+
 def _script_approved_contract(
     *,
     role: str,
     purpose: str,
     exact_seconds: int,
     config: _ExactSectionConfig,
+    av_screenplay: bool = False,
 ) -> str:
     """One exclusive grounding/timing block shared by write and repair."""
 
@@ -1309,18 +1831,33 @@ def _script_approved_contract(
                 "assume either and do not add adjacent material."
             ),
             (
-                f"OUTPUT FORMAT LAW: Return exactly {config.act_count} act "
-                "using the shared marker grammar on its own line. For this "
-                f"section the required marker grammar is: {exact_marker} "
-                "Replace only <SHORT SECTION TITLE> with a short title; keep "
-                "the brackets, ACT number, separators, timestamps, and target "
-                "word annotation exactly as shown."
+                (
+                    "OUTPUT FORMAT LAW: Follow the Custom Film coverage AV "
+                    "screenplay contract below exactly. Do not emit an ACT "
+                    "marker or narration-document wrapper."
+                )
+                if av_screenplay
+                else (
+                    f"OUTPUT FORMAT LAW: Return exactly {config.act_count} act "
+                    "using the shared marker grammar on its own line. For this "
+                    f"section the required marker grammar is: {exact_marker} "
+                    "Replace only <SHORT SECTION TITLE> with a short title; keep "
+                    "the brackets, ACT number, separators, timestamps, and target "
+                    "word annotation exactly as shown."
+                )
             ),
             (
-                "Do not replace the bracketed marker with ACT/END prose. Do "
-                "not add SCRIPT, END, notes, analysis, Markdown headings, or "
-                "any wrapper before or after the marked spoken section. The "
-                "marker is document structure, not spoken narration."
+                (
+                    "Do not add SCRIPT, END, notes, analysis, Markdown headings, "
+                    "or any wrapper around the canonical AV screenplay."
+                )
+                if av_screenplay
+                else (
+                    "Do not replace the bracketed marker with ACT/END prose. Do "
+                    "not add SCRIPT, END, notes, analysis, Markdown headings, or "
+                    "any wrapper before or after the marked spoken section. The "
+                    "marker is document structure, not spoken narration."
+                )
             ),
             (
                 "VISUAL-STORY REPAIR LAW: Keep the approved focus explicit. "
@@ -2638,15 +3175,47 @@ class SharedSectionProductionSeams:
         )
         approved_context = f"{request.role}\n{request.purpose}"
         config = _ExactSectionConfig(request.exact_seconds)
+        av_screenplay_mode = (
+            request.render_mode == "coverage"
+            and bool(request.story_arc)
+            and all(
+                str(item.get("section_id") or "")
+                and str(item.get("render_mode") or "")
+                for item in request.story_arc
+            )
+        )
         approved_contract = _script_approved_contract(
             role=request.role,
             purpose=request.purpose,
             exact_seconds=request.exact_seconds,
             config=config,
+            av_screenplay=av_screenplay_mode,
+        )
+        av_contract = (
+            _custom_film_av_contract(request) if av_screenplay_mode else ""
         )
         story_arc_guidance = _script_story_arc_guidance(
             request.story_arc,
             current_order_index=request.order_index,
+        )
+        story_arc_ending_law = _script_story_arc_continuity_law(
+            request.story_arc,
+            current_order_index=request.order_index,
+        )
+        story_arc_continuity_rule = "\n".join(
+            part
+            for part in (story_arc_guidance, story_arc_ending_law)
+            if part
+        )
+        repair_context = "\n".join(
+            part
+            for part in (
+                approved_contract,
+                av_contract,
+                story_arc_guidance,
+                story_arc_ending_law,
+            )
+            if part
         )
         role_structure_law = _script_role_structure_law(request.role)
         brief = {
@@ -2656,10 +3225,23 @@ class SharedSectionProductionSeams:
             "writer_guidance": (
                 f"Write only section {request.order_index + 1}. Its role is "
                 f"'{request.role}' and its exact purpose is: {request.purpose}. "
-                f"The spoken result must fit exactly {request.exact_seconds} seconds.\n"
+                + (
+                    f"The AV beat timeline must span exactly "
+                    f"{request.exact_seconds} seconds; speech may remain sparse.\n"
+                    if av_screenplay_mode
+                    else (
+                        f"The spoken result must fit exactly "
+                        f"{request.exact_seconds} seconds.\n"
+                    )
+                )
                 + approved_contract
                 + "\n"
-                + (story_arc_guidance + "\n" if story_arc_guidance else "")
+                + (av_contract + "\n" if av_contract else "")
+                + (
+                    story_arc_continuity_rule + "\n"
+                    if story_arc_continuity_rule
+                    else ""
+                )
                 + f"Language mode is '{request.language.get('mode')}', dialogue "
                 f"audio is '{request.dialogue_audio}', and dubbing mode is "
                 f"'{request.dubbing.get('mode')}'. "
@@ -2693,6 +3275,49 @@ class SharedSectionProductionSeams:
             )
         import script_quality
 
+        def deterministic_validation(
+            current_text: str,
+            generator_validation: Any,
+        ) -> tuple[list[str], dict[str, Any]]:
+            if av_screenplay_mode:
+                parsed, av_issues = _parse_custom_film_av_screenplay(
+                    current_text,
+                    exact_seconds=request.exact_seconds,
+                    language_mode=str(request.language.get("mode") or ""),
+                    approved_languages=(
+                        _custom_film_av_language_pair(request.language)
+                        if str(request.language.get("mode") or "") == "bilingual"
+                        else None
+                    ),
+                )
+                if parsed is not None:
+                    av_issues.extend(
+                        _custom_film_av_grounding_issues(
+                            parsed,
+                            approved_context=approved_context,
+                        )
+                    )
+                return av_issues, {
+                    "valid": not av_issues,
+                    "issues": av_issues,
+                    "format": "custom_film_av_v1",
+                    "parsed": parsed,
+                }
+            shared_validation = (
+                generator_validation
+                if isinstance(generator_validation, Mapping)
+                else {}
+            )
+            return (
+                _script_grounding_issues(
+                    current_text,
+                    approved_context=approved_context,
+                    config=config,
+                    generator_validation=shared_validation,
+                ),
+                dict(shared_validation),
+            )
+
         async def repair_deterministic_issues(
             current_text: str,
             current_issues: list[str],
@@ -2710,7 +3335,7 @@ class SharedSectionProductionSeams:
                         *current_issues,
                         (
                             "EDIT CONSTRAINTS — these remain mandatory on every "
-                            "repair:\n" + approved_contract
+                            "repair:\n" + repair_context
                         ),
                     ],
                     client=client,
@@ -2719,24 +3344,24 @@ class SharedSectionProductionSeams:
                 if not edited:
                     break
                 current_text = str(edited[0].get("text") or "").strip()
-                validation = validate_script(
-                    current_text,
-                    config=config,
-                    profile=profile,
+                shared_validation = (
+                    {}
+                    if av_screenplay_mode
+                    else validate_script(
+                        current_text,
+                        config=config,
+                        profile=profile,
+                    )
                 )
-                current_issues = _script_grounding_issues(
+                current_issues, validation = deterministic_validation(
                     current_text,
-                    approved_context=approved_context,
-                    config=config,
-                    generator_validation=validation,
+                    shared_validation,
                 )
             return current_text, current_issues, rounds, validation
 
-        deterministic_issues = _script_grounding_issues(
+        deterministic_issues, initial_validation = deterministic_validation(
             script_text,
-            approved_context=approved_context,
-            config=config,
-            generator_validation=generated.get("validation"),
+            generated.get("validation"),
         )
         (
             script_text,
@@ -2747,29 +3372,61 @@ class SharedSectionProductionSeams:
             script_text,
             deterministic_issues,
         )
+        if not deterministic_edit_rounds:
+            final_validation = initial_validation
         if deterministic_issues:
             raise CustomFilmContractError(
                 "Custom Film section script failed approved timing/grounding "
                 "before voice or imagery: " + "; ".join(deterministic_issues)
             )
 
-        rules_text = "\n".join(
-            (
-                "approved_purpose_grounding: The script must stay entirely "
-                f"within this approved section context: {approved_context}. "
-                "Reject any unrelated person, place, organization, event, date, "
-                "number, case study, conspiracy, or adjacent topic.",
-                "visual_story_readiness: The script must tell a coherent, "
-                "specific visual story. Each beat must provide concrete action, "
-                "evidence, environment, character behavior, or an observable "
-                "change that the approved stills or clips can show; reject generic "
-                "exposition, disconnected claims, and non-visual filler.",
-                "role_structure_quality: Apply this film-agnostic structural "
-                f"law for the approved '{request.role}' role: "
-                f"{role_structure_law} The ordered story arc may guide continuity "
-                "and handoff only; it cannot authorize facts from another section.",
+        rules = [
+            "approved_purpose_grounding: The script must stay entirely "
+            f"within this approved section context: {approved_context}. "
+            "Reject any unrelated person, place, organization, event, date, "
+            "number, case study, conspiracy, or adjacent topic.",
+            "visual_story_readiness: The script must tell a coherent, "
+            "specific visual story. Each beat must provide concrete action, "
+            "evidence, environment, character behavior, or an observable "
+            "change that the approved stills or clips can show; reject generic "
+            "exposition, disconnected claims, and non-visual filler.",
+            "role_structure_quality: Apply this film-agnostic structural "
+            f"law for the approved '{request.role}' role: "
+            f"{role_structure_law} The ordered story arc may guide continuity "
+            "and handoff only; it cannot authorize facts from another section.",
+        ]
+        severity_by_rule = {
+            "approved_purpose_grounding": "hard_gate",
+            "visual_story_readiness": "hard_gate",
+            "role_structure_quality": "hard_gate",
+        }
+        if story_arc_continuity_rule:
+            rules.append(
+                "story_arc_continuity: " + story_arc_continuity_rule
             )
-        )
+            severity_by_rule["story_arc_continuity"] = "hard_gate"
+        if av_screenplay_mode:
+            rules.append(
+                "av_screenplay_performance: The coverage section must play as "
+                "a believable audiovisual scene. Audible VO/dialogue may contain "
+                "spoken words only; visual action, camera, props, ambience, and "
+                "transitions stay on their dedicated tracks. Reject third-person "
+                "narration of character actions, malformed/gapped beat timing, "
+                "action-heavy VO, weak performed dialogue, or disconnected beats."
+            )
+            severity_by_rule["av_screenplay_performance"] = "hard_gate"
+            if str(request.language.get("mode") or "") == "bilingual":
+                rules.append(
+                    "bilingual_performance_fidelity: The same approved on-screen "
+                    "speaker must perform meaning-equivalent turns in both "
+                    "approved languages. Translation-paired lines must preserve "
+                    "intent, facts, tone, and referents while remaining natural "
+                    "and lip-sync-ready; reject labels without actual dialogue, "
+                    "third-person narration of the speaker, or merely matching "
+                    "pair IDs with divergent meaning."
+                )
+                severity_by_rule["bilingual_performance_fidelity"] = "hard_gate"
+        rules_text = "\n".join(rules)
         grade = None
         quality_edit_rounds = 0
         quality_passes = 0
@@ -2785,16 +3442,12 @@ class SharedSectionProductionSeams:
                 title=request.purpose,
                 hook=f"{request.role}: {request.purpose}",
                 rules_text=rules_text,
-                severity_by_rule={
-                    "approved_purpose_grounding": "hard_gate",
-                    "visual_story_readiness": "hard_gate",
-                    "role_structure_quality": "hard_gate",
-                },
+                severity_by_rule=severity_by_rule,
                 max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
                 edit_constraints=[
                     (
                         "EDIT CONSTRAINTS — these remain mandatory on every "
-                        "repair:\n" + approved_contract
+                        "repair:\n" + repair_context
                     )
                 ],
             )
@@ -2805,16 +3458,18 @@ class SharedSectionProductionSeams:
             quality_passes += 1
             quality_edit_rounds += edit_rounds
             script_text = str(final_scenes[0].get("text") or "").strip()
-            final_validation = validate_script(
-                script_text,
-                config=config,
-                profile=profile,
+            shared_validation = (
+                {}
+                if av_screenplay_mode
+                else validate_script(
+                    script_text,
+                    config=config,
+                    profile=profile,
+                )
             )
-            final_issues = _script_grounding_issues(
+            final_issues, final_validation = deterministic_validation(
                 script_text,
-                approved_context=approved_context,
-                config=config,
-                generator_validation=final_validation,
+                shared_validation,
             )
             if not final_issues:
                 converged = True
@@ -2840,6 +3495,53 @@ class SharedSectionProductionSeams:
                 "Custom Film section script quality gates did not converge "
                 "before voice or imagery"
             )
+        av_screenplay = (
+            final_validation.get("parsed")
+            if av_screenplay_mode and isinstance(final_validation, Mapping)
+            else None
+        )
+        if av_screenplay_mode and not isinstance(av_screenplay, Mapping):
+            raise CustomFilmContractError(
+                "Custom Film AV screenplay was not deterministically parsed"
+            )
+        dialogue_segments = (
+            list(av_screenplay.get("dialogue_segments") or [])
+            if isinstance(av_screenplay, Mapping)
+            else None
+        )
+        script_validation_payload = {
+            "custom_film": {
+                "runtime_hash": request.runtime_hash,
+                "section_id": request.section_id,
+                "exact_seconds": request.exact_seconds,
+                "script_profile": request.script_profile,
+                "preflight": {
+                    "verdict": grade.verdict,
+                    "score": grade.score,
+                    "deterministic_edit_rounds": deterministic_edit_rounds,
+                    "quality_edit_rounds": quality_edit_rounds,
+                    "quality_passes": quality_passes,
+                },
+            },
+            "shared_validation": final_validation,
+            "av_screenplay": (
+                {
+                    "format": av_screenplay.get("format"),
+                    "exact_seconds": av_screenplay.get("exact_seconds"),
+                    "spoken_words": av_screenplay.get("spoken_words"),
+                    "visual_beats": av_screenplay.get("visual_beats"),
+                    "sound_beats": av_screenplay.get("sound_beats"),
+                    "carry_out": (
+                        av_screenplay.get("visual_beats") or [{}]
+                    )[-1].get("carry_out"),
+                    "carry_in": (
+                        av_screenplay.get("visual_beats") or [{}]
+                    )[0].get("carry_in"),
+                }
+                if isinstance(av_screenplay, Mapping)
+                else None
+            ),
+        }
         scene_id = str(
             uuid.uuid5(
                 uuid.NAMESPACE_URL,
@@ -2848,15 +3550,111 @@ class SharedSectionProductionSeams:
         )
         pool = await __import__("database").get_pool()
         async with pool.acquire() as conn:
+            dialogue_mode_update: str | None = None
+            coverage_arc = [
+                item
+                for item in request.story_arc
+                if str(item.get("render_mode") or "coverage") == "coverage"
+            ]
+            if (
+                av_screenplay_mode
+                and coverage_arc
+                and all(str(item.get("section_id") or "") for item in coverage_arc)
+                and request.order_index
+                == max(int(item.get("order_index", -1)) for item in coverage_arc)
+            ):
+                prior_section_ids = [
+                    str(item["section_id"])
+                    for item in coverage_arc
+                    if str(item["section_id"]) != request.section_id
+                ]
+                screenplay_rows = await conn.fetch(
+                    """SELECT css.section_id, s.script_validation
+                       FROM custom_film_section_scenes css
+                       JOIN scripts s
+                         ON s.id = css.script_id
+                        AND s.tenant_id = css.tenant_id
+                        AND s.video_id = css.video_id
+                       WHERE css.tenant_id = $1::uuid
+                         AND css.video_id = $2::uuid
+                         AND css.plan_id = $3
+                         AND css.section_id = ANY($4::text[])
+                       ORDER BY css.scene_order""",
+                    self.tenant_id,
+                    request.video_id,
+                    request.plan_id,
+                    prior_section_ids,
+                )
+                parsed_by_section: dict[str, Mapping[str, Any]] = {}
+                for screenplay_row in screenplay_rows:
+                    raw_validation = screenplay_row.get("script_validation")
+                    if isinstance(raw_validation, str):
+                        try:
+                            raw_validation = json.loads(raw_validation)
+                        except ValueError:
+                            raw_validation = None
+                    parsed = (
+                        raw_validation.get("shared_validation", {}).get("parsed")
+                        if isinstance(raw_validation, Mapping)
+                        else None
+                    )
+                    custom_film_validation = (
+                        raw_validation.get("custom_film", {})
+                        if isinstance(raw_validation, Mapping)
+                        else {}
+                    )
+                    row_section_id = str(
+                        screenplay_row.get("section_id") or ""
+                    )
+                    if (
+                        isinstance(parsed, Mapping)
+                        and custom_film_validation.get("runtime_hash")
+                        == request.runtime_hash
+                        and custom_film_validation.get("section_id")
+                        == row_section_id
+                    ):
+                        parsed_by_section[row_section_id] = parsed
+                parsed_by_section[request.section_id] = av_screenplay
+                ordered_parsed = [
+                    parsed_by_section.get(str(item["section_id"]))
+                    for item in sorted(
+                        coverage_arc,
+                        key=lambda value: int(value.get("order_index", -1)),
+                    )
+                ]
+                if any(not isinstance(parsed, Mapping) for parsed in ordered_parsed):
+                    raise CustomFilmContractError(
+                        "Custom Film whole-arc AV screenplay barrier is "
+                        "incomplete; no voice or imagery was started"
+                    )
+                arc_issues = _validate_custom_film_av_arc(ordered_parsed)
+                if arc_issues:
+                    raise CustomFilmContractError(
+                        "Custom Film whole-arc AV screenplay failed continuity; "
+                        "no voice or imagery was started: "
+                        + "; ".join(arc_issues)
+                    )
+                dialogue_mode_update = (
+                    "character_dialogue"
+                    if any(
+                        segment.get("type") == "dialogue"
+                        for parsed in ordered_parsed
+                        for segment in parsed.get("dialogue_segments") or []
+                        if isinstance(segment, Mapping)
+                    )
+                    else "narration_only"
+                )
             row = await conn.fetchrow(
                 """INSERT INTO scripts
                      (id, tenant_id, video_id, scene, scene_text, title,
-                      script_status, voice_id, script_validation)
+                      script_status, voice_id, script_validation,
+                      dialogue_segments)
                    VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6,
-                           'Create', $7, $8)
+                           'Create', $7, $8, $9::jsonb)
                    ON CONFLICT (id) DO UPDATE
                      SET scene_text = EXCLUDED.scene_text,
                          script_validation = EXCLUDED.script_validation,
+                         dialogue_segments = EXCLUDED.dialogue_segments,
                          updated_at = now()
                    WHERE scripts.tenant_id = EXCLUDED.tenant_id
                      AND scripts.video_id = EXCLUDED.video_id
@@ -2868,26 +3666,11 @@ class SharedSectionProductionSeams:
                 script_text,
                 video_title,
                 "1SM7GgM6IMuvQlz2BwM3",
-                json.dumps(
-                    {
-                        "custom_film": {
-                            "runtime_hash": request.runtime_hash,
-                            "section_id": request.section_id,
-                            "exact_seconds": request.exact_seconds,
-                            "script_profile": request.script_profile,
-                            "preflight": {
-                                "verdict": grade.verdict,
-                                "score": grade.score,
-                                "deterministic_edit_rounds": (
-                                    deterministic_edit_rounds
-                                ),
-                                "quality_edit_rounds": quality_edit_rounds,
-                                "quality_passes": quality_passes,
-                            },
-                        },
-                        "shared_validation": final_validation,
-                    },
-                    sort_keys=True,
+                json.dumps(script_validation_payload, sort_keys=True),
+                (
+                    json.dumps(dialogue_segments, sort_keys=True)
+                    if dialogue_segments is not None
+                    else None
                 ),
             )
             if not row or str(row.get("id") or "") != scene_id:
@@ -2896,7 +3679,9 @@ class SharedSectionProductionSeams:
                 )
             await conn.execute(
                 """UPDATE videos v
-                   SET script = assembled.script, updated_at = now()
+                   SET script = assembled.script,
+                       dialogue_mode = COALESCE($3, v.dialogue_mode),
+                       updated_at = now()
                    FROM (
                      SELECT video_id,
                             string_agg(scene_text, E'\\n\\n' ORDER BY scene) AS script
@@ -2907,6 +3692,7 @@ class SharedSectionProductionSeams:
                    WHERE v.tenant_id = $1::uuid AND v.id = assembled.video_id""",
                 self.tenant_id,
                 request.video_id,
+                dialogue_mode_update,
             )
         return {
             "scene_ids": [scene_id],
@@ -2935,7 +3721,7 @@ class SharedSectionProductionSeams:
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 """SELECT id, scene, scene_text, voice_id, voice_status,
-                          voice_over_url
+                          voice_over_url, dialogue_segments
                    FROM scripts
                    WHERE tenant_id = $1::uuid AND video_id = $2::uuid
                      AND id = ANY($3::uuid[])
@@ -3105,7 +3891,15 @@ class SharedSectionProductionSeams:
                     }
                 )
                 continue
-            text = narration_text(str(row.get("scene_text") or ""), dialogue_mode)
+            if request.render_mode == "coverage" and row.get("dialogue_segments"):
+                text = _custom_film_av_narration_text(
+                    row.get("dialogue_segments")
+                )
+            else:
+                text = narration_text(
+                    str(row.get("scene_text") or ""),
+                    dialogue_mode,
+                )
             if not text:
                 continue
             if provider_operation_id:
