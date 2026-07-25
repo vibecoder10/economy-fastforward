@@ -268,6 +268,67 @@ def test_bilingual_language_contract_rejects_third_or_unapproved_labels():
     assert "bilingual dialogue must use exactly the two approved languages" in default_issues
 
 
+@pytest.mark.parametrize(
+    ("screenplay", "expected_issue"),
+    [
+        (
+            _bilingual_screenplay().replace(
+                "DIALOGUE Mara [es | pair=signal-1]",
+                "DIALOGUE Marco [es | pair=signal-1]",
+            ),
+            "bilingual translation pair turns must use one exact speaker",
+        ),
+        (
+            _bilingual_screenplay().replace(
+                "DIALOGUE Mara [es | pair=signal-1]: La señal ha vuelto.",
+                "\n".join(
+                    (
+                        "DIALOGUE Mara [en | pair=signal-1]: The signal remains.",
+                        "DIALOGUE Mara [es | pair=signal-1]: La señal ha vuelto.",
+                    )
+                ),
+            ),
+            "bilingual translation pairs must contain exactly both approved languages",
+        ),
+    ],
+)
+def test_translation_pair_rejects_cross_speaker_or_duplicate_language_turns(
+    screenplay,
+    expected_issue,
+):
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        screenplay,
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+
+    assert parsed is None
+    assert expected_issue in issues
+
+
+def test_exact_mara_en_es_translation_pair_is_valid():
+    parsed, issues = production._parse_custom_film_av_screenplay(
+        _bilingual_screenplay(),
+        exact_seconds=12,
+        language_mode="bilingual",
+        approved_languages=("en", "es"),
+    )
+
+    assert issues == []
+    assert [
+        (
+            segment["speaker"],
+            segment["language"],
+            segment["translation_pair"],
+        )
+        for segment in parsed["dialogue_segments"]
+    ] == [
+        ("Mara", "en", "signal-1"),
+        ("Mara", "es", "signal-1"),
+    ]
+
+
 def test_generated_av_contract_names_exact_configured_language_labels():
     request = production._request(
         replace(

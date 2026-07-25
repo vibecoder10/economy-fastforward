@@ -1601,16 +1601,20 @@ def _parse_custom_film_av_screenplay(
             segment for segment in audible_segments if segment["type"] == "dialogue"
         ]
         speakers: dict[str, set[str]] = {}
-        pairs: dict[str, set[str]] = {}
+        pairs: dict[str, list[tuple[str, str]]] = {}
         for segment in dialogue:
-            speakers.setdefault(segment["speaker"].casefold(), set()).add(
-                segment["language"]
+            speaker_identity = segment["speaker"].strip().casefold()
+            language_identity = segment["language"].casefold()
+            speakers.setdefault(speaker_identity, set()).add(
+                language_identity
             )
             pair = str(segment.get("translation_pair") or "")
             if not pair:
                 issues.append("bilingual dialogue turn is missing a translation pair")
             else:
-                pairs.setdefault(pair, set()).add(segment["language"])
+                pairs.setdefault(pair, []).append(
+                    (speaker_identity, language_identity)
+                )
         observed_languages = {
             segment["language"].casefold() for segment in dialogue
         }
@@ -1625,10 +1629,24 @@ def _parse_custom_film_av_screenplay(
             issues.append(
                 "bilingual section requires one on-screen speaker performing in two languages"
             )
-        if any(languages != set(allowed_languages) for languages in pairs.values()):
-            issues.append(
-                "bilingual translation pairs must contain exactly both approved languages"
-            )
+        for turns in pairs.values():
+            turn_languages = [language for _speaker, language in turns]
+            if (
+                len(turns) != 2
+                or set(turn_languages) != set(allowed_languages)
+                or any(
+                    turn_languages.count(language) != 1
+                    for language in allowed_languages
+                )
+            ):
+                issues.append(
+                    "bilingual translation pairs must contain exactly both "
+                    "approved languages"
+                )
+            if len({speaker for speaker, _language in turns}) != 1:
+                issues.append(
+                    "bilingual translation pair turns must use one exact speaker"
+                )
 
     if issues:
         return None, list(dict.fromkeys(issues))
