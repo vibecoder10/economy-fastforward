@@ -11878,3 +11878,10 @@ control writes without losing the video, approval, or confirmation.
   the approved quote and cannot be silently treated as authorized. Paid
   continuation requires a refreshed exact cumulative/remaining cap approval;
   upload and publication remain separate gates.
+- PR #476 deployed this law at production revision `dfc0b079` through the
+  zero-active-work drain. Post-deploy backend, frontend, Redis/arq, storage,
+  automatic undrain, and zero-task checks passed. Read-only accounting found
+  one durable script and voice, no images or clips, no ledger rows, and no
+  queryable provider operation/result for the unresolved image submission.
+  The conservative next approval is therefore an exact cumulative cap of
+  $8.57: the prior $8.52 ceiling plus one $0.05 possible auxiliary image.
