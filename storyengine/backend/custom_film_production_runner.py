@@ -1055,10 +1055,11 @@ _SCRIPT_GROUNDING_STOPWORDS = frozenset(
 )
 _SCRIPT_MARKER_PATTERN = re.compile(r"\[(?:ACT|SCENE)\b[^\]]*\]", re.IGNORECASE)
 _SCRIPT_ACT_MARKER_PATTERN = re.compile(
-    r"\[ACT\s+(\d+)\s*[—–-]\s*(.+?)\s*\|\s*"
-    r"([\d:]+)\s*[—–-]\s*([\d:]+)\s*\|\s*"
-    r"~?\s*(\d+)\s*words?\s*\]",
-    re.IGNORECASE,
+    r"^\[ACT (?P<number>\d+) — "
+    r"(?P<title>[\w][\w &'’,:!?-]{0,78})"
+    r" \| (?P<start>\d+:\d{2}) - (?P<end>\d+:\d{2})"
+    r" \| ~(?P<words>\d+) words\]\r?$",
+    re.MULTILINE,
 )
 _SCRIPT_MARKDOWN_HEADING_PATTERN = re.compile(
     r"^\s{0,3}#{1,6}\s+(?P<body>.*)$"
@@ -1193,11 +1194,11 @@ def _script_output_format_issues(
     expected_end = f"{config.total_seconds // 60}:{config.total_seconds % 60:02d}"
     marker = matches[0]
     if (
-        int(marker.group(1)) != 1
-        or not marker.group(2).strip()
-        or marker.group(3) != "0:00"
-        or marker.group(4) != expected_end
-        or int(marker.group(5)) != config.total_script_words
+        int(marker.group("number")) != 1
+        or marker.group("title") == "<SHORT SECTION TITLE>"
+        or marker.group("start") != "0:00"
+        or marker.group("end") != expected_end
+        or int(marker.group("words")) != config.total_script_words
     ):
         return [
             "script ACT marker changed the required number, title, "
