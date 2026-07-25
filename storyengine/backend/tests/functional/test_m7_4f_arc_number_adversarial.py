@@ -91,10 +91,14 @@ async def test_spelled_number_drift_can_converge_through_bounded_repair(
     class Connection:
         def __init__(self):
             self.saved_text = None
+            self.dialogue_segments = None
+            self.validation = None
 
         async def fetchrow(self, sql, *args):
             assert "INSERT INTO scripts" in sql
             self.saved_text = args[4]
+            self.validation = args[7]
+            self.dialogue_segments = args[8]
             return {"id": args[0]}
 
         async def execute(self, sql, *_args):
@@ -302,18 +306,33 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
         (),
         "custom-film-op:" + "5" * 64,
     )
-    invented = _marked(
-        "Show the approved system restored as panels brighten and 47 indicators "
-        "return across the visible display."
+    def av_screenplay(*, visual: str, vo: str, carry_out: str) -> str:
+        return "\n".join(
+            (
+                "[AV SECTION — RESTORATION | 0:00 - 0:12]",
+                "[BEAT 1 | 0:00 - 0:12]",
+                f"VISUAL: {visual}",
+                "SOUND: Low electrical ambience rises into a clear tone.",
+                f"VO [en]: {vo}",
+                "CARRY-IN: dormant display",
+                f"CARRY-OUT: {carry_out}",
+            )
+        )
+
+    invented = av_screenplay(
+        visual="The approved system waits in darkness.",
+        vo="Mara sits at the console and rewinds the restored signal.",
+        carry_out="restored frame",
     )
-    generic_threat = _marked(
-        "Show the approved system restored as panels brighten across the visible "
-        "display. Yet the same mechanism can be taken down anytime."
+    generic_threat = av_screenplay(
+        visual="The approved system brightens across the visible display.",
+        vo="The approved system is restored, but it can be taken down anytime.",
+        carry_out="restored frame",
     )
-    clean_handoff = _marked(
-        "Show the approved system restored as panels brighten across the visible "
-        "display. The restored frame settles, carrying the earned result toward "
-        "the closing synthesis."
+    clean_handoff = av_screenplay(
+        visual="The restored frame settles and fills the visible display.",
+        vo="The approved system is restored, carrying the earned result forward.",
+        carry_out="closing synthesis",
     )
     deterministic_calls = []
     semantic_calls = []
@@ -346,10 +365,14 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
     class Connection:
         def __init__(self):
             self.saved_text = None
+            self.validation = None
+            self.dialogue_segments = None
 
         async def fetchrow(self, sql, *args):
             assert "INSERT INTO scripts" in sql
             self.saved_text = args[4]
+            self.validation = args[7]
+            self.dialogue_segments = args[8]
             return {"id": args[0]}
 
         async def execute(self, sql, *_args):
@@ -392,12 +415,17 @@ async def test_resolution_repairs_share_arc_and_handoff_to_next_closing(
         semantic_calls[0][1]["severity_by_rule"]["story_arc_continuity"]
         == "hard_gate"
     )
-    assert production._script_grounding_issues(
+    parsed, issues = production._parse_custom_film_av_screenplay(
         clean_handoff,
-        approved_context="resolution\nShow the approved system restored",
-        config=production._ExactSectionConfig(12),
-        generator_validation={"valid": True, "issues": []},
-    ) == []
+        exact_seconds=12,
+        language_mode="narrator",
+    )
+    assert issues == []
+    assert parsed["dialogue_segments"][0]["text"].startswith(
+        "The approved system is restored"
+    )
     assert "taken down anytime" not in conn.saved_text
     assert "closing synthesis" in conn.saved_text
+    assert '"format": "custom_film_av_v1"' in conn.validation
+    assert '"type": "narration"' in conn.dialogue_segments
     assert result["quality_verdict"] == "pass"

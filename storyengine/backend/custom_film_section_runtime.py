@@ -361,7 +361,7 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
         raise CustomFilmContractError("Custom Film runtime schedule is incomplete")
 
     sections_by_id: dict[str, dict[str, Any]] = {}
-    expected_plan: list[tuple[str, int, str, int]] = []
+    expected_by_section: list[list[tuple[str, int, str, int]]] = []
     total_seconds = 0
     for expected_index, raw_section in enumerate(sections_value):
         section = _object(raw_section, "runtime section")
@@ -404,8 +404,11 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
         if animated:
             stages.extend(("motion", "clips"))
         stages.append("quality")
-        expected_plan.extend(
-            (section_id, order_index, stage, duration_seconds) for stage in stages
+        expected_by_section.append(
+            [
+                (section_id, order_index, stage, duration_seconds)
+                for stage in stages
+            ]
         )
         total_seconds += duration_seconds
         sections_by_id[section_id] = section
@@ -439,7 +442,17 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
                 "Custom Film runtime work item does not match its section"
             )
         actual_plan.append((section_id, order_index, stage, duration_seconds))
-    if actual_plan != expected_plan:
+    legacy_expected_plan = [
+        item for section_plan in expected_by_section for item in section_plan
+    ]
+    scripts_first_expected_plan = [
+        section_plan[0] for section_plan in expected_by_section
+    ] + [
+        item
+        for section_plan in expected_by_section
+        for item in section_plan[1:]
+    ]
+    if actual_plan not in (legacy_expected_plan, scripts_first_expected_plan):
         raise CustomFilmContractError("Custom Film runtime stage plan is stale")
 
     adapters: list[SectionStageAdapter] = []
@@ -447,8 +460,10 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
         _freeze(
             {
                 "order_index": int(section["order_index"]),
+                "section_id": str(section.get("section_id") or ""),
                 "role": str(section.get("role") or ""),
                 "purpose": str(section.get("purpose") or ""),
+                "render_mode": str(section.get("render_mode") or ""),
             }
         )
         for section in sorted(
