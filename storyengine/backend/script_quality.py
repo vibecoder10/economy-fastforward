@@ -338,6 +338,7 @@ async def run_critique_and_edit(
     severity_by_rule: Optional[Dict[str, str]] = None,
     regenerate: Optional[Callable[[], Any]] = None,
     max_edit_rounds: int = MAX_EDIT_ROUNDS,
+    edit_constraints: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Grade a script, then converge on a passing draft within DvsU's proven
     bounds:
@@ -349,6 +350,10 @@ async def run_critique_and_edit(
         available", e.g. a path with no regenerate hook wired).
       - Still failing after those bounds -> ``needs_review`` (caller decides
         what that means for its own status field).
+
+    ``edit_constraints`` are immutable instructions appended to every targeted
+    edit round. They let a caller preserve an approved grounding/timing
+    contract while the critic's named violations change between rounds.
 
     ``regenerate`` is an async zero-arg callable returning the fresh
     ``[{"scene", "text"}, ...]`` list, or a falsy value if the reroll
@@ -378,7 +383,11 @@ async def run_critique_and_edit(
     if grade.verdict == "revise":
         violations = grade.violations
         while grade.needs_revision and edit_rounds < max_edit_rounds and violations:
-            edited = await edit_draft_with_violations(current, violations, client=client)
+            edited = await edit_draft_with_violations(
+                current,
+                [*violations, *(edit_constraints or [])],
+                client=client,
+            )
             edit_rounds += 1
             if edited is None:
                 break
