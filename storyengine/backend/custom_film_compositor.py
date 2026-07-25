@@ -288,11 +288,13 @@ def _validate_operation_graph(
             or str(row.get("runtime_job_id") or "") != runtime_job_id
             or str(row.get("runtime_hash") or "") != str(envelope["runtime_hash"])
             or row.get("state") != "completed"
-            or not isinstance(row.get("result"), Mapping)
         ):
             raise CustomFilmContractError(
                 "Custom Film provider operation is incomplete or stale"
             )
+        row["result"] = _mapping(
+            row.get("result"), "provider operation result"
+        )
         actual_by_id[operation_id] = row
 
     expected: dict[str, dict[str, Any]] = {}
