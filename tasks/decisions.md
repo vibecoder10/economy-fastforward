@@ -687,3 +687,38 @@ checks) get skipped. Rulings:
   delivery MP4s are a secondary diagnostic.
 - A real flagship run requires a refreshed exact BYOK quote <= $15 and Ryan's explicit approval.
   Push, migration, deploy, upload, and public release are separate gates.
+
+## 2026-07-24 — Keep the Sound feature, guard the spend, don't wire SFX into the modern render paths (yet)
+
+**Decision:** Sound design/effects generation stays in the product, but is now refused (400,
+with the human-readable reason) for any video whose render path discards `assets.sound_effect_url`
+— Custom Film, `static_docu`, Grok-native dialogue, and character-dialogue performance rendering.
+We did NOT delete the Sound stage, and we did NOT wire SFX playback into those four render paths
+this session.
+
+**Context:** `assets.sound_effect_url` is only ever consumed by the legacy Remotion fallback render
+path (`skills/video-pipeline/render/run.py` → `upload/run_package.py:93-100` →
+`remotion-video/.../Scene.tsx:176`). The other four render paths silently dropped it — sound
+design/effects spend (~$0.05/effect via Kie.ai ElevenLabs Sound Effect V2) on those videos bought
+nothing. Verified live against prod (`se db`, 2026-07-24): `SELECT count(*) FROM assets WHERE
+sound_effect_url IS NOT NULL` → **0**, out of 833 total `assets` rows — nobody has ever actually
+generated a sound effect on this platform yet, on any render path. Zero production usage to
+preserve, and zero videos retroactively broken by adding the guard.
+
+**Alternatives considered:**
+1. Delete the Sound stage entirely — rejected. Ryan confirmed he may want it wired into the modern
+   render paths later; deleting it would mean rebuilding the prompts/generation/ledger plumbing
+   from scratch instead of just adding a mixing step.
+2. Wire SFX into `render_perform` (the modern/Custom-Film-style render path) now — rejected for
+   THIS session, deferred as demand-driven work. `render_perform`'s audio mix uses `amix` with
+   `normalize=0` and no per-source volume control; SFX would need a per-source gain field added to
+   the placements tuple to avoid drowning out dialogue/narration, which is a real (if contained)
+   schema + mixing change, not a guard.
+3. Guard the spend at every call site individually — this is what a3453902 did first; superseded by
+   9d83c621 which moved the check into `run_sound_prompts`/`run_sound_effects` themselves (see
+   tasks/lessons.md 2026-07-24 "guarding N call sites invites an N+1th").
+
+**Why this won:** Zero production usage on the blocked paths means nothing breaks by refusing the
+spend today, and keeping the feature (rather than deleting it) means the eventual "wire SFX into
+the modern render paths" work is additive, not a rebuild. The guard buys time without burning the
+option.

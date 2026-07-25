@@ -4,6 +4,44 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ⧗ HANDOFF — 2026-07-24 (night) — SFX render-path guard: code done, live UI check BLOCKED (report only, no code changes this session)
+
+**Branch:** `claude/exciting-swirles-4d8fba`, commits a3453902 (initial guard) + 9d83c621 (closed
+the ClaudeOrchestrator/advance_video/production_guide gaps a reviewer found). Not this session's
+work — this session's job was to verify the change in a browser and record the docs.
+
+**What this session did:** Overnight, user asleep, mutation-ban rule in effect (no clicks that
+touch prod data, no deploys, no paid calls). Pulled two real videos via `se db` (read-only):
+BLOCKED = `65a8021e-eafa-4cff-94dc-31982ae7b63d` ("El Mercado...",
+`dialogue_mode='character_dialogue'`), ALLOWED = `b4067bf5-9d6b-484e-8f7d-6fe7eb11416e` ("She
+Wanted To Bake A Cake...", all render-path fields NULL). Started local backend (8001) + frontend
+(3001) in this worktree — **backend process started cleanly but could not reach the production
+DB from this Mac** (confirmed via a raw `asyncpg.connect()` test outside FastAPI, deterministic,
+not transient — see tasks/lessons.md 2026-07-24 night entry for the reproduction and best-guess
+cause). So the intended curl + browser screenshot verification of `sound_effects_supported`/
+`sound_effects_unsupported_reason` **did not happen live**. What DID happen: manually evaluated
+`status_map._render_path_sfx_reason()` against both videos' real DB rows by reading the code —
+matches expected BLOCKED (banner text: "this video uses character-dialogue performance
+rendering, which has no sound-effects track.") / ALLOWED (no banner, buttons enabled) outcomes —
+and read `SoundTab.tsx` to confirm the wiring is self-consistent. **This is a code read, not a
+live UI verification — do not treat it as equivalent.** Full recipe + exact expected output for
+whoever picks this up: `tasks/deferred-verification.md` (new file, SFX section).
+
+**What's next:**
+1. Someone with real prod DB access from their machine (or a session running ON the VPS) runs
+   `tasks/deferred-verification.md`'s SFX section step 1 (curl the two fields, screenshot both
+   Sound tabs, check console). This is the load-bearing check nobody has done yet.
+2. Ryan (awake, at the keyboard) runs deferred-verification.md's SFX section step 2 — Advance a
+   blocked video through the sound stage and confirm it skips cleanly instead of deadlocking —
+   and step 5's tiny real paid SFX generation on an ALLOWED (legacy) video as a regression check,
+   with cost approval first.
+3. Step 3 — the `/pipeline` create-page "Sound design" checkbox disabling for static-documentary
+   — also unverified live, same DB blocker.
+4. Docs are current as of this session: `docs/failure-modes.md` (new row), `tasks/lessons.md`
+   (2026-07-24 night entry), `tasks/decisions.md` (2026-07-24 "Keep the Sound feature, guard the
+   spend" entry), `tasks/deferred-verification.md` (new file). Nothing else in this file was
+   touched — the huge LOOP PROGRESS section below is unrelated prior work, left as-is.
+
 ## ✅ RESOLVED 2026-07-21 — stale VPS repo copies deleted
 Ryan approved; `/home/clawd/agent-workspace` and `/home/clawd/economy-fastforward`
 (the two orphaned checkouts carrying the old bare `pkill -f "next-server"`) are
