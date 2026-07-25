@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1041,6 +1042,162 @@ async def test_shared_script_repairs_same_draft_then_passes_early_visual_story_g
     assert "visual_story_readiness" in quality_calls[0][1]["rules_text"]
     assert conn.saved_text == corrected
     assert result["quality_verdict"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_live_shaped_chicago_drift_repair_receives_exclusive_context_and_band(
+    monkeypatch,
+):
+    purpose = (
+        "Set up The blackout begins without warning and give the audience "
+        "a reason to keep watching"
+    )
+    request = production._request(
+        replace(
+            _adapter("script", seconds=54),
+            role="opening",
+            purpose=purpose,
+        ),
+        (),
+        "custom-film-op:" + "6" * 64,
+    )
+    seams = production.SharedSectionProductionSeams("tenant-1")
+    drift_base = (
+        "The blackout begins without warning. The camera jumps to Chicago at "
+        "2 AM, where the Chicago Mercantile Exchange reports a 4.2 shift across "
+        "47 contracts and invents an unrelated market explanation."
+    )
+    drift = drift_base + " " + " ".join(
+        ["unrelated"] * (162 - production._script_word_count(drift_base))
+    )
+    corrected_base = (
+        "[ACT 1 — BLACKOUT | 0:00 - 0:54 | ~135 words] "
+        "The blackout begins without warning. A dark communications panel "
+        "loses each signal in sequence while the camera follows the visible "
+        "failure across the room. Warning lights vanish, silent radios line "
+        "the desk, and a map dims connection by connection. The people waiting "
+        "for a response look toward the last active receiver as its pulse "
+        "fades. Each concrete image tightens the same question: what interrupted "
+        "the network, and where should the investigation begin?"
+    )
+    corrected = corrected_base + " " + " ".join(
+        ["blackout"] * (135 - production._script_word_count(corrected_base))
+    )
+    edit_calls = []
+
+    class Executor:
+        def __init__(self):
+            self._pipeline = SimpleNamespace(anthropic=object())
+
+        async def _ensure_initialized(self):
+            return None
+
+        async def _get_video(self, _video_id):
+            return {"video_title": "The blackout begins without warning"}
+
+    async def generate(_client, brief, **_kwargs):
+        guidance = brief["writer_guidance"]
+        assert "APPROVED ROLE: opening" in guidance
+        assert f"APPROVED PURPOSE: {purpose}" in guidance
+        assert "EXACT SPOKEN DURATION: 54 seconds" in guidance
+        assert "may describe a real or fictional topic; do not assume either" in guidance
+        return {"script": drift, "validation": {"valid": True, "issues": []}}
+
+    async def edit(_scenes, violations, **_kwargs):
+        edit_calls.append(list(violations))
+        return [{"scene": 1, "text": corrected}]
+
+    async def pass_quality(_tenant, _video, scenes, **_kwargs):
+        assert f"APPROVED PURPOSE: {purpose}" in _kwargs["edit_constraints"][0]
+        assert "121-149 words (target 135)" in _kwargs["edit_constraints"][0]
+        return {
+            "scenes": copy.deepcopy(scenes),
+            "critique": SimpleNamespace(
+                verdict="pass",
+                score=97,
+                failing_gates=[],
+                violations=[],
+                rule_verdicts=[],
+                needs_revision=False,
+            ),
+            "needs_review": False,
+            "edit_rounds": 0,
+            "regenerated": False,
+            "changed": False,
+        }
+
+    class Connection:
+        def __init__(self):
+            self.saved_text = None
+
+        async def fetchrow(self, sql, *args):
+            assert "INSERT INTO scripts" in sql
+            self.saved_text = args[4]
+            return {"id": args[0]}
+
+        async def execute(self, sql, *_args):
+            assert "UPDATE videos" in sql
+            return "UPDATE 1"
+
+    conn = Connection()
+
+    async def get_pool():
+        return _Pool(conn)
+
+    seams._executor = Executor()
+    monkeypatch.setattr(
+        "script.brief_translator.script_generator.generate_script",
+        generate,
+    )
+    monkeypatch.setattr(
+        "script_quality.edit_draft_with_violations",
+        edit,
+    )
+    monkeypatch.setattr(
+        "script_quality.run_critique_and_edit",
+        pass_quality,
+    )
+    monkeypatch.setattr("database.get_pool", get_pool)
+
+    result = await seams._script(request)
+
+    config = production._ExactSectionConfig(54)
+    assert config.total_script_words == 135
+    assert config.script_max_words == 149
+    assert 122 <= production._script_word_count(corrected) <= 149
+    assert len(edit_calls) == 1
+    constraints = edit_calls[0][-1]
+    assert f"APPROVED PURPOSE: {purpose}" in constraints
+    assert (
+        f"{config.script_min_words}-{config.script_max_words} words "
+        f"(target {config.total_script_words})"
+    ) in constraints
+    assert "Chicago" not in constraints
+    assert conn.saved_text == corrected
+    assert result["quality_verdict"] == "pass"
+
+
+def test_grounding_allows_real_names_and_numbers_when_approved_purpose_names_them():
+    config = production._ExactSectionConfig(54)
+    approved_context = (
+        "evidence\nPresent Chicago Mercantile Exchange figures from 1972 at "
+        "2 AM, including 4.2 and 47"
+    )
+    script_base = (
+        "[ACT 1 — MARKET EVIDENCE | 0:00 - 0:54 | ~135 words] "
+        "The camera enters the Chicago Mercantile Exchange and finds the 1972 "
+        "record marked 2 AM. A clerk traces 4.2 beside 47 on the approved page."
+    )
+    script = script_base + " " + " ".join(
+        ["record"] * (135 - production._script_word_count(script_base))
+    )
+
+    assert production._script_grounding_issues(
+        script,
+        approved_context=approved_context,
+        config=config,
+        generator_validation={"valid": True, "issues": []},
+    ) == []
 
 
 @pytest.mark.asyncio

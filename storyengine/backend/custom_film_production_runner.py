@@ -1044,6 +1044,44 @@ def _script_word_count(script_text: str) -> int:
     return len(_SCRIPT_WORD_PATTERN.findall(script_text))
 
 
+def _script_approved_contract(
+    *,
+    role: str,
+    purpose: str,
+    exact_seconds: int,
+    config: _ExactSectionConfig,
+) -> str:
+    """One exclusive grounding/timing block shared by write and repair."""
+
+    return "\n".join(
+        (
+            "=== EXCLUSIVE APPROVED SECTION CONTRACT ===",
+            f"APPROVED ROLE: {role}",
+            f"APPROVED PURPOSE: {purpose}",
+            f"EXACT SPOKEN DURATION: {exact_seconds} seconds",
+            (
+                "EXACT SPOKEN WORD BAND: "
+                f"{config.script_min_words}-{config.script_max_words} words "
+                f"(target {config.total_script_words})"
+            ),
+            (
+                "GROUNDING LAW: The approved role and purpose above are the "
+                "only source for the section's subject, people, places, "
+                "organizations, events, dates, numbers, examples, and case "
+                "studies. They may describe a real or fictional topic; do not "
+                "assume either and do not add adjacent material."
+            ),
+            (
+                "VISUAL-STORY LAW: Keep the approved focus explicit and make "
+                "every beat give the approved stills or clips concrete, "
+                "relevant action, evidence, environment, behavior, or change "
+                "to show."
+            ),
+            "=== END EXCLUSIVE APPROVED SECTION CONTRACT ===",
+        )
+    )
+
+
 def _script_grounding_issues(
     script_text: str,
     *,
@@ -2248,6 +2286,12 @@ class SharedSectionProductionSeams:
         )
         approved_context = f"{request.role}\n{request.purpose}"
         config = _ExactSectionConfig(request.exact_seconds)
+        approved_contract = _script_approved_contract(
+            role=request.role,
+            purpose=request.purpose,
+            exact_seconds=request.exact_seconds,
+            config=config,
+        )
         brief = {
             "headline": request.purpose,
             "thesis": request.purpose,
@@ -2255,14 +2299,9 @@ class SharedSectionProductionSeams:
             "writer_guidance": (
                 f"Write only section {request.order_index + 1}. Its role is "
                 f"'{request.role}' and its exact purpose is: {request.purpose}. "
-                f"The spoken result must fit exactly {request.exact_seconds} seconds. "
-                "The role, purpose, title, and exact duration in this instruction "
-                "are the complete approved grounding context. Do not introduce an "
-                "unapproved person, place, organization, event, date, number, "
-                "case study, or adjacent topic. Keep the approved focus explicit "
-                "throughout. Write a concrete visual story: every narrative beat "
-                "must give the approved stills or clips something specific and "
-                "relevant to show. "
+                f"The spoken result must fit exactly {request.exact_seconds} seconds.\n"
+                + approved_contract
+                + "\n"
                 f"Language mode is '{request.language.get('mode')}', dialogue "
                 f"audio is '{request.dialogue_audio}', and dubbing mode is "
                 f"'{request.dubbing.get('mode')}'. "
@@ -2309,7 +2348,13 @@ class SharedSectionProductionSeams:
         ):
             edited = await script_quality.edit_draft_with_violations(
                 [{"scene": 1, "text": script_text}],
-                deterministic_issues,
+                [
+                    *deterministic_issues,
+                    (
+                        "EDIT CONSTRAINTS — these remain mandatory on every "
+                        "repair:\n" + approved_contract
+                    ),
+                ],
                 client=client,
             )
             deterministic_edit_rounds += 1
@@ -2361,6 +2406,12 @@ class SharedSectionProductionSeams:
                 "visual_story_readiness": "hard_gate",
             },
             max_edit_rounds=_SCRIPT_REPAIR_ATTEMPTS,
+            edit_constraints=[
+                (
+                    "EDIT CONSTRAINTS — these remain mandatory on every "
+                    "repair:\n" + approved_contract
+                )
+            ],
         )
         grade, final_scenes, quality_edit_rounds = (
             _validated_early_quality_result(
