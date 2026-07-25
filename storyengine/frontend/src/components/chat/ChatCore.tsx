@@ -807,7 +807,7 @@ export function ChatCore({
       <div ref={endRef} />
 
       {/* composer pinned at the bottom of the shell */}
-      <div className="fixed bottom-0 left-0 right-0 md:left-60 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
+      <div className="absolute bottom-0 left-0 right-0 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
         <div className="max-w-3xl mx-auto">
           <Composer
             input={input}
