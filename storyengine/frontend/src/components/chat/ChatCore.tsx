@@ -204,10 +204,14 @@ export function ChatCore({
   videoId,
   docked = false,
   uiContext,
+  onVideoCreated,
+  activeVideoId,
 }: {
   videoId?: string;
   docked?: boolean;
   uiContext?: { tab?: string; scene?: number; index?: number } | null;
+  onVideoCreated?: (id: string) => void;
+  activeVideoId?: string | null;
 }) {
   const queryClient = useQueryClient();
   const { data: dockedVideo } = useQuery({
@@ -300,9 +304,9 @@ export function ChatCore({
         ...req,
         conversation_id: conversationId ?? req.conversation_id ?? null,
         // The dock tags every turn with its video so the backend gates paid actions.
-        video_id: docked ? videoId ?? null : req.video_id ?? null,
+        video_id: docked ? videoId ?? null : req.video_id ?? activeVideoId ?? null,
         // ...and what the creator is viewing, so "this image" resolves.
-        ui_context: docked ? uiContext ?? null : null,
+        ui_context: docked ? uiContext ?? null : uiContext ?? null,
       });
       setConversationId(res.conversation_id);
       try { localStorage.setItem(cidKey, res.conversation_id); } catch { /* private mode */ }
@@ -312,6 +316,7 @@ export function ChatCore({
       if (!docked) {
         if (durableVideoId) {
           setCreatedVideoId(durableVideoId);
+          onVideoCreated?.(durableVideoId);
         } else if (failedApprovalCards) {
           // HTTP success is not durable approval when the server remains in
           // plan. Keep the approval gate visible and remove false progress.
