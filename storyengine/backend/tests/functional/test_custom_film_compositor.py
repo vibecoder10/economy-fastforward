@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import types
+from array import array
 from pathlib import Path
 from fractions import Fraction
 
@@ -107,13 +108,14 @@ def _section(index: int, *, kind: str) -> dict:
     return base
 
 
-def _fixture() -> dict:
+def _fixture(*, opening_duration: int = 2) -> dict:
     sections = [
         _section(0, kind="photo"),
         _section(1, kind="investigative"),
         _section(2, kind="bilingual"),
         _section(3, kind="simple"),
     ]
+    sections[0]["duration_seconds"] = opening_duration
     stage_plan = []
     for section in sections:
         stages = ["script", "voice", "pictures"]
@@ -137,7 +139,9 @@ def _fixture() -> dict:
         "plan_hash": "a" * 64,
         "quote_inputs_hash": "b" * 64,
         "approval_hash": "c" * 64,
-        "total_duration_seconds": 8,
+        "total_duration_seconds": sum(
+            section["duration_seconds"] for section in sections
+        ),
         "max_spend": 10.0,
         "sections": sections,
         "stage_plan": stage_plan,
@@ -175,6 +179,8 @@ def _fixture() -> dict:
                     else None
                 ),
                 "voice_status": None,
+                "dialogue_segments": None,
+                "script_validation": {},
             }
         )
         animated = section["animation"]["enabled"]
@@ -437,6 +443,335 @@ def _build(values: dict) -> dict:
         provenance_rows=values["provenance_rows"],
         section_supplements=values["section_supplements"],
     )
+
+
+def _set_opening_two_cue_alignment(values: dict) -> None:
+    section = values["envelope"]["sections"][0]
+    section_id = section["section_id"]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    texts = ["First approved line.", "Second approved line."]
+    segments = [
+        {
+            "type": "narration",
+            "text": texts[0],
+            "start_seconds": 0,
+            "end_seconds": 12,
+        },
+        {
+            "type": "narration",
+            "text": texts[1],
+            "start_seconds": 27,
+            "end_seconds": 42,
+        },
+    ]
+    text_hashes = [
+        contract.canonical_hash({"segment_index": index, "text": text})
+        for index, text in enumerate(texts)
+    ]
+    source_hash = values["section_supplements"][section_id][
+        "voice_over_sha256"
+    ][0]
+    cues = [
+        {
+            "source_start_ms": 0,
+            "source_end_ms": 3500,
+            "target_start_ms": 0,
+            "target_end_ms": 3500,
+        },
+        {
+            "source_start_ms": 3500,
+            "source_end_ms": 7500,
+            "target_start_ms": 27000,
+            "target_end_ms": 31000,
+        },
+    ]
+    evidence_identity = {
+        "method": "openai-whisper",
+        "method_version": "20250625",
+        "model": "base.en",
+        "model_sha256": (
+            "25a8566e1d0c1e2231d1c762132cd20e"
+            "0f96a85d16145c3a00adf5d1ac670ead"
+        ),
+    }
+    scene["dialogue_segments"] = segments
+    scene["script_validation"] = {
+        "custom_film": {
+            "voice_alignment": {
+                "version": compositor.VOICE_ALIGNMENT_VERSION,
+                "source_sha256": source_hash,
+                "segment_text_hashes": text_hashes,
+                "evidence": {
+                    **evidence_identity,
+                    "evidence_sha256": contract.canonical_hash(
+                        {
+                            "contract_version": (
+                                compositor.VOICE_ALIGNMENT_VERSION
+                            ),
+                            **evidence_identity,
+                            "source_sha256": source_hash,
+                            "segment_text_hashes": text_hashes,
+                            "cues": cues,
+                        }
+                    ),
+                },
+                "cues": cues,
+            }
+        }
+    }
+    values["section_supplements"][section_id][
+        "voice_over_duration_ms"
+    ] = [7500]
+
+
+def test_two_cue_alignment_builds_exact_schedule_and_audible_captions():
+    values = _fixture(opening_duration=54)
+    _set_opening_two_cue_alignment(values)
+
+    manifest = _build(values)
+    section = manifest["sections"][0]
+
+    assert section["audio"]["timing_transform"]["mode"] == "cue_schedule"
+    assert [
+        (cue["target_start_ms"], cue["target_end_ms"])
+        for cue in section["audio"]["timing_transform"]["cues"]
+    ] == [(0, 3500), (27000, 31000)]
+    assert [
+        (caption["text"], caption["start_frame"], caption["end_frame"])
+        for caption in section["captions"]
+    ] == [
+        ("First approved line.", 0, 84),
+        ("Second approved line.", 648, 744),
+    ]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "source_hash",
+        "text_order",
+        "source_overlap",
+        "source_overrun",
+        "target_overlap",
+        "target_start",
+        "target_overrun",
+        "duration_mismatch",
+        "evidence_hash",
+        "model_hash",
+        "evidence_shape",
+        "non_frame_exact",
+        "missing_evidence",
+    ],
+)
+def test_two_cue_alignment_mutations_fail_closed(tamper):
+    values = _fixture(opening_duration=54)
+    _set_opening_two_cue_alignment(values)
+    scene = values["scene_rows"][0]
+    alignment = scene["script_validation"]["custom_film"]["voice_alignment"]
+    if tamper == "source_hash":
+        alignment["source_sha256"] = "f" * 64
+    elif tamper == "text_order":
+        alignment["segment_text_hashes"].reverse()
+    elif tamper == "source_overlap":
+        alignment["cues"][1]["source_start_ms"] = 3000
+    elif tamper == "source_overrun":
+        alignment["cues"][1]["source_end_ms"] = 7501
+    elif tamper == "target_overlap":
+        alignment["cues"][1]["target_start_ms"] = 4000
+        alignment["cues"][1]["target_end_ms"] = 9000
+    elif tamper == "target_start":
+        alignment["cues"][1]["target_start_ms"] = 26000
+        alignment["cues"][1]["target_end_ms"] = 31000
+    elif tamper == "target_overrun":
+        alignment["cues"][1]["target_end_ms"] = 55000
+    elif tamper == "duration_mismatch":
+        alignment["cues"][1]["target_end_ms"] = 30000
+    elif tamper == "evidence_hash":
+        alignment["evidence"]["evidence_sha256"] = "e" * 64
+    elif tamper == "model_hash":
+        alignment["evidence"]["model_sha256"] = "not-a-hash"
+    elif tamper == "evidence_shape":
+        alignment["evidence"]["unexpected"] = "field"
+    elif tamper == "non_frame_exact":
+        alignment["cues"][0]["source_end_ms"] = 3499
+        alignment["cues"][0]["target_end_ms"] = 3499
+        evidence = alignment["evidence"]
+        evidence["evidence_sha256"] = contract.canonical_hash(
+            {
+                "contract_version": alignment["version"],
+                **{
+                    key: evidence[key]
+                    for key in (
+                        "method",
+                        "method_version",
+                        "model",
+                        "model_sha256",
+                    )
+                },
+                "source_sha256": alignment["source_sha256"],
+                "segment_text_hashes": alignment["segment_text_hashes"],
+                "cues": alignment["cues"],
+            }
+        )
+    else:
+        del scene["script_validation"]["custom_film"]["voice_alignment"]
+
+    with pytest.raises(contract.CustomFilmContractError):
+        _build(values)
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_two_cue_render_has_audio_at_zero_and_twenty_seven_seconds(
+    tmp_path: Path,
+):
+    image = tmp_path / "still.png"
+    voice = tmp_path / "two-cues.wav"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            "color=c=navy:s=320x180", "-frames:v", "1", str(image),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            (
+                "sine=frequency=440:duration=2[s0];"
+                "sine=frequency=880:duration=2[s1];"
+                "[s0][s1]concat=n=2:v=0:a=1"
+            ),
+            str(voice),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    image_hash = hashlib.sha256(image.read_bytes()).hexdigest()
+    voice_hash = hashlib.sha256(voice.read_bytes()).hexdigest()
+    body = {
+        "assembly_version": compositor.ASSEMBLY_VERSION,
+        "tenant_id": TENANT,
+        "video_id": VIDEO,
+        "plan_id": PLAN,
+        "runtime_job_id": "custom-film-runtime:" + "a" * 64,
+        "runtime_hash": "a" * 64,
+        "fps": 1,
+        "width": 320,
+        "height": 180,
+        "total_frames": 29,
+        "total_duration_seconds": 29,
+        "sections": [
+            {
+                "section_id": "two-cues",
+                "order_index": 0,
+                "render_mode": "static_docu",
+                "start_frame": 0,
+                "duration_frames": 29,
+                "transition_in": {"duration_frames": 0},
+                "transition_out": {"duration_frames": 0},
+                "audio": {
+                    "mode": "voice_over",
+                    "source_urls": ["fixture://two-cues"],
+                    "source_sha256": [voice_hash],
+                    "source_duration_ms": [4000],
+                    "timing_transform": {
+                        "mode": "cue_schedule",
+                        "source_duration_ms": 4000,
+                        "output_duration_ms": 29000,
+                        "atempo_chain": [],
+                        "caption_scale": 1.0,
+                        "cues": [
+                            {
+                                "segment_index": 0,
+                                "text_hash": "1" * 64,
+                                "source_start_ms": 0,
+                                "source_end_ms": 2000,
+                                "target_start_ms": 0,
+                                "target_end_ms": 2000,
+                            },
+                            {
+                                "segment_index": 1,
+                                "text_hash": "2" * 64,
+                                "source_start_ms": 2000,
+                                "source_end_ms": 4000,
+                                "target_start_ms": 27000,
+                                "target_end_ms": 29000,
+                            },
+                        ],
+                    },
+                    "gain_db": 0,
+                },
+                "captions": [
+                    {
+                        "text": "First cue",
+                        "language": {"mode": "single", "language": "en"},
+                        "start_frame": 0,
+                        "end_frame": 2,
+                    },
+                    {
+                        "text": "Second cue",
+                        "language": {"mode": "single", "language": "en"},
+                        "start_frame": 27,
+                        "end_frame": 29,
+                    },
+                ],
+                "assets": [
+                    {
+                        "asset_id": "still",
+                        "source_sha256": image_hash,
+                        "actual_duration_ms": None,
+                        "duration_frames": 29,
+                        "start_frame": 0,
+                        "timing_transform": {
+                            "mode": "static_hold",
+                            "source_duration_ms": None,
+                            "output_duration_ms": 29000,
+                        },
+                        "caption_card": None,
+                    }
+                ],
+            }
+        ],
+        "transition_accounting": {"overlap_frames_total": 0},
+    }
+    manifest = {**body, "manifest_hash": contract.canonical_hash(body)}
+    output = tmp_path / "two-cues.mp4"
+    await compositor.render_local_manifest(
+        manifest,
+        source_paths={
+            "still": image,
+            "audio:two-cues:0": voice,
+        },
+        output_path=output,
+    )
+    pcm = tmp_path / "audio.pcm"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", str(output), "-vn", "-ac", "1",
+            "-ar", "8000", "-f", "s16le", str(pcm),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    samples = array("h")
+    samples.frombytes(pcm.read_bytes())
+    if sys.byteorder != "little":
+        samples.byteswap()
+
+    def mean_amplitude(start_second: float, end_second: float) -> float:
+        window = samples[
+            round(start_second * 8000):round(end_second * 8000)
+        ]
+        return sum(abs(value) for value in window) / len(window)
+
+    assert mean_amplitude(0.5, 1.5) > 100
+    assert mean_amplitude(10, 11) < 10
+    assert mean_amplitude(27.5, 28.5) > 100
 
 
 def test_manifest_normalizes_stringified_provider_results_across_graph():

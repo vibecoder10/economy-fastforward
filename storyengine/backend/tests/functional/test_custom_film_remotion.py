@@ -248,6 +248,99 @@ def test_remotion_props_are_strict_hashed_provider_opaque_and_unicode_safe():
     assert props_hash == remotion.remotion_props_hash(body)
 
 
+def _two_cue_manifest() -> dict:
+    manifest = _manifest()
+    manifest["total_duration_seconds"] = 54
+    manifest["total_frames"] = 1296
+    section = manifest["sections"][0]
+    section["duration_frames"] = 1296
+    section["assets"][0]["duration_frames"] = 1296
+    section["assets"][0]["timing_transform"]["output_duration_ms"] = 54000
+    section["audio"]["source_duration_ms"] = [10000]
+    texts = ["First approved line.", "Second approved line."]
+    cues = [
+        {
+            "segment_index": 0,
+            "text_hash": contract.canonical_hash(
+                {"segment_index": 0, "text": texts[0]}
+            ),
+            "source_start_ms": 0,
+            "source_end_ms": 5000,
+            "target_start_ms": 0,
+            "target_end_ms": 5000,
+        },
+        {
+            "segment_index": 1,
+            "text_hash": contract.canonical_hash(
+                {"segment_index": 1, "text": texts[1]}
+            ),
+            "source_start_ms": 5000,
+            "source_end_ms": 10000,
+            "target_start_ms": 27000,
+            "target_end_ms": 32000,
+        },
+    ]
+    section["audio"]["timing_transform"] = {
+        "mode": "cue_schedule",
+        "source_duration_ms": 10000,
+        "output_duration_ms": 54000,
+        "atempo_chain": [],
+        "caption_scale": 1.0,
+        "cues": cues,
+    }
+    language = section["captions"][0]["language"]
+    section["captions"] = [
+        {
+            "scene_id": "scene-1",
+            "text": texts[0],
+            "language": language,
+            "section_start_ms": 0,
+            "section_end_ms": 5000,
+            "start_frame": 0,
+            "end_frame": 120,
+        },
+        {
+            "scene_id": "scene-1",
+            "text": texts[1],
+            "language": language,
+            "section_start_ms": 27000,
+            "section_end_ms": 32000,
+            "start_frame": 648,
+            "end_frame": 768,
+        },
+    ]
+    return _rehash(manifest)
+
+
+def test_remotion_props_preserve_two_cue_schedule_and_caption_gap():
+    props = remotion.build_remotion_props(_two_cue_manifest())
+
+    transform = props["sections"][0]["audio"]["timing_transform"]
+    assert transform["mode"] == "cue_schedule"
+    assert [cue["target_start_ms"] for cue in transform["cues"]] == [0, 27000]
+    assert [
+        caption["start_frame"] for caption in props["sections"][0]["captions"]
+    ] == [0, 648]
+
+
+def test_remotion_props_reject_cue_text_or_frame_drift():
+    manifest = _two_cue_manifest()
+    manifest["sections"][0]["captions"][1]["text"] = "Changed."
+    with pytest.raises(contract.CustomFilmContractError):
+        remotion.build_remotion_props(_rehash(manifest))
+
+    transform = copy.deepcopy(
+        _two_cue_manifest()["sections"][0]["audio"]["timing_transform"]
+    )
+    transform["cues"][1]["source_start_ms"] = 5001
+    with pytest.raises(
+        contract.CustomFilmContractError, match="audio cue timing"
+    ):
+        remotion._validate_props_audio_transform(
+            transform, output_duration_ms=54000
+        )
+
+
 def test_assembly_v3_binds_exact_renderer_and_rejects_bundle_drift(monkeypatch):
     manifest = _manifest(version=compositor.ASSEMBLY_VERSION_V3)
     props = remotion.build_remotion_props(manifest)
