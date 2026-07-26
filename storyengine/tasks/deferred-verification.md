@@ -549,7 +549,8 @@ upload, or publication occurred.
       provenance.
 # Deferred verification — M9 Scene-by-Scene Control
 
-Nothing is deferred at mission start. M9 must complete local, browser, deploy, live
-synthetic, and zero-provider-spend proof in this run. If a live check cannot run, record
-the exact command, expected result, reached evidence, and M9 checklist cross-reference
-here; do not convert it into a completion claim.
+No local verification is deferred. Backend/state/schema, mounted cockpit, canonical
+artifact playback, Remotion render/audio/frame proof, and independent adversarial review
+all pass. M9-4 still requires the authorized production deploy, live synthetic
+scene-control/browser proof, and before/after zero-provider/zero-ledger reconciliation in
+this run; do not convert those pending live checks into a completion claim.

@@ -2,6 +2,7 @@ import { Composition } from "remotion";
 import { Main } from "./Main";
 import {StoryEngineDirectorFilm} from "./custom-film/DirectorFilm";
 import {DIRECTOR_FILM_DEFAULT_PROPS} from "./custom-film/directorFixture";
+import {DIRECTOR_SCENE_CONTROL_PROOF_PROPS} from "./custom-film/directorSceneControlFixture";
 import {validateDirectorRemotionProps} from "./custom-film/directorSchema";
 import { getSceneDurationFromConfig, getTotalDurationFromConfig, getSceneNumbers } from "./renderConfig";
 import {MotionLibraryPreview} from "./motion-library/MotionLibraryPreview";
@@ -111,6 +112,24 @@ export const RemotionRoot: React.FC = () => {
                 width={1920}
                 height={1080}
                 defaultProps={DIRECTOR_FILM_DEFAULT_PROPS}
+                calculateMetadata={({props}) => {
+                    const approved = validateDirectorRemotionProps(props);
+                    return {
+                        durationInFrames: approved.video.total_frames,
+                        fps: approved.video.fps,
+                        width: approved.video.width,
+                        height: approved.video.height,
+                    };
+                }}
+            />
+            <Composition
+                id="StoryEngineDirectorSceneControlProof"
+                component={StoryEngineDirectorFilm}
+                durationInFrames={432}
+                fps={24}
+                width={1920}
+                height={1080}
+                defaultProps={DIRECTOR_SCENE_CONTROL_PROOF_PROPS}
                 calculateMetadata={({props}) => {
                     const approved = validateDirectorRemotionProps(props);
                     return {

@@ -1,0 +1,129 @@
+{
+  "schema_version": "scene-control-proof-identity-v1",
+  "asset_evidence": {
+    "payload": {
+      "assembly": [
+        "director-scene-control-proof.mp4",
+        "a91a5e6085adc5f03702b6dd3600e31f1cf0638be840c6cc4067aa97ea9c6a3d",
+        432,
+        18
+      ],
+      "clips": [
+        ["scene_control_shot_1", "4df8f1541ff38340a7abe7eec418e1fd4f70c30cf8e1fe8b9e0aee8d50ae9aae"],
+        ["scene_control_shot_2", "ead7d4cd0bd172523b29f365a82bd5853e97d584884430adf328d92b365fd63b"],
+        ["scene_control_shot_3", "d5dba881d128a8e8e4f5a6a0a7b8b66c57f8173bfa9b975586ca4a89f0cb385c"],
+        ["scene_control_shot_4", "794ee4f51c02ed06d8ebfd3d7ecd62e6bcbf6e18f86e7670fc9171b146301db7"],
+        ["scene_control_shot_5", "833b577b606338719849e6e578456fdafaed461280c81ba26cfe9807b50740fd"]
+      ],
+      "voices": [
+        ["scene_control_character_mara", "The signal is inside.", "6570e6da74f37c5ec47a26b3b2905810c7176d006810d480da425a8f2ab0a75d"],
+        ["scene_control_character_elias", "Then it knows we're here.", "242833726029e266d3dda769451698663872ec04f04d1db48f08d8a3773115cc"],
+        ["scene_control_character_mara", "Kill the transmitter.", "9048b56f5343977cc6f5b436b2d552a884dfae8bcf9e51108ce9f76076120b5a"],
+        ["scene_control_character_elias", "Already did.", "7c10b4f96eda1a48f50d2f15b4abeeda315df8e000072217c1e62669d2d65dd4"]
+      ],
+      "motion_audio": [
+        ["data-click.wav", "a613caf2f4991325ca47af5cbe2d0870629112040f8c5b290b29a00d1863e883"],
+        ["music-bed.wav", "63570c59f6fc499c5d3cd991372e66bfeb85b316fe9c3058ac1d54fd10b073ea"],
+        ["signal-pulse.wav", "69d66a6e55ba6f32888b6c392cd84e7ad77e9d73627c67dc63e329fa4118055d"],
+        ["silence-drop.wav", "632ffe13ce979298edcd436902b080cc06933e81fd06ffadba14b635ecf432d4"]
+      ]
+    },
+    "sha256": "44e21655c67f6ca0f92eee94cf5e258aec694b6675c08997999fa415e5201ed6"
+  },
+  "director_contract": {
+    "payload": {
+      "contract_version": "scene-control-proof-director-v1",
+      "fps": 24,
+      "total_frames": 432,
+      "scene_id": "scene_control_scene_1",
+      "purpose": "Detect and isolate an internal relay intrusion, then recover the paper trace that unlocks Scene 2.",
+      "story_time": "Continuous 18-second present-time beat.",
+      "character_locks": [
+        {
+          "id": "scene_control_character_mara",
+          "display_name": "Mara",
+          "visual_identity": "Turquoise-blue geometric figure; screen-left console operator."
+        },
+        {
+          "id": "scene_control_character_elias",
+          "display_name": "Elias",
+          "visual_identity": "Rust geometric figure; screen-right breaker operator."
+        }
+      ],
+      "environment_lock": {
+        "id": "scene_control_environment_relay_room",
+        "display_name": "Relay Room",
+        "visual_identity": "Dark teal control room with central relay console and breaker wall on screen-right."
+      },
+      "style_lock": "Deterministic geometric 16:9 control-room grammar with turquoise signal and amber evidence accents.",
+      "shot_ids": [
+        "scene_control_shot_1",
+        "scene_control_shot_2",
+        "scene_control_shot_3",
+        "scene_control_shot_4",
+        "scene_control_shot_5"
+      ]
+    },
+    "sha256": "fbec82a9186df2912ae81203f03e1f60e64284213c3013da360c4b4fd17d7d1c"
+  },
+  "storyboard_gate": {
+    "payload": {
+      "gate_version": "scene-control-proof-storyboard-v1",
+      "director_contract_hash": "fbec82a9186df2912ae81203f03e1f60e64284213c3013da360c4b4fd17d7d1c",
+      "shots": [
+        ["scene_control_shot_1", "establish_relay_room", 0, 71, "Mara inserts the amber key."],
+        ["scene_control_shot_2", "signal_exchange", 72, 167, "Mara and Elias identify the internal threat."],
+        ["scene_control_shot_3", "silent_alarm_beat", 168, 239, "The relay expands red and both characters recoil."],
+        ["scene_control_shot_4", "breaker_exchange", 240, 335, "Mara orders shutdown while Elias reaches the breaker."],
+        ["scene_control_shot_5", "breaker_payoff", 336, 431, "The breaker kills the relay and releases the paper trace."]
+      ]
+    },
+    "sha256": "e5cd18e068d6dbba6683e6d6586fd4ece145a84e4d17a9c14d590db06f848c9c"
+  },
+  "picture_gate": {
+    "payload": {
+      "gate_version": "scene-control-proof-picture-v1",
+      "director_contract_hash": "fbec82a9186df2912ae81203f03e1f60e64284213c3013da360c4b4fd17d7d1c",
+      "storyboard_gate_hash": "e5cd18e068d6dbba6683e6d6586fd4ece145a84e4d17a9c14d590db06f848c9c",
+      "asset_evidence_hash": "44e21655c67f6ca0f92eee94cf5e258aec694b6675c08997999fa415e5201ed6",
+      "approved_clip_count": 5
+    },
+    "sha256": "4bb86ce0cb51271f6696baa47087c9d9c520e0b58f0ddf5eb1e6ffedeee76ff7"
+  },
+  "visual_gate": {
+    "payload": {
+      "gate_version": "scene-control-proof-visual-v1",
+      "director_contract_hash": "fbec82a9186df2912ae81203f03e1f60e64284213c3013da360c4b4fd17d7d1c",
+      "storyboard_gate_hash": "e5cd18e068d6dbba6683e6d6586fd4ece145a84e4d17a9c14d590db06f848c9c",
+      "picture_gate_hash": "4bb86ce0cb51271f6696baa47087c9d9c520e0b58f0ddf5eb1e6ffedeee76ff7",
+      "asset_evidence_hash": "44e21655c67f6ca0f92eee94cf5e258aec694b6675c08997999fa415e5201ed6",
+      "verified_progression": [
+        ["scene_control_shot_1", "Mara reaches the console and inserts the amber key while Elias holds position."],
+        ["scene_control_shot_2", "Mara identifies the signal as internal; Elias realizes the intruder can detect them."],
+        ["scene_control_shot_3", "The line expands red across the console and both characters recoil toward the center."],
+        ["scene_control_shot_4", "Mara orders the transmitter killed as Elias reaches the breaker and reveals he anticipated her."],
+        ["scene_control_shot_5", "Elias throws the breaker, the relay collapses, and the console releases a paper trace to Mara."]
+      ]
+    },
+    "sha256": "b8e1800ae477e293025896cf4764b5c5d32103440704f1369d311b3fac2706e9"
+  },
+  "admission": {
+    "payload": {
+      "admission_version": "scene-control-proof-admission-v1",
+      "director_contract_hash": "fbec82a9186df2912ae81203f03e1f60e64284213c3013da360c4b4fd17d7d1c",
+      "storyboard_gate_hash": "e5cd18e068d6dbba6683e6d6586fd4ece145a84e4d17a9c14d590db06f848c9c",
+      "picture_gate_hash": "4bb86ce0cb51271f6696baa47087c9d9c520e0b58f0ddf5eb1e6ffedeee76ff7",
+      "visual_gate_hash": "b8e1800ae477e293025896cf4764b5c5d32103440704f1369d311b3fac2706e9",
+      "asset_evidence_hash": "44e21655c67f6ca0f92eee94cf5e258aec694b6675c08997999fa415e5201ed6",
+      "timeline": [
+        ["scene_control_shot_1", 0, 72],
+        ["scene_control_shot_2", 72, 96],
+        ["scene_control_shot_3", 168, 72],
+        ["scene_control_shot_4", 240, 96],
+        ["scene_control_shot_5", 336, 96]
+      ]
+    },
+    "sha256": "abac08d0e7f03f5168bef6ab2902cf8523cbcadc26b66e4c37b8715b1fd51e9e"
+  },
+  "manifest_sha256": "367e94e50d2b19612cf752e70e8c06cf9971f1faf74f0394843fb369443a0ad4"
+}

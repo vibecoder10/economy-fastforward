@@ -31,11 +31,13 @@
 
 Caps: maximum three concurrent workers; maximum six worker/verifier invocations before CEO re-plan; external provider spend `$0.00`; no destructive production action; deployment is sequential and uses the sanctioned wrapper.
 
+Re-plan after invocation 6: M9-3A cockpit component is locally accepted (TypeScript, 5/5 focused Playwright, 34-route build) but intentionally unmounted. Backend and Remotion nodes remain active. After both return, allow at most three fresh invocations for one API/page integrator and independent backend/Remotion verification; deployment remains CEO-sequential.
+
 ### Chunks
 - [x] M9-0 READ-ONLY SWEEP + FROZEN CONTRACT: production `9a918466` is healthy with zero active work, no deploy lock, normal drain, migrations 135/136 applied, `CUSTOM_FILM_DIRECTOR_V2=true`, Scene Control unset, zero director schedules/call events/executions, and a 148-row/$25.14 ledger baseline. Existing director hashes/gates/claims/outbox/ledger and `StoryEngineDirectorFilm` are the reuse seams. Pre-change proof passes 543 Custom Film backend tests and 7 director Remotion tests. Independent backend, UI/production, and Remotion sweeps all returned with no mutations or provider work.
-- [ ] M9-1 BACKEND STATE / APPROVAL LAW
-- [ ] M9-2 SYNTHETIC REMOTION SCENE
-- [ ] M9-3 MODULAR PRODUCTION COCKPIT
+- [x] M9-1 BACKEND STATE / APPROVAL LAW: migration 137 plus the feature-gated API persist six film locks, contiguous scene heads, exact revision/artifact-bound transitions, upstream invalidation, accepted immutability, sequential unlock, conservative exact quotes, safe synthetic seeding, and same-origin artifact manifests. The final Custom Film packet passes 587 tests; the independent focused/schema packet passes 44.
+- [x] M9-2 SYNTHETIC REMOTION SCENE: the canonical 18-second/432-frame Mara-and-Elias relay-room proof binds five progressive clips, four dialogue lines, a silent beat, layered audio, captions, transitions, and browser bytes through one cross-language hash manifest. Remotion passes 13 tests, typecheck, bundle, byte-identical A/B render, ffprobe, and 15-frame visual inspection.
+- [x] M9-3 MODULAR PRODUCTION COCKPIT: the flagged production route exposes editable film locks, exact non-synthetic shot contracts, locked/current/accepted rail states, fail-closed artifact playback, stale-versus-current truth labels, revision/CAS recovery, and quote-only paid cards. TypeScript, 14 focused Playwright tests, and the flagged 34-route production build pass.
 - [ ] M9-4 FINAL SWEEP + DEPLOY + LIVE NO-SPEND PROOF
 
 ## Active mission — M8 STORYBOARD-DRIVEN CUSTOM FILM DIRECTOR LOOP

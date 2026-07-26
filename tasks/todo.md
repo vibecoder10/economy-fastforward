@@ -2574,6 +2574,20 @@ Frontend tasks 8-12 are now unblocked. Task queue is empty.
 
 Previous handoffs archived in `tasks/archive/handoffs-2026-03-to-04.md`
 
+## Handoff (2026-07-26 — Scene-by-Scene Control)
+
+- LOCAL ACCEPTED: migration/API/state law, mounted cockpit, canonical local
+  media playback, and the deterministic 18-second Remotion proof pass fresh
+  adversarial review.
+- Proof totals: 587 Custom Film tests, 14 focused Playwright tests, 13 Remotion
+  tests, flagged 34-route frontend build, exact 432 video frames, and
+  byte-identical render/browser SHA-256
+  `a91a5e6085adc5f03702b6dd3600e31f1cf0638be840c6cc4067aa97ea9c6a3d`.
+- NEXT: merge and deploy through `storyengine/scripts/se.sh`, run only the
+  synthetic live/browser proof, reconcile unchanged schedules/calls/executions,
+  claims, and ledger, and stop a fresh Scene 1 at the unapproved exact
+  storyboard quote. No provider generation is authorized.
+
 ## Handoff (2026-04-10 — QA verification + security audit)
 PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7/T10.
 - BUG-USER-800807 confirmed fixed (380178b) — backend returns "Invalid or expired session", frontend suppresses auth 401s from RUBRIC

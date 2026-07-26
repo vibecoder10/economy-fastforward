@@ -6,13 +6,20 @@ export const DIRECTOR_REMOTION_PROPS_VERSION =
 
 const hashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const textSchema = z.string().min(1);
+const localPathSchema = textSchema.refine(
+  (value) =>
+    !/^[a-z][a-z0-9+.-]*:/i.test(value) &&
+    !value.startsWith("/") &&
+    !value.split(/[\\/]/).includes(".."),
+  "Custom Film director source must be a staged local relative path",
+);
 const frameSchema = z.number().int().nonnegative();
 const positiveFrameSchema = z.number().int().positive();
 
 const sourceSchema = z
   .object({
     source_key: textSchema,
-    local_path: textSchema,
+    local_path: localPathSchema,
     source_sha256: hashSchema,
   })
   .strict();
@@ -50,6 +57,27 @@ const soundLayerSchema = z
   })
   .strict();
 
+const continuitySchema = z
+  .object({
+    character_ids: z.array(textSchema).min(1),
+    environment_id: textSchema,
+    opening_state: textSchema,
+    closing_state: textSchema,
+    progression: textSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      new Set(value.character_ids).size !== value.character_ids.length ||
+      value.opening_state === value.closing_state
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom Film director continuity does not visibly progress",
+      });
+    }
+  });
+
 const shotSchema = z
   .object({
     shot_id: textSchema,
@@ -76,6 +104,7 @@ const shotSchema = z
       "memory",
     ]),
     transition_duration_frames: frameSchema,
+    continuity: continuitySchema.optional(),
     clip: sourceSchema,
     spoken_lines: z.array(spokenLineSchema),
     sound_layers: z.array(soundLayerSchema).min(1),

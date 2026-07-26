@@ -1,0 +1,54 @@
+{
+  "schema_version": "scene-control-proof-browser-assets-v1",
+  "control_manifest_sha256": "367e94e50d2b19612cf752e70e8c06cf9971f1faf74f0394843fb369443a0ad4",
+  "composition": {
+    "url": "/scene-control-proof/director-scene-control-proof.mp4",
+    "sha256": "a91a5e6085adc5f03702b6dd3600e31f1cf0638be840c6cc4067aa97ea9c6a3d",
+    "fps": 24,
+    "total_frames": 432,
+    "duration_seconds": 18
+  },
+  "shots": [
+    {
+      "shot_id": "scene_control_shot_1",
+      "url": "/scene-control-proof/shot-1-establish-key.mp4",
+      "sha256": "4df8f1541ff38340a7abe7eec418e1fd4f70c30cf8e1fe8b9e0aee8d50ae9aae",
+      "start_frame": 0,
+      "end_frame": 71,
+      "duration_frames": 72
+    },
+    {
+      "shot_id": "scene_control_shot_2",
+      "url": "/scene-control-proof/shot-2-signal-exchange.mp4",
+      "sha256": "ead7d4cd0bd172523b29f365a82bd5853e97d584884430adf328d92b365fd63b",
+      "start_frame": 72,
+      "end_frame": 167,
+      "duration_frames": 96
+    },
+    {
+      "shot_id": "scene_control_shot_3",
+      "url": "/scene-control-proof/shot-3-silent-alarm.mp4",
+      "sha256": "d5dba881d128a8e8e4f5a6a0a7b8b66c57f8173bfa9b975586ca4a89f0cb385c",
+      "start_frame": 168,
+      "end_frame": 239,
+      "duration_frames": 72
+    },
+    {
+      "shot_id": "scene_control_shot_4",
+      "url": "/scene-control-proof/shot-4-breaker-exchange.mp4",
+      "sha256": "794ee4f51c02ed06d8ebfd3d7ecd62e6bcbf6e18f86e7670fc9171b146301db7",
+      "start_frame": 240,
+      "end_frame": 335,
+      "duration_frames": 96
+    },
+    {
+      "shot_id": "scene_control_shot_5",
+      "url": "/scene-control-proof/shot-5-breaker-payoff.mp4",
+      "sha256": "833b577b606338719849e6e578456fdafaed461280c81ba26cfe9807b50740fd",
+      "start_frame": 336,
+      "end_frame": 431,
+      "duration_frames": 96
+    }
+  ],
+  "manifest_sha256": "c3818085ae9cf44b82eda9cb9991cd5d77e006b2cb3be6b4d0f0bc833821072c"
+}
