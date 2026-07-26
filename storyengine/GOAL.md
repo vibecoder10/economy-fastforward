@@ -194,8 +194,8 @@ his only future input is a list of titles. Tenant 561b872d, static_docu render m
 The 2026-06-24 "two diverged pipelines" root cause is largely resolved. Coverage is the single live
 image/clip path; legacy grid routes return 410; dead pages removed.
 
-- Phase 0 (unify on coverage): DONE + deployed + publicly verified.
-- Phase 1 (real data / dead-video pruning): DONE; remnants = own-channel ingestion + a one-time
+- Phase 0 (unify on coverage): DONE 2026-07-25, nothing deployed.
+- Phase 1 (real data / dead-video pruning): DONE 2026-07-25, nothing deployed; remnants = own-channel ingestion + a one-time
   prod purge of old zero-view rows.
 - Phase 2 (always-on channel intelligence): DONE (mig 066 `channel_intel`, rich brief every turn).
 - Phase 3 (style detect -> recommend -> apply): DONE (proven universal: live-action -> realistic,
