@@ -13,9 +13,17 @@ ROOT = Path(__file__).resolve().parents[3]
 MIGRATION = (
     ROOT / "backend/migrations/133_custom_film_assembly_admin_recovery.sql"
 ).read_text()
+SEARCH_PATH_MIGRATION = (
+    ROOT
+    / "backend/migrations/134_custom_film_recovery_extension_search_path.sql"
+).read_text()
 SCHEMA = (ROOT / "schema.sql").read_text()
 SCHEMA_BEGIN = "-- CUSTOM_FILM_ASSEMBLY_ADMIN_RECOVERY_BEGIN\n"
 SCHEMA_END = "-- CUSTOM_FILM_ASSEMBLY_ADMIN_RECOVERY_END"
+SEARCH_PATH_SCHEMA_BEGIN = (
+    "-- CUSTOM_FILM_RECOVERY_EXTENSION_SEARCH_PATH_BEGIN\n"
+)
+SEARCH_PATH_SCHEMA_END = "-- CUSTOM_FILM_RECOVERY_EXTENSION_SEARCH_PATH_END"
 
 
 def _migration_body() -> str:
@@ -32,6 +40,29 @@ def test_schema_sql_is_exact_migration_133_parity():
     assert SCHEMA.count(SCHEMA_END) == 1
     parity = SCHEMA.split(SCHEMA_BEGIN, 1)[1].split(SCHEMA_END, 1)[0]
     assert parity == _migration_body()
+
+
+def test_migration_134_exposes_only_locked_pgcrypto_extension_schema():
+    assert SEARCH_PATH_MIGRATION.startswith(
+        "-- Migration 133's recovery function hashes exact failure evidence with\n"
+    )
+    assert SEARCH_PATH_MIGRATION.count("ALTER FUNCTION") == 1
+    assert (
+        "SET search_path = pg_catalog, public, extensions;"
+        in SEARCH_PATH_MIGRATION
+    )
+    assert "CREATE OR REPLACE FUNCTION" not in SEARCH_PATH_MIGRATION
+    assert "GRANT " not in SEARCH_PATH_MIGRATION
+    assert "PUBLIC" not in SEARCH_PATH_MIGRATION
+    assert SCHEMA.count(SEARCH_PATH_SCHEMA_BEGIN) == 1
+    assert SCHEMA.count(SEARCH_PATH_SCHEMA_END) == 1
+    parity = SCHEMA.split(SEARCH_PATH_SCHEMA_BEGIN, 1)[1].split(
+        SEARCH_PATH_SCHEMA_END, 1
+    )[0]
+    expected = SEARCH_PATH_MIGRATION.split("BEGIN;\n\n", 1)[1].rsplit(
+        "\n\nCOMMIT;", 1
+    )[0] + "\n"
+    assert parity == expected
 
 
 def test_recovery_is_privileged_one_time_and_audited():
