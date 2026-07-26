@@ -1,5 +1,43 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
+## Active mission — M9 SCENE-BY-SCENE CONTROL
+
+### Definition of Complete
+1. Scene Control is live behind `CUSTOM_FILM_SCENE_CONTROL_V1`, with the whole-film story, dialogue ownership, visual style, recurring cast, and recurring environments explicitly lockable before paid media work.
+2. One current scene persists and visibly exposes the fail-closed progression `draft -> plan_approved -> storyboard_approved -> imagery_approved -> animation_approved -> audio_approved -> assembled -> accepted`; approvals bind to the exact revision hash, upstream changes invalidate downstream approvals, and only `accepted` unlocks the next scene.
+3. Every paid operation is separately quoted and approved with scene/shot scope, operation type, initial and maximum-repair calls, exact incremental maximum, prior completed cumulative spend, new exact cumulative ceiling, included media, and explicit exclusions. No broad scene approval authorizes hidden provider work.
+4. The production cockpit exposes film locks, the scene rail, synchronous shot board, continuity/dialogue/action inspection, artifact review, deterministic-versus-paid labels, and explicit approve/reject controls without autoplay, auto-advance, hidden repair, provider fallback, or multi-scene execution.
+5. A 15–30 second synthetic/local Scene 1 with two locked recurring characters, one locked environment, four to six progressive shots, back-and-forth dialogue, one intentional silent-action beat, layered Remotion audio/transitions/captions, and verified start-to-end progression passes local render, frame, audio, caption, and browser inspection.
+6. The accepted branch is merged and deployed through the sanctioned drain/migration workflow; production health, flag state, schema parity, scene locking, approval truth, and the synthetic one-scene path are verified live.
+7. Provider-generation counts and canonical spend remain unchanged throughout the build and live proof. The system stops at Scene 1's first new exact paid approval; the existing `$21.45` whole-stage card remains unapproved and `$8.57` remains historical accounting only.
+
+### Objective anchors
+- Provider generation, helper imagery, voice, animation, paid repair, upload, and publication are prohibited in this mission.
+- Synthetic/local assets and deterministic Remotion assembly are allowed.
+- Every transition is explicit, compare-and-set against the current revision hash, tenant-bound, and fail-closed.
+- Every upstream revision invalidates downstream approval without mutating an already accepted scene.
+- Deployment may proceed only after focused backend, full Custom Film, TypeScript/build, Remotion, and browser proof pass.
+- Live proof uses synthetic records/assets only and must demonstrate no change in director schedules/call events/executions or canonical generation ledger.
+
+### Topology and caps
+
+| Node | Outcome | Dependencies | Write scope | Acceptance | Failure / prohibited actions |
+|---|---|---|---|---|---|
+| M9-0 | Read-only architecture and production safety sweep; frozen contracts | Handoff | CEO loop files only | Existing seams, deploy law, and no-spend baseline identified | Stop on active production work or ambiguous spend state |
+| M9-1 | Persistent scene state machine, film locks, transition/invalidations, exact-operation approval contract and APIs | M9-0 | Backend, migration/schema, backend tests | Focused state/tenant/replay/invalidation/spend tests | No provider adapter invocation or queue dispatch |
+| M9-2 | Synthetic one-scene Remotion fixture, deterministic assembly, technical and visual proof | M9-0 | Existing director Remotion surface, fixtures, Remotion tests/scripts | 15–30s render; 4–6 shots; dialogue/silent beat/audio/captions/transitions; frame inspection | Local/synthetic assets only |
+| M9-3 | Modular production cockpit integrated with M9-1 APIs and M9-2 proof | M9-1, M9-2 | Frontend components/types/tests | TypeScript, production build, browser workflow and accessibility states | No broad approval button or paid call |
+| M9-4 | Independent final sweep, merge/deploy, live synthetic proof, no-spend reconciliation | M9-1, M9-2, M9-3 | Deployment/config plus evidence docs | Healthy live services; exact flag/schema; locked Scene 2; paid-card stop; zero provider/spend delta | Abort on deploy lock, active work, or spend drift |
+
+Caps: maximum three concurrent workers; maximum six worker/verifier invocations before CEO re-plan; external provider spend `$0.00`; no destructive production action; deployment is sequential and uses the sanctioned wrapper.
+
+### Chunks
+- [x] M9-0 READ-ONLY SWEEP + FROZEN CONTRACT: production `9a918466` is healthy with zero active work, no deploy lock, normal drain, migrations 135/136 applied, `CUSTOM_FILM_DIRECTOR_V2=true`, Scene Control unset, zero director schedules/call events/executions, and a 148-row/$25.14 ledger baseline. Existing director hashes/gates/claims/outbox/ledger and `StoryEngineDirectorFilm` are the reuse seams. Pre-change proof passes 543 Custom Film backend tests and 7 director Remotion tests. Independent backend, UI/production, and Remotion sweeps all returned with no mutations or provider work.
+- [ ] M9-1 BACKEND STATE / APPROVAL LAW
+- [ ] M9-2 SYNTHETIC REMOTION SCENE
+- [ ] M9-3 MODULAR PRODUCTION COCKPIT
+- [ ] M9-4 FINAL SWEEP + DEPLOY + LIVE NO-SPEND PROOF
+
 ## Active mission — M8 STORYBOARD-DRIVEN CUSTOM FILM DIRECTOR LOOP
 
 ### Definition of Complete
