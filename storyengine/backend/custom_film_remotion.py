@@ -1014,14 +1014,7 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             )
             if (
                 caption_start < start_frame
-                or (
-                    audio_transform["mode"] != "cue_schedule"
-                    and caption_start != last_caption_end
-                )
-                or (
-                    audio_transform["mode"] == "cue_schedule"
-                    and caption_start < last_caption_end
-                )
+                or caption_start < last_caption_end
                 or caption_end <= caption_start
                 or caption_end > start_frame + section_frames
                 or section_end_ms <= section_start_ms
@@ -1072,7 +1065,10 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             expected_caption_end = start_frame + (
                 cues[-1]["target_end_ms"] * fps // 1000
             )
-        if last_caption_end != expected_caption_end:
+        if (
+            audio_transform["mode"] != "source_clip"
+            and last_caption_end != expected_caption_end
+        ):
             raise CustomFilmContractError(
                 "Custom Film captions do not match approved audio"
             )
@@ -2059,14 +2055,7 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             )
             if (
                 scene_id not in scene_ids
-                or (
-                    audio_transform["mode"] != "cue_schedule"
-                    and start != caption_end
-                )
-                or (
-                    audio_transform["mode"] == "cue_schedule"
-                    and start < caption_end
-                )
+                or start < caption_end
                 or end <= start
                 or end > section_start + section_frames
                 or start != section_start + section_start_ms * fps // 1000
@@ -2097,7 +2086,10 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             expected_caption_end = section_start + (
                 cues[-1]["target_end_ms"] * fps // 1000
             )
-        if caption_end != expected_caption_end:
+        if (
+            audio_transform["mode"] != "source_clip"
+            and caption_end != expected_caption_end
+        ):
             raise CustomFilmContractError(
                 "Custom Film Remotion captions do not match approved audio"
             )

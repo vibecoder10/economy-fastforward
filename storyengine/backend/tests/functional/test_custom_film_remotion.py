@@ -1312,6 +1312,57 @@ async def test_source_clip_native_audio_needs_no_separate_audio_source(
     ]
 
 
+def test_source_clip_dialogue_captions_allow_silent_visual_gaps(tmp_path: Path):
+    video = tmp_path / "source.mp4"
+    audio = tmp_path / "unused-audio.bin"
+    video.write_bytes(b"approved-video-with-native-audio")
+    audio.write_bytes(b"unused")
+    props = _v3_props_for_sources(video, audio)
+    asset = props["sections"][0]["assets"][0]
+    asset["timing_transform"] = {
+        "mode": "none",
+        "source_duration_ms": 300_000,
+        "output_duration_ms": 300_000,
+    }
+    asset["actual_duration_ms"] = 300_000
+    asset["assigned_duration_ms"] = 300_000
+    props["sections"][0]["audio"]["mode"] = "source_clip"
+    props["sections"][0]["audio"]["timing_transform"] = {
+        "mode": "source_clip",
+        "source_duration_ms": 300_000,
+        "output_duration_ms": 300_000,
+        "atempo_chain": [],
+        "caption_scale": 1,
+    }
+    props["sections"][0]["audio"]["sources"] = []
+    first = copy.deepcopy(props["sections"][0]["captions"][0])
+    first.update(
+        {
+            "text": "First translated line.",
+            "section_start_ms": 0,
+            "section_end_ms": 1000,
+            "start_frame": 0,
+            "end_frame": 24,
+        }
+    )
+    second = copy.deepcopy(first)
+    second.update(
+        {
+            "text": "Second translated line.",
+            "section_start_ms": 2000,
+            "section_end_ms": 3000,
+            "start_frame": 48,
+            "end_frame": 72,
+        }
+    )
+    props["sections"][0]["captions"] = [first, second]
+    body = copy.deepcopy(props)
+    del body["props_hash"]
+    props["props_hash"] = remotion.remotion_props_hash(body)
+
+    remotion._validate_renderer_props(props)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "probe_change",
