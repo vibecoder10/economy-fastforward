@@ -166,8 +166,8 @@ async def _ordered_shots(conn: Any, tenant_id: str, scene_id: str) -> list[tuple
     for row in rows:
         contract = control._json_value(row["shot_contract"], "shot contract")
         prompt = str(
-            contract.get("storyboard_prompt")
-            or contract.get("storyboard_composition")
+            contract.get("storyboard_composition")
+            or contract.get("storyboard_prompt")
             or ""
         ).strip()
         if not prompt:

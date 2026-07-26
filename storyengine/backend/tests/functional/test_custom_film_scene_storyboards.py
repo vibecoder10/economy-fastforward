@@ -113,6 +113,27 @@ def test_fixture_is_current_one_scene_five_shots_six_locks():
     assert len(compiled["shots"]) == 5
 
 
+@pytest.mark.asyncio
+async def test_ordered_shots_prefers_exact_composition_over_compiler_wrapper():
+    class Conn:
+        async def fetch(self, *_args):
+            return [
+                {
+                    "shot_id": f"shot-{index}",
+                    "shot_contract": {
+                        "storyboard_composition": f"exact composition {index}",
+                        "storyboard_prompt": f"compiler wrapper with legacy beat {index}",
+                    },
+                }
+                for index in range(5)
+            ]
+
+    shots = await storyboards._ordered_shots(Conn(), "tenant", "scene")
+    assert [prompt for _, prompt in shots] == [
+        f"exact composition {index}" for index in range(5)
+    ]
+
+
 def test_surface_has_only_storyboard_execution_and_no_downstream_paths():
     paths = [route.path for route in routes.router.routes]
     assert any(path.endswith("/storyboards/approve") for path in paths)
