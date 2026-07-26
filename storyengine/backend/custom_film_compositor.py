@@ -2824,6 +2824,7 @@ async def render_custom_film_video(
             raise CustomFilmContractError(
                 "Custom Film durable assembly identity is incomplete"
             )
+        durable_manifest["manifest_hash"] = durable_manifest_hash
         selected_render_engine = resolve_durable_render_engine(
             manifest_version=str(existing["manifest_version"]),
             manifest=durable_manifest,
@@ -2853,23 +2854,30 @@ async def render_custom_film_video(
             if selected_render_engine == "remotion"
             else ASSEMBLY_VERSION_V2
         )
-    preliminary = build_assembly_manifest(
-        tenant_id=tenant_id,
-        envelope_value=inputs["envelope"],
-        runtime_job_id=inputs["runtime_job_id"],
-        runtime_progress_value=inputs["runtime_progress"],
-        provider_rows=inputs["provider_rows"],
-        scene_rows=inputs["scene_rows"],
-        asset_rows=inputs["asset_rows"],
-        provenance_rows=inputs["provenance_rows"],
-        section_supplements=inputs["section_supplements"],
-        require_source_hashes=False,
-        width=inputs["output_width"],
-        height=inputs["output_height"],
-        render_engine=selected_render_engine,
-        assembly_version=selected_assembly_version,
-        orchestration_contract=inputs.get("orchestration_contract"),
-    )
+    if durable_manifest is not None:
+        # The journal is the immutable render contract.  Current database rows
+        # may legitimately drift after preparation, so a retry must not rebuild
+        # source URLs, hashes, timing, renderer identity, or storage identity
+        # from those mutable rows.
+        preliminary = durable_manifest
+    else:
+        preliminary = build_assembly_manifest(
+            tenant_id=tenant_id,
+            envelope_value=inputs["envelope"],
+            runtime_job_id=inputs["runtime_job_id"],
+            runtime_progress_value=inputs["runtime_progress"],
+            provider_rows=inputs["provider_rows"],
+            scene_rows=inputs["scene_rows"],
+            asset_rows=inputs["asset_rows"],
+            provenance_rows=inputs["provenance_rows"],
+            section_supplements=inputs["section_supplements"],
+            require_source_hashes=False,
+            width=inputs["output_width"],
+            height=inputs["output_height"],
+            render_engine=selected_render_engine,
+            assembly_version=selected_assembly_version,
+            orchestration_contract=inputs.get("orchestration_contract"),
+        )
     if existing and str(existing["state"]) == "finalized":
         if (
             not str(existing["artifact_sha256"] or "")
@@ -2909,50 +2917,104 @@ async def render_custom_film_video(
                 )
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             source_paths[str(asset["asset_id"])] = path
-            for current in inputs["asset_rows"]:
-                if str(current["asset_id"]) == str(asset["asset_id"]):
-                    current["source_sha256"] = digest
-        for section in inputs["envelope"]["sections"]:
-            supplement = inputs["section_supplements"][str(section["section_id"])]
-            for index, url in enumerate(supplement.get("voice_over_urls") or []):
-                key = f"audio:{section['section_id']}:{index}"
+            if durable_manifest is not None:
+                if digest != str(asset.get("source_sha256") or ""):
+                    raise CustomFilmContractError(
+                        "Custom Film durable asset source hash changed"
+                    )
+            else:
+                for current in inputs["asset_rows"]:
+                    if str(current["asset_id"]) == str(asset["asset_id"]):
+                        current["source_sha256"] = digest
+        narration_sections = (
+            preliminary["sections"]
+            if durable_manifest is not None
+            else inputs["envelope"]["sections"]
+        )
+        for section in narration_sections:
+            section_id = str(section["section_id"])
+            if durable_manifest is not None:
+                audio = _mapping(section.get("audio"), "durable narration")
+                voice_urls = list(audio.get("source_urls") or [])
+                voice_hashes = list(audio.get("source_sha256") or [])
+                voice_durations = list(audio.get("source_duration_ms") or [])
+                if not (
+                    len(voice_urls)
+                    == len(voice_hashes)
+                    == len(voice_durations)
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film durable narration identity is incomplete"
+                    )
+                supplement = None
+            else:
+                supplement = inputs["section_supplements"][section_id]
+                voice_urls = list(supplement.get("voice_over_urls") or [])
+                voice_hashes = []
+                voice_durations = []
+            for index, url in enumerate(voice_urls):
+                key = f"audio:{section_id}:{index}"
                 path = staging / f"{key.replace(':', '_')}.mp3"
                 await download(str(url), path)
                 if not path.is_file() or path.stat().st_size == 0:
                     raise CustomFilmContractError(
                         "Custom Film narration download was empty"
                     )
-                supplement["voice_over_sha256"].append(
-                    hashlib.sha256(path.read_bytes()).hexdigest()
-                )
+                voice_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                if durable_manifest is not None:
+                    if voice_digest != str(voice_hashes[index]):
+                        raise CustomFilmContractError(
+                            "Custom Film durable narration source hash changed"
+                        )
+                else:
+                    supplement["voice_over_sha256"].append(voice_digest)
                 voice_probe = await probe_media(path)
                 if not voice_probe["has_audio"] or voice_probe["has_video"]:
                     raise CustomFilmContractError(
                         "Custom Film narration source has an invalid stream"
                     )
-                supplement["voice_over_duration_ms"].append(
-                    round(float(voice_probe["duration_seconds"]) * 1000)
+                voice_duration_ms = round(
+                    float(voice_probe["duration_seconds"]) * 1000
                 )
+                if durable_manifest is not None:
+                    if voice_duration_ms != _exact_int(
+                        voice_durations[index],
+                        "durable narration source duration",
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film durable narration source duration changed"
+                        )
+                else:
+                    supplement["voice_over_duration_ms"].append(
+                        voice_duration_ms
+                    )
                 source_paths[key] = path
-        manifest = build_assembly_manifest(
-            tenant_id=tenant_id,
-            envelope_value=inputs["envelope"],
-            runtime_job_id=inputs["runtime_job_id"],
-            runtime_progress_value=inputs["runtime_progress"],
-            provider_rows=inputs["provider_rows"],
-            scene_rows=inputs["scene_rows"],
-            asset_rows=inputs["asset_rows"],
-            provenance_rows=inputs["provenance_rows"],
-            section_supplements=inputs["section_supplements"],
-            width=inputs["output_width"],
-            height=inputs["output_height"],
-            render_engine=selected_render_engine,
-            assembly_version=selected_assembly_version,
-            orchestration_contract=inputs.get("orchestration_contract"),
-        )
+        if durable_manifest is not None:
+            manifest = durable_manifest
+        else:
+            manifest = build_assembly_manifest(
+                tenant_id=tenant_id,
+                envelope_value=inputs["envelope"],
+                runtime_job_id=inputs["runtime_job_id"],
+                runtime_progress_value=inputs["runtime_progress"],
+                provider_rows=inputs["provider_rows"],
+                scene_rows=inputs["scene_rows"],
+                asset_rows=inputs["asset_rows"],
+                provenance_rows=inputs["provenance_rows"],
+                section_supplements=inputs["section_supplements"],
+                width=inputs["output_width"],
+                height=inputs["output_height"],
+                render_engine=selected_render_engine,
+                assembly_version=selected_assembly_version,
+                orchestration_contract=inputs.get("orchestration_contract"),
+            )
         manifest_hash = manifest["manifest_hash"]
         runtime_hash = manifest["runtime_hash"]
         storage_path = assembly_storage_path(video_id, runtime_hash, manifest_hash)
+        if existing and str(existing.get("storage_path") or "") != storage_path:
+            raise CustomFilmContractError(
+                "Custom Film durable storage identity changed"
+            )
         journal_ready = False
         last_completed_sections = 0
         async with pool.acquire() as conn:
@@ -3009,9 +3071,11 @@ async def render_custom_film_video(
                     "completed assembly sections",
                 )
                 storage_path = str(journal.get("storage_path") or "")
-                if not storage_path:
+                if storage_path != assembly_storage_path(
+                    video_id, runtime_hash, manifest_hash
+                ):
                     raise CustomFilmContractError(
-                        "Custom Film durable storage path is missing"
+                        "Custom Film durable storage identity changed"
                     )
                 state = str(journal["state"])
                 resume_action = assembly_resume_action(state)
