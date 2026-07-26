@@ -445,6 +445,33 @@ def _build(values: dict) -> dict:
     )
 
 
+def _replace_bound_scene_text(values: dict, scene: dict, text: str) -> None:
+    scene["scene_text"] = text
+    adapter = next(
+        adapter
+        for adapter in custom_film_section_runtime.compile_stage_adapters(
+            values["envelope"]
+        )
+        if adapter.section_id == scene["section_id"]
+        and adapter.stage == "script"
+    )
+    parent_id = compositor._parent_operation_id(
+        TENANT, values["runtime_job_id"], adapter
+    )
+    operation = next(
+        row for row in values["provider_rows"]
+        if row["operation_id"] == parent_id
+    )
+    operation["result"]["scene_text_hashes"] = [
+        {
+            "scene_id": scene["script_id"],
+            "scene_text_hash": contract.canonical_hash(
+                {"scene_id": scene["script_id"], "scene_text": text}
+            ),
+        }
+    ]
+
+
 def _set_opening_two_cue_alignment(values: dict) -> None:
     section = values["envelope"]["sections"][0]
     section_id = section["section_id"]
@@ -547,6 +574,68 @@ def test_two_cue_alignment_builds_exact_schedule_and_audible_captions():
         ("First approved line.", 0, 84),
         ("Second approved line.", 648, 744),
     ]
+
+
+def test_native_dialogue_captions_use_structured_target_text_not_av_screenplay():
+    values = _fixture()
+    native_section = values["envelope"]["sections"][3]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == native_section["section_id"]
+    )
+    _replace_bound_scene_text(
+        values,
+        scene,
+        "[AV SECTION — TEST]\nVISUAL: Never show this.\n"
+        "DIALOGUE Mara [source]: Hola.\nDIALOGUE Mara [target]: Hello.",
+    )
+    scene["dialogue_segments"] = [
+        {
+            "type": "dialogue",
+            "speaker": "Mara",
+            "language": "source",
+            "text": "Hola.",
+            "start_seconds": 0,
+            "end_seconds": 1,
+        },
+        {
+            "type": "dialogue",
+            "speaker": "Mara",
+            "language": "target",
+            "text": "Hello.",
+            "start_seconds": 0,
+            "end_seconds": 1,
+        },
+    ]
+
+    manifest = _build(values)
+    captions = manifest["sections"][3]["captions"]
+
+    assert [caption["text"] for caption in captions] == ["Hello."]
+    assert captions[0]["start_frame"] == 144
+    assert captions[0]["end_frame"] == 168
+
+
+def test_native_dialogue_without_structured_text_rejects_production_directions():
+    values = _fixture()
+    native_section = values["envelope"]["sections"][3]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == native_section["section_id"]
+    )
+    _replace_bound_scene_text(
+        values,
+        scene,
+        "[AV SECTION — TEST]\nVISUAL: Never show this.",
+    )
+
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="production directions cannot become captions",
+    ):
+        _build(values)
 
 
 @pytest.mark.parametrize(

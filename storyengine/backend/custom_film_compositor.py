@@ -249,6 +249,53 @@ def _narration_segments(scene_row: Mapping[str, Any]) -> list[dict[str, Any]]:
     return segments
 
 
+def _source_clip_caption_segments(
+    scene_row: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Return clean target-language subtitles for native dialogue clips.
+
+    ``scene_text`` may be the complete AV screenplay, including visual and
+    sound direction. Native-performance captions must come from the structured
+    dialogue contract so production instructions can never appear on screen.
+    """
+    value = _json_value(scene_row.get("dialogue_segments"), "dialogue segments")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise CustomFilmContractError(
+            "Custom Film dialogue segments are invalid"
+        )
+    segments: list[dict[str, Any]] = []
+    for item in value:
+        if (
+            not isinstance(item, Mapping)
+            or item.get("type") != "dialogue"
+            or item.get("language") != "target"
+        ):
+            continue
+        text = str(item.get("text") or "").strip()
+        start = item.get("start_seconds")
+        end = item.get("end_seconds")
+        if (
+            not text
+            or type(start) is not int
+            or type(end) is not int
+            or start < 0
+            or end <= start
+        ):
+            raise CustomFilmContractError(
+                "Custom Film target dialogue segment is invalid"
+            )
+        segments.append(
+            {
+                "text": text,
+                "start_ms": start * 1000,
+                "end_ms": end * 1000,
+            }
+        )
+    return segments
+
+
 def _cue_schedule_transform(
     scene_row: Mapping[str, Any],
     *,
@@ -1252,6 +1299,12 @@ def build_assembly_manifest(
                 duration_seconds * 1000, len(assigned_scene_ids)
             )
         captions: list[dict[str, Any]] = []
+        native_caption_segments = {
+            scene_id: _source_clip_caption_segments(
+                scene_rows_by_id[scene_id]
+            )
+            for scene_id in assigned_scene_ids
+        }
         if audio_transform["mode"] == "cue_schedule":
             scene_id = assigned_scene_ids[0]
             for cue, segment in zip(
@@ -1272,6 +1325,31 @@ def build_assembly_manifest(
                         + (cue["target_end_ms"] * fps // 1000),
                     }
                 )
+        elif (
+            section["dialogue_audio"] == "grok_native"
+            and any(native_caption_segments.values())
+        ):
+            for scene_id in assigned_scene_ids:
+                for segment in native_caption_segments[scene_id]:
+                    if segment["end_ms"] > duration_seconds * 1000:
+                        raise CustomFilmContractError(
+                            "Custom Film target dialogue caption exceeds its section"
+                        )
+                    captions.append(
+                        {
+                            "scene_id": scene_id,
+                            "text": segment["text"],
+                            "language": copy.deepcopy(
+                                _mapping(section["language"], "section language")
+                            ),
+                            "section_start_ms": segment["start_ms"],
+                            "section_end_ms": segment["end_ms"],
+                            "start_frame": film_frame
+                            + (segment["start_ms"] * fps // 1000),
+                            "end_frame": film_frame
+                            + (segment["end_ms"] * fps // 1000),
+                        }
+                    )
         else:
             source_elapsed_ms = 0
             target_ms = duration_seconds * 1000
@@ -1288,12 +1366,27 @@ def build_assembly_manifest(
                     if scene_index == len(assigned_scene_ids) - 1
                     else source_elapsed_ms * target_ms // source_total_ms
                 )
+                caption_text = str(
+                    scene_rows_by_id[scene_id].get("scene_text") or ""
+                ).strip()
+                if any(
+                    marker in caption_text
+                    for marker in (
+                        "[AV SECTION",
+                        "VISUAL:",
+                        "SOUND:",
+                        "CARRY-IN:",
+                        "CARRY-OUT:",
+                        "DIALOGUE ",
+                    )
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film production directions cannot become captions"
+                    )
                 captions.append(
                     {
                         "scene_id": scene_id,
-                        "text": str(
-                            scene_rows_by_id[scene_id].get("scene_text") or ""
-                        ).strip(),
+                        "text": caption_text,
                         "language": copy.deepcopy(
                             _mapping(section["language"], "section language")
                         ),
