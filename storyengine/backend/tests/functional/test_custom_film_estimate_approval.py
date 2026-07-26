@@ -15,9 +15,7 @@ from routes import chat
 
 def test_m2_4_runtime_door_replaces_the_inert_m2_3_reservation_without_autobuild():
     source = inspect.getsource(chat._handle_custom_film_approval_turn)
-    runtime_source = inspect.getsource(
-        chat._schedule_reserved_custom_film_runtime
-    )
+    runtime_source = inspect.getsource(chat._schedule_reserved_custom_film_runtime)
     for forbidden in (
         "create_video",
         "_make_autobuild_step",
@@ -82,9 +80,7 @@ async def test_section_bom_reconciles_and_prices_only_through_shared_estimator(
         return await original(tenant, video, verb, scene, summary)
 
     monkeypatch.setattr(actions, "estimate_cost", wrapped)
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=300
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=300)
 
     assert [row["still_images"] for row in quote["sections"]] == [6, 30]
     assert [row["animation_clips"] for row in quote["sections"]] == [0, 30]
@@ -157,12 +153,11 @@ def _pending(quote: dict) -> dict:
 async def test_changed_quote_hash_stops_before_key_claim_create_or_schedule(
     monkeypatch,
 ):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=300
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=300)
     pending = _pending(quote)
     pending["quote_inputs"]["requested_duration_seconds"] = 301
     state = {"mode": "custom_film", "pending_custom_film_plan": pending}
+
     async def fake_persist(*_args, **_kwargs):
         return None
 
@@ -170,6 +165,7 @@ async def test_changed_quote_hash_stops_before_key_claim_create_or_schedule(
         raise AssertionError("stale approval crossed a pre-spend gate")
 
     import vault
+
     monkeypatch.setattr(chat, "_persist", fake_persist)
     monkeypatch.setattr(vault, "get_required_tenant_secret", should_not_run)
     response = await chat._handle_custom_film_approval_turn(
@@ -183,9 +179,7 @@ async def test_changed_quote_hash_stops_before_key_claim_create_or_schedule(
 
 @pytest.mark.asyncio
 async def test_missing_tenant_key_stops_before_claim_or_schedule(monkeypatch):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=300
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=300)
     state = {
         "mode": "custom_film",
         "pending_custom_film_plan": _pending(quote),
@@ -193,7 +187,9 @@ async def test_missing_tenant_key_stops_before_claim_or_schedule(monkeypatch):
     import vault
 
     async def missing(*_args, **_kwargs):
-        raise RuntimeError("Add your Kie.ai key in Settings → API Keys before generating.")
+        raise RuntimeError(
+            "Add your Kie.ai key in Settings → API Keys before generating."
+        )
 
     async def fake_persist(*_args, **_kwargs):
         return None
@@ -215,9 +211,7 @@ async def test_missing_tenant_key_stops_before_claim_or_schedule(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_any_failed_revision_clears_the_previous_exact_approval(monkeypatch):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=300
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=300)
     state = {
         "mode": "custom_film",
         "pending_custom_film_plan": _pending(quote),
@@ -254,9 +248,7 @@ async def test_any_failed_revision_clears_the_previous_exact_approval(monkeypatc
 async def test_combined_yes_and_estimate_affecting_message_replans_first(
     monkeypatch,
 ):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     calls = []
 
     async def load(*_args):
@@ -305,9 +297,7 @@ async def test_combined_yes_and_estimate_affecting_message_replans_first(
         tenant_id="tenant",
     )
     assert response.assistant_text == "replanned"
-    assert calls == [
-        ("replan", "make it 1.5 minutes and cap the budget at $12")
-    ]
+    assert calls == [("replan", "make it 1.5 minutes and cap the budget at $12")]
 
 
 class _AsyncContext:
@@ -398,9 +388,7 @@ async def test_user_budget_cap_is_hashed_persisted_and_blocks_before_insert(
         )
         == 0.01
     )
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     quote["max_spend"] = 0.01
     pending = _pending(quote)
     state = {"mode": "custom_film", "pending_custom_film_plan": pending}
@@ -421,9 +409,7 @@ async def test_user_budget_cap_is_hashed_persisted_and_blocks_before_insert(
 async def test_durable_intent_replay_converges_on_one_video_without_runtime(
     monkeypatch,
 ):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     pending = _pending(quote)
     test_recipe = {"sections": []}
     pending.update(
@@ -510,9 +496,7 @@ async def test_durable_intent_replay_converges_on_one_video_without_runtime(
 
 @pytest.mark.asyncio
 async def test_approval_refreshes_novelty_before_save_offer(monkeypatch):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     pending = _pending(quote)
     test_recipe = {"sections": []}
     pending.update(
@@ -555,9 +539,7 @@ async def test_reserve_commit_wins_over_stale_plan_cancel_and_control_writers(
     monkeypatch,
 ):
     """Exact causal race: reserve commits after three turns loaded old state."""
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     pending = _pending(quote)
     loaded_state = {"mode": "custom_film", "pending_custom_film_plan": pending}
     connection = _patch_intent_contract(monkeypatch, loaded_state)
@@ -625,9 +607,7 @@ async def test_reserve_commit_wins_over_stale_plan_cancel_and_control_writers(
 async def test_endpoint_reload_reconstructs_held_start_before_generic_copilot(
     monkeypatch,
 ):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     pending = _pending(quote)
     pending.update(
         status="start_ready",
@@ -651,9 +631,7 @@ async def test_endpoint_reload_reconstructs_held_start_before_generic_copilot(
         raise AssertionError("held M2-3 start escaped to generic copilot")
 
     async def resume(_conversation_id, _tenant_id, state, _video_id):
-        state["pending_custom_film_plan"]["runtime_job_id"] = (
-            "custom-film-runtime:test"
-        )
+        state["pending_custom_film_plan"]["runtime_job_id"] = "custom-film-runtime:test"
         return {"job_id": "custom-film-runtime:test"}
 
     monkeypatch.setattr(chat, "_load_conversation", load)
@@ -671,12 +649,11 @@ async def test_endpoint_reload_reconstructs_held_start_before_generic_copilot(
 
 @pytest.mark.asyncio
 async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     state = {"mode": "custom_film", "pending_custom_film_plan": _pending(quote)}
     import vault
     from routes import billing
+
     order: list[str] = []
 
     async def key(*_args, **_kwargs):
@@ -772,9 +749,7 @@ async def test_exact_approval_reserves_safe_intent_after_all_gates(monkeypatch):
 async def test_runtime_drain_recheck_stops_after_reservation_but_before_schedule(
     monkeypatch,
 ):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     state = {"mode": "custom_film", "pending_custom_film_plan": _pending(quote)}
     import custom_film_runtime
     import vault
@@ -817,9 +792,7 @@ async def test_runtime_drain_recheck_stops_after_reservation_but_before_schedule
         "consume_approval_and_schedule",
         forbidden_schedule,
     )
-    monkeypatch.setattr(
-        custom_film_runtime, "load_exact_runtime_schedule", no_existing
-    )
+    monkeypatch.setattr(custom_film_runtime, "load_exact_runtime_schedule", no_existing)
 
     response = await chat._handle_custom_film_approval_turn(
         "yes", "conv", "tenant", [], state, BackgroundTasks()
@@ -834,9 +807,7 @@ async def test_runtime_drain_recheck_stops_after_reservation_but_before_schedule
 async def test_reserved_video_retries_runtime_schedule_after_reload_without_duplicate(
     monkeypatch,
 ):
-    quote = await actions.estimate_custom_film_plan(
-        _plan(), total_duration_seconds=90
-    )
+    quote = await actions.estimate_custom_film_plan(_plan(), total_duration_seconds=90)
     pending = _pending(quote)
     pending.update(
         status="start_ready",
@@ -850,6 +821,7 @@ async def test_reserved_video_retries_runtime_schedule_after_reload_without_dupl
     import custom_film_runtime
     import vault
     from routes import billing
+
     calls: list[str] = []
 
     async def load(*_args):
@@ -891,12 +863,8 @@ async def test_reserved_video_retries_runtime_schedule_after_reload_without_dupl
 
     monkeypatch.setattr(chat, "_load_conversation", load)
     monkeypatch.setattr(chat, "_handle_copilot", forbidden_copilot)
-    monkeypatch.setattr(
-        custom_film_runtime, "load_exact_runtime_schedule", no_existing
-    )
-    monkeypatch.setattr(
-        custom_film_runtime, "consume_approval_and_schedule", schedule
-    )
+    monkeypatch.setattr(custom_film_runtime, "load_exact_runtime_schedule", no_existing)
+    monkeypatch.setattr(custom_film_runtime, "consume_approval_and_schedule", schedule)
     monkeypatch.setattr(vault, "get_required_tenant_secret", key)
     monkeypatch.setattr(chat.generation_claims, "acquire", claim)
     monkeypatch.setattr(chat.generation_claims, "release", release)
@@ -1032,7 +1000,10 @@ async def test_director_approval_persists_and_enqueues_exact_v2_worker(
     assert response.video_id == "video-1"
     assert response.phase == "created"
     assert "immutable multipass director schedule is queued" in response.assistant_text
-    assert "no imagery, animation, voice, render, upload" in response.assistant_text.lower()
+    assert (
+        "no imagery, animation, voice, render, upload"
+        in response.assistant_text.lower()
+    )
     assert state["pending_custom_film_plan"]["provider_calls_started"] is False
     assert state["pending_custom_film_plan"]["spend_recorded_cents"] == 0
     assert calls == [
@@ -1049,6 +1020,55 @@ async def test_director_approval_persists_and_enqueues_exact_v2_worker(
 
 
 @pytest.mark.asyncio
+async def test_v1_director_approval_is_explicitly_retired_without_provider(
+    monkeypatch,
+):
+    state = {
+        "mode": "custom_film",
+        "pending_custom_film_plan": {
+            "execution_model": "storyboard_director_v1",
+            "status": "awaiting_director_approval",
+            "approval_hash": "a" * 64,
+        },
+    }
+    persisted = {}
+
+    async def persist(
+        _conversation_id,
+        _tenant_id,
+        transcript,
+        saved_state,
+        phase,
+        *_args,
+    ):
+        persisted["transcript"] = copy.deepcopy(transcript)
+        persisted["state"] = copy.deepcopy(saved_state)
+        persisted["phase"] = phase
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("retired v1 approval reached a paid boundary")
+
+    monkeypatch.setattr(chat, "_persist", persist)
+    monkeypatch.setattr(chat, "_resolve_producer_client", forbidden)
+
+    response = await chat._handle_custom_film_approval_turn(
+        "yes",
+        "conv",
+        "tenant",
+        [],
+        state,
+        BackgroundTasks(),
+    )
+
+    assert response.phase == "plan"
+    assert "retired v1 contract" in response.assistant_text
+    assert "nothing was started or charged" in response.assistant_text.lower()
+    pending = persisted["state"]["pending_custom_film_plan"]
+    assert pending["status"] == "stale"
+    assert "approval_hash" not in pending
+
+
+@pytest.mark.asyncio
 async def test_director_schedule_reload_never_resumes_the_legacy_runtime(
     monkeypatch,
 ):
@@ -1058,9 +1078,7 @@ async def test_director_schedule_reload_never_resumes_the_legacy_runtime(
             "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
             "status": "director_stage_scheduled",
             "video_id": "video-1",
-            "director_activation": {
-                "stage_quote": {"approved_cumulative_cents": 870}
-            },
+            "director_activation": {"stage_quote": {"approved_cumulative_cents": 870}},
         },
     }
 

@@ -17,9 +17,13 @@ from custom_film_director_provider import ProductionSingleAttemptTextClient
 from custom_film_director_receipts import (
     DurableDirectorCallJournal,
     persist_completed_director_execution,
+    reconcile_director_generation_ledger,
 )
 from database import get_pool
+import generation_claims
 from kie_unified import get_text_client_for_tenant
+
+DIRECTOR_CLAIM_STAGE = "main"
 
 
 def _worker_error(message: str) -> CustomFilmContractError:
@@ -82,8 +86,8 @@ async def run_reserved_director_stage(
             tenant_id,
             schedule_id,
         )
-        if existing:
-            return {
+        existing_result = (
+            {
                 "status": "completed",
                 "created": False,
                 "execution_id": str(existing["id"]),
@@ -92,80 +96,130 @@ async def run_reserved_director_stage(
                 "actual_spend_nusd": int(existing["actual_spend_nusd"]),
                 "actual_spend_cents": int(existing["actual_spend_cents"]),
             }
+            if existing
+            else None
+        )
+    if existing_result is not None:
+        await generation_claims.release_owned(
+            tenant_id,
+            video_id,
+            DIRECTOR_CLAIM_STAGE,
+            director_job_id,
+        )
+        return existing_result
 
-    resolved_client = await get_text_client_for_tenant(tenant_id)
-    journal = DurableDirectorCallJournal(
-        tenant_id=tenant_id,
-        plan_id=plan_id,
-        video_id=video_id,
-        schedule_id=schedule_id,
-        authority_id=authority_id,
-        stage_contract=activation["stage_contract"],
+    claim_owned = await generation_claims.is_claim_owner(
+        tenant_id,
+        video_id,
+        DIRECTOR_CLAIM_STAGE,
+        director_job_id,
     )
-    execution = await execute_multipass_director(
-        stage_contract=activation["stage_contract"],
-        user_request=activation["user_request"],
-        client=ProductionSingleAttemptTextClient(resolved_client),
-        journal=journal,
-    )
+    if not claim_owned:
+        claim_owned = await generation_claims.acquire(
+            tenant_id,
+            video_id,
+            DIRECTOR_CLAIM_STAGE,
+            claimed_by=director_job_id,
+        )
+    if not claim_owned:
+        raise _worker_error("Custom Film director paid-work claim is unavailable")
 
-    async with pool.acquire() as conn, conn.transaction():
-        persisted = await persist_completed_director_execution(
-            conn,
+    release_claim = False
+    try:
+        resolved_client = await get_text_client_for_tenant(tenant_id)
+        journal = DurableDirectorCallJournal(
             tenant_id=tenant_id,
             plan_id=plan_id,
             video_id=video_id,
             schedule_id=schedule_id,
             authority_id=authority_id,
             stage_contract=activation["stage_contract"],
-            execution_result=execution,
         )
-        latest = await conn.fetchrow(
-            """SELECT state
-               FROM chat_conversations
-               WHERE tenant_id = $1 AND id = $2 AND video_id = $3
-               FOR UPDATE""",
-            tenant_id,
-            str(conversation["id"]),
-            video_id,
+        execution = await execute_multipass_director(
+            stage_contract=activation["stage_contract"],
+            user_request=activation["user_request"],
+            client=ProductionSingleAttemptTextClient(resolved_client),
+            journal=journal,
         )
-        if not latest:
-            raise _worker_error("Custom Film director conversation changed")
-        latest_state = _object(latest["state"], "conversation state")
-        latest_pending = latest_state.get("pending_custom_film_plan")
-        if (
-            not isinstance(latest_pending, dict)
-            or str(latest_pending.get("director_job_id") or "") != director_job_id
-            or str(latest_pending.get("director_schedule_id") or "") != schedule_id
-        ):
-            raise _worker_error("Custom Film director completion binding changed")
-        latest_pending["status"] = "director_stage_completed"
-        latest_pending["director_contract_id"] = persisted["director_contract_id"]
-        latest_pending["director_execution_id"] = persisted["id"]
-        latest_pending["director_execution_hash"] = persisted["execution_hash"]
-        latest_pending["spend_recorded_cents"] = execution["actual_spend_cents"]
-        latest_pending["provider_calls_started"] = execution["terminal_call_count"] > 0
-        await conn.execute(
-            """UPDATE chat_conversations
-               SET state = $3::jsonb, updated_at = now()
-               WHERE tenant_id = $1 AND id = $2 AND video_id = $4""",
-            tenant_id,
-            str(conversation["id"]),
-            canonical_json(latest_state),
-            video_id,
-        )
-        await conn.execute(
-            """UPDATE videos
-               SET status = 'custom_film_directed', updated_at = now()
-               WHERE tenant_id = $1 AND id = $2""",
-            tenant_id,
-            video_id,
-        )
-    return {
-        "status": "completed",
-        "created": persisted["created"],
-        "execution_id": persisted["id"],
-        "director_contract_id": persisted["director_contract_id"],
-        "execution_hash": persisted["execution_hash"],
-        "actual_spend_cents": execution["actual_spend_cents"],
-    }
+
+        async with pool.acquire() as conn, conn.transaction():
+            persisted = await persist_completed_director_execution(
+                conn,
+                tenant_id=tenant_id,
+                plan_id=plan_id,
+                video_id=video_id,
+                schedule_id=schedule_id,
+                authority_id=authority_id,
+                stage_contract=activation["stage_contract"],
+                execution_result=execution,
+            )
+            latest = await conn.fetchrow(
+                """SELECT state
+                   FROM chat_conversations
+                   WHERE tenant_id = $1 AND id = $2 AND video_id = $3
+                   FOR UPDATE""",
+                tenant_id,
+                str(conversation["id"]),
+                video_id,
+            )
+            if not latest:
+                raise _worker_error("Custom Film director conversation changed")
+            latest_state = _object(latest["state"], "conversation state")
+            latest_pending = latest_state.get("pending_custom_film_plan")
+            if (
+                not isinstance(latest_pending, dict)
+                or str(latest_pending.get("director_job_id") or "") != director_job_id
+                or str(latest_pending.get("director_schedule_id") or "") != schedule_id
+            ):
+                raise _worker_error("Custom Film director completion binding changed")
+            latest_pending["status"] = "director_stage_completed"
+            latest_pending["director_contract_id"] = persisted["director_contract_id"]
+            latest_pending["director_execution_id"] = persisted["id"]
+            latest_pending["director_execution_hash"] = persisted["execution_hash"]
+            latest_pending["spend_recorded_cents"] = execution["actual_spend_cents"]
+            latest_pending["provider_calls_started"] = (
+                execution["terminal_call_count"] > 0
+            )
+            await conn.execute(
+                """UPDATE chat_conversations
+                   SET state = $3::jsonb, updated_at = now()
+                   WHERE tenant_id = $1 AND id = $2 AND video_id = $4""",
+                tenant_id,
+                str(conversation["id"]),
+                canonical_json(latest_state),
+                video_id,
+            )
+            await conn.execute(
+                """UPDATE videos
+                   SET status = 'custom_film_directed', updated_at = now()
+                   WHERE tenant_id = $1 AND id = $2""",
+                tenant_id,
+                video_id,
+            )
+        release_claim = True
+        return {
+            "status": "completed",
+            "created": persisted["created"],
+            "execution_id": persisted["id"],
+            "director_contract_id": persisted["director_contract_id"],
+            "execution_hash": persisted["execution_hash"],
+            "actual_spend_cents": execution["actual_spend_cents"],
+        }
+    except Exception:
+        async with pool.acquire() as conn, conn.transaction():
+            reconciliation = await reconcile_director_generation_ledger(
+                conn,
+                tenant_id=tenant_id,
+                video_id=video_id,
+                schedule_id=schedule_id,
+            )
+        release_claim = reconciliation["reconciliation_required_count"] == 0
+        raise
+    finally:
+        if release_claim:
+            await generation_claims.release_owned(
+                tenant_id,
+                video_id,
+                DIRECTOR_CLAIM_STAGE,
+                director_job_id,
+            )

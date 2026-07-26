@@ -437,6 +437,78 @@ async def _persist_generation_ledger(
     )
 
 
+async def reconcile_director_generation_ledger(
+    conn: Any,
+    *,
+    tenant_id: str,
+    video_id: str,
+    schedule_id: str,
+) -> dict[str, int]:
+    """Record every exact terminal receipt, including failed executions.
+
+    A claimed operation without a terminal event remains explicitly
+    reconciliation-required and is never guessed into spend.
+    """
+    normalized_tenant_id = _uuid(tenant_id, "tenant identity")
+    normalized_video_id = _uuid(video_id, "video identity")
+    normalized_schedule_id = _uuid(schedule_id, "schedule identity")
+    receipt_rows = await conn.fetch(
+        """SELECT event
+           FROM custom_film_director_call_events
+           WHERE tenant_id = $1 AND schedule_id = $2
+           ORDER BY operation_order_index, event_sequence
+           FOR SHARE""",
+        normalized_tenant_id,
+        normalized_schedule_id,
+    )
+    events = [_json_value(row["event"], "director call event") for row in receipt_rows]
+    if events:
+        InMemoryDirectorCallJournal(events)
+    by_operation: dict[str, list[Mapping[str, Any]]] = {}
+    for event in events:
+        by_operation.setdefault(str(event["operation_id"]), []).append(event)
+    unpaired_started_count = sum(
+        1
+        for operation_events in by_operation.values()
+        if len(operation_events) == 1
+        and operation_events[0].get("event_kind") == "attempt_started"
+    )
+    unreconciled_terminals = [
+        event
+        for event in events
+        if event.get("event_kind") in {"attempt_completed", "attempt_failed"}
+        and (
+            str(event.get("request_id") or "") in {"", "unknown"}
+            or str(event.get("model") or "") in {"", "unknown"}
+        )
+    ]
+    ledger_events = [event for event in events if event not in unreconciled_terminals]
+    await _persist_generation_ledger(
+        conn,
+        tenant_id=normalized_tenant_id,
+        video_id=normalized_video_id,
+        events=ledger_events,
+    )
+    terminals = [
+        event
+        for event in events
+        if event.get("event_kind") in {"attempt_completed", "attempt_failed"}
+    ]
+    return {
+        "terminal_call_count": len(terminals),
+        "unpaired_started_count": unpaired_started_count,
+        "reconciliation_required_count": (
+            unpaired_started_count + len(unreconciled_terminals)
+        ),
+        "actual_spend_nusd": sum(
+            int(event.get("actual_cost_nusd") or 0) for event in terminals
+        ),
+        "actual_spend_cents": sum(
+            int(event.get("actual_cost_cents") or 0) for event in terminals
+        ),
+    }
+
+
 async def persist_completed_director_execution(
     conn: Any,
     *,

@@ -453,6 +453,65 @@ async def test_pending_director_outbox_dispatches_with_exact_schedule_identity(
 
 
 @pytest.mark.asyncio
+async def test_interrupted_director_recovers_with_exact_schedule_and_new_job_key(
+    monkeypatch,
+):
+    async def recover():
+        return 1
+
+    async def fetch(sql):
+        assert "director_schedule_id" in sql
+        return [
+            {
+                "tenant_id": "tenant-1",
+                "video_id": "video-1",
+                "task_type": "custom_film_director",
+                "job_id": DIRECTOR_JOB_ID,
+                "attempt": 1,
+                "director_schedule_id": DIRECTOR_SCHEDULE_ID,
+            }
+        ]
+
+    updates = []
+
+    async def execute(sql, *args):
+        updates.append((sql, args))
+        return "UPDATE 1"
+
+    class Arq:
+        def __init__(self):
+            self.calls = []
+
+        async def enqueue_job(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return object()
+
+    monkeypatch.setattr(main, "recover_stale_tasks", recover)
+    monkeypatch.setattr(main, "fetch_all", fetch)
+    monkeypatch.setattr(main, "execute", execute)
+    arq = Arq()
+    app = type("App", (), {"state": type("State", (), {"arq": arq})()})()
+
+    assert await main._recover_stale_tasks_to_queue(app) == 1
+    assert len(updates) == 1
+    assert "SET status = 'pending', attempt = $4" in updates[0][0]
+    assert updates[0][1][-1] == 2
+    assert len(arq.calls) == 1
+    args, kwargs = arq.calls[0]
+    assert args == (
+        "arq_run_custom_film_director",
+        "video-1",
+        "tenant-1",
+        2,
+    )
+    assert kwargs == {
+        "_job_id": f"custom-film-worker:{DIRECTOR_JOB_ID}:2",
+        "schedule_id": DIRECTOR_SCHEDULE_ID,
+        "director_job_id": DIRECTOR_JOB_ID,
+    }
+
+
+@pytest.mark.asyncio
 async def test_periodic_reaper_preserves_pending_custom_film_outbox(monkeypatch):
     calls = []
 
@@ -463,10 +522,7 @@ async def test_periodic_reaper_preserves_pending_custom_film_outbox(monkeypatch)
     monkeypatch.setattr(pipeline_route, "execute", execute)
     assert await pipeline_route.reap_stale_running_tasks(180) == 0
     assert len(calls) == 1
-    assert (
-        "task_type IN ('custom_film_runtime', 'custom_film_director')"
-        in calls[0][0]
-    )
+    assert "task_type IN ('custom_film_runtime', 'custom_film_director')" in calls[0][0]
 
 
 def _operation_row(**updates):
@@ -603,9 +659,7 @@ def test_migration_125_and_fresh_schema_match_operation_journal_contract():
 
 def test_generation_claims_fresh_schema_retains_migration_092_foreign_keys():
     root = Path(__file__).parents[3]
-    migration = (
-        root / "backend/migrations/092_generation_claims.sql"
-    ).read_text()
+    migration = (root / "backend/migrations/092_generation_claims.sql").read_text()
     schema = (root / "schema.sql").read_text()
     migration_table = migration.split(
         "CREATE TABLE IF NOT EXISTS generation_claims",

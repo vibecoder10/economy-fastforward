@@ -540,6 +540,23 @@ async def reserve_director_stage_intent(
             schedule=activation["schedule"],
         )
         director_job_id = f"custom-film-director:{schedule['schedule_hash']}"
+        from generation_claims import acquire_conn
+        import drain_mode
+
+        try:
+            claimed = await acquire_conn(
+                conn,
+                tenant_id,
+                video_id,
+                "main",
+                claimed_by=director_job_id,
+            )
+        except drain_mode.DrainModeActive as exc:
+            raise _activation_error(exc.message) from exc
+        if not claimed:
+            raise _activation_error(
+                "Custom Film director paid-work claim is unavailable"
+            )
         await conn.execute(
             """INSERT INTO background_tasks
                  (tenant_id, video_id, task_type, status, message, job_id,

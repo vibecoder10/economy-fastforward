@@ -6,6 +6,9 @@ import json
 import pytest
 
 import custom_film_director_worker as director_worker
+import database
+import drain_mode
+import worker as arq_worker
 from custom_film_director_activation import DIRECTOR_EXECUTION_MODEL
 
 
@@ -123,6 +126,13 @@ async def test_worker_executes_exact_binding_and_commits_completion(monkeypatch)
             "created": True,
         }
 
+    async def owns_claim(*args):
+        calls.append(("owns_claim", args))
+        return True
+
+    async def release_claim(*args):
+        calls.append(("release_claim", args))
+
     monkeypatch.setattr(director_worker, "get_pool", get_pool)
     monkeypatch.setattr(director_worker, "validate_director_intake", validate)
     monkeypatch.setattr(director_worker, "get_text_client_for_tenant", resolve)
@@ -141,6 +151,16 @@ async def test_worker_executes_exact_binding_and_commits_completion(monkeypatch)
         director_worker,
         "persist_completed_director_execution",
         persist,
+    )
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "is_claim_owner",
+        owns_claim,
+    )
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "release_owned",
+        release_claim,
     )
 
     result = await director_worker.run_reserved_director_stage(
@@ -169,6 +189,10 @@ async def test_worker_executes_exact_binding_and_commits_completion(monkeypatch)
     assert execute_call["client"] == "one-request-adapter"
     assert isinstance(execute_call["journal"], Journal)
     assert any("status = 'custom_film_directed'" in sql for sql, _ in conn.updates)
+    assert (
+        "release_claim",
+        (TENANT_ID, VIDEO_ID, "main", DIRECTOR_JOB_ID),
+    ) in calls
 
 
 @pytest.mark.asyncio
@@ -196,12 +220,22 @@ async def test_worker_replay_returns_existing_execution_without_provider(
     async def forbidden(*_args, **_kwargs):
         raise AssertionError("completed worker replay reached the provider")
 
+    released = []
+
+    async def release_claim(*args):
+        released.append(args)
+
     monkeypatch.setattr(director_worker, "get_pool", get_pool)
     monkeypatch.setattr(director_worker, "validate_director_intake", validate)
     monkeypatch.setattr(
         director_worker,
         "get_text_client_for_tenant",
         forbidden,
+    )
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "release_owned",
+        release_claim,
     )
 
     result = await director_worker.run_reserved_director_stage(
@@ -220,3 +254,214 @@ async def test_worker_replay_returns_existing_execution_without_provider(
         "actual_spend_nusd": 123_000,
         "actual_spend_cents": 1,
     }
+    assert released == [(TENANT_ID, VIDEO_ID, "main", DIRECTOR_JOB_ID)]
+
+
+@pytest.mark.asyncio
+async def test_failed_execution_reconciles_terminal_spend_before_releasing_claim(
+    monkeypatch,
+):
+    conn = _Connection(_state())
+    calls = []
+
+    async def get_pool():
+        return _Pool(conn)
+
+    def validate(_raw):
+        return {
+            "prospective_plan_id": PLAN_ID,
+            "user_request": "A courier exposes a hidden route.",
+            "stage_contract": {"immutable": "stage"},
+        }
+
+    async def owns_claim(*_args):
+        return True
+
+    async def resolve(_tenant_id):
+        return object()
+
+    async def fail_execution(**_kwargs):
+        calls.append("provider_failed")
+        raise RuntimeError("director output invalid")
+
+    async def reconcile(_conn, **kwargs):
+        calls.append(("reconcile", kwargs))
+        return {
+            "terminal_call_count": 2,
+            "unpaired_started_count": 0,
+            "reconciliation_required_count": 0,
+            "actual_spend_nusd": 2_000_000,
+            "actual_spend_cents": 2,
+        }
+
+    async def release(*_args):
+        calls.append("release")
+
+    monkeypatch.setattr(director_worker, "get_pool", get_pool)
+    monkeypatch.setattr(director_worker, "validate_director_intake", validate)
+    monkeypatch.setattr(director_worker, "get_text_client_for_tenant", resolve)
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "is_claim_owner",
+        owns_claim,
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "execute_multipass_director",
+        fail_execution,
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "reconcile_director_generation_ledger",
+        reconcile,
+    )
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "release_owned",
+        release,
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "ProductionSingleAttemptTextClient",
+        lambda _client: object(),
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "DurableDirectorCallJournal",
+        lambda **_kwargs: object(),
+    )
+
+    with pytest.raises(RuntimeError, match="director output invalid"):
+        await director_worker.run_reserved_director_stage(
+            tenant_id=TENANT_ID,
+            video_id=VIDEO_ID,
+            schedule_id=SCHEDULE_ID,
+            director_job_id=DIRECTOR_JOB_ID,
+        )
+
+    assert calls[0] == "provider_failed"
+    assert calls[1][0] == "reconcile"
+    assert calls[2] == "release"
+
+
+@pytest.mark.asyncio
+async def test_unpaired_provider_claim_keeps_generation_claim_for_reconciliation(
+    monkeypatch,
+):
+    conn = _Connection(_state())
+    released = False
+
+    async def get_pool():
+        return _Pool(conn)
+
+    async def owns_claim(*_args):
+        return True
+
+    async def resolve(_tenant_id):
+        return object()
+
+    async def fail_execution(**_kwargs):
+        raise RuntimeError("connection ended after provider start")
+
+    async def reconcile(_conn, **_kwargs):
+        return {
+            "terminal_call_count": 0,
+            "unpaired_started_count": 1,
+            "reconciliation_required_count": 1,
+            "actual_spend_nusd": 0,
+            "actual_spend_cents": 0,
+        }
+
+    async def release(*_args):
+        nonlocal released
+        released = True
+
+    monkeypatch.setattr(director_worker, "get_pool", get_pool)
+    monkeypatch.setattr(
+        director_worker,
+        "validate_director_intake",
+        lambda _raw: {
+            "prospective_plan_id": PLAN_ID,
+            "user_request": "A courier exposes a hidden route.",
+            "stage_contract": {"immutable": "stage"},
+        },
+    )
+    monkeypatch.setattr(director_worker, "get_text_client_for_tenant", resolve)
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "is_claim_owner",
+        owns_claim,
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "execute_multipass_director",
+        fail_execution,
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "reconcile_director_generation_ledger",
+        reconcile,
+    )
+    monkeypatch.setattr(
+        director_worker.generation_claims,
+        "release_owned",
+        release,
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "ProductionSingleAttemptTextClient",
+        lambda _client: object(),
+    )
+    monkeypatch.setattr(
+        director_worker,
+        "DurableDirectorCallJournal",
+        lambda **_kwargs: object(),
+    )
+
+    with pytest.raises(RuntimeError, match="connection ended"):
+        await director_worker.run_reserved_director_stage(
+            tenant_id=TENANT_ID,
+            video_id=VIDEO_ID,
+            schedule_id=SCHEDULE_ID,
+            director_job_id=DIRECTOR_JOB_ID,
+        )
+    assert released is False
+
+
+@pytest.mark.asyncio
+async def test_arq_worker_defers_drain_block_without_failing_durable_outbox(
+    monkeypatch,
+):
+    calls = []
+
+    async def blocked(**_kwargs):
+        raise drain_mode.DrainModeActive(
+            drain_mode.DrainState(mode=drain_mode.MODE_DRAINING)
+        )
+
+    async def execute(sql, *args):
+        calls.append((sql, args))
+        return "UPDATE 1"
+
+    monkeypatch.setattr(
+        director_worker,
+        "run_reserved_director_stage",
+        blocked,
+    )
+    monkeypatch.setattr(database, "execute", execute)
+
+    result = await arq_worker.arq_run_custom_film_director(
+        {},
+        VIDEO_ID,
+        TENANT_ID,
+        1,
+        SCHEDULE_ID,
+        DIRECTOR_JOB_ID,
+    )
+
+    assert result["status"] == "deferred"
+    assert result["retryable"] is True
+    assert len(calls) == 2
+    assert "SET status = 'running'" in calls[0][0]
+    assert "SET status = 'pending'" in calls[1][0]
+    assert calls[1][1][-1] == 2

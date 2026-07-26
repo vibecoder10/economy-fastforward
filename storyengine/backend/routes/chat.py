@@ -44,7 +44,9 @@ import generation_claims
 # exact line when its generation_claims.acquire() is denied — the video's
 # claimed lane is already in flight (another chat turn, or a manual
 # routes/pipeline.py click) — instead of scheduling a second concurrent run.
-_ALREADY_WORKING_REPLY = "I'm already working on that — I'll let you know when it's done."
+_ALREADY_WORKING_REPLY = (
+    "I'm already working on that — I'll let you know when it's done."
+)
 
 from actions import (
     ACTIONS as COPILOT_ACTIONS,
@@ -107,6 +109,7 @@ def _format_runtime(secs: int) -> str:
 
 # --- request / response -----------------------------------------------------
 
+
 class ChatTurnRequest(BaseModel):
     conversation_id: Optional[str] = None
     message: Optional[str] = None
@@ -135,6 +138,7 @@ class ChatTurnResponse(BaseModel):
 
 
 # --- json/jsonb helpers (asyncpg may hand JSONB back as str or parsed) -------
+
 
 def _as_list(val: Any) -> list:
     if val is None:
@@ -171,6 +175,7 @@ def _assistant_turn(data: dict[str, Any]) -> dict[str, str]:
 # on every turn without re-fetching. Filing the asset somewhere real (queue /
 # script / cast / template) happens via producer ops in later phases.
 
+
 @router.post("/upload")
 async def upload_chat_asset(
     file: UploadFile = File(...),
@@ -197,12 +202,18 @@ async def upload_chat_asset(
     checked_video_id: Optional[str] = None
     if video_id:
         owns = await fetch_one(
-            "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id
+            "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2",
+            video_id,
+            tenant_id,
         )
         if owns:
             checked_video_id = video_id
         else:
-            logger.warning("chat: upload video_id %s not owned by tenant %s — uploading unscoped", video_id, tenant_id)
+            logger.warning(
+                "chat: upload video_id %s not owned by tenant %s — uploading unscoped",
+                video_id,
+                tenant_id,
+            )
 
     kind = asset_intake.detect_kind(file.filename, file.content_type)
     parsed, parsed_text = None, None
@@ -224,8 +235,10 @@ async def upload_chat_asset(
 
         ext = (file.filename or "file.bin").rsplit(".", 1)[-1].lower()[:8] or "bin"
         storage_url = await upload_bytes(
-            content, f"chat-assets/{asset_id}.{ext}",
-            file.content_type or "application/octet-stream", str(tenant_id),
+            content,
+            f"chat-assets/{asset_id}.{ext}",
+            file.content_type or "application/octet-stream",
+            str(tenant_id),
         )
     except Exception as e:  # noqa: BLE001 — the parsed content is in the row either way
         logger.warning("chat: asset storage upload failed (%s): %s", file.filename, e)
@@ -234,10 +247,17 @@ async def upload_chat_asset(
         "INSERT INTO chat_assets (id, tenant_id, conversation_id, video_id, kind, filename, "
         "content_type, storage_url, parsed, parsed_text, summary) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)",
-        asset_id, tenant_id, conversation_id or None, checked_video_id, kind,
-        (file.filename or "")[:255] or None, file.content_type,
-        storage_url, json.dumps(parsed) if parsed is not None else None,
-        parsed_text, summary,
+        asset_id,
+        tenant_id,
+        conversation_id or None,
+        checked_video_id,
+        kind,
+        (file.filename or "")[:255] or None,
+        file.content_type,
+        storage_url,
+        json.dumps(parsed) if parsed is not None else None,
+        parsed_text,
+        summary,
     )
 
     if kind == "csv" and parsed:
@@ -246,11 +266,20 @@ async def upload_chat_asset(
         preview = storage_url
     else:
         preview = (parsed_text or "")[:400] or None
-    return {"asset": {"id": asset_id, "kind": kind, "filename": file.filename,
-                      "summary": summary, "preview": preview}}
+    return {
+        "asset": {
+            "id": asset_id,
+            "kind": kind,
+            "filename": file.filename,
+            "summary": summary,
+            "preview": preview,
+        }
+    }
 
 
-async def _attach_assets(tenant_id, conversation_id, asset_ids, state, user_parts) -> None:
+async def _attach_assets(
+    tenant_id, conversation_id, asset_ids, state, user_parts
+) -> None:
     """Fold this turn's uploaded files into the conversation: bind them to the
     conversation row, describe each in the user turn (so the producer sees what
     arrived), and remember them in state for the assets brief. Fail-soft."""
@@ -261,14 +290,17 @@ async def _attach_assets(tenant_id, conversation_id, asset_ids, state, user_part
         rows = await fetch_all(
             "SELECT id, summary FROM chat_assets "
             "WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY created_at",
-            tenant_id, ids,
+            tenant_id,
+            ids,
         )
         if not rows:
             return
         await execute(
             "UPDATE chat_assets SET conversation_id = $1 "
             "WHERE tenant_id = $2 AND id = ANY($3::uuid[])",
-            conversation_id, tenant_id, [str(r["id"]) for r in rows],
+            conversation_id,
+            tenant_id,
+            [str(r["id"]) for r in rows],
         )
         for r in rows:
             user_parts.append(f"[Attached file: {r['summary']}]")
@@ -284,15 +316,20 @@ async def _format_brief(tenant_id) -> str:
     Fail-soft: empty when unknown."""
     try:
         from channel_format import get_channel_format
+
         fmt, locked = await get_channel_format(tenant_id)
         if not fmt:
             return ""
         bits = "; ".join(f"{k}: {v}" for k, v in fmt.items() if v)
         if locked:
-            return (f"\n\nCHANNEL FORMAT (locked by the creator): {bits}. Every video is made "
-                    "in this format — don't propose formats that contradict it.")
-        return (f"\n\nCHANNEL FORMAT (detected, not locked): {bits}. If the creator confirms "
-                "this is how their channel works, emit set_channel_format to lock it.")
+            return (
+                f"\n\nCHANNEL FORMAT (locked by the creator): {bits}. Every video is made "
+                "in this format — don't propose formats that contradict it."
+            )
+        return (
+            f"\n\nCHANNEL FORMAT (detected, not locked): {bits}. If the creator confirms "
+            "this is how their channel works, emit set_channel_format to lock it."
+        )
     except Exception:  # noqa: BLE001
         return ""
 
@@ -310,7 +347,7 @@ async def _script_template_brief(tenant_id) -> str:
             return ""
         return (
             f"\n\nHOUSE SCRIPT FORMAT: the creator saved a script format template "
-            f"(\"{row['name']}\") — every generated script automatically follows it. "
+            f'("{row["name"]}") — every generated script automatically follows it. '
             "If they upload a new example and ask you to remember it, save_script_template replaces the old one."
         )
     except Exception:  # noqa: BLE001
@@ -327,13 +364,20 @@ async def _assets_brief(tenant_id, state) -> str:
         rows = await fetch_all(
             "SELECT id, kind, filename, summary, status, filed_as FROM chat_assets "
             "WHERE tenant_id = $1 AND id = ANY($2::uuid[]) ORDER BY created_at",
-            tenant_id, ids,
+            tenant_id,
+            ids,
         )
         if not rows:
             return ""
-        lines = ["\n\nFILES THE CREATOR DROPPED INTO THIS CONVERSATION (use the id in filing ops like queue_titles):"]
+        lines = [
+            "\n\nFILES THE CREATOR DROPPED INTO THIS CONVERSATION (use the id in filing ops like queue_titles):"
+        ]
         for r in rows:
-            where = f" (already filed: {r['filed_as']})" if r.get("filed_as") else " (not filed anywhere yet)"
+            where = (
+                f" (already filed: {r['filed_as']})"
+                if r.get("filed_as")
+                else " (not filed anywhere yet)"
+            )
             lines.append(f"- [{r['kind']}] id={r['id']} {r['summary']}{where}")
         return "\n".join(lines)
     except Exception as e:  # noqa: BLE001
@@ -344,9 +388,13 @@ async def _assets_brief(tenant_id, state) -> str:
 def _selections_to_text(selections: dict[str, Any]) -> str:
     parts = []
     for k, v in selections.items():
-        if k == "length":  # the slider sends seconds — show it as a runtime so the producer reasons in real time
+        if (
+            k == "length"
+        ):  # the slider sends seconds — show it as a runtime so the producer reasons in real time
             try:
-                parts.append(f"length: ~{_format_runtime(max(LENGTH_MIN_SECONDS, int(float(v))))}")
+                parts.append(
+                    f"length: ~{_format_runtime(max(LENGTH_MIN_SECONDS, int(float(v))))}"
+                )
                 continue
             except (TypeError, ValueError):
                 pass
@@ -376,8 +424,11 @@ def _user_length_expression_present(transcript: Any) -> bool:
     if not isinstance(transcript, list):
         return False
     user_texts = [
-        t.get("content") for t in transcript
-        if isinstance(t, dict) and t.get("role") == "user" and isinstance(t.get("content"), str)
+        t.get("content")
+        for t in transcript
+        if isinstance(t, dict)
+        and t.get("role") == "user"
+        and isinstance(t.get("content"), str)
     ]
     for text in user_texts[-_LENGTH_USER_SET_LOOKBACK_TURNS:]:
         if _LENGTH_EXPR_RE.search(text):
@@ -385,7 +436,9 @@ def _user_length_expression_present(transcript: Any) -> bool:
     return False
 
 
-async def _stamp_length_default(data: dict[str, Any], tenant_id=None, transcript: Any = None) -> None:
+async def _stamp_length_default(
+    data: dict[str, Any], tenant_id=None, transcript: Any = None
+) -> None:
     """Pre-set the length slider so it opens on a sensible default, not the generic
     1-minute floor. Source order: the producer's recommended_minutes (asking phase),
     else the plan spec's video_length_minutes.
@@ -440,19 +493,29 @@ async def _stamp_length_default(data: dict[str, Any], tenant_id=None, transcript
     channel_min = None
     if tenant_id is not None:
         from channel_identity_context import own_median_minutes
+
         own_min = await own_median_minutes(tenant_id)
         if own_min and own_min >= 1:
-            channel_min = round(own_min)  # whole minutes, matches the slider's granularity
+            channel_min = round(
+                own_min
+            )  # whole minutes, matches the slider's granularity
         else:
             med_s = await _competitor_median_seconds(tenant_id)
             if med_s >= 60:
                 channel_min = round(med_s / 60)
     for c in cards:
-        if not (isinstance(c, dict) and (c.get("id") == "length" or c.get("type") == "slider")):
+        if not (
+            isinstance(c, dict)
+            and (c.get("id") == "length" or c.get("type") == "slider")
+        ):
             continue
         mins = None
         try:
-            mins = float(c.get("recommended_minutes")) if c.get("recommended_minutes") is not None else None
+            mins = (
+                float(c.get("recommended_minutes"))
+                if c.get("recommended_minutes") is not None
+                else None
+            )
         except (TypeError, ValueError):
             mins = None
         mins = mins or spec_min
@@ -482,11 +545,13 @@ def _extract_youtube_url(text: str | None) -> Optional[str]:
 
 # --- conversation persistence (tenant-scoped) -------------------------------
 
+
 async def _load_conversation(conversation_id: str, tenant_id) -> Optional[dict]:
     return await fetch_one(
         """SELECT id, project_id, video_id, transcript, state, phase
              FROM chat_conversations WHERE id = $1 AND tenant_id = $2""",
-        conversation_id, tenant_id,
+        conversation_id,
+        tenant_id,
     )
 
 
@@ -499,14 +564,20 @@ async def _create_conversation(tenant_id) -> dict:
     )
 
 
-async def _persist(conversation_id, tenant_id, transcript, state, phase, video_id=None) -> None:
+async def _persist(
+    conversation_id, tenant_id, transcript, state, phase, video_id=None
+) -> None:
     await execute(
         """UPDATE chat_conversations
               SET transcript = $1, state = $2, phase = $3,
                   video_id = COALESCE($4, video_id), updated_at = now()
             WHERE id = $5 AND tenant_id = $6""",
-        json.dumps(transcript), json.dumps(state), phase, video_id,
-        conversation_id, tenant_id,
+        json.dumps(transcript),
+        json.dumps(state),
+        phase,
+        video_id,
+        conversation_id,
+        tenant_id,
     )
 
 
@@ -529,9 +600,7 @@ def _custom_film_start_ready_response(
         else None
     )
     amount = f"~${total:.2f} " if total is not None else ""
-    scheduled = bool(
-        isinstance(pending, dict) and pending.get("runtime_job_id")
-    )
+    scheduled = bool(isinstance(pending, dict) and pending.get("runtime_job_id"))
     message = (
         f"Approved — this exact {amount}BYOK plan is scheduled for section-aware "
         "production. No provider charge has happened yet."
@@ -556,15 +625,9 @@ def _custom_film_director_stage_response(
     """Reconstruct an approved Stage 1 schedule without dispatching it."""
     pending = state.get("pending_custom_film_plan")
     activation = (
-        pending.get("director_activation")
-        if isinstance(pending, dict)
-        else None
+        pending.get("director_activation") if isinstance(pending, dict) else None
     )
-    quote = (
-        activation.get("stage_quote")
-        if isinstance(activation, dict)
-        else None
-    )
+    quote = activation.get("stage_quote") if isinstance(activation, dict) else None
     cumulative = (
         int(quote["approved_cumulative_cents"])
         if isinstance(quote, dict)
@@ -572,9 +635,7 @@ def _custom_film_director_stage_response(
         else None
     )
     amount = (
-        f"${cumulative / 100:.2f}"
-        if cumulative is not None
-        else "the approved amount"
+        f"${cumulative / 100:.2f}" if cumulative is not None else "the approved amount"
     )
     status = pending.get("status") if isinstance(pending, dict) else None
     completed = status == "director_stage_completed"
@@ -633,9 +694,7 @@ async def _schedule_reserved_custom_film_director(
     )
     return {
         "queue_enqueued": queued is not None,
-        "queue_job_id": (
-            queued or f"custom-film-worker:{director_job_id}:1"
-        ),
+        "queue_job_id": (queued or f"custom-film-worker:{director_job_id}:1"),
     }
 
 
@@ -649,6 +708,7 @@ async def _schedule_reserved_custom_film_runtime(
 ) -> dict[str, Any]:
     """Resume-safe scheduling for one already-reserved Custom Film video."""
     from custom_film_contract import CustomFilmContractError
+
     pending = state.get("pending_custom_film_plan")
     if not isinstance(pending, dict):
         raise CustomFilmContractError("Reserved Custom Film state is missing")
@@ -665,9 +725,7 @@ async def _schedule_reserved_custom_film_runtime(
     )
 
     try:
-        scheduled = await load_exact_runtime_schedule(
-            tenant_id, video_id, expected
-        )
+        scheduled = await load_exact_runtime_schedule(tenant_id, video_id, expected)
     except CustomFilmContractError:
         raise
     except Exception as exc:
@@ -753,8 +811,7 @@ async def _schedule_reserved_custom_film_runtime(
             # That is successful convergence, not a reason to mint a retry key.
             scheduled["queue_enqueued"] = queued_job_id is not None
             scheduled["queue_job_id"] = (
-                queued_job_id
-                or f"custom-film-worker:{scheduled['job_id']}:1"
+                queued_job_id or f"custom-film-worker:{scheduled['job_id']}:1"
             )
         except Exception as exc:
             raise CustomFilmContractError(
@@ -838,6 +895,7 @@ async def _persist_custom_film_cas(
 
 # --- spec -> create-video mapping -------------------------------------------
 
+
 def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
     """Map the producer's plan.spec onto CreateVideoRequest. The stage plan is
     DERIVED from the workflow card here, never trusted from free text — create_video
@@ -864,6 +922,7 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
     # instead of picking a preset. channel_format.STYLE_DESCRIPTIONS is the
     # single source (checklist §C21b — was producer_prompt.VISUAL_PRESETS).
     from channel_format import STYLE_DESCRIPTIONS
+
     preset_id = (spec.get("visual_style") or "").strip()
     preset = STYLE_DESCRIPTIONS.get(preset_id)
     if preset:
@@ -901,7 +960,10 @@ def _spec_to_create_request(spec: dict[str, Any]) -> CreateVideoRequest:
 
 # --- branches ----------------------------------------------------------------
 
-async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, background_tasks):
+
+async def _handle_approve(
+    spec, conversation_id, tenant_id, transcript, state, background_tasks
+):
     from routes.videos import create_video
 
     # The creator's actual card picks are authoritative over the LLM's spec.
@@ -936,25 +998,35 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
             secs = max(LENGTH_MIN_SECONDS, int(float(selections["length"])))
             spec = {**spec, "video_length_minutes": max(1, round(secs / 60))}
             wg = (spec.get("writer_guidance") or "").strip()
-            spec["writer_guidance"] = f"{wg}\nTarget runtime: ~{_format_runtime(secs)} ({secs}s total).".strip()
+            spec["writer_guidance"] = (
+                f"{wg}\nTarget runtime: ~{_format_runtime(secs)} ({secs}s total).".strip()
+            )
         except (TypeError, ValueError):
             pass
 
     req = _spec_to_create_request(spec)
     try:
-        summary = await create_video(body=req, background_tasks=background_tasks, tenant_id=tenant_id)
+        summary = await create_video(
+            body=req, background_tasks=background_tasks, tenant_id=tenant_id
+        )
     except HTTPException as e:
         # Plan limit (402) or bad input — return a friendly turn, never a raw error.
         msg = (
             "Looks like you're out of video credits on your plan. Upgrade and I'll get right on it."
             if e.status_code == 402
-            else (e.detail if isinstance(e.detail, str) else "I couldn't start that one — mind trying again?")
+            else (
+                e.detail
+                if isinstance(e.detail, str)
+                else "I couldn't start that one — mind trying again?"
+            )
         )
         transcript.append(_assistant_turn({"assistant_text": msg, "phase": "plan"}))
         await _persist(conversation_id, tenant_id, transcript, state, "plan")
         return ChatTurnResponse(
-            conversation_id=conversation_id, assistant_text=msg,
-            ready_to_create=True, phase="plan",
+            conversation_id=conversation_id,
+            assistant_text=msg,
+            ready_to_create=True,
+            phase="plan",
         )
 
     video_id = summary.id
@@ -965,27 +1037,49 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
     # pass that isn't going to happen (P0.5 — it used to say "I'll research
     # it" unconditionally, which was simply false for the common case).
     video_row = await fetch_one(
-        "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+        "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id,
+        tenant_id,
+    )
     will_research = (video_row or {}).get("render_mode") == "static_docu"
-    build_desc = "research, script, then the pictures" if will_research else "the script, then the pictures"
+    build_desc = (
+        "research, script, then the pictures"
+        if will_research
+        else "the script, then the pictures"
+    )
     # C16a (S7-1): claim the "main" lane BEFORE scheduling the autobuild chain
     # — this video was just created above so a same-turn conflict is not the
     # realistic case, but a retried/duplicated turn reaching this same
     # video_id (or a manual main-lane click racing it) must still be refused
     # rather than double-dispatch. Do NOT schedule on denial.
     title = spec.get("title") or "your video"
-    if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by="chat:approve"):
-        transcript.append(_assistant_turn({"assistant_text": _ALREADY_WORKING_REPLY, "phase": "created"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
+    if not await generation_claims.acquire(
+        tenant_id, video_id, "main", claimed_by="chat:approve"
+    ):
+        transcript.append(
+            _assistant_turn(
+                {"assistant_text": _ALREADY_WORKING_REPLY, "phase": "created"}
+            )
+        )
+        await _persist(
+            conversation_id, tenant_id, transcript, state, "created", video_id=video_id
+        )
         return ChatTurnResponse(
-            conversation_id=conversation_id, assistant_text=_ALREADY_WORKING_REPLY,
-            video_id=video_id, phase="created",
+            conversation_id=conversation_id,
+            assistant_text=_ALREADY_WORKING_REPLY,
+            video_id=video_id,
+            phase="created",
         )
     # Auto-build the whole thing up to the pictures (research -> script -> pictures
     # when applicable), then it pauses for review — not a single step.
-    background_tasks.add_task(_make_autobuild_step(
-        tenant_id, video_id, target="pictures",
-        start_msg=f"Building “{spec.get('title') or 'your video'}” — {build_desc}…"))
+    background_tasks.add_task(
+        _make_autobuild_step(
+            tenant_id,
+            video_id,
+            target="pictures",
+            start_msg=f"Building “{spec.get('title') or 'your video'}” — {build_desc}…",
+        )
+    )
     if will_research:
         assistant_text = (
             f"Love it. I'm building “{title}” now — I'll research it, write the script, and generate the "
@@ -997,11 +1091,17 @@ async def _handle_approve(spec, conversation_id, tenant_id, transcript, state, b
             "(skipping a separate research pass so it moves faster; say the word any time and I'll "
             "run one) and generate the pictures, then pause so you can review them. Follow along right here."
         )
-    transcript.append(_assistant_turn({"assistant_text": assistant_text, "phase": "created"}))
-    await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
+    transcript.append(
+        _assistant_turn({"assistant_text": assistant_text, "phase": "created"})
+    )
+    await _persist(
+        conversation_id, tenant_id, transcript, state, "created", video_id=video_id
+    )
     return ChatTurnResponse(
-        conversation_id=conversation_id, assistant_text=assistant_text,
-        video_id=video_id, phase="created",
+        conversation_id=conversation_id,
+        assistant_text=assistant_text,
+        video_id=video_id,
+        phase="created",
     )
 
 
@@ -1040,13 +1140,25 @@ COPILOT_CONFIDENCE = 0.55
 # same proposal again.)
 _AFFIRM_RE = re.compile(
     r"^\s*(y+e+s+|yep|yeah|ya|ok(ay)?|sure|do it|run( it)?|go( ahead)?|start|"
-    r"confirm|proceed|make it|write( it)?|yes please|please do|let'?s (do it|go)|send it)[.!\s]*$", re.I)
+    r"confirm|proceed|make it|write( it)?|yes please|please do|let'?s (do it|go)|send it)[.!\s]*$",
+    re.I,
+)
 _DENY_RE = re.compile(
-    r"^\s*(n+o+|nope|cancel|stop|never ?mind|nevermind|don'?t|leave it|not now|hold off)[.!\s]*$", re.I)
+    r"^\s*(n+o+|nope|cancel|stop|never ?mind|nevermind|don'?t|leave it|not now|hold off)[.!\s]*$",
+    re.I,
+)
 
 
-async def _log_classification_confidence(tenant_id, video_id: Optional[str], *, kind: str, verb: str,
-                                          confidence: float, source: str, gated: bool) -> None:
+async def _log_classification_confidence(
+    tenant_id,
+    video_id: Optional[str],
+    *,
+    kind: str,
+    verb: str,
+    confidence: float,
+    source: str,
+    gated: bool,
+) -> None:
     """C36 (checklist §3.3 item 4): the copilot's confidence gate
     (``COPILOT_CONFIDENCE`` above) had no telemetry — a misfire (wrong verb,
     or a legitimate request stuck in the clarify-loop because it scored just
@@ -1063,13 +1175,21 @@ async def _log_classification_confidence(tenant_id, video_id: Optional[str], *, 
     dashboard (out of scope this chunk, per the checklist) and deliberately
     fail-soft — a broken telemetry write must never break a chat turn."""
     try:
-        logger.info("copilot classify: kind=%s verb=%s confidence=%.3f source=%s gated=%s",
-                   kind, verb, confidence, source, gated)
+        logger.info(
+            "copilot classify: kind=%s verb=%s confidence=%.3f source=%s gated=%s",
+            kind,
+            verb,
+            confidence,
+            source,
+            gated,
+        )
         message = f"kind={kind} verb={verb} confidence={confidence:.3f} source={source} gated={gated}"
         await execute(
             "INSERT INTO bot_activity (tenant_id, video_id, bot_name, status, message, cost) "
             "VALUES ($1, $2, 'copilot_classifier', 'completed', $3, 0)",
-            tenant_id, video_id, message,
+            tenant_id,
+            video_id,
+            message,
         )
     except Exception as e:  # noqa: BLE001 — telemetry must never break the copilot turn
         logger.warning("copilot: confidence telemetry write failed: %s", e)
@@ -1089,7 +1209,8 @@ async def _conversation_for_video(tenant_id, video_id: str) -> Optional[dict]:
              FROM chat_conversations
             WHERE tenant_id = $1 AND video_id = $2
             ORDER BY updated_at DESC LIMIT 1""",
-        tenant_id, video_id,
+        tenant_id,
+        video_id,
     )
     if row:
         return row
@@ -1097,30 +1218,36 @@ async def _conversation_for_video(tenant_id, video_id: str) -> Optional[dict]:
         """INSERT INTO chat_conversations (tenant_id, video_id, phase)
            VALUES ($1, $2, 'created')
            RETURNING id, project_id, video_id, transcript, state, phase""",
-        tenant_id, video_id,
+        tenant_id,
+        video_id,
     )
-
 
 
 def _summary_line(s: dict[str, Any]) -> str:
     line = (
         f'Video: "{s["title"]}" — status {s["status"]}, target length {s.get("length_min") or "?"} min, '
-        f'animation model {s["model"]}.\n'
-        f'Progress: {s["scenes"]} scenes written ({s.get("voiced", 0)} voiced), {s["boards"]} storyboards, '
-        f'{s["pics"]} pictures made, {s["clips"]} clips animated. Spent so far ~${s["spent"]:.2f}.'
+        f"animation model {s['model']}.\n"
+        f"Progress: {s['scenes']} scenes written ({s.get('voiced', 0)} voiced), {s['boards']} storyboards, "
+        f"{s['pics']} pictures made, {s['clips']} clips animated. Spent so far ~${s['spent']:.2f}."
     )
     val = (s.get("validation") or "").strip()
     if val:
         # The creator can see these on the page; the co-pilot must not contradict them.
-        line += ("\nScript-check results (these are REAL and visible to the creator — quote them "
-                 "accurately; if a [FAIL] line is present, never claim nothing failed):\n" + val)
+        line += (
+            "\nScript-check results (these are REAL and visible to the creator — quote them "
+            "accurately; if a [FAIL] line is present, never claim nothing failed):\n"
+            + val
+        )
     return line
 
 
-
-def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
-                   breakdown: Optional[dict[str, Any]] = None,
-                   budget_warning: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def _confirm_card(
+    verb: str,
+    scene: Optional[int],
+    cost_text: str,
+    breakdown: Optional[dict[str, Any]] = None,
+    budget_warning: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Smallest-change confirm: a single-select card the frontend already renders;
     the dock reads the pick back as selections.confirm_action = yes|no.
 
@@ -1141,9 +1268,13 @@ def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
     set, sees the exact same card as before this chunk."""
     cfg = COPILOT_ACTIONS[verb]
     what = cfg["label"] + (f" — scene {scene}" if scene is not None else "")
-    yes_label = f"Do it anyway · {cost_text}" if budget_warning else f"Do it · {cost_text}"
+    yes_label = (
+        f"Do it anyway · {cost_text}" if budget_warning else f"Do it · {cost_text}"
+    )
     card: dict[str, Any] = {
-        "id": "confirm_action", "label": what, "type": "single",
+        "id": "confirm_action",
+        "label": what,
+        "type": "single",
         "options": [
             {"value": "yes", "label": yes_label},
             {"value": "no", "label": "Cancel"},
@@ -1156,8 +1287,9 @@ def _confirm_card(verb: str, scene: Optional[int], cost_text: str,
     return card
 
 
-
-async def _run_pending_action(tenant_id, video_id, pending: dict, background_tasks, caller: str = "chat") -> str:
+async def _run_pending_action(
+    tenant_id, video_id, pending: dict, background_tasks, caller: str = "chat"
+) -> str:
     """Kick off a confirmed action and return the 'on it' line.
 
     ``caller`` (C27, checklist P2.4b) is the claimed_by prefix used for every
@@ -1175,8 +1307,13 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     # Edit-style verbs apply the creator's change to the stage guidance first.
     if cfg.get("edit") and pending.get("change"):
         await _apply_followup_edit(
-            tenant_id, video_id, verb,
-            {"guidance_append": pending["change"], "video_length_minutes": pending.get("length_min")},
+            tenant_id,
+            video_id,
+            verb,
+            {
+                "guidance_append": pending["change"],
+                "video_length_minutes": pending.get("length_min"),
+            },
         )
     doing = cfg["doing"] + (f" for scene {scene}" if scene is not None else "")
     if verb == "build":
@@ -1187,22 +1324,32 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
             # (actions.make_autobuild_step) — say so instead of claiming a
             # research pass that won't run (P0.5, same fix as _handle_approve).
             vrow = await fetch_one(
-                "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2", video_id, tenant_id)
+                "SELECT render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
+                video_id,
+                tenant_id,
+            )
             will_research = (vrow or {}).get("render_mode") == "static_docu"
-            msg = ("On it — building your video. I'll run research, script and the pictures, then stop so "
-                   "you can review them." if will_research else
-                   "On it — building your video. I'll write the script straight from the topic (skipping "
-                   "research so it's faster — say the word and I'll run one) then make the pictures, then "
-                   "stop so you can review them.")
+            msg = (
+                "On it — building your video. I'll run research, script and the pictures, then stop so "
+                "you can review them."
+                if will_research
+                else "On it — building your video. I'll write the script straight from the topic (skipping "
+                "research so it's faster — say the word and I'll run one) then make the pictures, then "
+                "stop so you can review them."
+            )
         else:
             msg = "On it — finishing your video (animating the clips and rendering). I'll update you here."
         # C16a (S7-1 CRITICAL): claim the "main" lane before scheduling — a
         # double-tap of the confirm card (or a retried turn) must not start
         # a second concurrent autobuild chain on the same video. Refuse and
         # DO NOT schedule when the lane is already claimed.
-        if not await generation_claims.acquire(tenant_id, video_id, "main", claimed_by=f"{caller}:build:{target}"):
+        if not await generation_claims.acquire(
+            tenant_id, video_id, "main", claimed_by=f"{caller}:build:{target}"
+        ):
             return _ALREADY_WORKING_REPLY
-        background_tasks.add_task(_make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg))
+        background_tasks.add_task(
+            _make_autobuild_step(tenant_id, video_id, target=target, start_msg=msg)
+        )
         return msg
     # Runner verbs (approvals, lock, Drive sync, SEO…) reuse the same route
     # handlers the UI buttons call and speak the result back directly.
@@ -1210,8 +1357,9 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     # claim generation_claims (draft_pass/finalize) can attribute their own
     # acquire() the same way — see actions._runner_draft_pass/_runner_finalize.
     if cfg.get("runner"):
-        return await _ACTION_RUNNERS[cfg["runner"]](tenant_id, video_id, background_tasks,
-                                                     {**pending, "caller": caller})
+        return await _ACTION_RUNNERS[cfg["runner"]](
+            tenant_id, video_id, background_tasks, {**pending, "caller": caller}
+        )
     # C16e (S7-9 follow-up): "upload it"/"publish" on a video that's already
     # uploaded is far more likely a double-tap (a repeated turn, or the
     # autobuild finish chain having just uploaded it) than genuine intent to
@@ -1235,10 +1383,19 @@ async def _run_pending_action(tenant_id, video_id, pending: dict, background_tas
     # routes/pipeline.py's existing lane vocabulary exactly, so a manual
     # click and a chat verb on the same lane genuinely conflict).
     claim_stage = generation_claims.stage_for_verb(verb)
-    if not await generation_claims.acquire(tenant_id, video_id, claim_stage, claimed_by=f"{caller}:{verb}"):
+    if not await generation_claims.acquire(
+        tenant_id, video_id, claim_stage, claimed_by=f"{caller}:{verb}"
+    ):
         return _ALREADY_WORKING_REPLY
     background_tasks.add_task(
-        _make_copilot_step(tenant_id, video_id, cfg["calls"], scene=scene, start_msg=f"On it — {doing}…", stage=claim_stage)
+        _make_copilot_step(
+            tenant_id,
+            video_id,
+            cfg["calls"],
+            scene=scene,
+            start_msg=f"On it — {doing}…",
+            stage=claim_stage,
+        )
     )
     return f"On it — {doing} now. I'll update you right here."
 
@@ -1281,7 +1438,9 @@ async def _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply
     if scene is None:
         scene = (ui_context or {}).get("scene")
     if scene is None:
-        return await _reply("Which scene's pictures would you like to see? e.g. \"show me scene 2's boards\".")
+        return await _reply(
+            "Which scene's pictures would you like to see? e.g. \"show me scene 2's boards\"."
+        )
     scene = int(scene)
 
     rows = await fetch_all(
@@ -1289,10 +1448,15 @@ async def _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply
         "WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
         "AND (image_url IS NOT NULL OR drive_image_url IS NOT NULL) "
         "ORDER BY image_index LIMIT $4",
-        video_id, tenant_id, scene, _MAX_SHOW_IMAGES,
+        video_id,
+        tenant_id,
+        scene,
+        _MAX_SHOW_IMAGES,
     )
     if not rows:
-        _cost, cost_text = await _estimate_cost(tenant_id, video_id, "images", scene, summary)
+        _cost, cost_text = await _estimate_cost(
+            tenant_id, video_id, "images", scene, summary
+        )
         return await _reply(
             f"Scene {scene} doesn't have any pictures yet — want me to generate them? ({cost_text})."
         )
@@ -1305,29 +1469,38 @@ async def _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply
         proxied = _media_proxy_url(r.get("image_url") or r.get("drive_image_url"))
         if not proxied:
             continue
-        images.append({
-            "url": proxied,
-            "label": f"Scene {scene} · shot {r.get('image_index')}",
-            "asset_id": str(r["id"]),
-            "scene": scene,
-            "index": r.get("image_index"),
-        })
+        images.append(
+            {
+                "url": proxied,
+                "label": f"Scene {scene} · shot {r.get('image_index')}",
+                "asset_id": str(r["id"]),
+                "scene": scene,
+                "index": r.get("image_index"),
+            }
+        )
     if not images:
-        return await _reply(f"Scene {scene}'s pictures aren't ready to view yet — try again in a moment.")
+        return await _reply(
+            f"Scene {scene}'s pictures aren't ready to view yet — try again in a moment."
+        )
 
     card = {
-        "id": "scene_boards", "label": f"Scene {scene} storyboards", "type": "single",
-        "options": [], "images": images,
+        "id": "scene_boards",
+        "label": f"Scene {scene} storyboards",
+        "type": "single",
+        "options": [],
+        "images": images,
     }
     n = len(images)
     return await _reply(
         f"Here's scene {scene} — {n} shot{'s' if n != 1 else ''}. Tell me what to change, or "
-        f"\"approve scene {scene}\" if these are good.",
+        f'"approve scene {scene}" if these are good.',
         cards=[card],
     )
 
 
-async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, video_id, background_tasks):
+async def _handle_copilot(
+    body, conversation_id, tenant_id, transcript, state, video_id, background_tasks
+):
     """The video-scoped co-pilot turn. Classify -> read (answer) or action (run).
     Paid actions ALWAYS confirm first — dock and home alike (Phase 2 closed the
     home CreatedCard hole where money moved without a tap)."""
@@ -1336,19 +1509,34 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     ui_context = getattr(body, "ui_context", None) or {}
 
     async def _reply(text, cards=None):
-        transcript.append(_assistant_turn({"assistant_text": text, "cards": cards, "phase": "created"}))
-        await _persist(conversation_id, tenant_id, transcript, state, "created", video_id=video_id)
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text,
-                                cards=cards, video_id=video_id, phase="created")
+        transcript.append(
+            _assistant_turn(
+                {"assistant_text": text, "cards": cards, "phase": "created"}
+            )
+        )
+        await _persist(
+            conversation_id, tenant_id, transcript, state, "created", video_id=video_id
+        )
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=text,
+            cards=cards,
+            video_id=video_id,
+            phase="created",
+        )
 
     # --- confirm handshake: turn 2 of a paid/destructive action ---
     if "confirm_action" in sel:
         pending = state.get("pending_action")
         state["pending_action"] = None
         if sel["confirm_action"] == "yes" and pending:
-            line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
+            line = await _run_pending_action(
+                tenant_id, video_id, pending, background_tasks
+            )
             return await _reply(line)
-        return await _reply("No problem — left it as it is. Tell me what you'd like instead.")
+        return await _reply(
+            "No problem — left it as it is. Tell me what you'd like instead."
+        )
 
     # --- prompt studio: apply (or cancel) a proposed prompt rewrite ---
     if "prompt_apply" in sel:
@@ -1359,9 +1547,13 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
             edited = (sel.get("prompt_text") or "").strip()
             if edited:
                 draft = {**draft, "draft": edited}
-            line = await _apply_prompt_draft(tenant_id, video_id, draft, background_tasks)
+            line = await _apply_prompt_draft(
+                tenant_id, video_id, draft, background_tasks
+            )
             return await _reply(line)
-        return await _reply("No problem — kept the original prompt. Tell me what else you'd like.")
+        return await _reply(
+            "No problem — kept the original prompt. Tell me what else you'd like."
+        )
 
     # Files dropped into the docked co-pilot: bind them to this conversation
     # (they're already stamped with video_id at upload time — see /api/chat/upload)
@@ -1369,7 +1561,9 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # Reuses the same _attach_assets the home chat uses — no separate path.
     if body.attachments:
         attach_lines: list[str] = []
-        await _attach_assets(tenant_id, conversation_id, body.attachments, state, attach_lines)
+        await _attach_assets(
+            tenant_id, conversation_id, body.attachments, state, attach_lines
+        )
         for line in attach_lines:
             transcript.append({"role": "user", "content": line})
 
@@ -1381,8 +1575,10 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
                 "Got it — that's saved to this video. Tell me what you'd like me to do with it "
                 "(e.g. use it as a character reference, or work it into the script)."
             )
-        return await _reply("Ask me anything about this video, or tell me what to do next — e.g. "
-                            "“animate scene 2”, “redo the thumbnail”, or “how much has this cost?”")
+        return await _reply(
+            "Ask me anything about this video, or tell me what to do next — e.g. "
+            "“animate scene 2”, “redo the thumbnail”, or “how much has this cost?”"
+        )
 
     # --- typed consent: a pending confirm answered in words runs (or clears) it ---
     pending = state.get("pending_action")
@@ -1392,16 +1588,21 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         return await _reply(line)
     if pending and _DENY_RE.match(msg):
         state["pending_action"] = None
-        return await _reply("No problem — left it as it is. Tell me what you'd like instead.")
+        return await _reply(
+            "No problem — left it as it is. Tell me what you'd like instead."
+        )
 
     summary = await _copilot_summary(tenant_id, video_id)
     if not summary:
-        return await _reply("I can't find that video anymore — it may have been deleted.")
+        return await _reply(
+            "I can't find that video anymore — it may have been deleted."
+        )
 
     # The co-pilot's intelligence needs a text model. Keyless tenants get the
     # friendly key prompt (reused from onboarding), never a crash.
     try:
         from kie_unified import get_text_client_for_tenant
+
         client = await get_text_client_for_tenant(tenant_id)
     except Exception:  # noqa: BLE001 — no key configured at all
         client = None
@@ -1419,16 +1620,35 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     draft = state.get("prompt_draft")
     if draft and msg and not sel:
         low = msg.lower()
-        if any(w in low for w in ("cancel", "never mind", "nevermind", "forget it", "leave it", "no thanks")):
+        if any(
+            w in low
+            for w in (
+                "cancel",
+                "never mind",
+                "nevermind",
+                "forget it",
+                "leave it",
+                "no thanks",
+            )
+        ):
             state["prompt_draft"] = None
             return await _reply("No problem — kept the original. What else can I do?")
-        new = await _rewrite_prompt(client, copilot_model, draft["surface"], draft["draft"], msg, summary["model"])
+        new = await _rewrite_prompt(
+            client,
+            copilot_model,
+            draft["surface"],
+            draft["draft"],
+            msg,
+            summary["model"],
+        )
         if new:
             draft["draft"] = new
             state["prompt_draft"] = draft
             return await _reply(
                 f"Updated the prompt for {draft['label']} — review and tweak it below, then apply "
-                "(or keep adjusting in words).", cards=[_prompt_apply_card(draft, new)])
+                "(or keep adjusting in words).",
+                cards=[_prompt_apply_card(draft, new)],
+            )
         return await _reply("I couldn't adjust that — try wording it a different way?")
 
     # Files the creator has dropped into this video's co-pilot (chat_assets rows
@@ -1449,10 +1669,15 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
         "production step, (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
         "for a specific shot), or (d) ask to SEE the actual pictures/storyboards for a scene. Decide which.\n\n"
-        + summary_with_assets + "\n"
-        + (f"They are currently viewing scene {ui_context.get('scene')}"
-           + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
-           + ".\n" if ui_context.get("scene") else "")
+        + summary_with_assets
+        + "\n"
+        + (
+            f"They are currently viewing scene {ui_context.get('scene')}"
+            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
+            + ".\n"
+            if ui_context.get("scene")
+            else ""
+        )
         + f'\nThe creator said: "{msg}"\n\n'
         "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
         "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
@@ -1524,7 +1749,7 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         "Return ONE JSON object and nothing else:\n"
         '{"kind":"read|action|prompt|show|remember|forget",'
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
-        'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
+        "render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|"
         'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
         '"surface":"image|motion|thumbnail|script|null",'
         '"op":"view|suggest|rewrite|null",'
@@ -1546,41 +1771,73 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     used_brain = False
     try:
         from agent_brain import run_copilot_brain
-        data = await run_copilot_brain(client, copilot_model, tenant_id, video_id,
-                                       summary, msg, ui_context, summary_with_assets)
+
+        data = await run_copilot_brain(
+            client,
+            copilot_model,
+            tenant_id,
+            video_id,
+            summary,
+            msg,
+            ui_context,
+            summary_with_assets,
+        )
         used_brain = data is not None
     except Exception as e:  # noqa: BLE001
         logger.warning("copilot: agent brain failed, falling back: %s", e)
     if data is None:
         try:
             from producer_prompt import _extract_json
-            gen_kwargs: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.2}
+
+            gen_kwargs: dict[str, Any] = {
+                "prompt": prompt,
+                "max_tokens": 700,
+                "temperature": 0.2,
+            }
             if copilot_model:
                 gen_kwargs["model"] = copilot_model
             raw = await client.generate(**gen_kwargs)
             data = json.loads(_extract_json(raw))
         except Exception as e:  # noqa: BLE001
             logger.warning("copilot: classify failed: %s", e)
-            return await _reply("I didn't quite catch that — want me to change the script, the pictures, the "
-                                "thumbnail, animate a scene, or render it?")
+            return await _reply(
+                "I didn't quite catch that — want me to change the script, the pictures, the "
+                "thumbnail, animate a scene, or render it?"
+            )
 
     kind = (data.get("kind") or "").strip()
     verb = (data.get("verb") or "none").strip()
     reply = (data.get("reply") or "").strip()
     conf = float(data.get("confidence") or 0)
     await _log_classification_confidence(
-        tenant_id, video_id, kind=kind, verb=verb, confidence=conf, source="brain" if used_brain else "legacy",
+        tenant_id,
+        video_id,
+        kind=kind,
+        verb=verb,
+        confidence=conf,
+        source="brain" if used_brain else "legacy",
         gated=(verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE),
     )
 
     # --- prompt studio: view / suggest / rewrite a generation prompt ---
     if kind == "prompt":
-        return await _handle_prompt_op(client, copilot_model, tenant_id, video_id,
-                                       summary, data, ui_context, state, _reply)
+        return await _handle_prompt_op(
+            client,
+            copilot_model,
+            tenant_id,
+            video_id,
+            summary,
+            data,
+            ui_context,
+            state,
+            _reply,
+        )
 
     # --- C15b: show the actual storyboards/keyframes for a scene, inline ---
     if kind == "show":
-        return await _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply)
+        return await _handle_show_op(
+            tenant_id, video_id, summary, data, ui_context, _reply
+        )
 
     # --- C15c: director memory — a standing instruction becomes a durable
     # preference; "forget" deactivates one. Free, no confirm needed. ---
@@ -1593,19 +1850,26 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     if kind == "read" or verb == "none":
         answer = (data.get("answer") or reply or "").strip()
         if not answer:
-            answer = (f'“{summary["title"]}” is at {summary["status"]}: {summary["scenes"]} scenes, '
-                      f'{summary["pics"]} pictures, {summary["clips"]} clips. Spent so far ~${summary["spent"]:.2f}.')
+            answer = (
+                f"“{summary['title']}” is at {summary['status']}: {summary['scenes']} scenes, "
+                f"{summary['pics']} pictures, {summary['clips']} clips. Spent so far ~${summary['spent']:.2f}."
+            )
         return await _reply(answer)
 
     if verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE:
-        return await _reply(reply or "Happy to help — want me to change the script, the pictures, the "
-                            "thumbnail, the voice, animate a scene, add sound, or render it?")
+        return await _reply(
+            reply
+            or "Happy to help — want me to change the script, the pictures, the "
+            "thumbnail, the voice, animate a scene, add sound, or render it?"
+        )
 
     # --- legality gate: refuse politely if the prerequisite isn't there ---
     blocked = _action_blocked(verb, summary)
     if blocked:
-        return await _reply(f"I can't {COPILOT_ACTIONS[verb]['label'].lower()} yet — {blocked}. "
-                            "Want me to do that first?")
+        return await _reply(
+            f"I can't {COPILOT_ACTIONS[verb]['label'].lower()} yet — {blocked}. "
+            "Want me to do that first?"
+        )
 
     scene = data.get("scene")
     scene = int(scene) if isinstance(scene, (int, float)) else None
@@ -1614,8 +1878,14 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # --- free vs paid ---
     if not cfg["paid"]:
         line = await _run_pending_action(
-            tenant_id, video_id,
-            {"verb": verb, "scene": scene, "change": data.get("change"), "length_min": data.get("length_min")},
+            tenant_id,
+            video_id,
+            {
+                "verb": verb,
+                "scene": scene,
+                "change": data.get("change"),
+                "length_min": data.get("length_min"),
+            },
             background_tasks,
         )
         return await _reply(line)
@@ -1623,11 +1893,17 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     # Paid: ALWAYS held behind a one-tap confirm card — dock and home alike.
     # (Phase 2 closed the hole where the home CreatedCard follow-up spent money
     # with no tap; the home chat renders the same confirm card.)
-    pending = {"verb": verb, "scene": scene, "change": (data.get("change") or "").strip(),
-               "length_min": data.get("length_min")}
+    pending = {
+        "verb": verb,
+        "scene": scene,
+        "change": (data.get("change") or "").strip(),
+        "length_min": data.get("length_min"),
+    }
     if verb == "build":
         # To pictures if we're before them, else finish the rest.
-        pending["target"] = "pictures" if summary["status"] in _BUILD_TO_PICTURES else "finish"
+        pending["target"] = (
+            "pictures" if summary["status"] in _BUILD_TO_PICTURES else "finish"
+        )
 
     _cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
     # C36 (checklist §3.3 item 3): would this quote push the video over its
@@ -1650,9 +1926,15 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
     where = f" for scene {scene}" if scene is not None else ""
     detail = ""
     if breakdown and breakdown["lines"]:
-        parts = [f'{ln["count"]} × {ln["display_name"]} (${ln["subtotal"]:.2f})' for ln in breakdown["lines"]]
+        parts = [
+            f"{ln['count']} × {ln['display_name']} (${ln['subtotal']:.2f})"
+            for ln in breakdown["lines"]
+        ]
         detail = " — " + "; ".join(parts)
-        if breakdown.get("all_premium_total") and breakdown["all_premium_total"] > breakdown["total"]:
+        if (
+            breakdown.get("all_premium_total")
+            and breakdown["all_premium_total"] > breakdown["total"]
+        ):
             detail += f" vs ${breakdown['all_premium_total']:.2f} all-premium"
         # Only call out hero scenes by name when the plan is actually mixed
         # (more than one model in play) — a uniform plan has nothing to
@@ -1661,15 +1943,25 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
         hero = breakdown.get("hero_scenes") or []
         if hero and len(breakdown["lines"]) > 1:
             names = "; ".join(
-                f'scene {h["scene"]} ({h["reason"]})' for h in hero[:3] if h.get("scene") is not None
+                f"scene {h['scene']} ({h['reason']})"
+                for h in hero[:3]
+                if h.get("scene") is not None
             )
             if names:
                 detail += f". {names}"
-    guard = f" {_guardrail_note(summary.get('render_style'))}" if breakdown and breakdown["lines"] else ""
+    guard = (
+        f" {_guardrail_note(summary.get('render_style'))}"
+        if breakdown and breakdown["lines"]
+        else ""
+    )
     budget_note = f" ⚠️ {budget_warning['message']}" if budget_warning else ""
-    intro = (f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}{detail}). "
-             f"Tap to run it, or tell me to change anything first.{guard}{budget_note}")
-    return await _reply(intro, cards=[_confirm_card(verb, scene, cost_text, breakdown, budget_warning)])
+    intro = (
+        f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}{detail}). "
+        f"Tap to run it, or tell me to change anything first.{guard}{budget_note}"
+    )
+    return await _reply(
+        intro, cards=[_confirm_card(verb, scene, cost_text, breakdown, budget_warning)]
+    )
 
 
 # --- prompt studio (full prompt-edit access) --------------------------------
@@ -1684,18 +1976,24 @@ async def _handle_copilot(body, conversation_id, tenant_id, transcript, state, v
 # uses (redraw_asset_image / run_clip_generation(force) / run_thumbnail).
 
 _PROMPT_SURFACES = {"image", "motion", "thumbnail", "script"}
-_IMAGE_GUIDE = ("Target: GPT Image 2 drawing ONE cinematic 16:9 frame. Keep the locked characters' exact looks. "
-                "Be concrete and visual — subject, action, composition, lighting, lens, mood. One flowing prompt, no lists.")
-_THUMB_GUIDE = ("Target: a high-CTR YouTube thumbnail. Bold focal subject, strong emotion/expression, high contrast, "
-                "readable at small size, minimal text. One flowing image prompt.")
-_SCRIPT_GUIDE = ("Target: the spoken script for this scene. Keep the story beats and characters; sharpen the hook, "
-                 "clarity, pacing and voice. Return the rewritten scene text only.")
+_IMAGE_GUIDE = (
+    "Target: GPT Image 2 drawing ONE cinematic 16:9 frame. Keep the locked characters' exact looks. "
+    "Be concrete and visual — subject, action, composition, lighting, lens, mood. One flowing prompt, no lists."
+)
+_THUMB_GUIDE = (
+    "Target: a high-CTR YouTube thumbnail. Bold focal subject, strong emotion/expression, high contrast, "
+    "readable at small size, minimal text. One flowing image prompt."
+)
+_SCRIPT_GUIDE = (
+    "Target: the spoken script for this scene. Keep the story beats and characters; sharpen the hook, "
+    "clarity, pacing and voice. Return the rewritten scene text only."
+)
 # Motion guidance keyed by the chosen video model (self-contained — no import risk).
 _MOTION_MODEL_GUIDE = {
-    "grok-imagine":     "Target: Grok Imagine motion (~6-10s). You MAY name one simple camera move. Keep motion physical and clear.",
-    "seedance-2-fast":  "Target: Seedance 2.0 cinematic motion (6-10s). Camera control + first/last frame supported — you may specify a camera move and pacing.",
-    "veo-3.1-fast":     "Target: Veo 3.1 (8s). NO in-prompt camera control — describe the SUBJECT's motion and the action, not camera operation. Rich cinematic detail works.",
-    "veo-3.1-quality":  "Target: Veo 3.1 (8s). NO in-prompt camera control — describe the SUBJECT's motion and the action. Rich cinematic detail works.",
+    "grok-imagine": "Target: Grok Imagine motion (~6-10s). You MAY name one simple camera move. Keep motion physical and clear.",
+    "seedance-2-fast": "Target: Seedance 2.0 cinematic motion (6-10s). Camera control + first/last frame supported — you may specify a camera move and pacing.",
+    "veo-3.1-fast": "Target: Veo 3.1 (8s). NO in-prompt camera control — describe the SUBJECT's motion and the action, not camera operation. Rich cinematic detail works.",
+    "veo-3.1-quality": "Target: Veo 3.1 (8s). NO in-prompt camera control — describe the SUBJECT's motion and the action. Rich cinematic detail works.",
 }
 
 
@@ -1706,68 +2004,121 @@ def _surface_guide(surface: str, video_model: str) -> str:
         return _THUMB_GUIDE
     if surface == "script":
         return _SCRIPT_GUIDE
-    return _MOTION_MODEL_GUIDE.get(video_model, "Target: a short motion clip from the picture. Describe the motion and action clearly.")
+    return _MOTION_MODEL_GUIDE.get(
+        video_model,
+        "Target: a short motion clip from the picture. Describe the motion and action clearly.",
+    )
 
 
-async def _resolve_prompt_target(tenant_id, video_id, surface, scene, index, ui_context, summary) -> dict[str, Any]:
+async def _resolve_prompt_target(
+    tenant_id, video_id, surface, scene, index, ui_context, summary
+) -> dict[str, Any]:
     """Point a prompt op at a concrete thing + read its current prompt. Falls back to
     the scene/image the creator is viewing; returns {"error": <ask>} when ambiguous."""
     ui = ui_context or {}
     if surface in ("image", "motion"):
         sc = scene if scene is not None else ui.get("scene")
         if sc is None:
-            return {"error": "Which scene's shot do you mean? e.g. “image 1 in scene 2”."}
+            return {
+                "error": "Which scene's shot do you mean? e.g. “image 1 in scene 2”."
+            }
         rows = await fetch_all(
             "SELECT id, image_index, image_prompt, video_prompt, image_url "
             "FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 ORDER BY image_index",
-            video_id, tenant_id, int(sc),
+            video_id,
+            tenant_id,
+            int(sc),
         )
         if not rows:
-            return {"error": f"Scene {sc} doesn't have pictures yet — want me to make them first?"}
+            return {
+                "error": f"Scene {sc} doesn't have pictures yet — want me to make them first?"
+            }
         idx = index if index is not None else ui.get("index")
         if idx is None:
             if len(rows) == 1:
                 row, idx = rows[0], 1
             else:
-                return {"error": f"Scene {sc} has {len(rows)} pictures — which one? (e.g. “image 1”)."}
+                return {
+                    "error": f"Scene {sc} has {len(rows)} pictures — which one? (e.g. “image 1”)."
+                }
         else:
             n = int(idx)
             if n < 1 or n > len(rows):
-                return {"error": f"Scene {sc} has {len(rows)} pictures — pick 1 to {len(rows)}."}
+                return {
+                    "error": f"Scene {sc} has {len(rows)} pictures — pick 1 to {len(rows)}."
+                }
             row, idx = rows[n - 1], n
         if surface == "motion" and not row.get("image_url"):
-            return {"error": f"Scene {sc} image {idx} hasn't been drawn yet — make the picture first."}
-        cur = (row.get("image_prompt" if surface == "image" else "video_prompt") or "").strip()
-        cost = _PICTURE_COST if surface == "image" else _CLIP_COST.get(summary["model"], 0.10)
+            return {
+                "error": f"Scene {sc} image {idx} hasn't been drawn yet — make the picture first."
+            }
+        cur = (
+            row.get("image_prompt" if surface == "image" else "video_prompt") or ""
+        ).strip()
+        cost = (
+            _PICTURE_COST
+            if surface == "image"
+            else _CLIP_COST.get(summary["model"], 0.10)
+        )
         noun = "picture" if surface == "image" else "clip"
-        return {"surface": surface, "asset_id": str(row["id"]), "scene": int(sc), "index": int(idx),
-                "label": f"scene {sc} {noun} {idx}", "current": cur, "apply_cost": cost}
+        return {
+            "surface": surface,
+            "asset_id": str(row["id"]),
+            "scene": int(sc),
+            "index": int(idx),
+            "label": f"scene {sc} {noun} {idx}",
+            "current": cur,
+            "apply_cost": cost,
+        }
     if surface == "thumbnail":
-        v = await fetch_one("SELECT thumbnail_prompt FROM videos WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
-        return {"surface": "thumbnail", "label": "the thumbnail",
-                "current": ((v or {}).get("thumbnail_prompt") or "").strip(), "apply_cost": 0.10}
+        v = await fetch_one(
+            "SELECT thumbnail_prompt FROM videos WHERE id=$1 AND tenant_id=$2",
+            video_id,
+            tenant_id,
+        )
+        return {
+            "surface": "thumbnail",
+            "label": "the thumbnail",
+            "current": ((v or {}).get("thumbnail_prompt") or "").strip(),
+            "apply_cost": 0.10,
+        }
     if surface == "script":
         sc = scene if scene is not None else ui.get("scene")
         if sc is None:
-            return {"error": "Which scene's script do you mean? e.g. “the script for scene 2”."}
+            return {
+                "error": "Which scene's script do you mean? e.g. “the script for scene 2”."
+            }
         r = await fetch_one(
             "SELECT scene_text FROM scripts WHERE video_id=$1 AND tenant_id=$2 AND scene=$3",
-            video_id, tenant_id, int(sc),
+            video_id,
+            tenant_id,
+            int(sc),
         )
         if not r or not (r.get("scene_text") or "").strip():
             return {"error": f"Scene {sc} doesn't have written text yet."}
-        return {"surface": "script", "scene": int(sc), "label": f"scene {sc}'s script",
-                "current": r["scene_text"].strip(), "apply_cost": 0.0}
-    return {"error": "I can work on the picture, motion, thumbnail, or script prompt — which one?"}
+        return {
+            "surface": "script",
+            "scene": int(sc),
+            "label": f"scene {sc}'s script",
+            "current": r["scene_text"].strip(),
+            "apply_cost": 0.0,
+        }
+    return {
+        "error": "I can work on the picture, motion, thumbnail, or script prompt — which one?"
+    }
 
 
-async def _rewrite_prompt(client, model_for_call, surface, current, direction, video_model) -> str:
+async def _rewrite_prompt(
+    client, model_for_call, surface, current, direction, video_model
+) -> str:
     guide = _surface_guide(surface, video_model)
-    p = ("You are refining a generation prompt. Rewrite it to honor the creator's direction and optimize it for "
-         "the target. PRESERVE the original intent and any specific characters/objects — never invent new ones.\n\n"
-         f"{guide}\n\nCURRENT PROMPT:\n{current or '(empty — write a strong one from the direction)'}\n\n"
-         f"CREATOR'S DIRECTION: {direction or '(no specific direction — just make it noticeably stronger)'}\n\n"
-         "Return ONLY the rewritten prompt text, nothing else.")
+    p = (
+        "You are refining a generation prompt. Rewrite it to honor the creator's direction and optimize it for "
+        "the target. PRESERVE the original intent and any specific characters/objects — never invent new ones.\n\n"
+        f"{guide}\n\nCURRENT PROMPT:\n{current or '(empty — write a strong one from the direction)'}\n\n"
+        f"CREATOR'S DIRECTION: {direction or '(no specific direction — just make it noticeably stronger)'}\n\n"
+        "Return ONLY the rewritten prompt text, nothing else."
+    )
     kw: dict[str, Any] = {"prompt": p, "max_tokens": 900, "temperature": 0.5}
     if model_for_call:
         kw["model"] = model_for_call
@@ -1780,9 +2131,11 @@ async def _rewrite_prompt(client, model_for_call, surface, current, direction, v
 
 async def _suggest_prompt(client, model_for_call, surface, current, video_model) -> str:
     guide = _surface_guide(surface, video_model)
-    p = ("Give the creator 3-5 short, concrete suggestions to improve this generation prompt for the target. "
-         "Don't rewrite it — just the bullet suggestions.\n\n"
-         f"{guide}\n\nCURRENT PROMPT:\n{current or '(empty)'}\n\nReturn a short friendly message with the bullets.")
+    p = (
+        "Give the creator 3-5 short, concrete suggestions to improve this generation prompt for the target. "
+        "Don't rewrite it — just the bullet suggestions.\n\n"
+        f"{guide}\n\nCURRENT PROMPT:\n{current or '(empty)'}\n\nReturn a short friendly message with the bullets."
+    )
     kw: dict[str, Any] = {"prompt": p, "max_tokens": 600, "temperature": 0.4}
     if model_for_call:
         kw["model"] = model_for_call
@@ -1798,16 +2151,34 @@ def _prompt_apply_card(target: dict[str, Any], draft_text: str) -> dict[str, Any
     dock can show it in an EDITABLE field — Apply sends back whatever's in that box
     (so the creator has full edit access), falling back to this draft if untouched."""
     cost = float(target.get("apply_cost") or 0)
-    verb = {"image": "redraw", "motion": "re-animate", "thumbnail": "redo", "script": "save"}[target["surface"]]
-    do = "Save it" if target["surface"] == "script" else \
-        f"Apply & {verb} · {'no extra cost' if cost <= 0 else f'~${cost:.2f}'}"
-    return {"id": "prompt_apply", "label": f"Apply to {target['label']}?", "type": "single",
-            "body": draft_text,
-            "options": [{"value": "yes", "label": do}, {"value": "no", "label": "Cancel"}]}
+    verb = {
+        "image": "redraw",
+        "motion": "re-animate",
+        "thumbnail": "redo",
+        "script": "save",
+    }[target["surface"]]
+    do = (
+        "Save it"
+        if target["surface"] == "script"
+        else f"Apply & {verb} · {'no extra cost' if cost <= 0 else f'~${cost:.2f}'}"
+    )
+    return {
+        "id": "prompt_apply",
+        "label": f"Apply to {target['label']}?",
+        "type": "single",
+        "body": draft_text,
+        "options": [{"value": "yes", "label": do}, {"value": "no", "label": "Cancel"}],
+    }
 
 
-def _make_prompt_regen(tenant_id, video_id: str, surface: str, *, asset_id: Optional[str] = None,
-                       start_msg: str = "Applying your prompt…"):
+def _make_prompt_regen(
+    tenant_id,
+    video_id: str,
+    surface: str,
+    *,
+    asset_id: Optional[str] = None,
+    start_msg: str = "Applying your prompt…",
+):
     """Regenerate just the one shot a prompt was applied to (or no-op for script),
     on the same task-status channel the page already watches."""
     from pipeline_executor import PipelineExecutor
@@ -1818,19 +2189,33 @@ def _make_prompt_regen(tenant_id, video_id: str, surface: str, *, asset_id: Opti
         try:
             if surface == "image":
                 from scripts.coverage_to_app import redraw_asset_image
+
                 result = await redraw_asset_image(video_id, tenant_id, asset_id) or {}
             elif surface == "motion":
-                result = await PipelineExecutor(tenant_id).run_clip_generation(
-                    video_id, asset_id=asset_id, force=True) or {}
+                result = (
+                    await PipelineExecutor(tenant_id).run_clip_generation(
+                        video_id, asset_id=asset_id, force=True
+                    )
+                    or {}
+                )
             elif surface == "thumbnail":
                 # C16d (S7-3): applying an edited thumbnail prompt is always an
                 # explicit "redo it" — bypass the skip-if-done guard, same as
                 # the ACTIONS["thumbnail"] verb.
-                result = await PipelineExecutor(tenant_id).run_thumbnail(video_id, force=True) or {}
+                result = (
+                    await PipelineExecutor(tenant_id).run_thumbnail(
+                        video_id, force=True
+                    )
+                    or {}
+                )
             else:
                 result = {"status": "completed"}
-            _set_task_status(video_id, result.get("status", "completed"),
-                             result.get("error") or result.get("message"), tenant_id=tenant_id)
+            _set_task_status(
+                video_id,
+                result.get("status", "completed"),
+                result.get("error") or result.get("message"),
+                tenant_id=tenant_id,
+            )
         except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
@@ -1840,68 +2225,136 @@ def _make_prompt_regen(tenant_id, video_id: str, surface: str, *, asset_id: Opti
     return _run
 
 
-async def _apply_prompt_draft(tenant_id, video_id, draft: dict[str, Any], background_tasks) -> str:
+async def _apply_prompt_draft(
+    tenant_id, video_id, draft: dict[str, Any], background_tasks
+) -> str:
     """Save the approved prompt to the right column, then regenerate that one shot."""
     surface, text, label = draft["surface"], draft["draft"], draft["label"]
     if surface == "image":
-        await execute("UPDATE assets SET image_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
-                      text, draft["asset_id"], tenant_id)
-        background_tasks.add_task(_make_prompt_regen(tenant_id, video_id, "image", asset_id=draft["asset_id"],
-                                                     start_msg=f"Redrawing {label}…"))
+        await execute(
+            "UPDATE assets SET image_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+            text,
+            draft["asset_id"],
+            tenant_id,
+        )
+        background_tasks.add_task(
+            _make_prompt_regen(
+                tenant_id,
+                video_id,
+                "image",
+                asset_id=draft["asset_id"],
+                start_msg=f"Redrawing {label}…",
+            )
+        )
         return f"Saved and redrawing {label} now — I'll update you here."
     if surface == "motion":
-        await execute("UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
-                      text, draft["asset_id"], tenant_id)
-        background_tasks.add_task(_make_prompt_regen(tenant_id, video_id, "motion", asset_id=draft["asset_id"],
-                                                     start_msg=f"Re-animating {label}…"))
+        await execute(
+            "UPDATE assets SET video_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+            text,
+            draft["asset_id"],
+            tenant_id,
+        )
+        background_tasks.add_task(
+            _make_prompt_regen(
+                tenant_id,
+                video_id,
+                "motion",
+                asset_id=draft["asset_id"],
+                start_msg=f"Re-animating {label}…",
+            )
+        )
         return f"Saved and re-animating {label} now — I'll update you here."
     if surface == "thumbnail":
-        await execute("UPDATE videos SET thumbnail_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
-                      text, video_id, tenant_id)
-        background_tasks.add_task(_make_prompt_regen(tenant_id, video_id, "thumbnail",
-                                                     start_msg="Redoing the thumbnail…"))
+        await execute(
+            "UPDATE videos SET thumbnail_prompt=$1, updated_at=now() WHERE id=$2 AND tenant_id=$3",
+            text,
+            video_id,
+            tenant_id,
+        )
+        background_tasks.add_task(
+            _make_prompt_regen(
+                tenant_id, video_id, "thumbnail", start_msg="Redoing the thumbnail…"
+            )
+        )
         return "Saved and redoing the thumbnail now — I'll update you here."
     # script: just save the new scene text; downstream art is regenerated separately.
-    await execute("UPDATE scripts SET scene_text=$1, updated_at=now() WHERE video_id=$2 AND scene=$3 AND tenant_id=$4",
-                  text, video_id, draft["scene"], tenant_id)
-    return (f"Done — I've updated {label}. If you've already storyboarded this scene, you may want to "
-            "redo its pictures so they match.")
+    await execute(
+        "UPDATE scripts SET scene_text=$1, updated_at=now() WHERE video_id=$2 AND scene=$3 AND tenant_id=$4",
+        text,
+        video_id,
+        draft["scene"],
+        tenant_id,
+    )
+    return (
+        f"Done — I've updated {label}. If you've already storyboarded this scene, you may want to "
+        "redo its pictures so they match."
+    )
 
 
-async def _handle_prompt_op(client, model_for_call, tenant_id, video_id, summary, data,
-                            ui_context, state, _reply):
+async def _handle_prompt_op(
+    client,
+    model_for_call,
+    tenant_id,
+    video_id,
+    summary,
+    data,
+    ui_context,
+    state,
+    _reply,
+):
     """view / suggest / rewrite a generation prompt. Rewrite proposes a draft + a
     one-tap apply card; refinement happens via free text on the next turns."""
     surface = (data.get("surface") or "").strip()
     op = (data.get("op") or "rewrite").strip()
-    scene = data.get("scene"); scene = int(scene) if isinstance(scene, (int, float)) else None
-    index = data.get("index"); index = int(index) if isinstance(index, (int, float)) else None
+    scene = data.get("scene")
+    scene = int(scene) if isinstance(scene, (int, float)) else None
+    index = data.get("index")
+    index = int(index) if isinstance(index, (int, float)) else None
     direction = (data.get("direction") or data.get("change") or "").strip()
     if surface not in _PROMPT_SURFACES:
-        return await _reply("I can rewrite the picture, motion, thumbnail, or script prompt — which one, "
-                            "and for which shot?")
-    target = await _resolve_prompt_target(tenant_id, video_id, surface, scene, index, ui_context, summary)
+        return await _reply(
+            "I can rewrite the picture, motion, thumbnail, or script prompt — which one, "
+            "and for which shot?"
+        )
+    target = await _resolve_prompt_target(
+        tenant_id, video_id, surface, scene, index, ui_context, summary
+    )
     if target.get("error"):
         return await _reply(target["error"])
 
     if op == "view":
         cur = target["current"] or "(no prompt saved for this one yet)"
-        return await _reply(f"Here's the current prompt for {target['label']}:\n\n{cur}")
+        return await _reply(
+            f"Here's the current prompt for {target['label']}:\n\n{cur}"
+        )
     if op == "suggest":
-        s = await _suggest_prompt(client, model_for_call, surface, target["current"], summary["model"])
+        s = await _suggest_prompt(
+            client, model_for_call, surface, target["current"], summary["model"]
+        )
         return await _reply(s or "I couldn't read that one — try again?")
 
     # rewrite -> propose a draft, hold it for one-tap apply.
-    new = await _rewrite_prompt(client, model_for_call, surface, target["current"], direction, summary["model"])
+    new = await _rewrite_prompt(
+        client, model_for_call, surface, target["current"], direction, summary["model"]
+    )
     if not new:
-        return await _reply("I couldn't draft that — want to try again with a little more direction?")
-    state["prompt_draft"] = {"surface": surface, "asset_id": target.get("asset_id"), "scene": target.get("scene"),
-                             "index": target.get("index"), "label": target["label"], "draft": new,
-                             "apply_cost": target.get("apply_cost", 0.0)}
+        return await _reply(
+            "I couldn't draft that — want to try again with a little more direction?"
+        )
+    state["prompt_draft"] = {
+        "surface": surface,
+        "asset_id": target.get("asset_id"),
+        "scene": target.get("scene"),
+        "index": target.get("index"),
+        "label": target["label"],
+        "draft": new,
+        "apply_cost": target.get("apply_cost", 0.0),
+    }
     return await _reply(
         f"Here's a stronger prompt for {target['label']} — tweak it below if you like, then apply "
         "(or just tell me how to adjust it in words).",
-        cards=[_prompt_apply_card(target, new)])
+        cards=[_prompt_apply_card(target, new)],
+    )
 
 
 # --- onboarding ("Start Here") step-machine ---------------------------------
@@ -1915,14 +2368,26 @@ async def _handle_prompt_op(client, model_for_call, tenant_id, video_id, summary
 # routes/onboarding.py functions for the real work.
 
 ONBOARDING_INTENT_CARD = {
-    "id": "intent", "label": "What brings you here?", "type": "single",
+    "id": "intent",
+    "label": "What brings you here?",
+    "type": "single",
     "options": [
-        {"value": "automate", "label": "Automate my channel", "hint": "Ideas, scripts, voiceovers, thumbnails, whole videos"},
-        {"value": "stories", "label": "Tell stories", "hint": "Narrative videos, shorts, films"},
+        {
+            "value": "automate",
+            "label": "Automate my channel",
+            "hint": "Ideas, scripts, voiceovers, thumbnails, whole videos",
+        },
+        {
+            "value": "stories",
+            "label": "Tell stories",
+            "hint": "Narrative videos, shorts, films",
+        },
     ],
 }
 ONBOARDING_GOALS_CARD = {
-    "id": "goals", "label": "What should I handle for you?", "type": "multi",
+    "id": "goals",
+    "label": "What should I handle for you?",
+    "type": "multi",
     "options": [
         {"value": "ideas", "label": "Video ideas"},
         {"value": "scripts", "label": "Scripts"},
@@ -1933,7 +2398,9 @@ ONBOARDING_GOALS_CARD = {
     ],
 }
 ONBOARDING_UPSELL_CARD = {
-    "id": "upsell", "label": "", "type": "single",
+    "id": "upsell",
+    "label": "",
+    "type": "single",
     "options": [
         {"value": "tell_more", "label": "Tell me more"},
         {"value": "carry_on", "label": "Let's keep rolling"},
@@ -2052,8 +2519,10 @@ def _pick_key(raw: str):
     if token.startswith("sk-ant-"):
         return "anthropic_api_key", token
     if token.startswith("sk-"):
-        return None, ("That looks like an OpenAI key. I need your **Kie.ai** key, or an "
-                      "Anthropic key that starts with `sk-ant-`.")
+        return None, (
+            "That looks like an OpenAI key. I need your **Kie.ai** key, or an "
+            "Anthropic key that starts with `sk-ant-`."
+        )
     if len(token) >= 16:
         return "kie_ai_api_key", token
     return None, "Paste the whole key — it's a long string with no spaces."
@@ -2063,6 +2532,7 @@ async def _has_generation_key(tenant_id) -> bool:
     """True if this tenant already has a usable text/image key — so returning
     users (and Ryan testing) aren't forced to re-paste during a manual restart."""
     from vault import get_secret
+
     for slot in ("anthropic_api_key", "kie_ai_api_key"):
         try:
             if await get_secret(slot, tenant_id):
@@ -2077,11 +2547,23 @@ async def _after_key_setup(conversation_id, tenant_id, transcript, state, ack):
     Shared by every path out of the key steps so the next prompt stays identical."""
     if state.get("intent") == "stories":
         state["onboarding_step"] = "channel"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            ack + "If you have a channel, paste its URL so I can match its vibe (or say “skip”).")
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            ack
+            + "If you have a channel, paste its URL so I can match its vibe (or say “skip”).",
+        )
     state["onboarding_step"] = "goals"
-    return await _ob_reply(conversation_id, tenant_id, transcript, state,
-        ack + "Now — what should I handle for you?", cards=[ONBOARDING_GOALS_CARD])
+    return await _ob_reply(
+        conversation_id,
+        tenant_id,
+        transcript,
+        state,
+        ack + "Now — what should I handle for you?",
+        cards=[ONBOARDING_GOALS_CARD],
+    )
 
 
 # --- account-connect steps (YouTube analytics + Google Drive) ---------------
@@ -2091,14 +2573,18 @@ async def _after_key_setup(conversation_id, tenant_id, transcript, state, ack):
 # so ChatHome resumes onboarding. The OAuth callback persists the tokens, so the
 # chat step just records intent and advances — either choice moves on.
 ONBOARDING_CONNECT_YT_CARD = {
-    "id": "connect_yt", "label": "", "type": "single",
+    "id": "connect_yt",
+    "label": "",
+    "type": "single",
     "options": [
         {"value": "connected", "label": "I've connected it"},
         {"value": "skip", "label": "Skip for now"},
     ],
 }
 ONBOARDING_CONNECT_DRIVE_CARD = {
-    "id": "connect_drive", "label": "", "type": "single",
+    "id": "connect_drive",
+    "label": "",
+    "type": "single",
     "options": [
         {"value": "connected", "label": "I've connected it"},
         {"value": "skip", "label": "Skip for now"},
@@ -2131,6 +2617,7 @@ def _guess_intent(msg: str) -> Optional[str]:
 def _parse_urls(msg: str) -> list[str]:
     """Pull channel URLs / @handles out of a free-text reply (space/comma/newline sep)."""
     import re
+
     if not msg:
         return []
     tokens = re.split(r"[\s,]+", msg.strip())
@@ -2139,25 +2626,51 @@ def _parse_urls(msg: str) -> list[str]:
         t = t.strip()
         if not t:
             continue
-        if "youtube.com" in t or "youtu.be" in t or t.startswith("@") or t.startswith("http"):
+        if (
+            "youtube.com" in t
+            or "youtu.be" in t
+            or t.startswith("@")
+            or t.startswith("http")
+        ):
             out.append(t)
     return out
 
 
-async def _ob_reply(conversation_id, tenant_id, transcript, state, text,
-                    *, cards=None, phase="onboarding", video_id=None):
-    transcript.append(_assistant_turn({"assistant_text": text, "phase": phase, "cards": cards}))
-    await _save_creator_brief(tenant_id, state)  # mirror durable facts as they're collected
-    await _persist(conversation_id, tenant_id, transcript, state, phase, video_id=video_id)
+async def _ob_reply(
+    conversation_id,
+    tenant_id,
+    transcript,
+    state,
+    text,
+    *,
+    cards=None,
+    phase="onboarding",
+    video_id=None,
+):
+    transcript.append(
+        _assistant_turn({"assistant_text": text, "phase": phase, "cards": cards})
+    )
+    await _save_creator_brief(
+        tenant_id, state
+    )  # mirror durable facts as they're collected
+    await _persist(
+        conversation_id, tenant_id, transcript, state, phase, video_id=video_id
+    )
     return ChatTurnResponse(
-        conversation_id=conversation_id, assistant_text=text,
-        cards=cards, phase=phase, video_id=video_id,
+        conversation_id=conversation_id,
+        assistant_text=text,
+        cards=cards,
+        phase=phase,
+        video_id=video_id,
     )
 
 
 _GOAL_LABELS = {
-    "ideas": "video ideas", "scripts": "scripts", "voiceover": "voiceovers",
-    "thumbnails": "thumbnails", "full_video": "whole videos",
+    "ideas": "video ideas",
+    "scripts": "scripts",
+    "voiceover": "voiceovers",
+    "thumbnails": "thumbnails",
+    "full_video": "whole videos",
 }
 
 
@@ -2188,7 +2701,9 @@ async def _identity_pool_brief(tenant_id) -> str:
         pool = await build_identity_pool(tenant_id, include_script_profiles=False)
         brief = render_identity_brief(pool)
     except Exception as e:  # noqa: BLE001
-        logger.warning("chat: identity pool brief failed for tenant=%s: %s", tenant_id, e)
+        logger.warning(
+            "chat: identity pool brief failed for tenant=%s: %s", tenant_id, e
+        )
         return ""
     return f"\n{brief}\n" if brief else ""
 
@@ -2207,12 +2722,18 @@ def _creator_brief(state: dict) -> str:
     if "all" in goals:
         bits.append("They want the full pipeline (ideas → script → visuals → video).")
     elif goals:
-        bits.append("They want help with: " + ", ".join(_GOAL_LABELS.get(g, g) for g in goals) + ".")
+        bits.append(
+            "They want help with: "
+            + ", ".join(_GOAL_LABELS.get(g, g) for g in goals)
+            + "."
+        )
     if state.get("channel"):
         bits.append(f"Their channel: {state['channel']}.")
     comps = state.get("competitors") or []
     if comps:
-        bits.append("Channels they model: " + ", ".join(str(c) for c in comps[:3]) + ".")
+        bits.append(
+            "Channels they model: " + ", ".join(str(c) for c in comps[:3]) + "."
+        )
     if state.get("niche_angle"):
         bits.append(f"Their chosen niche/angle: {state['niche_angle']}.")
     if not bits:
@@ -2222,7 +2743,11 @@ def _creator_brief(state: dict) -> str:
         tailor = " They mainly want THUMBNAILS — default to the thumbnail-only workflow and keep questions minimal."
     elif goals and "full_video" not in goals and "all" not in goals:
         tailor = f" Default the workflow to match what they asked for ({', '.join(goals)}), not a full video, unless they say otherwise."
-    return "WHO YOU'RE TALKING TO (from their setup — remember this): " + " ".join(bits) + tailor
+    return (
+        "WHO YOU'RE TALKING TO (from their setup — remember this): "
+        + " ".join(bits)
+        + tailor
+    )
 
 
 async def _competitor_median_seconds(tenant_id) -> int:
@@ -2246,9 +2771,11 @@ async def _modeled_runtime_hint(tenant_id) -> str:
     med = await _competitor_median_seconds(tenant_id)
     if med < 30:
         return ""
-    return (f"\nLENGTH ANCHOR: the videos this creator models typically run ~{_format_runtime(med)}. "
-            "Lean toward that as your recommended length unless the specific story clearly needs "
-            "shorter or longer — and say so.")
+    return (
+        f"\nLENGTH ANCHOR: the videos this creator models typically run ~{_format_runtime(med)}. "
+        "Lean toward that as your recommended length unless the specific story clearly needs "
+        "shorter or longer — and say so."
+    )
 
 
 async def _reference_brief(state: dict, reference_url: str | None) -> str:
@@ -2267,10 +2794,12 @@ async def _reference_brief(state: dict, reference_url: str | None) -> str:
     try:
         api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
         from routes.model_video import _parse_youtube_id
+
         yid = _parse_youtube_id(reference_url) if reference_url else None
         info = None
         if api_key and yid:
             from youtube_data_api import fetch_single_video
+
             info = await fetch_single_video(yid, api_key)
         if info and info.get("title"):
             dur = int(info.get("duration_seconds") or 0)
@@ -2310,7 +2839,9 @@ async def _reference_brief(state: dict, reference_url: str | None) -> str:
 
 _ANALYZE_RE = re.compile(
     r"\b(analyz|analys|break\s?down|deconstruct|study this|"
-    r"why (does|do) (this|it|that) work|what makes (this|it|that) work)", re.I)
+    r"why (does|do) (this|it|that) work|what makes (this|it|that) work)",
+    re.I,
+)
 
 
 def _analyze_intent(text: str | None) -> bool:
@@ -2323,9 +2854,11 @@ def _dna_brief(state: dict) -> str:
     dna = state.get("video_dna")
     if not dna:
         return ""
-    return ("\n--- FULL DNA OF THE REFERENCE VIDEO (distilled from its ACTUAL content — ground "
-            "any recreation in THIS: same hook shape, same structure, same pacing, our subject "
-            "and identity) ---\n" + json.dumps(dna)[:2400] + "\n")
+    return (
+        "\n--- FULL DNA OF THE REFERENCE VIDEO (distilled from its ACTUAL content — ground "
+        "any recreation in THIS: same hook shape, same structure, same pacing, our subject "
+        "and identity) ---\n" + json.dumps(dna)[:2400] + "\n"
+    )
 
 
 async def _handle_analyze(conversation_id, tenant_id, transcript, state, url: str):
@@ -2341,9 +2874,11 @@ async def _handle_analyze(conversation_id, tenant_id, transcript, state, url: st
     try:
         api_key = os.getenv("YOUTUBE_API_KEY", "").strip()
         from routes.model_video import _parse_youtube_id
+
         yid = _parse_youtube_id(url)
         if api_key and yid:
             from youtube_data_api import fetch_single_video
+
             info = await fetch_single_video(yid, api_key)
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: analyze metadata fetch failed: %s", e)
@@ -2360,15 +2895,20 @@ async def _handle_analyze(conversation_id, tenant_id, transcript, state, url: st
     dna_summary, dna_meta, dna_err = None, None, None
     try:
         from routes.intelligence import DistillURLRequest, distill_from_url
+
         res = await asyncio.wait_for(
-            distill_from_url(DistillURLRequest(url=url), tenant_id=tenant_id), timeout=90)
+            distill_from_url(DistillURLRequest(url=url), tenant_id=tenant_id),
+            timeout=90,
+        )
         res = res or {}
         dna_summary = res.get("summary")
         dna_meta = res.get("dna") if isinstance(res.get("dna"), dict) else None
         if not (dna_summary or dna_meta) and res.get("status") != "distilled":
             dna_err = "the deep pass couldn't read its content"
     except HTTPException as e:
-        dna_err = e.detail if isinstance(e.detail, str) else "couldn't pull the video content"
+        dna_err = (
+            e.detail if isinstance(e.detail, str) else "couldn't pull the video content"
+        )
     except asyncio.TimeoutError:
         dna_err = "the deep analysis timed out"
     except Exception as e:  # noqa: BLE001
@@ -2376,11 +2916,15 @@ async def _handle_analyze(conversation_id, tenant_id, transcript, state, url: st
         dna_err = "couldn't pull the video content"
 
     if not meta_lines and not dna_summary and not dna_meta:
-        text = ("I couldn't read that video at all — it may be private, removed, or the link is off. "
-                "Try another link?")
+        text = (
+            "I couldn't read that video at all — it may be private, removed, or the link is off. "
+            "Try another link?"
+        )
         transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=text, phase="asking"
+        )
 
     parts: list[str] = ["Here's the breakdown:"]
     if meta_lines:
@@ -2397,27 +2941,37 @@ async def _handle_analyze(conversation_id, tenant_id, transcript, state, url: st
             shown += 1
             if shown >= 8:
                 break
-    if (dna_summary or dna_meta):
+    if dna_summary or dna_meta:
         # Trim before persisting: conversation state rides along on every turn.
         slim = {}
         for k, v in (dna_meta or {}).items():
             if v in (None, "", [], {}):
                 continue
-            slim[str(k)[:60]] = (", ".join(str(x) for x in v) if isinstance(v, list) else str(v))[:400]
+            slim[str(k)[:60]] = (
+                ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
+            )[:400]
             if len(slim) >= 12:
                 break
         state["video_dna"] = {"summary": str(dna_summary or "")[:1200], "dna": slim}
     elif dna_err:
-        parts += ["", f"(I could only read the public data — {dna_err}. The read above is from "
-                      "metadata; I can still model the format.)"]
+        parts += [
+            "",
+            f"(I could only read the public data — {dna_err}. The read above is from "
+            "metadata; I can still model the format.)",
+        ]
 
     state["pending_reference_url"] = url
-    parts += ["", "Want it as YOURS? Say “make it” and I'll recreate this structure on your "
-                  "channel — or tell me what to change first."]
+    parts += [
+        "",
+        "Want it as YOURS? Say “make it” and I'll recreate this structure on your "
+        "channel — or tell me what to change first.",
+    ]
     text = "\n".join(parts)
     transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
     await _persist(conversation_id, tenant_id, transcript, state, "asking")
-    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+    return ChatTurnResponse(
+        conversation_id=conversation_id, assistant_text=text, phase="asking"
+    )
 
 
 _URL_RE = re.compile(r"https?://[^\s)]+", re.I)
@@ -2437,13 +2991,19 @@ async def _profile_state_brief(tenant_id) -> str:
     name / niche / audience / default look. Fail-soft -> ''."""
     lines: list[str] = []
     try:
-        comps = await fetch_all(
-            "SELECT channel_name, channel_url FROM competitor_channels "
-            "WHERE tenant_id = $1 AND active = true ORDER BY channel_name",
-            tenant_id,
-        ) or []
+        comps = (
+            await fetch_all(
+                "SELECT channel_name, channel_url FROM competitor_channels "
+                "WHERE tenant_id = $1 AND active = true ORDER BY channel_name",
+                tenant_id,
+            )
+            or []
+        )
         if comps:
-            names = ", ".join((c.get("channel_name") or c.get("channel_url") or "?") for c in comps[:12])
+            names = ", ".join(
+                (c.get("channel_name") or c.get("channel_url") or "?")
+                for c in comps[:12]
+            )
             lines.append(f"Competitor channels on file ({len(comps)}): {names}")
         else:
             lines.append("Competitor channels on file: none yet.")
@@ -2468,11 +3028,16 @@ async def _profile_state_brief(tenant_id) -> str:
         logger.warning("chat: profile state (profile) failed: %s", e)
     if not lines:
         return ""
-    return ("\n--- THIS CREATOR'S CURRENT SETUP (you can change any of this when they ask) ---\n"
-            + "\n".join(lines) + "\n")
+    return (
+        "\n--- THIS CREATOR'S CURRENT SETUP (you can change any of this when they ask) ---\n"
+        + "\n".join(lines)
+        + "\n"
+    )
 
 
-_STYLE_PRESETS_BRIEF_FALLBACK = ['- "neutral_v1": Neutral — a clean, versatile default look.']
+_STYLE_PRESETS_BRIEF_FALLBACK = [
+    '- "neutral_v1": Neutral — a clean, versatile default look.'
+]
 
 
 async def _style_presets_brief(tenant_id) -> str:
@@ -2504,7 +3069,8 @@ async def _style_presets_brief(tenant_id) -> str:
     return (
         "\n--- LOOK ENGINE PRESETS (structural visual engines — an ADVANCED, "
         "optional card; use these EXACT ids as option values if you offer it) ---\n"
-        + "\n".join(lines) + "\n"
+        + "\n".join(lines)
+        + "\n"
     )
 
 
@@ -2523,6 +3089,7 @@ async def _visual_styles_brief(tenant_id) -> str:
     try:
         from routes.visual_styles import _get_project_id
         from identity import _style_profile_to_look
+
         project_id = await _get_project_id(tenant_id)
         rows = await fetch_all(
             "SELECT name, style_profile, is_active FROM visual_styles "
@@ -2538,11 +3105,14 @@ async def _visual_styles_brief(tenant_id) -> str:
     for r in rows:
         look = _style_profile_to_look(r.get("style_profile")) or ""
         tag = " (their current default)" if r.get("is_active") else ""
-        lines.append(f'- "{r["name"]}"{tag}: {look}' if look else f'- "{r["name"]}"{tag}')
+        lines.append(
+            f'- "{r["name"]}"{tag}: {look}' if look else f'- "{r["name"]}"{tag}'
+        )
     return (
         "\n--- YOUR SAVED STYLES (this creator's own style library — use these "
         "EXACT names when they ask to use or switch to one) ---\n"
-        + "\n".join(lines) + "\n"
+        + "\n".join(lines)
+        + "\n"
     )
 
 
@@ -2551,26 +3121,34 @@ async def _delete_competitor(tenant_id, channel_id) -> None:
     the niche.remove_channel route's cascade so analytics don't orphan."""
     ch = await fetch_one(
         "SELECT channel_url, channel_name FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
-        channel_id, tenant_id,
+        channel_id,
+        tenant_id,
     )
     if ch:
         url = ch.get("channel_url") or ""
         name = ch.get("channel_name") or ""
-        key_col, key_val = ("channel_url", url) if url else (("channel", name) if name else (None, None))
+        key_col, key_val = (
+            ("channel_url", url)
+            if url
+            else (("channel", name) if name else (None, None))
+        )
         if key_col:
             await execute(
                 f"UPDATE discovery_ideas SET competitor_video_id = NULL WHERE tenant_id = $1 "
                 f"AND competitor_video_id IN (SELECT id FROM competitor_videos "
                 f"WHERE tenant_id = $1 AND {key_col} = $2)",
-                tenant_id, key_val,
+                tenant_id,
+                key_val,
             )
             await execute(
                 f"DELETE FROM competitor_videos WHERE tenant_id = $1 AND {key_col} = $2",
-                tenant_id, key_val,
+                tenant_id,
+                key_val,
             )
     await execute(
         "DELETE FROM competitor_channels WHERE id = $1 AND tenant_id = $2",
-        channel_id, tenant_id,
+        channel_id,
+        tenant_id,
     )
 
 
@@ -2608,17 +3186,23 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
             if kind == "add_competitor":
                 url = _first_url(val) or (val if "youtu" in val.lower() else "")
                 if not url or "youtu" not in url.lower():
-                    results.append(f"To add a competitor I need its YouTube channel link, and \"{val}\" isn't one.")
+                    results.append(
+                        f'To add a competitor I need its YouTube channel link, and "{val}" isn\'t one.'
+                    )
                     continue
                 if background_tasks is None:
-                    results.append(f"Add {url} from the Competitors page, I can't pull it in from here right now.")
+                    results.append(
+                        f"Add {url} from the Competitors page, I can't pull it in from here right now."
+                    )
                     continue
                 import uuid as _uuid
+
                 # _run_competitor_analysis reports progress through onboarding's
                 # in-memory _analyze_jobs dict and does `_analyze_jobs[job_id]` up
                 # front, so the entry MUST exist before we schedule it (same shape
                 # the /competitors/analyze route registers).
                 from routes.onboarding import _run_competitor_analysis, _analyze_jobs
+
                 job_id = _uuid.uuid4().hex[:8]
                 _analyze_jobs[job_id] = {
                     "tenant_id": tenant_id,
@@ -2630,35 +3214,51 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     "intelligence_ready": False,
                     "error": None,
                 }
-                background_tasks.add_task(_run_competitor_analysis, job_id, tenant_id, [url])
-                results.append(f"Added {url} to your competitors, pulling its top videos now.")
+                background_tasks.add_task(
+                    _run_competitor_analysis, job_id, tenant_id, [url]
+                )
+                results.append(
+                    f"Added {url} to your competitors, pulling its top videos now."
+                )
             elif kind == "remove_competitor":
                 row = await fetch_one(
                     "SELECT id, channel_name FROM competitor_channels "
                     "WHERE tenant_id = $1 AND (lower(channel_name) = lower($2) OR channel_url = $2) LIMIT 1",
-                    tenant_id, val,
+                    tenant_id,
+                    val,
                 )
                 if not row:
-                    results.append(f"Couldn't find a competitor matching \"{val}\" to remove.")
+                    results.append(
+                        f'Couldn\'t find a competitor matching "{val}" to remove.'
+                    )
                     continue
                 await _delete_competitor(tenant_id, row["id"])
-                results.append(f"Removed {row.get('channel_name') or val} from your competitors.")
+                results.append(
+                    f"Removed {row.get('channel_name') or val} from your competitors."
+                )
             elif kind == "queue_titles":
                 # value: {"asset_id": "<chat_assets id>", "column": "<optional>"}
                 # or {"titles": ["...", ...]} for titles given in conversation.
                 raw = op.get("value") if isinstance(op.get("value"), dict) else {}
                 from routes.queue import add_queue_items, queue_titles_from_asset
-                titles = [str(t).strip() for t in (raw.get("titles") or []) if str(t).strip()]
+
+                titles = [
+                    str(t).strip() for t in (raw.get("titles") or []) if str(t).strip()
+                ]
                 asset_id = str(raw.get("asset_id") or "").strip()
                 if asset_id and not titles:
-                    n, err = await queue_titles_from_asset(tenant_id, asset_id, raw.get("column"))
+                    n, err = await queue_titles_from_asset(
+                        tenant_id, asset_id, raw.get("column")
+                    )
                     if err:
                         results.append(err)
                         continue
                 elif titles:
                     n = await add_queue_items(tenant_id, [{"title": t} for t in titles])
                 else:
-                    results.append("I need the uploaded file (or the titles themselves) to queue anything.")
+                    results.append(
+                        "I need the uploaded file (or the titles themselves) to queue anything."
+                    )
                     continue
                 results.append(
                     f"Queued {n} video{'s' if n != 1 else ''} — they're on your calendar in that "
@@ -2671,11 +3271,14 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                 asset_id = str(raw.get("asset_id") or "").strip()
                 title = str(raw.get("title") or "").strip()
                 if not asset_id:
-                    results.append("I need the uploaded script file to do that — drop it in again?")
+                    results.append(
+                        "I need the uploaded script file to do that — drop it in again?"
+                    )
                     continue
                 arow = await fetch_one(
                     "SELECT id, filename, parsed_text FROM chat_assets WHERE id = $1 AND tenant_id = $2",
-                    asset_id, tenant_id,
+                    asset_id,
+                    tenant_id,
                 )
                 text_body = ((arow or {}).get("parsed_text") or "").strip()
                 if not text_body:
@@ -2685,15 +3288,25 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     )
                     continue
                 if not title:
-                    title = await _derive_script_title(tenant_id, text_body) or (
-                        (arow.get("filename") or "Untitled script").rsplit(".", 1)[0]
+                    title = (
+                        await _derive_script_title(tenant_id, text_body)
+                        or (
+                            (arow.get("filename") or "Untitled script").rsplit(".", 1)[
+                                0
+                            ]
+                        )
                     )
                 from models import CreateVideoRequest as _CVR
                 from routes.videos import create_video as _create_video
+
                 words = len(text_body.split())
-                req = _CVR(title=title[:200], video_length_minutes=max(1, round(words / 150)))
+                req = _CVR(
+                    title=title[:200], video_length_minutes=max(1, round(words / 150))
+                )
                 try:
-                    summary = await _create_video(body=req, background_tasks=background_tasks, tenant_id=tenant_id)
+                    summary = await _create_video(
+                        body=req, background_tasks=background_tasks, tenant_id=tenant_id
+                    )
                 except HTTPException as e:
                     results.append(
                         "Looks like you're out of video credits on your plan — upgrade and I'll get right on it."
@@ -2702,14 +3315,16 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     )
                     continue
                 from user_script import set_user_script
+
                 sres = await set_user_script(tenant_id, summary.id, text_body)
                 await execute(
                     "UPDATE chat_assets SET status = 'filed', filed_as = 'video_script' "
                     "WHERE id = $1 AND tenant_id = $2",
-                    asset_id, tenant_id,
+                    asset_id,
+                    tenant_id,
                 )
                 results.append(
-                    f"Created \"{title}\" using your script word for word — {sres['scenes']} "
+                    f'Created "{title}" using your script word for word — {sres["scenes"]} '
                     "scenes, ready for voice. Say the word when you want production to start "
                     "(that part costs money)."
                 )
@@ -2721,7 +3336,8 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                 if not text_body and asset_id:
                     arow = await fetch_one(
                         "SELECT parsed_text FROM chat_assets WHERE id = $1 AND tenant_id = $2",
-                        asset_id, tenant_id,
+                        asset_id,
+                        tenant_id,
                     )
                     text_body = ((arow or {}).get("parsed_text") or "").strip()
                 if not text_body:
@@ -2730,6 +3346,7 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     )
                     continue
                 from routes.script_templates import analyze_and_save_template
+
                 try:
                     tpl = await analyze_and_save_template(
                         tenant_id, text_body, str(raw.get("name") or ""), asset_id
@@ -2741,29 +3358,40 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     await execute(
                         "UPDATE chat_assets SET status = 'filed', filed_as = 'template' "
                         "WHERE id = $1 AND tenant_id = $2",
-                        asset_id, tenant_id,
+                        asset_id,
+                        tenant_id,
                     )
                 results.append(
-                    f"Learned your script format (\"{tpl['name']}\") — every script I write "
+                    f'Learned your script format ("{tpl["name"]}") — every script I write '
                     "from now on follows it. Drop in a new example any time to replace it."
                 )
             elif kind == "lock_cast":
                 # value: {"asset_ids": ["<chat_assets image ids>"]}
                 raw = op.get("value") if isinstance(op.get("value"), dict) else {}
-                ids = [str(a).strip() for a in (raw.get("asset_ids") or []) if str(a).strip()]
+                ids = [
+                    str(a).strip()
+                    for a in (raw.get("asset_ids") or [])
+                    if str(a).strip()
+                ]
                 if not ids:
-                    results.append("I need the character-sheet images to lock in — drop them into the chat.")
+                    results.append(
+                        "I need the character-sheet images to lock in — drop them into the chat."
+                    )
                     continue
                 arows = await fetch_all(
                     "SELECT id, filename, storage_url FROM chat_assets "
                     "WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND kind = 'image' "
                     "AND storage_url IS NOT NULL ORDER BY created_at",
-                    tenant_id, ids,
+                    tenant_id,
+                    ids,
                 )
                 if not arows:
-                    results.append("I couldn't find those images — drop the character sheets in again?")
+                    results.append(
+                        "I couldn't find those images — drop the character sheets in again?"
+                    )
                     continue
                 from routes.characters import lock_project_cast
+
                 try:
                     merged = await lock_project_cast(
                         tenant_id,
@@ -2775,7 +3403,8 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                 await execute(
                     "UPDATE chat_assets SET status = 'filed', filed_as = 'cast' "
                     "WHERE tenant_id = $1 AND id = ANY($2::uuid[])",
-                    tenant_id, [str(r["id"]) for r in arows],
+                    tenant_id,
+                    [str(r["id"]) for r in arows],
                 )
                 names = ", ".join(c["name"] for c in merged[:8])
                 results.append(
@@ -2786,16 +3415,25 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
             elif kind == "set_channel_format":
                 # value: {"style": ..., "motion": ..., "segmentation": ..., "on_camera": ...}
                 raw = op.get("value") if isinstance(op.get("value"), dict) else {}
-                from channel_format import FORMAT_FIELDS, set_channel_format, style_preset_for_format
+                from channel_format import (
+                    FORMAT_FIELDS,
+                    set_channel_format,
+                    style_preset_for_format,
+                )
+
                 fields = {k: raw.get(k) for k in FORMAT_FIELDS if raw.get(k)}
                 if not fields:
-                    results.append("Tell me the format in a sentence and I'll lock it in — e.g. \"animated 2D dialogue scenes, no one on camera\".")
+                    results.append(
+                        'Tell me the format in a sentence and I\'ll lock it in — e.g. "animated 2D dialogue scenes, no one on camera".'
+                    )
                     continue
                 fmt = await set_channel_format(tenant_id, fields)
                 preset = style_preset_for_format(fmt)
                 bits = "; ".join(f"{k}: {v}" for k, v in fmt.items() if v)
                 extra = f" New videos default to the {preset} look." if preset else ""
-                results.append(f"Locked your channel format ({bits}).{extra} Every build shapes itself to it.")
+                results.append(
+                    f"Locked your channel format ({bits}).{extra} Every build shapes itself to it."
+                )
             elif kind == "remember":
                 # value: the standing instruction, verbatim. Home chat has no
                 # single "current video" in scope, so every remember here is
@@ -2805,13 +3443,19 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     results.append("What would you like me to remember?")
                     continue
                 await _save_preference(tenant_id, val, scope=_PREF_SCOPE_CHANNEL)
-                results.append(f"Got it — I'll remember: {val}. Say \"forget that\" any time to undo it.")
+                results.append(
+                    f'Got it — I\'ll remember: {val}. Say "forget that" any time to undo it.'
+                )
             elif kind == "forget":
-                ok, matched = await _deactivate_preference(tenant_id, val, video_id=None)
+                ok, matched = await _deactivate_preference(
+                    tenant_id, val, video_id=None
+                )
                 if ok:
                     results.append(f"Forgot it — I'll no longer remember: {matched}.")
                 else:
-                    results.append("I couldn't find a matching preference to forget — which one did you mean?")
+                    results.append(
+                        "I couldn't find a matching preference to forget — which one did you mean?"
+                    )
             elif kind == "draft_style":
                 # value: {"name": "<short name>", "look": "<one-sentence description>"}.
                 # NEVER writes a row — only stashes the draft for the creator's own
@@ -2827,7 +3471,7 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     )
                     continue
                 state["pending_style_draft"] = {"name": name, "look": look}
-                results.append(f'Here\'s the style I\'ve drafted — "{name}": {look}')
+                results.append(f"Here's the style I've drafted — \"{name}\": {look}")
             elif kind == "draft_quality_rules":
                 # value: {"asset_id": "<chat_assets id>"} | {"text": "..."}.
                 # NEVER writes a row — parses candidate rules and stashes the
@@ -2841,7 +3485,8 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                 if not text_body and asset_id:
                     arow = await fetch_one(
                         "SELECT parsed_text FROM chat_assets WHERE id = $1 AND tenant_id = $2",
-                        asset_id, tenant_id,
+                        asset_id,
+                        tenant_id,
                     )
                     text_body = ((arow or {}).get("parsed_text") or "").strip()
                 if not text_body:
@@ -2851,20 +3496,26 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     )
                     continue
                 import quality_rules as _quality_rules
+
                 parse_client = None
                 try:
                     parse_client = await _resolve_producer_client(tenant_id)
                 except Exception:
                     parse_client = None
-                rows = await _quality_rules.parse_rules_document(text_body, client=parse_client)
+                rows = await _quality_rules.parse_rules_document(
+                    text_body, client=parse_client
+                )
                 if not rows:
                     results.append(
                         "I couldn't find any testable rules in that — a numbered/bulleted list of "
-                        "\"always/never\" style rules works best, or the table format from a doc "
+                        '"always/never" style rules works best, or the table format from a doc '
                         "like dvsu-quality-law.md."
                     )
                     continue
-                state["pending_quality_rules_draft"] = {"rows": rows, "asset_id": asset_id}
+                state["pending_quality_rules_draft"] = {
+                    "rows": rows,
+                    "asset_id": asset_id,
+                }
                 hard = sum(1 for r in rows if r.get("severity") == "hard_gate")
                 warn = sum(1 for r in rows if r.get("severity") == "warn")
                 guidance = sum(1 for r in rows if r.get("severity") == "guidance")
@@ -2892,12 +3543,21 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     # table/infra), so this steering survives into future
                     # conversations too, not just the rest of this one.
                     lesson = (
-                        f"Stopped modeling {ref_url} — " if ref_url else "Stopped modeling that reference video — "
-                    ) + "build from OUR channel's own identity, not a reference video, unless I ask to model one again."
+                        (
+                            f"Stopped modeling {ref_url} — "
+                            if ref_url
+                            else "Stopped modeling that reference video — "
+                        )
+                        + "build from OUR channel's own identity, not a reference video, unless I ask to model one again."
+                    )
                     await _save_preference(tenant_id, lesson, scope=_PREF_SCOPE_CHANNEL)
-                    results.append("Dropped that reference — I'll build from our own channel identity from here.")
+                    results.append(
+                        "Dropped that reference — I'll build from our own channel identity from here."
+                    )
                 else:
-                    results.append("There wasn't a reference video active, but I'll keep it that way.")
+                    results.append(
+                        "There wasn't a reference video active, but I'll keep it that way."
+                    )
             elif kind == "use_style":
                 # value: the saved style's name (or a close match to it). Switches
                 # the tenant's ACTIVE visual_styles row — same activate semantics
@@ -2907,27 +3567,30 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                     results.append("Which saved style would you like to use?")
                     continue
                 from routes.visual_styles import _get_project_id, activate_visual_style
+
                 project_id = await _get_project_id(tenant_id)
                 row = await fetch_one(
                     "SELECT id, name FROM visual_styles WHERE project_id = $1 "
                     "AND lower(name) = lower($2) LIMIT 1",
-                    project_id, val,
+                    project_id,
+                    val,
                 )
                 if not row:
                     row = await fetch_one(
                         "SELECT id, name FROM visual_styles WHERE project_id = $1 "
                         "AND name ILIKE $2 LIMIT 1",
-                        project_id, f"%{val}%",
+                        project_id,
+                        f"%{val}%",
                     )
                 if not row:
                     results.append(
-                        f"I couldn't find a saved style called \"{val}\" — check Profile → "
+                        f'I couldn\'t find a saved style called "{val}" — check Profile → '
                         "Visual Styles for the exact name, or ask me to draft one first."
                     )
                     continue
                 await activate_visual_style(str(row["id"]), tenant_id=tenant_id)
                 results.append(
-                    f"Switched your active look to \"{row['name']}\" — every new video (and any "
+                    f'Switched your active look to "{row["name"]}" — every new video (and any '
                     "video that doesn't set its own custom look) uses it from here on."
                 )
             elif kind in _PROFILE_FIELD_COLS:
@@ -2937,16 +3600,21 @@ async def _apply_profile_ops(tenant_id, ops, state, background_tasks) -> list[st
                 await execute(
                     f"INSERT INTO channel_profiles (tenant_id, {col}) VALUES ($1, $2) "
                     f"ON CONFLICT (tenant_id) DO UPDATE SET {col} = $2, updated_at = now()",
-                    tenant_id, val,
+                    tenant_id,
+                    val,
                 )
                 if kind == "set_niche":
                     state["niche_angle"] = val
                 elif kind == "set_channel_name":
                     state["channel"] = val
-                results.append(f"Updated your {_PROFILE_FIELD_LABELS[kind]} to \"{val}\".")
+                results.append(
+                    f'Updated your {_PROFILE_FIELD_LABELS[kind]} to "{val}".'
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: profile op %s failed: %s", kind, e)
-            results.append("I hit a snag saving one of those changes, mind trying again?")
+            results.append(
+                "I hit a snag saving one of those changes, mind trying again?"
+            )
     return results
 
 
@@ -2955,15 +3623,19 @@ async def _derive_script_title(tenant_id, text: str) -> str:
     Empty string on any failure (caller falls back to the filename)."""
     try:
         from kie_unified import get_text_client_for_tenant
+
         client = await get_text_client_for_tenant(tenant_id)
         model = _claude_model_for_direct_client(client)
         kwargs = {"model": model} if model else {}
         raw = await client.generate(
             prompt=(
-                "Here is the opening of a video script:\n\n" + text[:2000] +
-                "\n\nWrite ONE YouTube-ready title for this video. Reply with the title only, no quotes."
+                "Here is the opening of a video script:\n\n"
+                + text[:2000]
+                + "\n\nWrite ONE YouTube-ready title for this video. Reply with the title only, no quotes."
             ),
-            max_tokens=60, temperature=0.7, **kwargs,
+            max_tokens=60,
+            temperature=0.7,
+            **kwargs,
         )
         return (raw or "").strip().strip('"').splitlines()[0].strip()[:200]
     except Exception as e:  # noqa: BLE001
@@ -3000,7 +3672,9 @@ def _style_draft_card(draft: dict) -> dict[str, Any]:
     field prompt_apply already carries a draft in — no new ChatCard field),
     yes/no options read back exactly like confirm_action's."""
     return {
-        "id": "style_draft", "label": draft.get("name") or "New style", "type": "single",
+        "id": "style_draft",
+        "label": draft.get("name") or "New style",
+        "type": "single",
         "body": draft.get("look") or "",
         "options": [
             {"value": "yes", "label": "Save this style"},
@@ -3033,7 +3707,9 @@ def _maybe_attach_style_draft_card(data: dict, state: dict) -> None:
     data["cards"] = cards
 
 
-async def _handle_style_draft_confirm(selections, conversation_id, tenant_id, transcript, state) -> ChatTurnResponse:
+async def _handle_style_draft_confirm(
+    selections, conversation_id, tenant_id, transcript, state
+) -> ChatTurnResponse:
     """Turn 2 of the conversational style-creation door (checklist §C22): the
     creator's tap on the style_draft preview card. Deterministic and NOT routed
     back through the producer LLM — a visual_styles row can ONLY be created here,
@@ -3048,19 +3724,26 @@ async def _handle_style_draft_confirm(selections, conversation_id, tenant_id, tr
     async def _reply(text: str) -> ChatTurnResponse:
         transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=text, phase="asking"
+        )
 
     if not draft:
-        return await _reply("I don't have a style draft waiting — describe the look you want and I'll draft one.")
+        return await _reply(
+            "I don't have a style draft waiting — describe the look you want and I'll draft one."
+        )
     if selections.get("style_draft") != "yes":
         return await _reply(
             "No problem — didn't save that one. Describe the look again (or what you'd change) and I'll draft another."
         )
 
     from routes.visual_styles import create_visual_style, CreateStyleRequest
+
     try:
         style = await create_visual_style(
-            CreateStyleRequest(name=draft["name"], style_profile={"prompt_prefix": draft["look"]}),
+            CreateStyleRequest(
+                name=draft["name"], style_profile={"prompt_prefix": draft["look"]}
+            ),
             tenant_id=tenant_id,
         )
     except Exception as e:  # noqa: BLE001 — HTTPException or anything else, never crash the turn
@@ -3107,7 +3790,9 @@ def _maybe_attach_quality_rules_draft_card(data: dict, state: dict) -> None:
         alt = data.get(alt_key)
         if isinstance(alt, list):
             ops = ops + alt
-    if not any(isinstance(o, dict) and o.get("op") == "draft_quality_rules" for o in ops):
+    if not any(
+        isinstance(o, dict) and o.get("op") == "draft_quality_rules" for o in ops
+    ):
         return
     draft = state.get("pending_quality_rules_draft")
     if not draft or not draft.get("rows"):
@@ -3132,7 +3817,9 @@ async def _handle_quality_rules_draft_confirm(
     async def _reply(text: str) -> ChatTurnResponse:
         transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=text, phase="asking"
+        )
 
     if not draft or not draft.get("rows"):
         return await _reply(
@@ -3144,8 +3831,11 @@ async def _handle_quality_rules_draft_confirm(
         )
 
     import quality_rules as _quality_rules
+
     try:
-        saved = await _quality_rules.bulk_create_rules(tenant_id, draft["rows"], source="doc_upload")
+        saved = await _quality_rules.bulk_create_rules(
+            tenant_id, draft["rows"], source="doc_upload"
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: quality_rules_draft confirm failed to save: %s", e)
         return await _reply("I hit a snag saving those rules — mind trying again?")
@@ -3156,7 +3846,8 @@ async def _handle_quality_rules_draft_confirm(
             await execute(
                 "UPDATE chat_assets SET status = 'filed', filed_as = 'quality_rules' "
                 "WHERE id = $1 AND tenant_id = $2",
-                asset_id, tenant_id,
+                asset_id,
+                tenant_id,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: failed to mark quality-rules asset filed: %s", e)
@@ -3187,7 +3878,8 @@ async def _save_creator_brief(tenant_id, state) -> None:
                ON CONFLICT (tenant_id)
                DO UPDATE SET creator_brief = COALESCE(channel_profiles.creator_brief, '{}'::jsonb) || $2::jsonb,
                              updated_at = now()""",
-            tenant_id, json.dumps(brief),
+            tenant_id,
+            json.dumps(brief),
         )
     except Exception as e:  # noqa: BLE001 — memory is best-effort, never block a turn
         logger.warning("chat: save creator_brief failed: %s", e)
@@ -3222,12 +3914,23 @@ async def _hydrate_creator_brief(tenant_id, state) -> None:
 # chat turn on a DB error.
 
 _PREF_SCOPE_CHANNEL = "channel"
-_PREF_CAP = 20              # most-recent preferences hydrated into the prompt
+_PREF_CAP = 20  # most-recent preferences hydrated into the prompt
 _PREF_BLOCK_MAX_CHARS = 3000  # hard cap so the prompt can't bloat unboundedly
-_PREF_GENERIC_REFS = {"", "that", "it", "last", "this", "the last one", "the last thing", "that one"}
+_PREF_GENERIC_REFS = {
+    "",
+    "that",
+    "it",
+    "last",
+    "this",
+    "the last one",
+    "the last thing",
+    "that one",
+}
 
 
-async def _save_preference(tenant_id, text: str, scope: str = _PREF_SCOPE_CHANNEL) -> None:
+async def _save_preference(
+    tenant_id, text: str, scope: str = _PREF_SCOPE_CHANNEL
+) -> None:
     """Persist a standing preference VERBATIM (never paraphrased/summarized —
     the creator's exact words are the instruction). Fail-soft."""
     text = (text or "").strip()
@@ -3237,7 +3940,9 @@ async def _save_preference(tenant_id, text: str, scope: str = _PREF_SCOPE_CHANNE
         await execute(
             "INSERT INTO director_preferences (tenant_id, scope, text, source) "
             "VALUES ($1, $2, $3, 'user')",
-            tenant_id, (scope or _PREF_SCOPE_CHANNEL), text,
+            tenant_id,
+            (scope or _PREF_SCOPE_CHANNEL),
+            text,
         )
     except Exception as e:  # noqa: BLE001 — memory is best-effort, never block a turn
         logger.warning("chat: save preference failed: %s", e)
@@ -3255,7 +3960,9 @@ async def _list_preferences(tenant_id, video_id=None) -> list[dict]:
             "SELECT id, scope, text, created_at FROM director_preferences "
             "WHERE tenant_id = $1 AND active = true AND scope = ANY($2::text[]) "
             "ORDER BY created_at DESC LIMIT $3",
-            tenant_id, scopes, _PREF_CAP,
+            tenant_id,
+            scopes,
+            _PREF_CAP,
         )
         return rows or []
     except Exception as e:  # noqa: BLE001
@@ -3273,7 +3980,9 @@ async def _preferences_brief(tenant_id, video_id=None) -> str:
         return ""
     lines = []
     for i, r in enumerate(rows, 1):
-        tag = " (this video only)" if video_id and r.get("scope") == str(video_id) else ""
+        tag = (
+            " (this video only)" if video_id and r.get("scope") == str(video_id) else ""
+        )
         lines.append(f"{i}. {r['text']}{tag}")
     block = "\n".join(lines)
     if len(block) > _PREF_BLOCK_MAX_CHARS:
@@ -3284,7 +3993,9 @@ async def _preferences_brief(tenant_id, video_id=None) -> str:
     )
 
 
-async def _deactivate_preference(tenant_id, ref: str, video_id=None) -> tuple[bool, str]:
+async def _deactivate_preference(
+    tenant_id, ref: str, video_id=None
+) -> tuple[bool, str]:
     """'forget that' / 'forget #N' / 'forget <text>' -> deactivate ONE matching
     active preference (soft-delete: active=false, never a hard DELETE). Scoped
     to the same channel+video group hydration uses. Matching, in order:
@@ -3324,7 +4035,8 @@ async def _deactivate_preference(tenant_id, ref: str, video_id=None) -> tuple[bo
         await execute(
             "UPDATE director_preferences SET active = false, updated_at = now() "
             "WHERE id = $1 AND tenant_id = $2",
-            match["id"], tenant_id,
+            match["id"],
+            tenant_id,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: forget preference failed: %s", e)
@@ -3343,7 +4055,9 @@ async def _handle_remember_op(tenant_id, video_id, data, _reply):
     scope = str(video_id) if scope_choice == "video" else _PREF_SCOPE_CHANNEL
     await _save_preference(tenant_id, text, scope=scope)
     where = "for this video" if scope != _PREF_SCOPE_CHANNEL else "channel-wide"
-    return await _reply(f"Got it — I'll remember ({where}): {text}. Say \"forget that\" any time to undo it.")
+    return await _reply(
+        f'Got it — I\'ll remember ({where}): {text}. Say "forget that" any time to undo it.'
+    )
 
 
 async def _handle_forget_op(tenant_id, video_id, data, _reply):
@@ -3353,7 +4067,9 @@ async def _handle_forget_op(tenant_id, video_id, data, _reply):
     ok, matched = await _deactivate_preference(tenant_id, ref, video_id=video_id)
     if ok:
         return await _reply(f"Forgot it — I'll no longer remember: {matched}.")
-    return await _reply("I couldn't find a matching preference to forget — which one did you mean?")
+    return await _reply(
+        "I couldn't find a matching preference to forget — which one did you mean?"
+    )
 
 
 # --- Channel intelligence brief (Phase 2) ----------------------------------
@@ -3375,6 +4091,7 @@ async def _compute_channel_intel(tenant_id, api_key) -> dict:
     enough real data to model (fewer than 3 videos with views)."""
     import asyncio
     import time
+
     try:
         rows = await fetch_all(
             """SELECT title, views, vph, duration_seconds, thumbnail_style_json, published_date
@@ -3421,7 +4138,9 @@ async def _compute_channel_intel(tenant_id, api_key) -> dict:
                 "TOP TITLES:\n" + "\n".join(f"- {t}" for t in top_titles)
             )
             if thumb_snippets:
-                prompt += "\n\nTHUMBNAIL STYLE NOTES:\n" + "\n".join(f"- {s}" for s in thumb_snippets)
+                prompt += "\n\nTHUMBNAIL STYLE NOTES:\n" + "\n".join(
+                    f"- {s}" for s in thumb_snippets
+                )
             prompt += (
                 "\n\nIn ONE sentence, describe the recurring TITLE/HOOK pattern that drives the "
                 "clicks (structure + emotional trigger + formula). Also list up to 4 recurring "
@@ -3433,7 +4152,9 @@ async def _compute_channel_intel(tenant_id, api_key) -> dict:
                 hook_pattern = str(data.get("pattern") or "").strip()
                 motifs = data.get("thumbnail_motifs")
                 if isinstance(motifs, list):
-                    thumbnail_motifs = [str(m).strip() for m in motifs if str(m).strip()][:4]
+                    thumbnail_motifs = [
+                        str(m).strip() for m in motifs if str(m).strip()
+                    ][:4]
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: channel_intel distill failed: %s", e)
 
@@ -3451,6 +4172,7 @@ async def _get_channel_intel(tenant_id) -> dict:
     """Return the cached channel-intel dict, recomputing when missing or stale.
     Fail-soft: returns {} (never raises) so a bad turn just loses the bonus."""
     import time
+
     try:
         row = await fetch_one(
             "SELECT channel_intel FROM channel_profiles WHERE tenant_id = $1", tenant_id
@@ -3459,7 +4181,10 @@ async def _get_channel_intel(tenant_id) -> dict:
         logger.warning("chat: channel_intel read failed: %s", e)
         return {}
     intel = _as_dict((row or {}).get("channel_intel"))
-    if intel and (time.time() - float(intel.get("computed_at") or 0)) < _CHANNEL_INTEL_TTL_S:
+    if (
+        intel
+        and (time.time() - float(intel.get("computed_at") or 0)) < _CHANNEL_INTEL_TTL_S
+    ):
         return intel
     api_key = await get_secret("anthropic_api_key", tenant_id)
     fresh = await _compute_channel_intel(tenant_id, api_key)
@@ -3469,7 +4194,8 @@ async def _get_channel_intel(tenant_id) -> dict:
         await execute(
             "UPDATE channel_profiles SET channel_intel = $2::jsonb, updated_at = now() "
             "WHERE tenant_id = $1",
-            tenant_id, json.dumps(fresh),
+            tenant_id,
+            json.dumps(fresh),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: channel_intel write failed: %s", e)
@@ -3485,9 +4211,15 @@ async def _channel_intel_brief(tenant_id) -> str:
     bits: list[str] = []
     titles = intel.get("top_titles") or []
     if titles:
-        bits.append("Their channel's top-performing titles: " + "; ".join(f'"{t}"' for t in titles[:6]) + ".")
+        bits.append(
+            "Their channel's top-performing titles: "
+            + "; ".join(f'"{t}"' for t in titles[:6])
+            + "."
+        )
     if intel.get("hook_pattern"):
-        bits.append("The title/hook pattern that wins for them: " + intel["hook_pattern"])
+        bits.append(
+            "The title/hook pattern that wins for them: " + intel["hook_pattern"]
+        )
     motifs = intel.get("thumbnail_motifs") or []
     if motifs:
         bits.append("Recurring thumbnail motifs: " + ", ".join(motifs) + ".")
@@ -3496,9 +4228,11 @@ async def _channel_intel_brief(tenant_id) -> str:
         bits.append(f"They publish about every {cadence} day(s).")
     if not bits:
         return ""
-    return ("\nCHANNEL INTELLIGENCE (real data from the videos this creator models — model your "
-            "ideas, titles, hooks and thumbnail concepts on these, don't be generic):\n- "
-            + "\n- ".join(bits))
+    return (
+        "\nCHANNEL INTELLIGENCE (real data from the videos this creator models — model your "
+        "ideas, titles, hooks and thumbnail concepts on these, don't be generic):\n- "
+        + "\n- ".join(bits)
+    )
 
 
 async def _competitor_winners_brief(tenant_id) -> str:
@@ -3507,12 +4241,15 @@ async def _competitor_winners_brief(tenant_id) -> str:
     and ground title/thumbnail ideas in actual winners. Compact top 8 by vph.
     Mirrors the /suggested-models query. Fail-soft -> ''."""
     try:
-        rows = await fetch_all(
-            "SELECT title, channel, views, vph, hours_old FROM competitor_videos "
-            "WHERE tenant_id = $1 AND views > 0 AND removed_at IS NULL "
-            "ORDER BY vph DESC NULLS LAST LIMIT 8",
-            tenant_id,
-        ) or []
+        rows = (
+            await fetch_all(
+                "SELECT title, channel, views, vph, hours_old FROM competitor_videos "
+                "WHERE tenant_id = $1 AND views > 0 AND removed_at IS NULL "
+                "ORDER BY vph DESC NULLS LAST LIMIT 8",
+                tenant_id,
+            )
+            or []
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: competitor winners brief failed: %s", e)
         return ""
@@ -3528,9 +4265,11 @@ async def _competitor_winners_brief(tenant_id) -> str:
         ch = r.get("channel") or "?"
         title = (r.get("title") or "").strip()
         lines.append(f'"{title}" - {ch} - {views:,} views, {vph_s}, {age}')
-    return ("\nTOP COMPETITOR VIDEOS RIGHT NOW (real numbers from the channels they model - when they ask "
-            "what's working or how a competitor is doing, cite these specifics; and model title/thumbnail "
-            "ideas on these proven winners):\n- " + "\n- ".join(lines))
+    return (
+        "\nTOP COMPETITOR VIDEOS RIGHT NOW (real numbers from the channels they model - when they ask "
+        "what's working or how a competitor is doing, cite these specifics; and model title/thumbnail "
+        "ideas on these proven winners):\n- " + "\n- ".join(lines)
+    )
 
 
 # _next_to_make_brief / _own_performance_brief / _learnings_brief moved to
@@ -3552,21 +4291,30 @@ async def _own_catalog_brief(tenant_id) -> str:
     performers even without synced YouTube analytics (which need the OAuth connection).
     Top 8 by views. Fail-soft -> ''."""
     try:
-        rows = await fetch_all(
-            "SELECT title, view_count FROM channel_videos "
-            "WHERE tenant_id = $1 AND title IS NOT NULL "
-            "ORDER BY view_count DESC NULLS LAST LIMIT 8",
-            tenant_id,
-        ) or []
+        rows = (
+            await fetch_all(
+                "SELECT title, view_count FROM channel_videos "
+                "WHERE tenant_id = $1 AND title IS NOT NULL "
+                "ORDER BY view_count DESC NULLS LAST LIMIT 8",
+                tenant_id,
+            )
+            or []
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("chat: own catalog brief failed: %s", e)
         return ""
     rows = [r for r in rows if (r.get("view_count") or 0) > 0]
     if not rows:
         return ""
-    lines = [f'"{(r.get("title") or "").strip()}" - {int(r.get("view_count") or 0):,} views' for r in rows]
-    return ("\nYOUR OWN TOP-PERFORMING VIDEOS (from this channel, ranked by real views — these ARE the "
-            "creator's top performers; model new ideas on what already works here):\n- " + "\n- ".join(lines))
+    lines = [
+        f'"{(r.get("title") or "").strip()}" - {int(r.get("view_count") or 0):,} views'
+        for r in rows
+    ]
+    return (
+        "\nYOUR OWN TOP-PERFORMING VIDEOS (from this channel, ranked by real views — these ARE the "
+        "creator's top performers; model new ideas on what already works here):\n- "
+        + "\n- ".join(lines)
+    )
 
 
 async def _loop_brief(tenant_id) -> str:
@@ -3587,11 +4335,13 @@ async def _loop_brief(tenant_id) -> str:
 async def _wait_for_scrape(state) -> None:
     """Bounded wait (~40s) for the background competitor scrape to finish."""
     import asyncio
+
     job_id = state.get("competitor_job")
     if not job_id:
         return
     try:
         from routes.onboarding import _analyze_jobs
+
         for _ in range(20):
             st = (_analyze_jobs.get(job_id) or {}).get("status")
             if st and st != "processing":
@@ -3630,7 +4380,9 @@ def _video_lines(rows) -> list[str]:
         v = int(r.get("views") or 0)
         hrs = r.get("hours_old")
         when = f", {round(hrs / 24, 1)}d ago" if hrs else ""
-        out.append(f'- "{r.get("title")}" ({r.get("channel") or "competitor"}) — {v:,} views{when}')
+        out.append(
+            f'- "{r.get("title")}" ({r.get("channel") or "competitor"}) — {v:,} views{when}'
+        )
     return out
 
 
@@ -3638,11 +4390,16 @@ def _claude_json(api_key: str, prompt: str, max_tokens: int = 1400) -> dict:
     """One direct-Anthropic JSON call (sync; invoke via asyncio.to_thread)."""
     import anthropic
     from producer_prompt import ANTHROPIC_DIRECT_BASE_URL, MODEL, _extract_json
+
     client = anthropic.Anthropic(api_key=api_key, base_url=ANTHROPIC_DIRECT_BASE_URL)
     resp = client.messages.create(
-        model=MODEL, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}]
+        model=MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
     )
-    text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
+    text = "".join(
+        getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text"
+    )
     return json.loads(_extract_json(text))
 
 
@@ -3650,6 +4407,7 @@ async def _propose_modeling_angles(tenant_id, state) -> Optional[dict[str, Any]]
     """Summarize the competitors' winning format + propose 4 concrete ways the
     creator could make it their OWN niche (so a beginner has real directions)."""
     import asyncio
+
     await _wait_for_scrape(state)
     rows = await _recent_competitor_rows(tenant_id)
     if not rows:
@@ -3668,20 +4426,30 @@ async def _propose_modeling_angles(tenant_id, state) -> Optional[dict[str, Any]]
     )
     try:
         data = await asyncio.to_thread(_claude_json, api_key, prompt, 1200)
-        if isinstance(data, dict) and isinstance(data.get("angles"), list) and data["angles"]:
-            return {"format_summary": data.get("format_summary", ""), "angles": data["angles"][:4]}
+        if (
+            isinstance(data, dict)
+            and isinstance(data.get("angles"), list)
+            and data["angles"]
+        ):
+            return {
+                "format_summary": data.get("format_summary", ""),
+                "angles": data["angles"][:4],
+            }
         return None
     except Exception as e:  # noqa: BLE001
         logger.warning("onboarding: modeling angles failed: %s", e)
         return None
 
 
-async def _generate_competitor_ideas(tenant_id, state, niche: Optional[str] = None) -> Optional[list[dict[str, Any]]]:
+async def _generate_competitor_ideas(
+    tenant_id, state, niche: Optional[str] = None
+) -> Optional[list[dict[str, Any]]]:
     """3 data-backed ideas modeled on the competitors' PAST-WEEK winners. When
     `niche` is set, the ideas target the creator's chosen niche while modeling the
     winning format; otherwise they model the competitors directly. Direct key.
     Returns None only when there's genuinely no recent competitor data."""
     import asyncio
+
     await _wait_for_scrape(state)
     rows = await _recent_competitor_rows(tenant_id)
     if not rows:
@@ -3705,7 +4473,8 @@ async def _generate_competitor_ideas(tenant_id, state, niche: Optional[str] = No
     prompt = (
         "These are the top videos from this creator's competitor channels over the PAST WEEK:\n"
         + "\n".join(_video_lines(rows))
-        + "\n\n" + ask
+        + "\n\n"
+        + ask
         + '\n\nReturn ONE JSON object and nothing else: {"ideas":[{"title":"...","reasoning":"...",'
         '"source_title":"<the competitor video>","script_structure":"<one line>"}]}. Exactly 3 ideas. '
         "Ground every reasoning in the real numbers above."
@@ -3736,19 +4505,22 @@ async def _score_and_rank_ideas(api_key, ideas, rows, niche) -> list[dict[str, A
     (a scoring hiccup must never leave the creator with no ideas).
     """
     import asyncio
+
     if not ideas:
         return ideas
     try:
         listed = "\n".join(
             f'{i}. title: "{idea.get("title")}" | structure: '
-            f'{idea.get("script_structure") or ""} | rationale: {idea.get("reasoning") or ""}'
+            f"{idea.get('script_structure') or ''} | rationale: {idea.get('reasoning') or ''}"
             for i, idea in enumerate(ideas)
         )
         prompt = (
             "You are a ruthless YouTube head of programming. Score these video IDEAS for a "
             f"{niche or 'this creator'} channel against what actually wins on YouTube. The idea "
             "sets the ceiling, so be strict.\n\n"
-            "Proven competitor winners (real recent data):\n" + "\n".join(_video_lines(rows)) + "\n\n"
+            "Proven competitor winners (real recent data):\n"
+            + "\n".join(_video_lines(rows))
+            + "\n\n"
             "IDEAS TO SCORE (by index):\n" + listed + "\n\n"
             "For each idea, run the GATES, then score the RUBRIC.\n"
             "GATES (any fail => verdict 'reject'): proven_analog (a real winner above proves this "
@@ -3764,15 +4536,18 @@ async def _score_and_rank_ideas(api_key, ideas, rows, niche) -> list[dict[str, A
         data = await asyncio.to_thread(_claude_json, api_key, prompt, 900)
         raw = data.get("scores") if isinstance(data, dict) else None
         by_index = {
-            int(s["index"]): s for s in (raw or [])
+            int(s["index"]): s
+            for s in (raw or [])
             if isinstance(s, dict) and isinstance(s.get("index"), int)
         }
         if not by_index:
             return ideas
         ranked = [
-            {**idea,
-             "_score": int(by_index.get(i, {}).get("score") or 0),
-             "_verdict": str(by_index.get(i, {}).get("verdict") or "ok").lower()}
+            {
+                **idea,
+                "_score": int(by_index.get(i, {}).get("score") or 0),
+                "_verdict": str(by_index.get(i, {}).get("verdict") or "ok").lower(),
+            }
             for i, idea in enumerate(ideas)
         ]
         ranked.sort(key=lambda x: x.get("_score", 0), reverse=True)
@@ -3798,20 +4573,25 @@ async def _detect_reference_style_preset(tenant_id, reference_url, state):
     preset = None
     try:
         from routes.model_video import _parse_youtube_id, _scene_frame_urls
+
         yid = _parse_youtube_id(reference_url or "")
         frames = _scene_frame_urls(yid) if yid else None
         api_key = await get_secret("anthropic_api_key", tenant_id) if frames else None
         if frames and api_key:
             from shared.clients.vision_client import vision_call
+
             prompt = (
                 "These are real frames from a video. Classify its visual style as EXACTLY "
                 "ONE of these ids and return ONLY the id: pixar_3d (3D Pixar/Disney CG), "
                 "flat_2d (2D flat/vector animation), realistic (live-action/photoreal), "
                 "anime, watercolor (storybook/painted), comic (graphic-novel/inked)."
             )
-            out = await vision_call(prompt, frames, anthropic_key=api_key, tier="fast", max_tokens=12)
+            out = await vision_call(
+                prompt, frames, anthropic_key=api_key, tier="fast", max_tokens=12
+            )
             cand = (out or "").strip().lower()
             from channel_format import STYLE_DESCRIPTIONS
+
             for pid in STYLE_DESCRIPTIONS:
                 if pid in cand:
                     preset = pid
@@ -3830,7 +4610,9 @@ async def _annotate_style_recommendation(data, tenant_id, state):
     creator can still pick any look; an explicit pick is left untouched. Fail-soft."""
     plan = data.get("plan") if isinstance(data.get("plan"), dict) else None
     spec = plan.get("spec") if plan and isinstance(plan.get("spec"), dict) else None
-    ref = state.get("pending_reference_url") or (spec.get("reference_url") if spec else None)
+    ref = state.get("pending_reference_url") or (
+        spec.get("reference_url") if spec else None
+    )
     if not ref:
         return
     if spec and str(spec.get("visual_style") or "").strip():
@@ -3842,13 +4624,16 @@ async def _annotate_style_recommendation(data, tenant_id, state):
     if not preset:
         return
     from channel_format import STYLE_DESCRIPTIONS
+
     label = STYLE_DESCRIPTIONS.get(preset, {}).get("label") or preset
     cards = data.get("cards")
     if isinstance(cards, list):
         for c in cards:
             if isinstance(c, dict) and c.get("id") == "style":
                 c["recommended_value"] = preset
-                c["recommended_hint"] = f"Closest to the video you're modeling ({label})"
+                c["recommended_hint"] = (
+                    f"Closest to the video you're modeling ({label})"
+                )
     if spec:
         spec["detected_style_label"] = label
 
@@ -3918,6 +4703,7 @@ async def _resolve_producer_client(tenant_id: str):
     try/except around get_text_client_for_tenant in _handle_copilot exactly."""
     try:
         from kie_unified import get_text_client_for_tenant
+
         return await get_text_client_for_tenant(tenant_id)
     except Exception:  # noqa: BLE001 — no key configured at all
         return None
@@ -3927,7 +4713,9 @@ def _with_kie_hint(assistant_text: str, state: dict, client) -> str:
     """Append a soft, one-time 'add an Anthropic key' tip when this turn ran on
     the Kie fallback client. Never a wall — Kie-only tenants already got their
     full plan; this just nudges once per conversation, unobtrusively."""
-    if type(client).__name__ != "AnthropicDirectClient" and not state.get("kie_hint_shown"):
+    if type(client).__name__ != "AnthropicDirectClient" and not state.get(
+        "kie_hint_shown"
+    ):
         state["kie_hint_shown"] = True
         return assistant_text + _KIE_PRODUCER_HINT
     return assistant_text
@@ -4002,9 +4790,7 @@ def _custom_film_approval_card(
 ) -> dict[str, Any]:
     total = float(quote["totals"]["estimated_cost"])
     max_spend = float(quote["max_spend"])
-    quote_rows = {
-        int(row["order_index"]): row for row in quote["sections"]
-    }
+    quote_rows = {int(row["order_index"]): row for row in quote["sections"]}
     sections = []
     for display_section in display_plan["sections"]:
         row = quote_rows[int(display_section["order"]) - 1]
@@ -4031,9 +4817,7 @@ def _custom_film_approval_card(
     if isinstance(orchestration, dict):
         resolved_plan = orchestration.get("resolved_plan")
         recipes = (
-            resolved_plan.get("recipes")
-            if isinstance(resolved_plan, dict)
-            else None
+            resolved_plan.get("recipes") if isinstance(resolved_plan, dict) else None
         )
         if isinstance(recipes, list):
             beat_counts: dict[int, int] = {}
@@ -4043,15 +4827,33 @@ def _custom_film_approval_card(
                 section_index = int(recipe.get("sectionIndex", -1))
                 beat_counts[section_index] = beat_counts.get(section_index, 0) + 1
                 layers = recipe.get("motionLayers")
-                capability_labels = [
-                    re.sub(r"(?<=[a-z])(?=[A-Z])", " ", str(layer["primitive"]))
-                    for layer in layers
-                    if isinstance(layer, dict) and layer.get("primitive")
-                ] if isinstance(layers, list) else []
-                signals = recipe.get("signals") if isinstance(recipe.get("signals"), dict) else {}
-                camera = recipe.get("camera") if isinstance(recipe.get("camera"), dict) else {}
-                caption = recipe.get("caption") if isinstance(recipe.get("caption"), dict) else {}
-                audio = recipe.get("audio") if isinstance(recipe.get("audio"), dict) else {}
+                capability_labels = (
+                    [
+                        re.sub(r"(?<=[a-z])(?=[A-Z])", " ", str(layer["primitive"]))
+                        for layer in layers
+                        if isinstance(layer, dict) and layer.get("primitive")
+                    ]
+                    if isinstance(layers, list)
+                    else []
+                )
+                signals = (
+                    recipe.get("signals")
+                    if isinstance(recipe.get("signals"), dict)
+                    else {}
+                )
+                camera = (
+                    recipe.get("camera")
+                    if isinstance(recipe.get("camera"), dict)
+                    else {}
+                )
+                caption = (
+                    recipe.get("caption")
+                    if isinstance(recipe.get("caption"), dict)
+                    else {}
+                )
+                audio = (
+                    recipe.get("audio") if isinstance(recipe.get("audio"), dict) else {}
+                )
                 orchestration_beats.append(
                     {
                         "section_order": section_index + 1,
@@ -4060,16 +4862,24 @@ def _custom_film_approval_card(
                             recipe.get("narrativeFunction")
                             or " + ".join(signals.get("intents") or [])
                             or "Layered scene"
-                        ).replace("_", " ").title(),
+                        )
+                        .replace("_", " ")
+                        .title(),
                         "start_seconds": round(float(recipe.get("from", 0)) / 24, 3),
                         "duration_seconds": round(
                             float(recipe.get("durationInFrames", 0)) / 24, 3
                         ),
                         "media_kind": str(signals.get("media_kind") or "adaptive"),
                         "capability_labels": capability_labels,
-                        "transformation_summary": str(signals.get("handoff") or "continuous").replace("_", " → "),
-                        "camera_summary": str(camera.get("mode") or "locked").replace("-", " "),
-                        "captions_summary": str(caption.get("mode") or "none").replace("-", " "),
+                        "transformation_summary": str(
+                            signals.get("handoff") or "continuous"
+                        ).replace("_", " → "),
+                        "camera_summary": str(camera.get("mode") or "locked").replace(
+                            "-", " "
+                        ),
+                        "captions_summary": str(caption.get("mode") or "none").replace(
+                            "-", " "
+                        ),
                         "audio_summary": (
                             "dialogue duck + motion audio"
                             if audio.get("dialogueDuck") == 0.24
@@ -4141,9 +4951,17 @@ def _custom_film_showcase_treatment_match(
 ) -> bool:
     """Match the exact four-act treatment before binding its finishing canvas."""
     orchestration = quote.get("orchestration")
-    if not isinstance(orchestration, dict) or orchestration.get("reference_compatible") is not True:
+    if (
+        not isinstance(orchestration, dict)
+        or orchestration.get("reference_compatible") is not True
+    ):
         return False
-    expected = (("opening", 45), ("evidence", 105), ("case_study", 90), ("explanation", 60))
+    expected = (
+        ("opening", 45),
+        ("evidence", 105),
+        ("case_study", 90),
+        ("explanation", 60),
+    )
     display_sections = display_plan.get("sections")
     quote_sections = quote.get("sections")
     if not isinstance(display_sections, list) or not isinstance(quote_sections, list):
@@ -4168,10 +4986,7 @@ def _custom_film_showcase_treatment_match(
         ):
             return False
     totals = quote.get("totals")
-    return (
-        isinstance(totals, dict)
-        and int(totals.get("duration_seconds", -1)) == 300
-    )
+    return isinstance(totals, dict) and int(totals.get("duration_seconds", -1)) == 300
 
 
 def _custom_film_remotion_finishing_eligible(
@@ -4182,9 +4997,7 @@ def _custom_film_remotion_finishing_eligible(
     orchestration = quote.get("orchestration")
     canvas = quote.get("finishing_canvas")
     resolved = (
-        orchestration.get("resolved_plan")
-        if isinstance(orchestration, dict)
-        else None
+        orchestration.get("resolved_plan") if isinstance(orchestration, dict) else None
     )
     executable = False
     if isinstance(orchestration, dict) and isinstance(resolved, dict):
@@ -4193,18 +5006,14 @@ def _custom_film_remotion_finishing_eligible(
             from custom_film_orchestration import (
                 validate_executable_orchestration,
             )
+
             validate_executable_orchestration(
                 orchestration,
-                total_duration_seconds=int(
-                    quote["totals"]["duration_seconds"]
-                ),
+                total_duration_seconds=int(quote["totals"]["duration_seconds"]),
                 section_duration_seconds=[
-                    int(section["duration_seconds"])
-                    for section in quote["sections"]
+                    int(section["duration_seconds"]) for section in quote["sections"]
                 ],
-                fps=int(
-                    _CUSTOM_FILM_REMOTION_FINISHING_CANVAS["fps"]
-                ),
+                fps=int(_CUSTOM_FILM_REMOTION_FINISHING_CANVAS["fps"]),
             )
             executable = True
         except (CustomFilmContractError, KeyError, TypeError, ValueError):
@@ -4219,7 +5028,8 @@ def _custom_film_remotion_finishing_eligible(
         == int(quote["totals"]["duration_seconds"]) * int(resolved["fps"])
         and isinstance(orchestration.get("recipe_hash"), str)
         and isinstance(canvas, dict)
-        and canvas == {
+        and canvas
+        == {
             **_CUSTOM_FILM_REMOTION_FINISHING_CANVAS,
             "orchestration_contract_hash": orchestration.get("contract_hash"),
             "story_identity": orchestration.get("story_identity"),
@@ -4301,7 +5111,7 @@ def _custom_film_recipe_command(
     if re.fullmatch(r"(?:please )?rename(?: the)? recipe[.!]?", text, re.I):
         return ("rename", ())
     archive_match = re.fullmatch(
-        r'(?:please )?archive (?:the )?(?:saved )?(?:custom film )?recipe '
+        r"(?:please )?archive (?:the )?(?:saved )?(?:custom film )?recipe "
         r'(?:(?:["“]([^"”]+)["”])|(.+?))[.!]?',
         text,
         re.I,
@@ -4677,9 +5487,36 @@ async def _handle_custom_film_approval_turn(
     pending = state.get("pending_custom_film_plan")
     if (
         isinstance(pending, dict)
-        and pending.get("execution_model")
-        in {"storyboard_director_v1", "storyboard_director_multipass_v2"}
+        and pending.get("execution_model") == "storyboard_director_v1"
     ):
+        pending["status"] = "stale"
+        pending.pop("approval_hash", None)
+        message = (
+            "That held screenplay/director quote used the retired v1 contract, "
+            "so it cannot authorize the new multipass worker. Nothing was "
+            "started or charged. Send the film request again to receive the "
+            "current exact v2 approval card."
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        converged = await _persist_custom_film_cas(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "plan",
+            expected_state,
+        )
+        if converged:
+            return converged
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+    if isinstance(pending, dict) and pending.get("execution_model") in {
+        "storyboard_director_v1",
+        "storyboard_director_multipass_v2",
+    }:
         return await _handle_custom_film_director_approval_turn(
             selection,
             conversation_id,
@@ -4714,13 +5551,16 @@ async def _handle_custom_film_approval_turn(
         plan_hash,
         reserve_approved_start_intent,
     )
+
     internal_plan = pending.get("internal_plan")
     quote_inputs = pending.get("quote_inputs")
     expected = str(pending.get("approval_hash") or "")
     if not isinstance(internal_plan, dict) or not isinstance(quote_inputs, dict):
         message = "That estimate is incomplete. Please revise the plan so I can quote it again."
         state.pop("pending_custom_film_plan", None)
-        transcript.append(_assistant_turn({"assistant_text": message, "phase": "asking"}))
+        transcript.append(
+            _assistant_turn({"assistant_text": message, "phase": "asking"})
+        )
         converged = await _persist_custom_film_cas(
             conversation_id, tenant_id, transcript, state, "asking", expected_state
         )
@@ -4744,6 +5584,7 @@ async def _handle_custom_film_approval_turn(
     # BYOK first: never let a process environment/operator key satisfy this gate.
     try:
         from vault import get_required_tenant_secret
+
         await get_required_tenant_secret(
             "kie_ai_api_key", tenant_id, provider_label="Kie.ai"
         )
@@ -4815,9 +5656,7 @@ async def _handle_custom_film_approval_turn(
             # post-approval save candidate during the runtime metadata update.
             state["pending_custom_film_plan"] = copy.deepcopy(reserved_pending)
         schedule_kwargs = (
-            {"arq_pool": arq_pool}
-            if arq_pool is not _QUEUE_CONTEXT_UNSET
-            else {}
+            {"arq_pool": arq_pool} if arq_pool is not _QUEUE_CONTEXT_UNSET else {}
         )
         await _schedule_reserved_custom_film_runtime(
             conversation_id,
@@ -4909,9 +5748,7 @@ async def _handle_custom_film_director_approval_turn(
         )
     expected = str(pending.get("approval_hash") or "")
     try:
-        activation = validate_director_intake(
-            pending.get("director_activation")
-        )
+        activation = validate_director_intake(pending.get("director_activation"))
     except CustomFilmContractError as exc:
         pending["status"] = "stale"
         pending.pop("approval_hash", None)
@@ -4935,8 +5772,7 @@ async def _handle_custom_film_director_approval_turn(
     if (
         not expected
         or activation["approval_hash"] != expected
-        or activation["prospective_plan_id"]
-        != pending.get("prospective_plan_id")
+        or activation["prospective_plan_id"] != pending.get("prospective_plan_id")
     ):
         pending["status"] = "stale"
         pending.pop("approval_hash", None)
@@ -5002,15 +5838,10 @@ async def _handle_custom_film_director_approval_turn(
         await check_plan_limits(tenant_id, "video")
         await enforce_video_length_cap(
             tenant_id,
-            float(
-                activation["quote_inputs"]["requested_duration_seconds"]
-            )
-            / 60,
+            float(activation["quote_inputs"]["requested_duration_seconds"]) / 60,
         )
         manifest = await load_capability_manifest()
-        cumulative = int(
-            activation["stage_quote"]["approved_cumulative_cents"]
-        )
+        cumulative = int(activation["stage_quote"]["approved_cumulative_cents"])
         message = (
             "Stage 1 is safely authorized at an exact cumulative ceiling of "
             f"${cumulative / 100:.2f}. Its immutable multipass director schedule "
@@ -5092,9 +5923,7 @@ async def _handle_custom_film_director_intake_plan(
     )
     from custom_film_planner import load_capability_manifest
 
-    transcript.append(
-        {"role": "user", "content": audit_user_message or user_message}
-    )
+    transcript.append({"role": "user", "content": audit_user_message or user_message})
     existing = state.get("pending_custom_film_plan")
     prior_cumulative_cents = state.get(
         "custom_film_completed_spend_cents",
@@ -5258,16 +6087,15 @@ async def _handle_custom_film_plan(
         plan_custom_film_from_recipe,
     )
 
-    transcript.append(
-        {"role": "user", "content": audit_user_message or user_message}
-    )
+    transcript.append({"role": "user", "content": audit_user_message or user_message})
     existing_pending = state.get("pending_custom_film_plan")
     prior_pending = (
         existing_pending
         if (
             state.get("mode") == "custom_film"
             and isinstance(existing_pending, dict)
-            and existing_pending.get("status") in {
+            and existing_pending.get("status")
+            in {
                 "planned_unapproved",
                 "awaiting_approval",
             }
@@ -5298,10 +6126,7 @@ async def _handle_custom_film_plan(
     _quarantine_custom_film_state(state)
     if prior_pending is None:
         state.pop("pending_custom_film_plan", None)
-    if (
-        prior_pending is not None
-        and is_section_count_change_request(user_message)
-    ):
+    if prior_pending is not None and is_section_count_change_request(user_message):
         data = {
             "assistant_text": SECTION_COUNT_CHANGE_MESSAGE,
             "ready_to_create": False,
@@ -5423,9 +6248,7 @@ async def _handle_custom_film_plan(
             else float(quote_inputs["totals"]["estimated_cost"]),
             2,
         )
-        quote_rows = {
-            row["section_id"]: row for row in quote_inputs["sections"]
-        }
+        quote_rows = {row["section_id"]: row for row in quote_inputs["sections"]}
         for section in compiled.internal_plan["sections"]:
             row = quote_rows[section["section_id"]]
             section["estimated_media"] = {
@@ -5452,6 +6275,7 @@ async def _handle_custom_film_plan(
             "itemized estimate below and explicitly approve this exact version."
         )
         from custom_film_orchestration import compile_approved_orchestration
+
         orchestration = compile_approved_orchestration(
             compiled.internal_plan,
             quote_inputs,
@@ -5468,7 +6292,12 @@ async def _handle_custom_film_plan(
                 "story_identity": orchestration["story_identity"],
                 "recipe_hash": orchestration["recipe_hash"],
             }
-        from custom_film_contract import approval_binding_hash, canonical_hash, plan_hash
+        from custom_film_contract import (
+            approval_binding_hash,
+            canonical_hash,
+            plan_hash,
+        )
+
         current_plan_hash = plan_hash(compiled.internal_plan)
         current_approval_hash = approval_binding_hash(
             current_plan_hash,
@@ -5527,9 +6356,7 @@ async def _handle_custom_film_plan(
         "planner_proposal": compiled.planner_proposal,
         "plan_hash": current_plan_hash,
         "quote_inputs": quote_inputs,
-        "budget_cap_source": (
-            "user" if requested_budget_cap is not None else "quote"
-        ),
+        "budget_cap_source": ("user" if requested_budget_cap is not None else "quote"),
         "recipe_signature": compiled.recipe_signature,
         "recipe_hash": canonical_hash(compiled.normalized_recipe),
         "novelty": novelty_payload,
@@ -5581,10 +6408,15 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     client = await _resolve_producer_client(tenant_id)
     transcript = [{"role": "user", "content": seed_text}]
     if client is None:
-        transcript.append(_assistant_turn({"assistant_text": _NO_KEY_PRODUCER_MSG, "phase": "asking"}))
+        transcript.append(
+            _assistant_turn({"assistant_text": _NO_KEY_PRODUCER_MSG, "phase": "asking"})
+        )
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(
-            conversation_id=conversation_id, assistant_text=_NO_KEY_PRODUCER_MSG, phase="asking")
+            conversation_id=conversation_id,
+            assistant_text=_NO_KEY_PRODUCER_MSG,
+            phase="asking",
+        )
     # THE channel-identity pool brief (checklist P2) goes FIRST here too —
     # this is the onboarding hand-off into the SAME producer chat_turn drives,
     # so it must open with the same precedence law from turn one.
@@ -5620,9 +6452,12 @@ async def _seed_producer(conversation_id, tenant_id, state, seed_text):
     phase = "plan" if plan else "asking"
     await _persist(conversation_id, tenant_id, transcript, state, phase)
     return ChatTurnResponse(
-        conversation_id=conversation_id, assistant_text=assistant_text,
+        conversation_id=conversation_id,
+        assistant_text=assistant_text,
         cards=data.get("cards") if isinstance(data.get("cards"), list) else None,
-        plan=plan, ready_to_create=bool(plan), phase=phase,
+        plan=plan,
+        ready_to_create=bool(plan),
+        phase=phase,
     )
 
 
@@ -5637,15 +6472,37 @@ async def _present_ideas_turn(conversation_id, tenant_id, transcript, state, ide
         src1 = idea.get("source_title") or (idea.get("source_titles") or [None])[0]
         srcline = f"  ↳ modeled on: “{src1}”" if src1 else ""
         badge = "🔥 " if idea.get("_verdict") == "strong" else ""
-        lines.append(f"**{i + 1}. {badge}{idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}")
-        opts.append({"value": str(i), "label": (idea.get("title") or "Idea")[:70], "hint": why[:140]})
+        lines.append(
+            f"**{i + 1}. {badge}{idea.get('title')}**\n{why}{(chr(10) + srcline) if srcline else ''}"
+        )
+        opts.append(
+            {
+                "value": str(i),
+                "label": (idea.get("title") or "Idea")[:70],
+                "hint": why[:140],
+            }
+        )
     niche = state.get("niche_angle")
     n = len(ideas)
-    intro = (f"Here are **{n} ideas for “{niche}”**, modeled on what's winning:\n\n" if niche
-             else f"Here are **{n} ideas I'd model**, and why:\n\n")
-    text = intro + "\n\n".join(lines) + "\n\nTap one and I'll start building it — or just type your own idea below."
-    card = {"id": "idea_choice", "label": "Pick one to build", "type": "single", "options": opts}
-    return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=[card])
+    intro = (
+        f"Here are **{n} ideas for “{niche}”**, modeled on what's winning:\n\n"
+        if niche
+        else f"Here are **{n} ideas I'd model**, and why:\n\n"
+    )
+    text = (
+        intro
+        + "\n\n".join(lines)
+        + "\n\nTap one and I'll start building it — or just type your own idea below."
+    )
+    card = {
+        "id": "idea_choice",
+        "label": "Pick one to build",
+        "type": "single",
+        "options": opts,
+    }
+    return await _ob_reply(
+        conversation_id, tenant_id, transcript, state, text, cards=[card]
+    )
 
 
 async def _finish_onboarding_dna_note(tenant_id) -> tuple[str, Optional[dict]]:
@@ -5662,7 +6519,8 @@ async def _finish_onboarding_dna_note(tenant_id) -> tuple[str, Optional[dict]]:
     message this turn already shows; `card` (when not None) is meant to be
     appended to that same turn's `cards` list."""
     row = await fetch_one(
-        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1", str(tenant_id),
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1",
+        str(tenant_id),
     )
     ident = _as_dict((row or {}).get("channel_identity"))
     run = ident.get("_last_run") if isinstance(ident.get("_last_run"), dict) else None
@@ -5670,26 +6528,33 @@ async def _finish_onboarding_dna_note(tenant_id) -> tuple[str, Optional[dict]]:
         return "", None
 
     from channel_dna import is_learning as _dna_is_learning
+
     if await _dna_is_learning(str(tenant_id)):
         return (
             "\n\n🧬 Still learning your channel's voice, hooks, and structure in the background — "
-            "say **\"show the channel digest\"** in a bit and I'll lay out everything.",
+            'say **"show the channel digest"** in a bit and I\'ll lay out everything.',
             None,
         )
 
     preferences = await _list_preferences(tenant_id, video_id=None)
     proposed_patterns = await _proposed_channel_patterns(tenant_id)
     card = _build_dna_digest_card(ident, run, preferences, proposed_patterns)
-    return "\n\n🧬 I also learned your channel's voice, hooks, and structure — see below.", card
+    return (
+        "\n\n🧬 I also learned your channel's voice, hooks, and structure — see below.",
+        card,
+    )
 
 
-async def _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks):
+async def _finish_onboarding(
+    conversation_id, tenant_id, transcript, state, background_tasks
+):
     """Mark onboarding done, then help the creator MODEL their competitors: summarize
     the winning format and propose concrete ways to make it their OWN niche. They
     pick a direction (the 'modeling' step) -> we pitch 3 ideas in that niche. Falls
     back gracefully if there's no recent competitor data yet."""
     try:
         from routes.onboarding import complete_onboarding
+
         await complete_onboarding(tenant_id=tenant_id)
     except Exception as e:  # noqa: BLE001
         logger.warning("onboarding: complete failed: %s", e)
@@ -5702,21 +6567,34 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
         state["mode"] = "onboarding"
         state["onboarding_step"] = "modeling"
         a = angles["angles"]
-        lines = [f"**{i + 1}. {x.get('label')}** — {x.get('description', '')}" for i, x in enumerate(a)]
+        lines = [
+            f"**{i + 1}. {x.get('label')}** — {x.get('description', '')}"
+            for i, x in enumerate(a)
+        ]
         text = (
             "You're all set! 🎉 Here's what's working on your competitors: "
             + (angles.get("format_summary") or "strong, repeatable hooks")
             + "\n\nThere are a few ways to make this **your own** — pick a direction (or just type the niche "
-            "you want to own):\n\n" + "\n".join(lines)
-            + dna_note
+            "you want to own):\n\n" + "\n".join(lines) + dna_note
         )
         opts = [
-            {"value": str(i), "label": (x.get("label") or "Angle")[:60], "hint": (x.get("description") or "")[:140]}
+            {
+                "value": str(i),
+                "label": (x.get("label") or "Angle")[:60],
+                "hint": (x.get("description") or "")[:140],
+            }
             for i, x in enumerate(a)
         ]
-        card = {"id": "modeling_angle", "label": "How do you want to model it?", "type": "single", "options": opts}
+        card = {
+            "id": "modeling_angle",
+            "label": "How do you want to model it?",
+            "type": "single",
+            "options": opts,
+        }
         cards = [card, dna_card] if dna_card else [card]
-        return await _ob_reply(conversation_id, tenant_id, transcript, state, text, cards=cards)
+        return await _ob_reply(
+            conversation_id, tenant_id, transcript, state, text, cards=cards
+        )
 
     # No recent competitor data yet — hand off honestly (never "ask me").
     state["mode"] = "producer"
@@ -5728,12 +6606,21 @@ async def _finish_onboarding(conversation_id, tenant_id, transcript, state, back
         + dna_note
     )
     cards = [dna_card] if dna_card else None
-    fresh = [_assistant_turn({"assistant_text": text, "phase": "asking", "cards": cards})]
+    fresh = [
+        _assistant_turn({"assistant_text": text, "phase": "asking", "cards": cards})
+    ]
     await _persist(conversation_id, tenant_id, fresh, state, "asking")
-    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking", cards=cards)
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=text,
+        phase="asking",
+        cards=cards,
+    )
 
 
-async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state, background_tasks):
+async def _handle_onboarding(
+    body, conversation_id, tenant_id, transcript, state, background_tasks
+):
     sel = body.selections or {}
     msg = (body.message or "").strip()
     entering = state.get("mode") != "onboarding"
@@ -5750,7 +6637,10 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
     if entering or (step == "intent" and not sel.get("intent") and not msg):
         state["onboarding_step"] = "intent"
         return await _ob_reply(
-            conversation_id, tenant_id, transcript, state,
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
             "Welcome — let's get you set up in under a minute. First, what brings you here?",
             cards=[ONBOARDING_INTENT_CARD],
         )
@@ -5758,96 +6648,189 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
     if step == "intent":
         intent = sel.get("intent") or _guess_intent(msg)
         if not intent:
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                "No worries — just pick one so I can tailor things:", cards=[ONBOARDING_INTENT_CARD])
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                "No worries — just pick one so I can tailor things:",
+                cards=[ONBOARDING_INTENT_CARD],
+            )
         state["intent"] = intent
         # New tenants need a generation key before any Claude step; existing
         # ones (already keyed) skip straight to setup.
         if not await _has_generation_key(tenant_id):
             state["onboarding_step"] = "key"
-            lead = ("A storyteller — love it. " if intent == "stories"
-                    else "Nice — let's put your channel on autopilot. ")
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                lead + _KEY_PROMPT, cards=[_secure_key_card(optional=False)])
+            lead = (
+                "A storyteller — love it. "
+                if intent == "stories"
+                else "Nice — let's put your channel on autopilot. "
+            )
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                lead + _KEY_PROMPT,
+                cards=[_secure_key_card(optional=False)],
+            )
         if intent == "stories":
             state["onboarding_step"] = "channel"
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
                 "A storyteller — love it. If you have a channel, paste its URL so I can match its vibe "
-                "(or say “skip” and we'll start fresh).")
+                "(or say “skip” and we'll start fresh).",
+            )
         state["onboarding_step"] = "goals"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
             "Nice — let's put your channel on autopilot. What should I handle for you?",
-            cards=[ONBOARDING_GOALS_CARD])
+            cards=[ONBOARDING_GOALS_CARD],
+        )
 
     if step == "key":
         # Preferred path: the secure box already saved + validated the key via
         # /api/chat/onboarding-key, so the raw key never entered this turn. We get
         # a benign selection {secure_key: "saved", key_provider: ...} instead.
-        if sel.get("secure_key") == "saved" or (not msg and await _has_generation_key(tenant_id)):
+        if sel.get("secure_key") == "saved" or (
+            not msg and await _has_generation_key(tenant_id)
+        ):
             provider = sel.get("key_provider") or state.get("key_provider") or "kie"
             state["key_provider"] = provider
             ack = "✅ You're powered up. "
             # If they led with a Claude key, the fast text path is already on —
             # no point offering it again. Kie keys get the optional Claude upgrade.
             if provider == "claude":
-                return await _after_key_setup(conversation_id, tenant_id, transcript, state, ack)
+                return await _after_key_setup(
+                    conversation_id, tenant_id, transcript, state, ack
+                )
             state["onboarding_step"] = "key_claude"
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                ack + _CLAUDE_OFFER, cards=[_secure_key_card(optional=True)])
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                ack + _CLAUDE_OFFER,
+                cards=[_secure_key_card(optional=True)],
+            )
         # Fallback: a key arrived as composer text (legacy paste-in-chat). Still
         # works, but route it through the same save + validate so nothing changes.
         raw = (body.message or "").strip()
         if not raw:
             # They tapped the link but haven't pasted yet — re-show the ask + box.
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                _KEY_PROMPT, cards=[_secure_key_card(optional=False)])
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                _KEY_PROMPT,
+                cards=[_secure_key_card(optional=False)],
+            )
         slot, val = _pick_key(raw)
         if not slot:
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                (val or "Paste the whole key — it's a long string with no spaces.") + "\n\n" + _KEY_PROMPT,
-                cards=[_secure_key_card(optional=False)])
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                (val or "Paste the whole key — it's a long string with no spaces.")
+                + "\n\n"
+                + _KEY_PROMPT,
+                cards=[_secure_key_card(optional=False)],
+            )
         from vault import set_secret, test_api_key
-        await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding generation key")
+
+        await set_secret(
+            slot, val, tenant_id=tenant_id, description="Onboarding generation key"
+        )
         result = await test_api_key(slot, tenant_id)
         if not result.get("success"):
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
                 f"That key didn't go through — {result.get('message') or 'please double-check it'}. "
                 "Copy the whole key and paste it again 👇",
-                cards=[_secure_key_card(optional=False)])
+                cards=[_secure_key_card(optional=False)],
+            )
         state["key_provider"] = "claude" if slot == "anthropic_api_key" else "kie"
         ack = f"✅ You're powered up — {result.get('message')}. "
         if state["key_provider"] == "claude":
-            return await _after_key_setup(conversation_id, tenant_id, transcript, state, ack)
+            return await _after_key_setup(
+                conversation_id, tenant_id, transcript, state, ack
+            )
         state["onboarding_step"] = "key_claude"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            ack + _CLAUDE_OFFER, cards=[_secure_key_card(optional=True)])
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            ack + _CLAUDE_OFFER,
+            cards=[_secure_key_card(optional=True)],
+        )
 
     if step == "key_claude":
         # Optional Claude upgrade. Secure box → {secure_key: "saved"}; Skip →
         # {secure_key: "skip"}. A pasted Claude key (fallback) is saved here too.
         if sel.get("secure_key") == "saved":
-            return await _after_key_setup(conversation_id, tenant_id, transcript, state,
-                "✅ Claude connected — your text will fly now. ")
+            return await _after_key_setup(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                "✅ Claude connected — your text will fly now. ",
+            )
         if sel.get("secure_key") == "skip" or (msg and msg.lower() in _SKIP_WORDS):
-            return await _after_key_setup(conversation_id, tenant_id, transcript, state,
-                "No problem — Kie's got you covered. ")
+            return await _after_key_setup(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                "No problem — Kie's got you covered. ",
+            )
         raw = (body.message or "").strip()
         if raw:
             slot, val = _pick_key(raw)
             if slot == "anthropic_api_key":
                 from vault import set_secret, test_api_key
-                await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding Claude key")
+
+                await set_secret(
+                    slot, val, tenant_id=tenant_id, description="Onboarding Claude key"
+                )
                 result = await test_api_key(slot, tenant_id)
                 if result.get("success"):
                     state["key_provider"] = "claude"
-                    return await _after_key_setup(conversation_id, tenant_id, transcript, state,
-                        "✅ Claude connected — your text will fly now. ")
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
+                    return await _after_key_setup(
+                        conversation_id,
+                        tenant_id,
+                        transcript,
+                        state,
+                        "✅ Claude connected — your text will fly now. ",
+                    )
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
                 "That didn't look like a Claude key (they start with `sk-ant-`). Paste it in the "
                 "secure box below, or skip — Kie already does everything.",
-                cards=[_secure_key_card(optional=True)])
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            _CLAUDE_OFFER, cards=[_secure_key_card(optional=True)])
+                cards=[_secure_key_card(optional=True)],
+            )
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            _CLAUDE_OFFER,
+            cards=[_secure_key_card(optional=True)],
+        )
 
     if step == "goals":
         goals = sel.get("goals")
@@ -5855,15 +6838,25 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
             goals = [goals]
         state["goals"] = goals or ["all"]
         state["onboarding_step"] = "channel"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
             "Got it. Now connect your channel — paste your YouTube channel URL so I can learn what "
-            "works for your audience (or say “skip”).")
+            "works for your audience (or say “skip”).",
+        )
 
     if step == "channel":
         if msg and msg.lower() not in _SKIP_WORDS:
             try:
                 from routes.onboarding import YouTubeConnect, connect_youtube
-                res = await connect_youtube(YouTubeConnect(channel_url=msg), background_tasks, tenant_id=tenant_id)
+
+                res = await connect_youtube(
+                    YouTubeConnect(channel_url=msg),
+                    background_tasks,
+                    tenant_id=tenant_id,
+                )
                 state["channel"] = (res or {}).get("channel_name") or msg
                 ack = f"Connected **{state['channel']}** — I'll study it in the background. "
                 # C45: connect_youtube schedules the C41 Channel-DNA learn pass
@@ -5888,9 +6881,15 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         else:
             ack = "No problem, skipping that. "
         state["onboarding_step"] = "competitors"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            ack + "Now paste 1-3 channels you compete with or admire (URLs or @handles) — I'll pull "
-            "winning ideas from them. Or say “skip”.")
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            ack
+            + "Now paste 1-3 channels you compete with or admire (URLs or @handles) — I'll pull "
+            "winning ideas from them. Or say “skip”.",
+        )
 
     if step == "competitors":
         urls = _parse_urls(msg) if msg.lower() not in _SKIP_WORDS else []
@@ -5898,17 +6897,30 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
             state["competitors"] = urls[:3]
             try:
                 from routes.onboarding import CompetitorAnalyze, analyze_competitors
-                res = await analyze_competitors(CompetitorAnalyze(channel_urls=urls[:3]), background_tasks, tenant_id=tenant_id)
+
+                res = await analyze_competitors(
+                    CompetitorAnalyze(channel_urls=urls[:3]),
+                    background_tasks,
+                    tenant_id=tenant_id,
+                )
                 state["competitor_job"] = (res or {}).get("job_id")
-                ack = f"On it — analyzing {len(urls[:3])} channel(s) in the background. "
+                ack = (
+                    f"On it — analyzing {len(urls[:3])} channel(s) in the background. "
+                )
             except Exception as e:  # noqa: BLE001
                 logger.warning("onboarding: analyze_competitors failed: %s", e)
                 ack = "I'll line those up. "
         else:
             ack = "No competitors for now — you can add them anytime. "
         state["onboarding_step"] = "connect_yt"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            ack + "\n\n" + _CONNECT_YT_TEXT, cards=[ONBOARDING_CONNECT_YT_CARD])
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            ack + "\n\n" + _CONNECT_YT_TEXT,
+            cards=[ONBOARDING_CONNECT_YT_CARD],
+        )
 
     if step == "connect_yt":
         # Either choice advances — analytics is optional and the OAuth callback
@@ -5916,23 +6928,53 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         # resume turn ChatHome sends after Google returns to /?connected=yt.
         state["youtube_oauth"] = sel.get("connect_yt") or "skip"
         state["onboarding_step"] = "connect_drive"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            _CONNECT_DRIVE_TEXT, cards=[ONBOARDING_CONNECT_DRIVE_CARD])
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            _CONNECT_DRIVE_TEXT,
+            cards=[ONBOARDING_CONNECT_DRIVE_CARD],
+        )
 
     if step == "connect_drive":
         state["drive_oauth"] = sel.get("connect_drive") or "skip"
         state["onboarding_step"] = "upsell"
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            _UPSELL_TEXT, cards=[ONBOARDING_UPSELL_CARD])
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            _UPSELL_TEXT,
+            cards=[ONBOARDING_UPSELL_CARD],
+        )
 
     if step == "upsell":
-        choice = sel.get("upsell") or ("tell_more" if "more" in msg.lower() else "carry_on")
+        choice = sel.get("upsell") or (
+            "tell_more" if "more" in msg.lower() else "carry_on"
+        )
         if choice == "tell_more" and not state.get("upsell_expanded"):
             state["upsell_expanded"] = True
-            return await _ob_reply(conversation_id, tenant_id, transcript, state, _UPSELL_DETAIL,
-                cards=[{"id": "upsell", "label": "", "type": "single",
-                        "options": [{"value": "carry_on", "label": "Got it — let's create"}]}])
-        return await _finish_onboarding(conversation_id, tenant_id, transcript, state, background_tasks)
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                _UPSELL_DETAIL,
+                cards=[
+                    {
+                        "id": "upsell",
+                        "label": "",
+                        "type": "single",
+                        "options": [
+                            {"value": "carry_on", "label": "Got it — let's create"}
+                        ],
+                    }
+                ],
+            )
+        return await _finish_onboarding(
+            conversation_id, tenant_id, transcript, state, background_tasks
+        )
 
     if step == "modeling":
         angles = (state.get("modeling") or {}).get("angles") or []
@@ -5949,13 +6991,22 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         elif msg:
             niche = msg  # they typed their own niche
         if not niche:
-            return await _ob_reply(conversation_id, tenant_id, transcript, state,
-                "Pick a direction above, or just type the niche you want to own.")
+            return await _ob_reply(
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                "Pick a direction above, or just type the niche you want to own.",
+            )
         state["niche_angle"] = niche
-        await _save_creator_brief(tenant_id, state)  # persist niche before any producer handoff
+        await _save_creator_brief(
+            tenant_id, state
+        )  # persist niche before any producer handoff
         ideas = await _generate_competitor_ideas(tenant_id, state, niche=niche)
         if ideas:
-            return await _present_ideas_turn(conversation_id, tenant_id, transcript, state, ideas)
+            return await _present_ideas_turn(
+                conversation_id, tenant_id, transcript, state, ideas
+            )
         state["mode"] = "producer"
         state["onboarding_step"] = "done"
         text = (
@@ -5964,7 +7015,9 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
         )
         fresh = [_assistant_turn({"assistant_text": text, "phase": "asking"})]
         await _persist(conversation_id, tenant_id, fresh, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=text, phase="asking"
+        )
 
     if step == "ideas":
         ideas = state.get("pitched_ideas") or []
@@ -5976,20 +7029,31 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
                 idea = None
             if idea:
                 seed = (
-                    f"Make this video: \"{idea.get('title')}\". "
+                    f'Make this video: "{idea.get("title")}". '
                     f"Angle: {(idea.get('reasoning') or '').strip()} "
                     f"Suggested structure: {(idea.get('script_structure') or '').strip()}"
                 ).strip()
                 return await _seed_producer(conversation_id, tenant_id, state, seed)
         if msg:  # typed their own idea instead of picking one
             return await _seed_producer(conversation_id, tenant_id, state, msg)
-        return await _ob_reply(conversation_id, tenant_id, transcript, state,
-            "Tap one of the ideas above, or just type your own idea and I'll build it.")
+        return await _ob_reply(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "Tap one of the ideas above, or just type your own idea and I'll build it.",
+        )
 
     # Unknown step — recover by handing off to the producer.
     state["mode"] = "producer"
-    return await _ob_reply(conversation_id, tenant_id, transcript, state,
-        "All set — what should we make first?", phase="asking")
+    return await _ob_reply(
+        conversation_id,
+        tenant_id,
+        transcript,
+        state,
+        "All set — what should we make first?",
+        phase="asking",
+    )
 
 
 # --- channel identity commands (home chat) ---------------------------------
@@ -5997,15 +7061,21 @@ async def _handle_onboarding(body, conversation_id, tenant_id, transcript, state
 # channel's OWN top videos (Firecrawl transcripts -> LLM) into a voice/format
 # profile, or read back what's stored. See identity_builder.build_channel_identity.
 
+
 def _identity_intent(msg: str) -> Optional[str]:
     """Detect a channel-identity command. The topic word (identity/voice/style)
     must be explicit so ordinary 'make a video' asks fall through to the producer."""
     m = (msg or "").lower()
     if not any(t in m for t in ("identity", "voice", "style")):
         return None
-    if any(v in m for v in ("build", "rebuild", "analyze", "analyse", "learn", "study", "extract")):
+    if any(
+        v in m
+        for v in ("build", "rebuild", "analyze", "analyse", "learn", "study", "extract")
+    ):
         return "build"
-    if any(v in m for v in ("what", "whats", "what's", "show", "tell", "who", "describe")):
+    if any(
+        v in m for v in ("what", "whats", "what's", "show", "tell", "who", "describe")
+    ):
         return "show"
     return None
 
@@ -6056,10 +7126,15 @@ def _format_identity(ident: dict, header: str) -> str:
             block += f"\n> {ident['structure_example']}"
         section(block)
 
-    extra = {"research_approach": ident.get("research_depth"), "visual_format": ident.get("inferred_format")}
-    for emoji, label, key in (("🔍", "Research", "research_approach"),
-                              ("📼", "Video visuals", "visual_format"),
-                              ("🖼️", "Thumbnail style", "thumbnail_style")):
+    extra = {
+        "research_approach": ident.get("research_depth"),
+        "visual_format": ident.get("inferred_format"),
+    }
+    for emoji, label, key in (
+        ("🔍", "Research", "research_approach"),
+        ("📼", "Video visuals", "visual_format"),
+        ("🖼️", "Thumbnail style", "thumbnail_style"),
+    ):
         val = ident.get(key) or extra.get(key)
         if not val:
             continue
@@ -6074,7 +7149,10 @@ def _format_identity(ident: dict, header: str) -> str:
 
     rq = ident.get("real_quotes") or []
     if rq:
-        section("💬 **More real lines from his videos:**\n" + "\n".join(f"> {q}" for q in rq[:6]))
+        section(
+            "💬 **More real lines from his videos:**\n"
+            + "\n".join(f"> {q}" for q in rq[:6])
+        )
 
     return "\n".join(out)
 
@@ -6084,41 +7162,60 @@ async def _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, 
         transcript.append({"role": "user", "content": user_msg})
     transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
     await _persist(conversation_id, tenant_id, transcript, state, "asking")
-    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+    return ChatTurnResponse(
+        conversation_id=conversation_id, assistant_text=text, phase="asking"
+    )
 
 
-async def _handle_build_identity(conversation_id, tenant_id, transcript, state, user_msg, background_tasks):
+async def _handle_build_identity(
+    conversation_id, tenant_id, transcript, state, user_msg, background_tasks
+):
     # Run the analysis in the background — Firecrawl (3 sequential scrapes + retries)
     # plus two model calls can exceed a chat turn's gateway window. We ack now and
     # the operator reads it back with "show his identity" once it's stored.
     async def _job():
         try:
             from identity_builder import build_channel_identity
+
             await build_channel_identity(str(tenant_id))
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: background identity build failed: %s", e)
 
     background_tasks.add_task(_job)
-    text = ("🔍 On it — analyzing his **top 3 videos** for voice, research style, real quotes, and "
-            "thumbnail format. This takes about a minute. Say **“show his identity”** in a moment and "
-            "I'll lay out the full locked profile.")
-    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+    text = (
+        "🔍 On it — analyzing his **top 3 videos** for voice, research style, real quotes, and "
+        "thumbnail format. This takes about a minute. Say **“show his identity”** in a moment and "
+        "I'll lay out the full locked profile."
+    )
+    return await _plain_reply(
+        conversation_id, tenant_id, transcript, state, user_msg, text
+    )
 
 
-async def _handle_show_identity(conversation_id, tenant_id, transcript, state, user_msg):
+async def _handle_show_identity(
+    conversation_id, tenant_id, transcript, state, user_msg
+):
     row = await fetch_one(
         "SELECT channel_identity, youtube_channel_name FROM channel_profiles WHERE tenant_id=$1",
         str(tenant_id),
     )
     ident = _as_dict((row or {}).get("channel_identity"))
     if not ident or not ident.get("voice_tone"):
-        text = ("I haven't learned this channel yet. Say “build his identity” and I'll analyze "
-                "the channel's top videos to work out his voice, format, and style.")
-        return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+        text = (
+            "I haven't learned this channel yet. Say “build his identity” and I'll analyze "
+            "the channel's top videos to work out his voice, format, and style."
+        )
+        return await _plain_reply(
+            conversation_id, tenant_id, transcript, state, user_msg, text
+        )
     name = (row or {}).get("youtube_channel_name") or "this channel"
-    body = _format_identity(ident, f"Here's what I've learned about **{name}** (from his own top videos):")
+    body = _format_identity(
+        ident, f"Here's what I've learned about **{name}** (from his own top videos):"
+    )
     body += "\n\nWant me to refresh it from his latest top videos? Say “rebuild his identity.”"
-    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, body)
+    return await _plain_reply(
+        conversation_id, tenant_id, transcript, state, user_msg, body
+    )
 
 
 # --- C42 (P4.1c): "learn this channel" chat front door + confirmable digest -
@@ -6168,7 +7265,9 @@ def _extract_channel_url(msg: str) -> Optional[str]:
     return None
 
 
-async def _handle_learn_channel(conversation_id, tenant_id, transcript, state, user_msg, background_tasks):
+async def _handle_learn_channel(
+    conversation_id, tenant_id, transcript, state, user_msg, background_tasks
+):
     """Ack now, run channel_dna.learn_channel in the background — mirrors
     `_handle_build_identity`'s exact ack-now pattern (Firecrawl scrapes plus
     several Claude calls can exceed a chat turn's gateway window). Money
@@ -6181,6 +7280,7 @@ async def _handle_learn_channel(conversation_id, tenant_id, transcript, state, u
     async def _job():
         try:
             from channel_dna import learn_channel
+
             await learn_channel(str(tenant_id), channel_url=channel_url)
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: background learn_channel failed: %s", e)
@@ -6191,12 +7291,17 @@ async def _handle_learn_channel(conversation_id, tenant_id, transcript, state, u
         "API budget. Say **“show the channel digest”** in a bit and I'll lay out everything I "
         "learned, with a Revert on anything that doesn't look right."
     )
-    return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+    return await _plain_reply(
+        conversation_id, tenant_id, transcript, state, user_msg, text
+    )
 
 
 _DNA_DIGEST_INTENT_PHRASES = (
-    "what did you learn", "what you learned", "show me what you learned",
-    "show the digest", "show channel digest",
+    "what did you learn",
+    "what you learned",
+    "show me what you learned",
+    "show the digest",
+    "show channel digest",
 )
 
 
@@ -6271,6 +7376,7 @@ async def _proposed_channel_patterns(tenant_id) -> list[dict]:
     fail-soft (an empty list on any DB hiccup never blocks the digest itself
     from rendering)."""
     import channel_patterns
+
     try:
         return await channel_patterns.list_patterns(str(tenant_id), status="proposed")
     except Exception as e:  # noqa: BLE001
@@ -6289,11 +7395,17 @@ def _pattern_evidence_summary(evidence: dict) -> str:
     cohort = evidence.get("cohort_size")
     if metric is None or delta is None:
         return ""
-    return f"{metric}: {delta:+.1f}% vs. channel median (n={cohort})" if cohort else f"{metric}: {delta:+.1f}% vs. channel median"
+    return (
+        f"{metric}: {delta:+.1f}% vs. channel median (n={cohort})"
+        if cohort
+        else f"{metric}: {delta:+.1f}% vs. channel median"
+    )
 
 
 def _build_dna_digest_card(
-    identity: dict, run: Optional[dict], preferences: Optional[list[dict]] = None,
+    identity: dict,
+    run: Optional[dict],
+    preferences: Optional[list[dict]] = None,
     patterns: Optional[list[dict]] = None,
 ) -> dict[str, Any]:
     """The digest card checklist C42 asks for: per-learner sections (from
@@ -6323,8 +7435,8 @@ def _build_dna_digest_card(
     header = (
         "Here's what I could learn about your channel — a step or two hit a snag, so this is a "
         "partial picture (see below); ask me to try again any time."
-        if any_failed else
-        "Here's what I learned about your channel:"
+        if any_failed
+        else "Here's what I learned about your channel:"
     )
 
     # C44: channel-scope standing preferences (director_preferences, C15c) —
@@ -6343,18 +7455,20 @@ def _build_dna_digest_card(
         prov = field_provenance(identity, key) or {}
         revertable = latest_history_index_for_field(identity, key) is not None
         overridden_by = _match_preference_override(key, pref_texts)
-        fields.append({
-            "field": key,
-            "label": label,
-            "value": _fmt_field(val),
-            "learner": prov.get("learner"),
-            "at": prov.get("at"),
-            "revertable": revertable,
-            # C44: "" absent by default (additive key — an older frontend
-            # simply never reads it); set only when a standing preference's
-            # text keyword-matched this field, per the hedge above.
-            "overridden_by": overridden_by,
-        })
+        fields.append(
+            {
+                "field": key,
+                "label": label,
+                "value": _fmt_field(val),
+                "learner": prov.get("learner"),
+                "at": prov.get("at"),
+                "revertable": revertable,
+                # C44: "" absent by default (additive key — an older frontend
+                # simply never reads it); set only when a standing preference's
+                # text keyword-matched this field, per the hedge above.
+                "overridden_by": overridden_by,
+            }
+        )
 
     pattern_rows = [
         {
@@ -6364,12 +7478,18 @@ def _build_dna_digest_card(
             "source": p.get("source") or "",
             "evidence_summary": _pattern_evidence_summary(p.get("evidence") or {}),
         }
-        for p in (patterns or []) if p.get("id")
+        for p in (patterns or [])
+        if p.get("id")
     ]
 
     return {
-        "id": "channel_dna_digest", "label": "Channel DNA digest", "type": "single",
-        "options": [], "header": header, "learners": learners, "fields": fields,
+        "id": "channel_dna_digest",
+        "label": "Channel DNA digest",
+        "type": "single",
+        "options": [],
+        "header": header,
+        "learners": learners,
+        "fields": fields,
         "any_failed": any_failed,
         # C44: every active channel-scope standing preference, regardless of
         # whether it keyword-matched a field above — the footer section a
@@ -6381,9 +7501,12 @@ def _build_dna_digest_card(
     }
 
 
-async def _handle_show_channel_digest(conversation_id, tenant_id, transcript, state, user_msg):
+async def _handle_show_channel_digest(
+    conversation_id, tenant_id, transcript, state, user_msg
+):
     row = await fetch_one(
-        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1", str(tenant_id),
+        "SELECT channel_identity FROM channel_profiles WHERE tenant_id=$1",
+        str(tenant_id),
     )
     ident = _as_dict((row or {}).get("channel_identity"))
     run = ident.get("_last_run") if isinstance(ident.get("_last_run"), dict) else None
@@ -6392,7 +7515,9 @@ async def _handle_show_channel_digest(conversation_id, tenant_id, transcript, st
             "I haven't learned this channel yet — say **“learn this channel”** or "
             "**“learn my channel”** and I'll analyze it (~$0.10-0.30 of your API budget)."
         )
-        return await _plain_reply(conversation_id, tenant_id, transcript, state, user_msg, text)
+        return await _plain_reply(
+            conversation_id, tenant_id, transcript, state, user_msg, text
+        )
 
     # C44: channel-scope standing preferences, reusing the EXACT same
     # `_list_preferences` read the chat hydration path uses (video_id=None ->
@@ -6404,12 +7529,23 @@ async def _handle_show_channel_digest(conversation_id, tenant_id, transcript, st
     state["pending_dna_digest"] = True
     if user_msg:
         transcript.append({"role": "user", "content": user_msg})
-    transcript.append(_assistant_turn({"assistant_text": card["header"], "phase": "asking", "cards": [card]}))
+    transcript.append(
+        _assistant_turn(
+            {"assistant_text": card["header"], "phase": "asking", "cards": [card]}
+        )
+    )
     await _persist(conversation_id, tenant_id, transcript, state, "asking")
-    return ChatTurnResponse(conversation_id=conversation_id, assistant_text=card["header"], phase="asking", cards=[card])
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=card["header"],
+        phase="asking",
+        cards=[card],
+    )
 
 
-async def _handle_dna_digest_action(selections, conversation_id, tenant_id, transcript, state) -> ChatTurnResponse:
+async def _handle_dna_digest_action(
+    selections, conversation_id, tenant_id, transcript, state
+) -> ChatTurnResponse:
     """Turn 2 of the digest card (checklist C42): deterministic, NOT routed
     through the producer LLM — same "backend guarantee, not a hope the model
     behaves" discipline `_handle_style_draft_confirm` established. One-shot:
@@ -6420,13 +7556,16 @@ async def _handle_dna_digest_action(selections, conversation_id, tenant_id, tran
     async def _reply(text: str) -> ChatTurnResponse:
         transcript.append(_assistant_turn({"assistant_text": text, "phase": "asking"}))
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
-        return ChatTurnResponse(conversation_id=conversation_id, assistant_text=text, phase="asking")
+        return ChatTurnResponse(
+            conversation_id=conversation_id, assistant_text=text, phase="asking"
+        )
 
     if action == "revert":
         field = (selections.get("field") or "").strip()
         if not field:
             return await _reply("Which field would you like me to revert?")
         from channel_dna import revert_field
+
         try:
             ok, msg = await revert_field(str(tenant_id), field)
         except Exception as e:  # noqa: BLE001
@@ -6440,7 +7579,7 @@ async def _handle_dna_digest_action(selections, conversation_id, tenant_id, tran
             return await _reply("What would you like me to fix?")
         await _save_preference(tenant_id, text, scope=_PREF_SCOPE_CHANNEL)
         return await _reply(
-            f"Got it — I'll remember (channel-wide): {text}. Say \"forget that\" any time to undo it."
+            f'Got it — I\'ll remember (channel-wide): {text}. Say "forget that" any time to undo it.'
         )
 
     if action in ("confirm_pattern", "retire_pattern"):
@@ -6451,20 +7590,28 @@ async def _handle_dna_digest_action(selections, conversation_id, tenant_id, tran
         if not pattern_id:
             return await _reply("Which pattern do you mean?")
         import channel_patterns
+
         try:
             if action == "confirm_pattern":
-                row = await channel_patterns.confirm_pattern(str(tenant_id), pattern_id, confirmed_by="chat")
+                row = await channel_patterns.confirm_pattern(
+                    str(tenant_id), pattern_id, confirmed_by="chat"
+                )
             else:
-                row = await channel_patterns.retire_pattern(str(tenant_id), pattern_id, confirmed_by="chat")
+                row = await channel_patterns.retire_pattern(
+                    str(tenant_id), pattern_id, confirmed_by="chat"
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: dna digest %s failed: %s", action, e)
             return await _reply("I hit a snag with that — mind trying again?")
         if not row:
-            return await _reply("Couldn't find that pattern — it may have already been handled.")
+            return await _reply(
+                "Couldn't find that pattern — it may have already been handled."
+            )
         if action == "confirm_pattern":
             note = (
                 " It'll now be kept out of future style-seed/few-shot picks."
-                if row.get("polarity") == "anti" else ""
+                if row.get("polarity") == "anti"
+                else ""
             )
             return await _reply(f"Confirmed: {row.get('pattern')}{note}")
         return await _reply(f"Retired: {row.get('pattern')}")
@@ -6477,6 +7624,7 @@ async def _handle_dna_digest_action(selections, conversation_id, tenant_id, tran
 # The chat's secure box POSTs the pasted key here instead of sending it as a
 # chat message. We detect, save, and validate it exactly like the in-chat path,
 # so the raw key never becomes a transcript entry or reaches the producer model.
+
 
 class OnboardingKeyRequest(BaseModel):
     value: str
@@ -6493,14 +7641,20 @@ async def onboarding_key(body: OnboardingKeyRequest, tenant_id=Depends(get_tenan
     slot, val = _pick_key((body.value or "").strip())
     if not slot:
         return OnboardingKeyResponse(
-            ok=False, message=val or "Paste the whole key — it's a long string with no spaces.")
+            ok=False,
+            message=val or "Paste the whole key — it's a long string with no spaces.",
+        )
     from vault import set_secret, test_api_key
-    await set_secret(slot, val, tenant_id=tenant_id, description="Onboarding generation key")
+
+    await set_secret(
+        slot, val, tenant_id=tenant_id, description="Onboarding generation key"
+    )
     result = await test_api_key(slot, tenant_id)
     if not result.get("success"):
         return OnboardingKeyResponse(
             ok=False,
-            message=f"That key didn't go through — {result.get('message') or 'please double-check it'}.")
+            message=f"That key didn't go through — {result.get('message') or 'please double-check it'}.",
+        )
     return OnboardingKeyResponse(
         ok=True,
         provider="claude" if slot == "anthropic_api_key" else "kie",
@@ -6509,7 +7663,12 @@ async def onboarding_key(body: OnboardingKeyRequest, tenant_id=Depends(get_tenan
 
 
 async def _handle_cold_start_competitor_followup(
-    body, conversation_id, tenant_id, transcript, state, background_tasks,
+    body,
+    conversation_id,
+    tenant_id,
+    transcript,
+    state,
+    background_tasks,
 ) -> Optional[ChatTurnResponse]:
     """C36 (checklist §3.3 item 2): continues the one-tap "add competitors
     now" card attached by the fresh-conversation branch below (section 4)
@@ -6535,33 +7694,51 @@ async def _handle_cold_start_competitor_followup(
     choice = (body.selections or {}).get("add_competitors")
     if awaiting == "prompt" and choice == "skip":
         state["awaiting_competitor_paste"] = None
-        return await _ob_reply(conversation_id, tenant_id, transcript, state, _GREETING, phase="asking")
+        return await _ob_reply(
+            conversation_id, tenant_id, transcript, state, _GREETING, phase="asking"
+        )
     if awaiting == "prompt" and choice == "add":
         state["awaiting_competitor_paste"] = "collecting"
         return await _ob_reply(
-            conversation_id, tenant_id, transcript, state,
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
             "Paste 1-3 competitor channel URLs or @handles (space or comma separated).",
-            phase="asking")
+            phase="asking",
+        )
     if awaiting == "collecting":
         urls = _parse_urls(body.message or "")
         if not urls:
             return await _ob_reply(
-                conversation_id, tenant_id, transcript, state,
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
                 "I didn't catch a channel URL or @handle there — paste one to three, "
-                "or say \"skip\" to move on.",
-                phase="asking")
+                'or say "skip" to move on.',
+                phase="asking",
+            )
         state["awaiting_competitor_paste"] = None
         try:
             from routes.onboarding import CompetitorAnalyze, analyze_competitors
+
             await analyze_competitors(
-                CompetitorAnalyze(channel_urls=urls[:3]), background_tasks, tenant_id=tenant_id)
-            text = (f"On it — analyzing {len(urls[:3])} channel(s) in the background. I'll have "
-                    "data-backed ideas once that's done. In the meantime, tell me a topic and I'll "
-                    "get started.")
+                CompetitorAnalyze(channel_urls=urls[:3]),
+                background_tasks,
+                tenant_id=tenant_id,
+            )
+            text = (
+                f"On it — analyzing {len(urls[:3])} channel(s) in the background. I'll have "
+                "data-backed ideas once that's done. In the meantime, tell me a topic and I'll "
+                "get started."
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning("chat: cold-start competitor add failed: %s", e)
             text = "I'll line those up. In the meantime, tell me a topic and I'll get started."
-        return await _ob_reply(conversation_id, tenant_id, transcript, state, text, phase="asking")
+        return await _ob_reply(
+            conversation_id, tenant_id, transcript, state, text, phase="asking"
+        )
     # Stale/unrecognized value (e.g. they typed over the card) — clear it
     # and fall through to the ordinary intake turn rather than getting stuck.
     state["awaiting_competitor_paste"] = None
@@ -6570,6 +7747,7 @@ async def _handle_cold_start_competitor_followup(
 
 # --- the endpoint ------------------------------------------------------------
 
+
 @router.post("", response_model=ChatTurnResponse)
 async def chat_turn(
     body: ChatTurnRequest,
@@ -6577,11 +7755,7 @@ async def chat_turn(
     request: Request = None,
     tenant_id=Depends(get_tenant_id),
 ):
-    arq_pool = (
-        getattr(request.app.state, "arq", None)
-        if request is not None
-        else None
-    )
+    arq_pool = getattr(request.app.state, "arq", None) if request is not None else None
     # 1. Load or create the conversation (tenant-scoped). The dock sends video_id
     #    with no conversation_id on first open -> find-or-create the ONE conversation
     #    bound to that video so it resumes the whole backstory (Decision A).
@@ -6676,9 +7850,7 @@ async def chat_turn(
         and str(pending_custom_film.get("video_id") or "") == video_id
     ):
         try:
-            schedule_kwargs = (
-                {"arq_pool": arq_pool} if request is not None else {}
-            )
+            schedule_kwargs = {"arq_pool": arq_pool} if request is not None else {}
             await _schedule_reserved_custom_film_runtime(
                 conversation_id,
                 tenant_id,
@@ -6717,7 +7889,13 @@ async def chat_turn(
     #    actions behind a confirm card everywhere (home included, Phase 2).
     if video_id:
         return await _handle_copilot(
-            body, conversation_id, tenant_id, transcript, state, video_id, background_tasks
+            body,
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            video_id,
+            background_tasks,
         )
 
     # 2.5 Custom Film interception must precede legacy approval. A combined
@@ -6758,9 +7936,8 @@ async def chat_turn(
             is_custom_film_ordinary_video_request,
         )
 
-        if (
-            state.get("mode") == "custom_film"
-            and is_custom_film_exit_intent(body.message)
+        if state.get("mode") == "custom_film" and is_custom_film_exit_intent(
+            body.message
         ):
             if not is_custom_film_ordinary_video_request(body.message):
                 return await _handle_custom_film_cancel_turn(
@@ -6800,21 +7977,34 @@ async def chat_turn(
         if body.selections:
             state.setdefault("selections", {}).update(body.selections)
         return await _handle_approve(
-            state["last_spec"], conversation_id, tenant_id, transcript, state, background_tasks
+            state["last_spec"],
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            background_tasks,
         )
 
     # 3.6 Style-draft confirm — turn 2 of "make me a new style…" (checklist §C22).
     #     Deterministic, no LLM call: a saved style can ONLY come from here, and
     #     ONLY on the creator's own "yes" tap. Must run before the normal intake
     #     turn below, which would otherwise just feed the selection to the LLM.
-    if body.selections and "style_draft" in body.selections and state.get("pending_style_draft"):
+    if (
+        body.selections
+        and "style_draft" in body.selections
+        and state.get("pending_style_draft")
+    ):
         return await _handle_style_draft_confirm(
             body.selections, conversation_id, tenant_id, transcript, state
         )
 
     # 3.6a Quality-rules draft confirm — turn 2 of "here are my quality rules"
     #      (checklist §C46b). Same deterministic, no-LLM-call discipline as 3.6.
-    if body.selections and "quality_rules_draft" in body.selections and state.get("pending_quality_rules_draft"):
+    if (
+        body.selections
+        and "quality_rules_draft" in body.selections
+        and state.get("pending_quality_rules_draft")
+    ):
         return await _handle_quality_rules_draft_confirm(
             body.selections, conversation_id, tenant_id, transcript, state
         )
@@ -6823,7 +8013,11 @@ async def chat_turn(
     #      taps on the digest card. Same source-lock discipline as 3.6 above:
     #      deterministic, runs BEFORE producer intake, only fires when a digest
     #      is actually pending (never manufactured from LLM prose alone).
-    if body.selections and "channel_dna_digest" in body.selections and state.get("pending_dna_digest"):
+    if (
+        body.selections
+        and "channel_dna_digest" in body.selections
+        and state.get("pending_dna_digest")
+    ):
         return await _handle_dna_digest_action(
             body.selections, conversation_id, tenant_id, transcript, state
         )
@@ -6836,10 +8030,17 @@ async def chat_turn(
         msg_stripped = body.message.strip()
         if _learn_channel_intent(msg_stripped):
             return await _handle_learn_channel(
-                conversation_id, tenant_id, transcript, state, msg_stripped, background_tasks)
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                msg_stripped,
+                background_tasks,
+            )
         if _dna_digest_intent(msg_stripped):
             return await _handle_show_channel_digest(
-                conversation_id, tenant_id, transcript, state, msg_stripped)
+                conversation_id, tenant_id, transcript, state, msg_stripped
+            )
 
     # 3.5 Channel-identity commands ("build his identity" / "what's his voice?").
     #     Runs before producer intake so it doesn't get treated as a video request.
@@ -6847,14 +8048,22 @@ async def chat_turn(
         _iid = _identity_intent(body.message)
         if _iid == "build":
             return await _handle_build_identity(
-                conversation_id, tenant_id, transcript, state, body.message.strip(), background_tasks)
+                conversation_id,
+                tenant_id,
+                transcript,
+                state,
+                body.message.strip(),
+                background_tasks,
+            )
         if _iid == "show":
             return await _handle_show_identity(
-                conversation_id, tenant_id, transcript, state, body.message.strip())
+                conversation_id, tenant_id, transcript, state, body.message.strip()
+            )
 
     # 3.7 Cold-start "add competitors now" follow-up (checklist §3.3 item 2, C36).
     cold_start_reply = await _handle_cold_start_competitor_followup(
-        body, conversation_id, tenant_id, transcript, state, background_tasks)
+        body, conversation_id, tenant_id, transcript, state, background_tasks
+    )
     if cold_start_reply is not None:
         return cold_start_reply
 
@@ -6870,12 +8079,16 @@ async def chat_turn(
             # breakdown now, DNA held for a one-tap recreate.
             if _analyze_intent(msg_text):
                 transcript.append({"role": "user", "content": msg_text})
-                return await _handle_analyze(conversation_id, tenant_id, transcript, state, ref)
+                return await _handle_analyze(
+                    conversation_id, tenant_id, transcript, state, ref
+                )
     if body.selections:
         user_parts.append(_selections_to_text(body.selections))
         state.setdefault("selections", {}).update(body.selections)
     if body.attachments:
-        await _attach_assets(tenant_id, conversation_id, body.attachments, state, user_parts)
+        await _attach_assets(
+            tenant_id, conversation_id, body.attachments, state, user_parts
+        )
 
     if not user_parts:
         # Nothing said yet. For a RETURNING, onboarded creator opening a FRESH
@@ -6912,14 +8125,28 @@ async def chat_turn(
                 has_competitors = bool(await _recent_competitor_rows(tenant_id))
             except Exception as e:  # noqa: BLE001
                 logger.warning("chat: cold-start competitor check failed: %s", e)
-                has_competitors = True  # fail open to the plain greeting, not a misleading card
+                has_competitors = (
+                    True  # fail open to the plain greeting, not a misleading card
+                )
             if not has_competitors:
                 state["awaiting_competitor_paste"] = "prompt"
-                text = (_GREETING + "\n\nBy the way — you haven't added any competitor channels yet, so "
-                        "I can't pull data-backed ideas for you yet. Want to add a few now?")
-                return await _ob_reply(conversation_id, tenant_id, transcript, state, text,
-                                       phase="asking", cards=[_add_competitors_card()])
-            transcript.append(_assistant_turn({"assistant_text": _GREETING, "phase": "asking"}))
+                text = (
+                    _GREETING
+                    + "\n\nBy the way — you haven't added any competitor channels yet, so "
+                    "I can't pull data-backed ideas for you yet. Want to add a few now?"
+                )
+                return await _ob_reply(
+                    conversation_id,
+                    tenant_id,
+                    transcript,
+                    state,
+                    text,
+                    phase="asking",
+                    cards=[_add_competitors_card()],
+                )
+            transcript.append(
+                _assistant_turn({"assistant_text": _GREETING, "phase": "asking"})
+            )
             await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(
             conversation_id=conversation_id, assistant_text=_GREETING, phase="asking"
@@ -6933,10 +8160,15 @@ async def chat_turn(
     # if they have neither configured at all.
     client = await _resolve_producer_client(tenant_id)
     if client is None:
-        transcript.append(_assistant_turn({"assistant_text": _NO_KEY_PRODUCER_MSG, "phase": "asking"}))
+        transcript.append(
+            _assistant_turn({"assistant_text": _NO_KEY_PRODUCER_MSG, "phase": "asking"})
+        )
         await _persist(conversation_id, tenant_id, transcript, state, "asking")
         return ChatTurnResponse(
-            conversation_id=conversation_id, assistant_text=_NO_KEY_PRODUCER_MSG, phase="asking")
+            conversation_id=conversation_id,
+            assistant_text=_NO_KEY_PRODUCER_MSG,
+            phase="asking",
+        )
 
     # THE channel-identity pool brief (checklist P2) goes FIRST, ahead of the
     # durable creator brief, the length anchor, channel intelligence,
@@ -6969,7 +8201,9 @@ async def chat_turn(
     await _stamp_length_default(data, tenant_id, transcript)
     await _annotate_style_recommendation(data, tenant_id, state)
     await _stamp_plan_estimate(data)
-    assistant_text = await _apply_and_merge_profile_ops(data, tenant_id, state, background_tasks)
+    assistant_text = await _apply_and_merge_profile_ops(
+        data, tenant_id, state, background_tasks
+    )
     _maybe_attach_style_draft_card(data, state)
     _maybe_attach_quality_rules_draft_card(data, state)
     transcript.append(_assistant_turn(data))
@@ -7001,6 +8235,7 @@ async def chat_turn(
 # with its metrics + an AI "why model this" analysis cached on the row so the home
 # page stays fast. Only appears when the creator actually has competitor data.
 
+
 def _ago(hours_old) -> str:
     h = float(hours_old or 0)
     if h <= 0:
@@ -7027,24 +8262,33 @@ async def _model_rationales(tenant_id, rows: list) -> dict:
     fallback = {r["video_id"]: _metric_why(r) for r in rows}
     try:
         from kie_unified import get_text_client_for_tenant
+
         client = await get_text_client_for_tenant(tenant_id)
     except Exception:  # noqa: BLE001 — no key; metric line is fine
         return fallback
     niche = ""
     try:
-        cb = await fetch_one("SELECT creator_brief FROM channel_profiles WHERE tenant_id = $1", tenant_id)
+        cb = await fetch_one(
+            "SELECT creator_brief FROM channel_profiles WHERE tenant_id = $1", tenant_id
+        )
         brief = _as_dict((cb or {}).get("creator_brief"))
-        niche = (brief.get("niche") or brief.get("modeling_niche") or brief.get("channel") or "").strip()
+        niche = (
+            brief.get("niche")
+            or brief.get("modeling_niche")
+            or brief.get("channel")
+            or ""
+        ).strip()
     except Exception:  # noqa: BLE001
         pass
     lines = [
         f'{i + 1}. "{r["title"]}" — {int(r["views"] or 0):,} views, {float(r["vph"] or 0):.0f} views/hr, '
-        f'{_ago(r.get("hours_old"))}'
+        f"{_ago(r.get('hours_old'))}"
         for i, r in enumerate(rows)
     ]
     prompt = (
         "These are the current top videos on a YouTube channel a creator is modeling"
-        + (f" (the creator's niche: {niche})" if niche else "") + ":\n"
+        + (f" (the creator's niche: {niche})" if niche else "")
+        + ":\n"
         + "\n".join(lines)
         + "\n\nFor EACH video, write ONE punchy sentence on why it's worth modeling — cite the concrete "
         "signal (breakout views/hour, freshness, or view count) AND the format/hook pattern that's working, "
@@ -7053,6 +8297,7 @@ async def _model_rationales(tenant_id, rows: list) -> dict:
     )
     try:
         from producer_prompt import _extract_json
+
         model = _claude_model_for_direct_client(client)
         kw: dict[str, Any] = {"prompt": prompt, "max_tokens": 700, "temperature": 0.4}
         if model:
@@ -7060,8 +8305,14 @@ async def _model_rationales(tenant_id, rows: list) -> dict:
         data = json.loads(_extract_json((await client.generate(**kw)) or ""))
         whys = data.get("whys") if isinstance(data, dict) else None
         if isinstance(whys, list) and whys:
-            return {r["video_id"]: (str(whys[i]).strip() if i < len(whys) and whys[i] else _metric_why(r))
-                    for i, r in enumerate(rows)}
+            return {
+                r["video_id"]: (
+                    str(whys[i]).strip()
+                    if i < len(whys) and whys[i]
+                    else _metric_why(r)
+                )
+                for i, r in enumerate(rows)
+            }
     except Exception as e:  # noqa: BLE001
         logger.warning("suggested-models: rationale gen failed: %s", e)
     return fallback
@@ -7075,6 +8326,7 @@ async def _drop_removed_videos(tenant_id, rows: list[dict]) -> list[dict]:
     if not api_key or not rows:
         return rows
     from youtube_data_api import fetch_live_video_ids
+
     ids = [r["video_id"] for r in rows if r.get("video_id")]
     try:
         live = await fetch_live_video_ids(ids, api_key)
@@ -7087,9 +8339,14 @@ async def _drop_removed_videos(tenant_id, rows: list[dict]) -> list[dict]:
             await execute(
                 "UPDATE competitor_videos SET removed_at = now() "
                 "WHERE tenant_id = $1 AND video_id = ANY($2::text[])",
-                tenant_id, dead,
+                tenant_id,
+                dead,
             )
-            logger.info("suggested-models: flagged %d removed videos for %s", len(dead), tenant_id)
+            logger.info(
+                "suggested-models: flagged %d removed videos for %s",
+                len(dead),
+                tenant_id,
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning("suggested-models: removed-flag write failed: %s", e)
     return [r for r in rows if r.get("video_id") in live]
@@ -7128,19 +8385,24 @@ async def suggested_models(tenant_id=Depends(get_tenant_id)):
                 await execute(
                     "UPDATE competitor_videos SET model_rationale = $1, model_rationale_at = now() "
                     "WHERE tenant_id = $2 AND video_id = $3",
-                    why, tenant_id, r["video_id"],
+                    why,
+                    tenant_id,
+                    r["video_id"],
                 )
-    videos = [{
-        "video_id": r["video_id"],
-        "title": r["title"],
-        "url": r.get("url"),
-        "channel": r.get("channel"),
-        "views": int(r.get("views") or 0),
-        "vph": round(float(r.get("vph") or 0)),
-        "posted": _ago(r.get("hours_old")),
-        "thumbnail": f"https://i.ytimg.com/vi/{r['video_id']}/hqdefault.jpg",
-        "why": (r.get("model_rationale") or _metric_why(r)),
-    } for r in rows]
+    videos = [
+        {
+            "video_id": r["video_id"],
+            "title": r["title"],
+            "url": r.get("url"),
+            "channel": r.get("channel"),
+            "views": int(r.get("views") or 0),
+            "vph": round(float(r.get("vph") or 0)),
+            "posted": _ago(r.get("hours_old")),
+            "thumbnail": f"https://i.ytimg.com/vi/{r['video_id']}/hqdefault.jpg",
+            "why": (r.get("model_rationale") or _metric_why(r)),
+        }
+        for r in rows
+    ]
     return {"channel": rows[0].get("channel"), "videos": videos}
 
 
@@ -7153,7 +8415,8 @@ async def get_conversation_for_video(video_id: str, tenant_id=Depends(get_tenant
         """SELECT id, transcript, phase FROM chat_conversations
             WHERE tenant_id = $1 AND video_id = $2
             ORDER BY updated_at DESC LIMIT 1""",
-        tenant_id, video_id,
+        tenant_id,
+        video_id,
     )
     if not conv:
         return {"conversation_id": None, "messages": [], "phase": "created"}
@@ -7162,17 +8425,26 @@ async def get_conversation_for_video(video_id: str, tenant_id=Depends(get_tenant
         if t.get("role") == "user":
             messages.append({"role": "user", "text": t.get("content") or ""})
         elif t.get("role") == "assistant":
-            d = _as_dict(t.get("content"))  # assistant turns store JSON (see _assistant_turn)
-            messages.append({
-                "role": "assistant",
-                "text": d.get("assistant_text") or "",
-                "cards": d.get("cards"),
-                "plan": d.get("plan"),
-            })
-    return {"conversation_id": str(conv["id"]), "messages": messages, "phase": conv.get("phase") or "created"}
+            d = _as_dict(
+                t.get("content")
+            )  # assistant turns store JSON (see _assistant_turn)
+            messages.append(
+                {
+                    "role": "assistant",
+                    "text": d.get("assistant_text") or "",
+                    "cards": d.get("cards"),
+                    "plan": d.get("plan"),
+                }
+            )
+    return {
+        "conversation_id": str(conv["id"]),
+        "messages": messages,
+        "phase": conv.get("phase") or "created",
+    }
 
 
 # --- Chat history (sidebar list + resume any past conversation by id) ---
+
 
 def _flatten_transcript(transcript) -> list:
     """Transcript rows -> the {role, text, cards?, plan?} shape ChatCore renders."""
@@ -7182,12 +8454,14 @@ def _flatten_transcript(transcript) -> list:
             out.append({"role": "user", "text": t.get("content") or ""})
         elif t.get("role") == "assistant":
             d = _as_dict(t.get("content"))
-            out.append({
-                "role": "assistant",
-                "text": d.get("assistant_text") or "",
-                "cards": d.get("cards"),
-                "plan": d.get("plan"),
-            })
+            out.append(
+                {
+                    "role": "assistant",
+                    "text": d.get("assistant_text") or "",
+                    "cards": d.get("cards"),
+                    "plan": d.get("plan"),
+                }
+            )
     return out
 
 
@@ -7201,7 +8475,8 @@ async def list_conversations(limit: int = 20, tenant_id=Depends(get_tenant_id)):
              FROM chat_conversations
             WHERE tenant_id = $1 AND jsonb_array_length(transcript) > 0
             ORDER BY updated_at DESC LIMIT $2""",
-        tenant_id, limit * 3,
+        tenant_id,
+        limit * 3,
     )
     out: list = []
     for c in rows or []:
@@ -7217,21 +8492,27 @@ async def list_conversations(limit: int = 20, tenant_id=Depends(get_tenant_id)):
                     last_assistant = d["assistant_text"]
         if not title:
             continue
-        out.append({
-            "conversation_id": str(c["id"]),
-            "title": title[:80],
-            "preview": (last_assistant or "")[:140],
-            "phase": c.get("phase") or "asking",
-            "video_id": str(c["video_id"]) if c.get("video_id") else None,
-            "updated_at": c["updated_at"].isoformat() if c.get("updated_at") else None,
-        })
+        out.append(
+            {
+                "conversation_id": str(c["id"]),
+                "title": title[:80],
+                "preview": (last_assistant or "")[:140],
+                "phase": c.get("phase") or "asking",
+                "video_id": str(c["video_id"]) if c.get("video_id") else None,
+                "updated_at": c["updated_at"].isoformat()
+                if c.get("updated_at")
+                else None,
+            }
+        )
         if len(out) >= limit:
             break
     return out
 
 
 @router.get("/conversation/{conversation_id}")
-async def get_conversation_by_id(conversation_id: str, tenant_id=Depends(get_tenant_id)):
+async def get_conversation_by_id(
+    conversation_id: str, tenant_id=Depends(get_tenant_id)
+):
     """Hydrate any past conversation by id, so the creator can resume from history."""
     conv = await _load_conversation(conversation_id, tenant_id)
     if not conv:

@@ -306,6 +306,63 @@ async def test_durable_failure_replays_as_failed_without_second_claim():
 
 
 @pytest.mark.asyncio
+async def test_failed_terminal_receipt_reconciles_into_canonical_ledger():
+    contract = _stage_contract()
+    database = FakeReceiptDatabase(contract)
+    operation = contract["schedule"]["tasks"][0]
+    journal = _journal(database)
+    await journal.claim(operation)
+    await journal.fail(
+        operation,
+        _result(),
+        failure_code="validation_failure",
+        output_payload={"invalid": "candidate"},
+    )
+
+    first = await receipts.reconcile_director_generation_ledger(
+        database.conn,
+        tenant_id=TENANT_ID,
+        video_id=VIDEO_ID,
+        schedule_id=SCHEDULE_ID,
+    )
+    replay = await receipts.reconcile_director_generation_ledger(
+        database.conn,
+        tenant_id=TENANT_ID,
+        video_id=VIDEO_ID,
+        schedule_id=SCHEDULE_ID,
+    )
+
+    assert first == replay
+    assert first["terminal_call_count"] == 1
+    assert first["unpaired_started_count"] == 0
+    assert first["reconciliation_required_count"] == 0
+    assert first["actual_spend_nusd"] == 10_000_000
+    assert len(database.ledger) == 1
+    assert str(database.ledger[0]["actual_cost"]) == "0.01"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_started_call_is_reported_without_guessed_spend():
+    contract = _stage_contract()
+    database = FakeReceiptDatabase(contract)
+    journal = _journal(database)
+    await journal.claim(contract["schedule"]["tasks"][0])
+
+    result = await receipts.reconcile_director_generation_ledger(
+        database.conn,
+        tenant_id=TENANT_ID,
+        video_id=VIDEO_ID,
+        schedule_id=SCHEDULE_ID,
+    )
+
+    assert result["terminal_call_count"] == 0
+    assert result["unpaired_started_count"] == 1
+    assert result["reconciliation_required_count"] == 1
+    assert result["actual_spend_nusd"] == 0
+    assert database.ledger == []
+
+
+@pytest.mark.asyncio
 async def test_final_execution_and_director_contract_persist_once(
     monkeypatch,
 ):

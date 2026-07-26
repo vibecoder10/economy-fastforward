@@ -211,6 +211,70 @@ async def test_stale_claim_over_2h_is_retaken():
     print("✅ test_stale_claim_over_2h_is_retaken")
 
 
+class _StaleDirectorHoldConn:
+    """Model the one stale row that must not be swept: a director call whose
+    durable journal cannot yet prove an exact terminal provider receipt."""
+
+    async def execute(self, query, *args):
+        if "pg_advisory_xact_lock" in query:
+            return None
+        if "claimed_at < now()" in query:
+            assert "custom-film-director:%" in query
+            assert "custom_film_director_call_events" in query
+            assert "event_kind = 'attempt_started'" in query
+            assert "NOT EXISTS" in query
+            assert "authorization_violation" in query
+            return "DELETE 0"
+        raise AssertionError(f"unexpected execute() query: {query!r}")
+
+    async def fetch(self, query, *args):
+        assert "FROM generation_claims" in query
+        if "claimed_at > now()" in query:
+            assert "custom-film-director:%" in query
+            assert "custom_film_director_call_events" in query
+            assert "event_kind = 'attempt_started'" in query
+            assert "NOT EXISTS" in query
+            assert "authorization_violation" in query
+        return [{"stage": "main"}]
+
+    async def fetchrow(self, query, *args):
+        if "FROM application_drain_state" in query:
+            return {
+                "mode": "normal",
+                "reason": None,
+                "owner": None,
+                "changed_at": None,
+            }
+        raise AssertionError("a preserved director hold must block before INSERT")
+
+
+async def test_stale_ambiguous_director_claim_is_preserved_and_blocks_all_paid_lanes():
+    conn = _StaleDirectorHoldConn()
+
+    result = await generation_claims.acquire_conn(
+        conn,
+        "t1",
+        "v1",
+        "voice",
+        claimed_by="new-paid-run",
+    )
+
+    assert result is False
+
+
+async def test_manual_route_block_check_honors_stale_ambiguous_director_claim():
+    conn = _StaleDirectorHoldConn()
+    pool = types.SimpleNamespace(acquire=lambda: _FakePoolCtx(conn))
+
+    async def _fake_get_pool():
+        return pool
+
+    with patch.object(generation_claims.database, "get_pool", _fake_get_pool):
+        result = await generation_claims.is_blocked("t1", "v1", "voice")
+
+    assert result is True
+
+
 async def test_fresh_claim_under_2h_is_not_retaken():
     store: dict = {("t1", "v1", "main"): time.time() - (5 * 60)}  # 5 minutes old
     with _patch_pool(store):
