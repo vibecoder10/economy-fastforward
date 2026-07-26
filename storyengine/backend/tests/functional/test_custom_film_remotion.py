@@ -368,6 +368,87 @@ def test_assembly_v3_binds_exact_renderer_and_rejects_bundle_drift(monkeypatch):
         )
 
 
+def test_exact_legacy_staging_fix_bundle_is_accepted_centrally_and_preserved(
+    tmp_path: Path,
+):
+    legacy_hash = (
+        "079aeed1113945e630950f9ea116e497"
+        "029788bb60df5d08ad3f4e4a44163eca"
+    )
+    current_hash = remotion.renderer_bundle_hash()
+    assert remotion.renderer_identity_is_compatible(
+        remotion.REMOTION_RENDERER_CONTRACT_VERSION, current_hash
+    )
+    assert remotion.renderer_identity_is_compatible(
+        remotion.REMOTION_RENDERER_CONTRACT_VERSION, legacy_hash
+    )
+    assert not remotion.renderer_identity_is_compatible(
+        "custom-film-remotion-renderer-v0", legacy_hash
+    )
+
+    manifest = _manifest(version=compositor.ASSEMBLY_VERSION_V3)
+    manifest["renderer_bundle_hash"] = legacy_hash
+    manifest = _rehash(manifest)
+    assert remotion.resolve_durable_render_engine(
+        manifest_version=compositor.ASSEMBLY_VERSION_V3,
+        manifest=manifest,
+        journal_state="retryable_failed",
+        requested_engine="remotion",
+        remotion_available=True,
+    ) == "remotion"
+    props = remotion.build_remotion_props(manifest)
+    assert props["identity"]["renderer_bundle_hash"] == legacy_hash
+    assert (
+        remotion._intermediate_cache_identity(props)["renderer_bundle_hash"]
+        == legacy_hash
+    )
+    asset = tmp_path / "asset.bin"
+    audio = tmp_path / "audio.bin"
+    asset.write_bytes(b"approved-image")
+    audio.write_bytes(b"approved-audio")
+    valid_props = _v3_props_for_sources(asset, audio)
+    valid_props["identity"]["renderer_bundle_hash"] = legacy_hash
+    valid_body = copy.deepcopy(valid_props)
+    valid_body.pop("props_hash")
+    valid_props["props_hash"] = remotion.remotion_props_hash(valid_body)
+    remotion._validate_renderer_props(valid_props)
+
+
+def test_unknown_legacy_bundle_is_rejected_by_every_identity_gate():
+    unknown_hash = "b" * 64
+    assert not remotion.renderer_identity_is_compatible(
+        remotion.REMOTION_RENDERER_CONTRACT_VERSION, unknown_hash
+    )
+    manifest = _manifest(version=compositor.ASSEMBLY_VERSION_V3)
+    manifest["renderer_bundle_hash"] = unknown_hash
+    manifest = _rehash(manifest)
+    with pytest.raises(
+        contract.CustomFilmContractError, match="renderer identity changed"
+    ):
+        remotion.resolve_durable_render_engine(
+            manifest_version=compositor.ASSEMBLY_VERSION_V3,
+            manifest=manifest,
+            journal_state="prepared",
+            requested_engine="remotion",
+            remotion_available=True,
+        )
+    with pytest.raises(
+        contract.CustomFilmContractError, match="renderer identity changed"
+    ):
+        remotion.build_remotion_props(manifest)
+
+    accepted = _manifest(version=compositor.ASSEMBLY_VERSION_V3)
+    props = remotion.build_remotion_props(accepted)
+    props["identity"]["renderer_bundle_hash"] = unknown_hash
+    body = copy.deepcopy(props)
+    body.pop("props_hash")
+    props["props_hash"] = remotion.remotion_props_hash(body)
+    with pytest.raises(
+        contract.CustomFilmContractError, match="renderer identity changed"
+    ):
+        remotion._validate_renderer_props(props)
+
+
 def test_renderer_bundle_hash_binds_python_adapter(monkeypatch):
     original = remotion.renderer_bundle_hash()
     monkeypatch.setattr(remotion, "_renderer_adapter_hash", lambda: "f" * 64)
