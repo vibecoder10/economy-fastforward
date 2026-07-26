@@ -96,6 +96,20 @@ def test_fixture_is_current_one_scene_five_shots_six_locks():
     assert [shot["order_index"] for shot in fixture["shots"]] == list(range(5))
     assert all("Cinematic photoreal 16:9" in shot["storyboard_prompt"] for shot in fixture["shots"])
     assert "nineteen-year-old sheltered heir" in fixture["locks"]["cast"]["lio_arden"].lower()
+    draft = storyboards._below_the_forecast_director_draft(
+        "11111111-1111-4111-8111-111111111111", fixture
+    )
+    compiled = storyboards.compile_director_contract(
+        draft,
+        plan_id="22222222-2222-4222-8222-222222222222",
+        plan_hash="a" * 64,
+        section_ids=["11111111-1111-4111-8111-111111111111"],
+        total_frames=600,
+        section_frame_counts={"11111111-1111-4111-8111-111111111111": 600},
+        section_shot_counts={"11111111-1111-4111-8111-111111111111": 5},
+        fps=24,
+    )
+    assert len(compiled["shots"]) == 5
 
 
 def test_surface_has_only_storyboard_execution_and_no_downstream_paths():

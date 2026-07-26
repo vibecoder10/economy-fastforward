@@ -18,6 +18,7 @@ import httpx
 
 import custom_film_scene_control as control
 from custom_film_contract import canonical_hash, canonical_json
+from custom_film_director import compile_director_contract, persist_director_contract
 
 EXECUTION_NAMESPACE = UUID("f7689263-c41f-4c88-a370-af8bf350b84a")
 EXECUTION_VERSION = 1
@@ -434,3 +435,217 @@ def compile_below_the_forecast_fixture(path: Path) -> dict[str, Any]:
             for index, (shot_id, prompt) in enumerate(zip(shot_ids, prompts))
         ],
     }
+
+
+def _below_the_forecast_director_draft(section_id: str, fixture: Mapping[str, Any]) -> dict[str, Any]:
+    """Adapt the validated M9 director shape to the locked five-beat story."""
+    draft = control.synthetic_director_draft(section_id)
+    bible = draft["film_bible"]
+    bible.update(
+        {
+            "title": fixture["title"],
+            "logline": fixture["locks"]["story"]["logline"],
+            "throughline": fixture["locks"]["story"]["story_law"],
+            "central_question": "Can Nia expose the weather economy and reverse its class boundary?",
+            "beginning_state": fixture["scene"]["opening_state"],
+            "ending_state": fixture["scene"]["state_change"],
+            "visual_motif": "warm amber privilege divided from cyan storm labor by glass",
+            "timeline_law": fixture["scene"]["story_time"],
+            "geography_law": "Arcology Seven remains the single readable inside-outside vertical system.",
+            "narrator_mode": "none",
+            "narrator_character_id": None,
+            "narrator_voice_lock": None,
+            "style": {
+                "medium": "cinematic photoreal live action",
+                "rendering_approach": "grounded monumental production design",
+                "palette": ["warm amber interiors", "cyan storm exterior", "oxidized copper"],
+                "texture": "tactile rain, glass, steel, stone, brass",
+                "lens_language": "restrained anamorphic wides and readable two-plane frames",
+                "lighting_law": "amber stays inside and cyan outside until the reversal",
+                "aspect_ratio": "16:9",
+                "negative_constraints": ["illustration", "game UI", "readable text", "copied composition"],
+            },
+            "characters": [
+                {
+                    "character_id": "nia_vale",
+                    "display_name": "Nia Vale",
+                    "story_role": "climate technician who discovers and reverses the weather economy",
+                    "identity_prompt": fixture["locks"]["cast"]["nia_vale"],
+                    "face_body_lock": "Black woman, early 30s, lean industrial climber, close-cropped natural hair",
+                    "wardrobe_lock": "weathered charcoal pressure suit, oxidized-copper harness, clear half visor, conductor hook at right hip",
+                    "voice_lock": "no generated dialogue in this storyboard stage",
+                    "performance_law": "precise, contained, observant, never glamorized",
+                    "forbidden_drift": ["different identity", "wardrobe change", "missing right-hip conductor hook"],
+                },
+                {
+                    "character_id": "lio_arden",
+                    "display_name": "Lio Arden",
+                    "story_role": "sheltered heir who recognizes Nia and reveals the inversion route",
+                    "identity_prompt": fixture["locks"]["cast"]["lio_arden"],
+                    "face_body_lock": "nineteen-year-old sheltered heir with dark wavy hair",
+                    "wardrobe_lock": "cream formal jacket, dry and safe inside the tower",
+                    "voice_lock": "no generated dialogue in this storyboard stage",
+                    "performance_law": "curious rather than cruel; recognition becomes action",
+                    "forbidden_drift": ["different identity", "different jacket", "placed outside during the storm"],
+                },
+            ],
+            "environments": [
+                {
+                    "environment_id": "arcology_seven",
+                    "display_name": "Arcology Seven",
+                    "story_function": "class system whose weather skin becomes the reversal mechanism",
+                    "identity_prompt": fixture["locks"]["environments"]["arcology_seven"],
+                    "architecture_lock": "monumental brutalist tower with curved storm glass and exterior maintenance ribs",
+                    "lighting_time_weather_lock": "amber interiors, cyan manufactured superstorm, clean cyan dawn after reversal",
+                    "geography_lock": "luxury lies behind storm glass; workers occupy exposed exterior ribs",
+                    "palette_lock": "amber, cyan, wet charcoal, oxidized copper",
+                    "props": [
+                        {"prop_id": "conductor_hook", "description": "Nia's right-hip hook", "home_position": "Nia's right hip", "continuity_law": "same hook unlocks the inversion wheel"},
+                        {"prop_id": "brass_route_model", "description": "tactile weather-routing model", "home_position": "inside gallery", "continuity_law": "same route reaches the inversion wheel"},
+                        {"prop_id": "inversion_wheel", "description": "large copper reversal wheel", "home_position": "weather-engine chamber", "continuity_law": "accepts Nia's conductor hook"},
+                    ],
+                }
+            ],
+        }
+    )
+    beat_names = ("weather_skin", "handprint", "spectacle", "engine_reveal", "forecast_reversal")
+    shots = draft["shots"][:5]
+    previous_close = None
+    for index, (shot, fixture_shot) in enumerate(zip(shots, fixture["shots"])):
+        opening_fact = (
+            fixture["scene"]["opening_state"]
+            if index == 0
+            else previous_close
+        )
+        closing_fact = (
+            fixture["scene"]["state_change"]
+            if index == 4
+            else f"Below the Forecast beat {index + 1} completes and causes beat {index + 2}."
+        )
+        previous_close = closing_fact
+        shot.update(
+            {
+                "shot_key": beat_names[index],
+                "duration_frames": 120,
+                "technique": "cinematic_action",
+                "performance_mode": "silent_action",
+                "narrative_purpose": f"Advance the story through the {fixture['scene']['silent_action_beats'][index]} beat.",
+                "caused_by": [] if index == 0 else [beat_names[index - 1]],
+                "transition_from_previous": "opening" if index == 0 else "time_cut",
+                "continuity_bridge": None if index == 0 else "Arcology Seven and the amber-versus-cyan class geography remain continuous.",
+                "story_value": closing_fact,
+                "opening_state": {
+                    "story_facts": [opening_fact],
+                    "character_positions": {"nia_vale": "Arcology Seven", "lio_arden": "inside protected tower space"},
+                    "prop_states": {"conductor_hook": "with Nia", "brass_route_model": "inside tower", "inversion_wheel": "locked"},
+                    "emotional_state": {"nia_vale": "contained resolve", "lio_arden": "growing recognition"},
+                },
+                "closing_state": {
+                    "story_facts": [closing_fact],
+                    "character_positions": {"nia_vale": "Arcology Seven", "lio_arden": "inside protected tower space"},
+                    "prop_states": {"conductor_hook": "with Nia", "brass_route_model": "route understood", "inversion_wheel": "turned" if index == 4 else "locked"},
+                    "emotional_state": {"nia_vale": "decisive", "lio_arden": "recognizes Nia"},
+                },
+                "environment_id": "arcology_seven",
+                "character_ids": ["nia_vale", "lio_arden"],
+                "active_prop_ids": ["conductor_hook", "brass_route_model", "inversion_wheel"],
+                "screen_direction": "amber interior and cyan exterior remain geographically readable",
+                "shot_size": "cinematic 16:9 composition",
+                "camera_move": "restrained motivated movement",
+                "spoken_lines": [],
+                "storyboard_composition": fixture_shot["storyboard_prompt"],
+                "final_picture_intent": fixture_shot["storyboard_prompt"],
+                "motion_intent": "storyboard still only; motion is not authorized",
+                "ambient_sound": "not authorized",
+                "score_intent": "not authorized",
+                "sfx_cues": [],
+                "caption_mode": "none",
+            }
+        )
+    draft["shots"] = shots
+    return draft
+
+
+async def seed_below_the_forecast(
+    conn: Any, *, tenant_id: str, source_path: Path, video_id: str | None = None
+) -> dict[str, Any]:
+    """Idempotently persist the fixture as one plan-approved Scene Control scene."""
+    fixture = compile_below_the_forecast_fixture(source_path)
+    tenant = control._uuid(tenant_id, "tenant identity")
+    video = control._uuid(video_id, "video identity") if video_id else str(
+        uuid5(
+            EXECUTION_NAMESPACE,
+            f"{tenant}:below-the-forecast:{fixture['source_sha256']}",
+        )
+    )
+    plan_id = str(uuid5(EXECUTION_NAMESPACE, f"{video}:plan"))
+    section_id = str(uuid5(EXECUTION_NAMESPACE, f"{video}:section"))
+    plan = {"fixture": "below_the_forecast_v1", "source_sha256": fixture["source_sha256"], "sections": [{"section_id": section_id, "order_index": 0, "role": "storyboard"}]}
+    plan_hash = canonical_hash(plan)
+    quote_inputs = {"storyboard_calls": 5, "unit_max_cents": 5, "max_repair_calls": 0}
+    quote_hash = canonical_hash(quote_inputs)
+    compiled = compile_director_contract(
+        _below_the_forecast_director_draft(section_id, fixture),
+        plan_id=plan_id, plan_hash=plan_hash, section_ids=[section_id],
+        total_frames=600, section_frame_counts={section_id: 600},
+        section_shot_counts={section_id: 5}, fps=24,
+    )
+    await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", f"below-the-forecast:{tenant}:{video}")
+    await conn.execute(
+        """INSERT INTO videos
+             (id,tenant_id,video_title,status,source,video_length_minutes,max_spend,writer_guidance)
+           VALUES ($1,$2,'Below the Forecast','custom_film_directed',
+                   'custom_film_below_the_forecast_fixture',0.416667,0,
+                   'Locked five-shot storyboard fixture; no provider work at seed time')
+           ON CONFLICT (id) DO NOTHING""", video, tenant,
+    )
+    await conn.execute(
+        """INSERT INTO custom_film_plans
+             (id,tenant_id,video_id,revision,compatibility_version,plan,plan_hash,quote_inputs,quote_inputs_hash)
+           VALUES ($1,$2,$3,1,'scene-storyboards-v1',$4::jsonb,$5,$6::jsonb,$7)
+           ON CONFLICT (tenant_id,video_id,revision) DO NOTHING""",
+        plan_id, tenant, video, canonical_json(plan), plan_hash,
+        canonical_json(quote_inputs), quote_hash,
+    )
+    await conn.execute(
+        """INSERT INTO custom_film_sections
+             (tenant_id,plan_id,video_id,section_id,order_index,role,purpose,duration_units,knobs,provenance,estimated_media)
+           VALUES ($1,$2,$3,$4,0,'storyboard','Below the Forecast five-beat storyboard',25,
+                   '{}'::jsonb,$5::jsonb,$6::jsonb)
+           ON CONFLICT (tenant_id,plan_id,section_id) DO NOTHING""",
+        tenant, plan_id, video, section_id,
+        canonical_json({"source_sha256": fixture["source_sha256"]}),
+        canonical_json({"storyboard_calls": 5}),
+    )
+    director = await persist_director_contract(
+        conn, tenant_id=tenant, video_id=video, plan_id=plan_id,
+        plan_hash=plan_hash, director_contract=compiled,
+    )
+    await conn.execute(
+        """UPDATE videos SET custom_film_plan_id=$3,custom_film_plan_revision=1,
+                  custom_film_plan_hash=$4,custom_film_quote_inputs_hash=$5,updated_at=now()
+           WHERE tenant_id=$1 AND id=$2""",
+        tenant, video, plan_id, plan_hash, quote_hash,
+    )
+    for kind in control.LOCK_KINDS:
+        await control.approve_film_lock(
+            conn, tenant_id=tenant, video_id=video, lock_kind=kind,
+            payload=fixture["locks"][kind],
+        )
+    shots = await conn.fetch(
+        """SELECT shot_id,duration_frames,shot_contract FROM custom_film_shots
+           WHERE tenant_id=$1 AND director_contract_id=$2 ORDER BY order_index""",
+        tenant, director["id"],
+    )
+    scene = await control.create_scene(
+        conn, tenant_id=tenant, video_id=video, raw_scene_contract={
+            **fixture["scene"], "shot_ids": [str(row["shot_id"]) for row in shots],
+        },
+    )
+    if scene["state"] == "draft":
+        scene = await control.transition_scene(
+            conn, tenant_id=tenant, video_id=video, scene_id=scene["scene_id"],
+            expected_revision_hash=scene["revision_hash"], target_state="plan_approved",
+            evidence_hash=scene["revision_hash"],
+        )
+    return {"video_id": video, "scene": scene, "fixture": fixture, "provider_calls_started": False, "ledger_writes": 0}
