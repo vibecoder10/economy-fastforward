@@ -1,0 +1,1545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StoryEngine — Director Mockup</title>
+<style>
+:root{
+  --bg-void:#05080D;
+  --bg-surface:#0F1420;
+  --bg-raise:#151B29;
+  --bg-sunk:#0A0E16;
+  --text-primary:#F0F2F8;
+  --text-dim:#9AA3B8;
+  --text-faint:#5F6980;
+  --line:rgba(0,212,170,0.12);
+  --line-soft:rgba(255,255,255,0.07);
+  --accent:#00D4AA;
+  --gold:#F5C451;
+  --red:#FF4D6A;
+  --r:16px;
+  --r-sm:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg-void);
+  color:var(--text-primary);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+body.scrollable{overflow:auto}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:9px}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,212,170,.25)}
+::-webkit-scrollbar-track{background:transparent}
+
+.hide{display:none !important}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);font-weight:600}
+
+/* ---------- generic bits ---------- */
+.btn{
+  height:32px;padding:0 14px;border-radius:9px;border:1px solid var(--line-soft);
+  background:var(--bg-raise);color:var(--text-primary);font-size:13px;font-weight:500;
+  display:inline-flex;align-items:center;gap:7px;transition:.15s;white-space:nowrap;
+}
+.btn:hover{border-color:var(--line);background:#1B2231}
+.btn-primary{
+  background:linear-gradient(180deg,#00E4B8,#00B492);color:#04120E;border:0;font-weight:650;
+  box-shadow:0 2px 14px rgba(0,212,170,.28);
+}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-ghost{background:transparent}
+.btn-gold{
+  border:1px solid rgba(245,196,81,.45);background:rgba(245,196,81,.08);color:var(--gold);font-weight:600;
+}
+.btn-gold:hover{background:rgba(245,196,81,.16);border-color:rgba(245,196,81,.7)}
+.icon-btn{
+  width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;
+  color:var(--text-dim);border:1px solid transparent;transition:.15s;
+}
+.icon-btn:hover{background:var(--bg-raise);color:var(--text-primary);border-color:var(--line-soft)}
+.pill{
+  height:28px;padding:0 11px;border-radius:999px;border:1px solid var(--line-soft);
+  display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);background:var(--bg-sunk);
+}
+.dot{width:6px;height:6px;border-radius:99px;flex:none}
+
+/* art placeholders */
+.art{position:relative;overflow:hidden;background:var(--bg-sunk)}
+.art::after{content:"";position:absolute;inset:0;background:
+  radial-gradient(120% 80% at 20% 0%,rgba(255,255,255,.10),transparent 60%);pointer-events:none}
+.g1{background:linear-gradient(150deg,#1B2E4A,#3E5C86 55%,#8FA9C9)}
+.g2{background:linear-gradient(150deg,#2A1B3D,#5B3A6E 55%,#C08BB0)}
+.g3{background:linear-gradient(150deg,#0E3A34,#1C7A66 55%,#7FD8C0)}
+.g4{background:linear-gradient(150deg,#3D2413,#8A4A22 55%,#E0A167)}
+.g5{background:linear-gradient(150deg,#101826,#243A54 55%,#5E7FA6)}
+.g6{background:linear-gradient(150deg,#2B0F19,#7A2338 55%,#D9738C)}
+.g7{background:linear-gradient(150deg,#151A24,#2E3646 60%,#59617A)}
+.sketch{
+  background:
+    repeating-linear-gradient(45deg,rgba(255,255,255,.035) 0 6px,transparent 6px 12px),
+    #12161F;
+}
+
+/* ================= HOME ================= */
+#home{height:100%;overflow-y:auto}
+.home-wrap{max-width:1180px;margin:0 auto;padding:34px 40px 90px}
+.home-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:40px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.01em}
+.logo-mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,#00D4AA,#0B7F9E);
+  display:flex;align-items:center;justify-content:center;font-size:13px;color:#04120E;font-weight:800}
+.home-hero{margin-bottom:44px}
+.home-hero h1{font-size:34px;line-height:1.15;font-weight:680;letter-spacing:-.025em;margin-bottom:10px}
+.home-hero p{color:var(--text-dim);font-size:15px;max-width:640px}
+.sec{margin-bottom:46px}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+.sec-head h2{font-size:16px;font-weight:620;letter-spacing:-.01em}
+.sec-head .sub{color:var(--text-faint);font-size:12.5px}
+
+.chan-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.chan{
+  text-align:left;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-surface);
+  overflow:hidden;transition:.18s;display:flex;flex-direction:column;
+}
+.chan:hover{transform:translateY(-3px);border-color:rgba(0,212,170,.4);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.chan .art{height:84px}
+.chan-body{padding:13px 15px 15px}
+.chan-body h3{font-size:14.5px;font-weight:620;margin-bottom:4px}
+.chan-body p{font-size:12.5px;color:var(--text-dim);line-height:1.45}
+.chan-foot{margin-top:11px;display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--accent);font-weight:600}
+
+/* describe it */
+.describe{
+  border:1px solid var(--line);border-radius:var(--r);background:
+   linear-gradient(180deg,rgba(0,212,170,.05),rgba(0,212,170,0) 40%),var(--bg-surface);
+  padding:22px;
+}
+.describe-input{
+  display:flex;gap:10px;align-items:center;background:var(--bg-sunk);border:1px solid var(--line-soft);
+  border-radius:12px;padding:12px 12px 12px 16px;transition:.15s;
+}
+.describe-input:focus-within{border-color:rgba(0,212,170,.45);box-shadow:0 0 0 3px rgba(0,212,170,.08)}
+.describe-input input{flex:1;background:none;border:0;outline:none;font-size:15px}
+.describe-input input::placeholder{color:var(--text-faint)}
+.compose{margin-top:20px}
+.compose-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.compose-head .eyebrow{color:var(--accent)}
+.compose-rows{display:flex;flex-direction:column;gap:8px}
+.crow{
+  display:grid;grid-template-columns:190px 1fr;gap:14px;align-items:center;
+  background:var(--bg-sunk);border:1px solid var(--line-soft);border-radius:12px;padding:11px 14px;
+}
+.crow-name{font-size:13px;font-weight:560}
+.crow-name span{display:block;font-size:11px;color:var(--text-faint);font-weight:400;margin-top:2px}
+.tags{display:flex;gap:7px;flex-wrap:wrap}
+.tag{
+  font-size:11px;padding:4px 9px;border-radius:7px;border:1px solid var(--line-soft);
+  background:rgba(255,255,255,.03);color:var(--text-dim);display:inline-flex;gap:5px;align-items:center;
+}
+.tag b{color:var(--text-dim);font-weight:400}
+.tag i{font-style:normal;color:var(--text-primary);font-weight:650;font-size:11px}
+
+/* clone-a-video path */
+.paths{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.step{display:flex;gap:12px;margin-bottom:15px}
+.step-n{width:22px;height:22px;border-radius:99px;flex:none;background:rgba(0,212,170,.12);
+  border:1px solid rgba(0,212,170,.3);color:var(--accent);font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;margin-top:1px}
+.step-b{flex:1;min-width:0}
+.step-b .h{font-size:12.5px;font-weight:620;margin-bottom:6px}
+.inp{
+  display:flex;align-items:center;gap:9px;background:var(--bg-sunk);border:1px solid var(--line-soft);
+  border-radius:10px;padding:9px 11px;font-size:12.5px;
+}
+.inp input{flex:1;background:none;border:0;outline:none;font-size:12.5px}
+.found{background:var(--bg-sunk);border:1px solid var(--line-soft);border-radius:10px;padding:11px 12px}
+.found .tags{margin-bottom:8px}
+.found .why{font-size:11px;color:var(--text-faint);line-height:1.5}
+.found .why b{color:var(--accent);font-weight:600}
+.drop{
+  border:1.5px dashed rgba(255,255,255,.14);border-radius:11px;padding:11px;
+}
+.drop-row{display:flex;gap:7px;margin-bottom:8px}
+.ref{width:52px;height:52px;border-radius:9px;position:relative;overflow:hidden;border:1px solid var(--line-soft)}
+.ref span{position:absolute;left:0;right:0;bottom:0;font-size:8px;text-align:center;padding:2px 1px;
+  background:rgba(5,8,13,.8);color:#D8DEEC}
+.ref-add{width:52px;height:52px;border-radius:9px;border:1.5px dashed rgba(255,255,255,.16);
+  display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:16px}
+.auto-row{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:11px;
+  background:rgba(245,196,81,.06);border:1px solid rgba(245,196,81,.22)}
+.sw-off{width:34px;height:19px;border-radius:99px;background:rgba(255,255,255,.12);position:relative;flex:none;cursor:pointer}
+.sw-off::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:99px;
+  background:var(--text-faint);transition:.18s}
+.sw-off.on{background:rgba(245,196,81,.35)}
+.sw-off.on::after{left:17px;background:var(--gold)}
+
+/* saved styles empty */
+.empty{
+  border:1px dashed rgba(245,196,81,.3);border-radius:var(--r);padding:30px;
+  background:linear-gradient(180deg,rgba(245,196,81,.045),transparent);
+  display:flex;gap:24px;align-items:flex-start;
+}
+.empty-mark{
+  width:46px;height:46px;border-radius:13px;flex:none;display:flex;align-items:center;justify-content:center;
+  background:rgba(245,196,81,.12);border:1px solid rgba(245,196,81,.3);
+}
+.empty h3{font-size:15px;margin-bottom:7px;font-weight:620}
+.empty p{color:var(--text-dim);font-size:13px;max-width:620px;line-height:1.6;margin-bottom:8px}
+
+/* recent */
+.recent{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px}
+.vid{width:212px;flex:none;text-align:left;border:1px solid var(--line-soft);border-radius:14px;
+  background:var(--bg-surface);overflow:hidden;transition:.18s}
+.vid:hover{border-color:rgba(0,212,170,.4);transform:translateY(-3px)}
+.vid .art{height:118px;display:flex;align-items:flex-end;padding:8px}
+.vid-body{padding:11px 12px 13px}
+.vid-body h4{font-size:13px;font-weight:560;line-height:1.35;margin-bottom:8px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:35px}
+.vid-foot{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-faint)}
+.status{font-size:10.5px;padding:3px 8px;border-radius:99px;font-weight:600;letter-spacing:.02em}
+.st-done{background:rgba(0,212,170,.14);color:var(--accent)}
+.st-run{background:rgba(245,196,81,.14);color:var(--gold)}
+.st-draft{background:rgba(255,255,255,.07);color:var(--text-dim)}
+.st-fail{background:rgba(255,77,106,.14);color:var(--red)}
+
+/* ================= APP SHELL ================= */
+#app{height:100%;display:flex;flex-direction:column}
+.topbar{
+  height:54px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;
+  background:var(--bg-surface);border-bottom:1px solid var(--line);position:relative;z-index:40;
+}
+.top-left{display:flex;align-items:center;gap:10px;width:330px;min-width:0}
+.proj{min-width:0}
+.proj .t{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proj .s{font-size:11px;color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.segbar{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:2px;
+  background:var(--bg-sunk);border:1px solid var(--line-soft);border-radius:10px;padding:3px}
+.seg{height:26px;padding:0 16px;border-radius:7px;font-size:12.5px;font-weight:560;color:var(--text-dim);transition:.15s}
+.seg:hover{color:var(--text-primary)}
+.seg.on{background:rgba(0,212,170,.14);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(0,212,170,.28)}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.divider{width:1px;height:22px;background:var(--line-soft)}
+
+/* cost dial */
+.cost-wrap{position:relative}
+.cost-pill{
+  height:32px;padding:0 12px;border-radius:10px;display:flex;align-items:center;gap:9px;
+  border:1px solid rgba(0,212,170,.35);background:rgba(0,212,170,.08);transition:.15s;
+}
+.cost-pill:hover{background:rgba(0,212,170,.15);border-color:rgba(0,212,170,.6)}
+.cost-pill .lab{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint);line-height:1}
+.cost-pill .amt{font-size:15px;font-weight:700;color:var(--accent);line-height:1.1;font-variant-numeric:tabular-nums}
+.cost-pop{
+  position:absolute;right:0;top:42px;width:396px;background:var(--bg-surface);
+  border:1px solid var(--line);border-radius:var(--r);box-shadow:0 26px 60px rgba(0,0,0,.7);
+  padding:18px;z-index:60;
+}
+.pop-title{font-size:14.5px;font-weight:640;margin-bottom:4px}
+.pop-sub{font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:15px}
+.opt{
+  width:100%;text-align:left;display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:12px;
+  border:1px solid var(--line-soft);background:var(--bg-sunk);margin-bottom:9px;transition:.15s;
+}
+.opt:hover{border-color:rgba(0,212,170,.35)}
+.opt.on{border-color:var(--accent);background:rgba(0,212,170,.07)}
+.radio{width:16px;height:16px;border-radius:99px;border:1.5px solid var(--text-faint);flex:none;position:relative}
+.opt.on .radio{border-color:var(--accent)}
+.opt.on .radio::after{content:"";position:absolute;inset:3px;border-radius:99px;background:var(--accent)}
+.opt-main{flex:1;min-width:0}
+.opt-main .n{font-size:13px;font-weight:580}
+.opt-main .d{font-size:11.5px;color:var(--text-faint);margin-top:2px}
+.opt-price{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.spread{
+  margin-top:12px;padding:11px 13px;border-radius:11px;background:rgba(255,77,106,.07);
+  border:1px solid rgba(255,77,106,.22);font-size:11.5px;color:var(--text-dim);line-height:1.5;
+}
+.spread b{color:var(--red)}
+
+/* ---------- body columns ---------- */
+.cols{flex:1;display:flex;min-height:0}
+
+/* chat */
+.chat{width:412px;flex:none;border-right:1px solid var(--line);background:var(--bg-surface);
+  display:flex;flex-direction:column;min-height:0}
+.chat-head{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;border-bottom:1px solid var(--line-soft)}
+.chat-scroll{flex:1;overflow-y:auto;padding:14px 14px 6px}
+.turn-collapsed{
+  width:100%;text-align:left;display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:10px;
+  border:1px solid transparent;color:var(--text-dim);font-size:12.5px;margin-bottom:5px;transition:.15s;
+}
+.turn-collapsed:hover{background:var(--bg-raise);border-color:var(--line-soft);color:var(--text-primary)}
+.turn-collapsed .txt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chev{color:var(--text-faint);flex:none;transition:transform .18s}
+.turn-open{margin-bottom:5px;padding:11px 12px;border-radius:12px;border:1px solid var(--line-soft);
+  background:var(--bg-sunk);font-size:12.5px;color:var(--text-dim);line-height:1.55}
+.msg{margin:14px 0}
+.msg .who{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.avatar{width:20px;height:20px;border-radius:7px;font-size:10px;font-weight:700;display:flex;
+  align-items:center;justify-content:center;flex:none}
+.av-u{background:#2A3245;color:var(--text-dim)}
+.av-a{background:linear-gradient(140deg,#00D4AA,#0B7F9E);color:#04120E}
+.msg .who b{font-size:11.5px;font-weight:600}
+.bubble{font-size:13px;line-height:1.6;color:var(--text-primary)}
+.bubble.user{background:var(--bg-raise);border:1px solid var(--line-soft);padding:10px 12px;border-radius:12px}
+.bubble.ai{color:var(--text-dim)}
+.bubble.ai b{color:var(--text-primary);font-weight:600}
+/* inline result card */
+.result{margin-top:11px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg-sunk)}
+.result-head{padding:11px 13px 9px}
+.result-head .t{font-size:13px;font-weight:600}
+.result-head .s{font-size:11px;color:var(--text-faint);margin-top:2px}
+.player{height:148px;position:relative;display:flex;align-items:center;justify-content:center}
+.play-btn{width:44px;height:44px;border-radius:99px;background:rgba(5,8,13,.55);backdrop-filter:blur(4px);
+  border:1px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;z-index:2}
+.scrub{position:absolute;left:10px;right:10px;bottom:9px;height:3px;border-radius:9px;background:rgba(255,255,255,.25);z-index:2}
+.scrub i{display:block;width:34%;height:100%;border-radius:9px;background:var(--accent)}
+.result-foot{padding:10px 12px;display:flex;align-items:center;justify-content:space-between;
+  border-top:1px solid var(--line-soft)}
+/* composer */
+.composer{flex:none;padding:12px 14px 14px;border-top:1px solid var(--line-soft)}
+.composer-box{border:1px solid var(--line-soft);background:var(--bg-sunk);border-radius:14px;padding:11px 12px 9px;transition:.15s}
+.composer-box:focus-within{border-color:rgba(0,212,170,.4)}
+.composer-box textarea{width:100%;background:none;border:0;outline:none;resize:none;font-size:13px;
+  line-height:1.5;color:var(--text-primary);height:38px}
+.composer-box textarea::placeholder{color:var(--text-faint)}
+.composer-row{display:flex;align-items:center;gap:6px;margin-top:6px}
+.mini{width:27px;height:27px;border-radius:8px;border:1px solid var(--line-soft);display:flex;
+  align-items:center;justify-content:center;color:var(--text-dim);font-size:13px;transition:.15s}
+.mini:hover{background:var(--bg-raise);color:var(--text-primary)}
+.guide{height:27px;padding:0 10px;border-radius:8px;border:1px solid var(--line-soft);font-size:11.5px;
+  color:var(--text-dim);display:flex;align-items:center;gap:5px}
+.guide:hover{color:var(--text-primary);background:var(--bg-raise)}
+.send{width:30px;height:30px;border-radius:99px;margin-left:auto;background:linear-gradient(180deg,#00E4B8,#00B492);
+  color:#04120E;display:flex;align-items:center;justify-content:center}
+
+/* ---------- canvas ---------- */
+.stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-void)}
+.stage-bar{flex:none;height:50px;display:flex;align-items:center;gap:10px;padding:0 20px;
+  border-bottom:1px solid var(--line-soft)}
+.toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-dim)}
+.sw{width:34px;height:19px;border-radius:99px;background:rgba(0,212,170,.3);position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:17px;width:15px;height:15px;border-radius:99px;background:var(--accent)}
+.stage-scroll{flex:1;overflow-y:auto;padding:18px 20px 60px}
+
+.scene{border:1px solid var(--line-soft);border-radius:var(--r);background:var(--bg-surface);margin-bottom:14px}
+.scene-head{display:flex;align-items:center;gap:10px;padding:13px 14px}
+.grip{color:var(--text-faint);cursor:grab;flex:none;letter-spacing:1px;font-size:12px;line-height:1}
+.scene-title{flex:1;min-width:0;font-size:13.5px;font-weight:560;line-height:1.4}
+.scene-title b{color:var(--accent);font-weight:700;margin-right:5px}
+.scene-meta{display:flex;align-items:center;gap:8px;flex:none}
+.scene-body{padding:0 14px 14px}
+.shots{display:flex;gap:11px;overflow-x:auto;padding-bottom:6px}
+.scene.closed .scene-body{display:none}
+.scene.closed .chev{transform:rotate(-90deg)}
+
+.shot{width:186px;flex:none;border:1px solid var(--line-soft);border-radius:13px;background:var(--bg-sunk);
+  overflow:hidden;transition:.16s}
+.shot:hover{border-color:rgba(0,212,170,.35);transform:translateY(-2px)}
+.shot-art{height:104px;position:relative;display:flex;align-items:center;justify-content:center}
+.badge{position:absolute;top:7px;left:7px;font-size:9.5px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;padding:3px 7px;border-radius:6px;background:rgba(5,8,13,.72);backdrop-filter:blur(3px);z-index:2}
+.b-board{color:#9AA3B8}
+.b-pic{color:var(--accent)}
+.b-clip{color:var(--gold)}
+.b-empty{color:var(--text-faint)}
+.dur{position:absolute;bottom:7px;right:7px;font-size:10px;font-weight:600;padding:2px 6px;border-radius:5px;
+  background:rgba(5,8,13,.72);color:#fff;z-index:2}
+.play-sm{width:30px;height:30px;border-radius:99px;background:rgba(5,8,13,.5);border:1px solid rgba(255,255,255,.35);
+  display:flex;align-items:center;justify-content:center;z-index:2}
+.shot-body{padding:9px 10px 10px}
+.shot-desc{font-size:11.5px;color:var(--text-dim);line-height:1.4;height:32px;overflow:hidden;margin-bottom:8px}
+.chip{
+  width:100%;height:26px;border-radius:8px;border:1px solid var(--line-soft);background:rgba(255,255,255,.03);
+  display:flex;align-items:center;gap:6px;padding:0 8px;font-size:11px;color:var(--text-dim);transition:.15s;
+}
+.chip:hover{border-color:rgba(0,212,170,.45);background:rgba(0,212,170,.07);color:var(--text-primary)}
+.chip .price{margin-left:auto;font-weight:700;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.chip.premium{border-color:rgba(245,196,81,.35)}
+.chip.premium .price{color:var(--gold)}
+.add-shot{width:186px;flex:none;border:1.5px dashed rgba(255,255,255,.14);border-radius:13px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-faint);
+  font-size:12px;min-height:180px;transition:.15s}
+.add-shot:hover{border-color:rgba(0,212,170,.45);color:var(--accent);background:rgba(0,212,170,.04)}
+.empty-shot{background:repeating-linear-gradient(45deg,rgba(255,255,255,.03) 0 8px,transparent 8px 16px),#0C1018;
+  color:var(--text-faint);font-size:11px;text-align:center;padding:0 12px}
+
+/* right rail */
+.rail{width:340px;flex:none;border-left:1px solid var(--line);background:var(--bg-surface);
+  display:flex;flex-direction:column;min-height:0}
+.rail-tabs{flex:none;display:flex;padding:7px 7px;gap:2px;border-bottom:1px solid var(--line-soft)}
+.rtab{flex:1;min-width:0;height:46px;border-radius:9px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:3px;color:var(--text-faint);transition:.15s}
+.rtab svg{width:15px;height:15px;flex:none}
+.rtab span{font-size:9.5px;font-weight:600;letter-spacing:.01em;white-space:nowrap;line-height:1}
+.rtab:hover{color:var(--text-primary);background:rgba(255,255,255,.03)}
+.rtab.on{background:rgba(0,212,170,.12);color:var(--accent)}
+
+/* media type segmented control */
+.mseg{display:flex;gap:2px;background:var(--bg-sunk);border:1px solid var(--line-soft);
+  border-radius:10px;padding:3px;margin-bottom:11px}
+.mseg button{flex:1;height:25px;border-radius:7px;font-size:11px;font-weight:550;
+  color:var(--text-faint);transition:.15s;white-space:nowrap}
+.mseg button:hover{color:var(--text-primary)}
+.mseg button.on{background:rgba(0,212,170,.14);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(0,212,170,.26)}
+
+/* storyboard sheet thumbnail */
+.sheetthumb{background:#0B0F17;padding:5px 5px 15px}
+.sheet-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:3px;height:100%}
+.sheet-grid i{border-radius:2px;border:1px solid rgba(255,255,255,.08);
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.05) 0 4px,transparent 4px 8px),#141A26}
+/* video thumbnail extras */
+.tplay{position:absolute;top:50%;left:50%;transform:translate(-50%,-58%);width:22px;height:22px;
+  border-radius:99px;background:rgba(5,8,13,.5);border:1px solid rgba(255,255,255,.35);
+  display:flex;align-items:center;justify-content:center;font-size:8px;color:#fff;z-index:2}
+.tdur{position:absolute;top:4px;right:4px;font-size:8.5px;font-style:normal;font-weight:700;
+  padding:1px 5px;border-radius:4px;background:rgba(5,8,13,.75);color:#fff;z-index:2}
+
+/* voice + music takes */
+.take{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:11px;
+  border:1px solid var(--line-soft);background:var(--bg-sunk);margin-bottom:7px}
+.take.on{border-color:rgba(0,212,170,.35);background:rgba(0,212,170,.05)}
+.take-play{width:26px;height:26px;border-radius:99px;border:1px solid var(--line-soft);flex:none;
+  display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-dim);transition:.15s}
+.take-play:hover{border-color:rgba(0,212,170,.45);color:var(--accent)}
+.take-b{flex:1;min-width:0}
+.take-n{font-size:12px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.take-s{font-size:10.5px;color:var(--text-faint);margin-top:1px}
+.wave{display:flex;align-items:center;gap:1.5px;height:20px;flex:none;width:56px;overflow:hidden}
+.wave i{width:2px;border-radius:2px;background:rgba(0,212,170,.5)}
+.wave.gold i{background:rgba(245,196,81,.5)}
+.rail-scroll{flex:1;overflow-y:auto;padding:14px}
+.panel{margin-bottom:22px}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.panel-head h3{font-size:12.5px;font-weight:620}
+.filters{display:flex;gap:7px;margin-bottom:11px}
+.sel{flex:1;height:27px;border-radius:8px;border:1px solid var(--line-soft);background:var(--bg-sunk);
+  font-size:11.5px;color:var(--text-dim);padding:0 7px;outline:none}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.thumb{aspect-ratio:1;border-radius:9px;position:relative;overflow:hidden;border:1px solid var(--line-soft)}
+.thumb span{position:absolute;left:0;right:0;bottom:0;padding:3px 5px;font-size:9px;
+  background:linear-gradient(transparent,rgba(5,8,13,.85));color:#D8DEEC;text-align:center}
+.add-tile{aspect-ratio:1;border-radius:9px;border:1.5px dashed rgba(255,255,255,.14);display:flex;
+  align-items:center;justify-content:center;color:var(--text-faint);font-size:17px;transition:.15s}
+.add-tile:hover{border-color:rgba(0,212,170,.45);color:var(--accent)}
+.sub-head{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);
+  font-weight:700;margin:14px 0 8px}
+
+/* timeline */
+.tl{padding:22px}
+.tl-panel{border:1px solid var(--line-soft);border-radius:var(--r);background:var(--bg-surface);overflow:hidden}
+.tl-bar{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+.ruler{position:relative;height:26px;border-bottom:1px solid var(--line-soft);background:var(--bg-sunk)}
+.tick{position:absolute;top:0;bottom:0;border-left:1px solid rgba(255,255,255,.09)}
+.tick span{position:absolute;top:6px;left:5px;font-size:9.5px;color:var(--text-faint)}
+.lane{display:flex;align-items:stretch;border-bottom:1px solid var(--line-soft);min-height:56px}
+.lane-name{width:92px;flex:none;border-right:1px solid var(--line-soft);padding:9px 11px;font-size:11px;
+  color:var(--text-dim);background:var(--bg-sunk)}
+.lane-track{flex:1;position:relative;padding:8px;display:flex;gap:4px}
+.clipblk{border-radius:7px;height:40px;position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.12)}
+.clipblk span{position:absolute;bottom:3px;left:5px;font-size:9px;color:#EAF0FF;text-shadow:0 1px 3px #000}
+.audblk{height:40px;border-radius:7px;background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.32);
+  display:flex;align-items:center;gap:2px;padding:0 7px;overflow:hidden}
+.audblk i{display:block;width:2px;background:rgba(0,212,170,.65);border-radius:2px}
+.playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--red);z-index:5;left:34%}
+.playhead::before{content:"";position:absolute;top:-6px;left:-5px;width:12px;height:12px;border-radius:3px;
+  background:var(--red)}
+.tl-frame{position:relative}
+
+/* soon panel */
+.soon{padding:60px 22px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px}
+.soon h3{font-size:17px;font-weight:620}
+.soon p{color:var(--text-dim);font-size:13px;max-width:440px;line-height:1.6}
+
+/* ---------- overlays ---------- */
+.scrim{position:fixed;inset:0;background:rgba(3,5,9,.7);backdrop-filter:blur(3px);z-index:100;
+  display:flex;align-items:center;justify-content:center;padding:24px}
+.modal{width:520px;max-width:100%;background:var(--bg-surface);border:1px solid var(--line);
+  border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,.75);overflow:hidden}
+.modal-head{padding:20px 22px 14px;border-bottom:1px solid var(--line-soft)}
+.modal-head h3{font-size:16px;font-weight:640;margin-bottom:5px}
+.modal-head p{font-size:12.5px;color:var(--text-dim);line-height:1.55}
+.modal-body{padding:16px 22px}
+.modal-foot{padding:14px 22px 18px;display:flex;gap:9px;justify-content:flex-end;border-top:1px solid var(--line-soft)}
+.field label{display:block;font-size:11.5px;color:var(--text-dim);margin-bottom:6px}
+.field input{width:100%;height:40px;border-radius:11px;border:1px solid var(--line-soft);background:var(--bg-sunk);
+  padding:0 13px;outline:none;font-size:14px}
+.field input:focus{border-color:rgba(0,212,170,.5)}
+.note{margin-top:14px;padding:12px 13px;border-radius:11px;background:rgba(0,212,170,.06);
+  border:1px solid rgba(0,212,170,.2);font-size:12px;color:var(--text-dim);line-height:1.55}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-raise);
+  border:1px solid var(--line);border-radius:12px;padding:11px 18px;font-size:13px;z-index:200;
+  box-shadow:0 14px 40px rgba(0,0,0,.6)}
+</style>
+</head>
+<body>
+
+<!-- ==================== SCREEN 2: HOME ==================== -->
+<div id="home">
+ <div class="home-wrap">
+
+  <div class="home-top">
+    <div class="logo"><div class="logo-mark">S</div> StoryEngine</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="pill"><span class="dot" style="background:var(--accent)"></span> 4 looks ready</div>
+      <button class="btn">Settings</button>
+    </div>
+  </div>
+
+  <div class="home-hero">
+    <h1>What are we making today?</h1>
+    <p>Start from a channel you've already built, or describe something new and let the engine compose a style out of the parts it already knows.</p>
+  </div>
+
+  <!-- channels -->
+  <div class="sec">
+    <div class="sec-head">
+      <h2>Start from a channel you've built</h2>
+      <div class="sub">How it's built, written and drawn — already locked in</div>
+    </div>
+    <div class="chan-grid">
+      <button class="chan" onclick="openCanvas('Bilingual Character Cartoon')">
+        <div class="art g2"></div>
+        <div class="chan-body">
+          <h3>Bilingual Character Cartoon</h3>
+          <p>Animated characters talking, two languages side by side</p>
+          <div class="chan-foot">Open <span>&rsaquo;</span></div>
+        </div>
+      </button>
+      <button class="chan" onclick="openCanvas('Simple-Language Cartoon')">
+        <div class="art g3"></div>
+        <div class="chan-body">
+          <h3>Simple-Language Cartoon</h3>
+          <p>Animation that teaches with easy words, built for learners</p>
+          <div class="chan-foot">Open <span>&rsaquo;</span></div>
+        </div>
+      </button>
+      <button class="chan" onclick="openCanvas('Animated Investigation')">
+        <div class="art g6"></div>
+        <div class="chan-body">
+          <h3>Animated Investigation</h3>
+          <p>A research deep-dive told with illustrations</p>
+          <div class="chan-foot">Open <span>&rsaquo;</span></div>
+        </div>
+      </button>
+      <button class="chan" onclick="openCanvas('Photo Documentary')">
+        <div class="art g5"></div>
+        <div class="chan-body">
+          <h3>Photo Documentary</h3>
+          <p>Real photographs with documentary narration, images sequenced to the script</p>
+          <div class="chan-foot">Open <span>&rsaquo;</span></div>
+        </div>
+      </button>
+    </div>
+  </div>
+
+  <!-- describe -->
+  <div class="sec">
+    <div class="sec-head">
+      <h2>Or just describe it</h2>
+      <div class="sub">The engine builds a new style out of the parts it already knows</div>
+    </div>
+    <div class="describe">
+      <div class="describe-input">
+        <span style="color:var(--accent);font-size:16px">&#9679;</span>
+        <input value="A short doc about why nobody fixes potholes — dry, funny, ends on a real number" spellcheck="false">
+        <button class="btn btn-primary" onclick="openCanvas('Custom style')">Compose style &rarr;</button>
+      </div>
+
+      <div class="compose">
+        <div class="compose-head">
+          <div class="eyebrow">Here's what it picked</div>
+          <div style="font-size:11.5px;color:var(--text-faint)">For each part of the video it picks how to build it, how to write it, and how it should look</div>
+        </div>
+        <div class="compose-rows">
+          <div class="crow">
+            <div class="crow-name">The opening<span>First 20 seconds</span></div>
+            <div class="tags">
+              <div class="tag"><i>Built like</i><b>an investigation</b></div>
+              <div class="tag"><i>Written like</i><b>a photo documentary</b></div>
+              <div class="tag"><i>Looks like</i><b>a character cartoon</b></div>
+            </div>
+          </div>
+          <div class="crow">
+            <div class="crow-name">The middle<span>Where the proof goes</span></div>
+            <div class="tags">
+              <div class="tag"><i>Built like</i><b>a photo documentary</b></div>
+              <div class="tag"><i>Written like</i><b>an investigation</b></div>
+              <div class="tag"><i>Looks like</i><b>a photo documentary</b></div>
+            </div>
+          </div>
+          <div class="crow">
+            <div class="crow-name">The ending<span>Last 45 seconds</span></div>
+            <div class="tags">
+              <div class="tag"><i>Built like</i><b>simple language</b></div>
+              <div class="tag"><i>Written like</i><b>a character cartoon</b></div>
+              <div class="tag"><i>Looks like</i><b>an investigation</b></div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:12px;font-size:11.5px;color:var(--text-faint);line-height:1.55">
+          Three dials per section: <b style="color:var(--text-dim)">Built like</b> is the order and pacing,
+          <b style="color:var(--text-dim)">Written like</b> is how the script sounds,
+          <b style="color:var(--text-dim)">Looks like</b> is how it's drawn or shot. It mixes them freely.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- clone a video -->
+  <div class="sec">
+    <div class="sec-head">
+      <h2>Or clone a video you like</h2>
+      <div class="sub">Drop one in, tell it your twist, let it run</div>
+    </div>
+    <div class="describe">
+      <div class="paths">
+
+        <div>
+          <div class="step">
+            <div class="step-n">1</div>
+            <div class="step-b">
+              <div class="h">Paste a video link</div>
+              <div class="inp">
+                <span style="color:var(--accent)">&#128279;</span>
+                <input value="https://youtube.com/watch?v=9Xk1p2Qd7Lm" spellcheck="false">
+                <span class="pill" style="height:22px;font-size:10.5px"><span class="dot" style="background:var(--accent)"></span> Read</span>
+              </div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:6px">YouTube, Instagram or TikTok</div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-n">2</div>
+            <div class="step-b">
+              <div class="h">What we found</div>
+              <div class="found">
+                <div class="tags">
+                  <div class="tag"><i>Built like</i><b>a fast hook and payoff</b></div>
+                  <div class="tag"><i>Written like</i><b>punchy narration</b></div>
+                  <div class="tag"><i>Looks like</i><b>photorealistic live-action</b></div>
+                </div>
+                <div class="why">We pulled real frames from the middle of the video and described what is actually on screen &mdash; so when the footage is real people, it says <b>live-action</b>. It never guesses "cartoon" at a real video.</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div>
+          <div class="step">
+            <div class="step-n">3</div>
+            <div class="step-b">
+              <div class="h">Make it yours</div>
+              <div class="inp"><input value="Same energy, but do it with Pokemon." spellcheck="false"></div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-n">4</div>
+            <div class="step-b">
+              <div class="h">Reference images</div>
+              <div class="drop">
+                <div class="drop-row">
+                  <div class="ref art g4"><span>Pikachu</span></div>
+                  <div class="ref art g3"><span>Bulbasaur</span></div>
+                  <div class="ref art g6"><span>Charizard</span></div>
+                  <button class="ref-add">+</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-faint);line-height:1.5">
+                  Drop pictures so it knows exactly which ones you mean &mdash; which character, which product, which person.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-n">5</div>
+            <div class="step-b">
+              <div class="h">Build it</div>
+              <div class="auto-row">
+                <span class="sw-off" onclick="this.classList.toggle('on')"></span>
+                <div style="flex:1">
+                  <div style="font-size:12.5px;font-weight:560">Automate this</div>
+                  <div style="font-size:11px;color:var(--text-faint)">Keep making these on a schedule</div>
+                </div>
+                <button class="btn btn-primary" onclick="openCanvas('Cloned video')">Build &rarr;</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- saved styles: honest empty state -->
+  <div class="sec">
+    <div class="sec-head">
+      <h2>Your saved styles</h2>
+      <div class="sub">0 saved</div>
+    </div>
+    <div class="empty">
+      <div class="empty-mark" style="color:var(--gold);font-size:20px">&#9733;</div>
+      <div>
+        <h3>You haven't saved a style yet</h3>
+        <p>A style is a finished look you liked, frozen so you can reuse it — how it's built, how it's written, how it looks, and how much you chose to spend, all in one. Save one and it shows up here as a one-click starting point, exactly like the four cards at the top of this page.</p>
+        <p style="color:var(--text-faint)">You save one from inside a video: hit <b style="color:var(--gold)">Lock this as a style</b> on the canvas when a video is looking the way you want.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- recent -->
+  <div class="sec">
+    <div class="sec-head">
+      <h2>Recent videos</h2>
+      <div class="sub">Pick up where you left off</div>
+    </div>
+    <div class="recent">
+      <button class="vid" onclick="openCanvas('Animated Investigation')">
+        <div class="art g1"></div>
+        <div class="vid-body">
+          <h4>The Grey Room — why one button changed everything</h4>
+          <div class="vid-foot"><span class="status st-run">Building</span><span>4 min ago</span></div>
+        </div>
+      </button>
+      <button class="vid" onclick="openCanvas('Photo Documentary')">
+        <div class="art g5"></div>
+        <div class="vid-body">
+          <h4>Who actually owns the water in Arizona</h4>
+          <div class="vid-foot"><span class="status st-done">Rendered</span><span>Yesterday</span></div>
+        </div>
+      </button>
+      <button class="vid" onclick="openCanvas('Bilingual Character Cartoon')">
+        <div class="art g2"></div>
+        <div class="vid-body">
+          <h4>Lupita y el mercado — episode 12</h4>
+          <div class="vid-foot"><span class="status st-done">Published</span><span>2 days ago</span></div>
+        </div>
+      </button>
+      <button class="vid" onclick="openCanvas('Simple-Language Cartoon')">
+        <div class="art g3"></div>
+        <div class="vid-body">
+          <h4>How a bank actually holds your money</h4>
+          <div class="vid-foot"><span class="status st-draft">Script only</span><span>4 days ago</span></div>
+        </div>
+      </button>
+      <button class="vid" onclick="openCanvas('Animated Investigation')">
+        <div class="art g6"></div>
+        <div class="vid-body">
+          <h4>The subcontractor nobody would name</h4>
+          <div class="vid-foot"><span class="status st-fail">Needs a redraw</span><span>6 days ago</span></div>
+        </div>
+      </button>
+    </div>
+  </div>
+
+ </div>
+</div>
+<!-- ==================== SCREEN 1: CANVAS ==================== -->
+<div id="app" class="hide">
+
+  <!-- top bar -->
+  <div class="topbar">
+    <div class="top-left">
+      <button class="icon-btn" onclick="goHome()" title="Back to home">&#8592;</button>
+      <div class="logo-mark">S</div>
+      <div class="proj">
+        <div class="t" id="projTitle">The Grey Room</div>
+        <div class="s"><span id="projChannel">Animated Investigation</span> &middot; 12 scenes &middot; 150 shots</div>
+      </div>
+    </div>
+
+    <div class="segbar">
+      <button class="seg" data-tab="shot" onclick="setTab('shot')">Shot</button>
+      <button class="seg on" data-tab="scene" onclick="setTab('scene')">Scene</button>
+      <button class="seg" data-tab="timeline" onclick="setTab('timeline')">Timeline</button>
+    </div>
+
+    <div class="top-right">
+      <button class="icon-btn" title="Undo">&#8630;</button>
+      <button class="icon-btn" title="Redo">&#8631;</button>
+      <div class="pill">16:9</div>
+      <div class="divider"></div>
+      <button class="btn">Preview</button>
+      <button class="btn">Export</button>
+
+      <!-- OUR COST DIAL -->
+      <div class="cost-wrap">
+        <button class="cost-pill" onclick="toggleCost(event)">
+          <div style="text-align:left">
+            <div class="lab">This video</div>
+            <div class="amt" id="costAmt">$13.50</div>
+          </div>
+          <span style="color:var(--text-faint);font-size:10px">&#9660;</span>
+        </button>
+
+        <div class="cost-pop hide" id="costPop" onclick="event.stopPropagation()">
+          <div class="pop-title">What this video costs</div>
+          <div class="pop-sub">150 shots. The model you pick per shot is the price. Change the mix and the number changes before you spend anything.</div>
+
+          <button class="opt on" onclick="pickCost(this,'$13.50','all draft')">
+            <div class="radio"></div>
+            <div class="opt-main">
+              <div class="n">All draft</div>
+              <div class="d">Grok Imagine &middot; $0.09 / clip &times; 150</div>
+            </div>
+            <div class="opt-price" style="color:var(--accent)">$13.50</div>
+          </button>
+
+          <button class="opt" onclick="pickCost(this,'$18.60','10 heroes premium')">
+            <div class="radio"></div>
+            <div class="opt-main">
+              <div class="n">10 heroes premium</div>
+              <div class="d">140 draft + 10 Seedance 2.0 at $0.60</div>
+            </div>
+            <div class="opt-price" style="color:var(--gold)">$18.60</div>
+          </button>
+
+          <button class="opt" onclick="pickCost(this,'$90.00','all cinematic')">
+            <div class="radio"></div>
+            <div class="opt-main">
+              <div class="n">All cinematic</div>
+              <div class="d">Seedance 2.0 &middot; $0.60 / clip &times; 150</div>
+            </div>
+            <div class="opt-price" style="color:var(--red)">$90.00</div>
+          </button>
+
+          <div class="spread">The gap between draft and cinematic is <b>6.7&times;</b>. Almost every shot doesn't need the expensive model — pay for the ten that carry the video.</div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" onclick="toast('Build queued (mockup — nothing was spent)')">Build</button>
+    </div>
+  </div>
+
+  <div class="cols">
+
+    <!-- ========== CHAT ========== -->
+    <div class="chat">
+      <div class="chat-head">
+        <div style="font-size:12.5px;font-weight:600">Director</div>
+        <button class="icon-btn" title="New thread">+</button>
+      </div>
+
+      <div class="chat-scroll">
+
+        <button class="turn-collapsed" onclick="expandTurn(this)">
+          <span class="txt">Building the outline the way an investigation is built&hellip;</span>
+          <span class="chev">&rsaquo;</span>
+        </button>
+        <button class="turn-collapsed" onclick="expandTurn(this)">
+          <span class="txt">Updating Scene 1 and adding the sister to the bedroom beat</span>
+          <span class="chev">&rsaquo;</span>
+        </button>
+        <button class="turn-collapsed" onclick="expandTurn(this)">
+          <span class="txt">Redrawing shots 3 and 4, the fog was reading too warm</span>
+          <span class="chev">&rsaquo;</span>
+        </button>
+        <button class="turn-collapsed" onclick="expandTurn(this)">
+          <span class="txt">Switched the button close-up to Seedance for the hero moment</span>
+          <span class="chev">&rsaquo;</span>
+        </button>
+
+        <div class="msg">
+          <div class="who"><div class="avatar av-u">R</div><b>You</b></div>
+          <div class="bubble user">Animate scene 1 and 2, keep everything on draft except the button close-up.</div>
+        </div>
+
+        <div class="msg">
+          <div class="who"><div class="avatar av-a">S</div><b>Director</b></div>
+          <div class="bubble ai">
+            Done — 11 clips on <b>Grok Imagine</b>, 1 on <b>Seedance 2.0</b> for the button.
+            Total for this run was <b>$1.59</b>. Here's the cut so far.
+          </div>
+
+          <div class="result">
+            <div class="result-head">
+              <div class="t">Scenes 1&ndash;2 &middot; rough cut</div>
+              <div class="s">1 min 12 s &middot; 12 clips &middot; 1080p</div>
+            </div>
+            <div class="player art g1">
+              <div class="play-btn" style="color:#fff;font-size:14px">&#9654;</div>
+              <div class="scrub"><i></i></div>
+            </div>
+            <div class="result-foot">
+              <span class="pill"><span class="dot" style="background:var(--accent)"></span> Ready</span>
+              <button class="btn" onclick="toast('Download (mockup)')">&#8595; Download</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="composer">
+        <div class="composer-box">
+          <textarea placeholder="What's your vision? Tip: use @ to reference a shot."></textarea>
+          <div class="composer-row">
+            <button class="mini" title="Attach">+</button>
+            <button class="mini" title="Reference a shot">@</button>
+            <button class="guide">Guide me <span style="font-size:9px">&#9660;</span></button>
+            <button class="mini" title="Voice">&#127908;</button>
+            <button class="send" onclick="toast('Sent (mockup)')">&#8593;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- ========== STAGE ========== -->
+    <div class="stage">
+
+      <!-- SCENE VIEW -->
+      <div id="tab-scene">
+        <div class="stage-bar">
+          <button class="btn btn-gold" onclick="openStyle()">&#9733; Lock this as a style</button>
+          <span style="font-size:11.5px;color:var(--text-faint)">Freezes this look so you can start a new video from it</span>
+          <div style="margin-left:auto" class="toggle">Scene Grouping <span class="sw"></span></div>
+        </div>
+
+        <div class="stage-scroll">
+
+          <!-- SCENE 1 -->
+          <div class="scene">
+            <div class="scene-head">
+              <span class="grip">&#8942;&#8942;</span>
+              <button class="icon-btn" onclick="toggleScene(this)"><span class="chev">&#9660;</span></button>
+              <div class="scene-title"><b>1.</b> The Grey Room &mdash; Milo alone in his foggy San Francisco bedroom presses the glowing button</div>
+              <div class="scene-meta">
+                <span class="pill">5 shots</span>
+                <span class="pill"><span class="dot" style="background:var(--gold)"></span> $0.96</span>
+                <button class="icon-btn">&#8943;</button>
+              </div>
+            </div>
+            <div class="scene-body">
+              <div class="shots">
+
+                <div class="shot">
+                  <div class="shot-art art g1">
+                    <span class="badge b-clip">Clip</span>
+                    <div class="play-sm" style="color:#fff;font-size:11px">&#9654;</div>
+                    <span class="dur">6s</span>
+                  </div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Wide. Fog presses on the window, Milo small in the frame.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--accent)"></span> Grok Imagine <span class="price">$0.09</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="shot">
+                  <div class="shot-art art g5">
+                    <span class="badge b-clip">Clip</span>
+                    <div class="play-sm" style="color:#fff;font-size:11px">&#9654;</div>
+                    <span class="dur">6s</span>
+                  </div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Milo turns from the desk, hears the hum start.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--accent)"></span> Grok Imagine <span class="price">$0.09</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="shot">
+                  <div class="shot-art art g4">
+                    <span class="badge b-pic">Picture</span>
+                  </div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Close on the button, amber glow throwing light up his face.</div>
+                    <button class="chip premium" onclick="openModels('Seedance 2.0')">
+                      <span class="dot" style="background:var(--gold)"></span> Seedance 2.0 <span class="price">$0.60</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="shot">
+                  <div class="shot-art sketch">
+                    <span class="badge b-board">Storyboard</span>
+                    <svg width="70" height="46" viewBox="0 0 70 46" fill="none" style="opacity:.55">
+                      <rect x="2" y="2" width="66" height="42" rx="3" stroke="#7C879C"/>
+                      <circle cx="24" cy="20" r="7" stroke="#7C879C"/>
+                      <path d="M14 40c2-8 18-8 20 0M44 12l16 10-16 10z" stroke="#7C879C"/>
+                    </svg>
+                  </div>
+                  <div class="shot-body">
+                    <div class="shot-desc">His hand enters frame. Storyboard panel 4 of 6. Not drawn yet.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--text-faint)"></span> Grok Imagine <span class="price">$0.09</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="shot">
+                  <div class="shot-art empty-shot" style="display:flex;align-items:center;justify-content:center">
+                    <span class="badge b-empty">Empty</span>
+                    <span>Not drawn yet</span>
+                  </div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Reverse on the doorway &mdash; the sister watching.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--text-faint)"></span> Pick a model <span class="price">&mdash;</span>
+                    </button>
+                  </div>
+                </div>
+
+                <button class="add-shot"><span style="font-size:19px">+</span> Add Shot</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SCENE 2 -->
+          <div class="scene">
+            <div class="scene-head">
+              <span class="grip">&#8942;&#8942;</span>
+              <button class="icon-btn" onclick="toggleScene(this)"><span class="chev">&#9660;</span></button>
+              <div class="scene-title"><b>2.</b> Downstairs &mdash; the house has changed and nobody but Milo has noticed</div>
+              <div class="scene-meta">
+                <span class="pill">4 shots</span>
+                <span class="pill"><span class="dot" style="background:var(--accent)"></span> $0.36</span>
+                <button class="icon-btn">&#8943;</button>
+              </div>
+            </div>
+            <div class="scene-body">
+              <div class="shots">
+                <div class="shot">
+                  <div class="shot-art art g3"><span class="badge b-pic">Picture</span></div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Kitchen, too bright. The clock reads the wrong year.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--accent)"></span> Grok Imagine <span class="price">$0.09</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="shot">
+                  <div class="shot-art art g7"><span class="badge b-pic">Picture</span></div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Mid on the sister at the table, not looking up.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--accent)"></span> Grok Imagine <span class="price">$0.09</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="shot">
+                  <div class="shot-art sketch"><span class="badge b-board">Storyboard</span>
+                    <svg width="70" height="46" viewBox="0 0 70 46" fill="none" style="opacity:.55">
+                      <rect x="2" y="2" width="66" height="42" rx="3" stroke="#7C879C"/>
+                      <path d="M8 34h54M20 34V16h14v18" stroke="#7C879C"/>
+                      <circle cx="50" cy="18" r="6" stroke="#7C879C"/>
+                    </svg>
+                  </div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Over-shoulder toward the hallway. Storyboard only, not drawn yet.</div>
+                    <button class="chip" onclick="openModels('Grok Imagine')">
+                      <span class="dot" style="background:var(--text-faint)"></span> Grok Imagine <span class="price">$0.09</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="shot">
+                  <div class="shot-art art g6"><span class="badge b-clip">Clip</span>
+                    <div class="play-sm" style="color:#fff;font-size:11px">&#9654;</div><span class="dur">6s</span></div>
+                  <div class="shot-body">
+                    <div class="shot-desc">Push in on the family photo. One face is missing.</div>
+                    <button class="chip premium" onclick="openModels('Seedance 2.0')">
+                      <span class="dot" style="background:var(--gold)"></span> Seedance 2.0 <span class="price">$0.60</span>
+                    </button>
+                  </div>
+                </div>
+                <button class="add-shot"><span style="font-size:19px">+</span> Add Shot</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- SCENE 3 collapsed -->
+          <div class="scene closed">
+            <div class="scene-head">
+              <span class="grip">&#8942;&#8942;</span>
+              <button class="icon-btn" onclick="toggleScene(this)"><span class="chev">&#9660;</span></button>
+              <div class="scene-title"><b>3.</b> The first proof &mdash; Milo tests the button on something small and it works</div>
+              <div class="scene-meta">
+                <span class="pill">6 shots</span>
+                <span class="pill">$0.54</span>
+                <button class="icon-btn">&#8943;</button>
+              </div>
+            </div>
+            <div class="scene-body"><div class="shots"></div></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- SHOT VIEW -->
+      <div id="tab-shot" class="hide">
+        <div class="soon">
+          <div style="font-size:30px">&#9635;</div>
+          <h3>Shot view</h3>
+          <p>One shot, full width — the still, the prompt that made it, the motion prompt, the model, and a redraw button. Not designed yet; say the word and it gets built out.</p>
+        </div>
+      </div>
+
+      <!-- TIMELINE VIEW -->
+      <div id="tab-timeline" class="hide">
+        <div class="tl">
+          <div class="tl-panel">
+            <div class="tl-bar">
+              <button class="icon-btn">&#9654;</button>
+              <span class="mono" style="font-size:12px;color:var(--text-dim)">00:41 / 02:18</span>
+              <span class="pill" style="margin-left:8px">New &mdash; doesn't exist in the product yet</span>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <button class="btn">Split</button><button class="btn">Fit</button>
+              </div>
+            </div>
+
+            <div class="tl-frame">
+              <div class="ruler" id="ruler"></div>
+
+              <div class="lane">
+                <div class="lane-name">Video</div>
+                <div class="lane-track">
+                  <div class="clipblk g1" style="width:11%"><span>1.1</span></div>
+                  <div class="clipblk g5" style="width:9%"><span>1.2</span></div>
+                  <div class="clipblk g4" style="width:14%"><span>1.3 hero</span></div>
+                  <div class="clipblk g7" style="width:8%"><span>1.4</span></div>
+                  <div class="clipblk g3" style="width:12%"><span>2.1</span></div>
+                  <div class="clipblk g6" style="width:16%"><span>2.4 hero</span></div>
+                  <div class="clipblk g2" style="width:10%"><span>3.1</span></div>
+                </div>
+              </div>
+
+              <div class="lane">
+                <div class="lane-name">Narration</div>
+                <div class="lane-track"><div class="audblk" id="wave1" style="width:62%"></div>
+                  <div class="audblk" id="wave2" style="width:26%"></div></div>
+              </div>
+
+              <div class="lane" style="border-bottom:0">
+                <div class="lane-name">Music &amp; SFX</div>
+                <div class="lane-track">
+                  <div class="audblk" style="width:82%;background:rgba(245,196,81,.1);border-color:rgba(245,196,81,.3)" id="wave3"></div>
+                </div>
+              </div>
+
+              <div class="playhead"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <!-- ========== RIGHT RAIL ========== -->
+    <div class="rail">
+      <div class="rail-tabs">
+        <button class="rtab on" onclick="setRail('media',this)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+            <rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/>
+            <rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/>
+          </svg><span>Media</span>
+        </button>
+        <button class="rtab" onclick="setRail('voice',this)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5v2"/>
+          </svg><span>Voice</span>
+        </button>
+        <button class="rtab" onclick="setRail('music',this)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <path d="M5.5 12V3l8-1.5V11"/><circle cx="3.8" cy="12.2" r="1.9"/><circle cx="11.8" cy="11.2" r="1.9"/>
+          </svg><span>Music</span>
+        </button>
+        <button class="rtab" onclick="setRail('cast',this)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <circle cx="8" cy="5" r="2.8"/><path d="M2.5 14c0-3 2.5-4.6 5.5-4.6s5.5 1.6 5.5 4.6"/>
+          </svg><span>Cast</span>
+        </button>
+        <button class="rtab" onclick="setRail('env',this)">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5" cy="6" r="1.2"/>
+            <path d="M1.8 11.5 6 7.6l3 2.8 2.4-2.2 2.8 2.6"/>
+          </svg><span>Environments</span>
+        </button>
+      </div>
+
+      <div class="rail-scroll">
+
+        <!-- MEDIA -->
+        <div id="rail-media">
+          <div class="panel">
+            <div class="panel-head"><h3>Media</h3><button class="btn" style="height:24px;padding:0 9px;font-size:11px">Upload</button></div>
+
+            <div class="mseg">
+              <button class="on" onclick="setMedia('boards',this)">Storyboards</button>
+              <button onclick="setMedia('images',this)">Images</button>
+              <button onclick="setMedia('videos',this)">Videos</button>
+            </div>
+
+            <!-- storyboards: rough multi-panel sheets -->
+            <div id="media-boards">
+              <div class="grid3">
+                <div class="thumb sheetthumb"><div class="sheet-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Scene 1</span></div>
+                <div class="thumb sheetthumb"><div class="sheet-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Scene 2</span></div>
+                <div class="thumb sheetthumb"><div class="sheet-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Scene 3</span></div>
+                <div class="thumb sheetthumb"><div class="sheet-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Scene 4</span></div>
+                <div class="thumb sheetthumb"><div class="sheet-grid"><i></i><i></i><i></i><i></i><i></i><i></i></div><span>Scene 5</span></div>
+                <button class="add-tile">+</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:9px;line-height:1.5">
+                One rough sheet per scene &mdash; six panels showing the order before anything gets drawn properly.
+              </div>
+            </div>
+
+            <!-- images: finished stills -->
+            <div id="media-images" class="hide">
+              <div class="grid3">
+                <div class="thumb art g1"><span>1.1</span></div>
+                <div class="thumb art g5"><span>1.2</span></div>
+                <div class="thumb art g4"><span>1.3</span></div>
+                <div class="thumb art g3"><span>2.1</span></div>
+                <div class="thumb art g7"><span>2.2</span></div>
+                <div class="thumb art g6"><span>2.4</span></div>
+                <div class="thumb art g2"><span>3.1</span></div>
+                <div class="thumb art g5"><span>3.2</span></div>
+                <button class="add-tile">+</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:9px;line-height:1.5">
+                Finished stills. These are what get animated into clips.
+              </div>
+            </div>
+
+            <!-- videos: play badge + duration -->
+            <div id="media-videos" class="hide">
+              <div class="grid3">
+                <div class="thumb art g1"><b class="tplay">&#9654;</b><em class="tdur">6s</em><span>1.1</span></div>
+                <div class="thumb art g5"><b class="tplay">&#9654;</b><em class="tdur">6s</em><span>1.2</span></div>
+                <div class="thumb art g6"><b class="tplay">&#9654;</b><em class="tdur">6s</em><span>2.4</span></div>
+                <div class="thumb art g4"><b class="tplay">&#9654;</b><em class="tdur">8s</em><span>3.1</span></div>
+                <div class="thumb art g3"><b class="tplay">&#9654;</b><em class="tdur">6s</em><span>3.4</span></div>
+                <button class="add-tile">+</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:9px;line-height:1.5">
+                12 clips made so far &middot; 1 min 12 s of finished video.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VOICE -->
+        <div id="rail-voice" class="hide">
+          <div class="panel">
+            <div class="panel-head"><h3>Narration takes</h3><button class="btn" style="height:24px;padding:0 9px;font-size:11px">Record</button></div>
+            <div class="take on">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Narrator &mdash; scene 1</div><div class="take-s">0:24 &middot; using this one</div></div>
+              <div class="wave"></div>
+            </div>
+            <div class="take">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Narrator &mdash; scene 2</div><div class="take-s">0:31 &middot; using this one</div></div>
+              <div class="wave"></div>
+            </div>
+            <div class="take">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Milo &mdash; the button line</div><div class="take-s">0:06 &middot; take 3 of 3</div></div>
+              <div class="wave"></div>
+            </div>
+            <div class="take">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Sister &mdash; doorway line</div><div class="take-s">0:04 &middot; take 1 of 1</div></div>
+              <div class="wave"></div>
+            </div>
+            <div class="note">Narrator voice is <b>Adam &mdash; dry, low</b>, locked for this look. Tone is set per scene: scene 1 is <b>hushed</b>, scene 2 is <b>flat</b>.</div>
+          </div>
+        </div>
+
+        <!-- MUSIC -->
+        <div id="rail-music" class="hide">
+          <div class="panel">
+            <div class="panel-head"><h3>Music &amp; sound</h3><button class="btn" style="height:24px;padding:0 9px;font-size:11px">Add</button></div>
+            <div class="take on">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Low drone &mdash; unease</div><div class="take-s">2:18 &middot; under the whole cut</div></div>
+              <div class="wave gold"></div>
+            </div>
+            <div class="take">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Room hum</div><div class="take-s">Scene 1, shots 1&ndash;4</div></div>
+              <div class="wave gold"></div>
+            </div>
+            <div class="take">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Button click</div><div class="take-s">Scene 1, shot 3</div></div>
+              <div class="wave gold"></div>
+            </div>
+            <div class="take">
+              <button class="take-play">&#9654;</button>
+              <div class="take-b"><div class="take-n">Kitchen clock tick</div><div class="take-s">Scene 2, shot 1</div></div>
+              <div class="wave gold"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CAST -->
+        <div id="rail-cast" class="hide">
+          <div class="panel">
+            <div class="panel-head"><h3>Cast</h3><button class="btn" style="height:24px;padding:0 9px;font-size:11px">New</button></div>
+            <div class="grid3">
+              <div class="thumb art g2"><span>Milo</span></div>
+              <div class="thumb art g6"><span>Sister</span></div>
+              <div class="thumb art g4"><span>Mother</span></div>
+              <div class="thumb art g5"><span>Neighbour</span></div>
+              <button class="add-tile">+</button>
+            </div>
+            <div class="note">Every drawing in this video is pinned to these sheets. Change a sheet and the shots that use it get flagged for a redraw.</div>
+          </div>
+        </div>
+
+        <!-- ENVIRONMENTS -->
+        <div id="rail-env" class="hide">
+          <div class="panel">
+            <div class="panel-head"><h3>Environments</h3><button class="btn" style="height:24px;padding:0 9px;font-size:11px">New</button></div>
+            <div class="grid3">
+              <div class="thumb art g1"><span>Bedroom</span></div>
+              <div class="thumb art g3"><span>Kitchen</span></div>
+              <div class="thumb art g5"><span>Street</span></div>
+              <div class="thumb art g7"><span>Hallway</span></div>
+              <div class="thumb art g2"><span>Stairwell</span></div>
+              <div class="thumb art g4"><span>Rooftop</span></div>
+              <button class="add-tile">+</button>
+            </div>
+            <div class="note">Every place the story visits, drawn once and reused. A shot set in the kitchen always gets this kitchen.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /cols -->
+</div><!-- /app -->
+
+<!-- ==================== OVERLAYS ==================== -->
+
+<!-- model sheet -->
+<div class="scrim hide" id="modelScrim" onclick="closeModels(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <h3>Pick the model for this shot</h3>
+      <p>Set per shot. Draft is the default for a reason — most shots don't need more, and cinematic costs 6.7&times; as much.</p>
+    </div>
+    <div class="modal-body" id="modelList"></div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModels()">Cancel</button>
+      <button class="btn btn-primary" onclick="applyModel()">Use this model</button>
+    </div>
+  </div>
+</div>
+
+<!-- save style dialog -->
+<div class="scrim hide" id="styleScrim" onclick="closeStyle(event)">
+  <div class="modal" style="width:470px" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <h3>&#9733; Lock this as a style</h3>
+      <p>Saves how this video is put together so you can start a new one from it in one click.</p>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Name this style</label>
+        <input id="styleName" value="Grey Room — cold doc" spellcheck="false">
+      </div>
+      <div class="note">
+        Saving how this one is <b>built</b>, how it's <b>written</b>, how it <b>looks</b>, the narrator's voice, and
+        what you chose to spend (<b>cheap everywhere, expensive on the big moments</b>).
+        It shows up on your home screen next to the four cards at the top.
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeStyle()">Cancel</button>
+      <button class="btn btn-gold" onclick="saveStyle()">Save style</button>
+    </div>
+  </div>
+</div>
+<script>
+/* ---------- screens ---------- */
+function openCanvas(channel){
+  document.getElementById('projChannel').textContent = channel;
+  document.getElementById('home').classList.add('hide');
+  document.getElementById('app').classList.remove('hide');
+  window.scrollTo(0,0);
+}
+function goHome(){
+  document.getElementById('app').classList.add('hide');
+  document.getElementById('home').classList.remove('hide');
+  closeCost();
+}
+
+/* ---------- top tabs ---------- */
+function setTab(name){
+  ['shot','scene','timeline'].forEach(function(t){
+    document.getElementById('tab-'+t).classList.toggle('hide', t!==name);
+  });
+  document.querySelectorAll('.seg').forEach(function(b){
+    b.classList.toggle('on', b.dataset.tab===name);
+  });
+}
+
+/* ---------- cost dial ---------- */
+function toggleCost(e){
+  e.stopPropagation();
+  document.getElementById('costPop').classList.toggle('hide');
+}
+function closeCost(){ document.getElementById('costPop').classList.add('hide'); }
+function pickCost(el, amount, label){
+  document.querySelectorAll('#costPop .opt').forEach(function(o){o.classList.remove('on')});
+  el.classList.add('on');
+  document.getElementById('costAmt').textContent = amount;
+  toast('Cost plan set to ' + label + ' — ' + amount);
+}
+
+/* ---------- model sheet ---------- */
+var MODELS = [
+  {n:'Grok Imagine',        d:'6s clip · draft quality · the default',      p:'$0.09', tag:'draft',     c:'var(--accent)'},
+  {n:'Seedance 2.0 Cinematic', d:'6s clip · standard cinematic',            p:'$0.60', tag:'standard',  c:'var(--gold)'},
+  {n:'Veo 3.1 Fast',        d:'8s clip · faster, looser',                   p:'$0.30', tag:'',          c:'var(--text-dim)'},
+  {n:'Veo 3.1 Quality',     d:'8s clip · the expensive one',                p:'$1.25', tag:'',          c:'var(--red)'}
+];
+var pendingModel = null;
+function openModels(current){
+  pendingModel = current;
+  renderModels();
+  document.getElementById('modelScrim').classList.remove('hide');
+}
+function renderModels(){
+  var html = MODELS.map(function(m){
+    var on = (m.n.indexOf(pendingModel)===0) ? ' on' : '';
+    return '<button class="opt'+on+'" onclick="chooseModel(\''+m.n+'\')">'+
+      '<div class="radio"></div>'+
+      '<div class="opt-main"><div class="n">'+m.n+(m.tag?' <span style="font-size:10px;color:var(--text-faint)">· '+m.tag+'</span>':'')+'</div>'+
+      '<div class="d">'+m.d+'</div></div>'+
+      '<div class="opt-price" style="color:'+m.c+'">'+m.p+'</div></button>';
+  }).join('');
+  html += '<div class="spread">Draft to cinematic is a <b>6.7&times;</b> jump per clip. On a 150-shot video that is the difference between <b>$13.50</b> and <b>$90.00</b>.</div>';
+  document.getElementById('modelList').innerHTML = html;
+}
+function chooseModel(name){ pendingModel = name; renderModels(); }
+function applyModel(){ closeModels(); toast(pendingModel + ' set for this shot (mockup)'); }
+function closeModels(e){
+  if(e && e.target !== e.currentTarget) return;
+  document.getElementById('modelScrim').classList.add('hide');
+}
+
+/* ---------- save style ---------- */
+function openStyle(){ document.getElementById('styleScrim').classList.remove('hide'); }
+function closeStyle(e){
+  if(e && e.target !== e.currentTarget) return;
+  document.getElementById('styleScrim').classList.add('hide');
+}
+function saveStyle(){
+  var n = document.getElementById('styleName').value || 'Untitled style';
+  closeStyle();
+  toast('Saved "' + n + '" — it now shows on your home screen');
+}
+
+/* ---------- rail tabs ---------- */
+function setRail(name, btn){
+  ['media','voice','music','cast','env'].forEach(function(t){
+    document.getElementById('rail-'+t).classList.toggle('hide', t!==name);
+  });
+  document.querySelectorAll('.rtab').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');
+}
+
+/* ---------- media type filter ---------- */
+function setMedia(type, btn){
+  ['boards','images','videos'].forEach(function(t){
+    document.getElementById('media-'+t).classList.toggle('hide', t!==type);
+  });
+  document.querySelectorAll('.mseg button').forEach(function(b){b.classList.remove('on')});
+  btn.classList.add('on');
+}
+
+/* ---------- scene collapse ---------- */
+function toggleScene(btn){ btn.closest('.scene').classList.toggle('closed'); }
+
+/* ---------- chat turn expand ---------- */
+function expandTurn(btn){
+  var text = btn.querySelector('.txt').textContent;
+  var open = document.createElement('div');
+  open.className = 'turn-open';
+  open.innerHTML = '<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">'+
+    '<b style="color:var(--text-primary);font-size:11.5px">Director</b>'+
+    '<button class="icon-btn" style="width:20px;height:20px" onclick="collapseTurn(this,\''+
+      text.replace(/'/g,"\\'") + '\')">&#9650;</button></div>' + text +
+    '. Applied to the canvas and the cost updated. Nothing was redrawn, so this step was free.';
+  btn.replaceWith(open);
+}
+function collapseTurn(btn, text){
+  var b = document.createElement('button');
+  b.className = 'turn-collapsed';
+  b.onclick = function(){ expandTurn(b); };
+  b.innerHTML = '<span class="txt"></span><span class="chev">&rsaquo;</span>';
+  b.querySelector('.txt').textContent = text;
+  btn.closest('.turn-open').replaceWith(b);
+}
+
+/* ---------- toast ---------- */
+var toastTimer = null;
+function toast(msg){
+  var old = document.querySelector('.toast');
+  if(old) old.remove();
+  var t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ t.remove(); }, 2600);
+}
+
+/* ---------- global closers ---------- */
+document.addEventListener('click', closeCost);
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){
+    closeCost();
+    document.getElementById('modelScrim').classList.add('hide');
+    document.getElementById('styleScrim').classList.add('hide');
+  }
+});
+
+/* ---------- deep links (handy for demoing a specific screen) ---------- */
+window.addEventListener('DOMContentLoaded', function(){
+  var h = location.hash.replace('#','');
+  if(h === 'canvas' || h === 'timeline' || h === 'shot'){
+    openCanvas('Animated Investigation');
+    if(h !== 'canvas') setTab(h);
+  }
+});
+
+/* ---------- build timeline ruler + waveforms ---------- */
+(function(){
+  var ruler = document.getElementById('ruler');
+  var html = '';
+  for(var i=0;i<=11;i++){
+    var secs = i*13, m = Math.floor(secs/60), s = secs%60;
+    html += '<div class="tick" style="left:'+(i*(100/11))+'%"><span>'+m+':'+(s<10?'0':'')+s+'</span></div>';
+  }
+  ruler.innerHTML = html;
+  document.querySelectorAll('.take .wave').forEach(function(w, n){
+    var bars = '';
+    for(var i=0;i<18;i++){
+      bars += '<i style="height:'+(4 + Math.round(Math.abs(Math.sin(i*0.9 + n))*13))+'px"></i>';
+    }
+    w.innerHTML = bars;
+  });
+  ['wave1','wave2','wave3'].forEach(function(id){
+    var el = document.getElementById(id);
+    var bars = '';
+    for(var i=0;i<70;i++){
+      bars += '<i style="height:'+(6 + Math.round(Math.abs(Math.sin(i*0.7))*24))+'px"></i>';
+    }
+    el.innerHTML = bars;
+  });
+})();
+</script>
+</body>
+</html>

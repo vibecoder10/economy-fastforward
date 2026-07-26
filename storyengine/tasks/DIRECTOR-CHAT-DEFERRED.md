@@ -2,6 +2,26 @@
 
 Four items built and wired but not verifiable in this sandbox. Exact proof level reached and test recipes below.
 
+## Deploy attempt 2026-07-26: BLOCKED by merge conflicts, checks below NOT run
+
+Gate check `git merge-base --is-ancestor origin/main feat/director-chat` returned `1` (branch does
+not contain main's tip). `origin/main` had moved 109 commits past the branch's last sync point
+(merge-base `8e7c495f`, 2026-07-24 22:05) up to tip `cd7b7d80` (2026-07-26 11:43), including 7
+commits from today's Custom Film / Scene Control work. A test merge (`git merge origin/main
+--no-commit --no-ff`) produced real content conflicts in `backend/main.py` (two different
+`custom_film` router registrations — HEAD registers `custom_film.router` unconditionally,
+`origin/main` registers `custom_film_scene_control.router` behind a `CUSTOM_FILM_SCENE_CONTROL_V1`
+env flag — these are two different modules, not a formatting diff) and in
+`tasks/deferred-verification.md` (both branches appended notes to the same section). The merge was
+aborted (`git merge --abort`), nothing was resolved, and **no deploy was performed**. A safety
+backup branch `backup/feat-director-chat-pre-mainmerge-20260726` was created pointing at the
+pre-merge-attempt tip in case that's useful.
+
+Because deploy did not happen, checks 1 and 2 below are still open and were NOT tested today.
+Whoever resolves the `backend/main.py` conflict needs to decide whether both custom-film routers
+should coexist (they may be two different, non-overlapping features) — that's a product/engineering
+call, not something to auto-resolve.
+
 ## 1. `GET /api/custom-film/recipes` returning a live 200
 
 **Proof level reached:** The route, its auth dependency, and import wiring were proven by a traceback showing the request reaching `routes/custom_film.py`, then `custom_film_contract.list_active_recipes`, then `database.fetch_all`, then `pool.acquire()`, failing only at the DB socket. The table was independently verified empty on production with `se db "SELECT count(*) FROM custom_film_recipes"` returning `{"count": 0}`.
