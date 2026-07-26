@@ -1,80 +1,84 @@
-# HANDOFF - 2026-07-25 - Director Phase 1 built and verified; still nothing deployed
+# HANDOFF - 2026-07-26 - feat/director-chat merged with origin/main, VERIFIED locally; still nothing deployed
 
-## State
-- Prod: **nothing deployed this session.** Prod is unchanged from where the last session left it.
-- Branch: `feat/director-chat`, clean. Merged `origin/main` at `a13ec7c3` (drift was 35/9; one
-  conflict in `tasks/loop-handoff.md`, resolved by taking main's version since another session
-  owns that file). `npx tsc --noEmit` exits 0, `npm run build` clean at 34 routes.
-- Untracked and intentionally uncommitted: `tasks/director-mockup/`, `storyengine/.claude/`,
-  `tasks/ref-dryrun-2026-07-21.txt`, `frontend/next-env.d.ts` (generated).
+## Last done (evidence-dense)
+**Chunk scope:** get `feat/director-chat` to a clean, merged, verified local baseline against
+`origin/main` (which carries Codex's Custom Film "Scene Control" work, PRs #521/#522/#523,
+migrations 135-138, live in prod behind `CUSTOM_FILM_SCENE_CONTROL_V1=true`). Local work only -
+no push, no deploy, no VPS, no migrations applied, no money spent.
 
-**Phase 1 of DIRECTOR-CHAT-PLAN.md is COMPLETE.** A reviewer who never saw the build walked the
-running app and graded all 7 acceptance criteria PASS. Ten commits:
+1. **Committed loose work already in the tree** (commit `78feecd7`):
+   - `tasks/DIRECTOR-CHAT-DEFERRED.md` - a prior agent's notes on its aborted 2026-07-26 merge
+     attempt (it hit the same two conflicts this chunk resolved, and stopped without resolving them).
+   - `tasks/director-mockup/index.html` - the approved Director UI mockup, referenced by name in
+     code comments in `StyleLibrary.tsx`.
+   - Left untracked on purpose (per instruction): `tasks/ref-dryrun-2026-07-21.txt` (unrelated
+     scratch from a different task) and `storyengine/.claude/` (a stale nested worktree).
 
-- `458fba73` Director context, surface shell, canvas empty state
-- `b5925e83` ChatCore reports and receives the current video (9 lines, isolated)
-- `f1e29d0f` Read-only `GET /api/custom-film/recipes`
-- `32bab748` Director home and Style Library
-- `8cd98a13` Canvas header, five-tab rail, gold "Lock this as a style"
-- `23674f51` Serve the Director surface at `/` and `/chat`
-- `9d210181` Pin the undocked chat composer (2 lines, isolated)
-- `da3c1dfe` Keep the canvas header usable below desktop width
-- `a55b9781`, `5b30053f` Checklist, deferred checks, follow-ups
+2. **Merged `origin/main` (tip `cd7b7d80`) into `feat/director-chat`** (merge commit `5ec15e7c`).
+   Exactly the two conflicts `git merge-tree` predicted, both mechanical "keep both sides":
+   - `backend/main.py`: both branches added a router import + `app.include_router(...)` line.
+     Kept BOTH - Director's `custom_film` router (unconditional, prefix `/api/custom-film`) AND
+     Codex's `custom_film_scene_control` router (flag-gated on `CUSTOM_FILM_SCENE_CONTROL_V1`,
+     prefix `/api/custom-film/{video_id}/scene-control`). Confirmed by reading the resolved file:
+     both modules imported in the same `from routes import (...)` block, both registered, Codex's
+     env-flag gate preserved exactly as it was on main.
+   - `tasks/deferred-verification.md`: both branches had appended different sections at the same
+     point. Kept both in full (Director's Phase 0 section + Codex's M9 Scene Control section).
+   - Confirmed after merge: migrations 133-138 all present in `backend/migrations/`;
+     `routes/custom_film.py` and `routes/custom_film_scene_control.py` both exist.
 
-## DO NOT DEPLOY - the concurrent Codex session's paid job status is still unconfirmed
-That session had roughly $8.52 spent and held mid-flight. `se deploy` restarts uvicorn and KILLS
-in-flight builds. **Ask Ryan whether that job finished before any deploy.** Same file ownership
-still applies: `backend/custom_film_*.py`, `frontend/src/lib/custom-film-approval-truth.ts`,
-`tasks/loop-checklist.md`, `tasks/loop-handoff.md`, `SYSTEM_STATE.md`. `ChatCore.tsx` is shared -
-this session's two edits are small and already committed separately.
+3. **Backend tests** (`./venv/bin/python -m pytest tests/ -q`, Python 3.11 venv):
+   - **Post-merge: 43 failed, 3359 passed, 1 error** (93s).
+   - **Pre-merge baseline** (`3ae64c98`, same suite, same venv, via a throwaway worktree):
+     **39 failed, 3092 passed, 1 error** (69s). The stale "~16 failures" note in project memory
+     is NOT the current baseline - this run supersedes it.
+   - Diffed failure name lists exactly: **0 fixed, 4 new** (`comm -13/-23` on sorted FAILED/ERROR
+     lines). All 4 new failures are in `tests/functional/test_custom_film_remotion.py`:
+     `test_exact_legacy_renderer_bundle_is_accepted_centrally_and_preserved[...]` (x2 params),
+     `test_unknown_legacy_bundle_is_rejected_by_every_identity_gate`,
+     `test_source_clip_dialogue_captions_allow_silent_visual_gaps`.
+   - **Root-caused, not just observed:** these 4 test functions do not exist at all in the
+     pre-merge branch's `test_custom_film_remotion.py` (`grep -n` for the function names returns
+     nothing) - they were added by origin/main's own commits. Ran them in isolation against a
+     clean `origin/main`-only worktree (no merge involved): **same 4 tests fail there too**, same
+     error every time - `custom_film_contract.CustomFilmContractError: Custom Film Remotion local
+     font assets are missing` (a missing local `.woff2` file, a sandbox/environment gap, not a
+     logic defect). **Conclusion: the merge introduced zero new failures of its own** - it just
+     inherited 4 pre-existing origin/main failures caused by a missing local asset. Not fixed here
+     (out of this chunk's scope - it's an environment setup gap on origin/main, unrelated to the
+     Director/Codex merge, and not "clearly mechanical" within this branch).
+   - The pre-existing `test_validator_error_parsing.py::test_api_key` ERROR is identical
+     pre- and post-merge (same 1 error both runs).
 
-## Next action (start here cold)
-**Deploy Phase 1, but only after Ryan confirms the Codex job is done.** Two checks in
-`tasks/DIRECTOR-CHAT-DEFERRED.md` can only close after a deploy, and both are cheap:
-1. `curl -s -H "Authorization: Bearer $(cat /tmp/se_token)" http://76.13.119.181:8001/api/custom-film/recipes`
-   must return 200 with `{"recipes": []}`.
-2. Load `/` signed in. The saved-styles card must show the gold "You haven't saved a style yet"
-   empty state and "0 saved", NOT the red error box it correctly shows today.
+4. **Frontend typecheck**: `npx tsc --noEmit` - clean, 0 errors.
 
-If deploying is still blocked, start Phase 2 of `DIRECTOR-CHAT-PLAN.md` instead (the Board/Scene
-altitude and the cost dial), and read `tasks/DIRECTOR-CHAT-CHECKLIST.md` first - its
-"Known follow-ups after Phase 1" section lists six items with file paths.
+5. **Frontend build**: `npm run build` (`next build --webpack`) - clean, compiled successfully,
+   34 routes generated, including `/scene-control/[videoId]` (Codex's new route, confirmed present
+   in the build output) alongside all of Director's existing routes.
 
-## Open threads
-- **Right rail is unreachable below the `lg` breakpoint.** Stacked layout has no scroll chain.
-  `app/page.tsx` + `app/chat/page.tsx` wrap the surface in `fixed inset-0`, and `RightRail.tsx` is
-  a flat `w-[340px] flex-none`. The mockup is desktop-only by design so this was never in Phase 1
-  scope, but it bites the first phone user. Highest-value follow-up.
-- **Backend still serves internal channel code names.** `GET /api/production-styles` returns
-  "Bilingual Character Animation" etc. The frontend maps them to Ryan's approved labels in
-  `CHANNEL_CARDS` in `DirectorHome.tsx`. That is a stopgap; fix at the source.
-- **Ryan owes (carried from 2026-07-23):** re-roll s113/s114/s122 in the UI ($0.27) and re-render
-  scene 1 (free), then regrade vs his C-. Pre-check before animating more: `se db "SELECT
-  image_index, motion_gate_status FROM assets WHERE video_id='f00ea79a-06bd-407a-a467-2f014f184744'
-  AND scene=1 AND (video_prompt IS NULL OR motion_gate_status='blocked')"` must return 0 rows.
-- **SFX may never reach rendered video** - `sound_effect_url` appears to be read only by the legacy
-  Remotion path, not render_stitch or render_perform. A background session was spawned; check it.
-- **Transparency reversal owed:** plan Phase 5.3 exposes model + price inside Custom Film, which
-  reverses a tested invariant. Update the asserting tests in their own commit; never delete one.
-- Recipes REST route is now DONE (was an open API gap). Still open: no select-variant endpoint on
-  `routes/assets.py`.
-- Picture-QA vision pass still NOT built. Carried: budget cap has no UI; est-cost formula misses
-  script/storyboard spend; `_run_static_script_hold` writes no ledger row; token/password rotations.
+6. Merge commit created locally (`5ec15e7c`). **Not pushed. Not deployed. No migration applied.**
 
-## Gotchas learned this session
-- **Subagents can silently build in a different git worktree than intended.** Two chunks wrote into
-  `.claude/worktrees/gifted-hopper-a9c28d` instead of the main checkout. Their reports were accurate;
-  the files just were not where the rest of the work was. Caught only on fan-in, when a commit job
-  found the files missing. Every brief must state the ABSOLUTE working directory and make the worker
-  verify the branch before writing. Verify against the destination tree, never the report alone.
-- **TanStack Query v5 has a state where `isLoading` and `isError` are both false**
-  (`status:"pending", fetchStatus:"paused"`). Branching on those shortcuts made an API failure render
-  as an empty state, which lies to the user. Branch on `status` and `fetchStatus` directly.
-- **`position: fixed` in a child can be scoped from the parent** by giving the parent a transform,
-  which makes it a containing block. Fixes layout escape without editing a shared file. But it also
-  traps every other fixed overlay that child renders - check for those before shipping it.
-- **Verify Director work against a production build, not `npm run dev`.** React Strict Mode's
-  double-invoke wedges the home-chat spinner in dev only. Use `npm run build && npx next start -p 3001`.
-- The approved mockup OVERRODE the written plan in three places (altitude tabs are
-  `Shot | Scene | Timeline` not `Board | Shot | Timeline`; five rail tabs not four; no "last used"
-  field). When a mockup and a plan disagree, the thing Ryan clicked and approved wins.
+## KNOWN OPEN ITEM
+`GET /api/custom-film/recipes` exists only on this branch and has never been deployed, so it
+404s on current prod. Merging this branch (done locally now) is what fixes that - it still needs
+an actual `se deploy` to take effect in prod, which this chunk deliberately did not do.
+
+## Next chunk
+1. Get Ryan's go-ahead, then `se deploy` this merged branch (frontend + backend) through the
+   normal drain-aware path. Do NOT deploy during any in-flight paid generation - check
+   `se health`'s `active_work` first.
+2. After deploy, re-run the two checks in `tasks/DIRECTOR-CHAT-DEFERRED.md` item 1 (the
+   `/api/custom-film/recipes` 200 + empty-state UI check) - they were blocked pending this merge.
+3. Optional cleanup (not required for deploy): the 4 font-asset-caused failures in
+   `test_custom_film_remotion.py` could be fixed by adding the missing local `.woff2` font file(s)
+   to the sandbox/CI environment so those Remotion contract tests can actually run - low priority,
+   pre-existing on origin/main, not introduced by Director's work.
+4. A separate cleanup chunk (not this one) still owns removing stale worktrees/branches - this
+   chunk left `storyengine/.claude/` (stale nested worktree) and the backup branch
+   `backup/feat-director-chat-pre-mainmerge-20260726` untouched, as instructed.
+
+## Verification commands (for a cold re-check)
+```
+cd ~/economy-fastforward/storyengine/backend && ./venv/bin/python -m pytest tests/ -q
+cd ~/economy-fastforward/storyengine/frontend && npx tsc --noEmit && npm run build
+```
