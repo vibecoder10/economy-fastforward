@@ -878,6 +878,36 @@ def _source_clip_props(video: Path, *, duration_seconds: int = 6) -> dict:
     return remotion.build_remotion_props(_rehash(manifest))
 
 
+def _fractional_voice_props(
+    image: Path,
+    audio: Path,
+    *,
+    approved_audio_ms: int,
+) -> dict:
+    manifest = _manifest()
+    section_seconds = (approved_audio_ms + 999) // 1000
+    section_ms = section_seconds * 1000
+    frames = section_seconds * 24
+    manifest["total_duration_seconds"] = section_seconds
+    manifest["total_frames"] = frames
+    section = manifest["sections"][0]
+    section["duration_frames"] = frames
+    asset = section["assets"][0]
+    asset["source_sha256"] = hashlib.sha256(image.read_bytes()).hexdigest()
+    asset["duration_frames"] = frames
+    asset["timing_transform"]["output_duration_ms"] = section_ms
+    section["audio"]["source_sha256"] = [
+        hashlib.sha256(audio.read_bytes()).hexdigest()
+    ]
+    section["audio"]["source_duration_ms"] = [approved_audio_ms]
+    section["audio"]["timing_transform"] = compositor._audio_timing_transform(
+        approved_audio_ms, section_ms
+    )
+    section["captions"][0]["section_end_ms"] = section_ms
+    section["captions"][0]["end_frame"] = frames
+    return remotion.build_remotion_props(_rehash(manifest))
+
+
 async def _generate_native_source(
     path: Path,
     *,
@@ -1041,6 +1071,9 @@ async def test_source_staging_matches_typescript_path_contract_and_rehashes(
 
     monkeypatch.setattr(remotion, "_run_local_command", fake_command)
     monkeypatch.setattr(remotion, "_probe_renderer_media", fake_probe)
+    monkeypatch.setattr(
+        remotion, "_staged_pcm_audio_is_exact", lambda *_args: True
+    )
     staging = tmp_path / "staging"
     rows = await remotion._stage_renderer_sources(
         props,
@@ -1359,6 +1392,141 @@ async def test_real_invalid_media_probe_is_terminal(tmp_path: Path):
     invalid.write_bytes(b"not a media container")
     with pytest.raises(contract.CustomFilmContractError):
         await remotion._probe_renderer_media(invalid)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raw_seconds", "approved_ms"),
+    [
+        (7.784490, 7784),
+        (8.019592, 8020),
+        (8.620408, 8620),
+        (9.195102, 9195),
+    ],
+)
+async def test_real_fractional_mp3_stages_to_exact_approved_pcm_samples(
+    tmp_path: Path,
+    raw_seconds: float,
+    approved_ms: int,
+):
+    image = tmp_path / f"still-{approved_ms}.png"
+    Image.new("RGB", (64, 36), "navy").save(image)
+    audio = tmp_path / f"voice-{approved_ms}.mp3"
+    log_path = tmp_path / f"voice-{approved_ms}.log"
+    await remotion._run_local_command(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            (
+                "sine=frequency=440:sample_rate=44100:"
+                f"duration={raw_seconds:.6f}"
+            ),
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "128k",
+            str(audio),
+        ],
+        cwd=tmp_path,
+        timeout_seconds=60,
+        log_path=log_path,
+    )
+    raw_probe = await remotion._probe_renderer_media(audio)
+    assert raw_probe["audio_duration_seconds"] == pytest.approx(
+        raw_seconds, abs=0.000001
+    )
+    assert round(float(raw_probe["audio_duration_seconds"]) * 1000) == (
+        approved_ms
+    )
+
+    props = _fractional_voice_props(
+        image, audio, approved_audio_ms=approved_ms
+    )
+    staging = tmp_path / f"staging-{approved_ms}"
+    rows = await remotion._stage_renderer_sources(
+        props,
+        {"asset-1": image, "audio:section-1:0": audio},
+        staging=staging,
+        log_path=log_path,
+    )
+    staged = staging / "public" / remotion.staged_local_path_for_source_key(
+        "audio:section-1:0", "audio"
+    )
+    staged_probe = await remotion._probe_renderer_media(staged)
+    assert staged_probe["has_audio"] is True
+    assert staged_probe["has_video"] is False
+    with wave.open(str(staged), "rb") as waveform:
+        assert waveform.getframerate() == 48_000
+        assert waveform.getnchannels() == 2
+        assert waveform.getsampwidth() == 2
+        assert waveform.getnframes() == approved_ms * 48
+    assert rows[-1]["staged_sha256"] == hashlib.sha256(
+        staged.read_bytes()
+    ).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_real_fractional_audio_staged_sample_mutation_fails_closed(
+    monkeypatch,
+    tmp_path: Path,
+):
+    approved_ms = 7784
+    image = tmp_path / "still.png"
+    Image.new("RGB", (64, 36), "navy").save(image)
+    audio = tmp_path / "voice.mp3"
+    log_path = tmp_path / "voice.log"
+    await remotion._run_local_command(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=44100:duration=7.784490",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "128k",
+            str(audio),
+        ],
+        cwd=tmp_path,
+        timeout_seconds=60,
+        log_path=log_path,
+    )
+    props = _fractional_voice_props(
+        image, audio, approved_audio_ms=approved_ms
+    )
+    real_command = remotion._run_local_command
+
+    async def emit_one_millisecond_short(command, **kwargs):
+        destination = Path(command[-1])
+        if destination.suffix != ".wav":
+            await real_command(command, **kwargs)
+            return
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        frame_count = approved_ms * 48 - 48
+        with wave.open(str(destination), "wb") as waveform:
+            waveform.setnchannels(2)
+            waveform.setsampwidth(2)
+            waveform.setframerate(48_000)
+            waveform.writeframes(b"\0" * frame_count * 4)
+
+    monkeypatch.setattr(
+        remotion, "_run_local_command", emit_one_millisecond_short
+    )
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="staged media type changed",
+    ):
+        await remotion._stage_renderer_sources(
+            props,
+            {"asset-1": image, "audio:section-1:0": audio},
+            staging=tmp_path / "bad-staging",
+            log_path=log_path,
+        )
 
 
 @pytest.mark.asyncio
@@ -1744,6 +1912,9 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
     monkeypatch.setattr(remotion, "_run_local_command", fake_command)
     monkeypatch.setattr(remotion, "_probe_renderer_media", source_probe)
     monkeypatch.setattr(
+        remotion, "_staged_pcm_audio_is_exact", lambda *_args: True
+    )
+    monkeypatch.setattr(
         remotion, "_validate_lossless_intermediates", lambda **_kwargs: None
     )
     monkeypatch.setattr(compositor, "probe_media", exact_probe)
@@ -2128,6 +2299,9 @@ async def test_delivery_failure_reuses_verified_intermediates_on_cold_retry(
 
     monkeypatch.setattr(remotion, "_run_local_command", fake_command)
     monkeypatch.setattr(remotion, "_probe_renderer_media", source_probe)
+    monkeypatch.setattr(
+        remotion, "_staged_pcm_audio_is_exact", lambda *_args: True
+    )
     monkeypatch.setattr(
         remotion, "_validate_lossless_intermediates", lambda **_kwargs: None
     )
