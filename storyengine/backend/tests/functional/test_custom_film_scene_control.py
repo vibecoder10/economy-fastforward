@@ -1322,10 +1322,9 @@ async def test_synthetic_seed_builds_scene_one_and_locked_scene_two(monkeypatch)
     assert result["control"]["scenes"][1]["access"] == "locked"
 
 
-def test_m9_surface_has_quote_but_no_approval_or_provider_execution_seam():
+def test_m9_domain_remains_quote_only_while_m10_owns_explicit_approval():
     domain_source = inspect.getsource(control)
     route_source = inspect.getsource(control_routes)
-    combined = domain_source + route_source
     for forbidden in (
         "kie_unified",
         "ProductionSingleAttemptTextClient",
@@ -1334,10 +1333,11 @@ def test_m9_surface_has_quote_but_no_approval_or_provider_execution_seam():
         "generation_claims",
         "record_ledger_entry",
     ):
-        assert forbidden not in combined
+        assert forbidden not in domain_source
     route_paths = [route.path for route in control_routes.router.routes]
     assert any(path.endswith("/operations/quote") for path in route_paths)
-    assert not any("approve" in path for path in route_paths)
+    assert any(path.endswith("/storyboards/approve") for path in route_paths)
+    assert "custom_film_scene_storyboards" in route_source
     main_source = (
         Path(__file__).resolve().parents[2] / "main.py"
     ).read_text()

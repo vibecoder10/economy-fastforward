@@ -1,5 +1,25 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
+## Active mission — M10 BELOW THE FORECAST STORYBOARD
+
+### Definition of Complete
+1. The Instagram reference is translated into an original five-scene dystopian story that preserves only its high-level grammar: an instantly legible class divide, suffering treated as spectacle, escalating survival pressure, and a final reversal.
+2. The film locks one protagonist, one protected spectator, the exterior storm skin of Arcology Seven, and a cinematic photoreal visual law before any image call.
+3. Exactly five 16:9 storyboard images are generated—one per scene—at no more than 5 cents each and an exact cumulative maximum of 25 cents.
+4. Every provider attempt is individually attributable and the final generation ledger reconciles to no more than 25 cents; hidden retries, helper images, animation, voice, final imagery, or repair calls are prohibited.
+5. All five storyboards are visually inspected as one coherent arc and delivered on the existing Creative Production board. The run stops after storyboard review with no downstream approval implied.
+
+### Objective anchors
+- User authorization: exact new storyboard maximum **$0.25**.
+- Permitted provider work: five initial storyboard-image calls only.
+- Prohibited: repair calls, cast sheets, helper population, final imagery, animation, audio, assembly, upload, publication, or any additional provider request.
+- Originality: do not reproduce the reference's glass tubes, ice climb, grizzly bear, numbered prisoners, wall slogan, or exact compositions.
+
+### Chunks
+- [x] M10-0 REFERENCE + STORY LOCK: the authorized 78.6-second Reel was sampled across its full progression. The accepted original treatment `tasks/below-the-forecast-storyboard.md` locks five 16:9 scenes around Nia Vale, Lio Arden, and Arcology Seven: class divide, recognition, spectacle escalation, physical system reveal, and aftermath reversal. Fresh creative review first rejected weak cause/effect and child-safety continuity; the revised physical piston/turbine/inversion chain, planted brass routing model, repeated identity anchors, physical wagering, and safe final aftermath earned ACCEPT. No provider call or spend occurred.
+- [ ] M10-1 SAFE FIVE-CALL EXECUTION: identify or implement the smallest ledger-bound execution path, prove exact five-call/no-retry behavior without spend, then execute only under the $0.25 authority.
+- [ ] M10-2 VISUAL + FINANCIAL ACCEPTANCE: inspect all five images for story progression and lock continuity, reconcile the ledger, complete the Creative Production board, and stop before downstream media.
+
 ## Active mission — M9 SCENE-BY-SCENE CONTROL
 
 ### Definition of Complete

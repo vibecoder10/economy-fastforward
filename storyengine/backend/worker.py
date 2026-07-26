@@ -405,6 +405,14 @@ async def arq_run_custom_film_director(
     return result
 
 
+async def arq_run_scene_storyboards(
+    ctx: dict, video_id: str, tenant_id: str, attempt: int, schedule_id: str
+) -> dict:
+    """Consume one exact five-shot schedule; ARQ itself never retries it."""
+    from custom_film_scene_storyboards import execute_run
+    return await execute_run(schedule_id)
+
+
 # -- WorkerSettings -----------------------------------------------------------
 
 _parsed = _urlparse(REDIS_URL)
@@ -472,6 +480,12 @@ class WorkerSettings:
         func(
             arq_run_custom_film_director,
             name="arq_run_custom_film_director",
+            timeout=7200,
+            max_tries=1,
+        ),
+        func(
+            arq_run_scene_storyboards,
+            name="arq_run_scene_storyboards",
             timeout=7200,
             max_tries=1,
         ),

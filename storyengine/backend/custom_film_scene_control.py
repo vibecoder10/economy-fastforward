@@ -1316,8 +1316,7 @@ async def read_scene_control(
     for row, access, shots in zip(rows, access_values, scene_shot_models):
         state = str(row["state"])
         scene_id = str(row["id"])
-        scenes.append(
-            {
+        scene_model = {
                 "scene_id": scene_id,
                 "scene_number": int(row["scene_number"]),
                 "scene_contract": _json_value(row["scene_contract"], "scene contract"),
@@ -1344,7 +1343,14 @@ async def read_scene_control(
                 "shots": shots,
                 "synthetic": bool(row.get("synthetic")),
             }
-        )
+        try:
+            from custom_film_scene_storyboards import read_storyboard_execution
+            scene_model["storyboard_execution"] = await read_storyboard_execution(
+                conn, tenant_id=tenant_id, scene_id=scene_id
+            )
+        except (ImportError, AttributeError):
+            scene_model["storyboard_execution"] = None
+        scenes.append(scene_model)
     return {
         "control_version": SCENE_CONTROL_VERSION,
         "video_id": director["video_id"],

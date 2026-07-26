@@ -12,6 +12,10 @@ _CUSTOM_FILM_RUNTIME_JOB_RE = re.compile(r"^custom-film-runtime:[0-9a-f]{64}$")
 _CUSTOM_FILM_DIRECTOR_JOB_RE = re.compile(
     r"^custom-film-director:[0-9a-f]{64}$"
 )
+_SCENE_STORYBOARD_SCHEDULE_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 # Stage -> arq function name map (must match worker.py handler names)
 _STAGE_HANDLERS: dict[str, str] = {
@@ -30,6 +34,7 @@ _STAGE_HANDLERS: dict[str, str] = {
     "upload":           "arq_run_upload",
     "custom_film_runtime": "arq_run_custom_film_runtime",
     "custom_film_director": "arq_run_custom_film_director",
+    "scene_storyboards": "arq_run_scene_storyboards",
 }
 
 
@@ -78,12 +83,18 @@ async def enqueue_stage(
             raise ValueError(
                 "custom_film_director requires its exact job and schedule identity"
             )
+    if stage == "scene_storyboards" and not _SCENE_STORYBOARD_SCHEDULE_RE.fullmatch(
+        str(stage_kwargs.get("schedule_id") or "")
+    ):
+        raise ValueError("scene_storyboards requires its exact durable schedule identity")
 
     job_id = (
         f"custom-film-worker:{stage_kwargs['runtime_job_id']}:{attempt}"
         if stage == "custom_film_runtime"
         else f"custom-film-worker:{stage_kwargs['director_job_id']}:{attempt}"
         if stage == "custom_film_director"
+        else f"custom-film-storyboards:{stage_kwargs['schedule_id']}:{attempt}"
+        if stage == "scene_storyboards"
         else make_job_id(stage, video_id, attempt)
     )
     job = await arq_pool.enqueue_job(
