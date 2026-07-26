@@ -1,9 +1,10 @@
-"""No-provider activation boundary for the Custom Film director loop.
+"""Approval and durable scheduling boundary for the Custom Film director loop.
 
 New director films begin with a deterministic intake scaffold and one exact
-script/director stage approval. The approval may be persisted into an immutable
-schedule, but this module never resolves a provider, invokes a model, creates
-media, enqueues work, renders, uploads, or records spend.
+script/director stage approval. The approval is persisted into the immutable
+v2 multipass schedule before a separate worker may be enqueued. This module
+never resolves a provider, invokes a model, creates media, renders, uploads, or
+records spend.
 """
 
 from __future__ import annotations
@@ -25,19 +26,24 @@ from custom_film_contract import (
     plan_hash,
     revision_input_from_normalized_plan,
 )
-from custom_film_director import compile_stage_authority
+from custom_film_director_multipass import (
+    MULTIPASS_EXECUTION_MODEL,
+    OPERATION_TOKEN_LIMITS,
+    PRICE_BOOK_KEYS,
+    build_multipass_stage_contract,
+    normalize_multipass_price_book,
+    validate_multipass_stage_contract,
+)
 from custom_film_director_runtime import (
-    compile_script_director_schedule,
     persist_stage_authority,
     persist_stage_schedule,
 )
 from database import get_pool
 
-DIRECTOR_EXECUTION_MODEL = "storyboard_director_v1"
-DIRECTOR_ACTIVATION_ENV = "CUSTOM_FILM_DIRECTOR_V1"
-DIRECTOR_PASS_MAX_CENTS_ENV = "CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS"
+DIRECTOR_EXECUTION_MODEL = MULTIPASS_EXECUTION_MODEL
+DIRECTOR_ACTIVATION_ENV = "CUSTOM_FILM_DIRECTOR_V2"
+DIRECTOR_PRICE_BOOK_ENV = "CUSTOM_FILM_DIRECTOR_PRICE_BOOK_JSON"
 DIRECTOR_STAGE = "script_director"
-DIRECTOR_STAGE_CALL_ALLOWANCE = 2
 DIRECTOR_SHOT_SECONDS = 6
 
 
@@ -57,23 +63,46 @@ def director_activation_enabled() -> bool:
     }
 
 
-def configured_director_pass_max_cents() -> int:
-    """Load the deployment-owned exact ceiling without inventing a price."""
-    raw = os.getenv(DIRECTOR_PASS_MAX_CENTS_ENV, "").strip()
+def configured_director_price_book() -> dict[str, int]:
+    """Load the complete deployment-owned six-operation price book."""
+    raw = os.getenv(DIRECTOR_PRICE_BOOK_ENV, "").strip()
     if not raw:
         raise _activation_error(
-            f"Custom Film director pricing is not configured in "
-            f"{DIRECTOR_PASS_MAX_CENTS_ENV}"
+            "Custom Film director pricing is not configured in "
+            f"{DIRECTOR_PRICE_BOOK_ENV}"
         )
     try:
-        cents = int(raw)
-    except ValueError as exc:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
         raise _activation_error(
-            "Custom Film director pricing is not a whole-cent amount"
+            "Custom Film director price book is not valid JSON"
         ) from exc
-    if cents < 1 or cents > 100_000_000:
-        raise _activation_error("Custom Film director pricing is outside safe bounds")
-    return cents
+    try:
+        price_book = normalize_multipass_price_book(value)
+        from custom_film_director_provider import (
+            PROVIDER_RATE_KEYS,
+            configured_token_rates,
+            maximum_operation_cents,
+        )
+
+        rates = configured_token_rates()
+        for operation_kind, max_tokens in OPERATION_TOKEN_LIMITS.items():
+            required = max(
+                maximum_operation_cents(
+                    max_tokens=max_tokens,
+                    provider=provider,
+                    rates=rates,
+                )
+                for provider in PROVIDER_RATE_KEYS
+            )
+            if price_book[operation_kind] < required:
+                raise _activation_error(
+                    f"Custom Film director {operation_kind} price is below its "
+                    "hard provider ceiling"
+                )
+        return price_book
+    except CustomFilmContractError as exc:
+        raise _activation_error("Custom Film director price book is invalid") from exc
 
 
 def _whole_dollars(cents: int) -> str:
@@ -183,18 +212,24 @@ def build_director_intake(
     *,
     total_duration_seconds: int,
     prior_cumulative_cents: int = 0,
-    director_pass_max_cents: int,
+    price_book: Mapping[str, Any] | None = None,
+    director_pass_max_cents: int | None = None,
     prospective_plan_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the complete pre-approval director intake without inference."""
     request = _request_text(user_request)
-    if (
-        type(prior_cumulative_cents) is not int
-        or prior_cumulative_cents < 0
-        or type(director_pass_max_cents) is not int
-        or director_pass_max_cents < 1
-    ):
+    if type(prior_cumulative_cents) is not int or prior_cumulative_cents < 0:
         raise _activation_error("Custom Film cumulative approval amount is invalid")
+    # Temporary source-compatibility for callers/tests created during the held
+    # v1 activation. Production never uses this branch: chat loads the complete
+    # deployment-owned six-key book.
+    if price_book is None and type(director_pass_max_cents) is int:
+        price_book = {
+            operation_kind: director_pass_max_cents
+            for operation_kind in PRICE_BOOK_KEYS
+        }
+    if price_book is None:
+        raise _activation_error("Custom Film director price book is missing")
     plan_id = _uuid(prospective_plan_id or uuid4(), "prospective plan identity")
     normalized_plan, planning_inputs = _director_scaffold_plan(
         request,
@@ -203,70 +238,27 @@ def build_director_intake(
         total_duration_seconds=total_duration_seconds,
     )
     digest = plan_hash(normalized_plan)
-    stage_quote = {
-        "quote_version": 1,
-        "stage": DIRECTOR_STAGE,
-        "plan_id": plan_id,
-        "plan_hash": digest,
-        "output": (
-            "complete screenplay, film bible, locked cast and environments, "
-            "and synchronous progressive shot plan"
-        ),
-        "provider_scope": "tenant_owned_text_client",
-        "maximum_model_calls": DIRECTOR_STAGE_CALL_ALLOWANCE,
-        "media_generation_included": False,
-        "prior_cumulative_cents": prior_cumulative_cents,
-        "stage_max_cents": director_pass_max_cents,
-        "approved_cumulative_cents": (prior_cumulative_cents + director_pass_max_cents),
-    }
-    quote_hash = canonical_hash(stage_quote)
-    raw_authority = {
-        "stage": DIRECTOR_STAGE,
-        "stage_binding_hash": digest,
-        "upstream_gate_hash": digest,
-        "quote_hash": quote_hash,
-        "prior_cumulative_cents": prior_cumulative_cents,
-        "approved_cumulative_cents": (prior_cumulative_cents + director_pass_max_cents),
-        "operations": [
-            {
-                "operation_kind": "director_plan",
-                "count": 1,
-                "unit_max_cents": director_pass_max_cents,
-                "helper_operation": False,
-            }
-        ],
-    }
-    authority = compile_stage_authority(
-        raw_authority,
-        expected_stage=DIRECTOR_STAGE,
-        expected_binding_hash=digest,
-        expected_upstream_gate_hash=digest,
-    )
-    approval_hash = canonical_hash(
-        {
-            "action": "approve_custom_film_script_director_stage",
-            "plan_id": plan_id,
-            "authority_hash": authority["authority_hash"],
-        }
-    )
-    schedule = compile_script_director_schedule(
+    stage_contract = build_multipass_stage_contract(
         plan_id=plan_id,
         plan_hash=digest,
-        raw_authority=raw_authority,
+        quote_inputs=planning_inputs,
+        prior_cumulative_cents=prior_cumulative_cents,
+        price_book=price_book,
     )
     activation = {
-        "activation_version": 1,
+        "activation_version": 2,
         "execution_model": DIRECTOR_EXECUTION_MODEL,
         "user_request": request,
         "prospective_plan_id": plan_id,
         "internal_plan": normalized_plan,
         "plan_hash": digest,
         "quote_inputs": planning_inputs,
-        "stage_quote": stage_quote,
-        "stage_authority": raw_authority,
-        "authority_hash": authority["authority_hash"],
-        "approval_hash": approval_hash,
-        "schedule": schedule,
+        "stage_contract": stage_contract,
+        "stage_quote": stage_contract["stage_quote"],
+        "stage_authority": stage_contract["stage_authority"],
+        "authority_hash": stage_contract["authority_hash"],
+        "approval_hash": stage_contract["approval_hash"],
+        "schedule": stage_contract["schedule"],
     }
     activation["activation_hash"] = canonical_hash(activation)
     return activation
@@ -295,42 +287,29 @@ def validate_director_intake(raw: Mapping[str, Any]) -> dict[str, Any]:
     ) != activation.get("plan_hash"):
         raise _activation_error("Custom Film director plan changed")
     digest = _hash(activation.get("plan_hash"), "plan hash")
-    raw_authority = activation.get("stage_authority")
-    if not isinstance(raw_authority, Mapping):
-        raise _activation_error("Custom Film director authority is missing")
-    authority = compile_stage_authority(
-        raw_authority,
-        expected_stage=DIRECTOR_STAGE,
-        expected_binding_hash=digest,
-        expected_upstream_gate_hash=digest,
-    )
-    if authority["authority_hash"] != activation.get("authority_hash"):
-        raise _activation_error("Custom Film director authority changed")
-    stage_quote = activation.get("stage_quote")
-    if (
-        not isinstance(stage_quote, Mapping)
-        or canonical_hash(stage_quote) != authority["quote_hash"]
-        or stage_quote.get("plan_id") != plan_id
-        or stage_quote.get("plan_hash") != digest
-        or stage_quote.get("media_generation_included") is not False
-    ):
-        raise _activation_error("Custom Film director quote changed")
-    expected_approval_hash = canonical_hash(
-        {
-            "action": "approve_custom_film_script_director_stage",
-            "plan_id": plan_id,
-            "authority_hash": authority["authority_hash"],
-        }
-    )
-    if activation.get("approval_hash") != expected_approval_hash:
-        raise _activation_error("Custom Film director approval changed")
-    expected_schedule = compile_script_director_schedule(
+    stage_contract = validate_multipass_stage_contract(activation.get("stage_contract"))
+    stage_quote = stage_contract["stage_quote"]
+    expected_stage_contract = build_multipass_stage_contract(
         plan_id=plan_id,
         plan_hash=digest,
-        raw_authority=raw_authority,
+        quote_inputs=activation.get("quote_inputs"),
+        prior_cumulative_cents=stage_quote["prior_cumulative_cents"],
+        price_book=stage_quote["price_book_cents"],
     )
-    if canonical_json(activation.get("schedule")) != canonical_json(expected_schedule):
-        raise _activation_error("Custom Film director schedule changed")
+    if (
+        stage_contract["manifest"]["plan_id"] != plan_id
+        or stage_contract["manifest"]["plan_hash"] != digest
+        or canonical_json(stage_contract) != canonical_json(expected_stage_contract)
+        or canonical_json(activation.get("stage_quote"))
+        != canonical_json(stage_contract["stage_quote"])
+        or canonical_json(activation.get("stage_authority"))
+        != canonical_json(stage_contract["stage_authority"])
+        or activation.get("authority_hash") != stage_contract["authority_hash"]
+        or activation.get("approval_hash") != stage_contract["approval_hash"]
+        or canonical_json(activation.get("schedule"))
+        != canonical_json(stage_contract["schedule"])
+    ):
+        raise _activation_error("Custom Film director stage contract changed")
     activation["activation_hash"] = claimed_activation_hash
     return activation
 
@@ -349,8 +328,14 @@ def director_approval_card(activation: Mapping[str, Any]) -> dict[str, Any]:
             "stage": "Script and director plan",
             "duration_seconds": planning["requested_duration_seconds"],
             "planned_shots": planning["totals"]["planned_shots"],
-            "produces": quote["output"],
+            "produces": (
+                "complete screenplay, film bible, locked cast and environments, "
+                "and synchronous progressive shot plan"
+            ),
             "media_generation_included": False,
+            "initial_model_calls": quote["initial_model_calls"],
+            "maximum_model_calls": quote["maximum_model_calls"],
+            "conditional_repair_calls": quote["conditional_repair_calls"],
             "prior_cumulative": _whole_dollars(quote["prior_cumulative_cents"]),
             "stage_maximum": _whole_dollars(quote["stage_max_cents"]),
             "exact_cumulative_ceiling": _whole_dollars(
@@ -358,10 +343,12 @@ def director_approval_card(activation: Mapping[str, Any]) -> dict[str, Any]:
             ),
         },
         "approval_notice": (
-            "This approval covers only the screenplay/director pass, including "
-            "one bounded repair. It does not approve character images, environment "
-            "images, storyboards, final pictures, animation, voices, or any helper "
-            "generation. Each later paid stage needs a new exact cumulative approval."
+            "This approval covers only the screenplay/director pass: one film bible, "
+            "one complete shot outline, contiguous shot batches, and at most one "
+            "paired repair for each initial call. It does not approve character "
+            "images, environment images, storyboards, final pictures, animation, "
+            "voices, or any helper generation. Each later paid stage needs a new "
+            "exact cumulative approval."
         ),
         "options": [
             {
@@ -389,6 +376,8 @@ def director_intake_text(activation: Mapping[str, Any]) -> str:
         "third-person exposition, silent action, one style lock, locked recurring "
         "characters and environments, exact shot-to-shot state progression, and "
         "the synchronous storyboard plan.\n\n"
+        f"It begins with {quote['initial_model_calls']} calls and allows at most "
+        f"{quote['maximum_model_calls']} only when paired repairs are needed. "
         f"This stage adds at most {_whole_dollars(quote['stage_max_cents'])}. "
         "The exact cumulative ceiling after this stage is "
         f"{_whole_dollars(quote['approved_cumulative_cents'])}. No imagery, "
@@ -435,6 +424,7 @@ async def reserve_director_stage_intent(
                 "plan_id": str(pending["prospective_plan_id"]),
                 "approval_hash": expected_approval_hash,
                 "schedule_hash": str(pending["director_schedule_hash"]),
+                "director_job_id": str(pending.get("director_job_id") or ""),
                 "created": False,
                 "pending_custom_film_plan": copy.deepcopy(dict(pending)),
             }
@@ -483,7 +473,7 @@ async def reserve_director_stage_intent(
             # authority; historical completed spend is not fresh headroom.
             Decimal(stage_max_cents) / Decimal(100),
             (
-                "Storyboard director v1: approved script/director schedule "
+                "Storyboard director v2: approved multipass script/director schedule "
                 "is held and has not started."
             ),
         )
@@ -549,6 +539,19 @@ async def reserve_director_stage_intent(
             authority_id=authority["id"],
             schedule=activation["schedule"],
         )
+        director_job_id = f"custom-film-director:{schedule['schedule_hash']}"
+        await conn.execute(
+            """INSERT INTO background_tasks
+                 (tenant_id, video_id, task_type, status, message, job_id,
+                  attempt, started_at)
+               VALUES ($1, $2, 'custom_film_director', 'pending',
+                       'Preparing approved screenplay and storyboard direction',
+                       $3, 1, now())
+               ON CONFLICT (job_id) WHERE job_id IS NOT NULL DO NOTHING""",
+            tenant_id,
+            video_id,
+            director_job_id,
+        )
         await conn.execute(
             """UPDATE videos
                    SET custom_film_plan_id = $3,
@@ -571,6 +574,7 @@ async def reserve_director_stage_intent(
         durable_pending["stage_authority_id"] = authority["id"]
         durable_pending["director_schedule_id"] = schedule["id"]
         durable_pending["director_schedule_hash"] = schedule["schedule_hash"]
+        durable_pending["director_job_id"] = director_job_id
         durable_pending["provider_calls_started"] = False
         durable_pending["spend_recorded_cents"] = 0
         state["pending_custom_film_plan"] = durable_pending
@@ -592,6 +596,7 @@ async def reserve_director_stage_intent(
             "plan_id": plan_id,
             "approval_hash": expected_approval_hash,
             "schedule_hash": schedule["schedule_hash"],
+            "director_job_id": director_job_id,
             "created": True,
             "pending_custom_film_plan": durable_pending,
             "confirmation_turn": accepted_turn,

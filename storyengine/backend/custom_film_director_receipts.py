@@ -11,6 +11,7 @@ import copy
 import inspect
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from custom_film_director_multipass_executor import (
 )
 
 PoolFactory = Callable[[], Awaitable[Any] | Any]
+NANOUSD_PER_USD = Decimal("1000000000")
 
 
 def _receipt_error(message: str) -> CustomFilmContractError:
@@ -94,12 +96,10 @@ class DurableDirectorCallJournal:
             raise _receipt_error("Custom Film director plan identity changed")
         self.schedule = self.stage_contract["schedule"]
         self.operations = {
-            row["operation_id"]: copy.deepcopy(row)
-            for row in self.schedule["tasks"]
+            row["operation_id"]: copy.deepcopy(row) for row in self.schedule["tasks"]
         }
         self.order_by_operation = {
-            row["operation_id"]: row["order_index"]
-            for row in self.schedule["tasks"]
+            row["operation_id"]: row["order_index"] for row in self.schedule["tasks"]
         }
         self.pool_factory = pool_factory or _default_pool_factory
         self._event_cache: dict[str, list[dict[str, Any]]] = {}
@@ -116,7 +116,9 @@ class DurableDirectorCallJournal:
             raise _receipt_error("Custom Film director operation is invalid")
         operation_id = str(raw_operation.get("operation_id") or "")
         expected = self.operations.get(operation_id)
-        if expected is None or canonical_json(raw_operation) != canonical_json(expected):
+        if expected is None or canonical_json(raw_operation) != canonical_json(
+            expected
+        ):
             raise _receipt_error("Custom Film director operation is not authorized")
         return copy.deepcopy(expected)
 
@@ -153,15 +155,13 @@ class DurableDirectorCallJournal:
             """SELECT event
                FROM custom_film_director_call_events
                WHERE tenant_id = $1 AND schedule_id = $2 AND operation_id = $3
-               ORDER BY event_sequence""" + suffix,
+               ORDER BY event_sequence"""
+            + suffix,
             self.tenant_id,
             self.schedule_id,
             operation_id,
         )
-        events = [
-            _json_value(row["event"], "director call event")
-            for row in rows
-        ]
+        events = [_json_value(row["event"], "director call event") for row in rows]
         InMemoryDirectorCallJournal(events)
         self._event_cache[operation_id] = copy.deepcopy(events)
         return events
@@ -177,9 +177,9 @@ class DurableDirectorCallJournal:
                  (tenant_id, plan_id, video_id, schedule_id, authority_id,
                   operation_id, operation_kind, operation_order_index,
                   event_sequence, event_kind, input_hash, output_hash,
-                  request_id, actual_cost_cents, event, event_hash)
+                  request_id, actual_cost_nusd, actual_cost_cents, event, event_hash)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-                       $12, $13, $14, $15::jsonb, $16)
+                       $12, $13, $14, $15, $16::jsonb, $17)
                ON CONFLICT DO NOTHING
                RETURNING id""",
             self.tenant_id,
@@ -195,6 +195,7 @@ class DurableDirectorCallJournal:
             event["input_hash"],
             event.get("output_hash"),
             event.get("request_id"),
+            int(event.get("actual_cost_nusd") or 0),
             int(event.get("actual_cost_cents") or 0),
             canonical_json(event),
             event["event_hash"],
@@ -350,10 +351,13 @@ class DurableDirectorCallJournal:
 def _execution_summary(
     execution: Mapping[str, Any],
 ) -> tuple[dict[str, Any], str]:
-    event_hashes = [
-        str(row["event_hash"]) for row in execution["receipt_events"]
-    ]
+    event_hashes = [str(row["event_hash"]) for row in execution["receipt_events"]]
     receipt_manifest_hash = canonical_hash(event_hashes)
+    actual_spend_nusd = sum(
+        int(row.get("actual_cost_nusd") or 0)
+        for row in execution["receipt_events"]
+        if row.get("event_kind") in {"attempt_completed", "attempt_failed"}
+    )
     summary = {
         "execution_model": MULTIPASS_EXECUTION_MODEL,
         "manifest_hash": execution["manifest_hash"],
@@ -364,8 +368,73 @@ def _execution_summary(
         "receipt_event_hashes": event_hashes,
         "terminal_call_count": execution["terminal_call_count"],
         "actual_spend_cents": execution["actual_spend_cents"],
+        "actual_spend_nusd": actual_spend_nusd,
     }
     return summary, receipt_manifest_hash
+
+
+async def _persist_generation_ledger(
+    conn: Any,
+    *,
+    tenant_id: str,
+    video_id: str,
+    events: Sequence[Mapping[str, Any]],
+) -> None:
+    """Atomically reconcile every terminal provider receipt into canonical spend."""
+    terminals = [
+        row
+        for row in events
+        if row.get("event_kind") in {"attempt_completed", "attempt_failed"}
+    ]
+    for event in terminals:
+        request_id = str(event.get("request_id") or "")
+        model = str(event.get("model") or "")
+        actual_nusd = int(event.get("actual_cost_nusd") or 0)
+        if not request_id or not model or actual_nusd < 0:
+            raise _receipt_error("Custom Film director ledger receipt is incomplete")
+        actual_usd = Decimal(actual_nusd) / NANOUSD_PER_USD
+        await conn.execute(
+            """INSERT INTO generation_ledger
+                 (tenant_id, video_id, stage, model, units, unit_cost,
+                  actual_cost, kie_task_id)
+               VALUES ($1, $2, 'custom_film_director', $3, 1, $4, $4, $5)
+               ON CONFLICT (video_id, stage, kie_task_id)
+                 WHERE kie_task_id IS NOT NULL DO NOTHING""",
+            tenant_id,
+            video_id,
+            model,
+            actual_usd,
+            request_id,
+        )
+        stored = await conn.fetchrow(
+            """SELECT tenant_id, video_id, stage, model, units, unit_cost,
+                      actual_cost, kie_task_id
+               FROM generation_ledger
+               WHERE tenant_id = $1 AND video_id = $2
+                 AND stage = 'custom_film_director' AND kie_task_id = $3""",
+            tenant_id,
+            video_id,
+            request_id,
+        )
+        if (
+            not stored
+            or str(stored["model"]) != model
+            or Decimal(str(stored["units"])) != Decimal(1)
+            or Decimal(str(stored["unit_cost"])) != actual_usd
+            or Decimal(str(stored["actual_cost"])) != actual_usd
+        ):
+            raise _receipt_error("Custom Film director ledger receipt changed")
+    await conn.execute(
+        """UPDATE videos
+           SET total_cost = (
+             SELECT COALESCE(SUM(actual_cost), 0)
+             FROM generation_ledger
+             WHERE video_id = $1
+           ), updated_at = now()
+           WHERE tenant_id = $2 AND id = $1""",
+        video_id,
+        tenant_id,
+    )
 
 
 async def persist_completed_director_execution(
@@ -409,11 +478,8 @@ async def persist_completed_director_execution(
     if (
         not schedule_row
         or str(schedule_row["authority_id"]) != normalized_authority_id
-        or str(schedule_row["schedule_hash"])
-        != approved["schedule"]["schedule_hash"]
-        or canonical_json(
-            _json_value(schedule_row["schedule"], "director schedule")
-        )
+        or str(schedule_row["schedule_hash"]) != approved["schedule"]["schedule_hash"]
+        or canonical_json(_json_value(schedule_row["schedule"], "director schedule"))
         != canonical_json(approved["schedule"])
     ):
         raise _receipt_error("Custom Film durable director schedule changed")
@@ -428,14 +494,17 @@ async def persist_completed_director_execution(
         normalized_schedule_id,
     )
     durable_events = [
-        _json_value(row["event"], "director call event")
-        for row in receipt_rows
+        _json_value(row["event"], "director call event") for row in receipt_rows
     ]
-    if canonical_json(durable_events) != canonical_json(
-        execution["receipt_events"]
-    ):
+    if canonical_json(durable_events) != canonical_json(execution["receipt_events"]):
         raise _receipt_error("Custom Film durable director receipts changed")
     InMemoryDirectorCallJournal(durable_events)
+    await _persist_generation_ledger(
+        conn,
+        tenant_id=normalized_tenant_id,
+        video_id=normalized_video_id,
+        events=durable_events,
+    )
 
     persisted = await persist_director_contract(
         conn,
@@ -450,8 +519,8 @@ async def persist_completed_director_execution(
         """INSERT INTO custom_film_director_executions
              (tenant_id, plan_id, video_id, schedule_id, authority_id,
               director_contract_id, execution_hash, receipt_manifest_hash,
-              actual_spend_cents, execution)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+              actual_spend_nusd, actual_spend_cents, execution)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
            ON CONFLICT DO NOTHING
            RETURNING id""",
         normalized_tenant_id,
@@ -462,6 +531,7 @@ async def persist_completed_director_execution(
         persisted["id"],
         execution["execution_hash"],
         receipt_manifest_hash,
+        summary["actual_spend_nusd"],
         execution["actual_spend_cents"],
         canonical_json(summary),
     )
@@ -475,7 +545,8 @@ async def persist_completed_director_execution(
         }
     existing = await conn.fetchrow(
         """SELECT id, director_contract_id, execution_hash,
-                  receipt_manifest_hash, actual_spend_cents, execution
+                  receipt_manifest_hash, actual_spend_nusd,
+                  actual_spend_cents, execution
            FROM custom_film_director_executions
            WHERE tenant_id = $1 AND schedule_id = $2""",
         normalized_tenant_id,
@@ -486,6 +557,7 @@ async def persist_completed_director_execution(
             "director_contract_id": str(existing["director_contract_id"]),
             "execution_hash": str(existing["execution_hash"]),
             "receipt_manifest_hash": str(existing["receipt_manifest_hash"]),
+            "actual_spend_nusd": int(existing["actual_spend_nusd"]),
             "actual_spend_cents": int(existing["actual_spend_cents"]),
             "execution": _json_value(
                 existing["execution"],
@@ -499,6 +571,7 @@ async def persist_completed_director_execution(
         "director_contract_id": persisted["id"],
         "execution_hash": execution["execution_hash"],
         "receipt_manifest_hash": receipt_manifest_hash,
+        "actual_spend_nusd": summary["actual_spend_nusd"],
         "actual_spend_cents": execution["actual_spend_cents"],
         "execution": summary,
     }

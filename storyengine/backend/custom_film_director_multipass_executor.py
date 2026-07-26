@@ -34,6 +34,7 @@ from custom_film_director_multipass import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 TERMINAL_EVENT_KINDS = frozenset({"attempt_completed", "attempt_failed"})
+NANOUSD_PER_CENT = 10_000_000
 
 
 def _executor_error(message: str) -> CustomFilmContractError:
@@ -152,6 +153,17 @@ def build_director_call_event(
     output_payload: Mapping[str, Any] | None = None,
     failure_code: str | None = None,
 ) -> dict[str, Any]:
+    actual_cost_cents = int(result.get("actual_cost_cents") or 0) if result else 0
+    actual_cost_nusd = (
+        int(
+            result.get(
+                "actual_cost_nusd",
+                actual_cost_cents * NANOUSD_PER_CENT,
+            )
+        )
+        if result
+        else 0
+    )
     payload = {
         "event_version": 1,
         "execution_model": MULTIPASS_EXECUTION_MODEL,
@@ -163,17 +175,14 @@ def build_director_call_event(
         "model": result.get("model") if result else None,
         "input_tokens": result.get("input_tokens") if result else None,
         "output_tokens": result.get("output_tokens") if result else None,
-        "actual_cost_cents": result.get("actual_cost_cents") if result else 0,
+        "actual_cost_nusd": actual_cost_nusd,
+        "actual_cost_cents": actual_cost_cents,
         "finish_reason": result.get("finish_reason") if result else None,
         "output_payload": (
-            copy.deepcopy(dict(output_payload))
-            if output_payload is not None
-            else None
+            copy.deepcopy(dict(output_payload)) if output_payload is not None else None
         ),
         "output_hash": (
-            canonical_hash(output_payload)
-            if output_payload is not None
-            else None
+            canonical_hash(output_payload) if output_payload is not None else None
         ),
         "failure_code": failure_code,
     }
@@ -209,11 +218,7 @@ class InMemoryDirectorCallJournal:
                 raise _executor_error("Custom Film director receipt order is invalid")
 
     def _rows(self, operation_id: str) -> list[dict[str, Any]]:
-        return [
-            row
-            for row in self._events
-            if row["operation_id"] == operation_id
-        ]
+        return [row for row in self._events if row["operation_id"] == operation_id]
 
     async def claim(self, operation: Mapping[str, Any]) -> Mapping[str, Any]:
         rows = self._rows(str(operation["operation_id"]))
@@ -224,10 +229,9 @@ class InMemoryDirectorCallJournal:
             )
             self._events.append(started)
             return {"status": "claimed", "event": copy.deepcopy(started)}
-        if (
-            rows[0].get("input_hash") != operation.get("input_hash")
-            or rows[0].get("operation_kind") != operation.get("operation_kind")
-        ):
+        if rows[0].get("input_hash") != operation.get("input_hash") or rows[0].get(
+            "operation_kind"
+        ) != operation.get("operation_kind"):
             raise _executor_error("Custom Film director receipt input changed")
         if len(rows) == 1:
             return {
@@ -288,7 +292,9 @@ def _strict_json(raw: Any) -> dict[str, Any]:
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise _executor_error("Custom Film director response is not complete JSON") from exc
+        raise _executor_error(
+            "Custom Film director response is not complete JSON"
+        ) from exc
     if not isinstance(value, dict):
         raise _executor_error("Custom Film director response is not an object")
     return value
@@ -308,16 +314,26 @@ def _normalized_result(
         "attempt_count",
         "input_tokens",
         "output_tokens",
+        "actual_cost_nusd",
         "actual_cost_cents",
     ):
+        if field == "actual_cost_nusd" and field not in result:
+            result[field] = int(result.get("actual_cost_cents") or 0) * NANOUSD_PER_CENT
         if type(result.get(field)) is not int or result[field] < 0:
             raise _executor_error("Custom Film director attempt usage is invalid")
     if result["attempt_count"] != 1:
         raise _executor_error("Custom Film director adapter hid multiple attempts")
     if result["actual_cost_cents"] > int(operation["unit_max_cents"]):
         raise _executor_error("Custom Film director operation exceeded its ceiling")
+    if (
+        result["actual_cost_cents"]
+        != (result["actual_cost_nusd"] + NANOUSD_PER_CENT - 1) // NANOUSD_PER_CENT
+    ):
+        raise _executor_error("Custom Film director exact cost does not reconcile")
     if result["output_tokens"] > int(operation["max_tokens"]):
-        raise _executor_error("Custom Film director response exceeded its token ceiling")
+        raise _executor_error(
+            "Custom Film director response exceeded its token ceiling"
+        )
     return result
 
 
@@ -346,6 +362,14 @@ def _conservative_failure_result(
             "actual_cost_cents",
             int(operation["unit_max_cents"]),
         ),
+        "actual_cost_nusd": exact_nonnegative_int(
+            "actual_cost_nusd",
+            exact_nonnegative_int(
+                "actual_cost_cents",
+                int(operation["unit_max_cents"]),
+            )
+            * NANOUSD_PER_CENT,
+        ),
         "finish_reason": str(value.get("finish_reason") or "unknown"),
         "text": str(value.get("text") or ""),
     }
@@ -353,9 +377,8 @@ def _conservative_failure_result(
 
 def _completed_output(event: Mapping[str, Any]) -> dict[str, Any]:
     payload = event.get("output_payload")
-    if (
-        not isinstance(payload, Mapping)
-        or canonical_hash(payload) != event.get("output_hash")
+    if not isinstance(payload, Mapping) or canonical_hash(payload) != event.get(
+        "output_hash"
     ):
         raise _executor_error("Custom Film director stored output changed")
     return copy.deepcopy(dict(payload))
@@ -398,9 +421,7 @@ def _outline_payload(
     }
     actual_section_frames = {
         section_id: sum(
-            row.duration_frames
-            for row in shots
-            if str(row.section_id) == section_id
+            row.duration_frames for row in shots if str(row.section_id) == section_id
         )
         for section_id in section_ids
     }
@@ -415,12 +436,8 @@ def _outline_payload(
         != planning["totals"]["duration_seconds"] * fps
     ):
         raise _executor_error("Custom Film shot outline timing changed")
-    characters = {
-        str(row["character_id"]) for row in film_bible["characters"]
-    }
-    environments = {
-        str(row["environment_id"]) for row in film_bible["environments"]
-    }
+    characters = {str(row["character_id"]) for row in film_bible["characters"]}
+    environments = {str(row["environment_id"]) for row in film_bible["environments"]}
     seen: set[str] = set()
     previous: ShotOutlineRow | None = None
     used_sections: list[str] = []
@@ -433,10 +450,9 @@ def _outline_payload(
         ):
             raise _executor_error("Custom Film shot outline moves backward")
         used_sections.append(section_id)
-        if (
-            row.environment_id not in environments
-            or not set(row.character_ids).issubset(characters)
-        ):
+        if row.environment_id not in environments or not set(
+            row.character_ids
+        ).issubset(characters):
             raise _executor_error("Custom Film shot outline uses an unlocked identity")
         if index == 0:
             if row.caused_by:
@@ -453,12 +469,7 @@ def _outline_payload(
         raise _executor_error("Custom Film shot outline changed the beginning")
     if shots[-1].closing_story_fact != film_bible["ending_state"]:
         raise _executor_error("Custom Film shot outline changed the ending")
-    return {
-        "shots": [
-            row.model_dump(mode="json")
-            for row in shots
-        ]
-    }
+    return {"shots": [row.model_dump(mode="json") for row in shots]}
 
 
 def _batch_payload(
@@ -507,13 +518,11 @@ def _batch_payload(
         if canonical_json(exact_fields) != canonical_json(normalized_expected):
             raise _executor_error("Custom Film shot batch drifted from its outline")
 
-    prefix_rows = [
-        copy.deepcopy(dict(row)) for row in accepted_shots
-    ] + [shot.model_dump(mode="json") for shot in parsed]
+    prefix_rows = [copy.deepcopy(dict(row)) for row in accepted_shots] + [
+        shot.model_dump(mode="json") for shot in parsed
+    ]
     prefix_bible = copy.deepcopy(dict(film_bible))
-    prefix_bible["ending_state"] = prefix_rows[-1]["closing_state"][
-        "story_facts"
-    ][-1]
+    prefix_bible["ending_state"] = prefix_rows[-1]["closing_state"]["story_facts"][-1]
     prefix_section_ids: list[str] = []
     for row in prefix_rows:
         section_id = str(row["section_id"])
@@ -619,6 +628,7 @@ def _receipt_result(event: Mapping[str, Any]) -> dict[str, Any]:
         "input_tokens": event.get("input_tokens"),
         "output_tokens": event.get("output_tokens"),
         "actual_cost_cents": event.get("actual_cost_cents"),
+        "actual_cost_nusd": event.get("actual_cost_nusd"),
         "finish_reason": event.get("finish_reason"),
         "text": "",
     }
@@ -740,8 +750,9 @@ async def _attempt_with_repair(
         validate=validate,
     )
     if repaired_status != "valid":
+        detail = repaired_failure or "invalid output"
         raise _executor_error(
-            f"Custom Film director repair failed: {repaired_failure or 'invalid output'}"
+            f"Custom Film director repair failed: {detail}"
         )
     return repaired_output
 
@@ -759,15 +770,11 @@ def _operation_pairs(
         for row in operations
         if row["operation_kind"] in REPAIR_OPERATION_KINDS
     }
-    if (
-        len(initial_by_id) * 2 != len(operations)
-        or set(initial_by_id) != set(repair_by_initial)
+    if len(initial_by_id) * 2 != len(operations) or set(initial_by_id) != set(
+        repair_by_initial
     ):
         raise _executor_error("Custom Film director operation pairs changed")
-    return [
-        (row, repair_by_initial[row_id])
-        for row_id, row in initial_by_id.items()
-    ]
+    return [(row, repair_by_initial[row_id]) for row_id, row in initial_by_id.items()]
 
 
 def _journal_spend(events: Sequence[Mapping[str, Any]]) -> int:
@@ -793,12 +800,13 @@ async def execute_multipass_director(
         raise _executor_error("Custom Film director execution boundary is missing")
     contract = validate_multipass_stage_contract(stage_contract)
     manifest = contract["manifest"]
-    schedule_by_id = {
-        row["operation_id"]: row for row in contract["schedule"]["tasks"]
-    }
+    schedule_by_id = {row["operation_id"]: row for row in contract["schedule"]["tasks"]}
     pairs = _operation_pairs(manifest["operations"])
     pairs = [
-        (schedule_by_id[initial["operation_id"]], schedule_by_id[repair["operation_id"]])
+        (
+            schedule_by_id[initial["operation_id"]],
+            schedule_by_id[repair["operation_id"]],
+        )
         for initial, repair in pairs
     ]
     planning = manifest["planning_contract"]
@@ -904,8 +912,7 @@ async def execute_multipass_director(
         section_ids=[row["section_id"] for row in sections],
         total_frames=planning["totals"]["duration_seconds"] * fps,
         section_frame_counts={
-            row["section_id"]: row["duration_seconds"] * fps
-            for row in sections
+            row["section_id"]: row["duration_seconds"] * fps for row in sections
         },
         section_shot_counts={
             row["section_id"]: row["planned_shots"] for row in sections
@@ -938,9 +945,7 @@ async def execute_multipass_director(
                 "manifest_hash": manifest["manifest_hash"],
                 "authority_hash": contract["authority_hash"],
                 "director_contract_hash": director["contract_hash"],
-                "receipt_event_hashes": [
-                    row["event_hash"] for row in events
-                ],
+                "receipt_event_hashes": [row["event_hash"] for row in events],
                 "actual_spend_cents": spend_cents,
             }
         ),
@@ -990,9 +995,7 @@ def validate_multipass_execution_result(
     if not isinstance(events, list):
         raise _executor_error("Custom Film director receipt evidence is invalid")
     InMemoryDirectorCallJournal(events)
-    operations = {
-        row["operation_id"]: row for row in approved["schedule"]["tasks"]
-    }
+    operations = {row["operation_id"]: row for row in approved["schedule"]["tasks"]}
     event_groups: dict[str, list[Mapping[str, Any]]] = {}
     for event in events:
         operation = operations.get(str(event.get("operation_id") or ""))
@@ -1003,10 +1006,15 @@ def validate_multipass_execution_result(
         ):
             raise _executor_error("Custom Film director receipt is not authorized")
         actual_cost = event.get("actual_cost_cents")
+        actual_cost_nusd = event.get("actual_cost_nusd")
         if (
             type(actual_cost) is not int
             or actual_cost < 0
             or actual_cost > int(operation["unit_max_cents"])
+            or type(actual_cost_nusd) is not int
+            or actual_cost_nusd < 0
+            or actual_cost
+            != (actual_cost_nusd + NANOUSD_PER_CENT - 1) // NANOUSD_PER_CENT
         ):
             raise _executor_error("Custom Film director receipt cost is unauthorized")
         if event.get("event_kind") == "attempt_started":
@@ -1019,13 +1027,13 @@ def validate_multipass_execution_result(
         else:
             output_payload = event.get("output_payload")
             output_hash = event.get("output_hash")
-            if output_payload is not None and canonical_hash(
-                output_payload
-            ) != output_hash:
-                raise _executor_error("Custom Film director receipt output changed")
             if (
-                event.get("event_kind") == "attempt_completed"
-                and not isinstance(output_payload, Mapping)
+                output_payload is not None
+                and canonical_hash(output_payload) != output_hash
+            ):
+                raise _executor_error("Custom Film director receipt output changed")
+            if event.get("event_kind") == "attempt_completed" and not isinstance(
+                output_payload, Mapping
             ):
                 raise _executor_error(
                     "Custom Film director completion output is missing"
@@ -1075,12 +1083,11 @@ def validate_multipass_execution_result(
         used_repairs += 1
     if any(
         operation["operation_kind"] in REPAIR_OPERATION_KINDS
-        and operation_id not in {
+        and operation_id
+        not in {
             repair_by_initial[initial["operation_id"]]["operation_id"]
             for initial in initial_operations
-            if event_groups.get(initial["operation_id"], [])[-1][
-                "event_kind"
-            ]
+            if event_groups.get(initial["operation_id"], [])[-1]["event_kind"]
             == "attempt_failed"
         }
         for operation_id, operation in operations.items()
@@ -1100,7 +1107,9 @@ def validate_multipass_execution_result(
         or result.get("repair_operation_count") != used_repairs
         or result.get("terminal_call_count") != terminal_calls
     ):
-        raise _executor_error("Custom Film director execution receipts do not reconcile")
+        raise _executor_error(
+            "Custom Film director execution receipts do not reconcile"
+        )
     expected_execution_hash = canonical_hash(
         {
             "manifest_hash": manifest["manifest_hash"],

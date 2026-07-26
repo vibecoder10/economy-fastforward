@@ -9,6 +9,10 @@ ROOT = Path(__file__).resolve().parents[3]
 MIGRATION = (
     ROOT / "backend/migrations/135_custom_film_director_loop.sql"
 ).read_text()
+ACTIVATION_MIGRATION = (
+    ROOT
+    / "backend/migrations/136_custom_film_director_production_activation.sql"
+).read_text()
 SCHEMA = (ROOT / "schema.sql").read_text()
 SCHEMA_BEGIN = "-- CUSTOM_FILM_DIRECTOR_LOOP_BEGIN\n"
 SCHEMA_END = "-- CUSTOM_FILM_DIRECTOR_LOOP_END"
@@ -97,3 +101,32 @@ def test_stage_authority_lists_every_profile_independent_spend_boundary():
     assert "approval_hash TEXT NOT NULL" in MIGRATION
     assert "stage_binding_hash TEXT NOT NULL" in MIGRATION
     assert "stage = 'script_director' AND director_contract_id IS NULL" in MIGRATION
+
+
+def test_production_activation_migration_converges_pre_activation_databases():
+    assert (
+        "UNIQUE (tenant_id, id, plan_id, video_id, authority_id)"
+        in ACTIVATION_MIGRATION
+    )
+    assert "ADD COLUMN IF NOT EXISTS actual_cost_nusd BIGINT" in (
+        ACTIVATION_MIGRATION
+    )
+    assert "ADD COLUMN IF NOT EXISTS actual_spend_nusd BIGINT" in (
+        ACTIVATION_MIGRATION
+    )
+    for table in (
+        "custom_film_director_call_events",
+        "custom_film_director_executions",
+    ):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in ACTIVATION_MIGRATION
+        assert (
+            f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"
+            in ACTIVATION_MIGRATION
+        )
+        assert (
+            f"REVOKE ALL ON {table} FROM anon, authenticated"
+            in ACTIVATION_MIGRATION
+        )
+    assert "BEFORE UPDATE OR DELETE" in ACTIVATION_MIGRATION
+    assert "BEGIN;" in ACTIVATION_MIGRATION
+    assert "COMMIT;" in ACTIVATION_MIGRATION

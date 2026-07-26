@@ -237,6 +237,65 @@ async def arq_run_custom_film_runtime(
     )
 
 
+async def arq_run_custom_film_director(
+    ctx: dict,
+    video_id: str,
+    tenant_id: str,
+    attempt: int,
+    schedule_id: str,
+    director_job_id: str,
+) -> dict:
+    """Run one durable v2 director schedule with no worker-level retry."""
+    from custom_film_director_worker import run_reserved_director_stage
+    from database import execute
+
+    await execute(
+        """UPDATE background_tasks
+           SET status = 'running', message = 'Writing screenplay and storyboard',
+               error_message = NULL, started_at = now()
+           WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3
+             AND status IN ('pending', 'running')""",
+        tenant_id,
+        video_id,
+        director_job_id,
+    )
+    try:
+        result = await run_reserved_director_stage(
+            tenant_id=tenant_id,
+            video_id=video_id,
+            schedule_id=schedule_id,
+            director_job_id=director_job_id,
+        )
+    except Exception as exc:  # receipt journal decides whether replay is safe
+        message = humanize_error(str(exc))
+        await execute(
+            """UPDATE background_tasks
+               SET status = 'failed', message = NULL, error_message = $4,
+                   completed_at = now()
+               WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
+            tenant_id,
+            video_id,
+            director_job_id,
+            message,
+        )
+        logger.exception(
+            "[custom_film_director] stopped video=%s schedule=%s",
+            video_id,
+            schedule_id,
+        )
+        return {"status": "failed", "error": message}
+    await execute(
+        """UPDATE background_tasks
+           SET status = 'completed', message = 'Screenplay and storyboard complete',
+               error_message = NULL, completed_at = now()
+           WHERE tenant_id = $1 AND video_id = $2 AND job_id = $3""",
+        tenant_id,
+        video_id,
+        director_job_id,
+    )
+    return result
+
+
 # -- WorkerSettings -----------------------------------------------------------
 
 _parsed = _urlparse(REDIS_URL)
@@ -265,6 +324,7 @@ class WorkerSettings:
         func(arq_run_render,           name="arq_run_render",           timeout=7200, max_tries=2),  # long render
         func(arq_run_upload,           name="arq_run_upload",           timeout=1800, max_tries=3),
         func(arq_run_custom_film_runtime, name="arq_run_custom_film_runtime", timeout=7200, max_tries=3),
+        func(arq_run_custom_film_director, name="arq_run_custom_film_director", timeout=7200, max_tries=1),
     ]
 
     max_jobs = 5

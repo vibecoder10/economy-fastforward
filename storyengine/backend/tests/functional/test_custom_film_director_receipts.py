@@ -56,6 +56,7 @@ class FakeReceiptDatabase:
         self.stage_contract = copy.deepcopy(stage_contract)
         self.events = []
         self.executions = []
+        self.ledger = []
         self.conn = FakeReceiptConnection(self)
 
     def acquire(self):
@@ -75,9 +76,7 @@ class FakeReceiptConnection:
                 "id": SCHEDULE_ID,
                 "authority_id": AUTHORITY_ID,
                 "schedule": copy.deepcopy(self.state.stage_contract["schedule"]),
-                "schedule_hash": self.state.stage_contract["schedule"][
-                    "schedule_hash"
-                ],
+                "schedule_hash": self.state.stage_contract["schedule"]["schedule_hash"],
             }
         if "INSERT INTO custom_film_director_call_events" in query:
             operation_id = args[5]
@@ -93,7 +92,7 @@ class FakeReceiptConnection:
             )
             if existing:
                 return None
-            event = json.loads(args[14])
+            event = json.loads(args[15])
             self.state.events.append(
                 {
                     "id": str(uuid4()),
@@ -106,10 +105,7 @@ class FakeReceiptConnection:
             return {"id": self.state.events[-1]["id"]}
         if "INSERT INTO custom_film_director_executions" in query:
             schedule_id = args[3]
-            if any(
-                row["schedule_id"] == schedule_id
-                for row in self.state.executions
-            ):
+            if any(row["schedule_id"] == schedule_id for row in self.state.executions):
                 return None
             row = {
                 "id": str(uuid4()),
@@ -117,8 +113,9 @@ class FakeReceiptConnection:
                 "director_contract_id": args[5],
                 "execution_hash": args[6],
                 "receipt_manifest_hash": args[7],
-                "actual_spend_cents": args[8],
-                "execution": json.loads(args[9]),
+                "actual_spend_nusd": args[8],
+                "actual_spend_cents": args[9],
+                "execution": json.loads(args[10]),
             }
             self.state.executions.append(row)
             return {"id": row["id"]}
@@ -128,6 +125,18 @@ class FakeReceiptConnection:
                     value
                     for value in self.state.executions
                     if value["schedule_id"] == args[1]
+                ),
+                None,
+            )
+            return copy.deepcopy(row)
+        if "FROM generation_ledger" in query:
+            row = next(
+                (
+                    value
+                    for value in self.state.ledger
+                    if value["tenant_id"] == args[0]
+                    and value["video_id"] == args[1]
+                    and value["kie_task_id"] == args[2]
                 ),
                 None,
             )
@@ -148,6 +157,29 @@ class FakeReceiptConnection:
             ),
         )
         return [{"event": copy.deepcopy(row["event"])} for row in rows]
+
+    async def execute(self, query, *args):
+        if "INSERT INTO generation_ledger" in query:
+            if not any(
+                row["video_id"] == args[1] and row["kie_task_id"] == args[4]
+                for row in self.state.ledger
+            ):
+                self.state.ledger.append(
+                    {
+                        "tenant_id": args[0],
+                        "video_id": args[1],
+                        "stage": "custom_film_director",
+                        "model": args[2],
+                        "units": 1,
+                        "unit_cost": args[3],
+                        "actual_cost": args[3],
+                        "kie_task_id": args[4],
+                    }
+                )
+            return "INSERT 0 1"
+        if "UPDATE videos" in query:
+            return "UPDATE 1"
+        raise AssertionError(f"Unexpected execute SQL: {query}")
 
 
 def _journal(database, stage_contract=None):
@@ -247,9 +279,7 @@ async def test_durable_journal_refuses_unapproved_operation_or_schedule_drift():
 
     database.stage_contract["schedule"]["schedule_hash"] = "e" * 64
     with pytest.raises(Exception, match="durable director schedule changed"):
-        await _journal(database, contract).claim(
-            contract["schedule"]["tasks"][0]
-        )
+        await _journal(database, contract).claim(contract["schedule"]["tasks"][0])
     assert database.events == []
 
 

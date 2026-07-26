@@ -309,6 +309,7 @@ async def _auto_reap_stale_tasks(app: FastAPI | None = None):
             dispatch_app = app or globals().get("app")
             if dispatch_app is not None:
                 await _dispatch_pending_custom_film_runtime(dispatch_app)
+                await _dispatch_pending_custom_film_director(dispatch_app)
             reaped = await reap_stale_running_tasks()
             if reaped:
                 logger.info("[Reaper] Failed %d stale background task(s)", reaped)
@@ -645,6 +646,59 @@ async def _dispatch_pending_custom_film_runtime(app: FastAPI) -> int:
     return dispatched
 
 
+async def _dispatch_pending_custom_film_director(app: FastAPI) -> int:
+    """Dispatch approved v2 director jobs from their durable outbox rows.
+
+    The schedule join reconstructs the exact UUID without trusting mutable
+    conversation state. Repeated passes converge on the same arq job key.
+    """
+    arq_pool = getattr(app.state, "arq", None)
+    if arq_pool is None:
+        return 0
+    dispatched = 0
+    try:
+        rows = await fetch_all(
+            """SELECT b.tenant_id, b.video_id, b.job_id,
+                      COALESCE(b.attempt, 1) AS attempt,
+                      s.id AS schedule_id
+               FROM background_tasks b
+               JOIN custom_film_director_stage_schedules s
+                 ON s.tenant_id = b.tenant_id
+                AND s.video_id = b.video_id
+                AND b.job_id = 'custom-film-director:' || s.schedule_hash
+               WHERE b.task_type = 'custom_film_director'
+                 AND b.status = 'pending'
+               ORDER BY b.created_at"""
+        )
+        for row in rows or []:
+            director_job_id = str(row.get("job_id") or "")
+            schedule_id = str(row.get("schedule_id") or "")
+            try:
+                await enqueue_stage(
+                    arq_pool,
+                    "custom_film_director",
+                    str(row["video_id"]),
+                    str(row["tenant_id"]),
+                    int(row.get("attempt") or 1),
+                    schedule_id=schedule_id,
+                    director_job_id=director_job_id,
+                )
+                dispatched += 1
+            except Exception as exc:
+                # Leave the outbox row pending for the next exact-identity pass.
+                logger.warning(
+                    "Could not dispatch pending Custom Film director %s: %s",
+                    director_job_id,
+                    exc,
+                )
+    except Exception as exc:
+        logger.warning(
+            "Custom Film director outbox dispatch error (non-blocking): %s",
+            exc,
+        )
+    return dispatched
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -678,6 +732,7 @@ async def lifespan(app: FastAPI):
     # Recover tasks that were running when the server last stopped.
     await _recover_stale_tasks_to_queue(app)
     await _dispatch_pending_custom_film_runtime(app)
+    await _dispatch_pending_custom_film_director(app)
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())

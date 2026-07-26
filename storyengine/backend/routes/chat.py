@@ -576,16 +576,67 @@ def _custom_film_director_stage_response(
         if cumulative is not None
         else "the approved amount"
     )
+    status = pending.get("status") if isinstance(pending, dict) else None
+    completed = status == "director_stage_completed"
     return ChatTurnResponse(
         conversation_id=conversation_id,
         assistant_text=(
-            f"The screenplay/director stage is safely held at {amount} cumulative. "
-            "Its immutable task schedule exists, but no provider call, media "
-            "generation, render, upload, or spend has started."
+            (
+                f"The screenplay/director stage is complete under the {amount} "
+                "cumulative ceiling. Its film bible, locked cast and environments, "
+                "dialogue, and progressive shot plan are now durable. No imagery, "
+                "animation, voice, render, or upload was authorized."
+            )
+            if completed
+            else (
+                f"The screenplay/director stage is authorized at {amount} cumulative "
+                "and its immutable multipass schedule is queued. No imagery, animation, "
+                "voice, render, or upload is authorized."
+            )
         ),
         video_id=video_id,
         phase="created",
     )
+
+
+async def _schedule_reserved_custom_film_director(
+    pending: Mapping[str, Any],
+    *,
+    tenant_id: str,
+    video_id: str,
+    arq_pool: Any,
+) -> dict[str, Any]:
+    """Enqueue the exact durable director job; replay converges on one arq key."""
+    from custom_film_contract import CustomFilmContractError
+    from job_queue import enqueue_stage
+
+    schedule_id = str(pending.get("director_schedule_id") or "")
+    director_job_id = str(pending.get("director_job_id") or "")
+    if not schedule_id or not director_job_id:
+        raise CustomFilmContractError(
+            "The approved screenplay/director schedule is incomplete."
+        )
+    if arq_pool is None:
+        raise CustomFilmContractError(
+            "The approved screenplay/director schedule is safely saved, but the "
+            "worker queue is unavailable. Retry later; StoryEngine will reuse the "
+            "same exact job without another charge."
+        )
+    queued = await enqueue_stage(
+        arq_pool,
+        "custom_film_director",
+        video_id,
+        tenant_id,
+        1,
+        schedule_id=schedule_id,
+        director_job_id=director_job_id,
+    )
+    return {
+        "queue_enqueued": queued is not None,
+        "queue_job_id": (
+            queued or f"custom-film-worker:{director_job_id}:1"
+        ),
+    }
 
 
 async def _schedule_reserved_custom_film_runtime(
@@ -4626,7 +4677,8 @@ async def _handle_custom_film_approval_turn(
     pending = state.get("pending_custom_film_plan")
     if (
         isinstance(pending, dict)
-        and pending.get("execution_model") == "storyboard_director_v1"
+        and pending.get("execution_model")
+        in {"storyboard_director_v1", "storyboard_director_multipass_v2"}
     ):
         return await _handle_custom_film_director_approval_turn(
             selection,
@@ -4635,6 +4687,7 @@ async def _handle_custom_film_approval_turn(
             transcript,
             state,
             expected_state,
+            arq_pool=arq_pool,
         )
     if selection != "yes":
         message = "No problem — the current Custom Film plan remains unapproved. Tell me what to edit."
@@ -4809,8 +4862,10 @@ async def _handle_custom_film_director_approval_turn(
     transcript: list[dict[str, Any]],
     state: dict[str, Any],
     expected_state: dict[str, Any] | None = None,
+    *,
+    arq_pool: Any = _QUEUE_CONTEXT_UNSET,
 ) -> ChatTurnResponse:
-    """Persist Stage 1 authority without starting its text-provider work."""
+    """Persist and enqueue one explicitly approved Stage 1 authority."""
     from custom_film_contract import CustomFilmContractError
     from custom_film_director_activation import (
         DIRECTOR_EXECUTION_MODEL,
@@ -4958,9 +5013,9 @@ async def _handle_custom_film_director_approval_turn(
         )
         message = (
             "Stage 1 is safely authorized at an exact cumulative ceiling of "
-            f"${cumulative / 100:.2f}. The immutable director schedule is held, "
-            "but no model call, media generation, render, upload, or spend has "
-            "started."
+            f"${cumulative / 100:.2f}. Its immutable multipass director schedule "
+            "is queued. No imagery, animation, voice, render, upload, or later-stage "
+            "provider work is authorized."
         )
         result = await reserve_director_stage_intent(
             tenant_id,
@@ -4975,6 +5030,13 @@ async def _handle_custom_film_director_approval_turn(
         durable_pending = result.get("pending_custom_film_plan")
         if isinstance(durable_pending, dict):
             state["pending_custom_film_plan"] = copy.deepcopy(durable_pending)
+            if arq_pool is not _QUEUE_CONTEXT_UNSET:
+                await _schedule_reserved_custom_film_director(
+                    durable_pending,
+                    tenant_id=tenant_id,
+                    video_id=video_id,
+                    arq_pool=arq_pool,
+                )
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -4987,6 +5049,16 @@ async def _handle_custom_film_director_approval_turn(
             if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
             else str(exc)
         )
+        if "video_id" in locals() and video_id:
+            return ChatTurnResponse(
+                conversation_id=conversation_id,
+                assistant_text=(
+                    f"{message} The approved director schedule is still safely "
+                    "reserved; retry and StoryEngine will enqueue the same exact job."
+                ),
+                video_id=video_id,
+                phase="created",
+            )
         return ChatTurnResponse(
             conversation_id=conversation_id,
             assistant_text=message,
@@ -5014,7 +5086,7 @@ async def _handle_custom_film_director_intake_plan(
     from custom_film_director_activation import (
         DIRECTOR_EXECUTION_MODEL,
         build_director_intake,
-        configured_director_pass_max_cents,
+        configured_director_price_book,
         director_approval_card,
         director_intake_text,
     )
@@ -5055,7 +5127,7 @@ async def _handle_custom_film_director_intake_plan(
             manifest,
             total_duration_seconds=total_duration_seconds,
             prior_cumulative_cents=prior_cumulative_cents,
-            director_pass_max_cents=configured_director_pass_max_cents(),
+            price_book=configured_director_price_book(),
         )
     except CustomFilmContractError as exc:
         state["mode"] = "custom_film"
@@ -6568,10 +6640,29 @@ async def chat_turn(
         and state.get("mode") == "custom_film"
         and isinstance(pending_custom_film, dict)
         and pending_custom_film.get("execution_model")
-        == "storyboard_director_v1"
-        and pending_custom_film.get("status") == "director_stage_scheduled"
+        in {"storyboard_director_v1", "storyboard_director_multipass_v2"}
+        and pending_custom_film.get("status")
+        in {"director_stage_scheduled", "director_stage_completed"}
         and str(pending_custom_film.get("video_id") or "") == video_id
     ):
+        if (
+            pending_custom_film.get("execution_model")
+            == "storyboard_director_multipass_v2"
+            and pending_custom_film.get("status") == "director_stage_scheduled"
+            and request is not None
+        ):
+            try:
+                await _schedule_reserved_custom_film_director(
+                    pending_custom_film,
+                    tenant_id=tenant_id,
+                    video_id=video_id,
+                    arq_pool=arq_pool,
+                )
+            except Exception:
+                logger.warning(
+                    "custom film director reload enqueue failed",
+                    exc_info=True,
+                )
         return _custom_film_director_stage_response(
             conversation_id,
             state,

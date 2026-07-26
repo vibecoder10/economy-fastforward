@@ -924,11 +924,13 @@ async def test_reserved_video_retries_runtime_schedule_after_reload_without_dupl
 
 
 @pytest.mark.asyncio
-async def test_director_approval_persists_zero_call_schedule_without_legacy_runtime(
+async def test_director_approval_persists_and_enqueues_exact_v2_worker(
     monkeypatch,
 ):
     approval_hash = "a" * 64
     plan_id = "11111111-1111-4111-8111-111111111111"
+    schedule_id = "33333333-3333-4333-8333-333333333333"
+    director_job_id = f"custom-film-director:{'b' * 64}"
     activation = {
         "approval_hash": approval_hash,
         "prospective_plan_id": plan_id,
@@ -975,6 +977,8 @@ async def test_director_approval_persists_zero_call_schedule_without_legacy_runt
         durable.update(
             status="director_stage_scheduled",
             video_id="video-1",
+            director_schedule_id=schedule_id,
+            director_job_id=director_job_id,
             provider_calls_started=False,
             spend_recorded_cents=0,
         )
@@ -986,6 +990,18 @@ async def test_director_approval_persists_zero_call_schedule_without_legacy_runt
 
     async def forbidden(*_args, **_kwargs):
         raise AssertionError("director approval entered the legacy runtime")
+
+    class ArqPool:
+        async def enqueue_job(self, function, *args, **kwargs):
+            calls.append("enqueue")
+            assert function == "arq_run_custom_film_director"
+            assert args == ("video-1", "tenant", 1)
+            assert kwargs == {
+                "_job_id": f"custom-film-worker:{director_job_id}:1",
+                "schedule_id": schedule_id,
+                "director_job_id": director_job_id,
+            }
+            return object()
 
     from routes import billing
 
@@ -1010,11 +1026,13 @@ async def test_director_approval_persists_zero_call_schedule_without_legacy_runt
         [],
         state,
         BackgroundTasks(),
+        arq_pool=ArqPool(),
     )
 
     assert response.video_id == "video-1"
     assert response.phase == "created"
-    assert "no model call" in response.assistant_text.lower()
+    assert "immutable multipass director schedule is queued" in response.assistant_text
+    assert "no imagery, animation, voice, render, upload" in response.assistant_text.lower()
     assert state["pending_custom_film_plan"]["provider_calls_started"] is False
     assert state["pending_custom_film_plan"]["spend_recorded_cents"] == 0
     assert calls == [
@@ -1025,6 +1043,7 @@ async def test_director_approval_persists_zero_call_schedule_without_legacy_runt
         "gate",
         "manifest",
         "reserve",
+        "enqueue",
         "release",
     ]
 
@@ -1070,7 +1089,10 @@ async def test_director_schedule_reload_never_resumes_the_legacy_runtime(
     assert response.video_id == "video-1"
     assert response.phase == "created"
     assert "$8.70 cumulative" in response.assistant_text
-    assert "no provider call" in response.assistant_text.lower()
+    assert "immutable multipass schedule is queued" in response.assistant_text
+    assert "no imagery, animation, voice, render, or upload is authorized" in (
+        response.assistant_text.lower()
+    )
 
 
 @pytest.mark.asyncio

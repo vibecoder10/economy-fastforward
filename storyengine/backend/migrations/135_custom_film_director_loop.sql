@@ -347,6 +347,8 @@ CREATE TABLE IF NOT EXISTS custom_film_director_call_events (
     output_hash IS NULL OR output_hash ~ '^[0-9a-f]{64}$'
   ),
   request_id TEXT,
+  actual_cost_nusd BIGINT NOT NULL DEFAULT 0
+    CHECK (actual_cost_nusd >= 0),
   actual_cost_cents BIGINT NOT NULL DEFAULT 0
     CHECK (actual_cost_cents >= 0),
   event JSONB NOT NULL CHECK (jsonb_typeof(event) = 'object'),
@@ -387,6 +389,7 @@ CREATE TABLE IF NOT EXISTS custom_film_director_executions (
   execution_hash TEXT NOT NULL CHECK (execution_hash ~ '^[0-9a-f]{64}$'),
   receipt_manifest_hash TEXT NOT NULL
     CHECK (receipt_manifest_hash ~ '^[0-9a-f]{64}$'),
+  actual_spend_nusd BIGINT NOT NULL CHECK (actual_spend_nusd >= 0),
   actual_spend_cents BIGINT NOT NULL CHECK (actual_spend_cents >= 0),
   execution JSONB NOT NULL CHECK (jsonb_typeof(execution) = 'object'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

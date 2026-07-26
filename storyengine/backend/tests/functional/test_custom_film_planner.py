@@ -10,6 +10,36 @@ import custom_film_planner as planner
 import pytest
 import routes.chat as chat_route
 
+DIRECTOR_PRICE_BOOK = {
+    "film_bible": 69,
+    "shot_outline": 71,
+    "shot_batch": 72,
+    "film_bible_repair": 69,
+    "shot_outline_repair": 71,
+    "shot_batch_repair": 72,
+}
+DIRECTOR_TOKEN_RATES = {
+    "anthropic": {
+        "input_nusd_per_token": 3000,
+        "output_nusd_per_token": 15000,
+    },
+    "kie": {
+        "input_nusd_per_token": 850,
+        "output_nusd_per_token": 4275,
+    },
+}
+
+
+def _configure_director(monkeypatch):
+    monkeypatch.setenv(
+        director_activation.DIRECTOR_PRICE_BOOK_ENV,
+        json.dumps(DIRECTOR_PRICE_BOOK),
+    )
+    monkeypatch.setenv(
+        "CUSTOM_FILM_DIRECTOR_TOKEN_RATES_JSON",
+        json.dumps(DIRECTOR_TOKEN_RATES),
+    )
+
 
 def _profiles():
     rows = {
@@ -2579,25 +2609,18 @@ def test_director_intake_is_no_media_exact_cumulative_authority(manifest):
         manifest,
         total_duration_seconds=300,
         prior_cumulative_cents=857,
-        director_pass_max_cents=13,
+        price_book=DIRECTOR_PRICE_BOOK,
         prospective_plan_id="11111111-1111-4111-8111-111111111111",
     )
-    assert activation["stage_quote"] == {
-        "quote_version": 1,
-        "stage": "script_director",
-        "plan_id": "11111111-1111-4111-8111-111111111111",
-        "plan_hash": activation["plan_hash"],
-        "output": (
-            "complete screenplay, film bible, locked cast and environments, "
-            "and synchronous progressive shot plan"
-        ),
-        "provider_scope": "tenant_owned_text_client",
-        "maximum_model_calls": 2,
-        "media_generation_included": False,
-        "prior_cumulative_cents": 857,
-        "stage_max_cents": 13,
-        "approved_cumulative_cents": 870,
-    }
+    quote = activation["stage_quote"]
+    assert quote["quote_version"] == 2
+    assert quote["execution_model"] == "storyboard_director_multipass_v2"
+    assert quote["maximum_model_calls"] == 18
+    assert quote["initial_model_calls"] == 9
+    assert quote["conditional_repair_calls"] == 9
+    assert quote["price_book_cents"] == DIRECTOR_PRICE_BOOK
+    assert quote["stage_max_cents"] == 1288
+    assert quote["approved_cumulative_cents"] == 2145
     assert activation["quote_inputs"]["totals"]["planned_shots"] == 50
     assert activation["schedule"]["provider_calls_started"] is False
     assert activation["schedule"]["spend_recorded_cents"] == 0
@@ -2608,8 +2631,8 @@ def test_director_intake_is_no_media_exact_cumulative_authority(manifest):
     card = director_activation.director_approval_card(activation)
     stage = card["custom_film_director_stage"]
     assert stage["prior_cumulative"] == "$8.57"
-    assert stage["stage_maximum"] == "$0.13"
-    assert stage["exact_cumulative_ceiling"] == "$8.70"
+    assert stage["stage_maximum"] == "$12.88"
+    assert stage["exact_cumulative_ceiling"] == "$21.45"
     assert stage["media_generation_included"] is False
 
     changed = copy.deepcopy(activation)
@@ -2625,14 +2648,14 @@ def test_director_activation_refuses_to_guess_an_unconfigured_price(
     monkeypatch,
 ):
     monkeypatch.delenv(
-        director_activation.DIRECTOR_PASS_MAX_CENTS_ENV,
+        director_activation.DIRECTOR_PRICE_BOOK_ENV,
         raising=False,
     )
     with pytest.raises(
         contract.CustomFilmContractError,
         match="pricing is not configured",
     ):
-        director_activation.configured_director_pass_max_cents()
+        director_activation.configured_director_price_book()
 
 
 @pytest.mark.asyncio
@@ -2641,7 +2664,7 @@ async def test_director_chat_intake_quotes_before_any_planner_or_provider_call(
     manifest,
 ):
     monkeypatch.setenv(director_activation.DIRECTOR_ACTIVATION_ENV, "true")
-    monkeypatch.setenv(director_activation.DIRECTOR_PASS_MAX_CENTS_ENV, "13")
+    _configure_director(monkeypatch)
     persisted = {}
 
     async def load_manifest():
@@ -2682,10 +2705,10 @@ async def test_director_chat_intake_quotes_before_any_planner_or_provider_call(
     assert response.video_id is None
     assert response.cards[0]["id"] == "custom_film_approval"
     pending = persisted["state"]["pending_custom_film_plan"]
-    assert pending["execution_model"] == "storyboard_director_v1"
+    assert pending["execution_model"] == "storyboard_director_multipass_v2"
     assert pending["status"] == "awaiting_director_approval"
     activation = pending["director_activation"]
-    assert activation["stage_quote"]["approved_cumulative_cents"] == 870
+    assert activation["stage_quote"]["approved_cumulative_cents"] == 2145
     assert activation["schedule"]["provider_calls_started"] is False
     assert "last_spec" not in persisted["state"]
 
@@ -2695,7 +2718,7 @@ async def test_director_intake_setup_failure_is_private_and_no_provider(
     monkeypatch,
 ):
     monkeypatch.setenv(director_activation.DIRECTOR_ACTIVATION_ENV, "true")
-    monkeypatch.setenv(director_activation.DIRECTOR_PASS_MAX_CENTS_ENV, "13")
+    _configure_director(monkeypatch)
     persisted = {}
 
     async def fail_manifest():
@@ -2831,6 +2854,7 @@ class _DirectorReserveConn:
                 "INSERT INTO custom_film_plans",
                 "INSERT INTO custom_film_sections",
                 "UPDATE videos",
+                "INSERT INTO background_tasks",
             )
         ):
             return "OK"
@@ -2847,7 +2871,7 @@ async def test_director_reservation_persists_only_a_zero_call_schedule(
         manifest,
         total_duration_seconds=300,
         prior_cumulative_cents=857,
-        director_pass_max_cents=13,
+        price_book=DIRECTOR_PRICE_BOOK,
     )
     pending = {
         "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
@@ -2877,10 +2901,10 @@ async def test_director_reservation_persists_only_a_zero_call_schedule(
 
     assert result["created"] is True
     assert conn.authority["consumed_by"] == result["schedule_hash"]
-    assert conn.schedule["task_count"] == 1
+    assert conn.schedule["task_count"] == 18
     durable = conn.state["pending_custom_film_plan"]
     assert durable["status"] == "director_stage_scheduled"
     assert durable["provider_calls_started"] is False
     assert durable["spend_recorded_cents"] == 0
-    assert str(conn.video_max_spend) == "0.13"
+    assert str(conn.video_max_spend) == "12.88"
     assert conn.transcript[-1]["content"] == "Stage one is held."
