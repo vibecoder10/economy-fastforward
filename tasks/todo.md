@@ -9,23 +9,18 @@
 **Branch/worktree:** `agent/custom-film-director-loop` in
 `/Users/ryanayler/economy-fastforward-custom-film-director`.
 
-**Last done:** the M8 foundation and safe Stage 1 activation seam now compile the film
-bible/ordered shots, lock narrator/sound/captions, stage every downstream gate, persist
-visual rejection evidence, and admit only clean clips to Director Remotion. With
-`CUSTOM_FILM_DIRECTOR_V1=true`, new intake is deterministic and no-inference: it requires
-an explicit `CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS`, shows an exact cumulative
-script/director approval, persists an unapproved-media plan/video plus consume-once
-zero-call schedule, and cannot fall into the legacy runtime on approval or reload.
-Proof: 491/491 Custom Film tests, all 37 Remotion tests, TypeScript/bundle, and the
-visually accepted 72-frame local render.
+**Last done:** M8 now has the complete v2 no-provider Stage 1 intelligence path:
+300 seconds/50 shots deterministically becomes one film-bible call, one complete
+outline, seven <=8-shot batches, and one conditional repair slot per initial operation.
+The exact six-key price book, quote/authority/schedule, bounded executor, append-only
+durable receipts, reconciliation-required crash law, final compiler, and immutable
+schedule -> execution -> director-contract binding pass 528/528 Custom Film tests.
 
-**Next:** replace the current 48,000-token single-response/two-call prototype—which
-cannot fit through the configured 8,192-token Kie response cap for a roughly 50-shot
-film—with a multi-pass film-bible -> outline -> shot-batch executor. Price its complete
-call bill under a new authority version, journal actual usage/cost, and persist its
-compiled contract; do not reuse the current two-call approval. Then add the reference
--> storyboard -> final-picture -> animation/voice approval cards and executors before
-the production renderer adapter. The activation flag remains off and migration 135 is
+**Next:** replace the held v1 chat card/reservation with this v2 price book and
+18-maximum-call schedule, then add a true single-request production text adapter/worker
+and canonical generation-ledger reconciliation. After that, add reference ->
+storyboard -> final-picture -> animation/voice approval cards and executors before the
+production renderer adapter. The activation flag remains off and migration 135 is
 unapplied. Paid provider work, migration application, deployment, upload, and
 publication remain unauthorized; $8.57 is historical accounting only, not permission
 for the next call.

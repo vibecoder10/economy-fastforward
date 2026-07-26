@@ -797,3 +797,38 @@ not raise the provider response cap.
 multi-pass executor needs an exact new call bill, deployment price, cumulative approval,
 authority version, per-call usage/cost journal, and deterministic assembly/retry law
 before `CUSTOM_FILM_DIRECTOR_V1` may be enabled.
+
+## 2026-07-26 — Stage 1 has one call manifest and no hidden retries
+
+**Decision:** A five-minute/50-shot director pass is one immutable v2 graph: film bible,
+complete outline, seven contiguous maximum-eight-shot batches, and one conditional
+repair paired to each initial operation. Its maximum is 18 calls, but a clean run uses
+9. Every operation has its own identity, input hash, dependency/result slot, token cap,
+and deployment-priced whole-cent ceiling. The execution protocol is `execute_once`;
+the existing retrying Kie helper is not a valid adapter.
+
+**Why:** Treating an internally retrying helper as one approved call would hide up to
+three external requests, while whole-contract repair would burn money and discard
+valid story/continuity work. Small bounded batches fit the real 8,192-token response
+cap and make the failed unit attributable.
+
+**Consequence:** A failed partial may consume only its paired repair. Hidden retry
+counts, token/cost overages, or malformed usage receipts are authorization failures,
+not creative failures, and stop for spend reconciliation.
+
+## 2026-07-26 — Director attempts are append-only financial evidence
+
+**Decision:** Each text operation must commit an `attempt_started` event before the
+external request and exactly one completed/failed terminal event afterward. A started
+event without a terminal is permanently reconciliation-required; it is never
+automatically retried. The final director contract persists only when the durable
+receipt manifest exactly matches the validated execution, then an immutable execution
+row binds schedule, authority, spend, receipt hashes, and director revision.
+
+**Why:** Database transactions cannot roll back an external call. Treating a crash as
+an ordinary retry risks paying twice and recreates the ambiguous-spend failure that
+invalidated the earlier Custom Film authority.
+
+**Consequence:** Migration 135 now includes append-only call events and executions.
+The production adapter must additionally reconcile terminal text receipts into the
+canonical generation ledger before activation; the historical $8.57 is not headroom.
