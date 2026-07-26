@@ -368,13 +368,23 @@ def test_assembly_v3_binds_exact_renderer_and_rejects_bundle_drift(monkeypatch):
         )
 
 
-def test_exact_legacy_staging_fix_bundle_is_accepted_centrally_and_preserved(
+@pytest.mark.parametrize(
+    "legacy_hash",
+    [
+        (
+            "079aeed1113945e630950f9ea116e497"
+            "029788bb60df5d08ad3f4e4a44163eca"
+        ),
+        (
+            "79d403ad4ae67fcb9ee4588a2f41369"
+            "ef8263ae2d46b5c08666299b6089925bd"
+        ),
+    ],
+)
+def test_exact_legacy_renderer_bundle_is_accepted_centrally_and_preserved(
     tmp_path: Path,
+    legacy_hash: str,
 ):
-    legacy_hash = (
-        "079aeed1113945e630950f9ea116e497"
-        "029788bb60df5d08ad3f4e4a44163eca"
-    )
     current_hash = remotion.renderer_bundle_hash()
     assert remotion.renderer_identity_is_compatible(
         remotion.REMOTION_RENDERER_CONTRACT_VERSION, current_hash
@@ -1965,10 +1975,14 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
         # Pinned Remotion CLI: output is the fifth positional argument.
         assert "npx" not in command
         assert command[0].endswith("node_modules/.bin/remotion")
-        assert "--concurrency=1" in command
         assert "--gl=angle" in command
         remotion_output = Path(command[4])
         if "--sequence" in command:
+            assert (
+                f"--concurrency={remotion._FRAME_SEQUENCE_CONCURRENCY}"
+                in command
+            )
+            assert remotion._FRAME_SEQUENCE_CONCURRENCY == 3
             assert "--image-format=png" in command
             assert "--image-sequence-pattern=frame-[frame].[ext]" in command
             remotion_output.mkdir(parents=True, exist_ok=True)
@@ -1977,6 +1991,11 @@ async def test_real_renderer_adapter_uses_pinned_cli_unicode_srt_and_cleans(
                     b"deterministic-png"
                 )
         else:
+            assert (
+                f"--concurrency={remotion._AUDIO_CAPTURE_CONCURRENCY}"
+                in command
+            )
+            assert remotion._AUDIO_CAPTURE_CONCURRENCY == 1
             assert "--codec=wav" in command
             remotion_output.write_bytes(b"deterministic-wav")
 
