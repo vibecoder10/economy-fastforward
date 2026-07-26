@@ -722,3 +722,22 @@ preserve, and zero videos retroactively broken by adding the guard.
 spend today, and keeping the feature (rather than deleting it) means the eventual "wire SFX into
 the modern render paths" work is additive, not a rebuild. The guard buys time without burning the
 option.
+
+## 2026-07-25 — Custom Film profiles are shot techniques; the film bible owns identity
+
+**Decision:** DVsU documentary coverage, Poco dialogue, Power Doctrine exposition, and
+cinematic silent action may be selected per shot, but none may change the film's medium,
+style, characters, environments, props, geography, timeline, or story state. Those are
+owned by one immutable film bible and injected into every storyboard, picture, and motion
+prompt.
+
+**Why:** The failed five-minute Custom Film treated profile choices as independent visual
+systems, which produced realistic and animated style drift, unlocked characters, unclear
+progression, narration in place of performance, and no reliable storyboard contract. A
+film-level law lets the director choose the right communication technique without losing
+the audience's understanding of who, where, when, and what changed.
+
+**Consequence:** Reference images must be approved before storyboards; storyboards before
+final media; start/middle/end clip verification before Remotion. A changed film bible,
+shot contract, reference gate, or storyboard gate invalidates downstream authority. The
+old $8.57 ceiling is not permission for a new stage.

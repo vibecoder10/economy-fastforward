@@ -4,6 +4,22 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ⟳ HANDOFF — 2026-07-25 — M8 storyboard-driven Custom Film director loop
+
+**Branch/worktree:** `agent/custom-film-director-loop` in
+`/Users/ryanayler/economy-fastforward-custom-film-director`.
+
+**Last done:** M8-0 introduces one immutable film bible above DVsU/Poco/Power Doctrine
+shot techniques, exact story-state progression, cast/environment/prop locks, required
+reference/storyboard/visual-verification gates, approved-shot-only Remotion admission,
+consume-once exact cumulative stage authority, migration 135 with fresh-schema parity,
+and 11/11 no-provider tests.
+
+**Next:** M8-1 integrates the director compiler with complete script output and prevents
+the Custom Film runtime from jumping from section summaries directly into pictures.
+Paid provider work, migration application, deployment, upload, and publication remain
+unauthorized. The historical $8.57 ceiling is accounting context only.
+
 ## ⧗ HANDOFF — 2026-07-24 (night) — SFX render-path guard: code done, live UI check BLOCKED (report only, no code changes this session)
 
 **Branch:** `claude/exciting-swirles-4d8fba`, commits a3453902 (initial guard) + 9d83c621 (closed

@@ -1,5 +1,30 @@
 # System State — Economy FastForward
 
+## Storyboard-driven Custom Film director loop (M8-0 local, 2026-07-25)
+
+- `storyengine/backend/custom_film_director.py` establishes one immutable film law
+  above profile-derived shot techniques. The film bible locks the through-line,
+  beginning/ending state, one visual medium/style, cast identity/wardrobe/voice,
+  environments, props, geography, timeline, motif, and narrator ownership.
+- Exact shot contracts bind section, cause, opening state, visible action, closing
+  state, progression type, characters, environment, props, screen direction,
+  dialogue/exposition/silent action, prompts, and frame timing. Dialogue must alternate
+  between at least two locked speakers; narration cannot substitute for performance;
+  repeated spoken lines and unchanged shots fail closed.
+- Reference images must pass identity/style review before storyboards. Storyboards
+  must pass style/cast/environment/action/continuity review before final media.
+  Animated clips must then pass start/middle/end checks for lock hashes, opening and
+  closing state, motion, action, continuity, and dialogue lip-sync before the module
+  will emit a Remotion admission manifest.
+- Migration `135_custom_film_director_loop.sql` and `storyengine/schema.sql` add
+  append-only director contracts, normalized shots, tenant-bound standard
+  character/environment reference reviews, storyboard reviews, visual-verification
+  attempts, and consume-once exact cumulative stage authorities. The pre-director
+  script stage binds to the immutable plan; later stages bind to the director and
+  upstream approval gates. No migration has been applied.
+- Focused contract/schema tests pass 11/11 with synthetic fixtures. No model/provider
+  call, paid generation, database write, deployment, upload, or publication occurred.
+
 ## Custom Film general layered orchestration (M6 local, 2026-07-24)
 
 - `storyengine/backend/custom_film_orchestration.py` owns the versioned,
