@@ -15,6 +15,12 @@ const {
 } = require("../.test-build/canonical.js");
 const pythonFixture = require("../test-fixtures/custom-film-remotion-props-v1.json");
 const unicodeParity = require("../test-fixtures/canonical-unicode-parity.json");
+const {
+  validateDirectorRemotionProps,
+} = require("../.test-build/directorSchema.js");
+const {
+  DIRECTOR_FILM_DEFAULT_PROPS,
+} = require("../.test-build/directorFixture.js");
 
 const hash = (character) => character.repeat(64);
 
@@ -199,4 +205,38 @@ test("frame math is exact and rejects gaps", () => {
   assert.throws(() =>
     assertExactFrameLayout(props.sections, props.video.total_frames),
   );
+});
+
+test("director props require exact shots, measured captions, and sound layers", () => {
+  const parsed = validateDirectorRemotionProps(DIRECTOR_FILM_DEFAULT_PROPS);
+  assert.equal(parsed.video.total_frames, 72);
+  assert.equal(parsed.shots.length, 2);
+  assert.equal(parsed.shots[0].performance_mode, "silent_action");
+  assert.equal(parsed.shots[1].spoken_lines.length, 2);
+  assert.equal(parsed.shots[1].sound_layers[0].kind, "score");
+});
+
+test("director props reject timing, dialogue, caption, and gate drift", () => {
+  const mutations = [
+    (value) => {
+      value.shots[1].start_frame = 25;
+    },
+    (value) => {
+      value.shots[1].spoken_lines[1].speaker_id = "hero";
+    },
+    (value) => {
+      value.shots[1].spoken_lines[0].measured_words[0].from_frame = 25;
+    },
+    (value) => {
+      value.shots[0].sound_layers[0].end_frame = 25;
+    },
+    (value) => {
+      value.identity.visual_gate_hash = "f".repeat(64);
+    },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(DIRECTOR_FILM_DEFAULT_PROPS);
+    mutate(changed);
+    assert.throws(() => validateDirectorRemotionProps(changed));
+  }
 });

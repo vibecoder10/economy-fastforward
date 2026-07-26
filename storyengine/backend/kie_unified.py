@@ -282,6 +282,7 @@ class AnthropicDirectClient:
     def __init__(self, api_key: str):
         from anthropic import Anthropic
 
+        self.api_key = api_key
         self.client = Anthropic(api_key=api_key)
 
     async def generate(

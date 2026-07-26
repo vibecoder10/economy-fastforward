@@ -1,5 +1,22 @@
 # Deferred verification — Custom Film Remotion showcase layer
 
+## M8 storyboard-driven Custom Film director loop
+
+- [ ] **Paid character, environment, and storyboard reference proof.**
+  - Proof reached now: the exact film-bible, reference, storyboard, final-picture, contract-drift, stage-BOM, named-helper, consume-once schedule, and synthetic fixture laws pass locally. No provider reference was generated.
+  - Later recipe: after the M8 implementation is reviewed and Ryan approves a new exact cumulative amount, generate the smallest approved cast sheets, environment references, and storyboard set. Visually inspect every asset against the locked film bible before approving any final picture.
+  - Expected result: one medium/style across the film; each recurring character retains face, body, wardrobe, and identity anchors; each environment retains architecture, palette, geography, time/weather, and prop placement; storyboard order clearly advances the story.
+
+- [ ] **Paid shot-animation and visual-verifier proof.**
+  - Proof reached now: deterministic start/middle/end evaluation, issue-code derivation, rejected-attempt persistence, idempotent replay, clean visual admission, and the no-auto-reroll boundary pass with synthetic observations. No provider clip or reroll was purchased.
+  - Later recipe: with a separately approved exact cumulative cap, animate a bounded sequence containing one dialogue exchange and one silent action shot. Extract start/middle/end frames from every clip, run the visual verifier, and manually compare all frames to the approved storyboard and adjacent shots.
+  - Expected result: visible action progresses within each shot; dialogue ownership and lip-sync are correct; screen direction, character identity, environment, props, and opening/closing state remain continuous; failed shots stop before Remotion and require an explicit repair decision.
+
+- [ ] **Production deployment and human film review.**
+  - Proof reached now: the strict approved-shot Remotion props/composition passes all 37 Remotion tests, TypeScript, and bundle. A local two-shot proof rendered exactly 72 video frames at 1920x1080/24 fps with separate stereo audio; its contact sheet was visually reviewed for silent motion, the inside-shot cut, alternating dialogue captions, and measured-word progression. MP4 SHA-256: `a502d53d940fe177a0ce95e78b98e1e11f93327729c2aa81cf33f1e1c648d4a4`. The v2 no-provider director proof replaces the impossible 48,000-token response with 9 initial plus 9 conditional repair operations maximum, all at or below 8,000 output tokens; a complete 50-shot fake film compiles in 9 calls, one failed batch uses only its paired tenth call, replay uses zero calls, and durable started/terminal receipts plus final execution persistence fail closed. The held chat intake is still v1 and cannot authorize v2; the production adapter, generation-ledger bridge, later-stage executors, and renderer adapter are intentionally absent. The activation flag is off and migration 135 is unapplied.
+  - Later recipe: after Ryan separately authorizes deployment, use the sanctioned zero-active-work drain. Then build a short paid proof under a fresh exact cumulative approval and review the storyboard beside the finished sequence before any longer film.
+  - Expected result: only storyboard-approved and verifier-approved shots enter Remotion; dialogue, third-person exposition, and silent action form one understandable through-line; no stale approval or hidden helper spend is reused.
+
 - [ ] **Paid five-minute BYOK media substitution.**
   - Proof reached now: the versioned provider-opaque manifest, real renderer adapter, complete 300.000-second synthetic master, exact artifact verification, source-frame/audio determinism, representative 16:9 and 9:16 inspection, every 4:45–5:00 reveal second, and FFmpeg fallback are accepted locally without provider calls. No paid flagship footage exists.
   - Later recipe: refresh the accepted shared estimator immediately before generation. Only if Ryan separately approves the exact current quote with a hard `$15` cap may actual generated section media/audio/captions replace the synthetic fixtures through the same immutable manifest. Revalidate plan hash, quote-input hash, approval hash, integer film/section seconds, ordered section IDs, media/provenance hashes, and current cap before scheduling.

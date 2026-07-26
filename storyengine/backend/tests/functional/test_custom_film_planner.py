@@ -1,13 +1,45 @@
 import asyncio
 import copy
 import json
-
-import pytest
+from uuid import uuid4
 
 import custom_film_contract as contract
+import custom_film_director_activation as director_activation
 import custom_film_orchestration as orchestration
 import custom_film_planner as planner
+import generation_claims
+import pytest
 import routes.chat as chat_route
+
+DIRECTOR_PRICE_BOOK = {
+    "film_bible": 69,
+    "shot_outline": 71,
+    "shot_batch": 72,
+    "film_bible_repair": 69,
+    "shot_outline_repair": 71,
+    "shot_batch_repair": 72,
+}
+DIRECTOR_TOKEN_RATES = {
+    "anthropic": {
+        "input_nusd_per_token": 3000,
+        "output_nusd_per_token": 15000,
+    },
+    "kie": {
+        "input_nusd_per_token": 850,
+        "output_nusd_per_token": 4275,
+    },
+}
+
+
+def _configure_director(monkeypatch):
+    monkeypatch.setenv(
+        director_activation.DIRECTOR_PRICE_BOOK_ENV,
+        json.dumps(DIRECTOR_PRICE_BOOK),
+    )
+    monkeypatch.setenv(
+        "CUSTOM_FILM_DIRECTOR_TOKEN_RATES_JSON",
+        json.dumps(DIRECTOR_TOKEN_RATES),
+    )
 
 
 def _profiles():
@@ -144,22 +176,48 @@ def _beat(*capabilities, dialogue=False, captions=False, intents=None):
 
 def _flagship_proposal():
     specs = [
-        ("opening", "internet outage", 45, _beat(
-            "motion.signal_pulse", "motion.outage_map",
-            intents=["cinematic", "outage", "map"],
-        )),
-        ("evidence", "evidence investigation", 105, _beat(
-            "motion.evidence_board", "motion.incident_timeline",
-            intents=["evidence", "documents", "timeline"],
-        )),
-        ("case_study", "bilingual witness", 90, _beat(
-            "motion.radio_waveform", "motion.bilingual_captions",
-            dialogue=True, captions=True, intents=["witness", "radio"],
-        )),
-        ("explanation", "network recovery by StoryEngine", 60, _beat(
-            "motion.network_explainer", "motion.storyengine_reveal",
-            intents=["network", "recovery", "product"],
-        )),
+        (
+            "opening",
+            "internet outage",
+            45,
+            _beat(
+                "motion.signal_pulse",
+                "motion.outage_map",
+                intents=["cinematic", "outage", "map"],
+            ),
+        ),
+        (
+            "evidence",
+            "evidence investigation",
+            105,
+            _beat(
+                "motion.evidence_board",
+                "motion.incident_timeline",
+                intents=["evidence", "documents", "timeline"],
+            ),
+        ),
+        (
+            "case_study",
+            "bilingual witness",
+            90,
+            _beat(
+                "motion.radio_waveform",
+                "motion.bilingual_captions",
+                dialogue=True,
+                captions=True,
+                intents=["witness", "radio"],
+            ),
+        ),
+        (
+            "explanation",
+            "network recovery by StoryEngine",
+            60,
+            _beat(
+                "motion.network_explainer",
+                "motion.storyengine_reveal",
+                intents=["network", "recovery", "product"],
+            ),
+        ),
     ]
     return {
         "sections": [
@@ -251,20 +309,22 @@ def test_planner_capability_beats_resolve_exact_approval_bound_reference(manifes
         "story_identity": first["story_identity"],
         "recipe_hash": first["recipe_hash"],
     }
-    card = chat_route._custom_film_approval_card(
-        quote, compiled.display_plan
-    )
+    card = chat_route._custom_film_approval_card(quote, compiled.display_plan)
     assert card["finishing_engine"] == "remotion"
     assert len(card["custom_film_orchestration_beats"]) == 4
     assert card["custom_film_orchestration_beats"][2]["captions_summary"] == (
         "bilingual word emphasis"
     )
-    assert "Radio Waveform" in card[
-        "custom_film_orchestration_beats"
-    ][2]["capability_labels"]
-    assert orchestration.validate_approved_orchestration(
-        first, compiled.internal_plan, quote
-    ) == first
+    assert (
+        "Radio Waveform"
+        in card["custom_film_orchestration_beats"][2]["capability_labels"]
+    )
+    assert (
+        orchestration.validate_approved_orchestration(
+            first, compiled.internal_plan, quote
+        )
+        == first
+    )
     compiler_owned_mutations = {
         "decision_rules_version": "tampered-rules-v1",
         "reference_compatible": False,
@@ -276,11 +336,7 @@ def test_planner_capability_beats_resolve_exact_approval_bound_reference(manifes
         tampered = copy.deepcopy(first)
         tampered[field] = replacement
         tampered["contract_hash"] = contract.canonical_hash(
-            {
-                key: value
-                for key, value in tampered.items()
-                if key != "contract_hash"
-            }
+            {key: value for key, value in tampered.items() if key != "contract_hash"}
         )
         with pytest.raises(
             contract.CustomFilmContractError,
@@ -296,9 +352,7 @@ def test_planner_capability_beats_resolve_exact_approval_bound_reference(manifes
     for field, replacement in semantic_version_mutations.items():
         tampered_semantic = copy.deepcopy(first["semantic_input"])
         tampered_semantic[field] = replacement
-        tampered = orchestration._contract_from_semantic_input(
-            tampered_semantic
-        )
+        tampered = orchestration._contract_from_semantic_input(tampered_semantic)
         with pytest.raises(
             contract.CustomFilmContractError,
             match="approved orchestration semantic input changed",
@@ -370,16 +424,13 @@ def test_media_plus_motion_audio_only_still_compiles_executable_visual_layers(
         visual = {
             layer["primitive"]
             for layer in recipe["motionLayers"]
-            if layer["primitive"]
-            not in {"MotionAudioSystem", "BilingualCaptions"}
+            if layer["primitive"] not in {"MotionAudioSystem", "BilingualCaptions"}
         }
         assert visual == {"SignalPulse", "MediaKinetics"}
     orchestration.validate_executable_orchestration(
         approved,
         total_duration_seconds=30,
-        section_duration_seconds=[
-            row["duration_seconds"] for row in quote["sections"]
-        ],
+        section_duration_seconds=[row["duration_seconds"] for row in quote["sections"]],
     )
 
 
@@ -388,9 +439,7 @@ def test_orchestration_capability_catalog_is_strict_and_provider_opaque():
     assert "provider" not in serialized
     assert "model" not in serialized
     invalid = _flagship_proposal()
-    invalid["sections"][0]["beats"][0]["capability_ids"].append(
-        "motion.unknown"
-    )
+    invalid["sections"][0]["beats"][0]["capability_ids"].append("motion.unknown")
     with pytest.raises(planner.CustomFilmPlannerError):
         planner.compile_planner_proposal(
             (
@@ -414,9 +463,7 @@ def test_planner_role_schema_is_exactly_the_canonical_recipe_role_enum(
     expected_catalog = [
         {
             "id": role,
-            "purpose": planner.ROLE_PURPOSES[role].format(
-                focus="the section topic"
-            ),
+            "purpose": planner.ROLE_PURPOSES[role].format(focus="the section topic"),
         }
         for role in sorted(contract.RECIPE_ROLES)
     ]
@@ -426,15 +473,10 @@ def test_planner_role_schema_is_exactly_the_canonical_recipe_role_enum(
         manifest,
     )
     assert planner.canonical_json(expected_catalog) in prompt
-    assert prompt.index("CANONICAL ROLE CATALOG:") < prompt.index(
-        "JSON SCHEMA:"
-    )
+    assert prompt.index("CANONICAL ROLE CATALOG:") < prompt.index("JSON SCHEMA:")
+    assert "`role` is a closed internal narrative-function classification" in prompt
     assert (
-        "`role` is a closed internal narrative-function classification" in prompt
-    )
-    assert (
-        "descriptive act or chapter title, genre, subject, person, or event"
-        in prompt
+        "descriptive act or chapter title, genre, subject, person, or event" in prompt
     )
     assert "investigation, thriller, witness sequence, or product reveal" not in prompt
 
@@ -551,9 +593,7 @@ def test_initial_planner_inference_failures_are_fixed_and_private(
 
     assert len(client.calls) == 1
     assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[reason]
-    assert (
-        f"stage=inference reason={reason.value} attempt=1" in caplog.text
-    )
+    assert f"stage=inference reason={reason.value} attempt=1" in caplog.text
     assert str(inference_error) not in caplog.text
     assert "No media production was approved or started." in str(error.value)
     assert "from that response" not in str(error.value)
@@ -580,9 +620,12 @@ def test_repair_inference_failure_is_attempt_two_and_private(manifest, caplog):
             )
 
     assert len(client.calls) == 2
-    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[
-        planner.PlannerInferenceReason.UPSTREAM_UNAVAILABLE
-    ]
+    assert (
+        str(error.value)
+        == planner._SAFE_INFERENCE_MESSAGES[
+            planner.PlannerInferenceReason.UPSTREAM_UNAVAILABLE
+        ]
+    )
     assert "stage=inference reason=upstream_unavailable attempt=2" in caplog.text
     assert secret not in caplog.text
 
@@ -609,9 +652,10 @@ def test_saved_recipe_inference_failure_is_attempt_one(manifest, caplog):
             )
 
     assert len(client.calls) == 1
-    assert str(error.value) == planner._SAFE_INFERENCE_MESSAGES[
-        planner.PlannerInferenceReason.TIMEOUT
-    ]
+    assert (
+        str(error.value)
+        == planner._SAFE_INFERENCE_MESSAGES[planner.PlannerInferenceReason.TIMEOUT]
+    )
     assert "stage=inference reason=timeout attempt=1" in caplog.text
     assert secret not in caplog.text
 
@@ -721,8 +765,9 @@ def test_exact_standalone_realistic_prompt_repairs_long_focus_and_compiles(
     assert compiled.planner_proposal["sections"][4]["focus"] == focuses[4]
     assert len(focuses[4]) > 120
     assert len(focuses[4]) <= planner.MAX_PLANNER_FOCUS_CHARS
-    assert f"at most {planner.MAX_PLANNER_FOCUS_CHARS} characters" in (
-        client.calls[1]["prompt"]
+    assert (
+        f"at most {planner.MAX_PLANNER_FOCUS_CHARS} characters"
+        in (client.calls[1]["prompt"])
     )
 
 
@@ -742,15 +787,11 @@ def test_focus_character_bound_is_shared_and_over_limit_fails(manifest):
             total_duration_seconds=30,
         )
     with pytest.raises(planner.ValidationError):
-        planner.ReuseFocusProposal.model_validate(
-            {"sections": [{"focus": over_limit}]}
-        )
+        planner.ReuseFocusProposal.model_validate({"sections": [{"focus": over_limit}]})
 
 
 def test_planner_repairs_one_ungrounded_focus_then_compiles(manifest, caplog):
-    client = SequencedPlannerClient(
-        [_proposal("unrelated topic"), _proposal("steel")]
-    )
+    client = SequencedPlannerClient([_proposal("unrelated topic"), _proposal("steel")])
     with caplog.at_level("WARNING", logger=planner.__name__):
         compiled = asyncio.run(
             planner.plan_custom_film(
@@ -957,7 +998,9 @@ def test_exact_flagship_request_accepts_generic_and_bilingual_caption_signals(
     assert [section["focus"] for section in compiled.planner_proposal["sections"]] == (
         exact_focuses
     )
-    assert [len(section["beats"]) for section in compiled.planner_proposal["sections"]] == [
+    assert [
+        len(section["beats"]) for section in compiled.planner_proposal["sections"]
+    ] == [
         2,
         2,
         1,
@@ -981,26 +1024,20 @@ def test_exact_flagship_request_accepts_generic_and_bilingual_caption_signals(
     for value in sorted(orchestration.ALLOWED_HANDOFFS):
         assert f'"{value}"' in planning_prompt
     assert "motion.bilingual_captions requires captions=true" in planning_prompt
-    beat_schema = planner.planner_json_schema()["$defs"]["PlannerBeat"][
-        "properties"
-    ]
+    beat_schema = planner.planner_json_schema()["$defs"]["PlannerBeat"]["properties"]
     assert beat_schema["intents"]["items"]["enum"] == sorted(
         orchestration.ALLOWED_INTENTS
     )
-    assert beat_schema["handoff"]["enum"] == sorted(
-        orchestration.ALLOWED_HANDOFFS
-    )
-    planner_section_schema = planner.planner_json_schema()["$defs"][
-        "PlannerSection"
-    ]["properties"]
+    assert beat_schema["handoff"]["enum"] == sorted(orchestration.ALLOWED_HANDOFFS)
+    planner_section_schema = planner.planner_json_schema()["$defs"]["PlannerSection"][
+        "properties"
+    ]
     assert planner.MAX_PLANNER_BEATS_PER_SECTION == 4
     assert planner_section_schema["beats"]["anyOf"][0]["maxItems"] == 4
-    assert "ordinary captions do not require" in beat_schema["captions"][
-        "description"
-    ]
-    assert "dialogue=true requires captions=true" in beat_schema["dialogue"][
-        "description"
-    ]
+    assert "ordinary captions do not require" in beat_schema["captions"]["description"]
+    assert (
+        "dialogue=true requires captions=true" in beat_schema["dialogue"]["description"]
+    )
 
 
 def test_bilingual_caption_capability_still_requires_caption_signal(manifest):
@@ -1177,14 +1214,12 @@ def test_fake_planner_fixture_compiles_to_stable_hidden_plan(manifest):
     assert first.internal_plan["sections"][0]["knobs"]["visual_profile"] == (
         "cinematic_illustration"
     )
-    assert first.internal_plan["sections"][0]["estimated_media"]["duration_seconds"] == (
-        "0"
-    )
+    assert first.internal_plan["sections"][0]["estimated_media"][
+        "duration_seconds"
+    ] == ("0")
     assert first.display_plan["kind"] == "custom_film"
     assert first.display_plan["sections"][0]["purpose"] == (
-        planner.ROLE_PURPOSES["opening"].format(
-            focus="hidden cost of fast fashion"
-        )
+        planner.ROLE_PURPOSES["opening"].format(focus="hidden cost of fast fashion")
     )
     assert "purpose" not in first.planner_proposal["sections"][0]
     display_text = json.dumps(first.display_plan)
@@ -1252,9 +1287,7 @@ def test_single_profile_clone_is_not_novel_even_when_split_into_sections(
         raise AssertionError("public clones must be caught before tenant lookup")
 
     monkeypatch.setattr(contract, "fetch_one", saved_lookup_must_not_run)
-    novelty = asyncio.run(
-        planner.classify_plan_novelty("tenant-a", compiled, manifest)
-    )
+    novelty = asyncio.run(planner.classify_plan_novelty("tenant-a", compiled, manifest))
     assert novelty == planner.NoveltyResult(
         is_novel=False,
         duplicate_kind="public_profile",
@@ -1328,12 +1361,11 @@ def test_grounded_focus_drives_topic_specific_compiler_purpose(manifest):
     assert compiled.planner_proposal["sections"][0]["focus"] == (
         "hidden cost of fast fashion"
     )
-    assert "hidden cost of fast fashion" in compiled.internal_plan["sections"][0][
-        "purpose"
-    ]
-    assert "supply chain pressure" in compiled.display_plan["sections"][1][
-        "purpose"
-    ]
+    assert (
+        "hidden cost of fast fashion"
+        in compiled.internal_plan["sections"][0]["purpose"]
+    )
+    assert "supply chain pressure" in compiled.display_plan["sections"][1]["purpose"]
     serialized = json.dumps(
         {
             "internal": compiled.internal_plan,
@@ -1432,9 +1464,7 @@ def test_editing_section_content_preserves_stable_ordered_section_ids(manifest):
     )
     edited_payload = _proposal()
     edited_payload["sections"][1]["visual_source"] = "photo_documentary"
-    prior_ids = [
-        section["section_id"] for section in first.internal_plan["sections"]
-    ]
+    prior_ids = [section["section_id"] for section in first.internal_plan["sections"]]
     edited = planner.compile_planner_proposal(
         "Make the second section of that steel film more human",
         edited_payload,
@@ -1608,6 +1638,7 @@ def test_chat_custom_film_handler_persists_distinct_pending_plan_without_approva
         assert stale_key not in persisted["state"]
     pending = persisted["state"]["pending_custom_film_plan"]
     from custom_film_contract import approval_binding_hash, plan_hash
+
     assert pending["plan_hash"] == plan_hash(compiled.internal_plan)
     assert pending["approval_hash"] == approval_binding_hash(
         pending["plan_hash"], pending["quote_inputs"]
@@ -1801,7 +1832,9 @@ def test_custom_film_blueprint_locks_remotion_only_for_exact_showcase_contract()
     }
     card = chat_route._custom_film_approval_card(quote, display_plan)
     assert card["finishing_engine"] == "remotion"
-    assert "layered remotion orchestration is locked" in card["finishing_notice"].lower()
+    assert (
+        "layered remotion orchestration is locked" in card["finishing_notice"].lower()
+    )
     for treatment in (
         "approved media",
         "motion",
@@ -2164,17 +2197,14 @@ def test_custom_followup_uses_prior_proposal_and_reuses_section_ids(
     assert "photo_documentary" in client.calls[0]["prompt"]
     assert "Preserve its section count and order exactly" in client.calls[0]["prompt"]
     assert [
-        section["section_id"] for section in persisted["state"][
-            "pending_custom_film_plan"
-        ]["internal_plan"]["sections"]
-    ] == [
-        section["section_id"] for section in first.internal_plan["sections"]
-    ]
+        section["section_id"]
+        for section in persisted["state"]["pending_custom_film_plan"]["internal_plan"][
+            "sections"
+        ]
+    ] == [section["section_id"] for section in first.internal_plan["sections"]]
 
 
-def test_failed_custom_followup_keeps_last_valid_unapproved_plan(
-    monkeypatch, manifest
-):
+def test_failed_custom_followup_keeps_last_valid_unapproved_plan(monkeypatch, manifest):
     first = planner.compile_planner_proposal(
         "Make a custom film about steel",
         _proposal(),
@@ -2259,7 +2289,7 @@ def test_section_count_followup_is_held_for_m2_3_without_client_or_state_loss(
 
 
 def test_custom_mode_exit_clears_custom_state_and_reaches_ordinary_producer(
-    monkeypatch
+    monkeypatch,
 ):
     captured = {}
 
@@ -2335,9 +2365,7 @@ def test_custom_mode_exit_clears_custom_state_and_reaches_ordinary_producer(
         chat_route.chat_turn(
             chat_route.ChatTurnRequest(
                 conversation_id="conversation-a",
-                message=(
-                    "Cancel Custom Film; make a normal Photo Documentary instead"
-                ),
+                message=("Cancel Custom Film; make a normal Photo Documentary instead"),
                 approve=True,
             ),
             background_tasks=object(),
@@ -2427,9 +2455,10 @@ def test_saved_recipe_chat_commands_are_small_and_deterministic():
     parse = chat_route._custom_film_recipe_command
     assert parse("Show my saved Custom Film recipes") == ("list", ())
     assert parse("Show my saved recipes") is None
-    assert parse(
-        'Save this recipe as "Power Mix"', has_save_candidate=True
-    ) == ("save", ("Power Mix",))
+    assert parse('Save this recipe as "Power Mix"', has_save_candidate=True) == (
+        "save",
+        ("Power Mix",),
+    )
     assert parse('Save this Custom Film recipe as "Power Mix"') == (
         "save",
         ("Power Mix",),
@@ -2442,9 +2471,7 @@ def test_saved_recipe_chat_commands_are_small_and_deterministic():
         "archive",
         ("Evidence Mix",),
     )
-    assert parse(
-        'Reuse saved recipe "Evidence Mix" for a film about clean steel'
-    ) == (
+    assert parse('Reuse saved recipe "Evidence Mix" for a film about clean steel') == (
         "reuse",
         ("Evidence Mix", "a film about clean steel"),
     )
@@ -2548,9 +2575,12 @@ async def test_reuse_planner_only_grounds_focus_and_reapplies_exact_recipe(manif
     prompt = prompts[0]["prompt"]
     assert "fresh topic" in prompt
     assert "provider_id" not in prompt
-    assert "duration_weight" not in planner.ReuseFocusProposal.model_json_schema()[
-        "$defs"
-    ]["ReuseFocusSection"]["properties"]
+    assert (
+        "duration_weight"
+        not in planner.ReuseFocusProposal.model_json_schema()["$defs"][
+            "ReuseFocusSection"
+        ]["properties"]
+    )
 
 
 @pytest.mark.asyncio
@@ -2570,3 +2600,324 @@ async def test_reuse_rejects_wrong_focus_count_and_never_inherits_approval(manif
             manifest,
             Client(),
         )
+
+
+def test_director_intake_is_no_media_exact_cumulative_authority(manifest):
+    activation = director_activation.build_director_intake(
+        "A courier discovers a private escape route beneath the city.",
+        manifest,
+        total_duration_seconds=300,
+        prior_cumulative_cents=857,
+        price_book=DIRECTOR_PRICE_BOOK,
+        prospective_plan_id="11111111-1111-4111-8111-111111111111",
+    )
+    quote = activation["stage_quote"]
+    assert quote["quote_version"] == 2
+    assert quote["execution_model"] == "storyboard_director_multipass_v2"
+    assert quote["maximum_model_calls"] == 18
+    assert quote["initial_model_calls"] == 9
+    assert quote["conditional_repair_calls"] == 9
+    assert quote["price_book_cents"] == DIRECTOR_PRICE_BOOK
+    assert quote["stage_max_cents"] == 1288
+    assert quote["approved_cumulative_cents"] == 2145
+    assert activation["quote_inputs"]["totals"]["planned_shots"] == 50
+    assert activation["schedule"]["provider_calls_started"] is False
+    assert activation["schedule"]["spend_recorded_cents"] == 0
+    assert activation["internal_plan"]["sections"][0]["role"] == "full_film"
+    card = director_activation.director_approval_card(activation)
+    stage = card["custom_film_director_stage"]
+    assert stage["prior_cumulative"] == "$8.57"
+    assert stage["stage_maximum"] == "$12.88"
+    assert stage["exact_cumulative_ceiling"] == "$21.45"
+    assert stage["media_generation_included"] is False
+
+    changed = copy.deepcopy(activation)
+    changed["schedule"]["tasks"][0]["status"] = "started"
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="intake changed",
+    ):
+        director_activation.validate_director_intake(changed)
+
+
+def test_director_activation_refuses_to_guess_an_unconfigured_price(
+    monkeypatch,
+):
+    monkeypatch.delenv(
+        director_activation.DIRECTOR_PRICE_BOOK_ENV,
+        raising=False,
+    )
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="pricing is not configured",
+    ):
+        director_activation.configured_director_price_book()
+
+
+@pytest.mark.asyncio
+async def test_director_chat_intake_quotes_before_any_planner_or_provider_call(
+    monkeypatch,
+    manifest,
+):
+    monkeypatch.setenv(director_activation.DIRECTOR_ACTIVATION_ENV, "true")
+    _configure_director(monkeypatch)
+    persisted = {}
+
+    async def load_manifest():
+        return manifest
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("director intake crossed the no-provider boundary")
+
+    async def persist(
+        _conversation_id,
+        _tenant_id,
+        saved_transcript,
+        saved_state,
+        phase,
+        *_args,
+    ):
+        persisted["transcript"] = copy.deepcopy(saved_transcript)
+        persisted["state"] = copy.deepcopy(saved_state)
+        persisted["phase"] = phase
+
+    monkeypatch.setattr(planner, "load_capability_manifest", load_manifest)
+    monkeypatch.setattr(chat_route, "_resolve_producer_client", forbidden)
+    monkeypatch.setattr(planner, "plan_custom_film", forbidden)
+    monkeypatch.setattr(chat_route, "_persist", persist)
+    state = {
+        "custom_film_completed_spend_cents": 857,
+        "last_spec": {"stale": True},
+    }
+    response = await chat_route._handle_custom_film_plan(
+        "conversation-a",
+        "tenant-a",
+        [],
+        state,
+        "Make a five minute Custom Film about a courier exposing a secret route.",
+    )
+
+    assert response.phase == "plan"
+    assert response.video_id is None
+    assert response.cards[0]["id"] == "custom_film_approval"
+    pending = persisted["state"]["pending_custom_film_plan"]
+    assert pending["execution_model"] == "storyboard_director_multipass_v2"
+    assert pending["status"] == "awaiting_director_approval"
+    activation = pending["director_activation"]
+    assert activation["stage_quote"]["approved_cumulative_cents"] == 2145
+    assert activation["schedule"]["provider_calls_started"] is False
+    assert "last_spec" not in persisted["state"]
+
+
+@pytest.mark.asyncio
+async def test_director_intake_setup_failure_is_private_and_no_provider(
+    monkeypatch,
+):
+    monkeypatch.setenv(director_activation.DIRECTOR_ACTIVATION_ENV, "true")
+    _configure_director(monkeypatch)
+    persisted = {}
+
+    async def fail_manifest():
+        raise RuntimeError("postgres://secret-host/internal-detail")
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("failed intake crossed the provider boundary")
+
+    async def persist(
+        _conversation_id,
+        _tenant_id,
+        saved_transcript,
+        saved_state,
+        phase,
+        *_args,
+    ):
+        persisted["transcript"] = copy.deepcopy(saved_transcript)
+        persisted["state"] = copy.deepcopy(saved_state)
+        persisted["phase"] = phase
+
+    monkeypatch.setattr(planner, "load_capability_manifest", fail_manifest)
+    monkeypatch.setattr(chat_route, "_resolve_producer_client", forbidden)
+    monkeypatch.setattr(chat_route, "_persist", persist)
+    response = await chat_route._handle_custom_film_plan(
+        "conversation-a",
+        "tenant-a",
+        [],
+        {},
+        "Make a Custom Film about a courier.",
+    )
+
+    assert response.phase == "plan"
+    assert "secret-host" not in response.assistant_text
+    assert (
+        "nothing was approved, started, or charged" in response.assistant_text.lower()
+    )
+    assert (
+        persisted["state"]["pending_custom_film_plan"]["status"]
+        == "director_intake_blocked"
+    )
+
+
+class _DirectorReserveContext:
+    def __init__(self, value=None):
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, *_args):
+        return False
+
+
+class _DirectorReservePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        return _DirectorReserveContext(self.conn)
+
+
+class _DirectorReserveConn:
+    def __init__(self, state):
+        self.state = copy.deepcopy(state)
+        self.transcript = [{"role": "user", "content": "approve stage one"}]
+        self.video_id = None
+        self.video_max_spend = None
+        self.authority = None
+        self.schedule = None
+        self.provider_calls = 0
+
+    def transaction(self):
+        return _DirectorReserveContext()
+
+    async def fetchrow(self, query, *args):
+        if "FROM chat_conversations" in query:
+            return {
+                "id": "conversation-a",
+                "video_id": self.video_id,
+                "transcript": copy.deepcopy(self.transcript),
+                "state": copy.deepcopy(self.state),
+            }
+        if "INSERT INTO videos" in query:
+            self.video_id = str(uuid4())
+            self.video_max_spend = args[3]
+            return {"id": self.video_id}
+        if "INSERT INTO custom_film_stage_authorities" in query:
+            authority_id = str(uuid4())
+            self.authority = {
+                "id": authority_id,
+                "plan_id": args[1],
+                "video_id": args[2],
+                "director_contract_id": args[3],
+                "stage": args[4],
+                "stage_binding_hash": args[5],
+                "upstream_gate_hash": args[6],
+                "quote_hash": args[7],
+                "approval_hash": args[8],
+                "prior_cumulative_cents": args[9],
+                "approved_cumulative_cents": args[10],
+                "bill_of_materials": json.loads(args[11]),
+                "authority": json.loads(args[12]),
+                "authority_hash": args[13],
+                "consumed_at": None,
+                "consumed_by": None,
+            }
+            return {"id": authority_id}
+        if "FROM custom_film_stage_authorities" in query:
+            return copy.deepcopy(self.authority)
+        if "INSERT INTO custom_film_director_stage_schedules" in query:
+            schedule_id = str(uuid4())
+            self.schedule = {
+                "id": schedule_id,
+                "schedule_hash": args[10],
+                "task_count": args[11],
+            }
+            return {"id": schedule_id}
+        if "FROM custom_film_director_stage_schedules" in query:
+            return copy.deepcopy(self.schedule)
+        raise AssertionError(query)
+
+    async def execute(self, query, *args):
+        if "UPDATE custom_film_stage_authorities" in query:
+            self.authority["consumed_at"] = "now"
+            self.authority["consumed_by"] = args[2]
+            return "UPDATE 1"
+        if "UPDATE chat_conversations" in query:
+            self.state = json.loads(args[2])
+            self.video_id = args[3]
+            self.transcript = json.loads(args[4])
+            return "UPDATE 1"
+        if any(
+            token in query
+            for token in (
+                "INSERT INTO custom_film_plans",
+                "INSERT INTO custom_film_sections",
+                "UPDATE videos",
+                "INSERT INTO background_tasks",
+            )
+        ):
+            return "OK"
+        raise AssertionError(query)
+
+
+@pytest.mark.asyncio
+async def test_director_reservation_persists_only_a_zero_call_schedule(
+    monkeypatch,
+    manifest,
+):
+    activation = director_activation.build_director_intake(
+        "A courier discovers a private escape route beneath the city.",
+        manifest,
+        total_duration_seconds=300,
+        prior_cumulative_cents=857,
+        price_book=DIRECTOR_PRICE_BOOK,
+    )
+    pending = {
+        "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
+        "status": "awaiting_director_approval",
+        "prospective_plan_id": activation["prospective_plan_id"],
+        "approval_hash": activation["approval_hash"],
+        "director_activation": activation,
+    }
+    conn = _DirectorReserveConn(
+        {"mode": "custom_film", "pending_custom_film_plan": pending}
+    )
+
+    async def pool():
+        return _DirectorReservePool(conn)
+
+    async def acquire_conn(
+        claimed_conn,
+        tenant_id,
+        video_id,
+        stage,
+        claimed_by=None,
+    ):
+        assert claimed_conn is conn
+        assert tenant_id == "22222222-2222-4222-8222-222222222222"
+        assert video_id == conn.video_id
+        assert stage == "main"
+        assert claimed_by == f"custom-film-director:{conn.schedule['schedule_hash']}"
+        return True
+
+    monkeypatch.setattr(director_activation, "get_pool", pool)
+    monkeypatch.setattr(generation_claims, "acquire_conn", acquire_conn)
+    result = await director_activation.reserve_director_stage_intent(
+        "22222222-2222-4222-8222-222222222222",
+        "conversation-a",
+        activation["approval_hash"],
+        manifest,
+        confirmation_turn={
+            "role": "assistant",
+            "content": "Stage one is held.",
+        },
+    )
+
+    assert result["created"] is True
+    assert conn.authority["consumed_by"] == result["schedule_hash"]
+    assert conn.schedule["task_count"] == 18
+    durable = conn.state["pending_custom_film_plan"]
+    assert durable["status"] == "director_stage_scheduled"
+    assert durable["provider_calls_started"] is False
+    assert durable["spend_recorded_cents"] == 0
+    assert str(conn.video_max_spend) == "12.88"
+    assert conn.transcript[-1]["content"] == "Stage one is held."

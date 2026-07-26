@@ -722,3 +722,113 @@ preserve, and zero videos retroactively broken by adding the guard.
 spend today, and keeping the feature (rather than deleting it) means the eventual "wire SFX into
 the modern render paths" work is additive, not a rebuild. The guard buys time without burning the
 option.
+
+## 2026-07-25 — Custom Film profiles are shot techniques; the film bible owns identity
+
+**Decision:** DVsU documentary coverage, Poco dialogue, Power Doctrine exposition, and
+cinematic silent action may be selected per shot, but none may change the film's medium,
+style, characters, environments, props, geography, timeline, or story state. Those are
+owned by one immutable film bible and injected into every storyboard, picture, and motion
+prompt.
+
+**Why:** The failed five-minute Custom Film treated profile choices as independent visual
+systems, which produced realistic and animated style drift, unlocked characters, unclear
+progression, narration in place of performance, and no reliable storyboard contract. A
+film-level law lets the director choose the right communication technique without losing
+the audience's understanding of who, where, when, and what changed.
+
+**Consequence:** Reference images must be approved before storyboards; storyboards before
+final media; start/middle/end clip verification before Remotion. A changed film bible,
+shot contract, reference gate, or storyboard gate invalidates downstream authority. The
+old $8.57 ceiling is not permission for a new stage.
+
+## 2026-07-25 — Custom Film director activation is a staged replacement, not a legacy-runtime patch
+
+**Decision:** The new director loop will first persist a no-provider plan/video identity,
+then require an exact cumulative approval for the script/director pass before any text
+client call. References, storyboards, final pictures, animation plus every voice line,
+verification repair, and deterministic Remotion assembly each advance from the prior
+accepted gate through their own immutable schedule. The existing all-at-once approval
+must not dispatch a director film into the legacy section-summary runtime.
+
+**Why:** A complete film bible and storyboard plan cannot be safely generated after the
+old runtime has already started buying pictures. Conversely, generating that plan before
+approval would itself hide provider work. The staged reservation removes the
+chicken-and-egg problem and makes helper work, retries, and cumulative spend explicit.
+
+**Consequence:** The current local compiler/gates/composition remain inactive until the
+new reservation, chat approval, executor, and renderer adapter are wired together. This
+is intentional fail-closed scope, not permission to resume under the historical $8.57.
+
+## 2026-07-25 — Director activation never guesses price or plans before consent
+
+**Decision:** New director-mode intake is deterministic and provider-free. It creates a
+full-film planning scaffold, derives an exact immutable Stage 1 authority only from a
+deployment-supplied whole-cent ceiling, and shows the prior plus new cumulative amount
+before resolving or calling a text client. A missing ceiling blocks activation. The
+approved transaction stores an unapproved-media plan/video and consumes Stage 1 into a
+zero-call schedule; it does not enqueue the task.
+
+**Why:** Calling the existing section planner to discover what the film should be would
+already spend before the script/director gate, while assigning a guessed text price
+would make the cumulative approval fictional. A deterministic scaffold lets the real
+director own story/style/cast/environment/shot selection after exact consent without
+approving any downstream imagery.
+
+**Consequence:** `CUSTOM_FILM_DIRECTOR_V1` remains an explicit activation switch and
+`CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS` is mandatory. Historical plans without the new
+execution-model marker retain replay compatibility. A future executor must reconcile
+actual text usage/cost inside the held ceiling before this switch can be enabled.
+
+## 2026-07-25 — A 50-shot director plan must be chunked and newly quoted
+
+**Decision:** The current one-response plus one-repair director prototype is a compiler
+proof, not an executable Stage 1 production plan. It requests up to 48,000 output tokens,
+but the configured Kie text client caps each response at 8,192. Stage 1 must instead
+compile a film bible, story/shot outline, and bounded shot batches through a versioned
+multi-pass executor, then validate the whole assembled contract.
+
+**Why:** A five-minute film is expected to carry roughly 50 rich shot records. Truncating
+that contract would create exactly the missing progression, character drift, and
+continuity failures this rebuild exists to prevent. Raising a local request value does
+not raise the provider response cap.
+
+**Consequence:** The current two-call authority is deliberately non-transferable. The
+multi-pass executor needs an exact new call bill, deployment price, cumulative approval,
+authority version, per-call usage/cost journal, and deterministic assembly/retry law
+before `CUSTOM_FILM_DIRECTOR_V1` may be enabled.
+
+## 2026-07-26 — Stage 1 has one call manifest and no hidden retries
+
+**Decision:** A five-minute/50-shot director pass is one immutable v2 graph: film bible,
+complete outline, seven contiguous maximum-eight-shot batches, and one conditional
+repair paired to each initial operation. Its maximum is 18 calls, but a clean run uses
+9. Every operation has its own identity, input hash, dependency/result slot, token cap,
+and deployment-priced whole-cent ceiling. The execution protocol is `execute_once`;
+the existing retrying Kie helper is not a valid adapter.
+
+**Why:** Treating an internally retrying helper as one approved call would hide up to
+three external requests, while whole-contract repair would burn money and discard
+valid story/continuity work. Small bounded batches fit the real 8,192-token response
+cap and make the failed unit attributable.
+
+**Consequence:** A failed partial may consume only its paired repair. Hidden retry
+counts, token/cost overages, or malformed usage receipts are authorization failures,
+not creative failures, and stop for spend reconciliation.
+
+## 2026-07-26 — Director attempts are append-only financial evidence
+
+**Decision:** Each text operation must commit an `attempt_started` event before the
+external request and exactly one completed/failed terminal event afterward. A started
+event without a terminal is permanently reconciliation-required; it is never
+automatically retried. The final director contract persists only when the durable
+receipt manifest exactly matches the validated execution, then an immutable execution
+row binds schedule, authority, spend, receipt hashes, and director revision.
+
+**Why:** Database transactions cannot roll back an external call. Treating a crash as
+an ordinary retry risks paying twice and recreates the ambiguous-spend failure that
+invalidated the earlier Custom Film authority.
+
+**Consequence:** Migration 135 now includes append-only call events and executions.
+The production adapter must additionally reconcile terminal text receipts into the
+canonical generation ledger before activation; the historical $8.57 is not headroom.

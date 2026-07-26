@@ -107,12 +107,16 @@ if [[ "$ARGS" == *--with-remotion* ]]; then
     exit 1
   fi
   echo "remotion runtime: verified ($REMOTION_BROWSER)"
-  (
-    cd storyengine/backend
-    "$PYTHON" scripts/run_migrations_strict.py
-  )
-  echo "remotion schema: strict migrations complete"
 fi
+
+# Every backend deploy must converge schema before either long-lived process is
+# restarted. Restricting this to --with-remotion allowed a healthy deploy to
+# omit ordinary backend migrations.
+(
+  cd storyengine/backend
+  "$PYTHON" scripts/run_migrations_strict.py
+)
+echo "schema: strict migrations complete"
 
 # Restart the backend by its exact unit PID. NEVER pkill -f uvicorn on this
 # box — it has matched voice-osiris AND the ssh session itself before.

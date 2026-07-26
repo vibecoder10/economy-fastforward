@@ -3164,6 +3164,16 @@ export interface ChatCustomFilmOrchestrationBeat {
   captions_summary?: string | null;
   audio_summary?: string | null;
 }
+export interface ChatCustomFilmDirectorStage {
+  stage: string;
+  duration_seconds: number;
+  planned_shots: number;
+  produces: string;
+  media_generation_included: false;
+  prior_cumulative: string;
+  stage_maximum: string;
+  exact_cumulative_ceiling: string;
+}
 export interface ChatCard {
   id: string;
   label: string;
@@ -3209,6 +3219,10 @@ export interface ChatCard {
   // time-bound composition of media + public creative capabilities. Older
   // payloads omit it and retain the established section-only approval card.
   custom_film_orchestration_beats?: ChatCustomFilmOrchestrationBeat[];
+  // M8 director activation: an exact script/director-only approval shown
+  // before any text call or media approval. Mutually exclusive with the old
+  // all-media section/totals blueprint.
+  custom_film_director_stage?: ChatCustomFilmDirectorStage;
   approval_notice?: string;
   finishing_engine?: "remotion" | "ffmpeg";
   finishing_notice?: string;

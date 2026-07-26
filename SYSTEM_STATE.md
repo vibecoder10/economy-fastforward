@@ -1,5 +1,82 @@
 # System State — Economy FastForward
 
+## Storyboard-driven Custom Film director loop (M8 local foundation, 2026-07-26)
+
+- `storyengine/backend/custom_film_director.py` now plans and compiles a complete
+  film bible plus exact ordered shots with one bounded JSON-repair pass. One film law
+  owns the through-line, medium/style, recurring cast, wardrobe, character and
+  third-person narrator voices, environments, props, geography, timeline, motif,
+  beginning, and ending above shot-level Poco, DVsU, Power Doctrine, and cinematic
+  action techniques.
+- Every shot has exact frame timing, cause/effect, opening/action/closing state,
+  screen direction, real motion, ambient/score/SFX intent, and caption ownership.
+  Dialogue must alternate between locked speakers; exposition has an owned narrator;
+  silent action cannot invent captions; repeated dialogue and unchanged story state
+  fail closed.
+- Reference, storyboard, final-picture, and start/middle/end clip gates bind each
+  downstream stage. Failed clips are append-only rejected evidence with deterministic
+  issue codes and a bounded repair instruction; only clean attempts enter the visual
+  gate.
+- `custom_film_director_runtime.py` compiles exact stage bills of materials for
+  script/director, references, storyboards, final pictures, animation plus every
+  spoken line, and deterministic assembly. Helpers must be named and included in the
+  exact cumulative ceiling. One approved authority can persist one immutable schedule
+  exactly once; schedules still record zero calls and zero spend.
+- `custom_film_director_activation.py` now supplies the safe production entry seam.
+  When `CUSTOM_FILM_DIRECTOR_V1=true`, new non-recipe Custom Films bypass the old
+  inference-first planner and receive a deterministic full-film scaffold plus an
+  exact script/director-stage approval card before any text client is resolved or
+  called. Pricing is deployment-owned and mandatory through
+  `CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS`; a missing/invalid ceiling blocks the card
+  instead of guessing. Approval creates the plan/video with its media approval still
+  null, persists one exact cumulative authority, consumes it into one immutable
+  zero-call/zero-spend schedule, and stops. Reloads remain on this held director state
+  and cannot fall into the legacy all-media runtime.
+- Migration 135 and fresh-schema parity now cover picture reviews, consume-once stage
+  authorities, append-only director schedules/call events/execution bindings, and
+  idempotent visual attempts. A durable call must commit `attempt_started` before
+  any external request; a missing terminal receipt becomes reconciliation-required
+  instead of retrying. Completed executions bind the schedule, authority, receipt
+  manifest, actual text spend, and immutable director contract. No migration has
+  been applied.
+- `custom_film_director_multipass.py` replaces the impossible single 48,000-token
+  response with one immutable v2 call manifest. A 300-second/50-shot film has one
+  film-bible call, one complete-outline call, seven contiguous maximum-eight-shot
+  batch calls, and one conditional repair slot paired to each initial operation:
+  9 initial and 9 repair calls maximum. All output ceilings are 6,000–8,000 tokens,
+  below Kie's 8,192 cap. A mandatory exact six-key whole-cent price book compiles
+  the quote, cumulative authority, and zero-call schedule without guessing.
+- `custom_film_director_multipass_executor.py` executes only that accepted manifest
+  through an explicit single-attempt protocol. Film-bible, complete-outline,
+  outline-bound batch, prefix continuity, and final compiler validation all fail
+  closed. A valid 50-shot fake film uses 9 calls; one failed batch uses only its
+  paired tenth repair; receipt replay uses zero calls. Hidden retries, token/cost
+  overages, and authorization failures cannot consume repair authority.
+- The Remotion skill-guided `StoryEngineDirectorFilm` composition consumes only the
+  approved-shot admission shape with premounted shots, inside-shot transitions, muted
+  clip media, separate voice/ambient/score/SFX layers, and measured-word captions.
+  A synthetic two-shot proof rendered 72 exact video frames at 1920x1080/24 fps;
+  visually inspected motion, cut, two-speaker caption progression, and audio layering
+  passed. MP4 SHA-256: `a502d53d940fe177a0ce95e78b98e1e11f93327729c2aa81cf33f1e1c648d4a4`.
+- The complete Custom Film backend regression passes 528/528; focused director
+  activation proofs cover the historical $8.57 prior context plus a configured new
+  ceiling, price-config refusal, no-inference intake, exact authority persistence,
+  transaction/replay, stale-approval persistence, private setup failure, no legacy
+  scheduling, and safe reload. The new video receives only the newly approved stage
+  amount as executable headroom; the historical cumulative amount stays accounting
+  context. All 37 Remotion contract/motion/showcase tests, TypeScript, and bundle also
+  pass.
+- The old v1 two-call activation remains intentionally incompatible with the new v2
+  manifest. Before the flag can be enabled, the chat intake/reservation must load a
+  deployment-owned six-key price book, present the v2 maximum call/cumulative quote,
+  persist its schedule, and dispatch through a production single-attempt adapter.
+  That adapter must also reconcile completed text receipts into the canonical
+  generation ledger; no automatic retry may sit below `execute_once`.
+- The activation flag remains off and migration 135 remains unapplied; v2 chat/worker
+  wiring, the production text adapter, later-stage approval UI/executors, and the new
+  composition renderer adapter are absent. No provider call, paid generation, live
+  database write, deployment, upload, or publication occurred.
+
 ## Custom Film general layered orchestration (M6 local, 2026-07-24)
 
 - `storyengine/backend/custom_film_orchestration.py` owns the versioned,
