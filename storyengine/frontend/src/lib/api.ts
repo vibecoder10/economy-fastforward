@@ -72,7 +72,7 @@ export function uploadHeaders(): Record<string, string> {
   };
 }
 
-async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   // Get token from localStorage, fallback to "dev-token" for development
   const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const token = storedToken || "dev-token";

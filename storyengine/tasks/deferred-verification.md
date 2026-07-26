@@ -547,3 +547,10 @@ upload, or publication occurred.
       provider output or finishing result that no longer matches the approved semantic
       beat recipes or silently changes duration, media, captions, quote, cap, or
       provenance.
+# Deferred verification — M9 Scene-by-Scene Control
+
+No local verification is deferred. Backend/state/schema, mounted cockpit, canonical
+artifact playback, Remotion render/audio/frame proof, and independent adversarial review
+all pass. M9-4 still requires the authorized production deploy, live synthetic
+scene-control/browser proof, and before/after zero-provider/zero-ledger reconciliation in
+this run; do not convert those pending live checks into a completion claim.

@@ -10,15 +10,18 @@
         "prebuild": "npm run generate:motion-audio",
         "typecheck": "tsc --noEmit",
         "test": "npm run test:custom-film && npm run test:motion-library && npm run test:showcase",
+        "pretest:custom-film": "npm run generate:director-scene-proof",
         "test:custom-film": "rm -rf .test-build && tsc -p tsconfig.test.json && node --test tests/custom-film.test.cjs",
         "test:motion-library": "npm run generate:motion-audio && rm -rf .motion-test-build && tsc -p tsconfig.motion-test.json && node --test tests/motion-library.test.cjs",
         "test:showcase": "npm run generate:showcase-staged && rm -rf .showcase-test-build && tsc -p tsconfig.showcase-test.json && node --test tests/showcase.test.cjs",
         "generate:motion-audio": "node scripts/generate-motion-audio.mjs",
+        "generate:director-scene-proof": "npm run generate:motion-audio && node scripts/generate-director-scene-proof.mjs",
         "generate:showcase-staged": "npm run generate:motion-audio && node scripts/generate-showcase-staged-fixtures.mjs",
         "render:motion-preview": "npm run generate:motion-audio && remotion render MotionLibraryPreview out/motion-library-preview.mp4 --concurrency=1",
         "render:showcase-proof": "npm run generate:motion-audio && remotion render StoryEngineCustomFilmShowcase out/storyengine-showcase-proof.mp4 --concurrency=1",
         "render:showcase-staged-proof": "npm run generate:showcase-staged && remotion render StoryEngineCustomFilmShowcaseStagedProof out/showcase-staged-proof.mp4 --frames=0-119 --concurrency=1",
         "render:showcase-source-clip-proof": "npm run generate:showcase-staged && remotion render StoryEngineCustomFilmShowcaseSourceClipProof out/showcase-source-clip-proof.mp4 --frames=0-119 --concurrency=1",
+        "render:director-scene-proof": "npm run generate:director-scene-proof && remotion render StoryEngineDirectorSceneControlProof out/director-scene-control-proof.mp4 --concurrency=1 --gl=angle",
         "transcribe": "node scripts/transcribe.mjs"
     },
     "dependencies": {

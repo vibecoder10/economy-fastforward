@@ -11962,3 +11962,28 @@ control writes without losing the video, approval, or confirmation.
   queryable provider operation/result for the unresolved image submission.
   The conservative next approval is therefore an exact cumulative cap of
   $8.57: the prior $8.52 ceiling plus one $0.05 possible auxiliary image.
+
+# Custom Film deterministic Scene Control (added 2026-07-26)
+
+- `CUSTOM_FILM_SCENE_CONTROL_V1` gates a tenant-bound scene-control layer over
+  the existing director contract and shot tables. Migration 137 adds append-only
+  film locks/events plus mutable-until-accepted scene heads with revision hashes,
+  artifact hashes, and a same-origin artifact manifest.
+- Scene numbers are contiguous. The only forward law is `draft` through
+  `accepted` one gate at a time; transitions use revision compare-and-set and
+  exact gate evidence, upstream edits invalidate downstream hashes, accepted
+  heads are immutable, and only acceptance unlocks the next scene.
+- The HTTP surface can read control state, establish one film lock, create or
+  revise one scene, transition one gate, and return a quote. It has no provider,
+  approval-execution, queue, claim, outbox, or ledger-write endpoint.
+- The production cockpit lives at `/scene-control/[videoId]`, is dark unless
+  `NEXT_PUBLIC_CUSTOM_FILM_SCENE_CONTROL_V1=true`, and shows exact shot
+  contracts, comparison/current artifact truth, local playback, stale-revision
+  recovery, and quote-only paid cards.
+- The checked-in relay-room proof is 432 frames at 24 fps with Mara, Elias,
+  five progressive shots, four alternating dialogue lines, one silent beat,
+  layered audio/captions/transitions, and one canonical Python/TypeScript hash
+  chain. Browser assembly bytes equal the independently rendered MP4.
+- The synthetic seed CLI is dry-run by default, rejects existing real videos
+  before writes, and may create only clearly tagged zero-spend fixtures. Real
+  provider work remains outside this control deployment.

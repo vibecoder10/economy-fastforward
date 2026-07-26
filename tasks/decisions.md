@@ -832,3 +832,18 @@ invalidated the earlier Custom Film authority.
 **Consequence:** Migration 135 now includes append-only call events and executions.
 The production adapter must additionally reconcile terminal text receipts into the
 canonical generation ledger before activation; the historical $8.57 is not headroom.
+
+## 2026-07-26 — Scene authority is one explicit hash-bound gate
+
+**Decision:** Scene Control reuses the immutable director and shot contracts, then
+adds only six film-level locks, one contiguous scene head, and append-only transition
+events. Every forward gate requires the current revision plus its exact artifact
+evidence; a paid quote is read-only and no scene-control route can execute it.
+
+**Why:** A whole-stage approval hides media types, retries, and later-scene authority.
+One scene/one operation makes creative review, continuity, and spend scope inspectable
+without creating a parallel production pipeline.
+
+**Consequence:** Only `accepted` unlocks the next scene. Local synthetic playback may
+remain available after rejection as comparison evidence, but it is acceptance evidence
+only when the assembly hash is current and the scene is assembled or accepted.

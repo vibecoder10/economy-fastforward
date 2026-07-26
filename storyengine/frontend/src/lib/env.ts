@@ -9,6 +9,8 @@
 
 const API_URL_ENV = process.env.NEXT_PUBLIC_API_URL;
 const RUBRIC_URL_ENV = process.env.NEXT_PUBLIC_RUBRIC_URL;
+const CUSTOM_FILM_SCENE_CONTROL_ENV =
+  process.env.NEXT_PUBLIC_CUSTOM_FILM_SCENE_CONTROL_V1;
 
 function requireInProd(val: string | undefined, name: string, devFallback: string): string {
   if (val && val.length > 0) return val;
@@ -32,3 +34,10 @@ export const API_URL = requireInProd(API_URL_ENV, "NEXT_PUBLIC_API_URL", "http:/
 // RUBRIC is the dev-only command-center on Osiris's Mac. Prod has no
 // RUBRIC endpoint, so missing in prod is expected and non-fatal.
 export const RUBRIC_URL = optionalInProd(RUBRIC_URL_ENV, "http://localhost:5050");
+// Dark by default. This only exposes the frontend control surface; the backend
+// independently enforces CUSTOM_FILM_SCENE_CONTROL_V1.
+export const isSceneControlFrontendEnabled = (
+  value: string | undefined,
+): boolean => value === "true";
+export const CUSTOM_FILM_SCENE_CONTROL_ENABLED =
+  isSceneControlFrontendEnabled(CUSTOM_FILM_SCENE_CONTROL_ENV);

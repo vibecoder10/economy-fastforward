@@ -1,4 +1,7 @@
 const assert = require("node:assert/strict");
+const {createHash} = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 
 const {
@@ -15,12 +18,17 @@ const {
 } = require("../.test-build/canonical.js");
 const pythonFixture = require("../test-fixtures/custom-film-remotion-props-v1.json");
 const unicodeParity = require("../test-fixtures/canonical-unicode-parity.json");
+const controlManifest = require("../src/custom-film/scene-control-proof-control-manifest.json");
 const {
   validateDirectorRemotionProps,
 } = require("../.test-build/directorSchema.js");
 const {
   DIRECTOR_FILM_DEFAULT_PROPS,
 } = require("../.test-build/directorFixture.js");
+const {
+  DIRECTOR_SCENE_CONTROL_LOCKS,
+  DIRECTOR_SCENE_CONTROL_PROOF_PROPS,
+} = require("../.test-build/directorSceneControlFixture.js");
 
 const hash = (character) => character.repeat(64);
 
@@ -238,5 +246,242 @@ test("director props reject timing, dialogue, caption, and gate drift", () => {
     const changed = structuredClone(DIRECTOR_FILM_DEFAULT_PROPS);
     mutate(changed);
     assert.throws(() => validateDirectorRemotionProps(changed));
+  }
+});
+
+test("scene-control proof locks one environment and two recurring characters across five progressive shots", () => {
+  const parsed = validateDirectorRemotionProps(
+    DIRECTOR_SCENE_CONTROL_PROOF_PROPS,
+  );
+  assert.equal(parsed.video.fps, 24);
+  assert.equal(parsed.video.total_frames, 432);
+  assert.equal(parsed.shots.length, 5);
+  assert.deepEqual(
+    parsed.shots.map(({start_frame}) => start_frame),
+    [0, 72, 168, 240, 336],
+  );
+  assert.deepEqual(
+    parsed.shots.map(({end_frame}) => end_frame),
+    [71, 167, 239, 335, 431],
+  );
+
+  const characterSets = parsed.shots.map(
+    ({continuity}) => continuity?.character_ids,
+  );
+  assert.ok(characterSets.every(Boolean));
+  assert.ok(
+    characterSets.every(
+      (ids) =>
+        JSON.stringify(ids) ===
+        JSON.stringify(DIRECTOR_SCENE_CONTROL_LOCKS.character_ids),
+    ),
+  );
+  assert.ok(
+    parsed.shots.every(
+      ({continuity}) =>
+        continuity?.environment_id ===
+        DIRECTOR_SCENE_CONTROL_LOCKS.environment_id,
+    ),
+  );
+  assert.ok(
+    parsed.shots.every(
+      ({continuity}) =>
+        continuity?.opening_state !== continuity?.closing_state &&
+        Boolean(continuity?.progression),
+    ),
+  );
+});
+
+test("scene-control proof has M/E/M/E measured dialogue, an intentional silent beat, and layered sound", () => {
+  const parsed = validateDirectorRemotionProps(
+    DIRECTOR_SCENE_CONTROL_PROOF_PROPS,
+  );
+  const lines = parsed.shots.flatMap(({spoken_lines}) => spoken_lines);
+  assert.deepEqual(
+    lines.map(({speaker_id}) => speaker_id),
+    [
+      "scene_control_character_mara",
+      "scene_control_character_elias",
+      "scene_control_character_mara",
+      "scene_control_character_elias",
+    ],
+  );
+  assert.equal(new Set(lines.map(({text}) => text)).size, 4);
+  assert.ok(
+    lines.every(
+      (line) =>
+        line.measured_words[0].from_frame === line.start_frame &&
+        line.measured_words.at(-1).to_frame === line.end_frame &&
+        line.measured_words.map(({text}) => text).join("") === line.text,
+    ),
+  );
+
+  const silentBeat = parsed.shots[2];
+  assert.equal(silentBeat.shot_key, "silent_alarm_beat");
+  assert.equal(silentBeat.performance_mode, "silent_action");
+  assert.equal(silentBeat.caption_mode, "none");
+  assert.equal(silentBeat.spoken_lines.length, 0);
+
+  const kinds = new Set(
+    parsed.shots.flatMap(({sound_layers}) =>
+      sound_layers.map(({kind}) => kind),
+    ),
+  );
+  assert.deepEqual([...kinds].sort(), ["ambient", "score", "sfx"]);
+  assert.ok(
+    parsed.shots.every(({sound_layers}) =>
+      sound_layers.some(({kind}) => kind === "ambient"),
+    ),
+  );
+});
+
+test("director local sources reject remote, absolute, and traversal paths", () => {
+  for (const localPath of [
+    "https://provider.example/clip.mp4",
+    "file:///tmp/clip.mp4",
+    "/tmp/clip.mp4",
+    "../clip.mp4",
+    "proof/../../clip.mp4",
+  ]) {
+    const changed = structuredClone(DIRECTOR_SCENE_CONTROL_PROOF_PROPS);
+    changed.shots[0].clip.local_path = localPath;
+    const {props_hash: _oldHash, ...body} = changed;
+    changed.props_hash = sha256Hex(canonicalJson(body));
+    assert.throws(() => validateDirectorRemotionProps(changed));
+  }
+});
+
+test("scene-control props bind every staged clip, voice, ambience, effect, and score byte", () => {
+  const parsed = validateDirectorRemotionProps(
+    DIRECTOR_SCENE_CONTROL_PROOF_PROPS,
+  );
+  const sources = parsed.shots.flatMap((shot) => [
+    shot.clip,
+    ...shot.spoken_lines.map(({source}) => source),
+    ...shot.sound_layers.map(({source}) => source),
+  ]);
+  for (const source of sources) {
+    const absolute = path.resolve("public", source.local_path);
+    assert.ok(
+      fs.existsSync(absolute),
+      `staged proof source is missing: ${source.local_path}`,
+    );
+    const actual = createHash("sha256")
+      .update(fs.readFileSync(absolute))
+      .digest("hex");
+    assert.equal(
+      actual,
+      source.source_sha256,
+      `staged proof source hash changed: ${source.local_path}`,
+    );
+  }
+});
+
+test("scene-control identity is the canonical checked-in control manifest hash chain", () => {
+  for (const key of [
+    "asset_evidence",
+    "director_contract",
+    "storyboard_gate",
+    "picture_gate",
+    "visual_gate",
+    "admission",
+  ]) {
+    assert.equal(
+      sha256Hex(canonicalJson(controlManifest[key].payload)),
+      controlManifest[key].sha256,
+      `${key} canonical evidence changed`,
+    );
+  }
+  assert.equal(
+    controlManifest.storyboard_gate.payload.director_contract_hash,
+    controlManifest.director_contract.sha256,
+  );
+  assert.equal(
+    controlManifest.picture_gate.payload.storyboard_gate_hash,
+    controlManifest.storyboard_gate.sha256,
+  );
+  assert.equal(
+    controlManifest.picture_gate.payload.asset_evidence_hash,
+    controlManifest.asset_evidence.sha256,
+  );
+  assert.equal(
+    controlManifest.visual_gate.payload.picture_gate_hash,
+    controlManifest.picture_gate.sha256,
+  );
+  assert.equal(
+    controlManifest.admission.payload.visual_gate_hash,
+    controlManifest.visual_gate.sha256,
+  );
+  const {manifest_sha256: manifestHash, ...manifestBody} = controlManifest;
+  assert.equal(sha256Hex(canonicalJson(manifestBody)), manifestHash);
+
+  assert.deepEqual(DIRECTOR_SCENE_CONTROL_PROOF_PROPS.identity, {
+    director_contract_hash: controlManifest.director_contract.sha256,
+    storyboard_gate_hash: controlManifest.storyboard_gate.sha256,
+    picture_gate_hash: controlManifest.picture_gate.sha256,
+    visual_gate_hash: controlManifest.visual_gate.sha256,
+    admission_hash: controlManifest.admission.sha256,
+  });
+});
+
+test("browser proof package binds the canonical assembly and five playable shot bytes", () => {
+  const browserDir = path.resolve(
+    "../storyengine/frontend/public/scene-control-proof",
+  );
+  const browserManifest = JSON.parse(
+    fs.readFileSync(path.join(browserDir, "manifest.json"), "utf8"),
+  );
+  const {
+    manifest_sha256: browserManifestHash,
+    ...browserManifestBody
+  } = browserManifest;
+  assert.equal(
+    sha256Hex(canonicalJson(browserManifestBody)),
+    browserManifestHash,
+  );
+  assert.equal(
+    browserManifest.control_manifest_sha256,
+    controlManifest.manifest_sha256,
+  );
+  assert.deepEqual(
+    [
+      path.basename(browserManifest.composition.url),
+      browserManifest.composition.sha256,
+      browserManifest.composition.total_frames,
+      browserManifest.composition.duration_seconds,
+    ],
+    controlManifest.asset_evidence.payload.assembly,
+  );
+  assert.deepEqual(
+    browserManifest.shots.map(({shot_id, sha256}) => [shot_id, sha256]),
+    controlManifest.asset_evidence.payload.clips,
+  );
+  assert.deepEqual(
+    browserManifest.shots.map(
+      ({start_frame, end_frame, duration_frames}) => [
+        start_frame,
+        end_frame,
+        duration_frames,
+      ],
+    ),
+    [
+      [0, 71, 72],
+      [72, 167, 96],
+      [168, 239, 72],
+      [240, 335, 96],
+      [336, 431, 96],
+    ],
+  );
+  for (const artifact of [
+    browserManifest.composition,
+    ...browserManifest.shots,
+  ]) {
+    const bytes = fs.readFileSync(
+      path.join(browserDir, path.basename(artifact.url)),
+    );
+    assert.equal(
+      createHash("sha256").update(bytes).digest("hex"),
+      artifact.sha256,
+    );
   }
 });

@@ -77,7 +77,7 @@ const DirectorShot: React.FC<{
       ? interpolate(
           localFrame,
           [0, shot.transition_duration_frames],
-          [1, 0],
+          [0.58, 0],
           {
             easing: Easing.inOut(Easing.quad),
             extrapolateLeft: "clamp",
@@ -93,7 +93,6 @@ const DirectorShot: React.FC<{
       style={{backgroundColor: "#030508"}}
     >
       <Video
-        loop
         muted
         src={source(shot.clip.local_path)}
         style={{

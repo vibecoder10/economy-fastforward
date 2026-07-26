@@ -62,6 +62,7 @@ from routes import (
     quality_rules,
     channel_patterns,
     feature_board,
+    custom_film_scene_control,
 )
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
@@ -1119,6 +1120,13 @@ app.include_router(channel_dna.router)
 app.include_router(quality_rules.router)
 app.include_router(channel_patterns.router)
 app.include_router(feature_board.router)
+if os.getenv("CUSTOM_FILM_SCENE_CONTROL_V1", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    app.include_router(custom_film_scene_control.router)
 
 # StoryEngine MCP server (checklist P2.4a/P2.4b, chunks C26/C27 — tasks/
 # storyengine-copilot-ux-map.md §7, "the Higgsfield-killer door"). DARK BY
