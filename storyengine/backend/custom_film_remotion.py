@@ -49,6 +49,17 @@ RESUMABLE_JOURNAL_STATES = frozenset(
         "finalized",
     }
 )
+# This exact durable renderer predates only the bounded video-tail and exact
+# narration-PCM staging fixes. Those fixes make approved bytes executable
+# without changing composition, motion, timing, or delivery semantics. This is
+# a semantic-compatibility allowlist, not a generic old-bundle bypass.
+_SEMANTICALLY_COMPATIBLE_RENDERER_BUNDLES = {
+    REMOTION_RENDERER_CONTRACT_VERSION: frozenset(
+        {
+            "079aeed1113945e630950f9ea116e497029788bb60df5d08ad3f4e4a44163eca",
+        }
+    )
+}
 
 _ASSEMBLY_KEYS = frozenset(
     {
@@ -533,6 +544,22 @@ def renderer_bundle_hash(project_root: Path | None = None) -> str:
     )
 
 
+def renderer_identity_is_compatible(
+    contract_version: str,
+    bundle_hash: str,
+) -> bool:
+    """Accept current identity or an exact staging-fix-compatible durable hash."""
+    if contract_version != REMOTION_RENDERER_CONTRACT_VERSION:
+        return False
+    return (
+        bundle_hash == renderer_bundle_hash()
+        or bundle_hash
+        in _SEMANTICALLY_COMPATIBLE_RENDERER_BUNDLES.get(
+            contract_version, frozenset()
+        )
+    )
+
+
 def _validate_timing_transform(value: Any, label: str) -> dict[str, Any]:
     transform = _strict_mapping(value, label, keys=_TIMING_TRANSFORM_KEYS)
     mode = _text(transform.get("mode"), f"{label} mode")
@@ -658,13 +685,13 @@ def resolve_durable_render_engine(
                     "Custom Film assembly v3 is reserved for Remotion"
                 )
             if (
-                manifest.get("renderer_contract_version")
-                != REMOTION_RENDERER_CONTRACT_VERSION
-                or _hash(
-                    manifest.get("renderer_bundle_hash"),
-                    "renderer bundle hash",
+                not renderer_identity_is_compatible(
+                    str(manifest.get("renderer_contract_version") or ""),
+                    _hash(
+                        manifest.get("renderer_bundle_hash"),
+                        "renderer bundle hash",
+                    ),
                 )
-                != renderer_bundle_hash()
             ):
                 raise CustomFilmContractError(
                     "Custom Film durable Remotion renderer identity changed"
@@ -741,8 +768,9 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             manifest["renderer_bundle_hash"], "renderer bundle hash"
         )
         if (
-            contract_version != REMOTION_RENDERER_CONTRACT_VERSION
-            or bundle_hash != renderer_bundle_hash()
+            not renderer_identity_is_compatible(
+                contract_version, bundle_hash
+            )
         ):
             raise CustomFilmContractError(
                 "Custom Film Remotion renderer identity changed"
@@ -1736,12 +1764,13 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
     if (
         identity.get("assembly_version") != EXPECTED_ASSEMBLY_VERSION
         or identity.get("render_engine") != "remotion"
-        or identity.get("renderer_contract_version")
-        != REMOTION_RENDERER_CONTRACT_VERSION
-        or _hash(
-            identity.get("renderer_bundle_hash"), "renderer bundle hash"
+        or not renderer_identity_is_compatible(
+            str(identity.get("renderer_contract_version") or ""),
+            _hash(
+                identity.get("renderer_bundle_hash"),
+                "renderer bundle hash",
+            ),
         )
-        != renderer_bundle_hash()
     ):
         raise CustomFilmContractError(
             "Custom Film Remotion renderer identity changed"
