@@ -9,16 +9,18 @@
 **Branch/worktree:** `agent/custom-film-director-loop` in
 `/Users/ryanayler/economy-fastforward-custom-film-director`.
 
-**Last done:** M8-0 introduces one immutable film bible above DVsU/Poco/Power Doctrine
-shot techniques, exact story-state progression, cast/environment/prop locks, required
-reference/storyboard/visual-verification gates, approved-shot-only Remotion admission,
-consume-once exact cumulative stage authority, migration 135 with fresh-schema parity,
-and 11/11 no-provider tests.
+**Last done:** the M8 no-provider foundation now compiles the complete film bible and
+ordered shot plan, locks narrator/sound/caption ownership, stages references through
+assembly with exact cumulative BOMs and immutable schedules, persists rejected visual
+attempts, and admits only clean clips to the strict layered Director Remotion
+composition. Proof: 482/482 Custom Film tests, all 37 Remotion tests, TypeScript/bundle,
+and a visually accepted 72-frame local render.
 
-**Next:** M8-1 integrates the director compiler with complete script output and prevents
-the Custom Film runtime from jumping from section summaries directly into pictures.
-Paid provider work, migration application, deployment, upload, and publication remain
-unauthorized. The historical $8.57 ceiling is accounting context only.
+**Next:** activate without reviving the failed pipeline: reserve the plan at $0, obtain
+an exact cumulative script/director-stage approval before the text client, persist that
+contract, and advance each later gate through its own authority/executor. The production
+chat/runtime is not switched yet. Paid provider work, migration application, deployment,
+upload, and publication remain unauthorized; $8.57 is historical accounting only.
 
 ## ⧗ HANDOFF — 2026-07-24 (night) — SFX render-path guard: code done, live UI check BLOCKED (report only, no code changes this session)
 

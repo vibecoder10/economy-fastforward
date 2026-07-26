@@ -741,3 +741,21 @@ the audience's understanding of who, where, when, and what changed.
 final media; start/middle/end clip verification before Remotion. A changed film bible,
 shot contract, reference gate, or storyboard gate invalidates downstream authority. The
 old $8.57 ceiling is not permission for a new stage.
+
+## 2026-07-25 — Custom Film director activation is a staged replacement, not a legacy-runtime patch
+
+**Decision:** The new director loop will first persist a no-provider plan/video identity,
+then require an exact cumulative approval for the script/director pass before any text
+client call. References, storyboards, final pictures, animation plus every voice line,
+verification repair, and deterministic Remotion assembly each advance from the prior
+accepted gate through their own immutable schedule. The existing all-at-once approval
+must not dispatch a director film into the legacy section-summary runtime.
+
+**Why:** A complete film bible and storyboard plan cannot be safely generated after the
+old runtime has already started buying pictures. Conversely, generating that plan before
+approval would itself hide provider work. The staged reservation removes the
+chicken-and-egg problem and makes helper work, retries, and cumulative spend explicit.
+
+**Consequence:** The current local compiler/gates/composition remain inactive until the
+new reservation, chat approval, executor, and renderer adapter are wired together. This
+is intentional fail-closed scope, not permission to resume under the historical $8.57.

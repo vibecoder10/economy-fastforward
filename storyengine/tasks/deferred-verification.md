@@ -3,17 +3,17 @@
 ## M8 storyboard-driven Custom Film director loop
 
 - [ ] **Paid character, environment, and storyboard reference proof.**
-  - Proof permitted now: schema, compiler, hash invalidation, staged-spend gates, and synthetic fixtures only.
+  - Proof reached now: the exact film-bible, reference, storyboard, final-picture, contract-drift, stage-BOM, named-helper, consume-once schedule, and synthetic fixture laws pass locally. No provider reference was generated.
   - Later recipe: after the M8 implementation is reviewed and Ryan approves a new exact cumulative amount, generate the smallest approved cast sheets, environment references, and storyboard set. Visually inspect every asset against the locked film bible before approving any final picture.
   - Expected result: one medium/style across the film; each recurring character retains face, body, wardrobe, and identity anchors; each environment retains architecture, palette, geography, time/weather, and prop placement; storyboard order clearly advances the story.
 
 - [ ] **Paid shot-animation and visual-verifier proof.**
-  - Proof permitted now: deterministic validation of mocked start/middle/end observations and rejection reasons. No provider reroll is authorized.
+  - Proof reached now: deterministic start/middle/end evaluation, issue-code derivation, rejected-attempt persistence, idempotent replay, clean visual admission, and the no-auto-reroll boundary pass with synthetic observations. No provider clip or reroll was purchased.
   - Later recipe: with a separately approved exact cumulative cap, animate a bounded sequence containing one dialogue exchange and one silent action shot. Extract start/middle/end frames from every clip, run the visual verifier, and manually compare all frames to the approved storyboard and adjacent shots.
   - Expected result: visible action progresses within each shot; dialogue ownership and lip-sync are correct; screen direction, character identity, environment, props, and opening/closing state remain continuous; failed shots stop before Remotion and require an explicit repair decision.
 
 - [ ] **Production deployment and human film review.**
-  - Proof permitted now: local no-provider tests and synthetic Remotion admission only. Deployment, upload, and publication are not authorized.
+  - Proof reached now: the strict approved-shot Remotion props/composition passes all 37 Remotion tests, TypeScript, and bundle. A local two-shot proof rendered exactly 72 video frames at 1920x1080/24 fps with separate stereo audio; its contact sheet was visually reviewed for silent motion, the inside-shot cut, alternating dialogue captions, and measured-word progression. MP4 SHA-256: `a502d53d940fe177a0ce95e78b98e1e11f93327729c2aa81cf33f1e1c648d4a4`. The production renderer adapter and staged chat/executor are still intentionally absent.
   - Later recipe: after Ryan separately authorizes deployment, use the sanctioned zero-active-work drain. Then build a short paid proof under a fresh exact cumulative approval and review the storyboard beside the finished sequence before any longer film.
   - Expected result: only storyboard-approved and verifier-approved shots enter Remotion; dialogue, third-person exposition, and silent action form one understandable through-line; no stale approval or hidden helper spend is reused.
 

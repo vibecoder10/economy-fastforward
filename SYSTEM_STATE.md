@@ -1,29 +1,42 @@
 # System State — Economy FastForward
 
-## Storyboard-driven Custom Film director loop (M8-0 local, 2026-07-25)
+## Storyboard-driven Custom Film director loop (M8 local foundation, 2026-07-25)
 
-- `storyengine/backend/custom_film_director.py` establishes one immutable film law
-  above profile-derived shot techniques. The film bible locks the through-line,
-  beginning/ending state, one visual medium/style, cast identity/wardrobe/voice,
-  environments, props, geography, timeline, motif, and narrator ownership.
-- Exact shot contracts bind section, cause, opening state, visible action, closing
-  state, progression type, characters, environment, props, screen direction,
-  dialogue/exposition/silent action, prompts, and frame timing. Dialogue must alternate
-  between at least two locked speakers; narration cannot substitute for performance;
-  repeated spoken lines and unchanged shots fail closed.
-- Reference images must pass identity/style review before storyboards. Storyboards
-  must pass style/cast/environment/action/continuity review before final media.
-  Animated clips must then pass start/middle/end checks for lock hashes, opening and
-  closing state, motion, action, continuity, and dialogue lip-sync before the module
-  will emit a Remotion admission manifest.
-- Migration `135_custom_film_director_loop.sql` and `storyengine/schema.sql` add
-  append-only director contracts, normalized shots, tenant-bound standard
-  character/environment reference reviews, storyboard reviews, visual-verification
-  attempts, and consume-once exact cumulative stage authorities. The pre-director
-  script stage binds to the immutable plan; later stages bind to the director and
-  upstream approval gates. No migration has been applied.
-- Focused contract/schema tests pass 11/11 with synthetic fixtures. No model/provider
-  call, paid generation, database write, deployment, upload, or publication occurred.
+- `storyengine/backend/custom_film_director.py` now plans and compiles a complete
+  film bible plus exact ordered shots with one bounded JSON-repair pass. One film law
+  owns the through-line, medium/style, recurring cast, wardrobe, character and
+  third-person narrator voices, environments, props, geography, timeline, motif,
+  beginning, and ending above shot-level Poco, DVsU, Power Doctrine, and cinematic
+  action techniques.
+- Every shot has exact frame timing, cause/effect, opening/action/closing state,
+  screen direction, real motion, ambient/score/SFX intent, and caption ownership.
+  Dialogue must alternate between locked speakers; exposition has an owned narrator;
+  silent action cannot invent captions; repeated dialogue and unchanged story state
+  fail closed.
+- Reference, storyboard, final-picture, and start/middle/end clip gates bind each
+  downstream stage. Failed clips are append-only rejected evidence with deterministic
+  issue codes and a bounded repair instruction; only clean attempts enter the visual
+  gate.
+- `custom_film_director_runtime.py` compiles exact stage bills of materials for
+  script/director, references, storyboards, final pictures, animation plus every
+  spoken line, and deterministic assembly. Helpers must be named and included in the
+  exact cumulative ceiling. One approved authority can persist one immutable schedule
+  exactly once; schedules still record zero calls and zero spend.
+- Migration 135 and fresh-schema parity now cover picture reviews, consume-once stage
+  authorities, append-only director schedules, and idempotent visual attempts. No
+  migration has been applied.
+- The Remotion skill-guided `StoryEngineDirectorFilm` composition consumes only the
+  approved-shot admission shape with premounted shots, inside-shot transitions, muted
+  clip media, separate voice/ambient/score/SFX layers, and measured-word captions.
+  A synthetic two-shot proof rendered 72 exact video frames at 1920x1080/24 fps;
+  visually inspected motion, cut, two-speaker caption progression, and audio layering
+  passed. MP4 SHA-256: `a502d53d940fe177a0ce95e78b98e1e11f93327729c2aa81cf33f1e1c648d4a4`.
+- The complete Custom Film backend regression passes 482/482; focused M8 tests pass
+  36/36; all 37 Remotion contract/motion/showcase tests, TypeScript, and bundle pass.
+  The production chat/runtime is deliberately not switched yet: its initial
+  no-provider reservation, stage-by-stage approval UX, executor, and new composition
+  renderer adapter remain the next activation chunk. No provider call, paid
+  generation, database write, deployment, upload, or publication occurred.
 
 ## Custom Film general layered orchestration (M6 local, 2026-07-24)
 
