@@ -1134,6 +1134,21 @@ _INTERMEDIATE_CONTENT_MANIFEST_VERSION = (
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
+def _staged_pcm_audio_is_exact(path: Path, approved_ms: int) -> bool:
+    """Prove the normalized WAV has the exact approved PCM identity."""
+    try:
+        with wave.open(str(path), "rb") as waveform:
+            return (
+                waveform.getcomptype() == "NONE"
+                and waveform.getframerate() == 48_000
+                and waveform.getnchannels() == 2
+                and waveform.getsampwidth() == 2
+                and waveform.getnframes() == approved_ms * 48
+            )
+    except (OSError, EOFError, wave.Error):
+        return False
+
+
 def staged_local_path_for_source_key(source_key: str, kind: str) -> str:
     """Mirror showcase/manifest.ts exactly; never accept a caller path."""
     extensions = {"image": "png", "video": "mp4", "audio": "wav"}
@@ -2501,8 +2516,15 @@ async def _stage_renderer_sources(
                 "-c:v", "png", "-map_metadata", "-1", str(staged),
             ]
         elif spec["kind"] == "audio":
+            approved_samples = spec["source_duration_ms"] * 48
             command = [
                 "ffmpeg", "-y", "-i", str(raw), "-map", "0:a:0",
+                "-af",
+                (
+                    "aresample=48000,apad,"
+                    f"atrim=end_sample={approved_samples},"
+                    "asetpts=N/SR/TB"
+                ),
                 "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
                 "-map_metadata", "-1", str(staged),
             ]
@@ -2575,13 +2597,12 @@ async def _stage_renderer_sources(
                 and not bool(staged_probe["has_audio"])
             )
         elif spec["kind"] == "audio":
-            staged_duration = staged_probe.get("audio_duration_seconds")
             valid_staged = (
                 bool(staged_probe["has_audio"])
                 and not bool(staged_probe["has_video"])
-                and staged_duration is not None
-                and round(float(staged_duration) * 1000)
-                == spec["source_duration_ms"]
+                and _staged_pcm_audio_is_exact(
+                    staged, spec["source_duration_ms"]
+                )
             )
         else:
             valid_staged = (
