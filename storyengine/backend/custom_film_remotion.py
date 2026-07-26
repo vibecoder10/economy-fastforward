@@ -1125,6 +1125,8 @@ _PROCESS_LOG_LIMIT = 16_384
 _DEFAULT_RENDER_TIMEOUT_SECONDS = 7_200
 _AAC_PACKET_PADDING_SECONDS = (1024 / 48_000) + 0.002
 _STREAM_COVERAGE_TOLERANCE_SECONDS = 0.002
+_RAW_VIDEO_TAIL_PADDING_FRAMES = 1
+_MIN_NATIVE_AUDIO_COVERAGE_RATIO = 0.70
 _INTERMEDIATE_CACHE_VERSION = "custom-film-remotion-intermediates-v1"
 _INTERMEDIATE_CONTENT_MANIFEST_VERSION = (
     "custom-film-remotion-intermediate-content-v1"
@@ -1148,6 +1150,7 @@ def _renderer_source_specs(
 ) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     seen: set[str] = set()
+    fps = _exact_int(props["video"]["fps"], "Remotion source fps", 1)
     for section in props["sections"]:
         source_clip = section["audio"]["mode"] == "source_clip"
         for asset in section["assets"]:
@@ -1180,6 +1183,7 @@ def _renderer_source_specs(
                         )
                     ),
                     "requires_native_audio": source_clip,
+                    "fps": fps,
                 }
             )
         for source in section["audio"]["sources"]:
@@ -1203,6 +1207,7 @@ def _renderer_source_specs(
                         1,
                     ),
                     "requires_native_audio": False,
+                    "fps": fps,
                 }
             )
     return specs
@@ -2339,6 +2344,27 @@ async def _probe_renderer_media(path: Path) -> Mapping[str, Any]:
         "duration_seconds": duration,
         "video_duration_seconds": stream_duration("video"),
         "audio_duration_seconds": stream_duration("audio"),
+        "video_frame_count": next(
+            (
+                int(stream["nb_frames"])
+                for stream in streams
+                if isinstance(stream, Mapping)
+                and stream.get("codec_type") == "video"
+                and str(stream.get("nb_frames") or "").isdigit()
+            ),
+            None,
+        ),
+        "video_avg_frame_rate": next(
+            (
+                str(stream["avg_frame_rate"])
+                for stream in streams
+                if isinstance(stream, Mapping)
+                and stream.get("codec_type") == "video"
+                and str(stream.get("avg_frame_rate") or "")
+                not in {"", "0/0", "N/A"}
+            ),
+            None,
+        ),
     }
 
 
@@ -2349,17 +2375,65 @@ async def _stage_renderer_sources(
     staging: Path,
     log_path: Path,
 ) -> list[dict[str, Any]]:
-    def native_audio_covers_video(probe: Mapping[str, Any]) -> bool:
+    def raw_video_duration_is_bounded(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
+        video_duration = probe.get("video_duration_seconds")
+        if video_duration is None:
+            return False
+        approved_seconds = spec["source_duration_ms"] / 1000
+        tail_seconds = float(video_duration) - approved_seconds
+        return (
+            tail_seconds >= -0.000001
+            and tail_seconds
+            <= (
+                _RAW_VIDEO_TAIL_PADDING_FRAMES / spec["fps"]
+                + 0.000001
+            )
+        )
+
+    def raw_native_audio_is_bounded(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
         video_duration = probe.get("video_duration_seconds")
         audio_duration = probe.get("audio_duration_seconds")
         if video_duration is None or audio_duration is None:
             return False
+        approved_seconds = spec["source_duration_ms"] / 1000
         video_seconds = float(video_duration)
         audio_seconds = float(audio_duration)
         return (
             audio_seconds + _STREAM_COVERAGE_TOLERANCE_SECONDS
-            >= video_seconds
+            >= approved_seconds * _MIN_NATIVE_AUDIO_COVERAGE_RATIO
             and audio_seconds - video_seconds <= _AAC_PACKET_PADDING_SECONDS
+        )
+
+    def staged_video_is_exact(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
+        approved_seconds = spec["source_duration_ms"] / 1000
+        approved_frames = spec["source_duration_ms"] * spec["fps"] // 1000
+        video_duration = probe.get("video_duration_seconds")
+        return (
+            bool(probe["has_video"])
+            and video_duration is not None
+            and abs(float(video_duration) - approved_seconds)
+            <= _STREAM_COVERAGE_TOLERANCE_SECONDS
+            and probe.get("video_frame_count") == approved_frames
+            and probe.get("video_avg_frame_rate") == f"{spec['fps']}/1"
+        )
+
+    def staged_native_audio_is_exact(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
+        audio_duration = probe.get("audio_duration_seconds")
+        if audio_duration is None:
+            return False
+        approved_seconds = spec["source_duration_ms"] / 1000
+        delta = float(audio_duration) - approved_seconds
+        return (
+            delta >= -_STREAM_COVERAGE_TOLERANCE_SECONDS
+            and delta <= _AAC_PACKET_PADDING_SECONDS
         )
 
     specs = _renderer_source_specs(props)
@@ -2403,17 +2477,14 @@ async def _stage_renderer_sources(
                 == spec["source_duration_ms"]
             )
         else:
-            raw_duration = raw_probe.get("video_duration_seconds")
             valid_raw = (
                 bool(raw_probe["has_video"])
-                and raw_duration is not None
-                and round(float(raw_duration) * 1000)
-                == spec["source_duration_ms"]
+                and raw_video_duration_is_bounded(raw_probe, spec)
                 and (
                     not spec["requires_native_audio"]
                     or (
                         bool(raw_probe["has_audio"])
-                        and native_audio_covers_video(raw_probe)
+                        and raw_native_audio_is_bounded(raw_probe, spec)
                     )
                 )
             )
@@ -2436,27 +2507,55 @@ async def _stage_renderer_sources(
                 "-map_metadata", "-1", str(staged),
             ]
         else:
-            command = ["ffmpeg", "-y", "-i", str(raw), "-map", "0:v:0"]
+            approved_frames = (
+                spec["source_duration_ms"] * spec["fps"] // 1000
+            )
+            if approved_frames * 1000 != (
+                spec["source_duration_ms"] * spec["fps"]
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion approved video is not frame exact"
+                )
+            command = ["ffmpeg", "-y", "-i", str(raw)]
             if spec["requires_native_audio"]:
                 approved_samples = spec["source_duration_ms"] * 48
                 command.extend(
                     [
-                        "-map",
-                        "0:a:0",
-                        "-af",
+                        "-filter_complex",
                         (
-                            f"aresample=48000,atrim=end_sample={approved_samples},"
-                            "asetpts=N/SR/TB"
+                            f"[0:v:0]fps={spec['fps']},"
+                            f"trim=end_frame={approved_frames},"
+                            f"setpts=N/({spec['fps']}*TB)[video];"
+                            "[0:a:0]aresample=48000,apad,"
+                            f"atrim=end_sample={approved_samples},"
+                            "asetpts=N/SR/TB[audio]"
                         ),
+                        "-map",
+                        "[video]",
+                        "-map",
+                        "[audio]",
                     ]
                 )
             else:
-                command.extend(["-map", "0:a?"])
+                command.extend(
+                    [
+                        "-vf",
+                        (
+                            f"fps={spec['fps']},"
+                            f"trim=end_frame={approved_frames},"
+                            f"setpts=N/({spec['fps']}*TB)"
+                        ),
+                        "-map",
+                        "0:v:0",
+                        "-an",
+                    ]
+                )
             command.extend(
                 [
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000",
-                    "-ac", "2", "-map_metadata", "-1", str(staged),
+                    "-ac", "2", "-frames:v", str(approved_frames),
+                    "-map_metadata", "-1", str(staged),
                 ]
             )
         await _run_local_command(
@@ -2485,17 +2584,17 @@ async def _stage_renderer_sources(
                 == spec["source_duration_ms"]
             )
         else:
-            staged_duration = staged_probe.get("video_duration_seconds")
             valid_staged = (
-                bool(staged_probe["has_video"])
-                and staged_duration is not None
-                and round(float(staged_duration) * 1000)
-                == spec["source_duration_ms"]
+                staged_video_is_exact(staged_probe, spec)
                 and (
-                    not spec["requires_native_audio"]
+                    (
+                        not spec["requires_native_audio"]
+                        and not bool(staged_probe["has_audio"])
+                    )
                     or (
-                        bool(staged_probe["has_audio"])
-                        and native_audio_covers_video(staged_probe)
+                        spec["requires_native_audio"]
+                        and bool(staged_probe["has_audio"])
+                        and staged_native_audio_is_exact(staged_probe, spec)
                     )
                 )
             )

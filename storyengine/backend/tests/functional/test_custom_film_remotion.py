@@ -8,6 +8,7 @@ import shutil
 import sys
 import types
 import wave
+from array import array
 from pathlib import Path
 
 import pytest
@@ -838,6 +839,103 @@ def _v3_props_for_sources(asset: Path, audio: Path) -> dict:
     return remotion.build_remotion_props(_rehash(manifest))
 
 
+def _source_clip_props(video: Path, *, duration_seconds: int = 6) -> dict:
+    manifest = _manifest()
+    frames = duration_seconds * 24
+    duration_ms = duration_seconds * 1000
+    manifest["total_duration_seconds"] = duration_seconds
+    manifest["total_frames"] = frames
+    section = manifest["sections"][0]
+    section["dialogue_audio"] = "grok_native"
+    section["render_mode"] = "coverage"
+    section["duration_frames"] = frames
+    asset = section["assets"][0]
+    asset["source_sha256"] = hashlib.sha256(video.read_bytes()).hexdigest()
+    asset["actual_duration_ms"] = duration_ms
+    asset["assigned_duration_ms"] = duration_ms
+    asset["duration_frames"] = frames
+    asset["timing_transform"] = {
+        "mode": "none",
+        "source_duration_ms": duration_ms,
+        "output_duration_ms": duration_ms,
+    }
+    section["audio"] = {
+        "mode": "source_clip",
+        "source_urls": [],
+        "source_sha256": [],
+        "source_duration_ms": [],
+        "timing_transform": {
+            "mode": "source_clip",
+            "source_duration_ms": duration_ms,
+            "output_duration_ms": duration_ms,
+            "atempo_chain": [],
+            "caption_scale": 1.0,
+        },
+        "gain_db": -3.0,
+    }
+    section["captions"][0]["section_end_ms"] = duration_ms
+    section["captions"][0]["end_frame"] = frames
+    return remotion.build_remotion_props(_rehash(manifest))
+
+
+async def _generate_native_source(
+    path: Path,
+    *,
+    video_frames: int,
+    audio_seconds: float | None,
+    log_path: Path,
+) -> None:
+    command = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        (
+            "color=c=0x0cb4a0:s=64x36:r=24:"
+            f"d={video_frames / 24:.9f}"
+        ),
+    ]
+    if audio_seconds is not None:
+        command.extend(
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                f"sine=frequency=440:sample_rate=48000:duration={audio_seconds}",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+            ]
+        )
+    else:
+        command.extend(["-map", "0:v:0", "-an"])
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
+            "-threads",
+            "1",
+            str(path),
+        ]
+    )
+    await remotion._run_local_command(
+        command,
+        cwd=path.parent,
+        timeout_seconds=60,
+        log_path=log_path,
+    )
+
+
 @pytest.mark.parametrize(
     "tamper",
     [
@@ -1054,6 +1152,8 @@ async def test_source_clip_native_audio_needs_no_separate_audio_source(
             "duration_seconds": 300.0,
             "video_duration_seconds": 300.0,
             "audio_duration_seconds": 300.0,
+            "video_frame_count": 7200,
+            "video_avg_frame_rate": "24/1",
         }
 
     monkeypatch.setattr(remotion, "_run_local_command", fake_command)
@@ -1259,6 +1359,188 @@ async def test_real_invalid_media_probe_is_terminal(tmp_path: Path):
     invalid.write_bytes(b"not a media container")
     with pytest.raises(contract.CustomFilmContractError):
         await remotion._probe_renderer_media(invalid)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("approved_seconds", "raw_video_frames", "raw_audio_seconds"),
+    [
+        (6, 145, 4.494),
+        (15, 361, 14.292),
+    ],
+    ids=["diagnostic-6-second-clip", "diagnostic-15-second-clip"],
+)
+async def test_real_native_video_one_frame_tail_and_short_audio_normalize_exact(
+    tmp_path: Path,
+    approved_seconds: int,
+    raw_video_frames: int,
+    raw_audio_seconds: float,
+):
+    source = tmp_path / (
+        f"raw-{raw_video_frames}-frames-with-{raw_audio_seconds}-audio.mp4"
+    )
+    log_path = tmp_path / "normalization.log"
+    await _generate_native_source(
+        source,
+        video_frames=raw_video_frames,
+        audio_seconds=raw_audio_seconds,
+        log_path=log_path,
+    )
+    raw_probe = await remotion._probe_renderer_media(source)
+    assert raw_probe["video_duration_seconds"] == pytest.approx(
+        raw_video_frames / 24, abs=0.001
+    )
+    assert raw_probe["audio_duration_seconds"] == pytest.approx(
+        raw_audio_seconds, abs=0.002
+    )
+
+    props = _source_clip_props(
+        source, duration_seconds=approved_seconds
+    )
+    staging = tmp_path / "staging"
+    rows = await remotion._stage_renderer_sources(
+        props,
+        {"asset-1": source},
+        staging=staging,
+        log_path=log_path,
+    )
+    staged = staging / "public" / remotion.staged_local_path_for_source_key(
+        "asset-1", "video"
+    )
+    staged_probe = await remotion._probe_renderer_media(staged)
+    assert staged_probe["video_frame_count"] == approved_seconds * 24
+    assert staged_probe["video_avg_frame_rate"] == "24/1"
+    assert staged_probe["video_duration_seconds"] == pytest.approx(
+        approved_seconds,
+        abs=remotion._STREAM_COVERAGE_TOLERANCE_SECONDS,
+    )
+    assert staged_probe["audio_duration_seconds"] is not None
+    audio_delta = (
+        float(staged_probe["audio_duration_seconds"]) - approved_seconds
+    )
+    assert -remotion._STREAM_COVERAGE_TOLERANCE_SECONDS <= audio_delta
+    assert audio_delta <= remotion._AAC_PACKET_PADDING_SECONDS
+    decoded = tmp_path / f"decoded-{approved_seconds}.wav"
+    await remotion._run_local_command(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(staged),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "48000",
+            "-c:a",
+            "pcm_s16le",
+            str(decoded),
+        ],
+        cwd=tmp_path,
+        timeout_seconds=60,
+        log_path=log_path,
+    )
+    with wave.open(str(decoded), "rb") as stream:
+        samples = array("h", stream.readframes(stream.getnframes()))
+    if sys.byteorder != "little":
+        samples.byteswap()
+
+    def mean_amplitude(start: float, end: float) -> float:
+        window = samples[round(start * 48_000):round(end * 48_000)]
+        return sum(abs(value) for value in window) / len(window)
+
+    assert mean_amplitude(1.0, 1.25) > 100
+    assert mean_amplitude(
+        approved_seconds - 0.25, approved_seconds - 0.05
+    ) < 20
+    assert rows == [
+        {
+            "source_key": "asset-1",
+            "kind": "video",
+            "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+            "staged_sha256": hashlib.sha256(staged.read_bytes()).hexdigest(),
+        }
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("video_frames", "audio_seconds"),
+    [
+        (146, 4.5),
+        (143, 4.5),
+        (145, None),
+        (145, 0.5),
+        (145, 6.2),
+    ],
+    ids=[
+        "more-than-one-frame-tail",
+        "shorter-than-approved-video",
+        "missing-native-audio",
+        "tiny-native-audio",
+        "overlong-native-audio",
+    ],
+)
+async def test_real_native_video_raw_identity_mutations_fail_closed(
+    tmp_path: Path,
+    video_frames: int,
+    audio_seconds: float | None,
+):
+    source = tmp_path / "invalid-native.mp4"
+    log_path = tmp_path / "invalid-native.log"
+    await _generate_native_source(
+        source,
+        video_frames=video_frames,
+        audio_seconds=audio_seconds,
+        log_path=log_path,
+    )
+    props = _source_clip_props(source)
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="approved source media identity changed",
+    ):
+        await remotion._stage_renderer_sources(
+            props,
+            {"asset-1": source},
+            staging=tmp_path / "invalid-staging",
+            log_path=log_path,
+        )
+
+
+@pytest.mark.asyncio
+async def test_real_staged_probe_rejects_unnormalized_native_output(
+    monkeypatch,
+    tmp_path: Path,
+):
+    source = tmp_path / "valid-raw.mp4"
+    log_path = tmp_path / "invalid-staged.log"
+    await _generate_native_source(
+        source,
+        video_frames=145,
+        audio_seconds=4.494,
+        log_path=log_path,
+    )
+    props = _source_clip_props(source)
+
+    async def emit_raw_instead_of_normalized(command, **_kwargs):
+        raw = Path(command[command.index("-i") + 1])
+        destination = Path(command[-1])
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(raw, destination)
+
+    monkeypatch.setattr(
+        remotion, "_run_local_command", emit_raw_instead_of_normalized
+    )
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="staged media type changed",
+    ):
+        await remotion._stage_renderer_sources(
+            props,
+            {"asset-1": source},
+            staging=tmp_path / "staged-mutation",
+            log_path=log_path,
+        )
 
 
 @pytest.mark.asyncio
