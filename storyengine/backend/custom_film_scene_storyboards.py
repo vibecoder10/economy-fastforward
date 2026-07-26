@@ -320,6 +320,23 @@ async def execute_run(schedule_id: str, *, provider: Provider | None = None) -> 
             if action == "stop":
                 break
             if action == "create_once":
+                # Cross a durable, one-way boundary before touching the
+                # provider. A crash at any point after this update may leave
+                # the operation requiring reconciliation, but replay can
+                # never authorize another create POST.
+                async with pool.acquire() as conn:
+                    armed = await conn.fetchrow(
+                        """UPDATE custom_film_scene_storyboard_operations
+                           SET state='creating', updated_at=now()
+                           WHERE id=$1 AND state='prepared'
+                                 AND provider_task_id IS NULL
+                           RETURNING id""",
+                        operation["id"],
+                    )
+                if not armed:
+                    raise StoryboardExecutionError(
+                        "Storyboard create boundary could not be persisted"
+                    )
                 try:
                     task_id = await provider.create(
                         control._json_value(operation["request"], "storyboard request")
@@ -330,7 +347,7 @@ async def execute_run(schedule_id: str, *, provider: Provider | None = None) -> 
                             """UPDATE custom_film_scene_storyboard_operations
                                SET state='reconciliation_required',
                                    error=$2, updated_at=now()
-                               WHERE id=$1 AND state='prepared'""",
+                               WHERE id=$1 AND state='creating'""",
                             operation["id"], str(exc),
                         )
                     break
@@ -338,7 +355,7 @@ async def execute_run(schedule_id: str, *, provider: Provider | None = None) -> 
                     updated = await conn.fetchrow(
                         """UPDATE custom_film_scene_storyboard_operations
                            SET provider_task_id=$2, state='submitted', updated_at=now()
-                           WHERE id=$1 AND state='prepared' AND provider_task_id IS NULL
+                           WHERE id=$1 AND state='creating' AND provider_task_id IS NULL
                            RETURNING provider_task_id""",
                         operation["id"], task_id,
                     )

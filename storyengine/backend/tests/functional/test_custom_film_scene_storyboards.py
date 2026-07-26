@@ -55,6 +55,7 @@ def test_flag_fails_closed(monkeypatch):
 
 def test_replay_never_creates_after_provider_identity_or_ambiguity():
     assert storyboards.replay_action("prepared", None) == "create_once"
+    assert storyboards.replay_action("creating", None) == "stop"
     assert storyboards.replay_action("submitted", "kie-123") == "poll"
     assert storyboards.replay_action("completed", "kie-123") == "skip"
     assert storyboards.replay_action("reconciliation_required", None) == "stop"
@@ -133,8 +134,12 @@ def test_migration_schema_parity_and_safety():
     assert "provider identity is write-once" in migration
     assert "Scene storyboard approval is immutable" in migration
     assert "state cannot regress" in migration
+    assert "OLD.state='prepared' AND NEW.state='creating'" in migration
+    assert "OLD.state='creating' AND NEW.state IN ('submitted','reconciliation_required')" in migration
     assert "REVOKE ALL" in migration
     source = inspect.getsource(storyboards.execute_run)
+    assert source.index("SET state='creating'") < source.index("provider.create(")
+    assert "WHERE id=$1 AND state='creating' AND provider_task_id IS NULL" in source
     assert "ON CONFLICT (video_id,stage,kie_task_id)" in source
     assert "actual_cost,kie_task_id" in source
     assert "0.05,0.05" in source

@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS custom_film_scene_storyboard_operations (
   prompt TEXT NOT NULL CHECK (length(prompt)>0),
   request JSONB NOT NULL CHECK (jsonb_typeof(request)='object'),
   request_hash TEXT NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
-  state TEXT NOT NULL CHECK (state IN ('prepared','submitted','completed','failed','reconciliation_required')),
+  state TEXT NOT NULL CHECK (state IN ('prepared','creating','submitted','completed','failed','reconciliation_required')),
   provider_task_id TEXT,
   result JSONB CHECK (result IS NULL OR jsonb_typeof(result)='object'),
   error TEXT,
@@ -99,7 +99,8 @@ BEGIN
   END IF;
   IF NOT (
     NEW.state=OLD.state OR
-    (OLD.state='prepared' AND NEW.state IN ('submitted','reconciliation_required')) OR
+    (OLD.state='prepared' AND NEW.state='creating') OR
+    (OLD.state='creating' AND NEW.state IN ('submitted','reconciliation_required')) OR
     (OLD.state='submitted' AND NEW.state IN ('completed','failed','reconciliation_required'))
   ) THEN
     RAISE EXCEPTION 'Scene storyboard operation state cannot regress';
