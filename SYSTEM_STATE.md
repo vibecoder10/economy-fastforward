@@ -22,6 +22,16 @@
   spoken line, and deterministic assembly. Helpers must be named and included in the
   exact cumulative ceiling. One approved authority can persist one immutable schedule
   exactly once; schedules still record zero calls and zero spend.
+- `custom_film_director_activation.py` now supplies the safe production entry seam.
+  When `CUSTOM_FILM_DIRECTOR_V1=true`, new non-recipe Custom Films bypass the old
+  inference-first planner and receive a deterministic full-film scaffold plus an
+  exact script/director-stage approval card before any text client is resolved or
+  called. Pricing is deployment-owned and mandatory through
+  `CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS`; a missing/invalid ceiling blocks the card
+  instead of guessing. Approval creates the plan/video with its media approval still
+  null, persists one exact cumulative authority, consumes it into one immutable
+  zero-call/zero-spend schedule, and stops. Reloads remain on this held director state
+  and cannot fall into the legacy all-media runtime.
 - Migration 135 and fresh-schema parity now cover picture reviews, consume-once stage
   authorities, append-only director schedules, and idempotent visual attempts. No
   migration has been applied.
@@ -31,12 +41,25 @@
   A synthetic two-shot proof rendered 72 exact video frames at 1920x1080/24 fps;
   visually inspected motion, cut, two-speaker caption progression, and audio layering
   passed. MP4 SHA-256: `a502d53d940fe177a0ce95e78b98e1e11f93327729c2aa81cf33f1e1c648d4a4`.
-- The complete Custom Film backend regression passes 482/482; focused M8 tests pass
-  36/36; all 37 Remotion contract/motion/showcase tests, TypeScript, and bundle pass.
-  The production chat/runtime is deliberately not switched yet: its initial
-  no-provider reservation, stage-by-stage approval UX, executor, and new composition
-  renderer adapter remain the next activation chunk. No provider call, paid
-  generation, database write, deployment, upload, or publication occurred.
+- The complete Custom Film backend regression passes 491/491; focused director
+  activation proofs cover the historical $8.57 prior context plus a configured new
+  ceiling, price-config refusal, no-inference intake, exact authority persistence,
+  transaction/replay, stale-approval persistence, private setup failure, no legacy
+  scheduling, and safe reload. The new video receives only the newly approved stage
+  amount as executable headroom; the historical cumulative amount stays accounting
+  context. All 37 Remotion contract/motion/showcase tests, TypeScript, and bundle also
+  pass.
+- The current compiler prototype asks for one response up to 48,000 tokens plus one
+  bounded repair, while the configured Kie text client caps a response at 8,192
+  tokens. That two-call prototype is therefore not activation-ready for a roughly
+  50-shot five-minute contract. Before the flag can be enabled, Stage 1 needs a
+  multi-pass film-bible/outline/shot-batch executor with its own exact call bill,
+  price, authority version, usage journal, and compiled-contract persistence; the
+  present two-call approval must not be reused for it.
+- The activation flag remains off and migration 135 remains unapplied; the priced
+  chunked text executor, later-stage approval UI/executors, and new composition
+  renderer adapter are still absent. No provider call, paid generation, live database
+  write, deployment, upload, or publication occurred.
 
 ## Custom Film general layered orchestration (M6 local, 2026-07-24)
 

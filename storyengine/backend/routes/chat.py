@@ -548,6 +548,46 @@ def _custom_film_start_ready_response(
     )
 
 
+def _custom_film_director_stage_response(
+    conversation_id: str,
+    state: dict[str, Any],
+    video_id: str,
+) -> ChatTurnResponse:
+    """Reconstruct an approved Stage 1 schedule without dispatching it."""
+    pending = state.get("pending_custom_film_plan")
+    activation = (
+        pending.get("director_activation")
+        if isinstance(pending, dict)
+        else None
+    )
+    quote = (
+        activation.get("stage_quote")
+        if isinstance(activation, dict)
+        else None
+    )
+    cumulative = (
+        int(quote["approved_cumulative_cents"])
+        if isinstance(quote, dict)
+        and type(quote.get("approved_cumulative_cents")) is int
+        else None
+    )
+    amount = (
+        f"${cumulative / 100:.2f}"
+        if cumulative is not None
+        else "the approved amount"
+    )
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=(
+            f"The screenplay/director stage is safely held at {amount} cumulative. "
+            "Its immutable task schedule exists, but no provider call, media "
+            "generation, render, upload, or spend has started."
+        ),
+        video_id=video_id,
+        phase="created",
+    )
+
+
 async def _schedule_reserved_custom_film_runtime(
     conversation_id: str,
     tenant_id: str,
@@ -4584,6 +4624,18 @@ async def _handle_custom_film_approval_turn(
 ) -> ChatTurnResponse:
     """Confirm one exact quote into a durable no-provider start intention."""
     pending = state.get("pending_custom_film_plan")
+    if (
+        isinstance(pending, dict)
+        and pending.get("execution_model") == "storyboard_director_v1"
+    ):
+        return await _handle_custom_film_director_approval_turn(
+            selection,
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            expected_state,
+        )
     if selection != "yes":
         message = "No problem — the current Custom Film plan remains unapproved. Tell me what to edit."
         transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
@@ -4750,6 +4802,354 @@ async def _handle_custom_film_approval_turn(
         await generation_claims.release_channel(tenant_id, "custom_film_start")
 
 
+async def _handle_custom_film_director_approval_turn(
+    selection: str,
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+    expected_state: dict[str, Any] | None = None,
+) -> ChatTurnResponse:
+    """Persist Stage 1 authority without starting its text-provider work."""
+    from custom_film_contract import CustomFilmContractError
+    from custom_film_director_activation import (
+        DIRECTOR_EXECUTION_MODEL,
+        reserve_director_stage_intent,
+        validate_director_intake,
+    )
+
+    pending = state.get("pending_custom_film_plan")
+    if selection != "yes":
+        message = (
+            "No problem — the screenplay/director stage remains unapproved. "
+            "Nothing was started or charged; tell me what to change."
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        converged = await _persist_custom_film_cas(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "plan",
+            expected_state,
+        )
+        if converged:
+            return converged
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+    if (
+        not isinstance(pending, dict)
+        or pending.get("execution_model") != DIRECTOR_EXECUTION_MODEL
+        or pending.get("status") != "awaiting_director_approval"
+    ):
+        return await _handle_custom_film_control_turn(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            expected_state,
+        )
+    expected = str(pending.get("approval_hash") or "")
+    try:
+        activation = validate_director_intake(
+            pending.get("director_activation")
+        )
+    except CustomFilmContractError as exc:
+        pending["status"] = "stale"
+        pending.pop("approval_hash", None)
+        message = str(exc)
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        converged = await _persist_custom_film_cas(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "plan",
+            expected_state,
+        )
+        if converged:
+            return converged
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+    if (
+        not expected
+        or activation["approval_hash"] != expected
+        or activation["prospective_plan_id"]
+        != pending.get("prospective_plan_id")
+    ):
+        pending["status"] = "stale"
+        pending.pop("approval_hash", None)
+        message = (
+            "That screenplay/director quote changed, so its approval is no "
+            "longer valid. Nothing was started or charged."
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        converged = await _persist_custom_film_cas(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "plan",
+            expected_state,
+        )
+        if converged:
+            return converged
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+
+    # Resolve only the existence of a tenant-owned text client. This does not
+    # invoke it; the durable schedule remains provider_calls_started=false.
+    client = await _resolve_producer_client(tenant_id)
+    if client is None:
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=(
+                "Add your Kie.ai or Anthropic key under Profile → API Keys before "
+                "approving the screenplay/director stage. Nothing was started."
+            ),
+            phase="plan",
+        )
+    try:
+        claimed = await generation_claims.acquire_channel(
+            tenant_id,
+            "custom_film_director_start",
+            claimed_by=f"chat:custom-film-director:{conversation_id}",
+        )
+    except Exception as exc:  # noqa: BLE001 - drain text is creator-safe
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=getattr(exc, "message", None) or str(exc),
+            phase="plan",
+        )
+    if not claimed:
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=(
+                "This screenplay/director approval is already being handled. "
+                "I did not reserve it twice."
+            ),
+            phase="plan",
+        )
+
+    try:
+        from custom_film_planner import load_capability_manifest
+        from routes.billing import check_plan_limits, enforce_video_length_cap
+
+        await check_plan_limits(tenant_id, "video")
+        await enforce_video_length_cap(
+            tenant_id,
+            float(
+                activation["quote_inputs"]["requested_duration_seconds"]
+            )
+            / 60,
+        )
+        manifest = await load_capability_manifest()
+        cumulative = int(
+            activation["stage_quote"]["approved_cumulative_cents"]
+        )
+        message = (
+            "Stage 1 is safely authorized at an exact cumulative ceiling of "
+            f"${cumulative / 100:.2f}. The immutable director schedule is held, "
+            "but no model call, media generation, render, upload, or spend has "
+            "started."
+        )
+        result = await reserve_director_stage_intent(
+            tenant_id,
+            conversation_id,
+            expected,
+            manifest,
+            confirmation_turn=_assistant_turn(
+                {"assistant_text": message, "phase": "created"}
+            ),
+        )
+        video_id = result["video_id"]
+        durable_pending = result.get("pending_custom_film_plan")
+        if isinstance(durable_pending, dict):
+            state["pending_custom_film_plan"] = copy.deepcopy(durable_pending)
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            video_id=video_id,
+            phase="created",
+        )
+    except (HTTPException, CustomFilmContractError) as exc:
+        message = (
+            exc.detail
+            if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
+            else str(exc)
+        )
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+    finally:
+        await generation_claims.release_channel(
+            tenant_id,
+            "custom_film_director_start",
+        )
+
+
+async def _handle_custom_film_director_intake_plan(
+    conversation_id: str,
+    tenant_id: str,
+    transcript: list[dict[str, Any]],
+    state: dict[str, Any],
+    user_message: str,
+    expected_state: dict[str, Any] | None = None,
+    *,
+    audit_user_message: str | None = None,
+) -> ChatTurnResponse:
+    """Build a deterministic Stage 1 quote before any planner inference."""
+    from custom_film_contract import CustomFilmContractError
+    from custom_film_director_activation import (
+        DIRECTOR_EXECUTION_MODEL,
+        build_director_intake,
+        configured_director_pass_max_cents,
+        director_approval_card,
+        director_intake_text,
+    )
+    from custom_film_planner import load_capability_manifest
+
+    transcript.append(
+        {"role": "user", "content": audit_user_message or user_message}
+    )
+    existing = state.get("pending_custom_film_plan")
+    prior_cumulative_cents = state.get(
+        "custom_film_completed_spend_cents",
+        0,
+    )
+    if (
+        isinstance(existing, dict)
+        and existing.get("execution_model") == DIRECTOR_EXECUTION_MODEL
+        and isinstance(existing.get("director_activation"), dict)
+    ):
+        stage_quote = existing["director_activation"].get("stage_quote")
+        if isinstance(stage_quote, dict):
+            prior_cumulative_cents = stage_quote.get(
+                "prior_cumulative_cents",
+                prior_cumulative_cents,
+            )
+    if type(prior_cumulative_cents) is not int or prior_cumulative_cents < 0:
+        prior_cumulative_cents = 0
+
+    _quarantine_custom_film_state(state)
+    state.pop("pending_custom_film_plan", None)
+    total_duration_seconds = _custom_film_duration_seconds(
+        user_message,
+        None,
+    )
+    try:
+        manifest = await load_capability_manifest()
+        activation = build_director_intake(
+            user_message,
+            manifest,
+            total_duration_seconds=total_duration_seconds,
+            prior_cumulative_cents=prior_cumulative_cents,
+            director_pass_max_cents=configured_director_pass_max_cents(),
+        )
+    except CustomFilmContractError as exc:
+        state["mode"] = "custom_film"
+        state["pending_custom_film_plan"] = {
+            "execution_model": DIRECTOR_EXECUTION_MODEL,
+            "status": "director_pricing_blocked",
+            "user_request": user_message.strip(),
+        }
+        message = str(exc)
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        converged = await _persist_custom_film_cas(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "plan",
+            expected_state,
+        )
+        if converged:
+            return converged
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+    except Exception as exc:  # noqa: BLE001 - DB detail is not creator-safe
+        logger.warning("custom-film director intake setup failed: %s", exc)
+        state["mode"] = "custom_film"
+        state["pending_custom_film_plan"] = {
+            "execution_model": DIRECTOR_EXECUTION_MODEL,
+            "status": "director_intake_blocked",
+            "user_request": user_message.strip(),
+        }
+        message = (
+            "I couldn't safely prepare the screenplay/director approval. "
+            "Nothing was approved, started, or charged."
+        )
+        transcript.append(_assistant_turn({"assistant_text": message, "phase": "plan"}))
+        converged = await _persist_custom_film_cas(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            "plan",
+            expected_state,
+        )
+        if converged:
+            return converged
+        return ChatTurnResponse(
+            conversation_id=conversation_id,
+            assistant_text=message,
+            phase="plan",
+        )
+
+    state["mode"] = "custom_film"
+    state["pending_custom_film_plan"] = {
+        "execution_model": DIRECTOR_EXECUTION_MODEL,
+        "status": "awaiting_director_approval",
+        "user_request": activation["user_request"],
+        "prospective_plan_id": activation["prospective_plan_id"],
+        "approval_hash": activation["approval_hash"],
+        "director_activation": activation,
+    }
+    assistant_text = director_intake_text(activation)
+    cards = [director_approval_card(activation)]
+    transcript.append(
+        _assistant_turn(
+            {
+                "assistant_text": assistant_text,
+                "cards": cards,
+                "ready_to_create": False,
+                "phase": "plan",
+            }
+        )
+    )
+    converged = await _persist_custom_film_cas(
+        conversation_id,
+        tenant_id,
+        transcript,
+        state,
+        "plan",
+        expected_state,
+    )
+    if converged:
+        return converged
+    return ChatTurnResponse(
+        conversation_id=conversation_id,
+        assistant_text=assistant_text,
+        cards=cards,
+        ready_to_create=False,
+        phase="plan",
+    )
+
+
 async def _handle_custom_film_plan(
     conversation_id: str,
     tenant_id: str,
@@ -4762,6 +5162,18 @@ async def _handle_custom_film_plan(
     audit_user_message: str | None = None,
 ) -> ChatTurnResponse:
     """Plan only: no video creation, estimate, approval, or background dispatch."""
+    from custom_film_director_activation import director_activation_enabled
+
+    if saved_recipe is None and director_activation_enabled():
+        return await _handle_custom_film_director_intake_plan(
+            conversation_id,
+            tenant_id,
+            transcript,
+            state,
+            user_message,
+            expected_state,
+            audit_user_message=audit_user_message,
+        )
     from custom_film_planner import (
         CustomFilmPlannerError,
         NO_KEY_MESSAGE,
@@ -6151,6 +6563,20 @@ async def chat_turn(
     # M2-3 owns a held pre-runtime video, not a generic co-pilot video. A retry
     # or reload must reconstruct that durable result before legacy video routing.
     pending_custom_film = state.get("pending_custom_film_plan")
+    if (
+        video_id
+        and state.get("mode") == "custom_film"
+        and isinstance(pending_custom_film, dict)
+        and pending_custom_film.get("execution_model")
+        == "storyboard_director_v1"
+        and pending_custom_film.get("status") == "director_stage_scheduled"
+        and str(pending_custom_film.get("video_id") or "") == video_id
+    ):
+        return _custom_film_director_stage_response(
+            conversation_id,
+            state,
+            video_id,
+        )
     if (
         video_id
         and state.get("mode") == "custom_film"

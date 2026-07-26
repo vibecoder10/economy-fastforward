@@ -1,12 +1,13 @@
 import asyncio
 import copy
 import json
-
-import pytest
+from uuid import uuid4
 
 import custom_film_contract as contract
+import custom_film_director_activation as director_activation
 import custom_film_orchestration as orchestration
 import custom_film_planner as planner
+import pytest
 import routes.chat as chat_route
 
 
@@ -2570,3 +2571,316 @@ async def test_reuse_rejects_wrong_focus_count_and_never_inherits_approval(manif
             manifest,
             Client(),
         )
+
+
+def test_director_intake_is_no_media_exact_cumulative_authority(manifest):
+    activation = director_activation.build_director_intake(
+        "A courier discovers a private escape route beneath the city.",
+        manifest,
+        total_duration_seconds=300,
+        prior_cumulative_cents=857,
+        director_pass_max_cents=13,
+        prospective_plan_id="11111111-1111-4111-8111-111111111111",
+    )
+    assert activation["stage_quote"] == {
+        "quote_version": 1,
+        "stage": "script_director",
+        "plan_id": "11111111-1111-4111-8111-111111111111",
+        "plan_hash": activation["plan_hash"],
+        "output": (
+            "complete screenplay, film bible, locked cast and environments, "
+            "and synchronous progressive shot plan"
+        ),
+        "provider_scope": "tenant_owned_text_client",
+        "maximum_model_calls": 2,
+        "media_generation_included": False,
+        "prior_cumulative_cents": 857,
+        "stage_max_cents": 13,
+        "approved_cumulative_cents": 870,
+    }
+    assert activation["quote_inputs"]["totals"]["planned_shots"] == 50
+    assert activation["schedule"]["provider_calls_started"] is False
+    assert activation["schedule"]["spend_recorded_cents"] == 0
+    assert (
+        activation["internal_plan"]["sections"][0]["role"]
+        == "full_film"
+    )
+    card = director_activation.director_approval_card(activation)
+    stage = card["custom_film_director_stage"]
+    assert stage["prior_cumulative"] == "$8.57"
+    assert stage["stage_maximum"] == "$0.13"
+    assert stage["exact_cumulative_ceiling"] == "$8.70"
+    assert stage["media_generation_included"] is False
+
+    changed = copy.deepcopy(activation)
+    changed["schedule"]["tasks"][0]["status"] = "started"
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="intake changed",
+    ):
+        director_activation.validate_director_intake(changed)
+
+
+def test_director_activation_refuses_to_guess_an_unconfigured_price(
+    monkeypatch,
+):
+    monkeypatch.delenv(
+        director_activation.DIRECTOR_PASS_MAX_CENTS_ENV,
+        raising=False,
+    )
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="pricing is not configured",
+    ):
+        director_activation.configured_director_pass_max_cents()
+
+
+@pytest.mark.asyncio
+async def test_director_chat_intake_quotes_before_any_planner_or_provider_call(
+    monkeypatch,
+    manifest,
+):
+    monkeypatch.setenv(director_activation.DIRECTOR_ACTIVATION_ENV, "true")
+    monkeypatch.setenv(director_activation.DIRECTOR_PASS_MAX_CENTS_ENV, "13")
+    persisted = {}
+
+    async def load_manifest():
+        return manifest
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("director intake crossed the no-provider boundary")
+
+    async def persist(
+        _conversation_id,
+        _tenant_id,
+        saved_transcript,
+        saved_state,
+        phase,
+        *_args,
+    ):
+        persisted["transcript"] = copy.deepcopy(saved_transcript)
+        persisted["state"] = copy.deepcopy(saved_state)
+        persisted["phase"] = phase
+
+    monkeypatch.setattr(planner, "load_capability_manifest", load_manifest)
+    monkeypatch.setattr(chat_route, "_resolve_producer_client", forbidden)
+    monkeypatch.setattr(planner, "plan_custom_film", forbidden)
+    monkeypatch.setattr(chat_route, "_persist", persist)
+    state = {
+        "custom_film_completed_spend_cents": 857,
+        "last_spec": {"stale": True},
+    }
+    response = await chat_route._handle_custom_film_plan(
+        "conversation-a",
+        "tenant-a",
+        [],
+        state,
+        "Make a five minute Custom Film about a courier exposing a secret route.",
+    )
+
+    assert response.phase == "plan"
+    assert response.video_id is None
+    assert response.cards[0]["id"] == "custom_film_approval"
+    pending = persisted["state"]["pending_custom_film_plan"]
+    assert pending["execution_model"] == "storyboard_director_v1"
+    assert pending["status"] == "awaiting_director_approval"
+    activation = pending["director_activation"]
+    assert activation["stage_quote"]["approved_cumulative_cents"] == 870
+    assert activation["schedule"]["provider_calls_started"] is False
+    assert "last_spec" not in persisted["state"]
+
+
+@pytest.mark.asyncio
+async def test_director_intake_setup_failure_is_private_and_no_provider(
+    monkeypatch,
+):
+    monkeypatch.setenv(director_activation.DIRECTOR_ACTIVATION_ENV, "true")
+    monkeypatch.setenv(director_activation.DIRECTOR_PASS_MAX_CENTS_ENV, "13")
+    persisted = {}
+
+    async def fail_manifest():
+        raise RuntimeError("postgres://secret-host/internal-detail")
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("failed intake crossed the provider boundary")
+
+    async def persist(
+        _conversation_id,
+        _tenant_id,
+        saved_transcript,
+        saved_state,
+        phase,
+        *_args,
+    ):
+        persisted["transcript"] = copy.deepcopy(saved_transcript)
+        persisted["state"] = copy.deepcopy(saved_state)
+        persisted["phase"] = phase
+
+    monkeypatch.setattr(planner, "load_capability_manifest", fail_manifest)
+    monkeypatch.setattr(chat_route, "_resolve_producer_client", forbidden)
+    monkeypatch.setattr(chat_route, "_persist", persist)
+    response = await chat_route._handle_custom_film_plan(
+        "conversation-a",
+        "tenant-a",
+        [],
+        {},
+        "Make a Custom Film about a courier.",
+    )
+
+    assert response.phase == "plan"
+    assert "secret-host" not in response.assistant_text
+    assert "nothing was approved, started, or charged" in response.assistant_text.lower()
+    assert (
+        persisted["state"]["pending_custom_film_plan"]["status"]
+        == "director_intake_blocked"
+    )
+
+
+class _DirectorReserveContext:
+    def __init__(self, value=None):
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, *_args):
+        return False
+
+
+class _DirectorReservePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        return _DirectorReserveContext(self.conn)
+
+
+class _DirectorReserveConn:
+    def __init__(self, state):
+        self.state = copy.deepcopy(state)
+        self.transcript = [{"role": "user", "content": "approve stage one"}]
+        self.video_id = None
+        self.video_max_spend = None
+        self.authority = None
+        self.schedule = None
+        self.provider_calls = 0
+
+    def transaction(self):
+        return _DirectorReserveContext()
+
+    async def fetchrow(self, query, *args):
+        if "FROM chat_conversations" in query:
+            return {
+                "id": "conversation-a",
+                "video_id": self.video_id,
+                "transcript": copy.deepcopy(self.transcript),
+                "state": copy.deepcopy(self.state),
+            }
+        if "INSERT INTO videos" in query:
+            self.video_id = str(uuid4())
+            self.video_max_spend = args[3]
+            return {"id": self.video_id}
+        if "INSERT INTO custom_film_stage_authorities" in query:
+            authority_id = str(uuid4())
+            self.authority = {
+                "id": authority_id,
+                "plan_id": args[1],
+                "video_id": args[2],
+                "director_contract_id": args[3],
+                "stage": args[4],
+                "stage_binding_hash": args[5],
+                "upstream_gate_hash": args[6],
+                "quote_hash": args[7],
+                "approval_hash": args[8],
+                "prior_cumulative_cents": args[9],
+                "approved_cumulative_cents": args[10],
+                "bill_of_materials": json.loads(args[11]),
+                "authority": json.loads(args[12]),
+                "authority_hash": args[13],
+                "consumed_at": None,
+                "consumed_by": None,
+            }
+            return {"id": authority_id}
+        if "FROM custom_film_stage_authorities" in query:
+            return copy.deepcopy(self.authority)
+        if "INSERT INTO custom_film_director_stage_schedules" in query:
+            schedule_id = str(uuid4())
+            self.schedule = {
+                "id": schedule_id,
+                "schedule_hash": args[10],
+                "task_count": args[11],
+            }
+            return {"id": schedule_id}
+        if "FROM custom_film_director_stage_schedules" in query:
+            return copy.deepcopy(self.schedule)
+        raise AssertionError(query)
+
+    async def execute(self, query, *args):
+        if "UPDATE custom_film_stage_authorities" in query:
+            self.authority["consumed_at"] = "now"
+            self.authority["consumed_by"] = args[2]
+            return "UPDATE 1"
+        if "UPDATE chat_conversations" in query:
+            self.state = json.loads(args[2])
+            self.video_id = args[3]
+            self.transcript = json.loads(args[4])
+            return "UPDATE 1"
+        if any(
+            token in query
+            for token in (
+                "INSERT INTO custom_film_plans",
+                "INSERT INTO custom_film_sections",
+                "UPDATE videos",
+            )
+        ):
+            return "OK"
+        raise AssertionError(query)
+
+
+@pytest.mark.asyncio
+async def test_director_reservation_persists_only_a_zero_call_schedule(
+    monkeypatch,
+    manifest,
+):
+    activation = director_activation.build_director_intake(
+        "A courier discovers a private escape route beneath the city.",
+        manifest,
+        total_duration_seconds=300,
+        prior_cumulative_cents=857,
+        director_pass_max_cents=13,
+    )
+    pending = {
+        "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
+        "status": "awaiting_director_approval",
+        "prospective_plan_id": activation["prospective_plan_id"],
+        "approval_hash": activation["approval_hash"],
+        "director_activation": activation,
+    }
+    conn = _DirectorReserveConn(
+        {"mode": "custom_film", "pending_custom_film_plan": pending}
+    )
+
+    async def pool():
+        return _DirectorReservePool(conn)
+
+    monkeypatch.setattr(director_activation, "get_pool", pool)
+    result = await director_activation.reserve_director_stage_intent(
+        "22222222-2222-4222-8222-222222222222",
+        "conversation-a",
+        activation["approval_hash"],
+        manifest,
+        confirmation_turn={
+            "role": "assistant",
+            "content": "Stage one is held.",
+        },
+    )
+
+    assert result["created"] is True
+    assert conn.authority["consumed_by"] == result["schedule_hash"]
+    assert conn.schedule["task_count"] == 1
+    durable = conn.state["pending_custom_film_plan"]
+    assert durable["status"] == "director_stage_scheduled"
+    assert durable["provider_calls_started"] is False
+    assert durable["spend_recorded_cents"] == 0
+    assert str(conn.video_max_spend) == "0.13"
+    assert conn.transcript[-1]["content"] == "Stage one is held."

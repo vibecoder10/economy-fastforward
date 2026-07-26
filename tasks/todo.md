@@ -9,18 +9,26 @@
 **Branch/worktree:** `agent/custom-film-director-loop` in
 `/Users/ryanayler/economy-fastforward-custom-film-director`.
 
-**Last done:** the M8 no-provider foundation now compiles the complete film bible and
-ordered shot plan, locks narrator/sound/caption ownership, stages references through
-assembly with exact cumulative BOMs and immutable schedules, persists rejected visual
-attempts, and admits only clean clips to the strict layered Director Remotion
-composition. Proof: 482/482 Custom Film tests, all 37 Remotion tests, TypeScript/bundle,
-and a visually accepted 72-frame local render.
+**Last done:** the M8 foundation and safe Stage 1 activation seam now compile the film
+bible/ordered shots, lock narrator/sound/captions, stage every downstream gate, persist
+visual rejection evidence, and admit only clean clips to Director Remotion. With
+`CUSTOM_FILM_DIRECTOR_V1=true`, new intake is deterministic and no-inference: it requires
+an explicit `CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS`, shows an exact cumulative
+script/director approval, persists an unapproved-media plan/video plus consume-once
+zero-call schedule, and cannot fall into the legacy runtime on approval or reload.
+Proof: 491/491 Custom Film tests, all 37 Remotion tests, TypeScript/bundle, and the
+visually accepted 72-frame local render.
 
-**Next:** activate without reviving the failed pipeline: reserve the plan at $0, obtain
-an exact cumulative script/director-stage approval before the text client, persist that
-contract, and advance each later gate through its own authority/executor. The production
-chat/runtime is not switched yet. Paid provider work, migration application, deployment,
-upload, and publication remain unauthorized; $8.57 is historical accounting only.
+**Next:** replace the current 48,000-token single-response/two-call prototype—which
+cannot fit through the configured 8,192-token Kie response cap for a roughly 50-shot
+film—with a multi-pass film-bible -> outline -> shot-batch executor. Price its complete
+call bill under a new authority version, journal actual usage/cost, and persist its
+compiled contract; do not reuse the current two-call approval. Then add the reference
+-> storyboard -> final-picture -> animation/voice approval cards and executors before
+the production renderer adapter. The activation flag remains off and migration 135 is
+unapplied. Paid provider work, migration application, deployment, upload, and
+publication remain unauthorized; $8.57 is historical accounting only, not permission
+for the next call.
 
 ## ⧗ HANDOFF — 2026-07-24 (night) — SFX render-path guard: code done, live UI check BLOCKED (report only, no code changes this session)
 

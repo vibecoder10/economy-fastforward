@@ -4,12 +4,12 @@ import copy
 import inspect
 from types import SimpleNamespace
 
-import pytest
-from fastapi import BackgroundTasks
-
 import actions
 import custom_film_contract as contract
+import custom_film_director_activation as director_activation
 import custom_film_planner as planner
+import pytest
+from fastapi import BackgroundTasks
 from routes import chat
 
 
@@ -921,3 +921,207 @@ async def test_reserved_video_retries_runtime_schedule_after_reload_without_dupl
         "release",
         "persist",
     ]
+
+
+@pytest.mark.asyncio
+async def test_director_approval_persists_zero_call_schedule_without_legacy_runtime(
+    monkeypatch,
+):
+    approval_hash = "a" * 64
+    plan_id = "11111111-1111-4111-8111-111111111111"
+    activation = {
+        "approval_hash": approval_hash,
+        "prospective_plan_id": plan_id,
+        "quote_inputs": {"requested_duration_seconds": 300},
+        "stage_quote": {"approved_cumulative_cents": 870},
+    }
+    state = {
+        "mode": "custom_film",
+        "pending_custom_film_plan": {
+            "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
+            "status": "awaiting_director_approval",
+            "approval_hash": approval_hash,
+            "prospective_plan_id": plan_id,
+            "director_activation": {"opaque": "validated below"},
+        },
+    }
+    calls = []
+
+    def validate(_raw):
+        calls.append("validate")
+        return copy.deepcopy(activation)
+
+    async def client(_tenant_id):
+        calls.append("resolve_client")
+        return object()
+
+    async def claim(*_args, **_kwargs):
+        calls.append("claim")
+        return True
+
+    async def release(*_args, **_kwargs):
+        calls.append("release")
+
+    async def gate(*_args, **_kwargs):
+        calls.append("gate")
+
+    async def manifest():
+        calls.append("manifest")
+        return SimpleNamespace(version="test-v1")
+
+    async def reserve(*_args, **_kwargs):
+        calls.append("reserve")
+        durable = copy.deepcopy(state["pending_custom_film_plan"])
+        durable.update(
+            status="director_stage_scheduled",
+            video_id="video-1",
+            provider_calls_started=False,
+            spend_recorded_cents=0,
+        )
+        return {
+            "video_id": "video-1",
+            "created": True,
+            "pending_custom_film_plan": durable,
+        }
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("director approval entered the legacy runtime")
+
+    from routes import billing
+
+    monkeypatch.setattr(director_activation, "validate_director_intake", validate)
+    monkeypatch.setattr(chat, "_resolve_producer_client", client)
+    monkeypatch.setattr(chat.generation_claims, "acquire_channel", claim)
+    monkeypatch.setattr(chat.generation_claims, "release_channel", release)
+    monkeypatch.setattr(billing, "check_plan_limits", gate)
+    monkeypatch.setattr(billing, "enforce_video_length_cap", gate)
+    monkeypatch.setattr(planner, "load_capability_manifest", manifest)
+    monkeypatch.setattr(
+        director_activation,
+        "reserve_director_stage_intent",
+        reserve,
+    )
+    monkeypatch.setattr(chat, "_schedule_reserved_custom_film_runtime", forbidden)
+
+    response = await chat._handle_custom_film_approval_turn(
+        "yes",
+        "conv",
+        "tenant",
+        [],
+        state,
+        BackgroundTasks(),
+    )
+
+    assert response.video_id == "video-1"
+    assert response.phase == "created"
+    assert "no model call" in response.assistant_text.lower()
+    assert state["pending_custom_film_plan"]["provider_calls_started"] is False
+    assert state["pending_custom_film_plan"]["spend_recorded_cents"] == 0
+    assert calls == [
+        "validate",
+        "resolve_client",
+        "claim",
+        "gate",
+        "gate",
+        "manifest",
+        "reserve",
+        "release",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_director_schedule_reload_never_resumes_the_legacy_runtime(
+    monkeypatch,
+):
+    state = {
+        "mode": "custom_film",
+        "pending_custom_film_plan": {
+            "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
+            "status": "director_stage_scheduled",
+            "video_id": "video-1",
+            "director_activation": {
+                "stage_quote": {"approved_cumulative_cents": 870}
+            },
+        },
+    }
+
+    async def load(*_args):
+        return {
+            "id": "conv",
+            "video_id": "video-1",
+            "transcript": [],
+            "state": copy.deepcopy(state),
+            "phase": "created",
+        }
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("held director stage escaped to a runtime")
+
+    monkeypatch.setattr(chat, "_load_conversation", load)
+    monkeypatch.setattr(chat, "_handle_copilot", forbidden)
+    monkeypatch.setattr(chat, "_schedule_reserved_custom_film_runtime", forbidden)
+
+    response = await chat.chat_turn(
+        chat.ChatTurnRequest(conversation_id="conv", message="status"),
+        BackgroundTasks(),
+        tenant_id="tenant",
+    )
+
+    assert response.video_id == "video-1"
+    assert response.phase == "created"
+    assert "$8.70 cumulative" in response.assistant_text
+    assert "no provider call" in response.assistant_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_stale_director_approval_is_durably_cleared_before_any_key_check(
+    monkeypatch,
+):
+    state = {
+        "mode": "custom_film",
+        "pending_custom_film_plan": {
+            "execution_model": director_activation.DIRECTOR_EXECUTION_MODEL,
+            "status": "awaiting_director_approval",
+            "approval_hash": "a" * 64,
+            "prospective_plan_id": "11111111-1111-4111-8111-111111111111",
+            "director_activation": {"tampered": True},
+        },
+    }
+    persisted = {}
+
+    def reject(_raw):
+        raise contract.CustomFilmContractError("director intake changed")
+
+    async def persist(
+        _conversation_id,
+        _tenant_id,
+        saved_transcript,
+        saved_state,
+        phase,
+        *_args,
+    ):
+        persisted["transcript"] = copy.deepcopy(saved_transcript)
+        persisted["state"] = copy.deepcopy(saved_state)
+        persisted["phase"] = phase
+
+    async def forbidden(*_args, **_kwargs):
+        raise AssertionError("stale approval reached a key or provider seam")
+
+    monkeypatch.setattr(director_activation, "validate_director_intake", reject)
+    monkeypatch.setattr(chat, "_persist", persist)
+    monkeypatch.setattr(chat, "_resolve_producer_client", forbidden)
+
+    response = await chat._handle_custom_film_approval_turn(
+        "yes",
+        "conv",
+        "tenant",
+        [],
+        state,
+        BackgroundTasks(),
+    )
+
+    pending = persisted["state"]["pending_custom_film_plan"]
+    assert response.phase == "plan"
+    assert pending["status"] == "stale"
+    assert "approval_hash" not in pending
+    assert persisted["phase"] == "plan"

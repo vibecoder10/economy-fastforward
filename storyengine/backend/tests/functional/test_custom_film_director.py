@@ -3,14 +3,13 @@ import json
 import re
 from uuid import uuid4
 
-import pytest
-
 import custom_film_contract as contract
 import custom_film_director as director
 import custom_film_director_remotion as director_remotion
 import custom_film_director_runtime as director_runtime
 import custom_film_remotion
 import database
+import pytest
 
 SECTION_A = str(uuid4())
 SECTION_B = str(uuid4())
@@ -1123,6 +1122,106 @@ def test_script_director_schedule_uses_plan_binding_before_contract_exists():
     assert schedule["approved_cumulative_cents"] == 868
     assert schedule["tasks"][0]["subject_id"] == PLAN_ID
     assert schedule["provider_calls_started"] is False
+
+
+class _StageAuthorityConn:
+    def __init__(self):
+        self.row = None
+
+    async def fetchrow(self, query, *args):
+        if "INSERT INTO custom_film_stage_authorities" in query:
+            if self.row is not None:
+                return None
+            self.row = {
+                "id": str(uuid4()),
+                "plan_id": args[1],
+                "video_id": args[2],
+                "director_contract_id": args[3],
+                "stage": args[4],
+                "stage_binding_hash": args[5],
+                "upstream_gate_hash": args[6],
+                "quote_hash": args[7],
+                "approval_hash": args[8],
+                "prior_cumulative_cents": args[9],
+                "approved_cumulative_cents": args[10],
+                "bill_of_materials": json.loads(args[11]),
+                "authority": json.loads(args[12]),
+                "authority_hash": args[13],
+            }
+            return {"id": self.row["id"]}
+        if "FROM custom_film_stage_authorities" in query:
+            return copy.deepcopy(self.row)
+        raise AssertionError(query)
+
+
+@pytest.mark.asyncio
+async def test_stage_authority_persistence_is_exact_and_replay_safe():
+    tenant_id = str(uuid4())
+    video_id = str(uuid4())
+    approval_hash = "e" * 64
+    raw_authority = {
+        "stage": "script_director",
+        "stage_binding_hash": PLAN_HASH,
+        "upstream_gate_hash": PLAN_HASH,
+        "quote_hash": "d" * 64,
+        "prior_cumulative_cents": 857,
+        "approved_cumulative_cents": 870,
+        "operations": [
+            {
+                "operation_kind": "director_plan",
+                "count": 1,
+                "unit_max_cents": 13,
+                "helper_operation": False,
+            }
+        ],
+    }
+    conn = _StageAuthorityConn()
+    first = await director_runtime.persist_stage_authority(
+        conn,
+        tenant_id=tenant_id,
+        plan_id=PLAN_ID,
+        video_id=video_id,
+        director_contract_id=None,
+        approval_hash=approval_hash,
+        raw_authority=raw_authority,
+        expected_stage="script_director",
+        expected_binding_hash=PLAN_HASH,
+        expected_upstream_gate_hash=PLAN_HASH,
+    )
+    replay = await director_runtime.persist_stage_authority(
+        conn,
+        tenant_id=tenant_id,
+        plan_id=PLAN_ID,
+        video_id=video_id,
+        director_contract_id=None,
+        approval_hash=approval_hash,
+        raw_authority=raw_authority,
+        expected_stage="script_director",
+        expected_binding_hash=PLAN_HASH,
+        expected_upstream_gate_hash=PLAN_HASH,
+    )
+    assert first["created"] is True
+    assert replay == {**first, "created": False}
+
+    changed = copy.deepcopy(raw_authority)
+    changed["operations"][0]["unit_max_cents"] = 14
+    changed["approved_cumulative_cents"] = 871
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="replay changed",
+    ):
+        await director_runtime.persist_stage_authority(
+            conn,
+            tenant_id=tenant_id,
+            plan_id=PLAN_ID,
+            video_id=video_id,
+            director_contract_id=None,
+            approval_hash=approval_hash,
+            raw_authority=changed,
+            expected_stage="script_director",
+            expected_binding_hash=PLAN_HASH,
+            expected_upstream_gate_hash=PLAN_HASH,
+        )
 
 
 class _StageScheduleConn:

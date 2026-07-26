@@ -759,3 +759,41 @@ chicken-and-egg problem and makes helper work, retries, and cumulative spend exp
 **Consequence:** The current local compiler/gates/composition remain inactive until the
 new reservation, chat approval, executor, and renderer adapter are wired together. This
 is intentional fail-closed scope, not permission to resume under the historical $8.57.
+
+## 2026-07-25 — Director activation never guesses price or plans before consent
+
+**Decision:** New director-mode intake is deterministic and provider-free. It creates a
+full-film planning scaffold, derives an exact immutable Stage 1 authority only from a
+deployment-supplied whole-cent ceiling, and shows the prior plus new cumulative amount
+before resolving or calling a text client. A missing ceiling blocks activation. The
+approved transaction stores an unapproved-media plan/video and consumes Stage 1 into a
+zero-call schedule; it does not enqueue the task.
+
+**Why:** Calling the existing section planner to discover what the film should be would
+already spend before the script/director gate, while assigning a guessed text price
+would make the cumulative approval fictional. A deterministic scaffold lets the real
+director own story/style/cast/environment/shot selection after exact consent without
+approving any downstream imagery.
+
+**Consequence:** `CUSTOM_FILM_DIRECTOR_V1` remains an explicit activation switch and
+`CUSTOM_FILM_DIRECTOR_PASS_MAX_CENTS` is mandatory. Historical plans without the new
+execution-model marker retain replay compatibility. A future executor must reconcile
+actual text usage/cost inside the held ceiling before this switch can be enabled.
+
+## 2026-07-25 — A 50-shot director plan must be chunked and newly quoted
+
+**Decision:** The current one-response plus one-repair director prototype is a compiler
+proof, not an executable Stage 1 production plan. It requests up to 48,000 output tokens,
+but the configured Kie text client caps each response at 8,192. Stage 1 must instead
+compile a film bible, story/shot outline, and bounded shot batches through a versioned
+multi-pass executor, then validate the whole assembled contract.
+
+**Why:** A five-minute film is expected to carry roughly 50 rich shot records. Truncating
+that contract would create exactly the missing progression, character drift, and
+continuity failures this rebuild exists to prevent. Raising a local request value does
+not raise the provider response cap.
+
+**Consequence:** The current two-call authority is deliberately non-transferable. The
+multi-pass executor needs an exact new call bill, deployment price, cumulative approval,
+authority version, per-call usage/cost journal, and deterministic assembly/retry law
+before `CUSTOM_FILM_DIRECTOR_V1` may be enabled.

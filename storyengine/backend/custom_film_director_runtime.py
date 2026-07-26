@@ -8,6 +8,7 @@ consume an authority, or spend money.
 from __future__ import annotations
 
 import copy
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
@@ -47,6 +48,15 @@ def _validate_hash(value: Any, label: str) -> str:
     if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
         raise _runtime_error(f"Custom Film {label} is invalid")
     return digest
+
+
+def _json_value(value: Any, label: str) -> Any:
+    if not isinstance(value, str):
+        return copy.deepcopy(value)
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise _runtime_error(f"Custom Film stored {label} is invalid") from exc
 
 
 def _verified_gate(
@@ -323,6 +333,141 @@ def validate_stage_schedule(raw_schedule: Mapping[str, Any]) -> dict[str, Any]:
         raise _runtime_error("Custom Film director schedule reconciliation failed")
     schedule["schedule_hash"] = claimed_hash
     return schedule
+
+
+async def persist_stage_authority(
+    conn: Any,
+    *,
+    tenant_id: str,
+    plan_id: str,
+    video_id: str,
+    director_contract_id: str | None,
+    approval_hash: str,
+    raw_authority: Mapping[str, Any],
+    expected_stage: str,
+    expected_binding_hash: str,
+    expected_upstream_gate_hash: str,
+) -> dict[str, Any]:
+    """Persist one exact user-approved cumulative authority.
+
+    The caller owns the surrounding transaction. Replaying the identical
+    authority converges on the existing row; any identity, quote, amount, BOM,
+    or hash drift fails before a schedule or provider operation can exist.
+    """
+    try:
+        normalized_tenant_id = str(UUID(str(tenant_id)))
+        normalized_plan_id = str(UUID(str(plan_id)))
+        normalized_video_id = str(UUID(str(video_id)))
+        normalized_director_id = (
+            str(UUID(str(director_contract_id)))
+            if director_contract_id is not None
+            else None
+        )
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise _runtime_error("Custom Film stage authority identity is invalid") from exc
+    normalized_approval_hash = _validate_hash(
+        approval_hash,
+        "stage approval hash",
+    )
+    authority = compile_stage_authority(
+        raw_authority,
+        expected_stage=expected_stage,
+        expected_binding_hash=expected_binding_hash,
+        expected_upstream_gate_hash=expected_upstream_gate_hash,
+    )
+    stored = await conn.fetchrow(
+        """INSERT INTO custom_film_stage_authorities
+             (tenant_id, plan_id, video_id, director_contract_id, stage,
+              stage_binding_hash, upstream_gate_hash, quote_hash, approval_hash,
+              prior_cumulative_cents, approved_cumulative_cents,
+              bill_of_materials, authority, authority_hash)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                   $12::jsonb, $13::jsonb, $14)
+           ON CONFLICT DO NOTHING
+           RETURNING id""",
+        normalized_tenant_id,
+        normalized_plan_id,
+        normalized_video_id,
+        normalized_director_id,
+        authority["stage"],
+        authority["stage_binding_hash"],
+        authority["upstream_gate_hash"],
+        authority["quote_hash"],
+        normalized_approval_hash,
+        authority["prior_cumulative_cents"],
+        authority["approved_cumulative_cents"],
+        canonical_json(authority["operations"]),
+        canonical_json(authority),
+        authority["authority_hash"],
+    )
+    if stored:
+        return {
+            "id": str(stored["id"]),
+            "authority_hash": authority["authority_hash"],
+            "approval_hash": normalized_approval_hash,
+            "created": True,
+        }
+
+    existing = await conn.fetchrow(
+        """SELECT id, plan_id, video_id, director_contract_id, stage,
+                  stage_binding_hash, upstream_gate_hash, quote_hash,
+                  approval_hash, prior_cumulative_cents,
+                  approved_cumulative_cents, bill_of_materials, authority,
+                  authority_hash
+           FROM custom_film_stage_authorities
+           WHERE tenant_id = $1 AND approval_hash = $2""",
+        normalized_tenant_id,
+        normalized_approval_hash,
+    )
+    if not existing:
+        raise _runtime_error("Custom Film stage authority was not stored")
+
+    row_director_id = (
+        str(existing["director_contract_id"])
+        if existing.get("director_contract_id") is not None
+        else None
+    )
+    observed = {
+        "plan_id": str(existing["plan_id"]),
+        "video_id": str(existing["video_id"]),
+        "director_contract_id": row_director_id,
+        "stage": str(existing["stage"]),
+        "stage_binding_hash": str(existing["stage_binding_hash"]),
+        "upstream_gate_hash": str(existing["upstream_gate_hash"]),
+        "quote_hash": str(existing["quote_hash"]),
+        "approval_hash": str(existing["approval_hash"]),
+        "prior_cumulative_cents": int(existing["prior_cumulative_cents"]),
+        "approved_cumulative_cents": int(existing["approved_cumulative_cents"]),
+        "bill_of_materials": _json_value(
+            existing["bill_of_materials"],
+            "stage bill of materials",
+        ),
+        "authority": _json_value(existing["authority"], "stage authority"),
+        "authority_hash": str(existing["authority_hash"]),
+    }
+    expected = {
+        "plan_id": normalized_plan_id,
+        "video_id": normalized_video_id,
+        "director_contract_id": normalized_director_id,
+        "stage": authority["stage"],
+        "stage_binding_hash": authority["stage_binding_hash"],
+        "upstream_gate_hash": authority["upstream_gate_hash"],
+        "quote_hash": authority["quote_hash"],
+        "approval_hash": normalized_approval_hash,
+        "prior_cumulative_cents": authority["prior_cumulative_cents"],
+        "approved_cumulative_cents": authority["approved_cumulative_cents"],
+        "bill_of_materials": authority["operations"],
+        "authority": authority,
+        "authority_hash": authority["authority_hash"],
+    }
+    if canonical_json(observed) != canonical_json(expected):
+        raise _runtime_error("Custom Film stage authority replay changed")
+    return {
+        "id": str(existing["id"]),
+        "authority_hash": authority["authority_hash"],
+        "approval_hash": normalized_approval_hash,
+        "created": False,
+    }
 
 
 async def persist_stage_schedule(
