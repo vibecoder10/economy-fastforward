@@ -155,6 +155,7 @@ _TIMING_TRANSFORM_KEYS = frozenset(
         "final_repeat_duration_ms",
         "atempo_chain",
         "caption_scale",
+        "cues",
     }
 )
 _PROPS_IDENTITY_V3_KEYS = frozenset(
@@ -575,6 +576,14 @@ def _validate_timing_transform(value: Any, label: str) -> dict[str, Any]:
             "atempo_chain",
             "caption_scale",
         },),
+        "cue_schedule": ({
+            "mode",
+            "source_duration_ms",
+            "output_duration_ms",
+            "atempo_chain",
+            "caption_scale",
+            "cues",
+        },),
         "pending_source_probe": ({
             "mode",
             "source_duration_ms",
@@ -972,7 +981,14 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             )
             if (
                 caption_start < start_frame
-                or caption_start != last_caption_end
+                or (
+                    audio_transform["mode"] != "cue_schedule"
+                    and caption_start != last_caption_end
+                )
+                or (
+                    audio_transform["mode"] == "cue_schedule"
+                    and caption_start < last_caption_end
+                )
                 or caption_end <= caption_start
                 or caption_end > start_frame + section_frames
                 or section_end_ms <= section_start_ms
@@ -1002,9 +1018,30 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             raise CustomFilmContractError(
                 "Custom Film captions do not match assigned section scenes"
             )
-        if last_caption_end != start_frame + section_frames:
+        expected_caption_end = start_frame + section_frames
+        if audio_transform["mode"] == "cue_schedule":
+            cues = audio_transform["cues"]
+            if len(captions) != len(cues) or any(
+                caption["section_start_ms"] != cue["target_start_ms"]
+                or caption["section_end_ms"] != cue["target_end_ms"]
+                or canonical_hash(
+                    {
+                        "segment_index": index,
+                        "text": caption["text"],
+                    }
+                )
+                != cue["text_hash"]
+                for index, (caption, cue) in enumerate(zip(captions, cues))
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film captions changed their cue schedule"
+                )
+            expected_caption_end = start_frame + (
+                cues[-1]["target_end_ms"] * fps // 1000
+            )
+        if last_caption_end != expected_caption_end:
             raise CustomFilmContractError(
-                "Custom Film captions do not exactly fill their section"
+                "Custom Film captions do not match approved audio"
             )
         sections.append(
             {
@@ -1493,7 +1530,12 @@ def _validate_props_audio_transform(
         "atempo_chain",
         "caption_scale",
     }
-    if mode not in {"none", "source_clip", "atempo"} or set(transform) != expected:
+    if mode == "cue_schedule":
+        expected.add("cues")
+    if (
+        mode not in {"none", "source_clip", "atempo", "cue_schedule"}
+        or set(transform) != expected
+    ):
         raise CustomFilmContractError(
             "Custom Film Remotion audio timing shape changed"
         )
@@ -1517,11 +1559,65 @@ def _validate_props_audio_transform(
     scale = _finite_number(
         transform["caption_scale"], "Remotion caption scale", 0.000001
     )
-    rate = math.prod(factors)
-    expected_rate = source_ms / output_duration_ms
     approximately = lambda left, right: abs(left - right) <= (
         1e-7 * max(1, abs(left), abs(right))
     )
+    if mode == "cue_schedule":
+        if factors or not approximately(scale, 1):
+            raise CustomFilmContractError(
+                "Custom Film Remotion cue schedule rate changed"
+            )
+        cues = _strict_sequence(transform["cues"], "Remotion audio cues")
+        previous_source_end = 0
+        previous_target_end = 0
+        for index, cue_value in enumerate(cues):
+            cue = _strict_mapping(cue_value, "Remotion audio cue")
+            if set(cue) != {
+                "segment_index",
+                "text_hash",
+                "source_start_ms",
+                "source_end_ms",
+                "target_start_ms",
+                "target_end_ms",
+            }:
+                raise CustomFilmContractError(
+                    "Custom Film Remotion audio cue shape changed"
+                )
+            source_start = _exact_int(
+                cue["source_start_ms"], "Remotion cue source start"
+            )
+            source_end = _exact_int(
+                cue["source_end_ms"], "Remotion cue source end", 1
+            )
+            target_start = _exact_int(
+                cue["target_start_ms"], "Remotion cue target start"
+            )
+            target_end = _exact_int(
+                cue["target_end_ms"], "Remotion cue target end", 1
+            )
+            _hash(cue["text_hash"], "Remotion cue text hash")
+            if (
+                cue["segment_index"] != index
+                or source_start < previous_source_end
+                or source_end <= source_start
+                or source_end > source_ms
+                or target_start < previous_target_end
+                or target_end <= target_start
+                or target_end > output_duration_ms
+                or target_end - target_start != source_end - source_start
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion audio cue timing changed"
+                )
+            previous_source_end = source_end
+            previous_target_end = target_end
+        if len(cues) < 2:
+            raise CustomFilmContractError(
+                "Custom Film Remotion cue schedule is incomplete"
+            )
+        return transform
+    rate = math.prod(factors)
+    expected_rate = source_ms / output_duration_ms
     if not approximately(rate, expected_rate) or not approximately(
         scale, 1 / expected_rate
     ):
@@ -1839,6 +1935,19 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             audio["timing_transform"],
             output_duration_ms=section_output_ms // fps,
         )
+        if audio_transform["mode"] == "cue_schedule" and any(
+            cue[key] * fps % 1000
+            for cue in audio_transform["cues"]
+            for key in (
+                "source_start_ms",
+                "source_end_ms",
+                "target_start_ms",
+                "target_end_ms",
+            )
+        ):
+            raise CustomFilmContractError(
+                "Custom Film Remotion audio cue is not frame exact"
+            )
         source_clip = audio_mode == "source_clip"
         if source_clip != (audio_transform["mode"] == "source_clip"):
             raise CustomFilmContractError(
@@ -1894,7 +2003,14 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             )
             if (
                 scene_id not in scene_ids
-                or start != caption_end
+                or (
+                    audio_transform["mode"] != "cue_schedule"
+                    and start != caption_end
+                )
+                or (
+                    audio_transform["mode"] == "cue_schedule"
+                    and start < caption_end
+                )
                 or end <= start
                 or end > section_start + section_frames
                 or start != section_start + section_start_ms * fps // 1000
@@ -1904,9 +2020,30 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
                     "Custom Film Remotion caption timing changed"
                 )
             caption_end = end
-        if caption_end != section_start + section_frames:
+        expected_caption_end = section_start + section_frames
+        if audio_transform["mode"] == "cue_schedule":
+            cues = audio_transform["cues"]
+            if len(captions) != len(cues) or any(
+                caption["section_start_ms"] != cue["target_start_ms"]
+                or caption["section_end_ms"] != cue["target_end_ms"]
+                or canonical_hash(
+                    {
+                        "segment_index": index,
+                        "text": caption["text"],
+                    }
+                )
+                != cue["text_hash"]
+                for index, (caption, cue) in enumerate(zip(captions, cues))
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion captions changed cue schedule"
+                )
+            expected_caption_end = section_start + (
+                cues[-1]["target_end_ms"] * fps // 1000
+            )
+        if caption_end != expected_caption_end:
             raise CustomFilmContractError(
-                "Custom Film Remotion captions do not fill their section"
+                "Custom Film Remotion captions do not match approved audio"
             )
         film_frame += section_frames
     if film_frame != frames:

@@ -154,6 +154,8 @@ export type ShowcaseMediaSlot =
       playbackRate: number;
       atempoChain: ReadonlyArray<number>;
       endBehavior: "trim_or_silence_pad";
+      sourceTrimStartFrame: number | null;
+      sourceTrimEndFrame: number | null;
       localPath: string;
     };
 
@@ -207,7 +209,12 @@ export const resolveShowcaseMediaSlots = (
     if (sourceClip !== (audioTransform.mode === "source_clip")) {
       throw new Error("Showcase audio mode and timing transform disagree");
     }
-    if (!sourceClip && audioTransform.mode !== "none" && audioTransform.mode !== "atempo") {
+    if (
+      !sourceClip &&
+      audioTransform.mode !== "none" &&
+      audioTransform.mode !== "atempo" &&
+      audioTransform.mode !== "cue_schedule"
+    ) {
       throw new Error("Showcase narration timing mode is unsupported");
     }
     const sectionOutputMs = section.duration_frames * 1000 / props.video.fps;
@@ -222,14 +229,24 @@ export const resolveShowcaseMediaSlots = (
       throw new Error("Showcase audio atempo factor is outside the approved range");
     }
     const playbackRate = atempoChain.reduce((product, factor) => product * factor, 1);
-    const expectedRate = audioTransform.source_duration_ms / audioTransform.output_duration_ms;
     const approximately = (left: number, right: number) =>
       Math.abs(left - right) <= 1e-7 * Math.max(1, Math.abs(left), Math.abs(right));
-    if (
-      !approximately(playbackRate, expectedRate) ||
-      !approximately(audioTransform.caption_scale, 1 / expectedRate)
-    ) {
-      throw new Error("Showcase audio timing transform is inconsistent");
+    if (audioTransform.mode === "cue_schedule") {
+      if (
+        section.audio.sources.length !== 1 ||
+        atempoChain.length !== 0 ||
+        audioTransform.caption_scale !== 1
+      ) {
+        throw new Error("Showcase cue schedule source or rate changed");
+      }
+    } else {
+      const expectedRate = audioTransform.source_duration_ms / audioTransform.output_duration_ms;
+      if (
+        !approximately(playbackRate, expectedRate) ||
+        !approximately(audioTransform.caption_scale, 1 / expectedRate)
+      ) {
+        throw new Error("Showcase audio timing transform is inconsistent");
+      }
     }
     if (
       audioTransform.mode === "none" &&
@@ -330,7 +347,35 @@ export const resolveShowcaseMediaSlots = (
       }
     }
     let sourceElapsedMs = 0;
-    const audio = sourceClip ? [] : section.audio.sources.map((source, sourceIndex) => {
+    const scheduledAudio = audioTransform.mode === "cue_schedule"
+      ? audioTransform.cues.map((cue) => ({
+          source: section.audio.sources[0],
+          sourceIndex: cue.segment_index,
+          sourceStartMs: cue.source_start_ms,
+          sourceEndMs: cue.source_end_ms,
+          targetStartMs: cue.target_start_ms,
+          targetEndMs: cue.target_end_ms,
+        }))
+      : section.audio.sources.map((source, sourceIndex) => {
+          const sourceStartMs = sourceElapsedMs;
+          sourceElapsedMs += source.source_duration_ms;
+          return {
+            source,
+            sourceIndex,
+            sourceStartMs: 0,
+            sourceEndMs: source.source_duration_ms,
+            targetStartMs: Math.floor(
+              sourceStartMs * audioTransform.output_duration_ms
+              / audioTransform.source_duration_ms,
+            ),
+            targetEndMs: Math.floor(
+              sourceElapsedMs * audioTransform.output_duration_ms
+              / audioTransform.source_duration_ms,
+            ),
+          };
+        });
+    const audio = sourceClip ? [] : scheduledAudio.map((scheduled) => {
+      const {source, sourceIndex} = scheduled;
       const override = overrides[source.source_key];
       if (override && source.source_key.startsWith("synthetic:")) {
         throw new Error("Synthetic showcase slots cannot be overridden");
@@ -342,13 +387,19 @@ export const resolveShowcaseMediaSlots = (
       ) {
         throw new Error("Showcase override path or media type changed");
       }
-      const startOffsetFrames = Math.floor(
-        sourceElapsedMs * section.duration_frames / audioTransform.source_duration_ms,
-      );
-      sourceElapsedMs += source.source_duration_ms;
-      const endOffsetFrames = sourceIndex === section.audio.sources.length - 1
-        ? section.duration_frames
-        : Math.floor(sourceElapsedMs * section.duration_frames / audioTransform.source_duration_ms);
+      const cueTimes = audioTransform.mode === "cue_schedule"
+        ? [
+            scheduled.sourceStartMs,
+            scheduled.sourceEndMs,
+            scheduled.targetStartMs,
+            scheduled.targetEndMs,
+          ]
+        : [];
+      if (cueTimes.some((milliseconds) => milliseconds * props.video.fps % 1000 !== 0)) {
+        throw new Error("Showcase audio cue is not frame exact");
+      }
+      const startOffsetFrames = scheduled.targetStartMs * props.video.fps / 1000;
+      const endOffsetFrames = scheduled.targetEndMs * props.video.fps / 1000;
       const slot: ShowcaseMediaSlot = {
         kind: "audio" as const,
         sourceKey: source.source_key,
@@ -366,6 +417,12 @@ export const resolveShowcaseMediaSlots = (
         playbackRate,
         atempoChain: [...atempoChain],
         endBehavior: "trim_or_silence_pad",
+        sourceTrimStartFrame: audioTransform.mode === "cue_schedule"
+          ? scheduled.sourceStartMs * props.video.fps / 1000
+          : null,
+        sourceTrimEndFrame: audioTransform.mode === "cue_schedule"
+          ? scheduled.sourceEndMs * props.video.fps / 1000
+          : null,
         localPath: AUDIO_PATHS[source.source_key] ?? override?.localPath ?? approvedStagedPath,
       };
       if (

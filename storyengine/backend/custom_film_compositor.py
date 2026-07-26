@@ -47,6 +47,7 @@ DEFAULT_FPS = 24
 SUPPORTED_TRANSFORMS = frozenset({"none", "trim", "repeat_then_trim"})
 ProgressCallback = Callable[[str], Awaitable[None]]
 RemotionRenderer = Callable[..., Awaitable[Mapping[str, Any]]]
+VOICE_ALIGNMENT_VERSION = "custom-film-voice-alignment-v1"
 
 
 class CustomFilmRetryableError(RuntimeError):
@@ -179,6 +180,218 @@ def _audio_timing_transform(source_ms: int, target_ms: int) -> dict[str, Any]:
         "atempo_chain": [round(playback_rate, 9)],
         "caption_scale": round(target_ms / source_ms, 9),
     }
+
+
+def _json_value(value: Any, label: str) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise CustomFilmContractError(
+                f"Custom Film {label} is malformed"
+            ) from exc
+    return copy.deepcopy(value)
+
+
+def _narration_segments(scene_row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    value = _json_value(scene_row.get("dialogue_segments"), "dialogue segments")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise CustomFilmContractError(
+            "Custom Film dialogue segments are invalid"
+        )
+    segments: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping) or item.get("type") != "narration":
+            continue
+        text = str(item.get("text") or "").strip()
+        start = item.get("start_seconds")
+        end = item.get("end_seconds")
+        if (
+            not text
+            or type(start) is not int
+            or type(end) is not int
+            or start < 0
+            or end <= start
+        ):
+            raise CustomFilmContractError(
+                "Custom Film narration segment is invalid"
+            )
+        index = len(segments)
+        segments.append(
+            {
+                "text": text,
+                "text_hash": canonical_hash(
+                    {"segment_index": index, "text": text}
+                ),
+                "approved_start_ms": start * 1000,
+                "approved_end_ms": end * 1000,
+            }
+        )
+    return segments
+
+
+def _cue_schedule_transform(
+    scene_row: Mapping[str, Any],
+    *,
+    source_sha256: str,
+    source_ms: int,
+    target_ms: int,
+    fps: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    segments = _narration_segments(scene_row)
+    if len(segments) < 2:
+        raise CustomFilmContractError(
+            "Custom Film cue schedule requires multiple narration segments"
+        )
+    validation = _mapping(
+        scene_row.get("script_validation"), "script validation"
+    )
+    custom = _mapping(
+        validation.get("custom_film"), "script Custom Film validation"
+    )
+    alignment = _mapping(
+        custom.get("voice_alignment"), "voice alignment"
+    )
+    if set(alignment) != {
+        "version",
+        "source_sha256",
+        "segment_text_hashes",
+        "evidence",
+        "cues",
+    }:
+        raise CustomFilmContractError(
+            "Custom Film voice alignment shape changed"
+        )
+    text_hashes = alignment["segment_text_hashes"]
+    cue_values = alignment["cues"]
+    evidence = _mapping(alignment["evidence"], "voice alignment evidence")
+    if set(evidence) != {
+        "method",
+        "method_version",
+        "model",
+        "model_sha256",
+        "evidence_sha256",
+    }:
+        raise CustomFilmContractError(
+            "Custom Film voice alignment evidence shape changed"
+        )
+    evidence_identity = {
+        key: evidence[key]
+        for key in ("method", "method_version", "model")
+    }
+    if any(
+        not isinstance(value, str) or not value.strip() or value != value.strip()
+        for value in evidence_identity.values()
+    ):
+        raise CustomFilmContractError(
+            "Custom Film voice alignment evidence identity changed"
+        )
+    model_sha256 = evidence["model_sha256"]
+    evidence_sha256 = evidence["evidence_sha256"]
+    if any(
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
+        for value in (model_sha256, evidence_sha256)
+    ):
+        raise CustomFilmContractError(
+            "Custom Film voice alignment evidence hash changed"
+        )
+    expected_evidence_sha256 = canonical_hash(
+        {
+            "contract_version": alignment["version"],
+            **evidence_identity,
+            "model_sha256": model_sha256,
+            "source_sha256": alignment["source_sha256"],
+            "segment_text_hashes": text_hashes,
+            "cues": cue_values,
+        }
+    )
+    if (
+        alignment["version"] != VOICE_ALIGNMENT_VERSION
+        or alignment["source_sha256"] != source_sha256
+        or text_hashes != [segment["text_hash"] for segment in segments]
+        or not isinstance(cue_values, list)
+        or len(cue_values) != len(segments)
+        or evidence_sha256 != expected_evidence_sha256
+    ):
+        raise CustomFilmContractError(
+            "Custom Film voice alignment identity changed"
+        )
+    cues: list[dict[str, Any]] = []
+    previous_source_end = 0
+    previous_target_end = 0
+    for index, (cue_value, segment) in enumerate(zip(cue_values, segments)):
+        cue = _mapping(cue_value, "voice alignment cue")
+        if set(cue) != {
+            "source_start_ms",
+            "source_end_ms",
+            "target_start_ms",
+            "target_end_ms",
+        }:
+            raise CustomFilmContractError(
+                "Custom Film voice alignment cue shape changed"
+            )
+        source_start = _exact_int(
+            cue["source_start_ms"], "voice cue source start"
+        )
+        source_end = _exact_int(
+            cue["source_end_ms"], "voice cue source end", 1
+        )
+        target_start = _exact_int(
+            cue["target_start_ms"], "voice cue target start"
+        )
+        target_end = _exact_int(
+            cue["target_end_ms"], "voice cue target end", 1
+        )
+        if (
+            source_start < previous_source_end
+            or source_end <= source_start
+            or source_end > source_ms
+            or target_start != segment["approved_start_ms"]
+            or target_start < previous_target_end
+            or target_end <= target_start
+            or target_end > segment["approved_end_ms"]
+            or target_end > target_ms
+            or target_end - target_start != source_end - source_start
+            or any(
+                milliseconds * fps % 1000
+                for milliseconds in (
+                    source_start,
+                    source_end,
+                    target_start,
+                    target_end,
+                )
+            )
+        ):
+            raise CustomFilmContractError(
+                "Custom Film voice alignment cue does not fit"
+            )
+        cues.append(
+            {
+                "segment_index": index,
+                "text_hash": segment["text_hash"],
+                "source_start_ms": source_start,
+                "source_end_ms": source_end,
+                "target_start_ms": target_start,
+                "target_end_ms": target_end,
+            }
+        )
+        previous_source_end = source_end
+        previous_target_end = target_end
+    return (
+        {
+            "mode": "cue_schedule",
+            "source_duration_ms": source_ms,
+            "output_duration_ms": target_ms,
+            "atempo_chain": [],
+            "caption_scale": 1.0,
+            "cues": cues,
+        },
+        segments,
+    )
 
 
 def _allocate_integer(total: int, count: int) -> list[int]:
@@ -973,9 +1186,31 @@ def build_assembly_manifest(
                     _exact_int(value, "voice source duration", 1)
                     for value in voice_durations
                 )
-                audio_transform = _audio_timing_transform(
-                    source_voice_ms, duration_seconds * 1000
-                )
+                narration_segments = [
+                    segment
+                    for scene_id in assigned_scene_ids
+                    for segment in _narration_segments(
+                        scene_rows_by_id[scene_id]
+                    )
+                ]
+                if len(narration_segments) > 1:
+                    if len(assigned_scene_ids) != 1 or len(voice_hashes) != 1:
+                        raise CustomFilmContractError(
+                            "Custom Film cue schedule requires one exact source"
+                        )
+                    audio_transform, narration_segments = (
+                        _cue_schedule_transform(
+                            scene_rows_by_id[assigned_scene_ids[0]],
+                            source_sha256=voice_hashes[0],
+                            source_ms=source_voice_ms,
+                            target_ms=duration_seconds * 1000,
+                            fps=fps,
+                        )
+                    )
+                else:
+                    audio_transform = _audio_timing_transform(
+                        source_voice_ms, duration_seconds * 1000
+                    )
                 caption_source_durations = voice_durations
             else:
                 audio_transform = {
@@ -1000,36 +1235,57 @@ def build_assembly_manifest(
                 duration_seconds * 1000, len(assigned_scene_ids)
             )
         captions: list[dict[str, Any]] = []
-        source_elapsed_ms = 0
-        target_ms = duration_seconds * 1000
-        source_total_ms = sum(caption_source_durations)
-        for scene_index, (scene_id, source_scene_ms) in enumerate(
-            zip(assigned_scene_ids, caption_source_durations)
-        ):
-            start_ms = (
-                source_elapsed_ms * target_ms // source_total_ms
-            )
-            source_elapsed_ms += int(source_scene_ms)
-            end_ms = (
-                target_ms
-                if scene_index == len(assigned_scene_ids) - 1
-                else source_elapsed_ms * target_ms // source_total_ms
-            )
-            captions.append(
-                {
-                    "scene_id": scene_id,
-                    "text": str(
-                        scene_rows_by_id[scene_id].get("scene_text") or ""
-                    ).strip(),
+        if audio_transform["mode"] == "cue_schedule":
+            scene_id = assigned_scene_ids[0]
+            for cue, segment in zip(
+                audio_transform["cues"], narration_segments
+            ):
+                captions.append(
+                    {
+                        "scene_id": scene_id,
+                        "text": segment["text"],
                         "language": copy.deepcopy(
                             _mapping(section["language"], "section language")
                         ),
-                    "section_start_ms": start_ms,
-                    "section_end_ms": end_ms,
-                    "start_frame": film_frame + (start_ms * fps // 1000),
-                    "end_frame": film_frame + (end_ms * fps // 1000),
-                }
-            )
+                        "section_start_ms": cue["target_start_ms"],
+                        "section_end_ms": cue["target_end_ms"],
+                        "start_frame": film_frame
+                        + (cue["target_start_ms"] * fps // 1000),
+                        "end_frame": film_frame
+                        + (cue["target_end_ms"] * fps // 1000),
+                    }
+                )
+        else:
+            source_elapsed_ms = 0
+            target_ms = duration_seconds * 1000
+            source_total_ms = sum(caption_source_durations)
+            for scene_index, (scene_id, source_scene_ms) in enumerate(
+                zip(assigned_scene_ids, caption_source_durations)
+            ):
+                start_ms = (
+                    source_elapsed_ms * target_ms // source_total_ms
+                )
+                source_elapsed_ms += int(source_scene_ms)
+                end_ms = (
+                    target_ms
+                    if scene_index == len(assigned_scene_ids) - 1
+                    else source_elapsed_ms * target_ms // source_total_ms
+                )
+                captions.append(
+                    {
+                        "scene_id": scene_id,
+                        "text": str(
+                            scene_rows_by_id[scene_id].get("scene_text") or ""
+                        ).strip(),
+                        "language": copy.deepcopy(
+                            _mapping(section["language"], "section language")
+                        ),
+                        "section_start_ms": start_ms,
+                        "section_end_ms": end_ms,
+                        "start_frame": film_frame + (start_ms * fps // 1000),
+                        "end_frame": film_frame + (end_ms * fps // 1000),
+                    }
+                )
         if any(
             not caption["text"]
             or caption["end_frame"] <= caption["start_frame"]
@@ -1697,13 +1953,51 @@ async def render_local_manifest(
                 transition_out_seconds = (
                     section["transition_out"]["duration_frames"] / fps
                 )
-                audio_filter = (
-                    f"{labels}concat=n={len(audio_paths)}:v=0:a=1,"
-                    "aresample=48000"
-                )
                 timing_transform = section["audio"]["timing_transform"]
-                for atempo in timing_transform.get("atempo_chain") or []:
-                    audio_filter += f",atempo={float(atempo):.9f}"
+                if timing_transform["mode"] == "cue_schedule":
+                    if len(audio_paths) != 1:
+                        raise CustomFilmContractError(
+                            "Custom Film cue schedule source changed"
+                        )
+                    if any(
+                        cue[key] * fps % 1000
+                        for cue in timing_transform["cues"]
+                        for key in (
+                            "source_start_ms",
+                            "source_end_ms",
+                            "target_start_ms",
+                            "target_end_ms",
+                        )
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film audio cue is not frame exact"
+                        )
+                    cue_filters = []
+                    cue_labels = []
+                    for index, cue in enumerate(timing_transform["cues"]):
+                        cue_labels.append(f"[cue{index}]")
+                        cue_filters.append(
+                            "[1:a]"
+                            f"atrim=start={cue['source_start_ms']/1000:.9f}:"
+                            f"end={cue['source_end_ms']/1000:.9f},"
+                            "asetpts=PTS-STARTPTS,"
+                            f"adelay={cue['target_start_ms']}:all=1"
+                            f"[cue{index}]"
+                        )
+                    audio_filter = ";".join(cue_filters) + ";"
+                    audio_filter += (
+                        "".join(cue_labels)
+                        + f"amix=inputs={len(cue_labels)}:"
+                        "duration=longest:normalize=0,aresample=48000,"
+                        f"apad=whole_dur={section_seconds:.9f}"
+                    )
+                else:
+                    audio_filter = (
+                        f"{labels}concat=n={len(audio_paths)}:v=0:a=1,"
+                        "aresample=48000"
+                    )
+                    for atempo in timing_transform.get("atempo_chain") or []:
+                        audio_filter += f",atempo={float(atempo):.9f}"
                 audio_filter += (
                     f",atrim=duration={section_seconds:.9f},asetpts=N/SR/TB"
                 )
@@ -2275,7 +2569,8 @@ async def _load_current_inputs(
                           ss.video_id::text, ss.section_id::text,
                           ss.script_id::text, ss.scene_order,
                           s.scene, s.scene_text, s.script_validation,
-                          s.voice_status, s.voice_over_url
+                          s.voice_status, s.voice_over_url,
+                          s.dialogue_segments
                    FROM custom_film_section_scenes ss
                    JOIN scripts s
                      ON (s.tenant_id, s.video_id, s.id)

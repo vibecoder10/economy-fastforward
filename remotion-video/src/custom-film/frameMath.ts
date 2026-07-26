@@ -10,6 +10,11 @@ export type FrameSection = {
     readonly start_frame: number;
     readonly end_frame: number;
   }>;
+  readonly audio: {
+    readonly timing_transform: {
+      readonly mode: string;
+    };
+  };
   readonly transition_in: {
     readonly duration_frames: number;
     readonly overlap_frames: number;
@@ -79,9 +84,15 @@ export const assertExactFrameLayout = (
       throw new Error("Custom Film assets do not exactly fill their section");
     }
     let captionEnd = section.start_frame;
+    const cueSchedule =
+      section.audio.timing_transform.mode === "cue_schedule";
     for (const caption of section.captions) {
       if (
-        caption.start_frame !== captionEnd ||
+        (
+          cueSchedule
+            ? caption.start_frame < captionEnd
+            : caption.start_frame !== captionEnd
+        ) ||
         caption.end_frame <= caption.start_frame ||
         caption.end_frame > section.start_frame + section.duration_frames
       ) {
@@ -89,7 +100,10 @@ export const assertExactFrameLayout = (
       }
       captionEnd = caption.end_frame;
     }
-    if (captionEnd !== section.start_frame + section.duration_frames) {
+    if (
+      !cueSchedule &&
+      captionEnd !== section.start_frame + section.duration_frames
+    ) {
       throw new Error("Custom Film captions do not exactly fill their section");
     }
     filmFrame += section.duration_frames;
