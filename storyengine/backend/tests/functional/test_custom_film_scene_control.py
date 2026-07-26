@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +11,7 @@ import pytest
 
 import custom_film_scene_control as control
 import routes.custom_film_scene_control as control_routes
+from scripts.seed_custom_film_scene_control_synthetic import serialize_result
 
 
 def _scene_contract(shot_ids=None):
@@ -54,6 +56,18 @@ def _complete_locks():
         }
         for index, kind in enumerate(control.LOCK_KINDS)
     ]
+
+
+def test_synthetic_cli_result_with_timestamps_is_json_serializable():
+    payload = {
+        "control": {
+            "film_locks": {
+                "locks": [{"approved_at": datetime(2026, 7, 26, tzinfo=timezone.utc)}]
+            }
+        }
+    }
+    encoded = serialize_result(payload)
+    assert '"approved_at": "2026-07-26 00:00:00+00:00"' in encoded
 
 
 def test_scene_contract_and_revision_hash_are_deterministic_and_strict():
