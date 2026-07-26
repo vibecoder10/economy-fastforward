@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
 from auth import get_tenant_id
@@ -64,6 +64,12 @@ class QuoteOperationRequest(_StrictRequest):
         "assemble_scene",
     ]
     shot_id: UUID | None = None
+
+
+class ApproveStoryboardRequest(_StrictRequest):
+    expected_revision_hash: str
+    approval_card_hash: str
+    exact_cumulative_amount_cents: int
 
 
 def _http_error(exc: control.SceneControlError) -> HTTPException:
@@ -194,5 +200,42 @@ async def post_operation_quote(
                 operation_type=body.operation_type,
                 shot_id=str(body.shot_id) if body.shot_id else None,
             )
+    except control.SceneControlError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post("/scenes/{scene_id}/storyboards/approve")
+async def post_storyboard_approval(
+    video_id: UUID,
+    scene_id: UUID,
+    body: ApproveStoryboardRequest,
+    request: Request,
+    tenant_id: str = Depends(get_tenant_id),
+):
+    import custom_film_scene_storyboards as storyboards
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            reserved = await storyboards.approve_storyboards(
+                conn,
+                tenant_id=str(tenant_id),
+                video_id=str(video_id),
+                scene_id=str(scene_id),
+                expected_revision_hash=body.expected_revision_hash,
+                approval_card_hash=body.approval_card_hash,
+                exact_cumulative_amount_cents=body.exact_cumulative_amount_cents,
+            )
+        # Queue only after the approval transaction commits.
+        arq_pool = getattr(request.app.state, "arq", None)
+        if arq_pool is None:
+            raise storyboards.StoryboardExecutionError(
+                "The exact approval is saved, but the worker queue is unavailable"
+            )
+        from job_queue import enqueue_stage
+        queued = await enqueue_stage(
+            arq_pool, "scene_storyboards", str(video_id), str(tenant_id), 1,
+            schedule_id=reserved["schedule_id"],
+        )
+        return {**reserved, "queue_enqueued": queued is not None}
     except control.SceneControlError as exc:
         raise _http_error(exc) from exc
