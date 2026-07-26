@@ -44,6 +44,12 @@ class VideoDetail(VideoSummary):
     characters_approved_at: Optional[str] = None
     story_locked_at: Optional[str] = None
     dialogue_audio: Optional[str] = None
+    # Chosen at creation; the Scenes-tab selectors display + edit these. They
+    # were missing from the response, so the aspect dropdown always showed
+    # the 16:9 fallback on a 9:16 vertical (found live) — one innocent click
+    # would have PATCHed the video to landscape.
+    aspect_ratio: Optional[str] = None
+    video_resolution: Optional[str] = None
     # NULL = normal (clip stitch / narrator). 'static_docu' = static-image
     # documentary: images held over narration, no animate stage.
     render_mode: Optional[str] = None
