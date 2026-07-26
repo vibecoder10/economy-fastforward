@@ -1,9 +1,16 @@
 import copy
+import json
+import re
 from uuid import uuid4
+
+import pytest
 
 import custom_film_contract as contract
 import custom_film_director as director
-import pytest
+import custom_film_director_remotion as director_remotion
+import custom_film_director_runtime as director_runtime
+import custom_film_remotion
+import database
 
 SECTION_A = str(uuid4())
 SECTION_B = str(uuid4())
@@ -79,6 +86,9 @@ def _draft():
             ),
             "narrator_mode": "third_person",
             "narrator_character_id": None,
+            "narrator_voice_lock": (
+                "measured older contralto, observational distance, no melodrama"
+            ),
             "style": {
                 "medium": "cinematic photoreal live-action",
                 "rendering_approach": (
@@ -232,6 +242,10 @@ def _draft():
                 "motion_intent": (
                     "Mara completes the run and stop while Ilan crosses into her path"
                 ),
+                "ambient_sound": "rainwater ticks through the service-station vents",
+                "score_intent": "a restrained low pulse begins under the discovery",
+                "sfx_cues": ["boots strike wet concrete", "tube relay snaps awake"],
+                "caption_mode": "none",
             },
             {
                 "shot_key": "choice_exchange",
@@ -297,6 +311,10 @@ def _draft():
                 "motion_intent": (
                     "natural body acting, exact speaker turns, panel activation, then tube doors open"
                 ),
+                "ambient_sound": "the sealed tube hums behind the close conversation",
+                "score_intent": "the low pulse holds beneath the character performances",
+                "sfx_cues": ["brass token presses into the control panel"],
+                "caption_mode": "dialogue",
             },
             {
                 "shot_key": "city_reveal",
@@ -364,6 +382,10 @@ def _draft():
                 "motion_intent": (
                     "route light spreads across the plaza, screens expose stations, camera rises"
                 ),
+                "ambient_sound": "rain, crowd breath, and public-address feedback",
+                "score_intent": "the pulse opens into a resolved sustained chord",
+                "sfx_cues": ["public screens switch on across the plaza"],
+                "caption_mode": "narration",
             },
         ],
     }
@@ -376,7 +398,61 @@ def _compile():
         plan_hash=PLAN_HASH,
         section_ids=[SECTION_A, SECTION_B],
         total_frames=240,
+        section_frame_counts={SECTION_A: 120, SECTION_B: 120},
+        section_shot_counts={SECTION_A: 2, SECTION_B: 1},
     )
+
+
+def _planning_contract():
+    plan = {
+        "compatibility_version": "test-v1",
+        "sections": [
+            {
+                "section_id": SECTION_A,
+                "order_index": 0,
+                "role": "opening",
+                "purpose": "Discover the private threshold",
+                "duration_units": 500_000,
+                "knobs": {
+                    "language": {"mode": "simple_single_language"},
+                    "segmentation": {"mode": "speaker_turn"},
+                    "visual_profile": "cinematic_illustration",
+                    "script_profile": "neutral_v1",
+                },
+            },
+            {
+                "section_id": SECTION_B,
+                "order_index": 1,
+                "role": "resolution",
+                "purpose": "Make the private system public",
+                "duration_units": 500_000,
+                "knobs": {
+                    "language": {"mode": "narrator"},
+                    "segmentation": {"mode": "visual_cue"},
+                    "visual_profile": "cinematic_illustration",
+                    "script_profile": "power_doctrine_v2",
+                },
+            },
+        ],
+    }
+    quote = {
+        "requested_duration_seconds": 10,
+        "sections": [
+            {
+                "section_id": SECTION_A,
+                "order_index": 0,
+                "duration_seconds": 5,
+                "still_images": 2,
+            },
+            {
+                "section_id": SECTION_B,
+                "order_index": 1,
+                "duration_seconds": 5,
+                "still_images": 1,
+            },
+        ],
+    }
+    return plan, quote
 
 
 def _reference_reviews(compiled):
@@ -430,7 +506,30 @@ def _storyboard_reviews(compiled, reference_gate):
     ]
 
 
-def _verifications(compiled, storyboard_gate):
+def _picture_reviews(compiled, storyboard_gate):
+    return [
+        {
+            "shot_id": shot["shot_id"],
+            "contract_hash": compiled["contract_hash"],
+            "storyboard_gate_hash": storyboard_gate["storyboard_gate_hash"],
+            "final_picture_artifact_id": f"picture:{shot['shot_key']}",
+            "final_picture_sha256": f"{index + 20:064x}",
+            "final_picture_prompt_hash": contract.canonical_hash(
+                shot["final_picture_prompt"]
+            ),
+            "style_match": True,
+            "character_lock_match": True,
+            "environment_lock_match": True,
+            "opening_state_match": True,
+            "storyboard_composition_match": True,
+            "verdict": "approved",
+            "notes": "",
+        }
+        for index, shot in enumerate(compiled["shots"])
+    ]
+
+
+def _verifications(compiled, storyboard_gate, picture_gate):
     values = []
     for index, shot in enumerate(compiled["shots"]):
         values.append(
@@ -438,6 +537,7 @@ def _verifications(compiled, storyboard_gate):
                 "shot_id": shot["shot_id"],
                 "contract_hash": compiled["contract_hash"],
                 "storyboard_gate_hash": storyboard_gate["storyboard_gate_hash"],
+                "picture_gate_hash": picture_gate["picture_gate_hash"],
                 "clip_artifact_id": f"clip:{shot['shot_key']}",
                 "observations": [
                     {
@@ -497,6 +597,136 @@ def test_director_compiles_one_film_lock_over_mixed_profile_techniques():
     assert "GLOBAL STYLE LOCK" in compiled["shots"][1]["storyboard_prompt"]
     assert "CHARACTER LOCKS" in compiled["shots"][1]["motion_prompt"]
     assert director.validate_director_contract(compiled) == compiled
+
+
+@pytest.mark.asyncio
+async def test_planning_inference_writes_complete_script_before_storyboards():
+    plan, quote = _planning_contract()
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        async def generate(self, **kwargs):
+            self.calls.append(kwargs)
+            return json.dumps(_draft())
+
+    client = Client()
+    compiled = await director.plan_custom_film_director(
+        "Create a coherent film about a courier exposing a private transit system.",
+        plan,
+        quote,
+        client,
+        prospective_plan_id=PLAN_ID,
+    )
+    assert compiled["plan_id"] == PLAN_ID
+    assert compiled["section_frame_counts"] == {
+        SECTION_A: 120,
+        SECTION_B: 120,
+    }
+    assert compiled["section_shot_counts"] == {SECTION_A: 2, SECTION_B: 1}
+    assert len(client.calls) == 1
+    assert client.calls[0]["max_tokens"] == 48_000
+    prompt = client.calls[0]["prompt"]
+    assert "film bible is the highest law" in prompt
+    assert "Narration may not impersonate dialogue" in prompt
+    assert "Every shot must advance" in prompt
+    assert SECTION_A in prompt and SECTION_B in prompt
+
+
+@pytest.mark.asyncio
+async def test_planning_inference_gets_one_bounded_contract_repair():
+    plan, quote = _planning_contract()
+    invalid = _draft()
+    invalid["shots"][0]["closing_state"] = copy.deepcopy(
+        invalid["shots"][0]["opening_state"]
+    )
+
+    class Client:
+        def __init__(self):
+            self.responses = [json.dumps(invalid), json.dumps(_draft())]
+            self.calls = []
+
+        async def generate(self, **kwargs):
+            self.calls.append(kwargs)
+            return self.responses.pop(0)
+
+    client = Client()
+    compiled = await director.plan_custom_film_director(
+        "Create a coherent film about a courier exposing a private transit system.",
+        plan,
+        quote,
+        client,
+        prospective_plan_id=PLAN_ID,
+    )
+    assert compiled["contract_hash"]
+    assert len(client.calls) == 2
+    assert "Repair this screenplay/director JSON" in client.calls[1]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_director_persistence_normalizes_exact_shots_and_loads_hashes(
+    monkeypatch,
+):
+    compiled = _compile()
+
+    class Conn:
+        def __init__(self):
+            self.executed = []
+
+        async def fetchrow(self, query, *args):
+            if "FROM custom_film_plans" in query:
+                return {"id": PLAN_ID, "plan_hash": PLAN_HASH}
+            if "FROM custom_film_director_contracts" in query:
+                return None
+            raise AssertionError(query)
+
+        async def fetch(self, query, *args):
+            assert "FROM custom_film_sections" in query
+            return [{"section_id": SECTION_A}, {"section_id": SECTION_B}]
+
+        async def fetchval(self, query, *args):
+            assert "MAX(revision)" in query
+            return 1
+
+        async def execute(self, query, *args):
+            self.executed.append((query, args))
+            return "INSERT 0 1"
+
+    conn = Conn()
+    persisted = await director.persist_director_contract(
+        conn,
+        tenant_id="tenant-a",
+        video_id=str(uuid4()),
+        plan_id=PLAN_ID,
+        plan_hash=PLAN_HASH,
+        director_contract=compiled,
+    )
+    assert persisted["created"] is True
+    assert persisted["revision"] == 1
+    assert len(conn.executed) == 4
+    assert "INSERT INTO custom_film_director_contracts" in conn.executed[0][0]
+    assert all(
+        "INSERT INTO custom_film_shots" in query
+        for query, _args in conn.executed[1:]
+    )
+
+    async def fake_fetch_one(query, *args):
+        assert "WHERE tenant_id = $1 AND video_id = $2" in query
+        return {
+            "id": persisted["id"],
+            "plan_id": PLAN_ID,
+            "revision": 1,
+            "plan_hash": PLAN_HASH,
+            "director_contract": json.dumps(compiled),
+        }
+
+    monkeypatch.setattr(database, "fetch_one", fake_fetch_one)
+    loaded = await director.load_latest_director_contract(
+        "tenant-a", "video-a"
+    )
+    assert loaded["id"] == persisted["id"]
+    assert loaded["contract"] == compiled
 
 
 def test_director_rejects_unlocked_character_environment_and_prop():
@@ -604,12 +834,15 @@ def test_visual_gate_checks_every_start_middle_end_before_remotion():
     storyboards = director.compile_storyboard_gate(
         compiled, references, _storyboard_reviews(compiled, references)
     )
-    verifications = _verifications(compiled, storyboards)
+    pictures = director.compile_picture_gate(
+        compiled, storyboards, _picture_reviews(compiled, storyboards)
+    )
+    verifications = _verifications(compiled, storyboards, pictures)
     visual_gate = director.compile_visual_gate(
-        compiled, storyboards, verifications
+        compiled, storyboards, pictures, verifications
     )
     admission = director.build_remotion_admission(
-        compiled, storyboards, visual_gate
+        compiled, storyboards, pictures, visual_gate
     )
     assert admission["total_frames"] == 240
     assert [shot["clip_artifact_id"] for shot in admission["shots"]] == [
@@ -623,13 +856,15 @@ def test_visual_gate_checks_every_start_middle_end_before_remotion():
     drifted[1]["observations"][1]["style_lock_hash"] = "f" * 64
     drifted[1]["repair_instruction"] = "Regenerate with the photoreal style lock."
     with pytest.raises(contract.CustomFilmContractError, match="style_drift"):
-        director.compile_visual_gate(compiled, storyboards, drifted)
+        director.compile_visual_gate(compiled, storyboards, pictures, drifted)
 
     bad_lip_sync = copy.deepcopy(verifications)
     bad_lip_sync[1]["lip_sync_match"] = False
     bad_lip_sync[1]["repair_instruction"] = "Re-time Ilan's exact speaker turn."
     with pytest.raises(contract.CustomFilmContractError, match="lip_sync_mismatch"):
-        director.compile_visual_gate(compiled, storyboards, bad_lip_sync)
+        director.compile_visual_gate(
+            compiled, storyboards, pictures, bad_lip_sync
+        )
 
 
 def test_exact_cumulative_authority_lists_helper_work_and_rejects_old_ceiling():
@@ -674,4 +909,505 @@ def test_exact_cumulative_authority_lists_helper_work_and_rejects_old_ceiling():
             expected_stage="storyboards",
             expected_binding_hash=compiled["contract_hash"],
             expected_upstream_gate_hash=upstream_hash,
+        )
+
+
+def _stage_authority(
+    compiled,
+    stage,
+    upstream_hash,
+    *,
+    prior_cents=857,
+    helper=None,
+):
+    counts = director_runtime.expected_stage_bom(compiled, stage)
+    operations = [
+        {
+            "operation_kind": kind,
+            "count": count,
+            "unit_max_cents": 0 if stage == "assembly" else 7,
+            "helper_operation": False,
+        }
+        for kind, count in counts.items()
+        if count
+    ]
+    if helper:
+        operations.append(helper)
+    stage_max = sum(
+        row["count"] * row["unit_max_cents"] for row in operations
+    )
+    return {
+        "stage": stage,
+        "stage_binding_hash": compiled["contract_hash"],
+        "upstream_gate_hash": upstream_hash,
+        "quote_hash": "c" * 64,
+        "prior_cumulative_cents": prior_cents,
+        "approved_cumulative_cents": prior_cents + stage_max,
+        "operations": operations,
+    }
+
+
+def test_director_runtime_schedules_every_gate_bound_stage_without_execution():
+    compiled = _compile()
+    reference_authority = _stage_authority(
+        compiled,
+        "references",
+        compiled["contract_hash"],
+        helper={
+            "operation_kind": "reference_contact_sheet",
+            "count": 1,
+            "unit_max_cents": 3,
+            "helper_operation": True,
+        },
+    )
+    reference_schedule = director_runtime.compile_director_stage_schedule(
+        compiled,
+        reference_authority,
+    )
+    assert reference_schedule["provider_calls_started"] is False
+    assert reference_schedule["spend_recorded_cents"] == 0
+    assert reference_schedule["task_count"] == 5
+    assert reference_schedule["stage_max_cents"] == 31
+    assert {task["subject_kind"] for task in reference_schedule["tasks"]} == {
+        "character",
+        "environment",
+        "helper",
+    }
+
+    references = director.compile_reference_gate(
+        compiled, _reference_reviews(compiled)
+    )
+    storyboard_schedule = director_runtime.compile_director_stage_schedule(
+        compiled,
+        _stage_authority(
+            compiled,
+            "storyboards",
+            references["reference_gate_hash"],
+        ),
+        reference_gate=references,
+    )
+    assert storyboard_schedule["task_count"] == 3
+    assert all(
+        task["input_payload"]["lock_reference_artifacts"]
+        for task in storyboard_schedule["tasks"]
+    )
+
+    storyboards = director.compile_storyboard_gate(
+        compiled, references, _storyboard_reviews(compiled, references)
+    )
+    picture_schedule = director_runtime.compile_director_stage_schedule(
+        compiled,
+        _stage_authority(
+            compiled,
+            "final_pictures",
+            storyboards["storyboard_gate_hash"],
+        ),
+        storyboard_gate=storyboards,
+    )
+    assert [
+        task["input_payload"]["storyboard_artifact_id"]
+        for task in picture_schedule["tasks"]
+    ] == ["board:tube_arrival", "board:choice_exchange", "board:city_reveal"]
+
+    pictures = director.compile_picture_gate(
+        compiled, storyboards, _picture_reviews(compiled, storyboards)
+    )
+    animation_schedule = director_runtime.compile_director_stage_schedule(
+        compiled,
+        _stage_authority(
+            compiled,
+            "animation_voice",
+            pictures["picture_gate_hash"],
+        ),
+        picture_gate=pictures,
+    )
+    animation_tasks = [
+        task
+        for task in animation_schedule["tasks"]
+        if task["operation_kind"] == "animation_clip"
+    ]
+    voice_tasks = [
+        task
+        for task in animation_schedule["tasks"]
+        if task["operation_kind"] == "voice_line"
+    ]
+    assert len(animation_tasks) == 3
+    assert len(voice_tasks) == 4
+    assert all(task["input_payload"]["voice_lock"] for task in voice_tasks)
+    assert {
+        task["input_payload"]["caption_mode"] for task in voice_tasks
+    } == {"dialogue", "narration"}
+    assert all(task["input_payload"]["ambient_sound"] for task in animation_tasks)
+
+    visual_gate = director.compile_visual_gate(
+        compiled,
+        storyboards,
+        pictures,
+        _verifications(compiled, storyboards, pictures),
+    )
+    assembly_schedule = director_runtime.compile_director_stage_schedule(
+        compiled,
+        _stage_authority(
+            compiled,
+            "assembly",
+            visual_gate["visual_gate_hash"],
+        ),
+        reference_gate=references,
+        storyboard_gate=storyboards,
+        picture_gate=pictures,
+        visual_gate=visual_gate,
+    )
+    assert assembly_schedule["stage_max_cents"] == 0
+    assembly_input = assembly_schedule["tasks"][0]["input_payload"]
+    assert len(assembly_input["remotion_admission"]["shots"]) == 3
+    assert assembly_input["remotion_admission"]["shots"][0]["ambient_sound"]
+    assert "measured_captions" in assembly_input["layer_requirements"]
+
+
+def test_director_runtime_rejects_wrong_bom_and_stale_gate_before_tasks():
+    compiled = _compile()
+    references = director.compile_reference_gate(
+        compiled, _reference_reviews(compiled)
+    )
+    authority = _stage_authority(
+        compiled,
+        "storyboards",
+        references["reference_gate_hash"],
+    )
+    authority["operations"][0]["count"] = 2
+    authority["approved_cumulative_cents"] -= 7
+    with pytest.raises(contract.CustomFilmContractError, match="count changed"):
+        director_runtime.compile_director_stage_schedule(
+            compiled,
+            authority,
+            reference_gate=references,
+        )
+
+    stale = copy.deepcopy(references)
+    stale["approvals"][0]["reference_artifact_id"] = "changed"
+    with pytest.raises(contract.CustomFilmContractError, match="changed"):
+        director_runtime.compile_director_stage_schedule(
+            compiled,
+            _stage_authority(
+                compiled,
+                "storyboards",
+                references["reference_gate_hash"],
+            ),
+            reference_gate=stale,
+        )
+
+
+def test_script_director_schedule_uses_plan_binding_before_contract_exists():
+    raw_authority = {
+        "stage": "script_director",
+        "stage_binding_hash": PLAN_HASH,
+        "upstream_gate_hash": PLAN_HASH,
+        "quote_hash": "d" * 64,
+        "prior_cumulative_cents": 857,
+        "approved_cumulative_cents": 868,
+        "operations": [
+            {
+                "operation_kind": "director_plan",
+                "count": 1,
+                "unit_max_cents": 11,
+                "helper_operation": False,
+            }
+        ],
+    }
+    schedule = director_runtime.compile_script_director_schedule(
+        plan_id=PLAN_ID,
+        plan_hash=PLAN_HASH,
+        raw_authority=raw_authority,
+    )
+    assert schedule["stage"] == "script_director"
+    assert schedule["approved_cumulative_cents"] == 868
+    assert schedule["tasks"][0]["subject_id"] == PLAN_ID
+    assert schedule["provider_calls_started"] is False
+
+
+class _StageScheduleConn:
+    def __init__(self, authority):
+        self.authority = authority
+        self.stored = None
+
+    async def fetchrow(self, query, *args):
+        if "FROM custom_film_stage_authorities" in query:
+            return self.authority
+        if "INSERT INTO custom_film_director_stage_schedules" in query:
+            self.stored = {
+                "id": str(uuid4()),
+                "schedule_hash": args[10],
+                "task_count": args[11],
+            }
+            return {"id": self.stored["id"]}
+        if "FROM custom_film_director_stage_schedules" in query:
+            return self.stored
+        raise AssertionError(query)
+
+    async def execute(self, query, *args):
+        assert "UPDATE custom_film_stage_authorities" in query
+        self.authority["consumed_at"] = "now"
+        self.authority["consumed_by"] = args[2]
+        return "UPDATE 1"
+
+
+@pytest.mark.asyncio
+async def test_stage_schedule_persistence_consumes_authority_once_and_replays():
+    compiled = _compile()
+    director_contract_id = str(uuid4())
+    video_id = str(uuid4())
+    raw_authority = _stage_authority(
+        compiled,
+        "references",
+        compiled["contract_hash"],
+    )
+    schedule = director_runtime.compile_director_stage_schedule(
+        compiled,
+        raw_authority,
+    )
+    authority_id = str(uuid4())
+    tenant_id = str(uuid4())
+    conn = _StageScheduleConn(
+        {
+            "id": authority_id,
+            "plan_id": PLAN_ID,
+            "video_id": video_id,
+            "director_contract_id": director_contract_id,
+            "stage": schedule["stage"],
+            "stage_binding_hash": schedule["stage_binding_hash"],
+            "upstream_gate_hash": schedule["upstream_gate_hash"],
+            "quote_hash": schedule["quote_hash"],
+            "prior_cumulative_cents": schedule["prior_cumulative_cents"],
+            "approved_cumulative_cents": schedule[
+                "approved_cumulative_cents"
+            ],
+            "authority_hash": schedule["authority_hash"],
+            "consumed_at": None,
+            "consumed_by": None,
+        }
+    )
+    first = await director_runtime.persist_stage_schedule(
+        conn,
+        tenant_id=tenant_id,
+        plan_id=PLAN_ID,
+        video_id=video_id,
+        director_contract_id=director_contract_id,
+        authority_id=authority_id,
+        schedule=schedule,
+    )
+    assert first["created"] is True
+    replay = await director_runtime.persist_stage_schedule(
+        conn,
+        tenant_id=tenant_id,
+        plan_id=PLAN_ID,
+        video_id=video_id,
+        director_contract_id=director_contract_id,
+        authority_id=authority_id,
+        schedule=schedule,
+    )
+    assert replay == {**first, "created": False}
+
+    tampered = copy.deepcopy(schedule)
+    tampered["tasks"][0]["status"] = "started"
+    with pytest.raises(contract.CustomFilmContractError, match="schedule changed"):
+        director_runtime.validate_stage_schedule(tampered)
+
+
+class _VerificationConn:
+    def __init__(self):
+        self.by_hash = {}
+        self.attempts = []
+
+    async def execute(self, query, *args):
+        assert "pg_advisory_xact_lock" in query
+        return "SELECT 1"
+
+    async def fetchrow(self, query, *args):
+        if "verification_hash = $4" in query:
+            return self.by_hash.get(args[3])
+        if "MAX(attempt)" in query:
+            return {"next_attempt": len(self.attempts) + 1}
+        if "INSERT INTO custom_film_visual_verifications" in query:
+            row = {
+                "id": str(uuid4()),
+                "attempt": args[3],
+                "verdict": args[11],
+            }
+            self.attempts.append(row)
+            self.by_hash[args[10]] = row
+            return {"id": row["id"]}
+        raise AssertionError(query)
+
+
+@pytest.mark.asyncio
+async def test_rejected_visual_attempt_is_persisted_with_bounded_repair():
+    compiled = _compile()
+    references = director.compile_reference_gate(
+        compiled, _reference_reviews(compiled)
+    )
+    storyboards = director.compile_storyboard_gate(
+        compiled, references, _storyboard_reviews(compiled, references)
+    )
+    pictures = director.compile_picture_gate(
+        compiled, storyboards, _picture_reviews(compiled, storyboards)
+    )
+    failed = _verifications(compiled, storyboards, pictures)[0]
+    failed["motion_visible"] = False
+    failed["repair_instruction"] = (
+        "Regenerate only this shot with the locked run-and-stop action visible."
+    )
+    evaluation = director.evaluate_shot_verification(
+        compiled,
+        storyboards,
+        pictures,
+        failed,
+    )
+    assert evaluation["verdict"] == "rejected"
+    assert evaluation["issue_codes"] == ["motion_missing"]
+
+    conn = _VerificationConn()
+    tenant_id = str(uuid4())
+    director_contract_id = str(uuid4())
+    stored = await director.persist_shot_verification(
+        conn,
+        tenant_id=tenant_id,
+        director_contract_id=director_contract_id,
+        director_contract=compiled,
+        storyboard_gate=storyboards,
+        picture_gate=pictures,
+        raw_verification=failed,
+    )
+    assert stored["created"] is True
+    assert stored["attempt"] == 1
+    assert stored["verdict"] == "rejected"
+    replay = await director.persist_shot_verification(
+        conn,
+        tenant_id=tenant_id,
+        director_contract_id=director_contract_id,
+        director_contract=compiled,
+        storyboard_gate=storyboards,
+        picture_gate=pictures,
+        raw_verification=failed,
+    )
+    assert replay == {**stored, "created": False}
+
+
+def _measured_words(text, start_frame, end_frame):
+    tokens = re.findall(r"\S+\s*", text)
+    available = end_frame - start_frame
+    assert available >= len(tokens)
+    rows = []
+    cursor = start_frame
+    for index, token in enumerate(tokens):
+        remaining_tokens = len(tokens) - index
+        token_end = (
+            end_frame
+            if remaining_tokens == 1
+            else cursor + max(1, (end_frame - cursor) // remaining_tokens)
+        )
+        rows.append(
+            {
+                "text": token,
+                "from_frame": cursor,
+                "to_frame": token_end,
+            }
+        )
+        cursor = token_end
+    return rows
+
+
+def test_director_remotion_props_bind_approved_clips_audio_and_captions():
+    compiled = _compile()
+    references = director.compile_reference_gate(
+        compiled, _reference_reviews(compiled)
+    )
+    storyboards = director.compile_storyboard_gate(
+        compiled, references, _storyboard_reviews(compiled, references)
+    )
+    pictures = director.compile_picture_gate(
+        compiled, storyboards, _picture_reviews(compiled, storyboards)
+    )
+    visual = director.compile_visual_gate(
+        compiled,
+        storyboards,
+        pictures,
+        _verifications(compiled, storyboards, pictures),
+    )
+    clip_sources = {
+        row["clip_artifact_id"]: {
+            "source_key": f"clip-source:{row['shot_id']}",
+            "local_path": f"director/{row['shot_id']}.mp4",
+            "source_sha256": f"{index + 40:064x}",
+        }
+        for index, row in enumerate(visual["approved_verifications"])
+    }
+    voice_sources = {}
+    sound_sources = {}
+    for shot_index, shot in enumerate(compiled["shots"]):
+        line_count = len(shot["spoken_lines"])
+        for line_index, line in enumerate(shot["spoken_lines"]):
+            start = shot["start_frame"] + (
+                line_index * shot["duration_frames"] // line_count
+            )
+            end = (
+                shot["end_frame"] + 1
+                if line_index == line_count - 1
+                else shot["start_frame"]
+                + ((line_index + 1) * shot["duration_frames"] // line_count)
+            )
+            voice_sources[f"{shot['shot_id']}:{line_index}"] = {
+                "source_key": f"voice:{shot['shot_id']}:{line_index}",
+                "local_path": f"director/{shot['shot_id']}-{line_index}.wav",
+                "source_sha256": f"{shot_index * 10 + line_index + 50:064x}",
+                "start_frame": start,
+                "end_frame": end,
+                "measured_words": _measured_words(line["text"], start, end),
+            }
+        sound_sources[str(shot["shot_id"])] = [
+            {
+                "layer_id": f"ambient:{shot['shot_id']}",
+                "kind": "ambient",
+                "source_key": f"ambient-source:{shot['shot_id']}",
+                "local_path": f"director/{shot['shot_id']}-ambient.wav",
+                "source_sha256": f"{shot_index + 80:064x}",
+                "start_frame": shot["start_frame"],
+                "end_frame": shot["end_frame"] + 1,
+                "gain_db": -24,
+                "loop": True,
+            }
+        ]
+    props = director_remotion.build_director_remotion_props(
+        compiled,
+        storyboards,
+        pictures,
+        visual,
+        clip_sources=clip_sources,
+        voice_sources=voice_sources,
+        sound_sources=sound_sources,
+    )
+    assert props["schema_version"] == "custom-film-director-remotion-v1"
+    assert props["video"] == {
+        "fps": 24,
+        "width": 1920,
+        "height": 1080,
+        "total_frames": 240,
+    }
+    assert [shot["start_frame"] for shot in props["shots"]] == [0, 48, 120]
+    assert props["shots"][1]["caption_mode"] == "dialogue"
+    assert props["shots"][2]["caption_mode"] == "narration"
+    assert props["props_hash"] == custom_film_remotion.remotion_props_hash(
+        {key: value for key, value in props.items() if key != "props_hash"}
+    )
+
+    missing_voice = copy.deepcopy(voice_sources)
+    missing_voice.pop(next(iter(missing_voice)))
+    with pytest.raises(contract.CustomFilmContractError, match="do not match"):
+        director_remotion.build_director_remotion_props(
+            compiled,
+            storyboards,
+            pictures,
+            visual,
+            clip_sources=clip_sources,
+            voice_sources=missing_voice,
+            sound_sources=sound_sources,
         )

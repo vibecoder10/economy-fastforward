@@ -31,8 +31,10 @@ def test_director_schema_normalizes_all_review_and_admission_boundaries():
         "custom_film_shots",
         "custom_film_lock_references",
         "custom_film_storyboard_reviews",
+        "custom_film_picture_reviews",
         "custom_film_visual_verifications",
         "custom_film_stage_authorities",
+        "custom_film_director_stage_schedules",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in MIGRATION
         assert f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY" in MIGRATION
@@ -45,6 +47,7 @@ def test_director_schema_normalizes_all_review_and_admission_boundaries():
     )
     assert "reference_gate_hash" in MIGRATION
     assert "storyboard_gate_hash" in MIGRATION
+    assert "final_picture_prompt_hash" in MIGRATION
     assert "clip_artifact_id" in MIGRATION
 
 
@@ -54,7 +57,9 @@ def test_director_evidence_is_append_only_and_authority_consumes_once():
         "'custom_film_shots'",
         "'custom_film_lock_references'",
         "'custom_film_storyboard_reviews'",
+        "'custom_film_picture_reviews'",
         "'custom_film_visual_verifications'",
+        "'custom_film_director_stage_schedules'",
     )
     for table in append_only:
         assert table in MIGRATION
@@ -69,6 +74,7 @@ def test_director_evidence_is_append_only_and_authority_consumes_once():
 def test_stage_authority_lists_every_profile_independent_spend_boundary():
     for stage in (
         "'script_director'",
+        "'references'",
         "'storyboards'",
         "'final_pictures'",
         "'animation_voice'",

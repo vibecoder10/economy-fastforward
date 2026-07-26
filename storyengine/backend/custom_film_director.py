@@ -11,23 +11,29 @@ Nothing in this module calls a model or provider.
 from __future__ import annotations
 
 import copy
+import json
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from typing import Any, Literal
-from uuid import UUID, uuid5
+from uuid import UUID, uuid4, uuid5
 
-from custom_film_contract import (
-    CustomFilmContractError,
-    canonical_hash,
-    canonical_json,
-)
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
     model_validator,
+)
+
+from custom_film_contract import (
+    CustomFilmContractError,
+    canonical_hash,
+    canonical_json,
+)
+from custom_film_contract import (
+    plan_hash as custom_plan_hash,
 )
 
 DIRECTOR_SCHEMA_VERSION = 1
@@ -52,6 +58,7 @@ PROGRESSION_KINDS = frozenset(
 )
 STAGE_SEQUENCE = (
     "script_director",
+    "references",
     "storyboards",
     "final_pictures",
     "animation_voice",
@@ -72,6 +79,16 @@ VISUAL_ISSUE_CODES = frozenset(
 )
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+logger = logging.getLogger(__name__)
+
+DIRECTOR_PLANNING_FAILURE_MESSAGE = (
+    "I couldn't compile a complete film bible and progressive shot plan from "
+    "that screenplay pass. Nothing was approved, generated, or charged."
+)
+
+
+class DirectorPlanningError(ValueError):
+    """Creator-safe failure before any visual/provider generation is approved."""
 
 
 class _StrictModel(BaseModel):
@@ -192,6 +209,7 @@ class FilmBible(_StrictModel):
     geography_law: str = Field(min_length=10, max_length=1_000)
     narrator_mode: Literal["none", "third_person", "character"]
     narrator_character_id: str | None = None
+    narrator_voice_lock: str | None = Field(default=None, min_length=5, max_length=500)
     style: StyleLock
     characters: tuple[CharacterLock, ...] = Field(min_length=1, max_length=40)
     environments: tuple[EnvironmentLock, ...] = Field(min_length=1, max_length=40)
@@ -209,9 +227,22 @@ class FilmBible(_StrictModel):
                 raise ValueError(
                     "Character narration must bind to a locked character"
                 )
+            if self.narrator_voice_lock is not None:
+                raise ValueError(
+                    "Character narration inherits the locked character voice"
+                )
         elif self.narrator_character_id is not None:
             raise ValueError(
                 "Only character narration may set narrator_character_id"
+            )
+        if self.narrator_mode == "third_person":
+            if self.narrator_voice_lock is None:
+                raise ValueError(
+                    "Third-person narration needs an immutable narrator voice"
+                )
+        elif self.narrator_voice_lock is not None:
+            raise ValueError(
+                "Only third-person narration may set narrator_voice_lock"
             )
         if self.beginning_state == self.ending_state:
             raise ValueError("A story must change between beginning and ending")
@@ -268,6 +299,10 @@ class ShotDraft(_StrictModel):
     storyboard_composition: str = Field(min_length=20, max_length=2_000)
     final_picture_intent: str = Field(min_length=20, max_length=2_000)
     motion_intent: str = Field(min_length=20, max_length=2_000)
+    ambient_sound: str = Field(min_length=5, max_length=500)
+    score_intent: str = Field(min_length=5, max_length=500)
+    sfx_cues: tuple[str, ...] = Field(default=(), max_length=20)
+    caption_mode: Literal["dialogue", "narration", "none"]
 
     @field_validator("shot_key")
     @classmethod
@@ -284,6 +319,7 @@ class ShotDraft(_StrictModel):
         "progression_kinds",
         "character_ids",
         "active_prop_ids",
+        "sfx_cues",
     )
     @classmethod
     def validate_unique_values(cls, value: tuple[str, ...]) -> tuple[str, ...]:
@@ -313,6 +349,8 @@ class ShotDraft(_StrictModel):
                 raise ValueError(
                     "Dialogue turns must alternate instead of repeating one speaker"
                 )
+            if self.caption_mode != "dialogue":
+                raise ValueError("Dialogue shots need dialogue-owned captions")
         elif self.performance_mode == "exposition":
             if self.technique not in {
                 "dvsu_documentary",
@@ -327,6 +365,8 @@ class ShotDraft(_StrictModel):
                 raise ValueError(
                     "Exposition requires purposeful narration, not dialogue labels"
                 )
+            if self.caption_mode != "narration":
+                raise ValueError("Exposition shots need narration-owned captions")
         else:
             if self.technique != "cinematic_action":
                 raise ValueError(
@@ -334,12 +374,254 @@ class ShotDraft(_StrictModel):
                 )
             if self.spoken_lines:
                 raise ValueError("Silent action cannot contain spoken lines")
+            if self.caption_mode != "none":
+                raise ValueError("Silent action cannot invent spoken captions")
         return self
 
 
 class DirectorDraft(_StrictModel):
     film_bible: FilmBible
     shots: tuple[ShotDraft, ...] = Field(min_length=1, max_length=2_000)
+
+
+def director_json_schema() -> dict[str, Any]:
+    """Return the exact screenplay/director response schema."""
+    return DirectorDraft.model_json_schema()
+
+
+def _extract_director_json(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, str) or not raw.strip():
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    try:
+        value = json.loads(text[start : end + 1])
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE) from exc
+    if not isinstance(value, dict):
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    return value
+
+
+def _director_sections(
+    normalized_plan: Mapping[str, Any],
+    quote_inputs: Mapping[str, Any],
+    *,
+    fps: int,
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int], int]:
+    plan_sections = normalized_plan.get("sections")
+    quote_sections = quote_inputs.get("sections")
+    if (
+        not isinstance(plan_sections, list)
+        or not plan_sections
+        or not isinstance(quote_sections, list)
+        or len(plan_sections) != len(quote_sections)
+    ):
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    quote_by_id = {
+        str(row.get("section_id") or ""): row
+        for row in quote_sections
+        if isinstance(row, Mapping)
+    }
+    if len(quote_by_id) != len(quote_sections):
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    sections: list[dict[str, Any]] = []
+    frame_counts: dict[str, int] = {}
+    shot_counts: dict[str, int] = {}
+    for order_index, raw_section in enumerate(plan_sections):
+        if not isinstance(raw_section, Mapping):
+            raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+        section_id = str(raw_section.get("section_id") or "")
+        quote = quote_by_id.get(section_id)
+        if (
+            not isinstance(quote, Mapping)
+            or raw_section.get("order_index") != order_index
+            or quote.get("order_index") != order_index
+        ):
+            raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+        duration_seconds = quote.get("duration_seconds")
+        still_images = quote.get("still_images")
+        if (
+            type(duration_seconds) is not int
+            or duration_seconds < 1
+            or type(still_images) is not int
+            or still_images < 1
+        ):
+            raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+        frame_counts[section_id] = duration_seconds * fps
+        shot_counts[section_id] = still_images
+        knobs = raw_section.get("knobs")
+        if not isinstance(knobs, Mapping):
+            raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+        sections.append(
+            {
+                "section_id": section_id,
+                "order_index": order_index,
+                "role": str(raw_section.get("role") or ""),
+                "purpose": str(raw_section.get("purpose") or ""),
+                "duration_frames": frame_counts[section_id],
+                "required_shot_count": still_images,
+                "approved_language_mode": (
+                    dict(knobs.get("language", {})).get("mode")
+                    if isinstance(knobs.get("language"), Mapping)
+                    else None
+                ),
+                "approved_segmentation_mode": (
+                    dict(knobs.get("segmentation", {})).get("mode")
+                    if isinstance(knobs.get("segmentation"), Mapping)
+                    else None
+                ),
+                "approved_visual_profile": str(
+                    knobs.get("visual_profile") or ""
+                ),
+                "approved_script_profile": str(
+                    knobs.get("script_profile") or ""
+                ),
+            }
+        )
+    total_frames = sum(frame_counts.values())
+    requested_seconds = quote_inputs.get("requested_duration_seconds")
+    if (
+        type(requested_seconds) is not int
+        or requested_seconds * fps != total_frames
+    ):
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    return sections, frame_counts, shot_counts, total_frames
+
+
+def _director_prompt(
+    user_request: str,
+    sections: Sequence[Mapping[str, Any]],
+) -> str:
+    return (
+        "Write the complete screenplay and visual direction for one coherent "
+        "Custom Film. Return exactly one JSON object matching the schema.\n\n"
+        "The film bible is the highest law. Choose ONE visual medium and rendering "
+        "style for the entire film, then lock every recurring character, wardrobe, "
+        "voice, environment, hero prop, geography relationship, timeline rule, and "
+        "visual motif. If third-person narration is used, lock that narrator voice "
+        "too. Shot techniques may change how a scene communicates but may never "
+        "change those film-level locks.\n\n"
+        "Use `poco_dialogue` only for genuine back-and-forth performance with at "
+        "least two alternating locked speakers. Use `dvsu_documentary` for precise "
+        "event/object evidence, `power_doctrine_exposition` for purposeful "
+        "third-person systemic explanation, and `cinematic_action` for silent "
+        "physical action. Narration may not impersonate dialogue. Never repeat a "
+        "spoken line.\n\n"
+        "Every shot must advance story, action, information, emotion, or spatial "
+        "state. Give it an exact opening state, visible action beats, and a different "
+        "closing state. Continuous shots must carry the prior closing state exactly; "
+        "time/location/montage/memory cuts need an explicit visible continuity "
+        "bridge. Every shot must contain real motion intent even when nobody speaks. "
+        "Give every shot an ambient bed, score intention, deliberate sound-effect "
+        "cues, and a caption mode that exactly matches dialogue, narration, or "
+        "silence. Assign causes only to earlier shot_key values.\n\n"
+        "Use every section exactly in the supplied order. For each section, the sum "
+        "of duration_frames and the number of shots must exactly equal its supplied "
+        "values. The first story_facts entry of the first shot must exactly equal "
+        "film_bible.beginning_state. The final story_facts entry of the last shot "
+        "must exactly equal film_bible.ending_state. Use only the supplied section "
+        "UUIDs.\n\n"
+        f"APPROVED SECTION CONTRACT:\n{canonical_json(list(sections))}\n\n"
+        f"JSON SCHEMA:\n{canonical_json(director_json_schema())}\n\n"
+        f"CREATOR REQUEST:\n{user_request.strip()}"
+    )
+
+
+def _director_repair_prompt(
+    user_request: str,
+    sections: Sequence[Mapping[str, Any]],
+    prior_candidate: Mapping[str, Any],
+) -> str:
+    return (
+        "Repair this screenplay/director JSON so it exactly matches the supplied "
+        "schema and section contract. Preserve valid creative choices. Fix only "
+        "schema, lock, speaker ownership, duplicated dialogue, state progression, "
+        "cause, continuity, shot-count, and exact-frame violations. Keep one film "
+        "style above every shot technique. Return JSON only.\n\n"
+        f"APPROVED SECTION CONTRACT:\n{canonical_json(list(sections))}\n\n"
+        f"JSON SCHEMA:\n{canonical_json(director_json_schema())}\n\n"
+        f"CREATOR REQUEST:\n{user_request.strip()}\n\n"
+        f"PRIOR CANDIDATE:\n{canonical_json(dict(prior_candidate))}"
+    )
+
+
+async def plan_custom_film_director(
+    user_request: str,
+    normalized_plan: Mapping[str, Any],
+    quote_inputs: Mapping[str, Any],
+    client: Any,
+    *,
+    prospective_plan_id: str,
+    fps: int = DIRECTOR_FPS,
+) -> dict[str, Any]:
+    """Generate and compile the complete pre-storyboard film contract.
+
+    The caller supplies the tenant-owned text client. Tests may supply a fake;
+    this function has no media/provider seam and grants no downstream authority.
+    """
+    if client is None or not str(user_request or "").strip():
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE)
+    try:
+        plan_digest = custom_plan_hash(normalized_plan)
+        sections, frame_counts, shot_counts, total_frames = _director_sections(
+            normalized_plan,
+            quote_inputs,
+            fps=fps,
+        )
+        raw = await client.generate(
+            prompt=_director_prompt(user_request, sections),
+            system_prompt=(
+                "You are the film's screenplay writer, storyboard planner, and "
+                "continuity director. Output one exact JSON screenplay contract. "
+                "Story, visible progression, and locked film identity outrank profile "
+                "style. Do not mention providers, prices, approvals, or generation."
+            ),
+            max_tokens=48_000,
+            temperature=0,
+        )
+        candidate = _extract_director_json(raw)
+        compile_kwargs = {
+            "plan_id": prospective_plan_id,
+            "plan_hash": plan_digest,
+            "section_ids": [section["section_id"] for section in sections],
+            "total_frames": total_frames,
+            "section_frame_counts": frame_counts,
+            "section_shot_counts": shot_counts,
+            "fps": fps,
+        }
+        try:
+            return compile_director_contract(candidate, **compile_kwargs)
+        except CustomFilmContractError:
+            logger.warning(
+                "custom-film director planning rejected stage=initial reason=contract"
+            )
+            repaired_raw = await client.generate(
+                prompt=_director_repair_prompt(
+                    user_request,
+                    sections,
+                    candidate,
+                ),
+                system_prompt=(
+                    "Repair one screenplay/director JSON candidate. Preserve valid "
+                    "creative content and fix only exact contract violations. Return "
+                    "JSON only and never mention providers, prices, or approvals."
+                ),
+                max_tokens=48_000,
+                temperature=0,
+            )
+            repaired = _extract_director_json(repaired_raw)
+            return compile_director_contract(repaired, **compile_kwargs)
+    except DirectorPlanningError:
+        raise
+    except Exception as exc:
+        raise DirectorPlanningError(DIRECTOR_PLANNING_FAILURE_MESSAGE) from exc
 
 
 def _state_payload(value: StoryState) -> dict[str, Any]:
@@ -431,6 +713,8 @@ def compile_director_contract(
     plan_hash: str,
     section_ids: Sequence[str],
     total_frames: int,
+    section_frame_counts: Mapping[str, int] | None = None,
+    section_shot_counts: Mapping[str, int] | None = None,
     fps: int = DIRECTOR_FPS,
 ) -> dict[str, Any]:
     """Compile one film bible and ordered shot list into immutable direction."""
@@ -443,6 +727,22 @@ def compile_director_contract(
             raise ValueError("total_frames must be an exact positive integer")
         expected_sections = _nonempty_unique(section_ids, "section IDs")
         expected_sections = tuple(str(UUID(value)) for value in expected_sections)
+        expected_section_frames = (
+            {
+                str(UUID(str(section_id))): frame_count
+                for section_id, frame_count in section_frame_counts.items()
+            }
+            if section_frame_counts is not None
+            else None
+        )
+        expected_section_shots = (
+            {
+                str(UUID(str(section_id))): shot_count
+                for section_id, shot_count in section_shot_counts.items()
+            }
+            if section_shot_counts is not None
+            else None
+        )
         draft = DirectorDraft.model_validate(raw)
     except (ValueError, TypeError) as exc:
         raise _director_error(f"Custom Film director contract is invalid: {exc}") from exc
@@ -460,6 +760,28 @@ def compile_director_contract(
     if sum(shot.duration_frames for shot in draft.shots) != total_frames:
         raise _director_error(
             "Custom Film shot durations do not reconcile to the approved film"
+        )
+    if expected_section_frames is not None and (
+            set(expected_section_frames) != set(expected_sections)
+            or any(
+                type(frame_count) is not int or frame_count < 1
+                for frame_count in expected_section_frames.values()
+            )
+            or sum(expected_section_frames.values()) != total_frames
+    ):
+        raise _director_error(
+            "Custom Film approved section frame counts are invalid"
+        )
+    if expected_section_shots is not None and (
+        set(expected_section_shots) != set(expected_sections)
+        or any(
+            type(shot_count) is not int or shot_count < 1
+            for shot_count in expected_section_shots.values()
+        )
+        or sum(expected_section_shots.values()) != len(draft.shots)
+    ):
+        raise _director_error(
+            "Custom Film approved section shot counts are invalid"
         )
 
     seen_shot_keys: set[str] = set()
@@ -615,6 +937,32 @@ def compile_director_contract(
 
     if set(used_sections) != set(expected_sections):
         raise _director_error("Every approved section needs at least one shot")
+    if expected_section_frames is not None:
+        actual_section_frames = {
+            section_id: sum(
+                shot["duration_frames"]
+                for shot in compiled_shots
+                if shot["section_id"] == section_id
+            )
+            for section_id in expected_sections
+        }
+        if actual_section_frames != expected_section_frames:
+            raise _director_error(
+                "Custom Film shots do not preserve approved section timing"
+            )
+    actual_section_shots = {
+        section_id: sum(
+            1 for shot in compiled_shots if shot["section_id"] == section_id
+        )
+        for section_id in expected_sections
+    }
+    if (
+        expected_section_shots is not None
+        and actual_section_shots != expected_section_shots
+    ):
+        raise _director_error(
+            "Custom Film shots do not preserve approved section coverage"
+        )
     if compiled_shots[0]["opening_state"]["story_facts"][0] != bible.beginning_state:
         raise _director_error("First shot does not open on the film-bible beginning")
     if compiled_shots[-1]["closing_state"]["story_facts"][-1] != bible.ending_state:
@@ -628,6 +976,23 @@ def compile_director_contract(
         "film_bible": bible.model_dump(mode="json"),
         "film_bible_hash": canonical_hash(bible.model_dump(mode="json")),
         "section_ids": list(expected_sections),
+        "section_frame_counts": (
+            expected_section_frames
+            if expected_section_frames is not None
+            else {
+                section_id: sum(
+                    shot["duration_frames"]
+                    for shot in compiled_shots
+                    if shot["section_id"] == section_id
+                )
+                for section_id in expected_sections
+            }
+        ),
+        "section_shot_counts": (
+            expected_section_shots
+            if expected_section_shots is not None
+            else actual_section_shots
+        ),
         "total_frames": total_frames,
         "shots": compiled_shots,
     }
@@ -669,6 +1034,166 @@ def validate_director_contract(
         if claimed_shot_hash != canonical_hash(shot_copy):
             raise _director_error("Custom Film shot contract hash changed")
     return {**contract, "contract_hash": claimed_hash}
+
+
+async def persist_director_contract(
+    conn: Any,
+    *,
+    tenant_id: str,
+    video_id: str,
+    plan_id: str,
+    plan_hash: str,
+    director_contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Persist one validated immutable director revision and its exact shots.
+
+    The caller owns the surrounding transaction. Repeating the same contract is
+    idempotent; a changed contract becomes a new append-only revision.
+    """
+    director = validate_director_contract(
+        director_contract,
+        expected_plan_hash=plan_hash,
+    )
+    if director["plan_id"] != str(UUID(str(plan_id))):
+        raise _director_error("Custom Film director plan identity changed")
+    plan = await conn.fetchrow(
+        """SELECT id, plan_hash
+           FROM custom_film_plans
+           WHERE tenant_id = $1 AND id = $2 AND video_id = $3
+           FOR SHARE""",
+        tenant_id,
+        plan_id,
+        video_id,
+    )
+    if not plan or str(plan["plan_hash"]) != plan_hash:
+        raise _director_error("Custom Film director plan binding is stale")
+    section_rows = await conn.fetch(
+        """SELECT section_id
+           FROM custom_film_sections
+           WHERE tenant_id = $1 AND plan_id = $2 AND video_id = $3
+           ORDER BY order_index""",
+        tenant_id,
+        plan_id,
+        video_id,
+    )
+    if [str(row["section_id"]) for row in section_rows] != director["section_ids"]:
+        raise _director_error("Custom Film director sections changed")
+    existing = await conn.fetchrow(
+        """SELECT id, revision
+           FROM custom_film_director_contracts
+           WHERE tenant_id = $1 AND plan_id = $2 AND contract_hash = $3""",
+        tenant_id,
+        plan_id,
+        director["contract_hash"],
+    )
+    if existing:
+        return {
+            "id": str(existing["id"]),
+            "revision": int(existing["revision"]),
+            "created": False,
+            "contract": director,
+        }
+    revision = await conn.fetchval(
+        """SELECT COALESCE(MAX(revision), 0) + 1
+           FROM custom_film_director_contracts
+           WHERE tenant_id = $1 AND plan_id = $2""",
+        tenant_id,
+        plan_id,
+    )
+    if type(revision) is not int or revision < 1:
+        raise _director_error("Custom Film director revision is invalid")
+    director_id = str(uuid4())
+    await conn.execute(
+        """INSERT INTO custom_film_director_contracts
+             (id, tenant_id, plan_id, video_id, revision, schema_version, fps,
+              total_frames, plan_hash, film_bible, film_bible_hash,
+              director_contract, contract_hash)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11,
+                   $12::jsonb, $13)""",
+        director_id,
+        tenant_id,
+        plan_id,
+        video_id,
+        revision,
+        director["schema_version"],
+        director["fps"],
+        director["total_frames"],
+        director["plan_hash"],
+        canonical_json(director["film_bible"]),
+        director["film_bible_hash"],
+        canonical_json(director),
+        director["contract_hash"],
+    )
+    for shot in director["shots"]:
+        await conn.execute(
+            """INSERT INTO custom_film_shots
+                 (tenant_id, director_contract_id, plan_id, video_id, section_id,
+                  shot_id, shot_key, order_index, start_frame, end_frame,
+                  duration_frames, technique, performance_mode, shot_contract,
+                  shot_hash)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                       $13, $14::jsonb, $15)""",
+            tenant_id,
+            director_id,
+            plan_id,
+            video_id,
+            shot["section_id"],
+            shot["shot_id"],
+            shot["shot_key"],
+            shot["order_index"],
+            shot["start_frame"],
+            shot["end_frame"],
+            shot["duration_frames"],
+            shot["technique"],
+            shot["performance_mode"],
+            canonical_json(shot),
+            shot["shot_hash"],
+        )
+    return {
+        "id": director_id,
+        "revision": revision,
+        "created": True,
+        "contract": director,
+    }
+
+
+async def load_latest_director_contract(
+    tenant_id: str,
+    video_id: str,
+) -> dict[str, Any] | None:
+    """Load and verify the latest tenant-scoped director contract."""
+    from database import fetch_one
+
+    row = await fetch_one(
+        """SELECT id, plan_id, revision, plan_hash, director_contract
+           FROM custom_film_director_contracts
+           WHERE tenant_id = $1 AND video_id = $2
+           ORDER BY revision DESC
+           LIMIT 1""",
+        tenant_id,
+        video_id,
+    )
+    if not row:
+        return None
+    raw = row.get("director_contract")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise _director_error(
+                "Stored Custom Film director contract is invalid"
+            ) from exc
+    director = validate_director_contract(
+        raw,
+        expected_plan_hash=str(row["plan_hash"]),
+    )
+    if director["plan_id"] != str(row["plan_id"]):
+        raise _director_error("Stored Custom Film director plan changed")
+    return {
+        "id": str(row["id"]),
+        "revision": int(row["revision"]),
+        "contract": director,
+    }
 
 
 class StoryboardReview(_StrictModel):
@@ -856,6 +1381,105 @@ def compile_storyboard_gate(
     return gate
 
 
+class FinalPictureReview(_StrictModel):
+    shot_id: UUID
+    contract_hash: str
+    storyboard_gate_hash: str
+    final_picture_artifact_id: str = Field(min_length=1, max_length=300)
+    final_picture_sha256: str
+    final_picture_prompt_hash: str
+    style_match: bool
+    character_lock_match: bool
+    environment_lock_match: bool
+    opening_state_match: bool
+    storyboard_composition_match: bool
+    verdict: Literal["approved", "rejected"]
+    notes: str = Field(default="", max_length=2_000)
+
+    @field_validator(
+        "contract_hash",
+        "storyboard_gate_hash",
+        "final_picture_sha256",
+        "final_picture_prompt_hash",
+    )
+    @classmethod
+    def validate_hashes(cls, value: str) -> str:
+        return _hash(value, "final-picture review hash")
+
+    @model_validator(mode="after")
+    def validate_verdict(self) -> FinalPictureReview:
+        passed = all(
+            (
+                self.style_match,
+                self.character_lock_match,
+                self.environment_lock_match,
+                self.opening_state_match,
+                self.storyboard_composition_match,
+            )
+        )
+        if (self.verdict == "approved") != passed:
+            raise ValueError("Final-picture verdict must match its review checks")
+        if not passed and not self.notes:
+            raise ValueError("Rejected final pictures need repair notes")
+        return self
+
+
+def compile_picture_gate(
+    director_contract: Mapping[str, Any],
+    storyboard_gate: Mapping[str, Any],
+    reviews: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Require one storyboard-bound approved final picture for every shot."""
+    director = validate_director_contract(director_contract)
+    storyboard = copy.deepcopy(dict(storyboard_gate))
+    claimed_storyboard_hash = str(storyboard.pop("storyboard_gate_hash", ""))
+    if (
+        claimed_storyboard_hash != canonical_hash(storyboard)
+        or storyboard.get("director_contract_hash") != director["contract_hash"]
+    ):
+        raise _director_error("Custom Film storyboard gate changed")
+    try:
+        parsed = [FinalPictureReview.model_validate(review) for review in reviews]
+    except (ValueError, TypeError) as exc:
+        raise _director_error(
+            f"Custom Film final-picture review is invalid: {exc}"
+        ) from exc
+    shot_by_id = {str(shot["shot_id"]): shot for shot in director["shots"]}
+    review_by_id = {str(review.shot_id): review for review in parsed}
+    if len(review_by_id) != len(parsed) or set(review_by_id) != set(shot_by_id):
+        raise _director_error(
+            "Custom Film final-picture reviews do not match the exact shot list"
+        )
+    approvals: list[dict[str, Any]] = []
+    for shot_id, shot in shot_by_id.items():
+        review = review_by_id[shot_id]
+        if (
+            review.contract_hash != director["contract_hash"]
+            or review.storyboard_gate_hash != claimed_storyboard_hash
+        ):
+            raise _director_error(
+                f"Custom Film final picture {shot['shot_key']} is stale"
+            )
+        if review.final_picture_prompt_hash != canonical_hash(
+            shot["final_picture_prompt"]
+        ):
+            raise _director_error("Custom Film final-picture prompt binding changed")
+        if review.verdict != "approved":
+            raise _director_error(
+                f"Custom Film final picture {shot['shot_key']} is not approved"
+            )
+        approvals.append(review.model_dump(mode="json"))
+    gate = {
+        "gate_version": 1,
+        "director_contract_hash": director["contract_hash"],
+        "storyboard_gate_hash": claimed_storyboard_hash,
+        "shot_count": len(approvals),
+        "approvals": approvals,
+    }
+    gate["picture_gate_hash"] = canonical_hash(gate)
+    return gate
+
+
 class FrameObservation(_StrictModel):
     checkpoint: Literal["start", "middle", "end"]
     frame_sha256: str
@@ -882,6 +1506,7 @@ class ShotVerification(_StrictModel):
     shot_id: UUID
     contract_hash: str
     storyboard_gate_hash: str
+    picture_gate_hash: str
     clip_artifact_id: str = Field(min_length=1, max_length=300)
     observations: tuple[FrameObservation, FrameObservation, FrameObservation]
     motion_visible: bool
@@ -890,7 +1515,11 @@ class ShotVerification(_StrictModel):
     lip_sync_match: bool | None = None
     repair_instruction: str = Field(default="", max_length=2_000)
 
-    @field_validator("contract_hash", "storyboard_gate_hash")
+    @field_validator(
+        "contract_hash",
+        "storyboard_gate_hash",
+        "picture_gate_hash",
+    )
     @classmethod
     def validate_hashes(cls, value: str) -> str:
         return _hash(value, "shot verification hash")
@@ -946,9 +1575,163 @@ def _verification_issues(
     return sorted(set(issues))
 
 
+def evaluate_shot_verification(
+    director_contract: Mapping[str, Any],
+    storyboard_gate: Mapping[str, Any],
+    picture_gate: Mapping[str, Any],
+    raw_verification: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Evaluate one clip attempt without requiring the other shots to exist."""
+    director = validate_director_contract(director_contract)
+    storyboard = copy.deepcopy(dict(storyboard_gate))
+    storyboard_hash = str(storyboard.pop("storyboard_gate_hash", ""))
+    pictures = copy.deepcopy(dict(picture_gate))
+    picture_hash = str(pictures.pop("picture_gate_hash", ""))
+    if (
+        storyboard_hash != canonical_hash(storyboard)
+        or picture_hash != canonical_hash(pictures)
+        or storyboard.get("director_contract_hash") != director["contract_hash"]
+        or pictures.get("director_contract_hash") != director["contract_hash"]
+        or pictures.get("storyboard_gate_hash") != storyboard_hash
+    ):
+        raise _director_error("Custom Film shot verification gate changed")
+    try:
+        verification = ShotVerification.model_validate(raw_verification)
+    except (ValueError, TypeError) as exc:
+        raise _director_error(
+            f"Custom Film visual verification is invalid: {exc}"
+        ) from exc
+    shot_by_id = {
+        str(shot["shot_id"]): shot for shot in director["shots"]
+    }
+    shot = shot_by_id.get(str(verification.shot_id))
+    if shot is None:
+        raise _director_error(
+            "Custom Film visual verification names an unknown shot"
+        )
+    if (
+        verification.contract_hash != director["contract_hash"]
+        or verification.storyboard_gate_hash != storyboard_hash
+        or verification.picture_gate_hash != picture_hash
+    ):
+        raise _director_error(
+            f"Custom Film verification for {shot['shot_key']} is stale"
+        )
+    issues = _verification_issues(shot, verification)
+    if issues and not verification.repair_instruction:
+        raise _director_error(
+            f"Custom Film shot {shot['shot_key']} failed "
+            f"{', '.join(issues)} without a repair instruction"
+        )
+    evaluation = {
+        "verification": verification.model_dump(mode="json"),
+        "issue_codes": issues,
+        "verdict": "rejected" if issues else "approved",
+    }
+    evaluation["verification_hash"] = canonical_hash(evaluation)
+    return evaluation
+
+
+async def persist_shot_verification(
+    conn: Any,
+    *,
+    tenant_id: str,
+    director_contract_id: str,
+    director_contract: Mapping[str, Any],
+    storyboard_gate: Mapping[str, Any],
+    picture_gate: Mapping[str, Any],
+    raw_verification: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Append one evaluated attempt inside the caller's database transaction."""
+    try:
+        normalized_tenant_id = str(UUID(str(tenant_id)))
+        normalized_director_id = str(UUID(str(director_contract_id)))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise _director_error(
+            "Custom Film verification persistence identity is invalid"
+        ) from exc
+    evaluation = evaluate_shot_verification(
+        director_contract,
+        storyboard_gate,
+        picture_gate,
+        raw_verification,
+    )
+    verification = evaluation["verification"]
+    shot_id = str(verification["shot_id"])
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        (
+            "custom-film-visual-verification:"
+            f"{normalized_tenant_id}:{normalized_director_id}:{shot_id}"
+        ),
+    )
+    existing = await conn.fetchrow(
+        """SELECT id, attempt, verdict
+           FROM custom_film_visual_verifications
+           WHERE tenant_id = $1 AND director_contract_id = $2
+             AND shot_id = $3 AND verification_hash = $4""",
+        normalized_tenant_id,
+        normalized_director_id,
+        shot_id,
+        evaluation["verification_hash"],
+    )
+    if existing:
+        return {
+            "id": str(existing["id"]),
+            "attempt": int(existing["attempt"]),
+            "verdict": str(existing["verdict"]),
+            "verification_hash": evaluation["verification_hash"],
+            "issue_codes": evaluation["issue_codes"],
+            "created": False,
+        }
+    next_row = await conn.fetchrow(
+        """SELECT COALESCE(MAX(attempt), 0) + 1 AS next_attempt
+           FROM custom_film_visual_verifications
+           WHERE tenant_id = $1 AND director_contract_id = $2
+             AND shot_id = $3""",
+        normalized_tenant_id,
+        normalized_director_id,
+        shot_id,
+    )
+    attempt = int(next_row["next_attempt"]) if next_row else 1
+    stored = await conn.fetchrow(
+        """INSERT INTO custom_film_visual_verifications
+             (tenant_id, director_contract_id, shot_id, attempt,
+              storyboard_gate_hash, picture_gate_hash, clip_artifact_id,
+              observations, issue_codes, verification, verification_hash,
+              verdict)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb,
+                   $10::jsonb, $11, $12)
+           RETURNING id""",
+        normalized_tenant_id,
+        normalized_director_id,
+        shot_id,
+        attempt,
+        verification["storyboard_gate_hash"],
+        verification["picture_gate_hash"],
+        verification["clip_artifact_id"],
+        canonical_json(verification["observations"]),
+        canonical_json(evaluation["issue_codes"]),
+        canonical_json(verification),
+        evaluation["verification_hash"],
+        evaluation["verdict"],
+    )
+    if not stored:
+        raise _director_error("Custom Film visual verification was not stored")
+    return {
+        "id": str(stored["id"]),
+        "attempt": attempt,
+        "verdict": evaluation["verdict"],
+        "verification_hash": evaluation["verification_hash"],
+        "issue_codes": evaluation["issue_codes"],
+        "created": True,
+    }
+
+
 def compile_visual_gate(
     director_contract: Mapping[str, Any],
     storyboard_gate: Mapping[str, Any],
+    picture_gate: Mapping[str, Any],
     verifications: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Admit clips only after exact start/middle/end verification passes."""
@@ -960,6 +1743,14 @@ def compile_visual_gate(
         or storyboard.get("director_contract_hash") != director["contract_hash"]
     ):
         raise _director_error("Custom Film storyboard gate changed")
+    pictures = copy.deepcopy(dict(picture_gate))
+    claimed_picture_hash = str(pictures.pop("picture_gate_hash", ""))
+    if (
+        claimed_picture_hash != canonical_hash(pictures)
+        or pictures.get("director_contract_hash") != director["contract_hash"]
+        or pictures.get("storyboard_gate_hash") != claimed_storyboard_hash
+    ):
+        raise _director_error("Custom Film final-picture gate changed")
     try:
         parsed = [
             ShotVerification.model_validate(verification)
@@ -984,6 +1775,7 @@ def compile_visual_gate(
         if (
             verification.contract_hash != director["contract_hash"]
             or verification.storyboard_gate_hash != claimed_storyboard_hash
+            or verification.picture_gate_hash != claimed_picture_hash
         ):
             raise _director_error(
                 f"Custom Film verification for {shot['shot_key']} is stale"
@@ -1010,6 +1802,7 @@ def compile_visual_gate(
         "gate_version": 1,
         "director_contract_hash": director["contract_hash"],
         "storyboard_gate_hash": claimed_storyboard_hash,
+        "picture_gate_hash": claimed_picture_hash,
         "shot_count": len(approved),
         "approved_verifications": approved,
     }
@@ -1020,6 +1813,7 @@ def compile_visual_gate(
 def build_remotion_admission(
     director_contract: Mapping[str, Any],
     storyboard_gate: Mapping[str, Any],
+    picture_gate: Mapping[str, Any],
     visual_gate: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Return the only shot manifest allowed to enter layered Remotion."""
@@ -1028,14 +1822,21 @@ def build_remotion_admission(
     storyboard_hash = str(storyboard.pop("storyboard_gate_hash", ""))
     if storyboard_hash != canonical_hash(storyboard):
         raise _director_error("Custom Film storyboard admission hash changed")
+    pictures = copy.deepcopy(dict(picture_gate))
+    picture_hash = str(pictures.pop("picture_gate_hash", ""))
+    if picture_hash != canonical_hash(pictures):
+        raise _director_error("Custom Film final-picture admission hash changed")
     visual = copy.deepcopy(dict(visual_gate))
     visual_hash = str(visual.pop("visual_gate_hash", ""))
     if visual_hash != canonical_hash(visual):
         raise _director_error("Custom Film visual admission hash changed")
     if (
         storyboard.get("director_contract_hash") != director["contract_hash"]
+        or pictures.get("director_contract_hash") != director["contract_hash"]
+        or pictures.get("storyboard_gate_hash") != storyboard_hash
         or visual.get("director_contract_hash") != director["contract_hash"]
         or visual.get("storyboard_gate_hash") != storyboard_hash
+        or visual.get("picture_gate_hash") != picture_hash
         or visual.get("shot_count") != len(director["shots"])
     ):
         raise _director_error("Custom Film admission gates do not bind together")
@@ -1049,6 +1850,7 @@ def build_remotion_admission(
         "admission_version": 1,
         "director_contract_hash": director["contract_hash"],
         "storyboard_gate_hash": storyboard_hash,
+        "picture_gate_hash": picture_hash,
         "visual_gate_hash": visual_hash,
         "fps": director["fps"],
         "total_frames": director["total_frames"],
@@ -1067,6 +1869,11 @@ def build_remotion_admission(
                 "spoken_lines": copy.deepcopy(shot["spoken_lines"]),
                 "screen_direction": shot["screen_direction"],
                 "camera_move": shot["camera_move"],
+                "transition_from_previous": shot["transition_from_previous"],
+                "ambient_sound": shot["ambient_sound"],
+                "score_intent": shot["score_intent"],
+                "sfx_cues": copy.deepcopy(shot["sfx_cues"]),
+                "caption_mode": shot["caption_mode"],
                 "shot_hash": shot["shot_hash"],
             }
             for shot in director["shots"]
@@ -1086,6 +1893,7 @@ class StageOperation(_StrictModel):
 class StageAuthority(_StrictModel):
     stage: Literal[
         "script_director",
+        "references",
         "storyboards",
         "final_pictures",
         "animation_voice",

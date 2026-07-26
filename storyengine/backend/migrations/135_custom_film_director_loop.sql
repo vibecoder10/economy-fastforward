@@ -164,6 +164,34 @@ CREATE INDEX IF NOT EXISTS custom_film_storyboard_reviews_latest_idx
   ON custom_film_storyboard_reviews
     (tenant_id, director_contract_id, shot_id, review_revision DESC);
 
+CREATE TABLE IF NOT EXISTS custom_film_picture_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  director_contract_id UUID NOT NULL,
+  shot_id UUID NOT NULL,
+  review_revision INTEGER NOT NULL CHECK (review_revision > 0),
+  storyboard_gate_hash TEXT NOT NULL
+    CHECK (storyboard_gate_hash ~ '^[0-9a-f]{64}$'),
+  final_picture_artifact_id TEXT NOT NULL
+    CHECK (btrim(final_picture_artifact_id) <> ''),
+  final_picture_sha256 TEXT NOT NULL
+    CHECK (final_picture_sha256 ~ '^[0-9a-f]{64}$'),
+  final_picture_prompt_hash TEXT NOT NULL
+    CHECK (final_picture_prompt_hash ~ '^[0-9a-f]{64}$'),
+  review JSONB NOT NULL CHECK (jsonb_typeof(review) = 'object'),
+  review_hash TEXT NOT NULL CHECK (review_hash ~ '^[0-9a-f]{64}$'),
+  verdict TEXT NOT NULL CHECK (verdict IN ('approved', 'rejected')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, director_contract_id, shot_id, review_revision),
+  FOREIGN KEY (tenant_id, director_contract_id, shot_id)
+    REFERENCES custom_film_shots(tenant_id, director_contract_id, shot_id)
+    ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_picture_reviews_latest_idx
+  ON custom_film_picture_reviews
+    (tenant_id, director_contract_id, shot_id, review_revision DESC);
+
 CREATE TABLE IF NOT EXISTS custom_film_visual_verifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -172,6 +200,8 @@ CREATE TABLE IF NOT EXISTS custom_film_visual_verifications (
   attempt INTEGER NOT NULL CHECK (attempt > 0),
   storyboard_gate_hash TEXT NOT NULL
     CHECK (storyboard_gate_hash ~ '^[0-9a-f]{64}$'),
+  picture_gate_hash TEXT NOT NULL
+    CHECK (picture_gate_hash ~ '^[0-9a-f]{64}$'),
   clip_artifact_id TEXT NOT NULL CHECK (btrim(clip_artifact_id) <> ''),
   observations JSONB NOT NULL CHECK (jsonb_typeof(observations) = 'array'),
   issue_codes JSONB NOT NULL CHECK (jsonb_typeof(issue_codes) = 'array'),
@@ -180,6 +210,7 @@ CREATE TABLE IF NOT EXISTS custom_film_visual_verifications (
   verdict TEXT NOT NULL CHECK (verdict IN ('approved', 'rejected')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, director_contract_id, shot_id, attempt),
+  UNIQUE (tenant_id, director_contract_id, shot_id, verification_hash),
   FOREIGN KEY (tenant_id, director_contract_id, shot_id)
     REFERENCES custom_film_shots(tenant_id, director_contract_id, shot_id)
     ON DELETE CASCADE
@@ -198,6 +229,7 @@ CREATE TABLE IF NOT EXISTS custom_film_stage_authorities (
   stage TEXT NOT NULL CHECK (
     stage IN (
       'script_director',
+      'references',
       'storyboards',
       'final_pictures',
       'animation_voice',
@@ -221,6 +253,7 @@ CREATE TABLE IF NOT EXISTS custom_film_stage_authorities (
   approved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   consumed_at TIMESTAMPTZ,
   consumed_by TEXT,
+  UNIQUE (tenant_id, id),
   UNIQUE (tenant_id, plan_id, stage, approval_hash),
   UNIQUE (tenant_id, approval_hash),
   FOREIGN KEY (tenant_id, plan_id, video_id)
@@ -244,6 +277,53 @@ CREATE TABLE IF NOT EXISTS custom_film_stage_authorities (
 CREATE INDEX IF NOT EXISTS custom_film_stage_authorities_stage_idx
   ON custom_film_stage_authorities
     (tenant_id, plan_id, stage, approved_at DESC);
+
+CREATE TABLE IF NOT EXISTS custom_film_director_stage_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  director_contract_id UUID,
+  authority_id UUID NOT NULL,
+  stage TEXT NOT NULL CHECK (
+    stage IN (
+      'script_director',
+      'references',
+      'storyboards',
+      'final_pictures',
+      'animation_voice',
+      'assembly'
+    )
+  ),
+  stage_binding_hash TEXT NOT NULL
+    CHECK (stage_binding_hash ~ '^[0-9a-f]{64}$'),
+  upstream_gate_hash TEXT NOT NULL
+    CHECK (upstream_gate_hash ~ '^[0-9a-f]{64}$'),
+  authority_hash TEXT NOT NULL CHECK (authority_hash ~ '^[0-9a-f]{64}$'),
+  schedule JSONB NOT NULL CHECK (jsonb_typeof(schedule) = 'object'),
+  schedule_hash TEXT NOT NULL CHECK (schedule_hash ~ '^[0-9a-f]{64}$'),
+  task_count INTEGER NOT NULL CHECK (task_count > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, authority_id),
+  UNIQUE (tenant_id, schedule_hash),
+  FOREIGN KEY (tenant_id, plan_id, video_id)
+    REFERENCES custom_film_plans(tenant_id, id, video_id) ON DELETE CASCADE,
+  FOREIGN KEY (tenant_id, authority_id)
+    REFERENCES custom_film_stage_authorities(tenant_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (tenant_id, director_contract_id, plan_id, video_id)
+    REFERENCES custom_film_director_contracts(
+      tenant_id, id, plan_id, video_id
+    ) ON DELETE CASCADE,
+  CHECK (
+    (stage = 'script_director' AND director_contract_id IS NULL)
+    OR
+    (stage <> 'script_director' AND director_contract_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_director_stage_schedule_idx
+  ON custom_film_director_stage_schedules
+    (tenant_id, plan_id, stage, created_at DESC);
 
 CREATE OR REPLACE FUNCTION protect_custom_film_director_append_only()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -312,7 +392,9 @@ BEGIN
     'custom_film_shots',
     'custom_film_lock_references',
     'custom_film_storyboard_reviews',
-    'custom_film_visual_verifications'
+    'custom_film_picture_reviews',
+    'custom_film_visual_verifications',
+    'custom_film_director_stage_schedules'
   ]
   LOOP
     EXECUTE format(
@@ -340,15 +422,19 @@ ALTER TABLE custom_film_director_contracts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_shots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_lock_references ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_storyboard_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_picture_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_visual_verifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_stage_authorities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_director_stage_schedules ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON custom_film_director_contracts FROM anon, authenticated;
 REVOKE ALL ON custom_film_shots FROM anon, authenticated;
 REVOKE ALL ON custom_film_lock_references FROM anon, authenticated;
 REVOKE ALL ON custom_film_storyboard_reviews FROM anon, authenticated;
+REVOKE ALL ON custom_film_picture_reviews FROM anon, authenticated;
 REVOKE ALL ON custom_film_visual_verifications FROM anon, authenticated;
 REVOKE ALL ON custom_film_stage_authorities FROM anon, authenticated;
+REVOKE ALL ON custom_film_director_stage_schedules FROM anon, authenticated;
 
 DO $policies$
 DECLARE
@@ -359,8 +445,10 @@ BEGIN
     'custom_film_shots',
     'custom_film_lock_references',
     'custom_film_storyboard_reviews',
+    'custom_film_picture_reviews',
     'custom_film_visual_verifications',
-    'custom_film_stage_authorities'
+    'custom_film_stage_authorities',
+    'custom_film_director_stage_schedules'
   ]
   LOOP
     BEGIN
