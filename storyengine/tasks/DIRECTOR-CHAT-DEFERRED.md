@@ -2,6 +2,15 @@
 
 Four items built and wired but not verifiable in this sandbox. Exact proof level reached and test recipes below.
 
+## Deploy 2026-07-26 (evening): LANDED and VERIFIED
+
+`main` was fast-forwarded to `feat/director-chat`'s tip (`28afc1f4`, which already contained
+`origin/main`'s `cd7b7d80`), pushed to `origin/main`, and deployed to prod with
+`se deploy osiris-director-chat-unify --with-frontend`. Health gate was clear before deploy
+(`active_work.total: 0`, no deploy lock). Deploy completed clean: migrations 147/147 applied (0
+pending), backend + worker + frontend all came back healthy, drain returned to normal. Checks 1
+and 2 below are now CLOSED with real evidence. See `HANDOFF.md` for full deploy log.
+
 ## Deploy attempt 2026-07-26: BLOCKED by merge conflicts, checks below NOT run
 
 Gate check `git merge-base --is-ancestor origin/main feat/director-chat` returned `1` (branch does
@@ -22,39 +31,54 @@ Whoever resolves the `backend/main.py` conflict needs to decide whether both cus
 should coexist (they may be two different, non-overlapping features) — that's a product/engineering
 call, not something to auto-resolve.
 
-## 1. `GET /api/custom-film/recipes` returning a live 200
+## 1. `GET /api/custom-film/recipes` returning a live 200 — CLOSED 2026-07-26
 
-**Proof level reached:** The route, its auth dependency, and import wiring were proven by a traceback showing the request reaching `routes/custom_film.py`, then `custom_film_contract.list_active_recipes`, then `database.fetch_all`, then `pool.acquire()`, failing only at the DB socket. The table was independently verified empty on production with `se db "SELECT count(*) FROM custom_film_recipes"` returning `{"count": 0}`.
-
-**Not checkable here:** No valid local `DATABASE_URL` exists on this machine. The frontend points at the production backend, which does not have this route yet because nothing was deployed.
-
-**Test recipe after deploy:**
-```bash
-curl -s -H "Authorization: Bearer $(cat /tmp/se_token)" http://76.13.119.181:8001/api/custom-film/recipes
+**Verified against live prod after deploy `cd7b7d80` -> `28afc1f4`:**
 ```
+$ curl -s -w "\n%{http_code}\n" -H "Authorization: Bearer $(cat /tmp/se_token)" http://76.13.119.181:8001/api/custom-film/recipes
+{"recipes":[]}
+200
+```
+Exact match to the predicted result. Also confirmed through the real frontend proxy (not just the
+backend directly): a browser session at `https://storyengine.dev/` issued
+`GET https://storyengine.dev/api/custom-film/recipes` -> `200` (seen in the browser's network
+log), and `GET https://storyengine.dev/api/custom-film/17454567-0605-4249-8598-482b4240243e/scene-control`
+-> `200` in the same session, confirming Codex's Scene Control route also still resolves through
+the same deploy.
 
-**Expected result:** HTTP 200 with body `{"recipes": []}`.
+## 2. The saved-styles empty state rendering on screen — CLOSED 2026-07-26
 
-## 2. The saved-styles empty state rendering on screen
+**Verified live in browser** (signed in as the owner tenant `ee93e6d1`, storyengine.dev, real JWT,
+not a stub): the "Your saved styles" section reads "0 saved" in the header, and shows a gold
+dashed-border card with a star icon and the exact copy "You haven't saved a style yet", plus the
+explanatory paragraph and "Lock this as a style" call-to-action. No red error box anywhere on the
+page. Confirmed via `get_page_text` extraction and a visual screenshot. (Note: the tenant used
+here has real production history — 4 "looks ready" and 13 recent videos — but 0 saved styles, so
+this is a genuine empty state, not a fresh-account artifact.)
 
-**Proof level reached:** The error state was proven to render correctly when the endpoint 404s, so a failure does not masquerade as "you have no styles". The empty state's markup exists but has not been seen with a real 200 response.
+## 3. The Build button end to end — STILL OPEN
 
-**Not checkable here:** Same reason, the production backend does not have the route yet.
+**Proof level reached (2026-07-26):** Confirmed present and rendered on a live video's canvas
+("Below the Forecast") in prod: green "Finish the video" button, "THIS VIDEO $0.25" cost chip.
+Deliberately **never clicked** — Ryan authorized zero downstream spend for this verification pass.
 
-**Test recipe after deploy:** Load `/` signed in. Confirm the gold dashed card reads "You haven't saved a style yet" and the header count reads "0 saved", with no red error box.
+**Not checkable without spending money.**
 
-## 3. The Build button end to end
+**Test recipe:** On a real video with work pending, click Build/Finish, confirm the dialog, and check the cost ledger moves by the amount the confirm dialog quoted.
 
-**Proof level reached:** Wired to the existing `getVideoActions` and `runBuild`, rendered behind a confirm, and verified disabled on a nonexistent video id. Never clicked.
+## 4. A populated Scene altitude view — STILL OPEN
 
-**Not checkable here:** Clicking it spends real money.
+**Proof level reached (2026-07-26):** Verified the altitude segmented control itself works
+end-to-end in prod on "Below the Forecast" (a real, empty Custom-Film-Directed video: 0 scenes, 0
+shots) — Shot/Scene/Timeline all switch state correctly and render distinct honest empty-state
+copy: Shot view says "Not designed yet; say the word and it gets built out"; Timeline view renders
+a static illustrative mockup of clip/narration/music tracks explicitly labeled "New — doesn't
+exist in the product yet" (this is clearly marked as not-live-data, not a bug, but flag it as a
+UX item — a real user could mistake the fake clip thumbnails for real content if they don't read
+the label). Right rail tabs (Media/Voice/Music/Cast/Environments) all switch cleanly with
+consistent "No X designed/recorded yet" empty copy, no console errors on any tab.
 
-**Test recipe after deploy:** On a real video with work pending, click Build, confirm the dialog, and check the cost ledger moves by the amount the confirm dialog quoted.
+**Not yet checked:** an altitude view actually populated with real scenes/shots (this video had
+none). A full visual check against the mockup's populated Scene view was not done.
 
-## 4. A populated Scene altitude view
-
-**Proof level reached:** The scene and shot list renders from `getVideoAssets` and `getVideoScript`. A real video was opened during verification. A full visual check against the mockup's scene rows was not completed.
-
-**Not checkable here:** Visual verification against the mockup requires manual review of a populated state.
-
-**Test recipe after deploy:** Open a video with several scenes and drawn shots. Compare the scene rows and shot tiles against the mockup's Scene view at `tasks/director-mockup/index.html`.
+**Test recipe:** Open a video with several scenes and drawn shots. Compare the scene rows and shot tiles against the mockup's Scene view at `tasks/director-mockup/index.html`.
