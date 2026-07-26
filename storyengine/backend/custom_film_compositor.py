@@ -54,6 +54,23 @@ class CustomFilmRetryableError(RuntimeError):
     """Transport/process/storage failure safe to retry under the same identity."""
 
 
+def _assembly_failure_disposition(exc: Exception) -> tuple[str, str]:
+    """Classify a post-journal failure without masking the original exception."""
+    retryable = isinstance(
+        exc,
+        (
+            CustomFilmRetryableError,
+            OSError,
+            RuntimeError,
+        ),
+    ) or not isinstance(exc, CustomFilmContractError)
+    return (
+        ("retryable_failed", "retryable")
+        if retryable
+        else ("terminal_failed", "terminal")
+    )
+
+
 def assembly_storage_path(
     video_id: str, runtime_hash: str, manifest_hash: str
 ) -> str:
@@ -3256,11 +3273,7 @@ async def render_custom_film_video(
         }
     except Exception as exc:
         if "journal_ready" in locals() and journal_ready:
-            retryable = isinstance(
-                exc, (CustomFilmRetryableError, OSError, asyncio.SubprocessError)
-            ) or not isinstance(exc, CustomFilmContractError)
-            failure_state = "retryable_failed" if retryable else "terminal_failed"
-            failure_kind = "retryable" if retryable else "terminal"
+            failure_state, failure_kind = _assembly_failure_disposition(exc)
             safe_detail = humanize_error(
                 exc, context="Custom Film assembly could not be completed"
             )
