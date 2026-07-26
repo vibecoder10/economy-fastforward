@@ -2576,17 +2576,17 @@ Previous handoffs archived in `tasks/archive/handoffs-2026-03-to-04.md`
 
 ## Handoff (2026-07-26 — Scene-by-Scene Control)
 
-- LOCAL ACCEPTED: migration/API/state law, mounted cockpit, canonical local
-  media playback, and the deterministic 18-second Remotion proof pass fresh
-  adversarial review.
-- Proof totals: 587 Custom Film tests, 14 focused Playwright tests, 13 Remotion
-  tests, flagged 34-route frontend build, exact 432 video frames, and
-  byte-identical render/browser SHA-256
-  `a91a5e6085adc5f03702b6dd3600e31f1cf0638be840c6cc4067aa97ea9c6a3d`.
-- NEXT: merge and deploy through `storyengine/scripts/se.sh`, run only the
-  synthetic live/browser proof, reconcile unchanged schedules/calls/executions,
-  claims, and ledger, and stop a fresh Scene 1 at the unapproved exact
-  storyboard quote. No provider generation is authorized.
+- COMPLETE: PRs #517/#519 deployed migration 137, the Scene Control flags, and
+  timestamp-safe synthetic receipts at production `210a86bf`.
+- Live synthetic proof rejected a stale revision with 409, advanced Scene 1
+  through every exact evidence gate, and unlocked Scene 2 only on acceptance.
+  The production browser proved six film locks, five shots, locked Scene 2,
+  comparison-only media truth, and the quote-only cockpit.
+- STOPPED: fresh synthetic video
+  `9ff17a5d-4fee-4019-97ec-6d14dd3e37ad` remains `plan_approved` at its exact
+  read-only storyboard ceiling of $0.25. The ledger is unchanged at 148
+  rows/$25.14 and schedules/calls/executions/claims remain zero. No provider
+  generation, repair, upload, or publication is authorized.
 
 ## Handoff (2026-04-10 — QA verification + security audit)
 PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7/T10.

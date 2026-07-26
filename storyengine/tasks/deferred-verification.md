@@ -549,8 +549,11 @@ upload, or publication occurred.
       provenance.
 # Deferred verification — M9 Scene-by-Scene Control
 
-No local verification is deferred. Backend/state/schema, mounted cockpit, canonical
-artifact playback, Remotion render/audio/frame proof, and independent adversarial review
-all pass. M9-4 still requires the authorized production deploy, live synthetic
-scene-control/browser proof, and before/after zero-provider/zero-ledger reconciliation in
-this run; do not convert those pending live checks into a completion claim.
+Nothing is deferred for the no-spend Scene Control mission. Production revisions
+`c5b96e0e` and `210a86bf` applied migration 137 and the exact flags through the
+sanctioned drain. The live synthetic API/browser proof exercised stale-CAS rejection,
+all explicit Scene 1 gates, acceptance-only Scene 2 unlock, and a separate fresh Scene 1
+stopped at its read-only exact $0.25 storyboard quote. The canonical generation ledger
+remained 148 rows/$25.14 and director schedules/calls/executions plus generation claims
+remained zero. Any provider generation, repair, upload, or publication still requires a
+separate refreshed exact approval and is not implied by this completion.

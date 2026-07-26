@@ -11987,3 +11987,19 @@ control writes without losing the video, approval, or confirmation.
 - The synthetic seed CLI is dry-run by default, rejects existing real videos
   before writes, and may create only clearly tagged zero-spend fixtures. Real
   provider work remains outside this control deployment.
+- PR #517 deployed the verified system at `c5b96e0e`; PR #519 deployed the
+  timestamp-safe synthetic receipt at production `210a86bf`. Migration 137 and
+  both backend/frontend flags are active. Live proof advanced synthetic video
+  `20862a68-b3ad-555f-a661-8940abadb2b5` through every exact gate, proved a
+  stale revision returns 409, accepted Scene 1, and unlocked Scene 2 only then.
+- Fresh synthetic video `9ff17a5d-4fee-4019-97ec-6d14dd3e37ad` is intentionally
+  stopped at Scene 1 `plan_approved`. Its production cockpit shows five shots,
+  locked Scene 2, comparison-only playback, and a read-only storyboard quote:
+  five initial calls, zero repairs, $0.00 prior spend, exact $0.25 new ceiling,
+  and no approval/execution endpoint.
+- The generation ledger remained exactly 148 rows/$25.14 before and after;
+  director schedules, call events, executions, and generation claims remained
+  zero. The VPS render is 1920x1080, 24 fps, 18.000 seconds, and 432 frames;
+  two VPS renders are byte-identical at SHA-256
+  `fc3c6e265b03822a85c4b65c66b75ad50e7127c88a879e5ef1d5b6eb188f567f`.
+  No provider generation, repair, upload, or publication ran.
