@@ -719,7 +719,7 @@ def test_legacy_v1_journals_resume_with_original_ffmpeg_semantics(state: str):
     [
         (None, False, "requires the Remotion renderer"),
         ("ffmpeg", True, "does not match its durable journal"),
-        (None, True, "selected durable remotion"),
+        (None, True, "retry reached durable source I/O"),
     ],
 )
 async def test_durable_v2_remotion_controls_retry_before_source_io(
@@ -733,6 +733,23 @@ async def test_durable_v2_remotion_controls_retry_before_source_io(
         "assembly_version": compositor.ASSEMBLY_VERSION_V2,
         "runtime_hash": runtime_hash,
         "render_engine": "remotion",
+        "sections": [
+            {
+                "section_id": "section-1",
+                "assets": [
+                    {
+                        "asset_id": "asset-1",
+                        "source_url": "fixture://asset-1",
+                        "source_sha256": "0" * 64,
+                    }
+                ],
+                "audio": {
+                    "source_urls": [],
+                    "source_sha256": [],
+                    "source_duration_ms": [],
+                },
+            }
+        ],
     }
     durable_hash = contract.canonical_hash(durable_body)
     durable = {**durable_body, "manifest_hash": durable_hash}
@@ -789,15 +806,10 @@ async def test_durable_v2_remotion_controls_retry_before_source_io(
     async def forbidden_download(_url, _path):
         nonlocal touched_source_io
         touched_source_io = True
-        raise AssertionError("retry selection must happen before source I/O")
-
-    class SelectionReached(RuntimeError):
-        pass
+        raise AssertionError("retry reached durable source I/O")
 
     def selected_build(**kwargs):
-        assert kwargs["render_engine"] == "remotion"
-        assert kwargs["assembly_version"] == compositor.ASSEMBLY_VERSION_V2
-        raise SelectionReached("selected durable remotion")
+        raise AssertionError("durable retry must not rebuild its manifest")
 
     async def renderer(**_kwargs):
         raise AssertionError("rendering is outside this selection test")
@@ -815,7 +827,9 @@ async def test_durable_v2_remotion_controls_retry_before_source_io(
             render_engine=requested_engine,
             remotion_renderer=renderer if renderer_available else None,
         )
-    assert touched_source_io is False
+    assert touched_source_io == (
+        renderer_available and requested_engine is None
+    )
 
 
 @pytest.mark.asyncio

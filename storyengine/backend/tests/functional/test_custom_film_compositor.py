@@ -1580,6 +1580,208 @@ async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
     assert result["final_video_url"] == "storage://exact-final"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift_source_hash", [False, True])
+async def test_durable_retry_uses_exact_stored_manifest_source_graph_and_storage(
+    monkeypatch,
+    drift_source_hash: bool,
+):
+    values = _fixture()
+    durable = _build(values)
+    durable["assembly_version"] = compositor.ASSEMBLY_VERSION_V3
+    durable["render_engine"] = "remotion"
+    durable["renderer_contract_version"] = (
+        custom_film_remotion.REMOTION_RENDERER_CONTRACT_VERSION
+    )
+    durable["renderer_bundle_hash"] = (
+        "079aeed1113945e630950f9ea116e497"
+        "029788bb60df5d08ad3f4e4a44163eca"
+    )
+    durable["orchestration_contract"] = {"fixture": "approved"}
+    source_bytes: dict[str, bytes] = {}
+    expected_source_keys: set[str] = set()
+    for section in durable["sections"]:
+        for asset in section["assets"]:
+            payload = f"stored:{asset['source_url']}".encode()
+            source_bytes[str(asset["source_url"])] = payload
+            asset["source_sha256"] = hashlib.sha256(payload).hexdigest()
+            expected_source_keys.add(str(asset["asset_id"]))
+        for index, url in enumerate(section["audio"]["source_urls"]):
+            payload = f"stored:{url}".encode()
+            source_bytes[str(url)] = payload
+            section["audio"]["source_sha256"][index] = hashlib.sha256(
+                payload
+            ).hexdigest()
+            section["audio"]["source_duration_ms"][index] = 2000
+            expected_source_keys.add(
+                f"audio:{section['section_id']}:{index}"
+            )
+    durable_body = copy.deepcopy(durable)
+    durable_body.pop("manifest_hash", None)
+    durable_hash = contract.canonical_hash(durable_body)
+    durable = {**durable_body, "manifest_hash": durable_hash}
+    runtime_hash = durable["runtime_hash"]
+    storage_path = compositor.assembly_storage_path(
+        VIDEO, runtime_hash, durable_hash
+    )
+    runtime_job_id = durable["runtime_job_id"]
+    current = copy.deepcopy(values)
+    for asset in current["asset_rows"]:
+        asset["image_url"] = f"fixture://current-image-{asset['asset_id']}"
+        asset["video_clip_url"] = (
+            f"fixture://current-clip-{asset['asset_id']}"
+            if asset["video_clip_url"]
+            else None
+        )
+        asset["source_sha256"] = "f" * 64
+    for supplement in current["section_supplements"].values():
+        supplement["voice_over_urls"] = ["fixture://current-voice"]
+        supplement["voice_over_sha256"] = ["e" * 64]
+        supplement["voice_over_duration_ms"] = [999]
+
+    existing = {
+        "state": "retryable_failed",
+        "runtime_job_id": runtime_job_id,
+        "manifest_version": compositor.ASSEMBLY_VERSION_V3,
+        "manifest_hash": durable_hash,
+        "manifest": durable,
+        "artifact_sha256": None,
+        "artifact_probe": None,
+        "storage_path": storage_path,
+        "final_video_url": None,
+    }
+    journal = {
+        "state": "retryable_failed",
+        "manifest_hash": durable_hash,
+        "artifact_sha256": None,
+        "artifact_probe": None,
+        "storage_path": storage_path,
+        "final_video_url": None,
+        "runtime_job_id": runtime_job_id,
+        "progress": {
+            "phase": "prepared",
+            "completed_sections": 0,
+            "total_sections": len(durable["sections"]),
+        },
+    }
+
+    class Transaction:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Connection:
+        async def fetchrow(self, query, *_args):
+            return journal if "FOR UPDATE" in query else existing
+
+        async def execute(self, _query, *_args):
+            return "OK"
+
+        def transaction(self):
+            return Transaction()
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    async def load_inputs(
+        _tenant_id,
+        _video_id,
+        *,
+        expected_runtime_job_id=None,
+    ):
+        assert expected_runtime_job_id is None
+        return current
+
+    downloaded_urls: list[str] = []
+
+    async def download(url: str, path: Path):
+        downloaded_urls.append(url)
+        payload = source_bytes[url]
+        if drift_source_hash and not url.startswith("fixture://voice"):
+            payload += b":changed"
+        path.write_bytes(payload)
+
+    async def probe(_path: Path):
+        return {
+            "has_audio": True,
+            "has_video": False,
+            "duration_seconds": 2.0,
+        }
+
+    class ResumeReached(RuntimeError):
+        pass
+
+    async def render_exact_manifest(
+        manifest,
+        *,
+        source_paths,
+        **_kwargs,
+    ):
+        assert manifest == durable
+        assert manifest["manifest_hash"] == durable_hash
+        assert set(source_paths) == expected_source_keys
+        raise ResumeReached("exact durable render reached")
+
+    def forbidden_build(**_kwargs):
+        raise AssertionError("durable retry must not rebuild its manifest")
+
+    async def renderer(**_kwargs):
+        raise AssertionError("render seam is replaced by this test")
+
+    monkeypatch.setitem(
+        sys.modules, "database", types.SimpleNamespace(get_pool=get_pool)
+    )
+    monkeypatch.setattr(compositor, "_load_current_inputs", load_inputs)
+    monkeypatch.setattr(compositor, "build_assembly_manifest", forbidden_build)
+    monkeypatch.setattr(compositor, "probe_media", probe)
+    monkeypatch.setattr(
+        compositor, "render_manifest_with_engine", render_exact_manifest
+    )
+    monkeypatch.setattr(
+        custom_film_remotion, "renderer_bundle_hash", lambda: "d" * 64
+    )
+
+    expected_error = (
+        "durable asset source hash changed"
+        if drift_source_hash
+        else "exact durable render reached"
+    )
+    with pytest.raises(Exception, match=expected_error):
+        await compositor.render_custom_film_video(
+            VIDEO,
+            TENANT,
+            downloader=download,
+            render_engine="remotion",
+            remotion_renderer=renderer,
+        )
+    durable_urls = {
+        str(asset["source_url"])
+        for section in durable["sections"]
+        for asset in section["assets"]
+    } | {
+        str(url)
+        for section in durable["sections"]
+        for url in section["audio"]["source_urls"]
+    }
+    if drift_source_hash:
+        assert downloaded_urls[0] in durable_urls
+    else:
+        assert set(downloaded_urls) == durable_urls
+
+
 def test_schema_and_render_door_are_durable_and_isolated():
     root = Path(__file__).resolve().parents[3]
     migration = (
