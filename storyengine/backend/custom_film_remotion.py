@@ -57,6 +57,11 @@ _SEMANTICALLY_COMPATIBLE_RENDERER_BUNDLES = {
     REMOTION_RENDERER_CONTRACT_VERSION: frozenset(
         {
             "079aeed1113945e630950f9ea116e497029788bb60df5d08ad3f4e4a44163eca",
+            # Exact renderer immediately before bounded parallel PNG capture.
+            # Frame identity and delivery semantics are unchanged: every PNG
+            # is still validated and hashed by numeric frame name before the
+            # ordered, single-thread delivery encode.
+            "79d403ad4ae67fcb9ee4588a2f41369ef8263ae2d46b5c08666299b6089925bd",
         }
     )
 }
@@ -1151,6 +1156,8 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
 ProgressCallback = Callable[[str], Awaitable[None]]
 _PROCESS_LOG_LIMIT = 16_384
 _DEFAULT_RENDER_TIMEOUT_SECONDS = 7_200
+_FRAME_SEQUENCE_CONCURRENCY = 3
+_AUDIO_CAPTURE_CONCURRENCY = 1
 _AAC_PACKET_PADDING_SECONDS = (1024 / 48_000) + 0.002
 _STREAM_COVERAGE_TOLERANCE_SECONDS = 0.002
 _RAW_VIDEO_TAIL_PADDING_FRAMES = 1
@@ -2802,7 +2809,7 @@ async def run_remotion_renderer(
                 f"--public-dir={workdir / 'public'}", "--sequence",
                 "--image-format=png",
                 "--image-sequence-pattern=frame-[frame].[ext]",
-                "--concurrency=1", "--gl=angle",
+                f"--concurrency={_FRAME_SEQUENCE_CONCURRENCY}", "--gl=angle",
                 f"--browser-executable={browser}",
             ]
             await _run_local_command(
@@ -2815,7 +2822,7 @@ async def run_remotion_renderer(
                 str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
                 str(capture_audio), f"--props={props_path}",
                 f"--public-dir={workdir / 'public'}", "--codec=wav",
-                "--concurrency=1", "--gl=angle",
+                f"--concurrency={_AUDIO_CAPTURE_CONCURRENCY}", "--gl=angle",
                 f"--browser-executable={browser}",
             ]
             await _run_local_command(
