@@ -23,6 +23,7 @@ from custom_film_director import (
     FilmBible,
     ShotDraft,
     compile_director_contract,
+    validate_director_contract,
 )
 from custom_film_director_multipass import (
     INITIAL_OPERATION_KINDS,
@@ -143,7 +144,7 @@ class ShotOutlineDraft(_StrictModel):
     shots: tuple[ShotOutlineRow, ...] = Field(min_length=1, max_length=2_000)
 
 
-def _event(
+def build_director_call_event(
     operation: Mapping[str, Any],
     *,
     event_kind: str,
@@ -217,7 +218,10 @@ class InMemoryDirectorCallJournal:
     async def claim(self, operation: Mapping[str, Any]) -> Mapping[str, Any]:
         rows = self._rows(str(operation["operation_id"]))
         if not rows:
-            started = _event(operation, event_kind="attempt_started")
+            started = build_director_call_event(
+                operation,
+                event_kind="attempt_started",
+            )
             self._events.append(started)
             return {"status": "claimed", "event": copy.deepcopy(started)}
         if (
@@ -244,7 +248,7 @@ class InMemoryDirectorCallJournal:
         rows = self._rows(str(operation["operation_id"]))
         if len(rows) != 1 or rows[0]["event_kind"] != "attempt_started":
             raise _executor_error("Custom Film director completion is not claim-bound")
-        completed = _event(
+        completed = build_director_call_event(
             operation,
             event_kind="attempt_completed",
             result=result,
@@ -264,7 +268,7 @@ class InMemoryDirectorCallJournal:
         rows = self._rows(str(operation["operation_id"]))
         if len(rows) != 1 or rows[0]["event_kind"] != "attempt_started":
             raise _executor_error("Custom Film director failure is not claim-bound")
-        failed = _event(
+        failed = build_director_call_event(
             operation,
             event_kind="attempt_failed",
             result=result,
@@ -315,6 +319,36 @@ def _normalized_result(
     if result["output_tokens"] > int(operation["max_tokens"]):
         raise _executor_error("Custom Film director response exceeded its token ceiling")
     return result
+
+
+def _conservative_failure_result(
+    raw: Any,
+    operation: Mapping[str, Any],
+) -> dict[str, Any]:
+    value = dict(raw) if isinstance(raw, Mapping) else {}
+
+    def exact_nonnegative_int(field: str, fallback: int) -> int:
+        observed = value.get(field)
+        return observed if type(observed) is int and observed >= 0 else fallback
+
+    return {
+        "request_id": str(value.get("request_id") or "unknown"),
+        "model": str(value.get("model") or "unknown"),
+        "attempt_count": exact_nonnegative_int("attempt_count", 0),
+        "input_tokens": exact_nonnegative_int("input_tokens", 0),
+        "output_tokens": exact_nonnegative_int(
+            "output_tokens",
+            int(operation["max_tokens"]),
+        ),
+        # A malformed receipt cannot prove a lower actual charge. Preserve the
+        # full authorized unit as conservative exposure until reconciliation.
+        "actual_cost_cents": exact_nonnegative_int(
+            "actual_cost_cents",
+            int(operation["unit_max_cents"]),
+        ),
+        "finish_reason": str(value.get("finish_reason") or "unknown"),
+        "text": str(value.get("text") or ""),
+    }
 
 
 def _completed_output(event: Mapping[str, Any]) -> dict[str, Any]:
@@ -610,6 +644,11 @@ async def _attempt(
         output = _completed_output(event)
         return "valid", validate(output), None
     if status == "failed":
+        if event.get("failure_code") == "authorization_violation":
+            raise DirectorReconciliationRequired(
+                "Custom Film director authorization violation needs spend "
+                "reconciliation"
+            )
         output = event.get("output_payload")
         return (
             "invalid",
@@ -633,26 +672,19 @@ async def _attempt(
 
     try:
         result = _normalized_result(raw_result, operation)
-    except CustomFilmContractError:
+    except CustomFilmContractError as exc:
         # A returned receipt proves the attempt happened, but hidden retries or
         # over-ceiling usage are authorization failures, not repair candidates.
-        fallback = {
-            "request_id": str(raw_result.get("request_id") or "unknown"),
-            "model": str(raw_result.get("model") or "unknown"),
-            "attempt_count": int(raw_result.get("attempt_count") or 0),
-            "input_tokens": int(raw_result.get("input_tokens") or 0),
-            "output_tokens": int(raw_result.get("output_tokens") or 0),
-            "actual_cost_cents": int(raw_result.get("actual_cost_cents") or 0),
-            "finish_reason": str(raw_result.get("finish_reason") or "unknown"),
-            "text": str(raw_result.get("text") or ""),
-        }
+        fallback = _conservative_failure_result(raw_result, operation)
         await journal.fail(
             operation,
             fallback,
             failure_code="authorization_violation",
             output_payload=None,
         )
-        raise
+        raise DirectorReconciliationRequired(
+            f"{exc}; spend reconciliation is required"
+        ) from exc
 
     candidate: dict[str, Any] | None = None
     failure_code: str | None = None
@@ -913,3 +945,172 @@ async def execute_multipass_director(
             }
         ),
     }
+
+
+def validate_multipass_execution_result(
+    raw: Mapping[str, Any],
+    *,
+    stage_contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate one complete execution before durable director persistence."""
+    if not isinstance(raw, Mapping):
+        raise _executor_error("Custom Film director execution result is invalid")
+    result = copy.deepcopy(dict(raw))
+    expected_keys = {
+        "execution_model",
+        "manifest_hash",
+        "authority_hash",
+        "director_contract",
+        "director_contract_hash",
+        "initial_operation_count",
+        "repair_operation_count",
+        "terminal_call_count",
+        "actual_spend_cents",
+        "receipt_events",
+        "execution_hash",
+    }
+    if set(result) != expected_keys:
+        raise _executor_error("Custom Film director execution result shape changed")
+    approved = validate_multipass_stage_contract(stage_contract)
+    manifest = approved["manifest"]
+    if (
+        result.get("execution_model") != MULTIPASS_EXECUTION_MODEL
+        or result.get("manifest_hash") != manifest["manifest_hash"]
+        or result.get("authority_hash") != approved["authority_hash"]
+    ):
+        raise _executor_error("Custom Film director execution binding changed")
+    director = validate_director_contract(
+        result.get("director_contract"),
+        expected_plan_hash=manifest["plan_hash"],
+    )
+    if result.get("director_contract_hash") != director["contract_hash"]:
+        raise _executor_error("Custom Film director execution contract changed")
+
+    events = result.get("receipt_events")
+    if not isinstance(events, list):
+        raise _executor_error("Custom Film director receipt evidence is invalid")
+    InMemoryDirectorCallJournal(events)
+    operations = {
+        row["operation_id"]: row for row in approved["schedule"]["tasks"]
+    }
+    event_groups: dict[str, list[Mapping[str, Any]]] = {}
+    for event in events:
+        operation = operations.get(str(event.get("operation_id") or ""))
+        if (
+            operation is None
+            or event.get("operation_kind") != operation["operation_kind"]
+            or event.get("input_hash") != operation["input_hash"]
+        ):
+            raise _executor_error("Custom Film director receipt is not authorized")
+        actual_cost = event.get("actual_cost_cents")
+        if (
+            type(actual_cost) is not int
+            or actual_cost < 0
+            or actual_cost > int(operation["unit_max_cents"])
+        ):
+            raise _executor_error("Custom Film director receipt cost is unauthorized")
+        if event.get("event_kind") == "attempt_started":
+            if (
+                actual_cost != 0
+                or event.get("output_payload") is not None
+                or event.get("output_hash") is not None
+            ):
+                raise _executor_error("Custom Film director start receipt changed")
+        else:
+            output_payload = event.get("output_payload")
+            output_hash = event.get("output_hash")
+            if output_payload is not None and canonical_hash(
+                output_payload
+            ) != output_hash:
+                raise _executor_error("Custom Film director receipt output changed")
+            if (
+                event.get("event_kind") == "attempt_completed"
+                and not isinstance(output_payload, Mapping)
+            ):
+                raise _executor_error(
+                    "Custom Film director completion output is missing"
+                )
+        event_groups.setdefault(operation["operation_id"], []).append(event)
+
+    initial_operations = [
+        row
+        for row in operations.values()
+        if row["operation_kind"] in INITIAL_OPERATION_KINDS
+    ]
+    repair_by_initial = {
+        row["repairs_operation_id"]: row
+        for row in operations.values()
+        if row["operation_kind"] in REPAIR_OPERATION_KINDS
+    }
+    used_repairs = 0
+    for initial in initial_operations:
+        initial_events = event_groups.get(initial["operation_id"], [])
+        if (
+            len(initial_events) != 2
+            or initial_events[0]["event_kind"] != "attempt_started"
+            or initial_events[1]["event_kind"] not in TERMINAL_EVENT_KINDS
+        ):
+            raise _executor_error("Custom Film director initial receipt is incomplete")
+        repair = repair_by_initial.get(initial["operation_id"])
+        if repair is None:
+            raise _executor_error("Custom Film director repair authority changed")
+        repair_events = event_groups.get(repair["operation_id"], [])
+        if initial_events[1]["event_kind"] == "attempt_completed":
+            if repair_events:
+                raise _executor_error("Custom Film director used an unneeded repair")
+            continue
+        if initial_events[1].get("failure_code") not in {
+            "validation_failure",
+            "incomplete_response",
+        }:
+            raise _executor_error(
+                "Custom Film director authorization failure cannot be repaired"
+            )
+        if (
+            len(repair_events) != 2
+            or repair_events[0]["event_kind"] != "attempt_started"
+            or repair_events[1]["event_kind"] != "attempt_completed"
+        ):
+            raise _executor_error("Custom Film director repair receipt is incomplete")
+        used_repairs += 1
+    if any(
+        operation["operation_kind"] in REPAIR_OPERATION_KINDS
+        and operation_id not in {
+            repair_by_initial[initial["operation_id"]]["operation_id"]
+            for initial in initial_operations
+            if event_groups.get(initial["operation_id"], [])[-1][
+                "event_kind"
+            ]
+            == "attempt_failed"
+        }
+        for operation_id, operation in operations.items()
+        if event_groups.get(operation_id)
+    ):
+        raise _executor_error("Custom Film director repair receipt is unpaired")
+
+    spend_cents = _journal_spend(events)
+    terminal_calls = sum(
+        row.get("event_kind") in TERMINAL_EVENT_KINDS for row in events
+    )
+    if (
+        type(result.get("actual_spend_cents")) is not int
+        or result["actual_spend_cents"] != spend_cents
+        or spend_cents > approved["stage_quote"]["stage_max_cents"]
+        or result.get("initial_operation_count") != len(initial_operations)
+        or result.get("repair_operation_count") != used_repairs
+        or result.get("terminal_call_count") != terminal_calls
+    ):
+        raise _executor_error("Custom Film director execution receipts do not reconcile")
+    expected_execution_hash = canonical_hash(
+        {
+            "manifest_hash": manifest["manifest_hash"],
+            "authority_hash": approved["authority_hash"],
+            "director_contract_hash": director["contract_hash"],
+            "receipt_event_hashes": [row["event_hash"] for row in events],
+            "actual_spend_cents": spend_cents,
+        }
+    )
+    if result.get("execution_hash") != expected_execution_hash:
+        raise _executor_error("Custom Film director execution hash changed")
+    result["director_contract"] = director
+    return result

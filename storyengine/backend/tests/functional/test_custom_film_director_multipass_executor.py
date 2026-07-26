@@ -459,6 +459,13 @@ async def test_complete_fifty_shot_fake_execution_uses_nine_calls_and_no_repairs
         for call in client.calls
     )
     assert len(journal.events()) == 18
+    assert (
+        executor.validate_multipass_execution_result(
+            result,
+            stage_contract=contract,
+        )
+        == result
+    )
 
 
 @pytest.mark.asyncio
@@ -604,6 +611,59 @@ async def test_hidden_retry_cost_or_token_overage_is_authorization_failure(
 
 
 @pytest.mark.asyncio
+async def test_authorization_violation_replay_cannot_consume_repair_slot():
+    journal = executor.InMemoryDirectorCallJournal()
+    bad_client = FakeSingleAttemptClient(attempt_count=2)
+    contract = _stage_contract()
+    with pytest.raises(executor.DirectorReconciliationRequired):
+        await executor.execute_multipass_director(
+            stage_contract=contract,
+            user_request="Make the route investigation.",
+            client=bad_client,
+            journal=journal,
+        )
+
+    resumed_client = FakeSingleAttemptClient()
+    with pytest.raises(
+        executor.DirectorReconciliationRequired,
+        match="authorization violation",
+    ):
+        await executor.execute_multipass_director(
+            stage_contract=contract,
+            user_request="Make the route investigation.",
+            client=resumed_client,
+            journal=journal,
+        )
+
+    assert len(bad_client.calls) == 1
+    assert resumed_client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_malformed_attempt_receipt_records_conservative_unit_exposure():
+    class MalformedReceiptClient(FakeSingleAttemptClient):
+        async def execute_once(self, **kwargs):
+            await super().execute_once(**kwargs)
+            return {"request_id": "bad-receipt", "actual_cost_cents": "unknown"}
+
+    contract = _stage_contract()
+    journal = executor.InMemoryDirectorCallJournal()
+    with pytest.raises(executor.DirectorReconciliationRequired):
+        await executor.execute_multipass_director(
+            stage_contract=contract,
+            user_request="Make the route investigation.",
+            client=MalformedReceiptClient(),
+            journal=journal,
+        )
+
+    terminal = journal.events()[-1]
+    assert terminal["failure_code"] == "authorization_violation"
+    assert terminal["actual_cost_cents"] == contract["schedule"]["tasks"][0][
+        "unit_max_cents"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_failed_repair_stops_without_whole_contract_reroll():
     contract = _stage_contract()
     initial, repair = _initial_and_repair(contract, "shot_outline")
@@ -664,14 +724,17 @@ async def test_truncated_initial_output_may_use_only_its_authorized_repair():
 
 def test_receipt_event_hash_or_order_drift_fails_closed():
     operation = _stage_contract()["schedule"]["tasks"][0]
-    started = executor._event(operation, event_kind="attempt_started")
+    started = executor.build_director_call_event(
+        operation,
+        event_kind="attempt_started",
+    )
     tampered = copy.deepcopy(started)
     tampered["input_hash"] = "c" * 64
 
     with pytest.raises(Exception, match="receipt changed"):
         executor.InMemoryDirectorCallJournal([tampered])
 
-    terminal_only = executor._event(
+    terminal_only = executor.build_director_call_event(
         operation,
         event_kind="attempt_completed",
         result={
@@ -686,3 +749,30 @@ def test_receipt_event_hash_or_order_drift_fails_closed():
     )
     with pytest.raises(Exception, match="receipt order is invalid"):
         executor.InMemoryDirectorCallJournal([terminal_only])
+
+
+@pytest.mark.asyncio
+async def test_execution_result_receipt_or_spend_drift_fails_before_persistence():
+    contract = _stage_contract()
+    result = await executor.execute_multipass_director(
+        stage_contract=contract,
+        user_request="Make the route investigation.",
+        client=FakeSingleAttemptClient(),
+        journal=executor.InMemoryDirectorCallJournal(),
+    )
+
+    spend_drift = copy.deepcopy(result)
+    spend_drift["actual_spend_cents"] += 1
+    with pytest.raises(Exception, match="receipts do not reconcile"):
+        executor.validate_multipass_execution_result(
+            spend_drift,
+            stage_contract=contract,
+        )
+
+    event_drift = copy.deepcopy(result)
+    event_drift["receipt_events"][1]["actual_cost_cents"] += 1
+    with pytest.raises(Exception, match="receipt changed"):
+        executor.validate_multipass_execution_result(
+            event_drift,
+            stage_contract=contract,
+        )

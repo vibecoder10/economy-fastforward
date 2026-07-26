@@ -35,6 +35,8 @@ def test_director_schema_normalizes_all_review_and_admission_boundaries():
         "custom_film_visual_verifications",
         "custom_film_stage_authorities",
         "custom_film_director_stage_schedules",
+        "custom_film_director_call_events",
+        "custom_film_director_executions",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in MIGRATION
         assert f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY" in MIGRATION
@@ -60,6 +62,8 @@ def test_director_evidence_is_append_only_and_authority_consumes_once():
         "'custom_film_picture_reviews'",
         "'custom_film_visual_verifications'",
         "'custom_film_director_stage_schedules'",
+        "'custom_film_director_call_events'",
+        "'custom_film_director_executions'",
     )
     for table in append_only:
         assert table in MIGRATION
@@ -69,6 +73,12 @@ def test_director_evidence_is_append_only_and_authority_consumes_once():
     assert "NEW.consumed_at IS NULL" in MIGRATION
     assert "Custom Film stage authority is immutable" in MIGRATION
     assert "Custom Film stage authorities cannot be deleted" in MIGRATION
+    assert (
+        "UNIQUE (tenant_id, schedule_id, operation_id, event_sequence)"
+        in MIGRATION
+    )
+    assert "event_sequence = 0 AND event_kind = 'attempt_started'" in MIGRATION
+    assert "event_sequence = 1" in MIGRATION
 
 
 def test_stage_authority_lists_every_profile_independent_spend_boundary():

@@ -2266,6 +2266,7 @@ CREATE TABLE IF NOT EXISTS custom_film_director_stage_schedules (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, authority_id),
   UNIQUE (tenant_id, schedule_hash),
+  UNIQUE (tenant_id, id, plan_id, video_id, authority_id),
   FOREIGN KEY (tenant_id, plan_id, video_id)
     REFERENCES custom_film_plans(tenant_id, id, video_id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id, authority_id)
@@ -2284,6 +2285,83 @@ CREATE TABLE IF NOT EXISTS custom_film_director_stage_schedules (
 CREATE INDEX IF NOT EXISTS custom_film_director_stage_schedule_idx
   ON custom_film_director_stage_schedules
     (tenant_id, plan_id, stage, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS custom_film_director_call_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  schedule_id UUID NOT NULL,
+  authority_id UUID NOT NULL,
+  operation_id TEXT NOT NULL CHECK (
+    operation_id ~ '^custom-film-director-op:[0-9a-f]{64}$'
+  ),
+  operation_kind TEXT NOT NULL CHECK (btrim(operation_kind) <> ''),
+  operation_order_index INTEGER NOT NULL CHECK (operation_order_index >= 0),
+  event_sequence INTEGER NOT NULL CHECK (event_sequence IN (0, 1)),
+  event_kind TEXT NOT NULL CHECK (
+    event_kind IN ('attempt_started', 'attempt_completed', 'attempt_failed')
+  ),
+  input_hash TEXT NOT NULL CHECK (input_hash ~ '^[0-9a-f]{64}$'),
+  output_hash TEXT CHECK (
+    output_hash IS NULL OR output_hash ~ '^[0-9a-f]{64}$'
+  ),
+  request_id TEXT,
+  actual_cost_cents BIGINT NOT NULL DEFAULT 0
+    CHECK (actual_cost_cents >= 0),
+  event JSONB NOT NULL CHECK (jsonb_typeof(event) = 'object'),
+  event_hash TEXT NOT NULL CHECK (event_hash ~ '^[0-9a-f]{64}$'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, schedule_id, operation_id, event_sequence),
+  UNIQUE (tenant_id, event_hash),
+  FOREIGN KEY (tenant_id, schedule_id, plan_id, video_id, authority_id)
+    REFERENCES custom_film_director_stage_schedules(
+      tenant_id, id, plan_id, video_id, authority_id
+    ) ON DELETE RESTRICT,
+  CHECK (
+    (event_sequence = 0 AND event_kind = 'attempt_started')
+    OR
+    (
+      event_sequence = 1
+      AND event_kind IN ('attempt_completed', 'attempt_failed')
+    )
+  ),
+  CHECK (
+    (event_kind = 'attempt_started' AND output_hash IS NULL)
+    OR event_kind <> 'attempt_started'
+  )
+);
+
+CREATE INDEX IF NOT EXISTS custom_film_director_call_event_operation_idx
+  ON custom_film_director_call_events
+    (tenant_id, schedule_id, operation_order_index, event_sequence);
+
+CREATE TABLE IF NOT EXISTS custom_film_director_executions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  plan_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  schedule_id UUID NOT NULL,
+  authority_id UUID NOT NULL,
+  director_contract_id UUID NOT NULL,
+  execution_hash TEXT NOT NULL CHECK (execution_hash ~ '^[0-9a-f]{64}$'),
+  receipt_manifest_hash TEXT NOT NULL
+    CHECK (receipt_manifest_hash ~ '^[0-9a-f]{64}$'),
+  actual_spend_cents BIGINT NOT NULL CHECK (actual_spend_cents >= 0),
+  execution JSONB NOT NULL CHECK (jsonb_typeof(execution) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, schedule_id),
+  UNIQUE (tenant_id, director_contract_id),
+  UNIQUE (tenant_id, execution_hash),
+  FOREIGN KEY (tenant_id, schedule_id, plan_id, video_id, authority_id)
+    REFERENCES custom_film_director_stage_schedules(
+      tenant_id, id, plan_id, video_id, authority_id
+    ) ON DELETE RESTRICT,
+  FOREIGN KEY (tenant_id, director_contract_id, plan_id, video_id)
+    REFERENCES custom_film_director_contracts(
+      tenant_id, id, plan_id, video_id
+    ) ON DELETE RESTRICT
+);
 
 CREATE OR REPLACE FUNCTION protect_custom_film_director_append_only()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -2354,7 +2432,9 @@ BEGIN
     'custom_film_storyboard_reviews',
     'custom_film_picture_reviews',
     'custom_film_visual_verifications',
-    'custom_film_director_stage_schedules'
+    'custom_film_director_stage_schedules',
+    'custom_film_director_call_events',
+    'custom_film_director_executions'
   ]
   LOOP
     EXECUTE format(
@@ -2386,6 +2466,8 @@ ALTER TABLE custom_film_picture_reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_visual_verifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_stage_authorities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE custom_film_director_stage_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_director_call_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE custom_film_director_executions ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON custom_film_director_contracts FROM anon, authenticated;
 REVOKE ALL ON custom_film_shots FROM anon, authenticated;
@@ -2395,6 +2477,8 @@ REVOKE ALL ON custom_film_picture_reviews FROM anon, authenticated;
 REVOKE ALL ON custom_film_visual_verifications FROM anon, authenticated;
 REVOKE ALL ON custom_film_stage_authorities FROM anon, authenticated;
 REVOKE ALL ON custom_film_director_stage_schedules FROM anon, authenticated;
+REVOKE ALL ON custom_film_director_call_events FROM anon, authenticated;
+REVOKE ALL ON custom_film_director_executions FROM anon, authenticated;
 
 DO $policies$
 DECLARE
@@ -2408,7 +2492,9 @@ BEGIN
     'custom_film_picture_reviews',
     'custom_film_visual_verifications',
     'custom_film_stage_authorities',
-    'custom_film_director_stage_schedules'
+    'custom_film_director_stage_schedules',
+    'custom_film_director_call_events',
+    'custom_film_director_executions'
   ]
   LOOP
     BEGIN
