@@ -20,6 +20,10 @@ from custom_film_scene_control import seed_synthetic_one_scene  # noqa: E402
 from database import get_pool  # noqa: E402
 
 
+def serialize_result(result: object) -> str:
+    return json.dumps(result, indent=2, sort_keys=True, default=str)
+
+
 async def _run(tenant_id: str, video_id: str | None, *, apply: bool) -> int:
     if not apply:
         print(
@@ -41,7 +45,7 @@ async def _run(tenant_id: str, video_id: str | None, *, apply: bool) -> int:
             tenant_id=tenant_id,
             video_id=video_id,
         )
-    print(json.dumps(result, indent=2, sort_keys=True))
+    print(serialize_result(result))
     return 0
 
 
