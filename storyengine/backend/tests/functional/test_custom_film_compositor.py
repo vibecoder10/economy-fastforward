@@ -1156,6 +1156,25 @@ def test_voice_timing_only_allows_bounded_speech_preserving_adjustment():
 
 
 @pytest.mark.asyncio
+async def test_post_journal_failure_classifier_handles_real_run_error():
+    with pytest.raises(RuntimeError) as failure:
+        await compositor._run(
+            [sys.executable, "-c", "raise SystemExit(7)"]
+        )
+
+    assert compositor._assembly_failure_disposition(failure.value) == (
+        "retryable_failed",
+        "retryable",
+    )
+    assert compositor._assembly_failure_disposition(
+        FileNotFoundError("ffmpeg is unavailable")
+    ) == ("retryable_failed", "retryable")
+    assert compositor._assembly_failure_disposition(
+        contract.CustomFilmContractError("approved contract changed")
+    ) == ("terminal_failed", "terminal")
+
+
+@pytest.mark.asyncio
 async def test_repeat_then_trim_really_executes_six_seconds_to_thirty_seven(
     tmp_path: Path,
 ):
