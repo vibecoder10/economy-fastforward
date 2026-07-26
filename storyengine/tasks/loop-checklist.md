@@ -1,5 +1,23 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
+## Active mission — M8 STORYBOARD-DRIVEN CUSTOM FILM DIRECTOR LOOP
+
+### Definition of Complete
+1. Every Custom Film begins with one immutable, approval-bound film bible that locks the through-line, visual medium/style, cast identities and appearance anchors, environments, hero props, geography, timeline, and recurring visual motifs before final imagery can start.
+2. The director compiles synchronous shot records—not section summaries—with exact opening state, visible action, closing state, narrative purpose, character/environment/prop bindings, screen direction, dialogue/narration/silent-action ownership, and a measurable progression claim.
+3. Storyboards are a required low-cost review contract. A shot cannot enter final-picture or animation work until its storyboard, locks, and progression/continuity checks are approved; changing the bible or shot contract invalidates downstream approval instead of reusing stale spend authority.
+4. Paid work is staged and fail-closed. Script/director planning remains separate from storyboard imagery, final pictures, animation, voices, and assembly; each spend-bearing stage requires a fresh exact cumulative approval and no helper generation may hide outside the approved bill of materials.
+5. Every animated shot is inspected as start/middle/end visual evidence against its approved storyboard and film locks. Failed action, identity, environment, geography, timing, lip-sync, or continuity is rejected per shot with a bounded repair reason instead of silently entering the edit.
+6. Only approved shots reach the layered Remotion timeline. Dialogue scenes, purposeful third-person exposition, and silent action may use different profile-derived techniques, but film-level story/style/character/environment laws always override per-shot profile choices.
+7. Schema parity, immutable hashes, runtime gates, focused tests, and a synthetic no-provider proof pass before any deployment. New provider generation, upload, publication, and deployment remain outside this mission until Ryan grants each boundary explicitly.
+
+### Chunks
+- [ ] M8-0 CONTRACT + DATA MODEL: map the existing standard cast/environment/storyboard assets into one Custom Film director contract; add immutable film-bible, shot, storyboard-review, and visual-verification persistence with tenant isolation and fresh-schema parity.
+- [ ] M8-1 DIRECTOR COMPILER: compile the approved story into ordered shot contracts, enforce cause/effect progression and state continuity, bind every shot to locked characters/environments/props, and distinguish dialogue, third-person exposition, and silent action without allowing narration to substitute for performance.
+- [ ] M8-2 STORYBOARD GATE + STAGED AUTHORITY: require approved storyboard evidence before final pictures/animation, invalidate downstream approvals on contract drift, and split later provider work into explicit exact cumulative approval stages with no hidden helper spend.
+- [ ] M8-3 VISUAL VERIFIER + PER-SHOT REPAIR: persist start/middle/end observations, compare them to the approved shot/storyboard/locks, block failed shots, and expose deterministic repair reasons without automatically purchasing a reroll.
+- [ ] M8-4 REMOTION ADMISSION + NO-SPEND PROOF: admit only approved shots to layered Remotion, preserve exact timing/audio/caption/transition identities, run focused backend/schema/renderer tests and synthetic local proof, then stop at the paid/deploy gates.
+
 ## Active mission — M7-4 APPROVAL-TO-FINISHED-FILM TRUTH
 
 ### Definition of Complete
