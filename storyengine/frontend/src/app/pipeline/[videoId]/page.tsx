@@ -12,6 +12,7 @@ import { ChatCore } from "@/components/chat/ChatCore";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getVideo, getVideoAssets, getVideoActions, getRosterDashboard, getProductionGuide, runBuild, resetPipeline, runNextStep, advanceVideo, clearStaleTask, getExportManifest, type ExportManifest } from "@/lib/api";
+import {CUSTOM_FILM_SCENE_CONTROL_ENABLED} from "@/lib/env";
 import { clipCost, CLIP_COST_PER_MODEL } from "@/lib/next-action";
 import { useTaskWatcher, useSharedTaskWatcher, type TaskWatcherBridge, type TaskWatcherHandlers } from "@/hooks/use-task-poller";
 import { useToast } from "@/components/ui/toast";
@@ -627,6 +628,18 @@ export default function VideoDetailPage() {
         </div>
         <div className="flex items-center gap-4">
           <CostLedgerChip videoId={videoId} estimatedCost={estimatedCost} actualCost={video.total_cost || 0} />
+
+          {CUSTOM_FILM_SCENE_CONTROL_ENABLED && video.custom_film_plan_id ? (
+            <Link
+              href={`/scene-control/${encodeURIComponent(videoId)}`}
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-all active:scale-[0.98]"
+              style={{background: "var(--turquoise-bg)", color: "var(--turquoise)", border: "1px solid rgba(0,212,170,.22)"}}
+              title="Open deterministic scene-by-scene planning and review controls"
+            >
+              <Film size={16} />
+              Scene Control
+            </Link>
+          ) : null}
 
           {/* Build button — the autobuild chainer chat's "build it" uses,
               now one tap from the page (PARITY-PLAN Phase 3). Cost + target

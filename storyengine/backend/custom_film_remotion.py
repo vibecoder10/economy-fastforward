@@ -49,6 +49,22 @@ RESUMABLE_JOURNAL_STATES = frozenset(
         "finalized",
     }
 )
+# This exact durable renderer predates only the bounded video-tail and exact
+# narration-PCM staging fixes. Those fixes make approved bytes executable
+# without changing composition, motion, timing, or delivery semantics. This is
+# a semantic-compatibility allowlist, not a generic old-bundle bypass.
+_SEMANTICALLY_COMPATIBLE_RENDERER_BUNDLES = {
+    REMOTION_RENDERER_CONTRACT_VERSION: frozenset(
+        {
+            "079aeed1113945e630950f9ea116e497029788bb60df5d08ad3f4e4a44163eca",
+            # Exact renderer immediately before bounded parallel PNG capture.
+            # Frame identity and delivery semantics are unchanged: every PNG
+            # is still validated and hashed by numeric frame name before the
+            # ordered, single-thread delivery encode.
+            "79d403ad4ae67fcb9ee4588a2f41369ef8263ae2d46b5c08666299b6089925bd",
+        }
+    )
+}
 
 _ASSEMBLY_KEYS = frozenset(
     {
@@ -155,6 +171,7 @@ _TIMING_TRANSFORM_KEYS = frozenset(
         "final_repeat_duration_ms",
         "atempo_chain",
         "caption_scale",
+        "cues",
     }
 )
 _PROPS_IDENTITY_V3_KEYS = frozenset(
@@ -532,6 +549,22 @@ def renderer_bundle_hash(project_root: Path | None = None) -> str:
     )
 
 
+def renderer_identity_is_compatible(
+    contract_version: str,
+    bundle_hash: str,
+) -> bool:
+    """Accept current identity or an exact staging-fix-compatible durable hash."""
+    if contract_version != REMOTION_RENDERER_CONTRACT_VERSION:
+        return False
+    return (
+        bundle_hash == renderer_bundle_hash()
+        or bundle_hash
+        in _SEMANTICALLY_COMPATIBLE_RENDERER_BUNDLES.get(
+            contract_version, frozenset()
+        )
+    )
+
+
 def _validate_timing_transform(value: Any, label: str) -> dict[str, Any]:
     transform = _strict_mapping(value, label, keys=_TIMING_TRANSFORM_KEYS)
     mode = _text(transform.get("mode"), f"{label} mode")
@@ -574,6 +607,14 @@ def _validate_timing_transform(value: Any, label: str) -> dict[str, Any]:
             "output_duration_ms",
             "atempo_chain",
             "caption_scale",
+        },),
+        "cue_schedule": ({
+            "mode",
+            "source_duration_ms",
+            "output_duration_ms",
+            "atempo_chain",
+            "caption_scale",
+            "cues",
         },),
         "pending_source_probe": ({
             "mode",
@@ -649,13 +690,13 @@ def resolve_durable_render_engine(
                     "Custom Film assembly v3 is reserved for Remotion"
                 )
             if (
-                manifest.get("renderer_contract_version")
-                != REMOTION_RENDERER_CONTRACT_VERSION
-                or _hash(
-                    manifest.get("renderer_bundle_hash"),
-                    "renderer bundle hash",
+                not renderer_identity_is_compatible(
+                    str(manifest.get("renderer_contract_version") or ""),
+                    _hash(
+                        manifest.get("renderer_bundle_hash"),
+                        "renderer bundle hash",
+                    ),
                 )
-                != renderer_bundle_hash()
             ):
                 raise CustomFilmContractError(
                     "Custom Film durable Remotion renderer identity changed"
@@ -732,8 +773,9 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             manifest["renderer_bundle_hash"], "renderer bundle hash"
         )
         if (
-            contract_version != REMOTION_RENDERER_CONTRACT_VERSION
-            or bundle_hash != renderer_bundle_hash()
+            not renderer_identity_is_compatible(
+                contract_version, bundle_hash
+            )
         ):
             raise CustomFilmContractError(
                 "Custom Film Remotion renderer identity changed"
@@ -972,7 +1014,7 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             )
             if (
                 caption_start < start_frame
-                or caption_start != last_caption_end
+                or caption_start < last_caption_end
                 or caption_end <= caption_start
                 or caption_end > start_frame + section_frames
                 or section_end_ms <= section_start_ms
@@ -1002,9 +1044,33 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
             raise CustomFilmContractError(
                 "Custom Film captions do not match assigned section scenes"
             )
-        if last_caption_end != start_frame + section_frames:
+        expected_caption_end = start_frame + section_frames
+        if audio_transform["mode"] == "cue_schedule":
+            cues = audio_transform["cues"]
+            if len(captions) != len(cues) or any(
+                caption["section_start_ms"] != cue["target_start_ms"]
+                or caption["section_end_ms"] != cue["target_end_ms"]
+                or canonical_hash(
+                    {
+                        "segment_index": index,
+                        "text": caption["text"],
+                    }
+                )
+                != cue["text_hash"]
+                for index, (caption, cue) in enumerate(zip(captions, cues))
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film captions changed their cue schedule"
+                )
+            expected_caption_end = start_frame + (
+                cues[-1]["target_end_ms"] * fps // 1000
+            )
+        if (
+            audio_transform["mode"] != "source_clip"
+            and last_caption_end != expected_caption_end
+        ):
             raise CustomFilmContractError(
-                "Custom Film captions do not exactly fill their section"
+                "Custom Film captions do not match approved audio"
             )
         sections.append(
             {
@@ -1086,13 +1152,32 @@ def build_remotion_props(manifest_value: Any) -> dict[str, Any]:
 ProgressCallback = Callable[[str], Awaitable[None]]
 _PROCESS_LOG_LIMIT = 16_384
 _DEFAULT_RENDER_TIMEOUT_SECONDS = 7_200
+_FRAME_SEQUENCE_CONCURRENCY = 3
+_AUDIO_CAPTURE_CONCURRENCY = 1
 _AAC_PACKET_PADDING_SECONDS = (1024 / 48_000) + 0.002
 _STREAM_COVERAGE_TOLERANCE_SECONDS = 0.002
+_RAW_VIDEO_TAIL_PADDING_FRAMES = 1
+_MIN_NATIVE_AUDIO_COVERAGE_RATIO = 0.70
 _INTERMEDIATE_CACHE_VERSION = "custom-film-remotion-intermediates-v1"
 _INTERMEDIATE_CONTENT_MANIFEST_VERSION = (
     "custom-film-remotion-intermediate-content-v1"
 )
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _staged_pcm_audio_is_exact(path: Path, approved_ms: int) -> bool:
+    """Prove the normalized WAV has the exact approved PCM identity."""
+    try:
+        with wave.open(str(path), "rb") as waveform:
+            return (
+                waveform.getcomptype() == "NONE"
+                and waveform.getframerate() == 48_000
+                and waveform.getnchannels() == 2
+                and waveform.getsampwidth() == 2
+                and waveform.getnframes() == approved_ms * 48
+            )
+    except (OSError, EOFError, wave.Error):
+        return False
 
 
 def staged_local_path_for_source_key(source_key: str, kind: str) -> str:
@@ -1111,6 +1196,7 @@ def _renderer_source_specs(
 ) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     seen: set[str] = set()
+    fps = _exact_int(props["video"]["fps"], "Remotion source fps", 1)
     for section in props["sections"]:
         source_clip = section["audio"]["mode"] == "source_clip"
         for asset in section["assets"]:
@@ -1143,6 +1229,7 @@ def _renderer_source_specs(
                         )
                     ),
                     "requires_native_audio": source_clip,
+                    "fps": fps,
                 }
             )
         for source in section["audio"]["sources"]:
@@ -1166,6 +1253,7 @@ def _renderer_source_specs(
                         1,
                     ),
                     "requires_native_audio": False,
+                    "fps": fps,
                 }
             )
     return specs
@@ -1493,7 +1581,12 @@ def _validate_props_audio_transform(
         "atempo_chain",
         "caption_scale",
     }
-    if mode not in {"none", "source_clip", "atempo"} or set(transform) != expected:
+    if mode == "cue_schedule":
+        expected.add("cues")
+    if (
+        mode not in {"none", "source_clip", "atempo", "cue_schedule"}
+        or set(transform) != expected
+    ):
         raise CustomFilmContractError(
             "Custom Film Remotion audio timing shape changed"
         )
@@ -1517,11 +1610,65 @@ def _validate_props_audio_transform(
     scale = _finite_number(
         transform["caption_scale"], "Remotion caption scale", 0.000001
     )
-    rate = math.prod(factors)
-    expected_rate = source_ms / output_duration_ms
     approximately = lambda left, right: abs(left - right) <= (
         1e-7 * max(1, abs(left), abs(right))
     )
+    if mode == "cue_schedule":
+        if factors or not approximately(scale, 1):
+            raise CustomFilmContractError(
+                "Custom Film Remotion cue schedule rate changed"
+            )
+        cues = _strict_sequence(transform["cues"], "Remotion audio cues")
+        previous_source_end = 0
+        previous_target_end = 0
+        for index, cue_value in enumerate(cues):
+            cue = _strict_mapping(cue_value, "Remotion audio cue")
+            if set(cue) != {
+                "segment_index",
+                "text_hash",
+                "source_start_ms",
+                "source_end_ms",
+                "target_start_ms",
+                "target_end_ms",
+            }:
+                raise CustomFilmContractError(
+                    "Custom Film Remotion audio cue shape changed"
+                )
+            source_start = _exact_int(
+                cue["source_start_ms"], "Remotion cue source start"
+            )
+            source_end = _exact_int(
+                cue["source_end_ms"], "Remotion cue source end", 1
+            )
+            target_start = _exact_int(
+                cue["target_start_ms"], "Remotion cue target start"
+            )
+            target_end = _exact_int(
+                cue["target_end_ms"], "Remotion cue target end", 1
+            )
+            _hash(cue["text_hash"], "Remotion cue text hash")
+            if (
+                cue["segment_index"] != index
+                or source_start < previous_source_end
+                or source_end <= source_start
+                or source_end > source_ms
+                or target_start < previous_target_end
+                or target_end <= target_start
+                or target_end > output_duration_ms
+                or target_end - target_start != source_end - source_start
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion audio cue timing changed"
+                )
+            previous_source_end = source_end
+            previous_target_end = target_end
+        if len(cues) < 2:
+            raise CustomFilmContractError(
+                "Custom Film Remotion cue schedule is incomplete"
+            )
+        return transform
+    rate = math.prod(factors)
+    expected_rate = source_ms / output_duration_ms
     if not approximately(rate, expected_rate) or not approximately(
         scale, 1 / expected_rate
     ):
@@ -1620,12 +1767,13 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
     if (
         identity.get("assembly_version") != EXPECTED_ASSEMBLY_VERSION
         or identity.get("render_engine") != "remotion"
-        or identity.get("renderer_contract_version")
-        != REMOTION_RENDERER_CONTRACT_VERSION
-        or _hash(
-            identity.get("renderer_bundle_hash"), "renderer bundle hash"
+        or not renderer_identity_is_compatible(
+            str(identity.get("renderer_contract_version") or ""),
+            _hash(
+                identity.get("renderer_bundle_hash"),
+                "renderer bundle hash",
+            ),
         )
-        != renderer_bundle_hash()
     ):
         raise CustomFilmContractError(
             "Custom Film Remotion renderer identity changed"
@@ -1839,6 +1987,19 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             audio["timing_transform"],
             output_duration_ms=section_output_ms // fps,
         )
+        if audio_transform["mode"] == "cue_schedule" and any(
+            cue[key] * fps % 1000
+            for cue in audio_transform["cues"]
+            for key in (
+                "source_start_ms",
+                "source_end_ms",
+                "target_start_ms",
+                "target_end_ms",
+            )
+        ):
+            raise CustomFilmContractError(
+                "Custom Film Remotion audio cue is not frame exact"
+            )
         source_clip = audio_mode == "source_clip"
         if source_clip != (audio_transform["mode"] == "source_clip"):
             raise CustomFilmContractError(
@@ -1894,7 +2055,7 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
             )
             if (
                 scene_id not in scene_ids
-                or start != caption_end
+                or start < caption_end
                 or end <= start
                 or end > section_start + section_frames
                 or start != section_start + section_start_ms * fps // 1000
@@ -1904,9 +2065,33 @@ def _validate_renderer_props(value: Any) -> dict[str, Any]:
                     "Custom Film Remotion caption timing changed"
                 )
             caption_end = end
-        if caption_end != section_start + section_frames:
+        expected_caption_end = section_start + section_frames
+        if audio_transform["mode"] == "cue_schedule":
+            cues = audio_transform["cues"]
+            if len(captions) != len(cues) or any(
+                caption["section_start_ms"] != cue["target_start_ms"]
+                or caption["section_end_ms"] != cue["target_end_ms"]
+                or canonical_hash(
+                    {
+                        "segment_index": index,
+                        "text": caption["text"],
+                    }
+                )
+                != cue["text_hash"]
+                for index, (caption, cue) in enumerate(zip(captions, cues))
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion captions changed cue schedule"
+                )
+            expected_caption_end = section_start + (
+                cues[-1]["target_end_ms"] * fps // 1000
+            )
+        if (
+            audio_transform["mode"] != "source_clip"
+            and caption_end != expected_caption_end
+        ):
             raise CustomFilmContractError(
-                "Custom Film Remotion captions do not fill their section"
+                "Custom Film Remotion captions do not match approved audio"
             )
         film_frame += section_frames
     if film_frame != frames:
@@ -2202,6 +2387,27 @@ async def _probe_renderer_media(path: Path) -> Mapping[str, Any]:
         "duration_seconds": duration,
         "video_duration_seconds": stream_duration("video"),
         "audio_duration_seconds": stream_duration("audio"),
+        "video_frame_count": next(
+            (
+                int(stream["nb_frames"])
+                for stream in streams
+                if isinstance(stream, Mapping)
+                and stream.get("codec_type") == "video"
+                and str(stream.get("nb_frames") or "").isdigit()
+            ),
+            None,
+        ),
+        "video_avg_frame_rate": next(
+            (
+                str(stream["avg_frame_rate"])
+                for stream in streams
+                if isinstance(stream, Mapping)
+                and stream.get("codec_type") == "video"
+                and str(stream.get("avg_frame_rate") or "")
+                not in {"", "0/0", "N/A"}
+            ),
+            None,
+        ),
     }
 
 
@@ -2212,17 +2418,65 @@ async def _stage_renderer_sources(
     staging: Path,
     log_path: Path,
 ) -> list[dict[str, Any]]:
-    def native_audio_covers_video(probe: Mapping[str, Any]) -> bool:
+    def raw_video_duration_is_bounded(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
+        video_duration = probe.get("video_duration_seconds")
+        if video_duration is None:
+            return False
+        approved_seconds = spec["source_duration_ms"] / 1000
+        tail_seconds = float(video_duration) - approved_seconds
+        return (
+            tail_seconds >= -0.000001
+            and tail_seconds
+            <= (
+                _RAW_VIDEO_TAIL_PADDING_FRAMES / spec["fps"]
+                + 0.000001
+            )
+        )
+
+    def raw_native_audio_is_bounded(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
         video_duration = probe.get("video_duration_seconds")
         audio_duration = probe.get("audio_duration_seconds")
         if video_duration is None or audio_duration is None:
             return False
+        approved_seconds = spec["source_duration_ms"] / 1000
         video_seconds = float(video_duration)
         audio_seconds = float(audio_duration)
         return (
             audio_seconds + _STREAM_COVERAGE_TOLERANCE_SECONDS
-            >= video_seconds
+            >= approved_seconds * _MIN_NATIVE_AUDIO_COVERAGE_RATIO
             and audio_seconds - video_seconds <= _AAC_PACKET_PADDING_SECONDS
+        )
+
+    def staged_video_is_exact(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
+        approved_seconds = spec["source_duration_ms"] / 1000
+        approved_frames = spec["source_duration_ms"] * spec["fps"] // 1000
+        video_duration = probe.get("video_duration_seconds")
+        return (
+            bool(probe["has_video"])
+            and video_duration is not None
+            and abs(float(video_duration) - approved_seconds)
+            <= _STREAM_COVERAGE_TOLERANCE_SECONDS
+            and probe.get("video_frame_count") == approved_frames
+            and probe.get("video_avg_frame_rate") == f"{spec['fps']}/1"
+        )
+
+    def staged_native_audio_is_exact(
+        probe: Mapping[str, Any], spec: Mapping[str, Any]
+    ) -> bool:
+        audio_duration = probe.get("audio_duration_seconds")
+        if audio_duration is None:
+            return False
+        approved_seconds = spec["source_duration_ms"] / 1000
+        delta = float(audio_duration) - approved_seconds
+        return (
+            delta >= -_STREAM_COVERAGE_TOLERANCE_SECONDS
+            and delta <= _AAC_PACKET_PADDING_SECONDS
         )
 
     specs = _renderer_source_specs(props)
@@ -2266,17 +2520,14 @@ async def _stage_renderer_sources(
                 == spec["source_duration_ms"]
             )
         else:
-            raw_duration = raw_probe.get("video_duration_seconds")
             valid_raw = (
                 bool(raw_probe["has_video"])
-                and raw_duration is not None
-                and round(float(raw_duration) * 1000)
-                == spec["source_duration_ms"]
+                and raw_video_duration_is_bounded(raw_probe, spec)
                 and (
                     not spec["requires_native_audio"]
                     or (
                         bool(raw_probe["has_audio"])
-                        and native_audio_covers_video(raw_probe)
+                        and raw_native_audio_is_bounded(raw_probe, spec)
                     )
                 )
             )
@@ -2293,33 +2544,68 @@ async def _stage_renderer_sources(
                 "-c:v", "png", "-map_metadata", "-1", str(staged),
             ]
         elif spec["kind"] == "audio":
+            approved_samples = spec["source_duration_ms"] * 48
             command = [
                 "ffmpeg", "-y", "-i", str(raw), "-map", "0:a:0",
+                "-af",
+                (
+                    "aresample=48000,apad,"
+                    f"atrim=end_sample={approved_samples},"
+                    "asetpts=N/SR/TB"
+                ),
                 "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
                 "-map_metadata", "-1", str(staged),
             ]
         else:
-            command = ["ffmpeg", "-y", "-i", str(raw), "-map", "0:v:0"]
+            approved_frames = (
+                spec["source_duration_ms"] * spec["fps"] // 1000
+            )
+            if approved_frames * 1000 != (
+                spec["source_duration_ms"] * spec["fps"]
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film Remotion approved video is not frame exact"
+                )
+            command = ["ffmpeg", "-y", "-i", str(raw)]
             if spec["requires_native_audio"]:
                 approved_samples = spec["source_duration_ms"] * 48
                 command.extend(
                     [
-                        "-map",
-                        "0:a:0",
-                        "-af",
+                        "-filter_complex",
                         (
-                            f"aresample=48000,atrim=end_sample={approved_samples},"
-                            "asetpts=N/SR/TB"
+                            f"[0:v:0]fps={spec['fps']},"
+                            f"trim=end_frame={approved_frames},"
+                            f"setpts=N/({spec['fps']}*TB)[video];"
+                            "[0:a:0]aresample=48000,apad,"
+                            f"atrim=end_sample={approved_samples},"
+                            "asetpts=N/SR/TB[audio]"
                         ),
+                        "-map",
+                        "[video]",
+                        "-map",
+                        "[audio]",
                     ]
                 )
             else:
-                command.extend(["-map", "0:a?"])
+                command.extend(
+                    [
+                        "-vf",
+                        (
+                            f"fps={spec['fps']},"
+                            f"trim=end_frame={approved_frames},"
+                            f"setpts=N/({spec['fps']}*TB)"
+                        ),
+                        "-map",
+                        "0:v:0",
+                        "-an",
+                    ]
+                )
             command.extend(
                 [
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
                     "-pix_fmt", "yuv420p", "-c:a", "aac", "-ar", "48000",
-                    "-ac", "2", "-map_metadata", "-1", str(staged),
+                    "-ac", "2", "-frames:v", str(approved_frames),
+                    "-map_metadata", "-1", str(staged),
                 ]
             )
         await _run_local_command(
@@ -2339,26 +2625,25 @@ async def _stage_renderer_sources(
                 and not bool(staged_probe["has_audio"])
             )
         elif spec["kind"] == "audio":
-            staged_duration = staged_probe.get("audio_duration_seconds")
             valid_staged = (
                 bool(staged_probe["has_audio"])
                 and not bool(staged_probe["has_video"])
-                and staged_duration is not None
-                and round(float(staged_duration) * 1000)
-                == spec["source_duration_ms"]
+                and _staged_pcm_audio_is_exact(
+                    staged, spec["source_duration_ms"]
+                )
             )
         else:
-            staged_duration = staged_probe.get("video_duration_seconds")
             valid_staged = (
-                bool(staged_probe["has_video"])
-                and staged_duration is not None
-                and round(float(staged_duration) * 1000)
-                == spec["source_duration_ms"]
+                staged_video_is_exact(staged_probe, spec)
                 and (
-                    not spec["requires_native_audio"]
+                    (
+                        not spec["requires_native_audio"]
+                        and not bool(staged_probe["has_audio"])
+                    )
                     or (
-                        bool(staged_probe["has_audio"])
-                        and native_audio_covers_video(staged_probe)
+                        spec["requires_native_audio"]
+                        and bool(staged_probe["has_audio"])
+                        and staged_native_audio_is_exact(staged_probe, spec)
                     )
                 )
             )
@@ -2516,7 +2801,7 @@ async def run_remotion_renderer(
                 f"--public-dir={workdir / 'public'}", "--sequence",
                 "--image-format=png",
                 "--image-sequence-pattern=frame-[frame].[ext]",
-                "--concurrency=1", "--gl=angle",
+                f"--concurrency={_FRAME_SEQUENCE_CONCURRENCY}", "--gl=angle",
                 f"--browser-executable={browser}",
             ]
             await _run_local_command(
@@ -2529,7 +2814,7 @@ async def run_remotion_renderer(
                 str(cli), "render", str(entry), REMOTION_COMPOSITION_ID,
                 str(capture_audio), f"--props={props_path}",
                 f"--public-dir={workdir / 'public'}", "--codec=wav",
-                "--concurrency=1", "--gl=angle",
+                f"--concurrency={_AUDIO_CAPTURE_CONCURRENCY}", "--gl=angle",
                 f"--browser-executable={browser}",
             ]
             await _run_local_command(

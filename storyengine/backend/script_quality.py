@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -153,6 +153,77 @@ def _rules_addendum(rules_text: str) -> str:
     )
 
 
+def _strict_rules_addendum(
+    rules_text: str,
+    rule_ids: Sequence[str],
+    *,
+    retry: bool = False,
+) -> str:
+    ids = ", ".join(rule_ids)
+    retry_law = (
+        "\nRETRY CONTRACT: The prior response was empty, malformed, or "
+        "truncated. Return one compact JSON object on one line, no markdown. "
+        "Keep every note under 16 words."
+        if retry
+        else ""
+    )
+    return (
+        "\n\nADDITIONALLY grade the script against exactly these authored rule "
+        f"IDs, in this exact order: {ids}.\n"
+        "The rules text may contain nested explanatory prose. That prose is "
+        "context for its parent rule ID, never another output rule.\n"
+        "--- EXACT RULE CONTRACTS ---\n"
+        + rules_text.strip()
+        + "\n--- END EXACT RULE CONTRACTS ---\n"
+        "Return exactly one rule_verdicts entry for each listed ID and no other "
+        "rule names. A failed authored rule can justify revise even when the "
+        "universal gates pass."
+        + retry_law
+        + "\nReturn ONLY this JSON: "
+        '{"verdict":"pass|revise|regenerate","score":int,'
+        '"failing_gates":[string,...],"rewrite_guidance":string,'
+        '"rule_verdicts":[{"rule":"EXACT_ID","passed":bool,"note":string},...]}'
+    )
+
+
+def _parse_critique_result(
+    raw: Any,
+    *,
+    strict_rule_ids: Sequence[str],
+) -> CritiqueResult:
+    if strict_rule_ids and not str(raw or "").strip():
+        raise ValueError("empty critic response")
+    decoded = json.loads(_extract_json(str(raw or "")))
+    if strict_rule_ids:
+        if not isinstance(decoded, Mapping):
+            raise ValueError("critic JSON is not an object")
+        required = {
+            "verdict",
+            "score",
+            "failing_gates",
+            "rewrite_guidance",
+            "rule_verdicts",
+        }
+        if not required.issubset(decoded):
+            raise ValueError("critic JSON is missing required fields")
+    result = CritiqueResult(**decoded)
+    if strict_rule_ids:
+        observed = [verdict.rule for verdict in result.rule_verdicts]
+        if observed != list(strict_rule_ids):
+            raise ValueError(
+                "critic rule verdict IDs are missing, extra, or reordered"
+            )
+    return result
+
+
+def _safe_critique_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, json.JSONDecodeError):
+        return "malformed_json"
+    if isinstance(exc, ValueError):
+        return "invalid_or_truncated_shape"
+    return "client_or_schema_error"
+
+
 def _apply_rule_severity(
     result: CritiqueResult, severity_by_rule: Optional[Dict[str, str]]
 ) -> CritiqueResult:
@@ -187,9 +258,12 @@ async def critique_script(
     *,
     rules_text: Optional[str] = None,
     severity_by_rule: Optional[Dict[str, str]] = None,
+    strict_rule_ids: Optional[Sequence[str]] = None,
+    critic_max_tokens: Optional[int] = None,
+    retry_invalid_critique: bool = False,
     client: Any = None,
 ) -> CritiqueResult:
-    """Grade a freshly generated script (one Claude call). Lifts
+    """Grade a freshly generated script (one Claude call by default). Lifts
     ``originality.grade_script_with_client``'s shape and prompt verbatim;
     adds a second, additive grading pass against ``rules_text`` when given.
 
@@ -203,6 +277,11 @@ async def critique_script(
     rule failed but the judge's own holistic verdict missed it - see
     ``_apply_rule_severity``. Ignored when ``rules_text`` carries no rule
     ids the judge could echo back.
+
+    ``strict_rule_ids`` opts a caller into one exact verdict per authored ID.
+    With ``retry_invalid_critique=True``, an empty, malformed, truncated, or
+    wrong-ID response gets one compact-JSON retry. Defaults preserve the
+    existing DVsU/general critic behavior.
 
     ``client`` is any object with an async
     ``generate(prompt, system_prompt, max_tokens, temperature) -> str``
@@ -219,20 +298,65 @@ async def critique_script(
     try:
         system = _SCRIPT_JUDGE_SYSTEM
         text_rules = (rules_text or "").strip()
+        exact_rule_ids = tuple(strict_rule_ids or ())
         if text_rules:
-            system = system + _rules_addendum(text_rules)
+            system = system + (
+                _strict_rules_addendum(text_rules, exact_rule_ids)
+                if exact_rule_ids
+                else _rules_addendum(text_rules)
+            )
         raw = await client.generate(
             prompt=_build_script_judge_user_prompt(script_payload),
             system_prompt=system,
-            max_tokens=900 if text_rules else 700,
+            max_tokens=(
+                critic_max_tokens
+                if critic_max_tokens is not None
+                else (900 if text_rules else 700)
+            ),
             temperature=0.3,  # low, for stable gate decisions
         )
-        result = CritiqueResult(**json.loads(_extract_json(raw)))
+        try:
+            result = _parse_critique_result(
+                raw,
+                strict_rule_ids=exact_rule_ids,
+            )
+        except Exception as first_exc:
+            if not (retry_invalid_critique and exact_rule_ids):
+                raise
+            print(
+                f"[script_quality] critique parse retry for "
+                f"{str(video_id)[:8]} (tenant {str(tenant_id)[:8]}) "
+                f"class={type(first_exc).__name__} "
+                f"reason={_safe_critique_failure_reason(first_exc)}",
+                flush=True,
+            )
+            retry_system = _SCRIPT_JUDGE_SYSTEM + _strict_rules_addendum(
+                text_rules,
+                exact_rule_ids,
+                retry=True,
+            )
+            retry_raw = await client.generate(
+                prompt=_build_script_judge_user_prompt(script_payload),
+                system_prompt=retry_system,
+                max_tokens=(
+                    critic_max_tokens
+                    if critic_max_tokens is not None
+                    else 1800
+                ),
+                temperature=0.1,
+            )
+            result = _parse_critique_result(
+                retry_raw,
+                strict_rule_ids=exact_rule_ids,
+            )
         return _apply_rule_severity(result, severity_by_rule)
-    except Exception:
+    except Exception as exc:
         print(
             f"[script_quality] critique failed open for {str(video_id)[:8]} "
-            f"(tenant {str(tenant_id)[:8]})", flush=True,
+            f"(tenant {str(tenant_id)[:8]}) "
+            f"class={type(exc).__name__} "
+            f"reason={_safe_critique_failure_reason(exc)}",
+            flush=True,
         )
         return CritiqueResult(verdict="pass", failing_gates=["grade unavailable - failed open"])
 
@@ -336,6 +460,9 @@ async def run_critique_and_edit(
     hook: Optional[str] = None,
     rules_text: Optional[str] = None,
     severity_by_rule: Optional[Dict[str, str]] = None,
+    strict_rule_ids: Optional[Sequence[str]] = None,
+    critic_max_tokens: Optional[int] = None,
+    retry_invalid_critique: bool = False,
     regenerate: Optional[Callable[[], Any]] = None,
     max_edit_rounds: int = MAX_EDIT_ROUNDS,
     edit_constraints: Optional[List[str]] = None,
@@ -373,7 +500,11 @@ async def run_critique_and_edit(
         payload = {"niche": niche, "title": title, "hook": hook, "script": _full_text(current)}
         return await critique_script(
             tenant_id, video_id, payload, rules_text=rules_text,
-            severity_by_rule=severity_by_rule, client=client,
+            severity_by_rule=severity_by_rule,
+            strict_rule_ids=strict_rule_ids,
+            critic_max_tokens=critic_max_tokens,
+            retry_invalid_critique=retry_invalid_critique,
+            client=client,
         )
 
     grade = await _grade()

@@ -22,7 +22,12 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
-def _fake_vps(tmp_path: Path, *, fail_pull: bool = False) -> tuple[dict[str, str], Path, Path]:
+def _fake_vps(
+    tmp_path: Path,
+    *,
+    fail_pull: bool = False,
+    worker_dir_matches: bool = True,
+) -> tuple[dict[str, str], Path, Path]:
     home = tmp_path / "home"
     repo = home / "projects" / "economy-fastforward"
     scripts = repo / "storyengine" / "scripts"
@@ -52,12 +57,35 @@ if [ "${1:-}" = "rev-parse" ]; then echo abc1234; fi
     _write_executable(
         fake_bin / "systemctl",
         """
-if [ "${1:-}" = "show" ]; then echo 0; exit 0; fi
+printf "systemctl %s\\n" "$*" >> "$TRACE"
+if [ "${1:-}" = "show" ]; then
+  case "$*" in
+    *storyengine-worker.service*MainPID*|*MainPID*storyengine-worker.service*)
+      if [ -f "$WORKER_RESTARTED" ]; then echo 2222; else echo 1111; fi
+      ;;
+    *storyengine-worker.service*WorkingDirectory*|*WorkingDirectory*storyengine-worker.service*)
+      echo "$FAKE_BACKEND_DIR"
+      ;;
+    *storyengine-worker.service*ExecStart*|*ExecStart*storyengine-worker.service*)
+      echo "{ path=$FAKE_BACKEND_DIR/venv/bin/arq ; argv[]=$FAKE_BACKEND_DIR/venv/bin/arq worker.WorkerSettings ; }"
+      ;;
+    *) echo 0 ;;
+  esac
+  exit 0
+fi
 if [ "${2:-}" = "--quiet" ] || [ "${1:-}" = "is-active" ]; then
   [ "${2:-}" = "--quiet" ] || echo active
   exit 0
 fi
 exit 0
+""",
+    )
+    _write_executable(
+        fake_bin / "kill",
+        """
+printf "kill %s\\n" "$*" >> "$TRACE"
+[ "${1:-}" = "-9" ] && [ "${2:-}" = "1111" ]
+touch "$WORKER_RESTARTED"
 """,
     )
     _write_executable(
@@ -79,6 +107,11 @@ echo '{"status":"healthy","drain":{"draining":true}}'
         "TRACE": str(trace),
         "FAIL_PULL": "1" if fail_pull else "0",
         "DRAIN_TIMEOUT_SECONDS": "10",
+        "STORYENGINE_KILL_BIN": str(fake_bin / "kill"),
+        "WORKER_RESTARTED": str(tmp_path / "worker-restarted"),
+        "FAKE_BACKEND_DIR": str(
+            repo / "storyengine" / ("backend" if worker_dir_matches else "stale-backend")
+        ),
     }
     return env, scripts / "vps-deploy.sh", trace
 
@@ -99,7 +132,14 @@ def test_deploy_drains_waits_deploys_verifies_then_undrains(tmp_path):
     wait = next(i for i, line in enumerate(events) if " wait --timeout " in line)
     pull = next(i for i, line in enumerate(events) if line == "git pull --ff-only")
     undrain = next(i for i, line in enumerate(events) if " undrain --owner " in line)
-    assert drain < wait < pull < undrain
+    worker_kill = next(i for i, line in enumerate(events) if line == "kill -9 1111")
+    worker_active = max(
+        i
+        for i, line in enumerate(events)
+        if "is-active --quiet storyengine-worker.service" in line
+    )
+    assert drain < wait < pull < worker_kill < worker_active < undrain
+    assert "worker code parity: commit=abc1234" in result.stdout
     assert not (Path(env["HOME"]) / "deploy.lock").exists()
 
 
@@ -117,5 +157,23 @@ def test_deploy_failure_still_undrains_and_releases_lock(tmp_path):
     events = trace.read_text().splitlines()
     assert any(" drain --owner " in line for line in events)
     assert any(" wait --timeout " in line for line in events)
+    assert any(" undrain --owner " in line for line in events)
+    assert not (Path(env["HOME"]) / "deploy.lock").exists()
+
+
+def test_deploy_fails_closed_when_worker_checkout_does_not_match_repo(tmp_path):
+    env, script, trace = _fake_vps(tmp_path, worker_dir_matches=False)
+    result = subprocess.run(
+        ["bash", str(script), "integration-test"],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+
+    assert result.returncode == 1
+    assert "worker is not running from the deployed checkout" in result.stderr
+    events = trace.read_text().splitlines()
+    assert "kill -9 1111" in events
     assert any(" undrain --owner " in line for line in events)
     assert not (Path(env["HOME"]) / "deploy.lock").exists()

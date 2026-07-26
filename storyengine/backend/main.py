@@ -15,7 +15,56 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import get_pool, close_pool, fetch_all, fetch_one, execute
 from logging_config import logger, RequestLoggingMiddleware
 from rate_limit import RateLimitMiddleware
-from routes import dashboard, videos, assets, activity, review, pipeline, settings, autopilot, skills, agents, niche, channel_profile, projects, visual_styles, discovery, learning_extraction, youtube_sync, youtube_channel, analytics, profile, google_auth, billing, preferences, system_prompts, demo, intelligence, model_video, characters, environments, media, chat, onboarding, workspaces, queue, script_templates, model_registry, style_presets, production_styles, style_descriptions, camera_presets, script_profiles, agent_access, channel_dna, quality_rules, channel_patterns, feature_board, custom_film
+from routes import (
+    dashboard,
+    videos,
+    assets,
+    activity,
+    review,
+    pipeline,
+    settings,
+    autopilot,
+    skills,
+    agents,
+    niche,
+    channel_profile,
+    projects,
+    visual_styles,
+    discovery,
+    learning_extraction,
+    youtube_sync,
+    youtube_channel,
+    analytics,
+    profile,
+    google_auth,
+    billing,
+    preferences,
+    system_prompts,
+    demo,
+    intelligence,
+    model_video,
+    characters,
+    environments,
+    media,
+    chat,
+    onboarding,
+    workspaces,
+    queue,
+    script_templates,
+    model_registry,
+    style_presets,
+    production_styles,
+    style_descriptions,
+    camera_presets,
+    script_profiles,
+    agent_access,
+    channel_dna,
+    quality_rules,
+    channel_patterns,
+    feature_board,
+    custom_film,
+    custom_film_scene_control,
+)
 from routes.autopilot import _bg_task_status
 from routes.pipeline import recover_stale_tasks, reap_stale_running_tasks
 from job_queue import enqueue_stage
@@ -102,15 +151,42 @@ async def _auto_extract_learnings():
                     )
 
                     if videos:
-                        _update_bg_status(tenant_id, "learning_extraction", is_running=True, last_error=None)
-                        from routes.learning_extraction import extract_learnings as _extract
+                        _update_bg_status(
+                            tenant_id,
+                            "learning_extraction",
+                            is_running=True,
+                            last_error=None,
+                        )
+                        from routes.learning_extraction import (
+                            extract_learnings as _extract,
+                        )
+
                         result = await _extract(tenant_id=tenant_id)
-                        _update_bg_status(tenant_id, "learning_extraction", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                        logger.info("[AutoExtract] Tenant %s: %d patterns from %d videos (%d new, %d updated)", tenant_id[:8], result.patterns_extracted, result.videos_analyzed, result.patterns_new, result.patterns_updated)
+                        _update_bg_status(
+                            tenant_id,
+                            "learning_extraction",
+                            is_running=False,
+                            last_run=datetime.now(timezone.utc).isoformat(),
+                        )
+                        logger.info(
+                            "[AutoExtract] Tenant %s: %d patterns from %d videos (%d new, %d updated)",
+                            tenant_id[:8],
+                            result.patterns_extracted,
+                            result.videos_analyzed,
+                            result.patterns_new,
+                            result.patterns_updated,
+                        )
                     else:
-                        logger.info("[AutoExtract] Tenant %s: no new videos", tenant_id[:8])
+                        logger.info(
+                            "[AutoExtract] Tenant %s: no new videos", tenant_id[:8]
+                        )
                 except Exception as e:
-                    _update_bg_status(tenant_id, "learning_extraction", is_running=False, last_error=str(e))
+                    _update_bg_status(
+                        tenant_id,
+                        "learning_extraction",
+                        is_running=False,
+                        last_error=str(e),
+                    )
                     logger.error("[AutoExtract] Tenant %s error: %s", tenant_id[:8], e)
 
         except Exception as e:
@@ -150,16 +226,27 @@ async def _auto_sync_youtube():
                     has_oauth = bool((yt_row or {}).get("youtube_refresh_token"))
                     if not has_oauth:
                         from vault import get_secret
+
                         legacy = await get_secret("google_refresh_token", tenant_id)
                         if not legacy:
                             continue
-                    _update_bg_status(tenant_id, "youtube_sync", is_running=True, last_error=None)
+                    _update_bg_status(
+                        tenant_id, "youtube_sync", is_running=True, last_error=None
+                    )
                     from routes.youtube_sync import _run_sync
+
                     await _run_sync(tenant_id)
-                    _update_bg_status(tenant_id, "youtube_sync", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
+                    _update_bg_status(
+                        tenant_id,
+                        "youtube_sync",
+                        is_running=False,
+                        last_run=datetime.now(timezone.utc).isoformat(),
+                    )
                     logger.info("[AutoYTSync] Tenant %s: sync complete", tenant_id[:8])
                 except Exception as e:
-                    _update_bg_status(tenant_id, "youtube_sync", is_running=False, last_error=str(e))
+                    _update_bg_status(
+                        tenant_id, "youtube_sync", is_running=False, last_error=str(e)
+                    )
                     logger.error("[AutoYTSync] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
             logger.error("[AutoYTSync] Error: %s", e)
@@ -185,17 +272,45 @@ async def _auto_analyze_competitor_titles():
                 try:
                     if not await _is_autopilot_enabled(tenant_id):
                         continue
-                    _update_bg_status(tenant_id, "title_analysis", is_running=True, last_error=None)
-                    from routes.learning_extraction import analyze_competitor_titles, analyze_competitor_transcripts
+                    _update_bg_status(
+                        tenant_id, "title_analysis", is_running=True, last_error=None
+                    )
+                    from routes.learning_extraction import (
+                        analyze_competitor_titles,
+                        analyze_competitor_transcripts,
+                    )
+
                     result = await analyze_competitor_titles(tenant_id=tenant_id)
-                    title_insights = result.get("insights_saved", 0) if isinstance(result, dict) else 0
+                    title_insights = (
+                        result.get("insights_saved", 0)
+                        if isinstance(result, dict)
+                        else 0
+                    )
                     result2 = await analyze_competitor_transcripts(tenant_id=tenant_id)
-                    hook_insights = result2.get("insights_saved", 0) if isinstance(result2, dict) else 0
-                    _update_bg_status(tenant_id, "title_analysis", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                    logger.info("[AutoTitleAnalysis] Tenant %s: %d title + %d hook insights saved", tenant_id[:8], title_insights, hook_insights)
+                    hook_insights = (
+                        result2.get("insights_saved", 0)
+                        if isinstance(result2, dict)
+                        else 0
+                    )
+                    _update_bg_status(
+                        tenant_id,
+                        "title_analysis",
+                        is_running=False,
+                        last_run=datetime.now(timezone.utc).isoformat(),
+                    )
+                    logger.info(
+                        "[AutoTitleAnalysis] Tenant %s: %d title + %d hook insights saved",
+                        tenant_id[:8],
+                        title_insights,
+                        hook_insights,
+                    )
                 except Exception as e:
-                    _update_bg_status(tenant_id, "title_analysis", is_running=False, last_error=str(e))
-                    logger.error("[AutoTitleAnalysis] Tenant %s error: %s", tenant_id[:8], e)
+                    _update_bg_status(
+                        tenant_id, "title_analysis", is_running=False, last_error=str(e)
+                    )
+                    logger.error(
+                        "[AutoTitleAnalysis] Tenant %s error: %s", tenant_id[:8], e
+                    )
         except Exception as e:
             logger.error("[AutoTitleAnalysis] Error: %s", e)
 
@@ -236,13 +351,29 @@ async def _auto_scrape_competitors():
                         continue
                     config = await _get_autopilot_config(tenant_id)
                     videos_per_scrape = config.get("videos_per_scrape", 10)
-                    _update_bg_status(tenant_id, "scrape", is_running=True, last_error=None)
+                    _update_bg_status(
+                        tenant_id, "scrape", is_running=True, last_error=None
+                    )
                     from routes.niche import _run_scrape
-                    await _run_scrape(tenant_id, max_videos_per_channel=videos_per_scrape)
-                    _update_bg_status(tenant_id, "scrape", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                    logger.info("[AutoScrape] Tenant %s: daily scrape complete (%d per channel)", tenant_id[:8], videos_per_scrape)
+
+                    await _run_scrape(
+                        tenant_id, max_videos_per_channel=videos_per_scrape
+                    )
+                    _update_bg_status(
+                        tenant_id,
+                        "scrape",
+                        is_running=False,
+                        last_run=datetime.now(timezone.utc).isoformat(),
+                    )
+                    logger.info(
+                        "[AutoScrape] Tenant %s: daily scrape complete (%d per channel)",
+                        tenant_id[:8],
+                        videos_per_scrape,
+                    )
                 except Exception as e:
-                    _update_bg_status(tenant_id, "scrape", is_running=False, last_error=str(e))
+                    _update_bg_status(
+                        tenant_id, "scrape", is_running=False, last_error=str(e)
+                    )
                     logger.error("[AutoScrape] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
             logger.error("[AutoScrape] Error: %s", e)
@@ -260,11 +391,16 @@ async def _auto_check_trial_warnings():
     while True:
         try:
             from email_tasks import check_trial_warnings
+
             result = await check_trial_warnings()
             checked = result.get("checked", 0)
             sent = result.get("sent", 0)
             if sent > 0:
-                logger.info("[TrialWarnings] Sent %d warning emails (%d accounts checked)", sent, checked)
+                logger.info(
+                    "[TrialWarnings] Sent %d warning emails (%d accounts checked)",
+                    sent,
+                    checked,
+                )
         except Exception as e:
             logger.error("[TrialWarnings] Error: %s", e)
 
@@ -281,12 +417,15 @@ async def _auto_check_trial_expired():
     while True:
         try:
             from email_tasks import check_trial_expired
+
             result = await check_trial_expired()
             downgraded = result.get("downgraded", 0)
             if downgraded > 0:
                 logger.info(
                     "[TrialExpired] Downgraded %d accounts, emailed %d (%d checked)",
-                    downgraded, result.get("emailed", 0), result.get("checked", 0),
+                    downgraded,
+                    result.get("emailed", 0),
+                    result.get("checked", 0),
                 )
         except Exception as e:
             logger.error("[TrialExpired] Error: %s", e)
@@ -309,6 +448,7 @@ async def _auto_reap_stale_tasks(app: FastAPI | None = None):
             dispatch_app = app or globals().get("app")
             if dispatch_app is not None:
                 await _dispatch_pending_custom_film_runtime(dispatch_app)
+                await _dispatch_pending_custom_film_director(dispatch_app)
             reaped = await reap_stale_running_tasks()
             if reaped:
                 logger.info("[Reaper] Failed %d stale background task(s)", reaped)
@@ -364,7 +504,11 @@ async def _run_pending_migrations():
             except Exception as e:
                 logger.warning("Migration %s failed: %s", sql_file.name, e)
 
-        logger.info("Migrations checked (%d files, %d new)", len(sql_files), len(sql_files) - len(applied_set))
+        logger.info(
+            "Migrations checked (%d files, %d new)",
+            len(sql_files),
+            len(sql_files) - len(applied_set),
+        )
 
 
 async def _auto_distill_intelligence():
@@ -386,14 +530,32 @@ async def _auto_distill_intelligence():
                 try:
                     if not await _is_autopilot_enabled(tenant_id):
                         continue
-                    _update_bg_status(tenant_id, "distillation", is_running=True, last_error=None)
+                    _update_bg_status(
+                        tenant_id, "distillation", is_running=True, last_error=None
+                    )
                     from distillation.pipeline import backfill_competitor_transcripts
-                    result = await backfill_competitor_transcripts(tenant_id, batch_size=25)
-                    _update_bg_status(tenant_id, "distillation", is_running=False, last_run=datetime.now(timezone.utc).isoformat())
-                    processed = result.get("processed", 0) if isinstance(result, dict) else 0
-                    logger.info("[AutoDistill] Tenant %s: %d videos distilled", tenant_id[:8], processed)
+
+                    result = await backfill_competitor_transcripts(
+                        tenant_id, batch_size=25
+                    )
+                    _update_bg_status(
+                        tenant_id,
+                        "distillation",
+                        is_running=False,
+                        last_run=datetime.now(timezone.utc).isoformat(),
+                    )
+                    processed = (
+                        result.get("processed", 0) if isinstance(result, dict) else 0
+                    )
+                    logger.info(
+                        "[AutoDistill] Tenant %s: %d videos distilled",
+                        tenant_id[:8],
+                        processed,
+                    )
                 except Exception as e:
-                    _update_bg_status(tenant_id, "distillation", is_running=False, last_error=str(e))
+                    _update_bg_status(
+                        tenant_id, "distillation", is_running=False, last_error=str(e)
+                    )
                     logger.error("[AutoDistill] Tenant %s error: %s", tenant_id[:8], e)
         except Exception as e:
             logger.error("[AutoDistill] Error: %s", e)
@@ -441,10 +603,13 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
         return None
 
     from autopilot_dial import check_weekly_budget, get_autopilot_dial, trip_kill_switch
+
     try:
         dial = await get_autopilot_dial(tenant_id)
     except Exception:
-        logger.exception("[AutoQueue] Tenant %s: dial read failed, skipping", tenant_id[:8])
+        logger.exception(
+            "[AutoQueue] Tenant %s: dial read failed, skipping", tenant_id[:8]
+        )
         return None
     if dial.kill_switch_tripped_at is not None:
         return None
@@ -454,36 +619,47 @@ async def _produce_for_tenant(tenant_id) -> Optional[dict]:
             "[AutoQueue] Tenant %s: dial_level=%s but no weekly_budget_cap set — "
             "config anomaly (not a kill-switch trip); the candidate path will "
             "treat this as propose_only (propose, never launch) until a cap is set",
-            tenant_id[:8], dial.dial_level,
+            tenant_id[:8],
+            dial.dial_level,
         )
 
     try:
         ok, spent, cap = await check_weekly_budget(tenant_id)
     except Exception:
-        logger.exception("[AutoQueue] Tenant %s: budget check failed, skipping", tenant_id[:8])
+        logger.exception(
+            "[AutoQueue] Tenant %s: budget check failed, skipping", tenant_id[:8]
+        )
         return None
     if not ok:
         reason = f"Weekly budget cap ${cap:.2f} reached (spent ${spent:.2f})"
         await trip_kill_switch(tenant_id, reason)
-        logger.warning("[AutoQueue] Tenant %s: %s — kill switch tripped", tenant_id[:8], reason)
+        logger.warning(
+            "[AutoQueue] Tenant %s: %s — kill switch tripped", tenant_id[:8], reason
+        )
         return None
 
     from routes.queue import auto_produce_next
+
     result = await auto_produce_next(tenant_id)
     if result:
         logger.info(
             "[AutoQueue] Tenant %s launched queued video %s (%s)",
-            tenant_id[:8], result.get("video_id"), result.get("video_title"),
+            tenant_id[:8],
+            result.get("video_id"),
+            result.get("video_title"),
         )
         return result
 
     from autopilot_launch import auto_launch_best_candidate
+
     candidate_result = await auto_launch_best_candidate(tenant_id)
     if candidate_result:
         logger.info(
             "[AutoLaunch] Tenant %s %s candidate %s (%s)",
-            tenant_id[:8], candidate_result.get("status"),
-            candidate_result.get("candidate_id"), candidate_result.get("video_title"),
+            tenant_id[:8],
+            candidate_result.get("status"),
+            candidate_result.get("candidate_id"),
+            candidate_result.get("video_title"),
         )
     return candidate_result
 
@@ -546,11 +722,18 @@ async def _auto_generate_meta_insights():
                     if not await _is_autopilot_enabled(tenant_id):
                         continue
                     from distillation.meta_analyzer import generate_niche_meta_insights
+
                     result = await generate_niche_meta_insights(tenant_id)
                     if result:
-                        logger.info("[AutoMetaInsights] Tenant %s: generated (%d videos)", tenant_id[:8], result.get("sample_size", 0))
+                        logger.info(
+                            "[AutoMetaInsights] Tenant %s: generated (%d videos)",
+                            tenant_id[:8],
+                            result.get("sample_size", 0),
+                        )
                 except Exception as e:
-                    logger.error("[AutoMetaInsights] Tenant %s error: %s", tenant_id[:8], e)
+                    logger.error(
+                        "[AutoMetaInsights] Tenant %s error: %s", tenant_id[:8], e
+                    )
         except Exception as e:
             logger.error("[AutoMetaInsights] Error: %s", e)
 
@@ -563,16 +746,25 @@ async def _recover_stale_tasks_to_queue(app: FastAPI) -> int:
     try:
         recovered = await recover_stale_tasks()
         if recovered:
-            logger.info("Recovered %d stale background tasks (marked as failed)", recovered)
+            logger.info(
+                "Recovered %d stale background tasks (marked as failed)", recovered
+            )
 
         if getattr(app.state, "arq", None):
             stale_rows = await fetch_all(
-                "SELECT video_id, task_type, tenant_id, job_id, "
-                "COALESCE(attempt, 1) AS attempt "
-                "FROM background_tasks "
-                "WHERE status = 'failed' "
-                "AND error_message = 'Server restarted — task interrupted' "
-                "AND completed_at >= now() - interval '10 minutes'"
+                """SELECT b.video_id, b.task_type, b.tenant_id, b.job_id,
+                          COALESCE(b.attempt, 1) AS attempt,
+                          s.id AS director_schedule_id
+                   FROM background_tasks b
+                   LEFT JOIN custom_film_director_stage_schedules s
+                     ON b.task_type = 'custom_film_director'
+                    AND s.tenant_id = b.tenant_id
+                    AND s.video_id = b.video_id
+                    AND b.job_id = 'custom-film-director:' || s.schedule_hash
+                   WHERE b.status = 'failed'
+                     AND b.error_message =
+                         'Server restarted — task interrupted'
+                     AND b.completed_at >= now() - interval '10 minutes'"""
             )
             for row in stale_rows or []:
                 new_attempt = row["attempt"] + 1
@@ -586,6 +778,31 @@ async def _recover_stale_tasks_to_queue(app: FastAPI) -> int:
                                     "custom_film_runtime recovery has no durable job_id"
                                 )
                             stage_kwargs["runtime_job_id"] = runtime_job_id
+                        elif row["task_type"] == "custom_film_director":
+                            director_job_id = str(row.get("job_id") or "")
+                            schedule_id = str(row.get("director_schedule_id") or "")
+                            if not director_job_id or not schedule_id:
+                                raise ValueError(
+                                    "custom_film_director recovery has no "
+                                    "durable schedule identity"
+                                )
+                            stage_kwargs.update(
+                                director_job_id=director_job_id,
+                                schedule_id=schedule_id,
+                            )
+                        if row["task_type"] == "custom_film_director":
+                            await execute(
+                                """UPDATE background_tasks
+                                   SET status = 'pending', attempt = $4,
+                                       error_message = NULL,
+                                       completed_at = NULL
+                                   WHERE tenant_id = $1 AND video_id = $2
+                                     AND job_id = $3""",
+                                str(row["tenant_id"]),
+                                str(row["video_id"]),
+                                str(row.get("job_id") or ""),
+                                new_attempt,
+                            )
                         await enqueue_stage(
                             app.state.arq,
                             row["task_type"],
@@ -595,7 +812,9 @@ async def _recover_stale_tasks_to_queue(app: FastAPI) -> int:
                             **stage_kwargs,
                         )
                     except (ValueError, Exception) as eq:
-                        logger.warning("Could not re-enqueue %s: %s", row["task_type"], eq)
+                        logger.warning(
+                            "Could not re-enqueue %s: %s", row["task_type"], eq
+                        )
     except Exception as e:
         logger.warning("Stale task recovery error (non-blocking): %s", e)
     return recovered
@@ -645,6 +864,59 @@ async def _dispatch_pending_custom_film_runtime(app: FastAPI) -> int:
     return dispatched
 
 
+async def _dispatch_pending_custom_film_director(app: FastAPI) -> int:
+    """Dispatch approved v2 director jobs from their durable outbox rows.
+
+    The schedule join reconstructs the exact UUID without trusting mutable
+    conversation state. Repeated passes converge on the same arq job key.
+    """
+    arq_pool = getattr(app.state, "arq", None)
+    if arq_pool is None:
+        return 0
+    dispatched = 0
+    try:
+        rows = await fetch_all(
+            """SELECT b.tenant_id, b.video_id, b.job_id,
+                      COALESCE(b.attempt, 1) AS attempt,
+                      s.id AS schedule_id
+               FROM background_tasks b
+               JOIN custom_film_director_stage_schedules s
+                 ON s.tenant_id = b.tenant_id
+                AND s.video_id = b.video_id
+                AND b.job_id = 'custom-film-director:' || s.schedule_hash
+               WHERE b.task_type = 'custom_film_director'
+                 AND b.status = 'pending'
+               ORDER BY b.created_at"""
+        )
+        for row in rows or []:
+            director_job_id = str(row.get("job_id") or "")
+            schedule_id = str(row.get("schedule_id") or "")
+            try:
+                await enqueue_stage(
+                    arq_pool,
+                    "custom_film_director",
+                    str(row["video_id"]),
+                    str(row["tenant_id"]),
+                    int(row.get("attempt") or 1),
+                    schedule_id=schedule_id,
+                    director_job_id=director_job_id,
+                )
+                dispatched += 1
+            except Exception as exc:
+                # Leave the outbox row pending for the next exact-identity pass.
+                logger.warning(
+                    "Could not dispatch pending Custom Film director %s: %s",
+                    director_job_id,
+                    exc,
+                )
+    except Exception as exc:
+        logger.warning(
+            "Custom Film director outbox dispatch error (non-blocking): %s",
+            exc,
+        )
+    return dispatched
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
@@ -659,6 +931,7 @@ async def lifespan(app: FastAPI):
     try:
         from arq import create_pool
         from arq.connections import RedisSettings
+
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
         _parsed = _urlparse(redis_url)
         _host = _parsed.hostname or "localhost"
@@ -678,6 +951,7 @@ async def lifespan(app: FastAPI):
     # Recover tasks that were running when the server last stopped.
     await _recover_stale_tasks_to_queue(app)
     await _dispatch_pending_custom_film_runtime(app)
+    await _dispatch_pending_custom_film_director(app)
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())
@@ -754,6 +1028,7 @@ async def _application_drain_guard(request: Request, call_next):
             await drain_mode.assert_accepting_new_work()
         except drain_mode.DrainModeActive as exc:
             from fastapi.responses import JSONResponse
+
             return JSONResponse(
                 status_code=503,
                 content=exc.response_body(),
@@ -763,9 +1038,12 @@ async def _application_drain_guard(request: Request, call_next):
 
 
 @app.exception_handler(drain_mode.DrainModeActive)
-async def _drain_mode_exception_handler(request: Request, exc: drain_mode.DrainModeActive):
+async def _drain_mode_exception_handler(
+    request: Request, exc: drain_mode.DrainModeActive
+):
     """Normalize claim-level drain failures that occur below middleware."""
     from fastapi.responses import JSONResponse
+
     return JSONResponse(
         status_code=503,
         content=exc.response_body(),
@@ -781,15 +1059,20 @@ async def _unhandled_exception_handler(request: Request, exc: Exception):
     from fastapi.responses import JSONResponse
     from logging_config import track_error
     from error_utils import humanize_error
+
     try:
         track_error()
     except Exception:
         pass
     logger.error(
-        "Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path,
+        "Unhandled %s on %s %s",
+        type(exc).__name__,
+        request.method,
+        request.url.path,
         exc_info=exc,
     )
     return JSONResponse(status_code=500, content={"detail": humanize_error(exc)})
+
 
 # Register routes
 app.include_router(dashboard.router)
@@ -839,6 +1122,13 @@ app.include_router(quality_rules.router)
 app.include_router(channel_patterns.router)
 app.include_router(feature_board.router)
 app.include_router(custom_film.router)
+if os.getenv("CUSTOM_FILM_SCENE_CONTROL_V1", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}:
+    app.include_router(custom_film_scene_control.router)
 
 # StoryEngine MCP server (checklist P2.4a/P2.4b, chunks C26/C27 — tasks/
 # storyengine-copilot-ux-map.md §7, "the Higgsfield-killer door"). DARK BY
@@ -855,6 +1145,7 @@ app.include_router(custom_film.router)
 # the flag is the belt to that suspenders).
 if os.getenv("MCP_ENABLED", "").lower() == "true":
     from routes import mcp as mcp_routes
+
     app.include_router(mcp_routes.router)
 
 
@@ -905,6 +1196,7 @@ async def health():
     # are GLOBAL, not per-tenant). Fail-soft — status never raises.
     try:
         from youtube_quota import get_quota_status
+
         checks["youtube_quota"] = await get_quota_status()
     except Exception:
         checks["youtube_quota"] = {"error": "quota status unavailable"}
@@ -968,6 +1260,7 @@ async def health_detailed(request: Request):
     # YouTube quota (C33) — see /api/health for the full rationale.
     try:
         from youtube_quota import get_quota_status
+
         checks["youtube_quota"] = await get_quota_status()
     except Exception:
         checks["youtube_quota"] = {"error": "quota status unavailable"}
@@ -975,6 +1268,7 @@ async def health_detailed(request: Request):
     # Error rate (from logging_config tracker)
     from logging_config import _error_counts, _error_window_start
     import time
+
     window_age = round(time.time() - _error_window_start)
     checks["error_rate"] = {
         "errors_in_window": _error_counts.get("total", 0),
@@ -984,6 +1278,7 @@ async def health_detailed(request: Request):
     # Uptime / memory (optional — psutil may not be installed)
     try:
         import psutil
+
         process = psutil.Process()
         checks["uptime_seconds"] = round(time.time() - process.create_time())
         checks["memory_mb"] = round(process.memory_info().rss / 1024 / 1024, 1)

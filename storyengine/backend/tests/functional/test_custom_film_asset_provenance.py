@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -351,6 +352,15 @@ async def test_quality_preflight_requires_same_assets_counts_and_exact_timing(
 
     monkeypatch.setattr("database.get_pool", get_pool)
     await seams._quality_media_preflight(request)
+    for row in stage_rows["clips"]:
+        row["timing_transform"] = json.dumps(
+            row["timing_transform"],
+            sort_keys=True,
+        )
+    evidence = await seams._quality_media_preflight(request)
+    assert evidence["timing_transforms"][0]["transform"] == (
+        production._timing_transform(3500, 3500)
+    )
     stage_rows["motion"][1]["asset_id"] = "stale-legacy"
     with pytest.raises(CustomFilmContractError, match="tampered motion"):
         await seams._quality_media_preflight(request)
@@ -430,6 +440,38 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
             timing_transform=row.get("timing_transform"),
         )
         assert seams._completed_provenance_is_exact(request, row, stage=stage)
+        if stage in {"pictures", "motion"}:
+            assert production._normalize_provenance_row(row)["timing_transform"] is None
+
+    encoded_clip = copy.deepcopy(rows["clips"])
+    encoded_clip["timing_transform"] = json.dumps(
+        encoded_clip["timing_transform"],
+        sort_keys=True,
+    )
+    assert seams._completed_provenance_is_exact(
+        request,
+        encoded_clip,
+        stage="clips",
+    )
+    altered_encoded_clip = copy.deepcopy(rows["clips"])
+    altered_transform = copy.deepcopy(altered_encoded_clip["timing_transform"])
+    altered_transform["output_duration_ms"] = 6999
+    altered_encoded_clip["timing_transform"] = json.dumps(
+        altered_transform,
+        sort_keys=True,
+    )
+    assert not seams._completed_provenance_is_exact(
+        request,
+        altered_encoded_clip,
+        stage="clips",
+    )
+    malformed_clip = copy.deepcopy(rows["clips"])
+    malformed_clip["timing_transform"] = "{not-json"
+    assert not seams._completed_provenance_is_exact(
+        request,
+        malformed_clip,
+        stage="clips",
+    )
 
     changed = copy.deepcopy(rows["pictures"])
     changed["image_url"] = "fake://substituted"
@@ -461,6 +503,17 @@ def test_completed_provenance_rejects_artifact_and_provider_model_tamper():
     assert not seams._completed_provenance_is_exact(
         request, changed, stage="clips"
     )
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    ("null", "[]", "42", '"scalar"'),
+)
+def test_provenance_jsonb_non_object_shapes_fail_closed(encoded):
+    normalized = production._normalize_provenance_row(
+        {"timing_transform": encoded}
+    )
+    assert normalized["timing_transform"] is None
 
 
 @pytest.mark.asyncio

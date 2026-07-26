@@ -93,6 +93,29 @@ const audioTimingTransformSchema = z.discriminatedUnion("mode", [
     .strict(),
   z
     .object({
+      mode: z.literal("cue_schedule"),
+      source_duration_ms: positiveIntSchema,
+      output_duration_ms: positiveIntSchema,
+      atempo_chain: z.array(z.number().positive()).length(0),
+      caption_scale: z.literal(1),
+      cues: z
+        .array(
+          z
+            .object({
+              segment_index: exactIntSchema,
+              text_hash: hashSchema,
+              source_start_ms: exactIntSchema,
+              source_end_ms: positiveIntSchema,
+              target_start_ms: exactIntSchema,
+              target_end_ms: positiveIntSchema,
+            })
+            .strict(),
+        )
+        .min(2),
+    })
+    .strict(),
+  z
+    .object({
       mode: z.literal("pending_source_probe"),
       source_duration_ms: z.null(),
       output_duration_ms: positiveIntSchema,
@@ -292,6 +315,38 @@ export const CustomFilmRemotionPropsSchema = z
       });
     }
     for (const [sectionIndex, section] of props.sections.entries()) {
+      const transform = section.audio.timing_transform;
+      if (transform.mode === "cue_schedule") {
+        if (
+          section.captions.length !== transform.cues.length ||
+          transform.cues.some((cue, cueIndex) => {
+            const caption = section.captions[cueIndex];
+            return (
+              [
+                cue.source_start_ms,
+                cue.source_end_ms,
+                cue.target_start_ms,
+                cue.target_end_ms,
+              ].some((milliseconds) =>
+                (milliseconds * props.video.fps) % 1000 !== 0
+              ) ||
+              !caption ||
+              caption.section_start_ms !== cue.target_start_ms ||
+              caption.section_end_ms !== cue.target_end_ms ||
+              sha256Hex(canonicalJson({
+                segment_index: cueIndex,
+                text: caption.text,
+              })) !== cue.text_hash
+            );
+          })
+        ) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Custom Film cue schedule or caption binding changed",
+            path: ["sections", sectionIndex, "audio", "timing_transform"],
+          });
+        }
+      }
       for (const [captionIndex, caption] of section.captions.entries()) {
         const expectedStart =
           section.start_frame +

@@ -47,10 +47,28 @@ DEFAULT_FPS = 24
 SUPPORTED_TRANSFORMS = frozenset({"none", "trim", "repeat_then_trim"})
 ProgressCallback = Callable[[str], Awaitable[None]]
 RemotionRenderer = Callable[..., Awaitable[Mapping[str, Any]]]
+VOICE_ALIGNMENT_VERSION = "custom-film-voice-alignment-v1"
 
 
 class CustomFilmRetryableError(RuntimeError):
     """Transport/process/storage failure safe to retry under the same identity."""
+
+
+def _assembly_failure_disposition(exc: Exception) -> tuple[str, str]:
+    """Classify a post-journal failure without masking the original exception."""
+    retryable = isinstance(
+        exc,
+        (
+            CustomFilmRetryableError,
+            OSError,
+            RuntimeError,
+        ),
+    ) or not isinstance(exc, CustomFilmContractError)
+    return (
+        ("retryable_failed", "retryable")
+        if retryable
+        else ("terminal_failed", "terminal")
+    )
 
 
 def assembly_storage_path(
@@ -181,6 +199,265 @@ def _audio_timing_transform(source_ms: int, target_ms: int) -> dict[str, Any]:
     }
 
 
+def _json_value(value: Any, label: str) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise CustomFilmContractError(
+                f"Custom Film {label} is malformed"
+            ) from exc
+    return copy.deepcopy(value)
+
+
+def _narration_segments(scene_row: Mapping[str, Any]) -> list[dict[str, Any]]:
+    value = _json_value(scene_row.get("dialogue_segments"), "dialogue segments")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise CustomFilmContractError(
+            "Custom Film dialogue segments are invalid"
+        )
+    segments: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping) or item.get("type") != "narration":
+            continue
+        text = str(item.get("text") or "").strip()
+        start = item.get("start_seconds")
+        end = item.get("end_seconds")
+        if (
+            not text
+            or type(start) is not int
+            or type(end) is not int
+            or start < 0
+            or end <= start
+        ):
+            raise CustomFilmContractError(
+                "Custom Film narration segment is invalid"
+            )
+        index = len(segments)
+        segments.append(
+            {
+                "text": text,
+                "text_hash": canonical_hash(
+                    {"segment_index": index, "text": text}
+                ),
+                "approved_start_ms": start * 1000,
+                "approved_end_ms": end * 1000,
+            }
+        )
+    return segments
+
+
+def _source_clip_caption_segments(
+    scene_row: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Return clean target-language subtitles for native dialogue clips.
+
+    ``scene_text`` may be the complete AV screenplay, including visual and
+    sound direction. Native-performance captions must come from the structured
+    dialogue contract so production instructions can never appear on screen.
+    """
+    value = _json_value(scene_row.get("dialogue_segments"), "dialogue segments")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise CustomFilmContractError(
+            "Custom Film dialogue segments are invalid"
+        )
+    segments: list[dict[str, Any]] = []
+    for item in value:
+        if (
+            not isinstance(item, Mapping)
+            or item.get("type") != "dialogue"
+            or item.get("language") != "target"
+        ):
+            continue
+        text = str(item.get("text") or "").strip()
+        start = item.get("start_seconds")
+        end = item.get("end_seconds")
+        if (
+            not text
+            or type(start) is not int
+            or type(end) is not int
+            or start < 0
+            or end <= start
+        ):
+            raise CustomFilmContractError(
+                "Custom Film target dialogue segment is invalid"
+            )
+        segments.append(
+            {
+                "text": text,
+                "start_ms": start * 1000,
+                "end_ms": end * 1000,
+            }
+        )
+    return segments
+
+
+def _cue_schedule_transform(
+    scene_row: Mapping[str, Any],
+    *,
+    source_sha256: str,
+    source_ms: int,
+    target_ms: int,
+    fps: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    segments = _narration_segments(scene_row)
+    if len(segments) < 2:
+        raise CustomFilmContractError(
+            "Custom Film cue schedule requires multiple narration segments"
+        )
+    validation = _mapping(
+        scene_row.get("script_validation"), "script validation"
+    )
+    custom = _mapping(
+        validation.get("custom_film"), "script Custom Film validation"
+    )
+    alignment = _mapping(
+        custom.get("voice_alignment"), "voice alignment"
+    )
+    if set(alignment) != {
+        "version",
+        "source_sha256",
+        "segment_text_hashes",
+        "evidence",
+        "cues",
+    }:
+        raise CustomFilmContractError(
+            "Custom Film voice alignment shape changed"
+        )
+    text_hashes = alignment["segment_text_hashes"]
+    cue_values = alignment["cues"]
+    evidence = _mapping(alignment["evidence"], "voice alignment evidence")
+    if set(evidence) != {
+        "method",
+        "method_version",
+        "model",
+        "model_sha256",
+        "evidence_sha256",
+    }:
+        raise CustomFilmContractError(
+            "Custom Film voice alignment evidence shape changed"
+        )
+    evidence_identity = {
+        key: evidence[key]
+        for key in ("method", "method_version", "model")
+    }
+    if any(
+        not isinstance(value, str) or not value.strip() or value != value.strip()
+        for value in evidence_identity.values()
+    ):
+        raise CustomFilmContractError(
+            "Custom Film voice alignment evidence identity changed"
+        )
+    model_sha256 = evidence["model_sha256"]
+    evidence_sha256 = evidence["evidence_sha256"]
+    if any(
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value)
+        for value in (model_sha256, evidence_sha256)
+    ):
+        raise CustomFilmContractError(
+            "Custom Film voice alignment evidence hash changed"
+        )
+    expected_evidence_sha256 = canonical_hash(
+        {
+            "contract_version": alignment["version"],
+            **evidence_identity,
+            "model_sha256": model_sha256,
+            "source_sha256": alignment["source_sha256"],
+            "segment_text_hashes": text_hashes,
+            "cues": cue_values,
+        }
+    )
+    if (
+        alignment["version"] != VOICE_ALIGNMENT_VERSION
+        or alignment["source_sha256"] != source_sha256
+        or text_hashes != [segment["text_hash"] for segment in segments]
+        or not isinstance(cue_values, list)
+        or len(cue_values) != len(segments)
+        or evidence_sha256 != expected_evidence_sha256
+    ):
+        raise CustomFilmContractError(
+            "Custom Film voice alignment identity changed"
+        )
+    cues: list[dict[str, Any]] = []
+    previous_source_end = 0
+    previous_target_end = 0
+    for index, (cue_value, segment) in enumerate(zip(cue_values, segments)):
+        cue = _mapping(cue_value, "voice alignment cue")
+        if set(cue) != {
+            "source_start_ms",
+            "source_end_ms",
+            "target_start_ms",
+            "target_end_ms",
+        }:
+            raise CustomFilmContractError(
+                "Custom Film voice alignment cue shape changed"
+            )
+        source_start = _exact_int(
+            cue["source_start_ms"], "voice cue source start"
+        )
+        source_end = _exact_int(
+            cue["source_end_ms"], "voice cue source end", 1
+        )
+        target_start = _exact_int(
+            cue["target_start_ms"], "voice cue target start"
+        )
+        target_end = _exact_int(
+            cue["target_end_ms"], "voice cue target end", 1
+        )
+        if (
+            source_start < previous_source_end
+            or source_end <= source_start
+            or source_end > source_ms
+            or target_start != segment["approved_start_ms"]
+            or target_start < previous_target_end
+            or target_end <= target_start
+            or target_end > segment["approved_end_ms"]
+            or target_end > target_ms
+            or target_end - target_start != source_end - source_start
+            or any(
+                milliseconds * fps % 1000
+                for milliseconds in (
+                    source_start,
+                    source_end,
+                    target_start,
+                    target_end,
+                )
+            )
+        ):
+            raise CustomFilmContractError(
+                "Custom Film voice alignment cue does not fit"
+            )
+        cues.append(
+            {
+                "segment_index": index,
+                "text_hash": segment["text_hash"],
+                "source_start_ms": source_start,
+                "source_end_ms": source_end,
+                "target_start_ms": target_start,
+                "target_end_ms": target_end,
+            }
+        )
+        previous_source_end = source_end
+        previous_target_end = target_end
+    return (
+        {
+            "mode": "cue_schedule",
+            "source_duration_ms": source_ms,
+            "output_duration_ms": target_ms,
+            "atempo_chain": [],
+            "caption_scale": 1.0,
+            "cues": cues,
+        },
+        segments,
+    )
+
+
 def _allocate_integer(total: int, count: int) -> list[int]:
     """Allocate an exact integer total in stable order without rounding drift."""
     total = _exact_int(total, "allocation total", 1)
@@ -288,11 +565,13 @@ def _validate_operation_graph(
             or str(row.get("runtime_job_id") or "") != runtime_job_id
             or str(row.get("runtime_hash") or "") != str(envelope["runtime_hash"])
             or row.get("state") != "completed"
-            or not isinstance(row.get("result"), Mapping)
         ):
             raise CustomFilmContractError(
                 "Custom Film provider operation is incomplete or stale"
             )
+        row["result"] = _mapping(
+            row.get("result"), "provider operation result"
+        )
         actual_by_id[operation_id] = row
 
     expected: dict[str, dict[str, Any]] = {}
@@ -575,15 +854,12 @@ def build_assembly_manifest(
         voice_parent_id = _parent_operation_id(
             tenant_id, runtime_job_id, voice_adapter
         )
+        narration_scene_ids: list[str] = []
         if section["dialogue_audio"] == "voice_over":
             supplement_voice_urls = list(
                 supplement.get("voice_over_urls") or []
             )
-            if len(supplement_voice_urls) != len(assigned_scene_ids):
-                raise CustomFilmContractError(
-                    "Custom Film exact voice-over inputs are incomplete"
-                )
-            for scene_index, scene_id in enumerate(assigned_scene_ids):
+            for scene_id in assigned_scene_ids:
                 voice_child_id = "custom-film-op:" + canonical_hash(
                     {
                         "parent_operation_id": voice_parent_id,
@@ -594,26 +870,73 @@ def build_assembly_manifest(
                     operations_by_id[voice_child_id]["result"],
                     "voice child result",
                 )
-                artifacts = voice_result.get("artifacts")
-                if not isinstance(artifacts, list) or len(artifacts) != 1:
+                if voice_result.get("scene_ids") != [scene_id]:
                     raise CustomFilmContractError(
-                        "Custom Film voice child has incomplete artifacts"
+                        "Custom Film voice child scene identity changed"
+                    )
+                artifacts = voice_result.get("artifacts")
+                voiced_scene_ids = voice_result.get("voiced_scene_ids")
+                total_chars = voice_result.get("total_chars")
+                current_scene = scene_rows_by_id[scene_id]
+                current_url = str(
+                    current_scene.get("voice_over_url") or ""
+                ).strip()
+                current_status = str(
+                    current_scene.get("voice_status") or ""
+                ).strip()
+                coherent_zero_narration = (
+                    type(total_chars) is int
+                    and total_chars == 0
+                    and artifacts == []
+                    and voiced_scene_ids == []
+                    and not current_url
+                    and not current_status
+                )
+                if coherent_zero_narration:
+                    continue
+                positive_total_chars_valid = (
+                    total_chars is None
+                    or (
+                        type(total_chars) is int
+                        and total_chars > 0
+                    )
+                )
+                if (
+                    not positive_total_chars_valid
+                    or not isinstance(artifacts, list)
+                    or len(artifacts) != 1
+                    or voiced_scene_ids != [scene_id]
+                    or not current_url
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film voice child narration evidence is incomplete"
                     )
                 artifact = _mapping(artifacts[0], "voice artifact")
-                current_scene = scene_rows_by_id[scene_id]
                 artifact_id = str(artifact.get("artifact_id") or "")
+                narration_index = len(narration_scene_ids)
                 if (
                     artifact.get("scene_id") != scene_id
                     or artifact.get("artifact_url")
-                    != current_scene.get("voice_over_url")
-                    or str(current_scene.get("voice_status") or "")
+                    != current_url
+                    or current_status
                     != f"custom-film-voice:{artifact_id}"
-                    or supplement_voice_urls[scene_index]
-                    != current_scene.get("voice_over_url")
+                    or narration_index >= len(supplement_voice_urls)
+                    or supplement_voice_urls[narration_index] != current_url
                 ):
                     raise CustomFilmContractError(
                         "Custom Film current voice artifact drifted from its child operation"
                     )
+                narration_scene_ids.append(scene_id)
+            if narration_scene_ids and len(narration_scene_ids) != len(
+                assigned_scene_ids
+            ):
+                raise CustomFilmContractError(
+                    "Custom Film mixed narration timelines are unsupported"
+                )
+            if len(supplement_voice_urls) != len(narration_scene_ids):
+                raise CustomFilmContractError(
+                    "Custom Film exact voice-over inputs are incomplete"
+                )
         duration_seconds = _exact_int(
             section.get("duration_seconds"), "section seconds", 1
         )
@@ -901,8 +1224,9 @@ def build_assembly_manifest(
         voice_durations = list(
             supplement.get("voice_over_duration_ms") or []
         )
+        section_uses_narration = bool(narration_scene_ids)
         if section["dialogue_audio"] == "voice_over" and (
-            len(voice_urls) != len(scenes_by_section[section_id])
+            len(voice_urls) != len(narration_scene_ids)
             or (
                 require_source_hashes
                 and (
@@ -920,15 +1244,37 @@ def build_assembly_manifest(
             raise CustomFilmContractError(
                 "Custom Film exact voice-over inputs are incomplete"
             )
-        if section["dialogue_audio"] == "voice_over":
+        if section["dialogue_audio"] == "voice_over" and section_uses_narration:
             if require_source_hashes:
                 source_voice_ms = sum(
                     _exact_int(value, "voice source duration", 1)
                     for value in voice_durations
                 )
-                audio_transform = _audio_timing_transform(
-                    source_voice_ms, duration_seconds * 1000
-                )
+                narration_segments = [
+                    segment
+                    for scene_id in assigned_scene_ids
+                    for segment in _narration_segments(
+                        scene_rows_by_id[scene_id]
+                    )
+                ]
+                if len(narration_segments) > 1:
+                    if len(assigned_scene_ids) != 1 or len(voice_hashes) != 1:
+                        raise CustomFilmContractError(
+                            "Custom Film cue schedule requires one exact source"
+                        )
+                    audio_transform, narration_segments = (
+                        _cue_schedule_transform(
+                            scene_rows_by_id[assigned_scene_ids[0]],
+                            source_sha256=voice_hashes[0],
+                            source_ms=source_voice_ms,
+                            target_ms=duration_seconds * 1000,
+                            fps=fps,
+                        )
+                    )
+                else:
+                    audio_transform = _audio_timing_transform(
+                        source_voice_ms, duration_seconds * 1000
+                    )
                 caption_source_durations = voice_durations
             else:
                 audio_transform = {
@@ -953,36 +1299,103 @@ def build_assembly_manifest(
                 duration_seconds * 1000, len(assigned_scene_ids)
             )
         captions: list[dict[str, Any]] = []
-        source_elapsed_ms = 0
-        target_ms = duration_seconds * 1000
-        source_total_ms = sum(caption_source_durations)
-        for scene_index, (scene_id, source_scene_ms) in enumerate(
-            zip(assigned_scene_ids, caption_source_durations)
-        ):
-            start_ms = (
-                source_elapsed_ms * target_ms // source_total_ms
+        native_caption_segments = {
+            scene_id: _source_clip_caption_segments(
+                scene_rows_by_id[scene_id]
             )
-            source_elapsed_ms += int(source_scene_ms)
-            end_ms = (
-                target_ms
-                if scene_index == len(assigned_scene_ids) - 1
-                else source_elapsed_ms * target_ms // source_total_ms
-            )
-            captions.append(
-                {
-                    "scene_id": scene_id,
-                    "text": str(
-                        scene_rows_by_id[scene_id].get("scene_text") or ""
-                    ).strip(),
+            for scene_id in assigned_scene_ids
+        }
+        if audio_transform["mode"] == "cue_schedule":
+            scene_id = assigned_scene_ids[0]
+            for cue, segment in zip(
+                audio_transform["cues"], narration_segments
+            ):
+                captions.append(
+                    {
+                        "scene_id": scene_id,
+                        "text": segment["text"],
                         "language": copy.deepcopy(
                             _mapping(section["language"], "section language")
                         ),
-                    "section_start_ms": start_ms,
-                    "section_end_ms": end_ms,
-                    "start_frame": film_frame + (start_ms * fps // 1000),
-                    "end_frame": film_frame + (end_ms * fps // 1000),
-                }
-            )
+                        "section_start_ms": cue["target_start_ms"],
+                        "section_end_ms": cue["target_end_ms"],
+                        "start_frame": film_frame
+                        + (cue["target_start_ms"] * fps // 1000),
+                        "end_frame": film_frame
+                        + (cue["target_end_ms"] * fps // 1000),
+                    }
+                )
+        elif (
+            section["dialogue_audio"] == "grok_native"
+            and any(native_caption_segments.values())
+        ):
+            for scene_id in assigned_scene_ids:
+                for segment in native_caption_segments[scene_id]:
+                    if segment["end_ms"] > duration_seconds * 1000:
+                        raise CustomFilmContractError(
+                            "Custom Film target dialogue caption exceeds its section"
+                        )
+                    captions.append(
+                        {
+                            "scene_id": scene_id,
+                            "text": segment["text"],
+                            "language": copy.deepcopy(
+                                _mapping(section["language"], "section language")
+                            ),
+                            "section_start_ms": segment["start_ms"],
+                            "section_end_ms": segment["end_ms"],
+                            "start_frame": film_frame
+                            + (segment["start_ms"] * fps // 1000),
+                            "end_frame": film_frame
+                            + (segment["end_ms"] * fps // 1000),
+                        }
+                    )
+        else:
+            source_elapsed_ms = 0
+            target_ms = duration_seconds * 1000
+            source_total_ms = sum(caption_source_durations)
+            for scene_index, (scene_id, source_scene_ms) in enumerate(
+                zip(assigned_scene_ids, caption_source_durations)
+            ):
+                start_ms = (
+                    source_elapsed_ms * target_ms // source_total_ms
+                )
+                source_elapsed_ms += int(source_scene_ms)
+                end_ms = (
+                    target_ms
+                    if scene_index == len(assigned_scene_ids) - 1
+                    else source_elapsed_ms * target_ms // source_total_ms
+                )
+                caption_text = str(
+                    scene_rows_by_id[scene_id].get("scene_text") or ""
+                ).strip()
+                if any(
+                    marker in caption_text
+                    for marker in (
+                        "[AV SECTION",
+                        "VISUAL:",
+                        "SOUND:",
+                        "CARRY-IN:",
+                        "CARRY-OUT:",
+                        "DIALOGUE ",
+                    )
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film production directions cannot become captions"
+                    )
+                captions.append(
+                    {
+                        "scene_id": scene_id,
+                        "text": caption_text,
+                        "language": copy.deepcopy(
+                            _mapping(section["language"], "section language")
+                        ),
+                        "section_start_ms": start_ms,
+                        "section_end_ms": end_ms,
+                        "start_frame": film_frame + (start_ms * fps // 1000),
+                        "end_frame": film_frame + (end_ms * fps // 1000),
+                    }
+                )
         if any(
             not caption["text"]
             or caption["end_frame"] <= caption["start_frame"]
@@ -1026,7 +1439,10 @@ def build_assembly_manifest(
                 "audio": {
                     "mode": (
                         "source_clip"
-                        if section["dialogue_audio"] == "grok_native"
+                        if (
+                            section["dialogue_audio"] == "grok_native"
+                            or not section_uses_narration
+                        )
                         else "voice_over"
                     ),
                     "source_urls": voice_urls,
@@ -1647,13 +2063,51 @@ async def render_local_manifest(
                 transition_out_seconds = (
                     section["transition_out"]["duration_frames"] / fps
                 )
-                audio_filter = (
-                    f"{labels}concat=n={len(audio_paths)}:v=0:a=1,"
-                    "aresample=48000"
-                )
                 timing_transform = section["audio"]["timing_transform"]
-                for atempo in timing_transform.get("atempo_chain") or []:
-                    audio_filter += f",atempo={float(atempo):.9f}"
+                if timing_transform["mode"] == "cue_schedule":
+                    if len(audio_paths) != 1:
+                        raise CustomFilmContractError(
+                            "Custom Film cue schedule source changed"
+                        )
+                    if any(
+                        cue[key] * fps % 1000
+                        for cue in timing_transform["cues"]
+                        for key in (
+                            "source_start_ms",
+                            "source_end_ms",
+                            "target_start_ms",
+                            "target_end_ms",
+                        )
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film audio cue is not frame exact"
+                        )
+                    cue_filters = []
+                    cue_labels = []
+                    for index, cue in enumerate(timing_transform["cues"]):
+                        cue_labels.append(f"[cue{index}]")
+                        cue_filters.append(
+                            "[1:a]"
+                            f"atrim=start={cue['source_start_ms']/1000:.9f}:"
+                            f"end={cue['source_end_ms']/1000:.9f},"
+                            "asetpts=PTS-STARTPTS,"
+                            f"adelay={cue['target_start_ms']}:all=1"
+                            f"[cue{index}]"
+                        )
+                    audio_filter = ";".join(cue_filters) + ";"
+                    audio_filter += (
+                        "".join(cue_labels)
+                        + f"amix=inputs={len(cue_labels)}:"
+                        "duration=longest:normalize=0,aresample=48000,"
+                        f"apad=whole_dur={section_seconds:.9f}"
+                    )
+                else:
+                    audio_filter = (
+                        f"{labels}concat=n={len(audio_paths)}:v=0:a=1,"
+                        "aresample=48000"
+                    )
+                    for atempo in timing_transform.get("atempo_chain") or []:
+                        audio_filter += f",atempo={float(atempo):.9f}"
                 audio_filter += (
                     f",atrim=duration={section_seconds:.9f},asetpts=N/SR/TB"
                 )
@@ -2225,7 +2679,8 @@ async def _load_current_inputs(
                           ss.video_id::text, ss.section_id::text,
                           ss.script_id::text, ss.scene_order,
                           s.scene, s.scene_text, s.script_validation,
-                          s.voice_status, s.voice_over_url
+                          s.voice_status, s.voice_over_url,
+                          s.dialogue_segments
                    FROM custom_film_section_scenes ss
                    JOIN scripts s
                      ON (s.tenant_id, s.video_id, s.id)
@@ -2250,13 +2705,6 @@ async def _load_current_inputs(
                     for row in values
                     if str(row.get("voice_over_url") or "").strip()
                 ]
-                if (
-                    section["dialogue_audio"] == "voice_over"
-                    and len(voice_over_urls) != len(values)
-                ):
-                    raise CustomFilmContractError(
-                        "Custom Film current narration artifacts are incomplete"
-                    )
                 section_supplements[str(section["section_id"])] = {
                     "voice_over_urls": voice_over_urls,
                     "voice_over_sha256": [],
@@ -2469,6 +2917,7 @@ async def render_custom_film_video(
             raise CustomFilmContractError(
                 "Custom Film durable assembly identity is incomplete"
             )
+        durable_manifest["manifest_hash"] = durable_manifest_hash
         selected_render_engine = resolve_durable_render_engine(
             manifest_version=str(existing["manifest_version"]),
             manifest=durable_manifest,
@@ -2498,23 +2947,30 @@ async def render_custom_film_video(
             if selected_render_engine == "remotion"
             else ASSEMBLY_VERSION_V2
         )
-    preliminary = build_assembly_manifest(
-        tenant_id=tenant_id,
-        envelope_value=inputs["envelope"],
-        runtime_job_id=inputs["runtime_job_id"],
-        runtime_progress_value=inputs["runtime_progress"],
-        provider_rows=inputs["provider_rows"],
-        scene_rows=inputs["scene_rows"],
-        asset_rows=inputs["asset_rows"],
-        provenance_rows=inputs["provenance_rows"],
-        section_supplements=inputs["section_supplements"],
-        require_source_hashes=False,
-        width=inputs["output_width"],
-        height=inputs["output_height"],
-        render_engine=selected_render_engine,
-        assembly_version=selected_assembly_version,
-        orchestration_contract=inputs.get("orchestration_contract"),
-    )
+    if durable_manifest is not None:
+        # The journal is the immutable render contract.  Current database rows
+        # may legitimately drift after preparation, so a retry must not rebuild
+        # source URLs, hashes, timing, renderer identity, or storage identity
+        # from those mutable rows.
+        preliminary = durable_manifest
+    else:
+        preliminary = build_assembly_manifest(
+            tenant_id=tenant_id,
+            envelope_value=inputs["envelope"],
+            runtime_job_id=inputs["runtime_job_id"],
+            runtime_progress_value=inputs["runtime_progress"],
+            provider_rows=inputs["provider_rows"],
+            scene_rows=inputs["scene_rows"],
+            asset_rows=inputs["asset_rows"],
+            provenance_rows=inputs["provenance_rows"],
+            section_supplements=inputs["section_supplements"],
+            require_source_hashes=False,
+            width=inputs["output_width"],
+            height=inputs["output_height"],
+            render_engine=selected_render_engine,
+            assembly_version=selected_assembly_version,
+            orchestration_contract=inputs.get("orchestration_contract"),
+        )
     if existing and str(existing["state"]) == "finalized":
         if (
             not str(existing["artifact_sha256"] or "")
@@ -2554,50 +3010,104 @@ async def render_custom_film_video(
                 )
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             source_paths[str(asset["asset_id"])] = path
-            for current in inputs["asset_rows"]:
-                if str(current["asset_id"]) == str(asset["asset_id"]):
-                    current["source_sha256"] = digest
-        for section in inputs["envelope"]["sections"]:
-            supplement = inputs["section_supplements"][str(section["section_id"])]
-            for index, url in enumerate(supplement.get("voice_over_urls") or []):
-                key = f"audio:{section['section_id']}:{index}"
+            if durable_manifest is not None:
+                if digest != str(asset.get("source_sha256") or ""):
+                    raise CustomFilmContractError(
+                        "Custom Film durable asset source hash changed"
+                    )
+            else:
+                for current in inputs["asset_rows"]:
+                    if str(current["asset_id"]) == str(asset["asset_id"]):
+                        current["source_sha256"] = digest
+        narration_sections = (
+            preliminary["sections"]
+            if durable_manifest is not None
+            else inputs["envelope"]["sections"]
+        )
+        for section in narration_sections:
+            section_id = str(section["section_id"])
+            if durable_manifest is not None:
+                audio = _mapping(section.get("audio"), "durable narration")
+                voice_urls = list(audio.get("source_urls") or [])
+                voice_hashes = list(audio.get("source_sha256") or [])
+                voice_durations = list(audio.get("source_duration_ms") or [])
+                if not (
+                    len(voice_urls)
+                    == len(voice_hashes)
+                    == len(voice_durations)
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film durable narration identity is incomplete"
+                    )
+                supplement = None
+            else:
+                supplement = inputs["section_supplements"][section_id]
+                voice_urls = list(supplement.get("voice_over_urls") or [])
+                voice_hashes = []
+                voice_durations = []
+            for index, url in enumerate(voice_urls):
+                key = f"audio:{section_id}:{index}"
                 path = staging / f"{key.replace(':', '_')}.mp3"
                 await download(str(url), path)
                 if not path.is_file() or path.stat().st_size == 0:
                     raise CustomFilmContractError(
                         "Custom Film narration download was empty"
                     )
-                supplement["voice_over_sha256"].append(
-                    hashlib.sha256(path.read_bytes()).hexdigest()
-                )
+                voice_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                if durable_manifest is not None:
+                    if voice_digest != str(voice_hashes[index]):
+                        raise CustomFilmContractError(
+                            "Custom Film durable narration source hash changed"
+                        )
+                else:
+                    supplement["voice_over_sha256"].append(voice_digest)
                 voice_probe = await probe_media(path)
                 if not voice_probe["has_audio"] or voice_probe["has_video"]:
                     raise CustomFilmContractError(
                         "Custom Film narration source has an invalid stream"
                     )
-                supplement["voice_over_duration_ms"].append(
-                    round(float(voice_probe["duration_seconds"]) * 1000)
+                voice_duration_ms = round(
+                    float(voice_probe["duration_seconds"]) * 1000
                 )
+                if durable_manifest is not None:
+                    if voice_duration_ms != _exact_int(
+                        voice_durations[index],
+                        "durable narration source duration",
+                    ):
+                        raise CustomFilmContractError(
+                            "Custom Film durable narration source duration changed"
+                        )
+                else:
+                    supplement["voice_over_duration_ms"].append(
+                        voice_duration_ms
+                    )
                 source_paths[key] = path
-        manifest = build_assembly_manifest(
-            tenant_id=tenant_id,
-            envelope_value=inputs["envelope"],
-            runtime_job_id=inputs["runtime_job_id"],
-            runtime_progress_value=inputs["runtime_progress"],
-            provider_rows=inputs["provider_rows"],
-            scene_rows=inputs["scene_rows"],
-            asset_rows=inputs["asset_rows"],
-            provenance_rows=inputs["provenance_rows"],
-            section_supplements=inputs["section_supplements"],
-            width=inputs["output_width"],
-            height=inputs["output_height"],
-            render_engine=selected_render_engine,
-            assembly_version=selected_assembly_version,
-            orchestration_contract=inputs.get("orchestration_contract"),
-        )
+        if durable_manifest is not None:
+            manifest = durable_manifest
+        else:
+            manifest = build_assembly_manifest(
+                tenant_id=tenant_id,
+                envelope_value=inputs["envelope"],
+                runtime_job_id=inputs["runtime_job_id"],
+                runtime_progress_value=inputs["runtime_progress"],
+                provider_rows=inputs["provider_rows"],
+                scene_rows=inputs["scene_rows"],
+                asset_rows=inputs["asset_rows"],
+                provenance_rows=inputs["provenance_rows"],
+                section_supplements=inputs["section_supplements"],
+                width=inputs["output_width"],
+                height=inputs["output_height"],
+                render_engine=selected_render_engine,
+                assembly_version=selected_assembly_version,
+                orchestration_contract=inputs.get("orchestration_contract"),
+            )
         manifest_hash = manifest["manifest_hash"]
         runtime_hash = manifest["runtime_hash"]
         storage_path = assembly_storage_path(video_id, runtime_hash, manifest_hash)
+        if existing and str(existing.get("storage_path") or "") != storage_path:
+            raise CustomFilmContractError(
+                "Custom Film durable storage identity changed"
+            )
         journal_ready = False
         last_completed_sections = 0
         async with pool.acquire() as conn:
@@ -2654,9 +3164,11 @@ async def render_custom_film_video(
                     "completed assembly sections",
                 )
                 storage_path = str(journal.get("storage_path") or "")
-                if not storage_path:
+                if storage_path != assembly_storage_path(
+                    video_id, runtime_hash, manifest_hash
+                ):
                     raise CustomFilmContractError(
-                        "Custom Film durable storage path is missing"
+                        "Custom Film durable storage identity changed"
                     )
                 state = str(journal["state"])
                 resume_action = assembly_resume_action(state)
@@ -2918,11 +3430,7 @@ async def render_custom_film_video(
         }
     except Exception as exc:
         if "journal_ready" in locals() and journal_ready:
-            retryable = isinstance(
-                exc, (CustomFilmRetryableError, OSError, asyncio.SubprocessError)
-            ) or not isinstance(exc, CustomFilmContractError)
-            failure_state = "retryable_failed" if retryable else "terminal_failed"
-            failure_kind = "retryable" if retryable else "terminal"
+            failure_state, failure_kind = _assembly_failure_disposition(exc)
             safe_detail = humanize_error(
                 exc, context="Custom Film assembly could not be completed"
             )

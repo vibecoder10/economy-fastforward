@@ -17,6 +17,9 @@ from custom_film_contract import CustomFilmContractError
 OPERATION_ID = "custom-film-op:" + ("a" * 64)
 RUNTIME_HASH = "b" * 64
 RUNTIME_JOB_ID = "custom-film-runtime:" + RUNTIME_HASH
+DIRECTOR_HASH = "d" * 64
+DIRECTOR_JOB_ID = "custom-film-director:" + DIRECTOR_HASH
+DIRECTOR_SCHEDULE_ID = "33333333-3333-4333-8333-333333333333"
 REQUEST_HASH = "c" * 64
 
 
@@ -404,6 +407,111 @@ async def test_pending_outbox_dispatches_on_startup_and_duplicate_pass_converges
 
 
 @pytest.mark.asyncio
+async def test_pending_director_outbox_dispatches_with_exact_schedule_identity(
+    monkeypatch,
+):
+    rows = [
+        {
+            "tenant_id": "tenant-1",
+            "video_id": "video-1",
+            "job_id": DIRECTOR_JOB_ID,
+            "attempt": 1,
+            "schedule_id": DIRECTOR_SCHEDULE_ID,
+        }
+    ]
+
+    async def fetch(sql):
+        assert "custom_film_director_stage_schedules" in sql
+        assert "b.status = 'pending'" in sql
+        return copy.deepcopy(rows)
+
+    class Arq:
+        def __init__(self):
+            self.calls = []
+
+        async def enqueue_job(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return object()
+
+    monkeypatch.setattr(main, "fetch_all", fetch)
+    arq = Arq()
+    app = type("App", (), {"state": type("State", (), {"arq": arq})()})()
+    assert await main._dispatch_pending_custom_film_director(app) == 1
+    assert await main._dispatch_pending_custom_film_director(app) == 1
+    expected_worker_id = f"custom-film-worker:{DIRECTOR_JOB_ID}:1"
+    assert [call[1]["_job_id"] for call in arq.calls] == [
+        expected_worker_id,
+        expected_worker_id,
+    ]
+    assert all(
+        call[1]["director_job_id"] == DIRECTOR_JOB_ID
+        and call[1]["schedule_id"] == DIRECTOR_SCHEDULE_ID
+        for call in arq.calls
+    )
+    source = Path(main.__file__).read_text()
+    assert "await _dispatch_pending_custom_film_director(app)" in source
+
+
+@pytest.mark.asyncio
+async def test_interrupted_director_recovers_with_exact_schedule_and_new_job_key(
+    monkeypatch,
+):
+    async def recover():
+        return 1
+
+    async def fetch(sql):
+        assert "director_schedule_id" in sql
+        return [
+            {
+                "tenant_id": "tenant-1",
+                "video_id": "video-1",
+                "task_type": "custom_film_director",
+                "job_id": DIRECTOR_JOB_ID,
+                "attempt": 1,
+                "director_schedule_id": DIRECTOR_SCHEDULE_ID,
+            }
+        ]
+
+    updates = []
+
+    async def execute(sql, *args):
+        updates.append((sql, args))
+        return "UPDATE 1"
+
+    class Arq:
+        def __init__(self):
+            self.calls = []
+
+        async def enqueue_job(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return object()
+
+    monkeypatch.setattr(main, "recover_stale_tasks", recover)
+    monkeypatch.setattr(main, "fetch_all", fetch)
+    monkeypatch.setattr(main, "execute", execute)
+    arq = Arq()
+    app = type("App", (), {"state": type("State", (), {"arq": arq})()})()
+
+    assert await main._recover_stale_tasks_to_queue(app) == 1
+    assert len(updates) == 1
+    assert "SET status = 'pending', attempt = $4" in updates[0][0]
+    assert updates[0][1][-1] == 2
+    assert len(arq.calls) == 1
+    args, kwargs = arq.calls[0]
+    assert args == (
+        "arq_run_custom_film_director",
+        "video-1",
+        "tenant-1",
+        2,
+    )
+    assert kwargs == {
+        "_job_id": f"custom-film-worker:{DIRECTOR_JOB_ID}:2",
+        "schedule_id": DIRECTOR_SCHEDULE_ID,
+        "director_job_id": DIRECTOR_JOB_ID,
+    }
+
+
+@pytest.mark.asyncio
 async def test_periodic_reaper_preserves_pending_custom_film_outbox(monkeypatch):
     calls = []
 
@@ -414,10 +522,7 @@ async def test_periodic_reaper_preserves_pending_custom_film_outbox(monkeypatch)
     monkeypatch.setattr(pipeline_route, "execute", execute)
     assert await pipeline_route.reap_stale_running_tasks(180) == 0
     assert len(calls) == 1
-    assert (
-        "NOT (task_type = 'custom_film_runtime' AND status = 'pending')"
-        in calls[0][0]
-    )
+    assert "task_type IN ('custom_film_runtime', 'custom_film_director')" in calls[0][0]
 
 
 def _operation_row(**updates):
@@ -554,9 +659,7 @@ def test_migration_125_and_fresh_schema_match_operation_journal_contract():
 
 def test_generation_claims_fresh_schema_retains_migration_092_foreign_keys():
     root = Path(__file__).parents[3]
-    migration = (
-        root / "backend/migrations/092_generation_claims.sql"
-    ).read_text()
+    migration = (root / "backend/migrations/092_generation_claims.sql").read_text()
     schema = (root / "schema.sql").read_text()
     migration_table = migration.split(
         "CREATE TABLE IF NOT EXISTS generation_claims",

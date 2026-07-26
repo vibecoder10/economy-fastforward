@@ -1724,7 +1724,41 @@ async def reserve_approved_start_intent(
             # use its canonical normalized result for the immutable rows.
             persisted_plan = normalize_plan(raw_plan, manifest)
             quote_digest = canonical_hash(quote_inputs)
-            plan_id = str(uuid4())
+            raw_director_contract = pending.get("director_contract")
+            prospective_plan_id = pending.get("prospective_plan_id")
+            if raw_director_contract is not None:
+                if not isinstance(raw_director_contract, dict):
+                    raise CustomFilmContractError(
+                        "Custom Film director contract is invalid"
+                    )
+                try:
+                    plan_id = str(UUID(str(prospective_plan_id)))
+                except (TypeError, ValueError, AttributeError) as exc:
+                    raise CustomFilmContractError(
+                        "Custom Film director plan identity is invalid"
+                    ) from exc
+
+                from custom_film_director import validate_director_contract
+
+                validated_director = validate_director_contract(
+                    raw_director_contract,
+                    expected_plan_hash=current_plan_hash,
+                )
+                if (
+                    validated_director["plan_id"] != plan_id
+                    or quote_inputs.get("director_contract_hash")
+                    != validated_director["contract_hash"]
+                ):
+                    raise CustomFilmContractError(
+                        "Custom Film director contract changed. Review and approve again."
+                    )
+            else:
+                if prospective_plan_id is not None:
+                    raise CustomFilmContractError(
+                        "Custom Film director plan identity has no contract"
+                    )
+                plan_id = str(uuid4())
+                validated_director = None
             save_eligible = False
             novelty = pending.get("novelty")
             if (
@@ -1829,6 +1863,19 @@ async def reserve_approved_start_intent(
                     canonical_json(section["provenance"]),
                     canonical_json(section["estimated_media"]),
                 )
+            if validated_director is not None:
+                from custom_film_director import persist_director_contract
+
+                persisted_director = await persist_director_contract(
+                    conn,
+                    tenant_id=tenant_id,
+                    video_id=video_id,
+                    plan_id=plan_id,
+                    plan_hash=current_plan_hash,
+                    director_contract=validated_director,
+                )
+                pending["director_contract_id"] = persisted_director["id"]
+                pending["director_contract_revision"] = persisted_director["revision"]
             await conn.execute(
                 """UPDATE videos
                    SET custom_film_plan_id = $3,

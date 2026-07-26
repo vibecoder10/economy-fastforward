@@ -48,6 +48,7 @@ acquire's stale sweep (>2h) clears on its own, so a release hiccup degrades
 to "this video is locked for up to 2h", never a permanent wedge and never a
 double-spend.
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,9 +68,11 @@ import drain_mode
 
 logger = logging.getLogger(__name__)
 
-# A claim older than this is treated as abandoned (crashed worker, killed
-# process, restart mid-run) and is swept + retaken rather than wedging the
-# video forever. Matches the "~2h" figure the C16a spec calls for.
+# A normal claim older than this is treated as abandoned (crashed worker,
+# killed process, restart mid-run) and is swept + retaken rather than wedging
+# the video forever. A Custom Film director claim with an unpaired durable
+# provider-call receipt is deliberately exempt: it stays locked until exact
+# reconciliation closes the spend ambiguity.
 STALE_HOURS = 2
 
 # Verbs/lanes independent of the exclusive "main" lane — mirrors
@@ -108,12 +111,86 @@ def _blocked(stage: str, active: set) -> bool:
 async def _active_stages(conn, tenant_id: str, video_id: str) -> set:
     rows = await conn.fetch(
         "SELECT stage FROM generation_claims WHERE tenant_id = $1 AND video_id = $2",
-        tenant_id, video_id,
+        tenant_id,
+        video_id,
     )
     return {r["stage"] for r in rows}
 
 
-async def acquire(tenant_id: str, video_id: str, stage: str, claimed_by: Optional[str] = None) -> bool:
+async def acquire_conn(
+    conn,
+    tenant_id: str,
+    video_id: str,
+    stage: str,
+    claimed_by: Optional[str] = None,
+) -> bool:
+    """Take a video claim inside the caller's existing transaction.
+
+    This lets a durable outbox row and its pre-drain paid-work authority commit
+    atomically. Callers own commit/rollback and must release the claim after
+    terminal persistence.
+    """
+    await drain_mode.assert_accepting_conn(conn)
+    await conn.execute(
+        "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+        f"{tenant_id}:{video_id}",
+    )
+    await conn.execute(
+        """DELETE FROM generation_claims gc
+           WHERE gc.tenant_id = $1 AND gc.video_id = $2
+             AND gc.claimed_at < now() - interval '2 hours'
+             AND NOT (
+               gc.claimed_by LIKE 'custom-film-director:%'
+               AND EXISTS (
+                 SELECT 1
+                 FROM custom_film_director_call_events started
+                 WHERE started.tenant_id = gc.tenant_id
+                   AND started.video_id = gc.video_id
+                   AND started.event_kind = 'attempt_started'
+                   AND (
+                     NOT EXISTS (
+                       SELECT 1
+                       FROM custom_film_director_call_events terminal
+                       WHERE terminal.tenant_id = started.tenant_id
+                         AND terminal.schedule_id = started.schedule_id
+                         AND terminal.operation_id = started.operation_id
+                         AND terminal.event_sequence = 1
+                     )
+                     OR EXISTS (
+                       SELECT 1
+                       FROM custom_film_director_call_events terminal
+                       WHERE terminal.tenant_id = started.tenant_id
+                         AND terminal.schedule_id = started.schedule_id
+                         AND terminal.operation_id = started.operation_id
+                         AND terminal.event_sequence = 1
+                         AND terminal.event->>'failure_code' =
+                             'authorization_violation'
+                     )
+                   )
+               )
+             )""",
+        tenant_id,
+        video_id,
+    )
+    active = await _active_stages(conn, tenant_id, video_id)
+    if _blocked(stage, active):
+        return False
+    row = await conn.fetchrow(
+        "INSERT INTO generation_claims (tenant_id, video_id, stage, claimed_by) "
+        "VALUES ($1, $2, $3, $4) "
+        "ON CONFLICT (tenant_id, video_id, stage) DO NOTHING "
+        "RETURNING stage",
+        tenant_id,
+        video_id,
+        stage,
+        claimed_by,
+    )
+    return row is not None
+
+
+async def acquire(
+    tenant_id: str, video_id: str, stage: str, claimed_by: Optional[str] = None
+) -> bool:
     """Atomically take the claim for (tenant_id, video_id, stage), applying
     the same main/side-lane blocking rule the in-process dict uses.
 
@@ -125,48 +202,64 @@ async def acquire(tenant_id: str, video_id: str, stage: str, claimed_by: Optiona
     stale-sweep-then-check-then-insert sequence below, inside one
     transaction. A stale claim's retake can't race a fresh acquire either:
     the DELETE and the INSERT happen under the same lock in the same
-    transaction. Fails CLOSED (returns False) on any DB error.
+    transaction. Director claims with unresolved durable call events are not
+    swept, even after two hours, so ambiguous provider spend cannot be followed
+    by another paid task. Fails CLOSED (returns False) on any DB error.
     """
     try:
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
-                # The global drain lock must be taken BEFORE the per-video
-                # lock. set_draining() takes the same global lock, updates the
-                # singleton row, and commits. Once that call returns, no later
-                # paid claim can have observed normal mode.
-                await drain_mode.assert_accepting_conn(conn)
-                # Advisory lock keyed on the VIDEO (not the stage) — this is
-                # what makes cross-stage blocking (main vs. a side lane)
-                # TOCTOU-free: every acquire for this video, whatever stage
-                # it's for, serializes through this one lock.
-                await conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
-                    f"{tenant_id}:{video_id}",
+                return await acquire_conn(
+                    conn,
+                    tenant_id,
+                    video_id,
+                    stage,
+                    claimed_by,
                 )
-                await conn.execute(
-                    "DELETE FROM generation_claims WHERE tenant_id = $1 AND video_id = $2 "
-                    "AND claimed_at < now() - interval '2 hours'",
-                    tenant_id, video_id,
-                )
-                active = await _active_stages(conn, tenant_id, video_id)
-                if _blocked(stage, active):
-                    return False
-                row = await conn.fetchrow(
-                    "INSERT INTO generation_claims (tenant_id, video_id, stage, claimed_by) "
-                    "VALUES ($1, $2, $3, $4) "
-                    "ON CONFLICT (tenant_id, video_id, stage) DO NOTHING "
-                    "RETURNING stage",
-                    tenant_id, video_id, stage, claimed_by,
-                )
-                return row is not None
     except drain_mode.DrainModeActive:
         raise
     except Exception:
         logger.exception(
             "[generation_claims] acquire failed tenant=%s video=%s stage=%s — "
             "DENYING the claim (fail-closed: a DB error must never open the "
-            "double-spend window)", tenant_id, video_id, stage,
+            "double-spend window)",
+            tenant_id,
+            video_id,
+            stage,
+        )
+        return False
+
+
+async def is_claim_owner(
+    tenant_id: str,
+    video_id: str,
+    stage: str,
+    claimed_by: str,
+) -> bool:
+    """Fail-closed check that the exact durable job still owns its claim."""
+    try:
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT 1
+                   FROM generation_claims
+                   WHERE tenant_id = $1 AND video_id = $2 AND stage = $3
+                     AND claimed_by = $4
+                     AND claimed_at >= now() - interval '2 hours'""",
+                tenant_id,
+                video_id,
+                stage,
+                claimed_by,
+            )
+            return row is not None
+    except Exception:
+        logger.exception(
+            "[generation_claims] owner check failed tenant=%s video=%s "
+            "stage=%s — DENYING paid work",
+            tenant_id,
+            video_id,
+            stage,
         )
         return False
 
@@ -181,13 +274,48 @@ async def release(tenant_id: str, video_id: str, stage: str) -> None:
         async with pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM generation_claims WHERE tenant_id = $1 AND video_id = $2 AND stage = $3",
-                tenant_id, video_id, stage,
+                tenant_id,
+                video_id,
+                stage,
             )
     except Exception:
         logger.warning(
             "[generation_claims] release failed tenant=%s video=%s stage=%s — "
             "row will self-clear via the 2h stale sweep on the next acquire",
-            tenant_id, video_id, stage, exc_info=True,
+            tenant_id,
+            video_id,
+            stage,
+            exc_info=True,
+        )
+
+
+async def release_owned(
+    tenant_id: str,
+    video_id: str,
+    stage: str,
+    claimed_by: str,
+) -> None:
+    """Release only when the exact durable job still owns the claim."""
+    try:
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """DELETE FROM generation_claims
+                   WHERE tenant_id = $1 AND video_id = $2 AND stage = $3
+                     AND claimed_by = $4""",
+                tenant_id,
+                video_id,
+                stage,
+                claimed_by,
+            )
+    except Exception:
+        logger.warning(
+            "[generation_claims] owned release failed tenant=%s video=%s "
+            "stage=%s — row will self-clear",
+            tenant_id,
+            video_id,
+            stage,
+            exc_info=True,
         )
 
 
@@ -208,19 +336,24 @@ async def get_claimed_by(tenant_id: str, video_id: str) -> Optional[str]:
             row = await conn.fetchrow(
                 "SELECT claimed_by FROM generation_claims WHERE tenant_id = $1 AND video_id = $2 "
                 "AND claimed_at > now() - interval '2 hours' ORDER BY claimed_at DESC LIMIT 1",
-                tenant_id, video_id,
+                tenant_id,
+                video_id,
             )
             return row["claimed_by"] if row else None
     except Exception:
         logger.warning(
             "[generation_claims] get_claimed_by failed tenant=%s video=%s — "
             "returning None (fail-soft: UI attribution only, never gates access)",
-            tenant_id, video_id, exc_info=True,
+            tenant_id,
+            video_id,
+            exc_info=True,
         )
         return None
 
 
-async def acquire_channel(tenant_id: str, stage: str = "dna", claimed_by: Optional[str] = None) -> bool:
+async def acquire_channel(
+    tenant_id: str, stage: str = "dna", claimed_by: Optional[str] = None
+) -> bool:
     """Channel-level (video-less) counterpart to acquire(), for tenant-wide
     learners — today only ``channel_dna.learn_channel`` (checklist C41) —
     that rebuild ``channel_profiles.channel_identity`` and have no single
@@ -251,14 +384,17 @@ async def acquire_channel(tenant_id: str, stage: str = "dna", claimed_by: Option
                 await conn.execute(
                     "DELETE FROM generation_claims WHERE tenant_id = $1 AND video_id IS NULL "
                     "AND stage = $2 AND claimed_at < now() - interval '2 hours'",
-                    tenant_id, stage,
+                    tenant_id,
+                    stage,
                 )
                 row = await conn.fetchrow(
                     "INSERT INTO generation_claims (tenant_id, video_id, stage, claimed_by) "
                     "VALUES ($1, NULL, $2, $3) "
                     "ON CONFLICT (tenant_id, stage) WHERE video_id IS NULL DO NOTHING "
                     "RETURNING stage",
-                    tenant_id, stage, claimed_by,
+                    tenant_id,
+                    stage,
+                    claimed_by,
                 )
                 return row is not None
     except drain_mode.DrainModeActive:
@@ -267,7 +403,9 @@ async def acquire_channel(tenant_id: str, stage: str = "dna", claimed_by: Option
         logger.exception(
             "[generation_claims] acquire_channel failed tenant=%s stage=%s — "
             "DENYING the claim (fail-closed: a DB error must never open the "
-            "double-spend/double-write window)", tenant_id, stage,
+            "double-spend/double-write window)",
+            tenant_id,
+            stage,
         )
         return False
 
@@ -282,32 +420,71 @@ async def release_channel(tenant_id: str, stage: str = "dna") -> None:
         async with pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM generation_claims WHERE tenant_id = $1 AND video_id IS NULL AND stage = $2",
-                tenant_id, stage,
+                tenant_id,
+                stage,
             )
     except Exception:
         logger.warning(
             "[generation_claims] release_channel failed tenant=%s stage=%s — "
             "row will self-clear via the 2h stale sweep on the next acquire_channel",
-            tenant_id, stage, exc_info=True,
+            tenant_id,
+            stage,
+            exc_info=True,
         )
 
 
 async def is_blocked(tenant_id: str, video_id: str, stage: str) -> bool:
     """Read-only check used by routes/pipeline.py's ``_is_task_active`` so
     the DB is consulted as the authority alongside the in-process dict fast
-    path. Ignores stale (>2h) rows without sweeping them — a plain read must
-    not mutate state; a genuinely stale claim is swept the next time
-    anything calls ``acquire()`` for this video. Fails CLOSED (returns True
-    -> caller treats the lane as busy) on any DB error, matching
-    ``acquire()``'s fail-closed rule.
+    path. Ignores normal stale (>2h) rows without sweeping them, but continues
+    to honor a stale Custom Film director claim whose durable call journal is
+    unresolved. A plain read must not mutate state; a genuinely stale normal
+    claim is swept the next time anything calls ``acquire()`` for this video.
+    Fails CLOSED (returns True -> caller treats the lane as busy) on any DB
+    error, matching ``acquire()``'s fail-closed rule.
     """
     try:
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT stage FROM generation_claims WHERE tenant_id = $1 AND video_id = $2 "
-                "AND claimed_at > now() - interval '2 hours'",
-                tenant_id, video_id,
+                """SELECT gc.stage
+                   FROM generation_claims gc
+                   WHERE gc.tenant_id = $1 AND gc.video_id = $2
+                     AND (
+                       gc.claimed_at > now() - interval '2 hours'
+                       OR (
+                         gc.claimed_by LIKE 'custom-film-director:%'
+                         AND EXISTS (
+                           SELECT 1
+                           FROM custom_film_director_call_events started
+                           WHERE started.tenant_id = gc.tenant_id
+                             AND started.video_id = gc.video_id
+                             AND started.event_kind = 'attempt_started'
+                             AND (
+                               NOT EXISTS (
+                                 SELECT 1
+                                 FROM custom_film_director_call_events terminal
+                                 WHERE terminal.tenant_id = started.tenant_id
+                                   AND terminal.schedule_id = started.schedule_id
+                                   AND terminal.operation_id = started.operation_id
+                                   AND terminal.event_sequence = 1
+                               )
+                               OR EXISTS (
+                                 SELECT 1
+                                 FROM custom_film_director_call_events terminal
+                                 WHERE terminal.tenant_id = started.tenant_id
+                                   AND terminal.schedule_id = started.schedule_id
+                                   AND terminal.operation_id = started.operation_id
+                                   AND terminal.event_sequence = 1
+                                   AND terminal.event->>'failure_code' =
+                                       'authorization_violation'
+                               )
+                             )
+                         )
+                       )
+                     )""",
+                tenant_id,
+                video_id,
             )
             active = {r["stage"] for r in rows}
             return _blocked(stage, active)
@@ -315,6 +492,8 @@ async def is_blocked(tenant_id: str, video_id: str, stage: str) -> bool:
         logger.exception(
             "[generation_claims] is_blocked check failed tenant=%s video=%s "
             "stage=%s — treating the lane as BUSY (fail-closed)",
-            tenant_id, video_id, stage,
+            tenant_id,
+            video_id,
+            stage,
         )
         return True

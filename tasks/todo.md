@@ -4,6 +4,27 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ⟳ HANDOFF — 2026-07-25 — M8 storyboard-driven Custom Film director loop
+
+**Branch/worktree:** `agent/custom-film-director-loop` in
+`/Users/ryanayler/economy-fastforward-custom-film-director`.
+
+**Last done:** M8 now has the complete v2 no-provider Stage 1 intelligence path:
+300 seconds/50 shots deterministically becomes one film-bible call, one complete
+outline, seven <=8-shot batches, and one conditional repair slot per initial operation.
+The exact six-key price book, quote/authority/schedule, bounded executor, append-only
+durable receipts, reconciliation-required crash law, final compiler, and immutable
+schedule -> execution -> director-contract binding pass 528/528 Custom Film tests.
+
+**Next:** replace the held v1 chat card/reservation with this v2 price book and
+18-maximum-call schedule, then add a true single-request production text adapter/worker
+and canonical generation-ledger reconciliation. After that, add reference ->
+storyboard -> final-picture -> animation/voice approval cards and executors before the
+production renderer adapter. The activation flag remains off and migration 135 is
+unapplied. Paid provider work, migration application, deployment, upload, and
+publication remain unauthorized; $8.57 is historical accounting only, not permission
+for the next call.
+
 ## ⧗ HANDOFF — 2026-07-24 (night) — SFX render-path guard: code done, live UI check BLOCKED (report only, no code changes this session)
 
 **Branch:** `claude/exciting-swirles-4d8fba`, commits a3453902 (initial guard) + 9d83c621 (closed
@@ -2552,6 +2573,20 @@ Frontend tasks 8-12 are now unblocked. Task queue is empty.
 - email_tasks.py needs to be wired into a background loop in main.py lifespan (not done yet — task 7 only creates the module)
 
 Previous handoffs archived in `tasks/archive/handoffs-2026-03-to-04.md`
+
+## Handoff (2026-07-26 — Scene-by-Scene Control)
+
+- COMPLETE: PRs #517/#519 deployed migration 137, the Scene Control flags, and
+  timestamp-safe synthetic receipts at production `210a86bf`.
+- Live synthetic proof rejected a stale revision with 409, advanced Scene 1
+  through every exact evidence gate, and unlocked Scene 2 only on acceptance.
+  The production browser proved six film locks, five shots, locked Scene 2,
+  comparison-only media truth, and the quote-only cockpit.
+- STOPPED: fresh synthetic video
+  `9ff17a5d-4fee-4019-97ec-6d14dd3e37ad` remains `plan_approved` at its exact
+  read-only storyboard ceiling of $0.25. The ledger is unchanged at 148
+  rows/$25.14 and schedules/calls/executions/claims remain zero. No provider
+  generation, repair, upload, or publication is authorized.
 
 ## Handoff (2026-04-10 — QA verification + security audit)
 PRD2 Pipeline UX: 12/14 done+verified. T12 (full regression) blocked on T3/T4/T7/T10.

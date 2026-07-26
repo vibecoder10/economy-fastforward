@@ -1427,6 +1427,14 @@ function CustomFilmApprovalCard({
   card: ChatCard;
   onChoose: (value: string, label: string) => void;
 }) {
+  if (card.custom_film_director_stage) {
+    return (
+      <CustomFilmDirectorStageCard
+        card={card}
+        onChoose={onChoose}
+      />
+    );
+  }
   const yes = card.options?.find((o) => o.value === "yes");
   const no = card.options?.find((o) => o.value === "no");
   const sections = card.custom_film_sections ?? [];
@@ -1669,6 +1677,130 @@ function CustomFilmApprovalCard({
             style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
           >
             {yes?.label ?? "Approve paid production"}
+          </button>
+          <button
+            onClick={() => onChoose("no", no?.label ?? "Keep editing")}
+            className="rounded-xl px-4 py-3 text-sm font-semibold transition-all hover:brightness-110 active:scale-[0.98]"
+            style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+          >
+            {no?.label ?? "Keep editing"}
+          </button>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function CustomFilmDirectorStageCard({
+  card,
+  onChoose,
+}: {
+  card: ChatCard;
+  onChoose: (value: string, label: string) => void;
+}) {
+  const stage = card.custom_film_director_stage!;
+  const yes = card.options?.find((option) => option.value === "yes");
+  const no = card.options?.find((option) => option.value === "no");
+  const duration = `${Math.floor(stage.duration_seconds / 60)}:${String(stage.duration_seconds % 60).padStart(2, "0")}`;
+
+  return (
+    <GlassCard
+      className="overflow-hidden p-0"
+      style={{ borderColor: "rgba(0, 212, 170, 0.38)" }}
+    >
+      <div
+        className="px-4 py-4 sm:px-5"
+        style={{
+          background: "linear-gradient(135deg, rgba(0,212,170,0.14), rgba(0,212,170,0.03))",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div
+              className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+            >
+              <Clapperboard size={19} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--turquoise)" }}>
+                Planning approval
+              </p>
+              <h2 className="mt-1 break-words text-lg font-display font-bold leading-tight" style={{ color: "var(--text-primary)" }}>
+                {card.label}
+              </h2>
+              <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                {card.header ?? "Custom Film"} · {duration} · about {stage.planned_shots} shots
+              </p>
+            </div>
+          </div>
+          <span
+            className="shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
+            style={{ background: "rgba(0,212,170,0.12)", color: "var(--turquoise)", border: "1px solid rgba(0,212,170,0.25)" }}
+          >
+            No media approved
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 p-4 sm:p-5">
+        <div
+          className="rounded-xl p-4"
+          style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+        >
+          <p className="text-[10px] font-bold uppercase tracking-[0.15em]" style={{ color: "var(--turquoise)" }}>
+            {stage.stage}
+          </p>
+          <p className="mt-2 break-words text-sm leading-relaxed" style={{ color: "var(--text-primary)" }}>
+            {stage.produces}
+          </p>
+          <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Locks the story, cast, environments, visual style, dialogue, exposition,
+            silent action, and shot-to-shot storyboard progression before imagery.
+          </p>
+        </div>
+
+        <div
+          className="grid grid-cols-1 gap-3 rounded-xl p-3 sm:grid-cols-3"
+          style={{ background: "rgba(0,212,170,0.06)", border: "1px solid rgba(0,212,170,0.18)" }}
+        >
+          <div>
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Already accounted</p>
+            <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              {stage.prior_cumulative}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Stage maximum</p>
+            <p className="mt-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              {stage.stage_maximum}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-tertiary)" }}>Exact cumulative ceiling</p>
+            <p className="mt-1 text-xl font-display font-bold" style={{ color: "var(--turquoise)" }}>
+              {stage.exact_cumulative_ceiling}
+            </p>
+          </div>
+        </div>
+
+        {card.approval_notice && (
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" style={{ color: "var(--gold)" }} />
+            <p className="break-words text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              {card.approval_notice}
+            </p>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => yes && onChoose("yes", yes.label)}
+            className="min-w-0 flex-1 rounded-xl px-4 py-3 text-sm font-bold transition-all hover:brightness-110 active:scale-[0.98]"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            {yes?.label ?? "Approve screenplay and direction"}
           </button>
           <button
             onClick={() => onChoose("no", no?.label ?? "Keep editing")}

@@ -576,3 +576,13 @@ manifest identity, probing, and hashing remain necessary engineering diagnostics
 must not consume the creative-review budget once silent drift is prevented. Directly inspect
 the motion primitives, typography, framing, captions, pacing, audio intent, crop behavior,
 and product reveal; report any remaining delivery-hash difference honestly.
+
+## 2026-07-26 — A deterministic control proof must bind identity, playback, and truth
+
+Regex-valid placeholder hashes, a synthetic-only hard-coded shot board, and status text
+without playable artifacts can all make a control system look complete while proving
+little. The accepted Scene Control verifier pass required one cross-language canonical
+hash chain, exact non-synthetic shot read models, same-origin byte-bound playback, and
+stale-versus-current evidence labels. Also test adversarial boundaries that happy-path
+fixtures hide: scene-number gaps, arbitrary existing-video seeding, fractional-cent
+rounding, arbitrary transition evidence, and manifest drift.

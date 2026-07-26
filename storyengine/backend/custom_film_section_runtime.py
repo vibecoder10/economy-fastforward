@@ -17,7 +17,11 @@ from typing import Any, Mapping, Protocol
 import database
 import generation_claims
 from custom_film_contract import CustomFilmContractError
-from custom_film_runtime import RUNTIME_VERSION, validate_runtime_envelope
+from custom_film_runtime import (
+    RUNTIME_VERSION,
+    SCRIPTS_FIRST_AV_EXECUTION_MODEL,
+    validate_runtime_envelope,
+)
 from error_utils import humanize_error
 
 
@@ -361,7 +365,7 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
         raise CustomFilmContractError("Custom Film runtime schedule is incomplete")
 
     sections_by_id: dict[str, dict[str, Any]] = {}
-    expected_plan: list[tuple[str, int, str, int]] = []
+    expected_by_section: list[list[tuple[str, int, str, int]]] = []
     total_seconds = 0
     for expected_index, raw_section in enumerate(sections_value):
         section = _object(raw_section, "runtime section")
@@ -391,6 +395,13 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
             "estimated_media",
         ):
             _object(section.get(field), f"section {field.replace('_', ' ')}")
+        raw_visual_beats = section.get("approved_visual_beats", [])
+        if not isinstance(raw_visual_beats, list) or any(
+            not isinstance(value, Mapping) for value in raw_visual_beats
+        ):
+            raise CustomFilmContractError(
+                "Custom Film section approved visual beats are invalid"
+            )
         laws = section.get("quality_laws")
         if (
             not isinstance(laws, list)
@@ -404,8 +415,11 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
         if animated:
             stages.extend(("motion", "clips"))
         stages.append("quality")
-        expected_plan.extend(
-            (section_id, order_index, stage, duration_seconds) for stage in stages
+        expected_by_section.append(
+            [
+                (section_id, order_index, stage, duration_seconds)
+                for stage in stages
+            ]
         )
         total_seconds += duration_seconds
         sections_by_id[section_id] = section
@@ -439,17 +453,112 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
                 "Custom Film runtime work item does not match its section"
             )
         actual_plan.append((section_id, order_index, stage, duration_seconds))
-    if actual_plan != expected_plan:
+    legacy_expected_plan = [
+        item for section_plan in expected_by_section for item in section_plan
+    ]
+    scripts_first_expected_plan = [
+        section_plan[0] for section_plan in expected_by_section
+    ] + [
+        item
+        for section_plan in expected_by_section
+        for item in section_plan[1:]
+    ]
+    if actual_plan not in (legacy_expected_plan, scripts_first_expected_plan):
         raise CustomFilmContractError("Custom Film runtime stage plan is stale")
+    scripts_first_schedule = (
+        envelope.get("execution_model")
+        == SCRIPTS_FIRST_AV_EXECUTION_MODEL
+    )
+    if scripts_first_schedule and actual_plan != scripts_first_expected_plan:
+        raise CustomFilmContractError(
+            "Custom Film scripts-first execution model has a stale stage plan"
+        )
+
+    approved_visual_beats: dict[int, list[dict[str, Any]]] = {}
+    quote_inputs = envelope.get("quote_inputs")
+    if scripts_first_schedule and isinstance(quote_inputs, Mapping):
+        orchestration = quote_inputs.get("orchestration")
+        if isinstance(orchestration, Mapping):
+            beat_plan = orchestration.get("approved_beat_plan")
+            if isinstance(beat_plan, Mapping):
+                recipes = beat_plan.get("recipes")
+                if isinstance(recipes, list):
+                    for raw_recipe in recipes:
+                        if not isinstance(raw_recipe, Mapping):
+                            continue
+                        section_index = raw_recipe.get("sectionIndex")
+                        if (
+                            type(section_index) is not int
+                            or section_index not in range(len(sections_by_id))
+                        ):
+                            continue
+                        signals = raw_recipe.get("signals")
+                        transition = raw_recipe.get("transition")
+                        capabilities = raw_recipe.get("requestedCapabilities")
+                        approved_visual_beats.setdefault(section_index, []).append(
+                            {
+                                "narrative_function": str(
+                                    raw_recipe.get("narrativeFunction") or ""
+                                ),
+                                "presentation": str(
+                                    raw_recipe.get("presentation") or ""
+                                ),
+                                "intents": [
+                                    str(value)
+                                    for value in (
+                                        signals.get("intents", [])
+                                        if isinstance(signals, Mapping)
+                                        else []
+                                    )
+                                    if str(value).strip()
+                                ],
+                                "handoff": (
+                                    str(signals.get("handoff") or "")
+                                    if isinstance(signals, Mapping)
+                                    else ""
+                                ),
+                                "transition": (
+                                    str(transition.get("mode") or "")
+                                    if isinstance(transition, Mapping)
+                                    else ""
+                                ),
+                                "motion_capabilities": [
+                                    str(value)
+                                    for value in (
+                                        capabilities
+                                        if isinstance(capabilities, list)
+                                        else []
+                                    )
+                                    if str(value).startswith("motion.")
+                                ],
+                            }
+                        )
 
     adapters: list[SectionStageAdapter] = []
     story_arc = tuple(
         _freeze(
-            {
-                "order_index": int(section["order_index"]),
-                "role": str(section.get("role") or ""),
-                "purpose": str(section.get("purpose") or ""),
-            }
+            (
+                {
+                    "order_index": int(section["order_index"]),
+                    "section_id": str(section.get("section_id") or ""),
+                    "role": str(section.get("role") or ""),
+                    "purpose": str(section.get("purpose") or ""),
+                    "render_mode": str(section.get("render_mode") or ""),
+                    "approved_visual_beats": section.get(
+                        "approved_visual_beats",
+                        approved_visual_beats.get(
+                            int(section["order_index"]),
+                            [],
+                        ),
+                    ),
+                }
+                if scripts_first_schedule
+                else {
+                    "order_index": int(section["order_index"]),
+                    "role": str(section.get("role") or ""),
+                    "purpose": str(section.get("purpose") or ""),
+                }
+            )
         )
         for section in sorted(
             sections_by_id.values(),
@@ -483,7 +592,16 @@ def compile_stage_adapters(envelope_value: Any) -> tuple[SectionStageAdapter, ..
                 image_source=str(section["image_source"]),
                 provenance=_freeze(section["provenance"]),
                 estimated_media=_freeze(section["estimated_media"]),
-                story_arc=story_arc if stage == "script" else (),
+                # Opening/final section quality must revalidate against the
+                # same immutable film-world and carry context as script
+                # approval. SectionProductionRequest.payload intentionally
+                # serializes story_arc only for script, preserving all existing
+                # non-script operation identities.
+                story_arc=(
+                    story_arc
+                    if stage in {"script", "quality"}
+                    else ()
+                ),
             )
         )
     return tuple(adapters)

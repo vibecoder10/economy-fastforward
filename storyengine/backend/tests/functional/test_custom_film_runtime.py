@@ -129,15 +129,82 @@ async def test_compiler_carries_exact_seconds_ids_and_every_major_runtime_seam()
     stages = [(row["section_id"], row["stage"]) for row in compiled.stage_plan()]
     assert stages == [
         (static.section_id, "script"),
+        (animated.section_id, "script"),
         (static.section_id, "voice"),
         (static.section_id, "pictures"),
         (static.section_id, "quality"),
-        (animated.section_id, "script"),
         (animated.section_id, "voice"),
         (animated.section_id, "pictures"),
         (animated.section_id, "motion"),
         (animated.section_id, "clips"),
         (animated.section_id, "quality"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_compiler_pins_approved_visual_beats_into_runtime_sections():
+    plan = _plan()
+    quote = await actions.estimate_custom_film_plan(
+        plan,
+        total_duration_seconds=30,
+    )
+    quote["orchestration"] = {
+        "approved_beat_plan": {
+            "recipes": [
+                {
+                    "sectionIndex": 1,
+                    "narrativeFunction": "reveal",
+                    "presentation": "NetworkExplainer",
+                    "requestedCapabilities": [
+                        "media.approved_primary",
+                        "motion.network_explainer",
+                        "motion.incident_timeline",
+                    ],
+                    "signals": {
+                        "intents": ["network", "timeline", "recovery"],
+                        "handoff": "network_to_master",
+                    },
+                    "transition": {"mode": "transform-carry"},
+                }
+            ]
+        }
+    }
+    plan_digest = contract.plan_hash(plan)
+    quote_digest = contract.canonical_hash(quote)
+    approval = contract.approval_binding_hash(plan_digest, quote)
+
+    compiled = runtime.compile_runtime_plan(
+        video_id="video-1",
+        plan_id="plan-1",
+        normalized_plan=plan,
+        quote_inputs=quote,
+        expected_plan_hash=plan_digest,
+        expected_quote_inputs_hash=quote_digest,
+        expected_approval_hash=approval,
+        max_spend=float(quote["totals"]["estimated_cost"]),
+    )
+
+    expected = (
+        {
+            "narrative_function": "reveal",
+            "presentation": "NetworkExplainer",
+            "intents": ("network", "timeline", "recovery"),
+            "handoff": "network_to_master",
+            "transition": "transform-carry",
+            "motion_capabilities": (
+                "motion.network_explainer",
+                "motion.incident_timeline",
+            ),
+        },
+    )
+    assert compiled.sections[0].approved_visual_beats == ()
+    assert compiled.sections[1].approved_visual_beats == expected
+    assert compiled.envelope()["sections"][1]["approved_visual_beats"] == [
+        {
+            **expected[0],
+            "intents": list(expected[0]["intents"]),
+            "motion_capabilities": list(expected[0]["motion_capabilities"]),
+        }
     ]
 
 

@@ -445,6 +445,85 @@ test("approved narration sources concatenate in order with exact playback transf
   assert.equal(slots[1].startFrame + slots[1].durationInFrames, 1080);
 });
 
+test("cue schedule trims one source into exact natural-speed approved beats", () => {
+  const props = structuredClone(STORYENGINE_SHOWCASE_STAGED_PROOF_PROPS);
+  const cueTexts = ["First approved line.", "Second approved line."];
+  const cueTextHashes = cueTexts.map((text, segmentIndex) =>
+    sha256Hex(canonicalJson({segment_index: segmentIndex, text})),
+  );
+  props.sections[0].audio.timing_transform = {
+    mode: "cue_schedule",
+    source_duration_ms: 45000,
+    output_duration_ms: 45000,
+    atempo_chain: [],
+    caption_scale: 1,
+    cues: [
+      {
+        segment_index: 0,
+        text_hash: cueTextHashes[0],
+        source_start_ms: 0,
+        source_end_ms: 3500,
+        target_start_ms: 0,
+        target_end_ms: 3500,
+      },
+      {
+        segment_index: 1,
+        text_hash: cueTextHashes[1],
+        source_start_ms: 3500,
+        source_end_ms: 7500,
+        target_start_ms: 27000,
+        target_end_ms: 31000,
+      },
+    ],
+  };
+  props.sections[0].captions = [
+    {
+      ...props.sections[0].captions[0],
+      text: cueTexts[0],
+      section_start_ms: 0,
+      section_end_ms: 3500,
+      start_frame: 0,
+      end_frame: 84,
+    },
+    {
+      ...props.sections[0].captions[0],
+      text: cueTexts[1],
+      section_start_ms: 27000,
+      section_end_ms: 31000,
+      start_frame: 648,
+      end_frame: 744,
+    },
+  ];
+  rehashProps(props);
+  const slots = resolveShowcaseMediaSlots(props)
+    .filter((slot) => slot.kind === "audio" && slot.sectionId === "showcase-opening");
+  assert.deepEqual(
+    slots.map((slot) => ({
+      startFrame: slot.startFrame,
+      durationInFrames: slot.durationInFrames,
+      playbackRate: slot.playbackRate,
+      sourceTrimStartFrame: slot.sourceTrimStartFrame,
+      sourceTrimEndFrame: slot.sourceTrimEndFrame,
+    })),
+    [
+      {
+        startFrame: 0,
+        durationInFrames: 84,
+        playbackRate: 1,
+        sourceTrimStartFrame: 0,
+        sourceTrimEndFrame: 84,
+      },
+      {
+        startFrame: 648,
+        durationInFrames: 96,
+        playbackRate: 1,
+        sourceTrimStartFrame: 84,
+        sourceTrimEndFrame: 180,
+      },
+    ],
+  );
+});
+
 test("source_clip uses only approved video audio while voice_over video stays muted", () => {
   const sourceClipSlots = resolveShowcaseMediaSlots(STORYENGINE_SHOWCASE_SOURCE_CLIP_PROOF_PROPS);
   const openingSlots = sourceClipSlots.filter((slot) => slot.sectionId === "showcase-opening");
@@ -468,6 +547,12 @@ test("source_clip uses only approved video audio while voice_over video stays mu
   assert.match(mediaSource, /muted=\{!slot\.nativeAudioEnabled\}/);
   assert.match(mediaSource, /playbackRate=\{slot\.nativeAudioPlaybackRate\}/);
   assert.match(mediaSource, /playbackRate=\{slot\.playbackRate\}/);
+  assert.match(mediaSource, /trimBefore=\{slot\.sourceTrimStartFrame/);
+  assert.match(mediaSource, /trimAfter=\{slot\.sourceTrimEndFrame/);
+  assert.match(
+    mediaSource,
+    /key=\{`audio:\$\{slot\.sourceKey\}:\$\{slot\.sourceIndex\}:\$\{slot\.startFrame\}`\}/,
+  );
 });
 
 test("invalid or inconsistent approved audio timing fails closed", () => {
@@ -496,6 +581,36 @@ test("invalid or inconsistent approved audio timing fails closed", () => {
       };
     },
     /timing transform is inconsistent/,
+  );
+  invalid(
+    (section) => {
+      section.audio.timing_transform = {
+        mode: "cue_schedule",
+        source_duration_ms: 45000,
+        output_duration_ms: 45000,
+        atempo_chain: [],
+        caption_scale: 1,
+        cues: [
+          {
+            segment_index: 0,
+            text_hash: "1".repeat(64),
+            source_start_ms: 0,
+            source_end_ms: 5000,
+            target_start_ms: 0,
+            target_end_ms: 5000,
+          },
+          {
+            segment_index: 1,
+            text_hash: "2".repeat(64),
+            source_start_ms: 5000,
+            source_end_ms: 10000,
+            target_start_ms: 27001,
+            target_end_ms: 32001,
+          },
+        ],
+      };
+    },
+    /cue schedule or caption binding changed/,
   );
   invalid(
     (section) => {

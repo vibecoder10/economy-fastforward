@@ -19,6 +19,7 @@ from production_styles import runtime_values_from_knobs
 
 
 RUNTIME_VERSION = "custom-film-runtime-v1"
+SCRIPTS_FIRST_AV_EXECUTION_MODEL = "scripts_first_av_v1"
 
 
 def _object(value: Any, name: str) -> dict[str, Any]:
@@ -85,6 +86,7 @@ class RuntimeSection:
     image_source: str
     provenance: Mapping[str, Any]
     estimated_media: Mapping[str, Any]
+    approved_visual_beats: tuple[Mapping[str, Any], ...]
 
     def stage_values(self) -> dict[str, Any]:
         return {
@@ -107,6 +109,7 @@ class RuntimeSection:
             "image_source": self.image_source,
             "provenance": _thaw(self.provenance),
             "estimated_media": _thaw(self.estimated_media),
+            "approved_visual_beats": _thaw(self.approved_visual_beats),
         }
 
 
@@ -126,23 +129,25 @@ class RuntimePlan:
         return canonical_hash(self._envelope_base())
 
     def stage_plan(self) -> tuple[dict[str, Any], ...]:
-        work: list[dict[str, Any]] = []
+        scripts: list[dict[str, Any]] = []
+        downstream: list[dict[str, Any]] = []
         for section in self.sections:
             stages = ["script", "voice", "pictures"]
             if bool(section.animation.get("enabled")):
                 stages.extend(("motion", "clips"))
             stages.append("quality")
             for stage in stages:
-                work.append(
-                    {
-                        "section_id": section.section_id,
-                        "order_index": section.order_index,
-                        "stage": stage,
-                        "duration_seconds": section.duration_seconds,
-                        "values": section.stage_values(),
-                    }
-                )
-        return tuple(work)
+                item = {
+                    "section_id": section.section_id,
+                    "order_index": section.order_index,
+                    "stage": stage,
+                    "duration_seconds": section.duration_seconds,
+                    "values": section.stage_values(),
+                }
+                (scripts if stage == "script" else downstream).append(item)
+        # New schedules establish a whole-film screenplay barrier: every
+        # script must pass before any voice, imagery, motion, or clip work.
+        return tuple((*scripts, *downstream))
 
     def envelope(self) -> dict[str, Any]:
         return {"runtime_hash": self.runtime_hash, **self._envelope_base()}
@@ -150,6 +155,7 @@ class RuntimePlan:
     def _envelope_base(self) -> dict[str, Any]:
         return {
             "runtime_version": RUNTIME_VERSION,
+            "execution_model": SCRIPTS_FIRST_AV_EXECUTION_MODEL,
             "video_id": self.video_id,
             "plan_id": self.plan_id,
             "plan_hash": self.plan_hash,
@@ -201,6 +207,64 @@ def compile_runtime_plan(
     }
     if len(quote_by_id) != len(quote_sections):
         raise CustomFilmContractError("Custom Film estimate has duplicate section IDs")
+
+    approved_visual_beats: dict[int, list[dict[str, Any]]] = {}
+    orchestration = quote.get("orchestration")
+    if isinstance(orchestration, Mapping):
+        beat_plan = orchestration.get("approved_beat_plan")
+        if isinstance(beat_plan, Mapping):
+            recipes = beat_plan.get("recipes")
+            if isinstance(recipes, list):
+                for raw_recipe in recipes:
+                    if not isinstance(raw_recipe, Mapping):
+                        continue
+                    section_index = raw_recipe.get("sectionIndex")
+                    if (
+                        type(section_index) is not int
+                        or section_index not in range(len(plan_sections))
+                    ):
+                        continue
+                    signals = raw_recipe.get("signals")
+                    transition = raw_recipe.get("transition")
+                    capabilities = raw_recipe.get("requestedCapabilities")
+                    approved_visual_beats.setdefault(section_index, []).append(
+                        {
+                            "narrative_function": str(
+                                raw_recipe.get("narrativeFunction") or ""
+                            ),
+                            "presentation": str(
+                                raw_recipe.get("presentation") or ""
+                            ),
+                            "intents": [
+                                str(value)
+                                for value in (
+                                    signals.get("intents", [])
+                                    if isinstance(signals, Mapping)
+                                    else []
+                                )
+                                if str(value).strip()
+                            ],
+                            "handoff": (
+                                str(signals.get("handoff") or "")
+                                if isinstance(signals, Mapping)
+                                else ""
+                            ),
+                            "transition": (
+                                str(transition.get("mode") or "")
+                                if isinstance(transition, Mapping)
+                                else ""
+                            ),
+                            "motion_capabilities": [
+                                str(value)
+                                for value in (
+                                    capabilities
+                                    if isinstance(capabilities, list)
+                                    else []
+                                )
+                                if str(value).startswith("motion.")
+                            ],
+                        }
+                    )
 
     sections: list[RuntimeSection] = []
     for expected_index, section_value in enumerate(plan_sections):
@@ -276,6 +340,10 @@ def compile_runtime_plan(
                 image_source=image_source,
                 provenance=_freeze(_object(section.get("provenance"), "provenance")),
                 estimated_media=_freeze(estimated_media),
+                approved_visual_beats=tuple(
+                    _freeze(value)
+                    for value in approved_visual_beats.get(expected_index, [])
+                ),
             )
         )
 

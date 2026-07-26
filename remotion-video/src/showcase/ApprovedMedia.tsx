@@ -133,6 +133,8 @@ const ApprovedAudioTrack: React.FC<{
   return (
     <Audio
       playbackRate={slot.playbackRate}
+      trimBefore={slot.sourceTrimStartFrame ?? undefined}
+      trimAfter={slot.sourceTrimEndFrame ?? undefined}
       src={staticFile(slot.localPath)}
       volume={
         (
@@ -170,7 +172,7 @@ export const ApprovedMediaLayer: React.FC<{
       if (slot.sourceKey.startsWith("synthetic:")) return null;
       return (
         <Sequence
-          key={`audio:${slot.sourceKey}`}
+          key={`audio:${slot.sourceKey}:${slot.sourceIndex}:${slot.startFrame}`}
           name={`approved-audio:${slot.sectionId}`}
           from={slot.startFrame}
           durationInFrames={slot.durationInFrames}

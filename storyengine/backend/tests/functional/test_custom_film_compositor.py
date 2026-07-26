@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import types
+from array import array
 from pathlib import Path
 from fractions import Fraction
 
@@ -107,13 +108,14 @@ def _section(index: int, *, kind: str) -> dict:
     return base
 
 
-def _fixture() -> dict:
+def _fixture(*, opening_duration: int = 2) -> dict:
     sections = [
         _section(0, kind="photo"),
         _section(1, kind="investigative"),
         _section(2, kind="bilingual"),
         _section(3, kind="simple"),
     ]
+    sections[0]["duration_seconds"] = opening_duration
     stage_plan = []
     for section in sections:
         stages = ["script", "voice", "pictures"]
@@ -137,7 +139,9 @@ def _fixture() -> dict:
         "plan_hash": "a" * 64,
         "quote_inputs_hash": "b" * 64,
         "approval_hash": "c" * 64,
-        "total_duration_seconds": 8,
+        "total_duration_seconds": sum(
+            section["duration_seconds"] for section in sections
+        ),
         "max_spend": 10.0,
         "sections": sections,
         "stage_plan": stage_plan,
@@ -175,6 +179,8 @@ def _fixture() -> dict:
                     else None
                 ),
                 "voice_status": None,
+                "dialogue_segments": None,
+                "script_validation": {},
             }
         )
         animated = section["animation"]["enabled"]
@@ -365,6 +371,15 @@ def _fixture() -> dict:
                     }
                 ]
             child_result = {"scene_ids": [scene_id], "artifacts": artifacts}
+            if adapter.stage == "voice":
+                child_result.update(
+                    {
+                        "voiced_scene_ids": (
+                            [scene_id] if artifacts else []
+                        ),
+                        "total_chars": 100 if artifacts else 0,
+                    }
+                )
             providers.append(
                 {
                     "tenant_id": TENANT,
@@ -428,6 +443,578 @@ def _build(values: dict) -> dict:
         provenance_rows=values["provenance_rows"],
         section_supplements=values["section_supplements"],
     )
+
+
+def _replace_bound_scene_text(values: dict, scene: dict, text: str) -> None:
+    scene["scene_text"] = text
+    adapter = next(
+        adapter
+        for adapter in custom_film_section_runtime.compile_stage_adapters(
+            values["envelope"]
+        )
+        if adapter.section_id == scene["section_id"]
+        and adapter.stage == "script"
+    )
+    parent_id = compositor._parent_operation_id(
+        TENANT, values["runtime_job_id"], adapter
+    )
+    operation = next(
+        row for row in values["provider_rows"]
+        if row["operation_id"] == parent_id
+    )
+    operation["result"]["scene_text_hashes"] = [
+        {
+            "scene_id": scene["script_id"],
+            "scene_text_hash": contract.canonical_hash(
+                {"scene_id": scene["script_id"], "scene_text": text}
+            ),
+        }
+    ]
+
+
+def _set_opening_two_cue_alignment(values: dict) -> None:
+    section = values["envelope"]["sections"][0]
+    section_id = section["section_id"]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    texts = ["First approved line.", "Second approved line."]
+    segments = [
+        {
+            "type": "narration",
+            "text": texts[0],
+            "start_seconds": 0,
+            "end_seconds": 12,
+        },
+        {
+            "type": "narration",
+            "text": texts[1],
+            "start_seconds": 27,
+            "end_seconds": 42,
+        },
+    ]
+    text_hashes = [
+        contract.canonical_hash({"segment_index": index, "text": text})
+        for index, text in enumerate(texts)
+    ]
+    source_hash = values["section_supplements"][section_id][
+        "voice_over_sha256"
+    ][0]
+    cues = [
+        {
+            "source_start_ms": 0,
+            "source_end_ms": 3500,
+            "target_start_ms": 0,
+            "target_end_ms": 3500,
+        },
+        {
+            "source_start_ms": 3500,
+            "source_end_ms": 7500,
+            "target_start_ms": 27000,
+            "target_end_ms": 31000,
+        },
+    ]
+    evidence_identity = {
+        "method": "openai-whisper",
+        "method_version": "20250625",
+        "model": "base.en",
+        "model_sha256": (
+            "25a8566e1d0c1e2231d1c762132cd20e"
+            "0f96a85d16145c3a00adf5d1ac670ead"
+        ),
+    }
+    scene["dialogue_segments"] = segments
+    scene["script_validation"] = {
+        "custom_film": {
+            "voice_alignment": {
+                "version": compositor.VOICE_ALIGNMENT_VERSION,
+                "source_sha256": source_hash,
+                "segment_text_hashes": text_hashes,
+                "evidence": {
+                    **evidence_identity,
+                    "evidence_sha256": contract.canonical_hash(
+                        {
+                            "contract_version": (
+                                compositor.VOICE_ALIGNMENT_VERSION
+                            ),
+                            **evidence_identity,
+                            "source_sha256": source_hash,
+                            "segment_text_hashes": text_hashes,
+                            "cues": cues,
+                        }
+                    ),
+                },
+                "cues": cues,
+            }
+        }
+    }
+    values["section_supplements"][section_id][
+        "voice_over_duration_ms"
+    ] = [7500]
+
+
+def test_two_cue_alignment_builds_exact_schedule_and_audible_captions():
+    values = _fixture(opening_duration=54)
+    _set_opening_two_cue_alignment(values)
+
+    manifest = _build(values)
+    section = manifest["sections"][0]
+
+    assert section["audio"]["timing_transform"]["mode"] == "cue_schedule"
+    assert [
+        (cue["target_start_ms"], cue["target_end_ms"])
+        for cue in section["audio"]["timing_transform"]["cues"]
+    ] == [(0, 3500), (27000, 31000)]
+    assert [
+        (caption["text"], caption["start_frame"], caption["end_frame"])
+        for caption in section["captions"]
+    ] == [
+        ("First approved line.", 0, 84),
+        ("Second approved line.", 648, 744),
+    ]
+
+
+def test_native_dialogue_captions_use_structured_target_text_not_av_screenplay():
+    values = _fixture()
+    native_section = values["envelope"]["sections"][3]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == native_section["section_id"]
+    )
+    _replace_bound_scene_text(
+        values,
+        scene,
+        "[AV SECTION — TEST]\nVISUAL: Never show this.\n"
+        "DIALOGUE Mara [source]: Hola.\nDIALOGUE Mara [target]: Hello.",
+    )
+    scene["dialogue_segments"] = [
+        {
+            "type": "dialogue",
+            "speaker": "Mara",
+            "language": "source",
+            "text": "Hola.",
+            "start_seconds": 0,
+            "end_seconds": 1,
+        },
+        {
+            "type": "dialogue",
+            "speaker": "Mara",
+            "language": "target",
+            "text": "Hello.",
+            "start_seconds": 0,
+            "end_seconds": 1,
+        },
+    ]
+
+    manifest = _build(values)
+    captions = manifest["sections"][3]["captions"]
+
+    assert [caption["text"] for caption in captions] == ["Hello."]
+    assert captions[0]["start_frame"] == 144
+    assert captions[0]["end_frame"] == 168
+
+
+def test_native_dialogue_without_structured_text_rejects_production_directions():
+    values = _fixture()
+    native_section = values["envelope"]["sections"][3]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == native_section["section_id"]
+    )
+    _replace_bound_scene_text(
+        values,
+        scene,
+        "[AV SECTION — TEST]\nVISUAL: Never show this.",
+    )
+
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="production directions cannot become captions",
+    ):
+        _build(values)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "source_hash",
+        "text_order",
+        "source_overlap",
+        "source_overrun",
+        "target_overlap",
+        "target_start",
+        "target_overrun",
+        "duration_mismatch",
+        "evidence_hash",
+        "model_hash",
+        "evidence_shape",
+        "non_frame_exact",
+        "missing_evidence",
+    ],
+)
+def test_two_cue_alignment_mutations_fail_closed(tamper):
+    values = _fixture(opening_duration=54)
+    _set_opening_two_cue_alignment(values)
+    scene = values["scene_rows"][0]
+    alignment = scene["script_validation"]["custom_film"]["voice_alignment"]
+    if tamper == "source_hash":
+        alignment["source_sha256"] = "f" * 64
+    elif tamper == "text_order":
+        alignment["segment_text_hashes"].reverse()
+    elif tamper == "source_overlap":
+        alignment["cues"][1]["source_start_ms"] = 3000
+    elif tamper == "source_overrun":
+        alignment["cues"][1]["source_end_ms"] = 7501
+    elif tamper == "target_overlap":
+        alignment["cues"][1]["target_start_ms"] = 4000
+        alignment["cues"][1]["target_end_ms"] = 9000
+    elif tamper == "target_start":
+        alignment["cues"][1]["target_start_ms"] = 26000
+        alignment["cues"][1]["target_end_ms"] = 31000
+    elif tamper == "target_overrun":
+        alignment["cues"][1]["target_end_ms"] = 55000
+    elif tamper == "duration_mismatch":
+        alignment["cues"][1]["target_end_ms"] = 30000
+    elif tamper == "evidence_hash":
+        alignment["evidence"]["evidence_sha256"] = "e" * 64
+    elif tamper == "model_hash":
+        alignment["evidence"]["model_sha256"] = "not-a-hash"
+    elif tamper == "evidence_shape":
+        alignment["evidence"]["unexpected"] = "field"
+    elif tamper == "non_frame_exact":
+        alignment["cues"][0]["source_end_ms"] = 3499
+        alignment["cues"][0]["target_end_ms"] = 3499
+        evidence = alignment["evidence"]
+        evidence["evidence_sha256"] = contract.canonical_hash(
+            {
+                "contract_version": alignment["version"],
+                **{
+                    key: evidence[key]
+                    for key in (
+                        "method",
+                        "method_version",
+                        "model",
+                        "model_sha256",
+                    )
+                },
+                "source_sha256": alignment["source_sha256"],
+                "segment_text_hashes": alignment["segment_text_hashes"],
+                "cues": alignment["cues"],
+            }
+        )
+    else:
+        del scene["script_validation"]["custom_film"]["voice_alignment"]
+
+    with pytest.raises(contract.CustomFilmContractError):
+        _build(values)
+
+
+@pytest.mark.asyncio
+async def test_ffmpeg_two_cue_render_has_audio_at_zero_and_twenty_seven_seconds(
+    tmp_path: Path,
+):
+    image = tmp_path / "still.png"
+    voice = tmp_path / "two-cues.wav"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            "color=c=navy:s=320x180", "-frames:v", "1", str(image),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            (
+                "sine=frequency=440:duration=2[s0];"
+                "sine=frequency=880:duration=2[s1];"
+                "[s0][s1]concat=n=2:v=0:a=1"
+            ),
+            str(voice),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    image_hash = hashlib.sha256(image.read_bytes()).hexdigest()
+    voice_hash = hashlib.sha256(voice.read_bytes()).hexdigest()
+    body = {
+        "assembly_version": compositor.ASSEMBLY_VERSION,
+        "tenant_id": TENANT,
+        "video_id": VIDEO,
+        "plan_id": PLAN,
+        "runtime_job_id": "custom-film-runtime:" + "a" * 64,
+        "runtime_hash": "a" * 64,
+        "fps": 1,
+        "width": 320,
+        "height": 180,
+        "total_frames": 29,
+        "total_duration_seconds": 29,
+        "sections": [
+            {
+                "section_id": "two-cues",
+                "order_index": 0,
+                "render_mode": "static_docu",
+                "start_frame": 0,
+                "duration_frames": 29,
+                "transition_in": {"duration_frames": 0},
+                "transition_out": {"duration_frames": 0},
+                "audio": {
+                    "mode": "voice_over",
+                    "source_urls": ["fixture://two-cues"],
+                    "source_sha256": [voice_hash],
+                    "source_duration_ms": [4000],
+                    "timing_transform": {
+                        "mode": "cue_schedule",
+                        "source_duration_ms": 4000,
+                        "output_duration_ms": 29000,
+                        "atempo_chain": [],
+                        "caption_scale": 1.0,
+                        "cues": [
+                            {
+                                "segment_index": 0,
+                                "text_hash": "1" * 64,
+                                "source_start_ms": 0,
+                                "source_end_ms": 2000,
+                                "target_start_ms": 0,
+                                "target_end_ms": 2000,
+                            },
+                            {
+                                "segment_index": 1,
+                                "text_hash": "2" * 64,
+                                "source_start_ms": 2000,
+                                "source_end_ms": 4000,
+                                "target_start_ms": 27000,
+                                "target_end_ms": 29000,
+                            },
+                        ],
+                    },
+                    "gain_db": 0,
+                },
+                "captions": [
+                    {
+                        "text": "First cue",
+                        "language": {"mode": "single", "language": "en"},
+                        "start_frame": 0,
+                        "end_frame": 2,
+                    },
+                    {
+                        "text": "Second cue",
+                        "language": {"mode": "single", "language": "en"},
+                        "start_frame": 27,
+                        "end_frame": 29,
+                    },
+                ],
+                "assets": [
+                    {
+                        "asset_id": "still",
+                        "source_sha256": image_hash,
+                        "actual_duration_ms": None,
+                        "duration_frames": 29,
+                        "start_frame": 0,
+                        "timing_transform": {
+                            "mode": "static_hold",
+                            "source_duration_ms": None,
+                            "output_duration_ms": 29000,
+                        },
+                        "caption_card": None,
+                    }
+                ],
+            }
+        ],
+        "transition_accounting": {"overlap_frames_total": 0},
+    }
+    manifest = {**body, "manifest_hash": contract.canonical_hash(body)}
+    output = tmp_path / "two-cues.mp4"
+    await compositor.render_local_manifest(
+        manifest,
+        source_paths={
+            "still": image,
+            "audio:two-cues:0": voice,
+        },
+        output_path=output,
+    )
+    pcm = tmp_path / "audio.pcm"
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", str(output), "-vn", "-ac", "1",
+            "-ar", "8000", "-f", "s16le", str(pcm),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    samples = array("h")
+    samples.frombytes(pcm.read_bytes())
+    if sys.byteorder != "little":
+        samples.byteswap()
+
+    def mean_amplitude(start_second: float, end_second: float) -> float:
+        window = samples[
+            round(start_second * 8000):round(end_second * 8000)
+        ]
+        return sum(abs(value) for value in window) / len(window)
+
+    assert mean_amplitude(0.5, 1.5) > 100
+    assert mean_amplitude(10, 11) < 10
+    assert mean_amplitude(27.5, 28.5) > 100
+
+
+def test_manifest_normalizes_stringified_provider_results_across_graph():
+    values = _fixture()
+    for row in values["provider_rows"]:
+        row["result"] = json.dumps(row["result"])
+
+    manifest = _build(values)
+
+    assert len(manifest["sections"]) == len(values["envelope"]["sections"])
+
+
+@pytest.mark.parametrize("invalid_result", ["{not-json", "[]"])
+def test_manifest_rejects_non_object_provider_result_text(invalid_result):
+    values = _fixture()
+    values["provider_rows"][0]["result"] = invalid_result
+
+    with pytest.raises(
+        contract.CustomFilmContractError,
+        match="provider operation result is invalid",
+    ):
+        _build(values)
+
+
+def _voice_child(values: dict, section_id: str) -> tuple[dict, dict]:
+    scene_id = next(
+        row["script_id"]
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    child_row = next(
+        row
+        for row in values["provider_rows"]
+        if ":voice:scene:" in row["stage_key"]
+        and row["result"]["scene_ids"] == [scene_id]
+    )
+    parent_row = next(
+        row
+        for row in values["provider_rows"]
+        if any(
+            child["operation_id"] == child_row["operation_id"]
+            for child in row["result"].get("child_operations", [])
+        )
+    )
+    return child_row, parent_row
+
+
+def _set_zero_narration(values: dict, section_id: str) -> str:
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    scene_id = scene["script_id"]
+    scene["voice_over_url"] = None
+    scene["voice_status"] = None
+    supplement = values["section_supplements"][section_id]
+    supplement["voice_over_urls"] = []
+    supplement["voice_over_sha256"] = []
+    supplement["voice_over_duration_ms"] = []
+    child_row, parent_row = _voice_child(values, section_id)
+    result = {
+        "scene_ids": [scene_id],
+        "voiced_scene_ids": [],
+        "total_chars": 0,
+        "artifacts": [],
+    }
+    child_row["result"] = result
+    parent_row["result"]["child_operations"][0]["result"] = result
+    return scene_id
+
+
+def test_manifest_accepts_exact_zero_narration_child_for_dialogue_only_voiceover():
+    values = _fixture()
+    section_id = values["envelope"]["sections"][2]["section_id"]
+    _set_zero_narration(values, section_id)
+
+    manifest = _build(values)
+
+    section = next(
+        row for row in manifest["sections"] if row["section_id"] == section_id
+    )
+    assert section["audio"]["mode"] == "source_clip"
+    assert section["audio"]["source_urls"] == []
+    assert section["audio"]["source_sha256"] == []
+    assert section["audio"]["timing_transform"]["mode"] == "source_clip"
+
+
+def test_manifest_accepts_legacy_positive_voice_child_without_total_chars():
+    values = _fixture()
+    section_id = values["envelope"]["sections"][0]["section_id"]
+    child_row, _ = _voice_child(values, section_id)
+    child_row["result"]["total_chars"] = None
+
+    manifest = _build(values)
+
+    section = next(
+        row for row in manifest["sections"] if row["section_id"] == section_id
+    )
+    assert section["audio"]["mode"] == "voice_over"
+    assert section["audio"]["source_urls"] == ["fixture://voice-0"]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        "stale_current_voice",
+        "artifact_without_chars",
+        "voiced_without_artifact",
+        "missing_total_chars",
+    ],
+)
+def test_manifest_rejects_incoherent_zero_narration_evidence(tamper):
+    values = _fixture()
+    section_id = values["envelope"]["sections"][2]["section_id"]
+    scene_id = _set_zero_narration(values, section_id)
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    child_row, _ = _voice_child(values, section_id)
+    if tamper == "stale_current_voice":
+        scene["voice_over_url"] = "fixture://stale-voice"
+        scene["voice_status"] = "custom-film-voice:stale"
+    elif tamper == "artifact_without_chars":
+        child_row["result"]["artifacts"] = [
+            {
+                "scene_id": scene_id,
+                "artifact_id": "stale",
+                "artifact_url": "fixture://stale-voice",
+            }
+        ]
+    elif tamper == "voiced_without_artifact":
+        child_row["result"]["voiced_scene_ids"] = [scene_id]
+    else:
+        child_row["result"]["total_chars"] = None
+
+    with pytest.raises(contract.CustomFilmContractError):
+        _build(values)
+
+
+def test_manifest_still_requires_exact_current_artifact_for_positive_narration():
+    values = _fixture()
+    section_id = values["envelope"]["sections"][0]["section_id"]
+    scene = next(
+        row
+        for row in values["scene_rows"]
+        if row["section_id"] == section_id
+    )
+    scene["voice_over_url"] = "fixture://changed-after-completion"
+
+    with pytest.raises(contract.CustomFilmContractError):
+        _build(values)
 
 
 def test_running_runtime_is_assembly_eligible_only_for_exact_complete_worker():
@@ -655,6 +1242,25 @@ def test_voice_timing_only_allows_bounded_speech_preserving_adjustment():
         compositor._audio_timing_transform(500, 2000)
     with pytest.raises(contract.CustomFilmContractError, match="cannot safely fit"):
         compositor._audio_timing_transform(3000, 2000)
+
+
+@pytest.mark.asyncio
+async def test_post_journal_failure_classifier_handles_real_run_error():
+    with pytest.raises(RuntimeError) as failure:
+        await compositor._run(
+            [sys.executable, "-c", "raise SystemExit(7)"]
+        )
+
+    assert compositor._assembly_failure_disposition(failure.value) == (
+        "retryable_failed",
+        "retryable",
+    )
+    assert compositor._assembly_failure_disposition(
+        FileNotFoundError("ffmpeg is unavailable")
+    ) == ("retryable_failed", "retryable")
+    assert compositor._assembly_failure_disposition(
+        contract.CustomFilmContractError("approved contract changed")
+    ) == ("terminal_failed", "terminal")
 
 
 @pytest.mark.asyncio
@@ -1061,6 +1667,208 @@ async def test_finalized_retry_returns_before_any_media_download(monkeypatch):
     )
     assert result["reused"] is True
     assert result["final_video_url"] == "storage://exact-final"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift_source_hash", [False, True])
+async def test_durable_retry_uses_exact_stored_manifest_source_graph_and_storage(
+    monkeypatch,
+    drift_source_hash: bool,
+):
+    values = _fixture()
+    durable = _build(values)
+    durable["assembly_version"] = compositor.ASSEMBLY_VERSION_V3
+    durable["render_engine"] = "remotion"
+    durable["renderer_contract_version"] = (
+        custom_film_remotion.REMOTION_RENDERER_CONTRACT_VERSION
+    )
+    durable["renderer_bundle_hash"] = (
+        "079aeed1113945e630950f9ea116e497"
+        "029788bb60df5d08ad3f4e4a44163eca"
+    )
+    durable["orchestration_contract"] = {"fixture": "approved"}
+    source_bytes: dict[str, bytes] = {}
+    expected_source_keys: set[str] = set()
+    for section in durable["sections"]:
+        for asset in section["assets"]:
+            payload = f"stored:{asset['source_url']}".encode()
+            source_bytes[str(asset["source_url"])] = payload
+            asset["source_sha256"] = hashlib.sha256(payload).hexdigest()
+            expected_source_keys.add(str(asset["asset_id"]))
+        for index, url in enumerate(section["audio"]["source_urls"]):
+            payload = f"stored:{url}".encode()
+            source_bytes[str(url)] = payload
+            section["audio"]["source_sha256"][index] = hashlib.sha256(
+                payload
+            ).hexdigest()
+            section["audio"]["source_duration_ms"][index] = 2000
+            expected_source_keys.add(
+                f"audio:{section['section_id']}:{index}"
+            )
+    durable_body = copy.deepcopy(durable)
+    durable_body.pop("manifest_hash", None)
+    durable_hash = contract.canonical_hash(durable_body)
+    durable = {**durable_body, "manifest_hash": durable_hash}
+    runtime_hash = durable["runtime_hash"]
+    storage_path = compositor.assembly_storage_path(
+        VIDEO, runtime_hash, durable_hash
+    )
+    runtime_job_id = durable["runtime_job_id"]
+    current = copy.deepcopy(values)
+    for asset in current["asset_rows"]:
+        asset["image_url"] = f"fixture://current-image-{asset['asset_id']}"
+        asset["video_clip_url"] = (
+            f"fixture://current-clip-{asset['asset_id']}"
+            if asset["video_clip_url"]
+            else None
+        )
+        asset["source_sha256"] = "f" * 64
+    for supplement in current["section_supplements"].values():
+        supplement["voice_over_urls"] = ["fixture://current-voice"]
+        supplement["voice_over_sha256"] = ["e" * 64]
+        supplement["voice_over_duration_ms"] = [999]
+
+    existing = {
+        "state": "retryable_failed",
+        "runtime_job_id": runtime_job_id,
+        "manifest_version": compositor.ASSEMBLY_VERSION_V3,
+        "manifest_hash": durable_hash,
+        "manifest": durable,
+        "artifact_sha256": None,
+        "artifact_probe": None,
+        "storage_path": storage_path,
+        "final_video_url": None,
+    }
+    journal = {
+        "state": "retryable_failed",
+        "manifest_hash": durable_hash,
+        "artifact_sha256": None,
+        "artifact_probe": None,
+        "storage_path": storage_path,
+        "final_video_url": None,
+        "runtime_job_id": runtime_job_id,
+        "progress": {
+            "phase": "prepared",
+            "completed_sections": 0,
+            "total_sections": len(durable["sections"]),
+        },
+    }
+
+    class Transaction:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Connection:
+        async def fetchrow(self, query, *_args):
+            return journal if "FOR UPDATE" in query else existing
+
+        async def execute(self, _query, *_args):
+            return "OK"
+
+        def transaction(self):
+            return Transaction()
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    async def load_inputs(
+        _tenant_id,
+        _video_id,
+        *,
+        expected_runtime_job_id=None,
+    ):
+        assert expected_runtime_job_id is None
+        return current
+
+    downloaded_urls: list[str] = []
+
+    async def download(url: str, path: Path):
+        downloaded_urls.append(url)
+        payload = source_bytes[url]
+        if drift_source_hash and not url.startswith("fixture://voice"):
+            payload += b":changed"
+        path.write_bytes(payload)
+
+    async def probe(_path: Path):
+        return {
+            "has_audio": True,
+            "has_video": False,
+            "duration_seconds": 2.0,
+        }
+
+    class ResumeReached(RuntimeError):
+        pass
+
+    async def render_exact_manifest(
+        manifest,
+        *,
+        source_paths,
+        **_kwargs,
+    ):
+        assert manifest == durable
+        assert manifest["manifest_hash"] == durable_hash
+        assert set(source_paths) == expected_source_keys
+        raise ResumeReached("exact durable render reached")
+
+    def forbidden_build(**_kwargs):
+        raise AssertionError("durable retry must not rebuild its manifest")
+
+    async def renderer(**_kwargs):
+        raise AssertionError("render seam is replaced by this test")
+
+    monkeypatch.setitem(
+        sys.modules, "database", types.SimpleNamespace(get_pool=get_pool)
+    )
+    monkeypatch.setattr(compositor, "_load_current_inputs", load_inputs)
+    monkeypatch.setattr(compositor, "build_assembly_manifest", forbidden_build)
+    monkeypatch.setattr(compositor, "probe_media", probe)
+    monkeypatch.setattr(
+        compositor, "render_manifest_with_engine", render_exact_manifest
+    )
+    monkeypatch.setattr(
+        custom_film_remotion, "renderer_bundle_hash", lambda: "d" * 64
+    )
+
+    expected_error = (
+        "durable asset source hash changed"
+        if drift_source_hash
+        else "exact durable render reached"
+    )
+    with pytest.raises(Exception, match=expected_error):
+        await compositor.render_custom_film_video(
+            VIDEO,
+            TENANT,
+            downloader=download,
+            render_engine="remotion",
+            remotion_renderer=renderer,
+        )
+    durable_urls = {
+        str(asset["source_url"])
+        for section in durable["sections"]
+        for asset in section["assets"]
+    } | {
+        str(url)
+        for section in durable["sections"]
+        for url in section["audio"]["source_urls"]
+    }
+    if drift_source_hash:
+        assert downloaded_urls[0] in durable_urls
+    else:
+        assert set(downloaded_urls) == durable_urls
 
 
 def test_schema_and_render_door_are_durable_and_isolated():
