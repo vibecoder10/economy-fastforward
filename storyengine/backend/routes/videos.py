@@ -601,9 +601,23 @@ async def create_video(
         else None
     )
 
+    # max_spend (checklist §3.3/C36 column, now also settable AT creation —
+    # see CreateVideoRequest.max_spend). Same validation as the PATCH path
+    # (routes/videos.py update_video, just below): must be a positive number
+    # or omitted/None. A bad value here must never silently disable the cap
+    # or brick every paid action, so reject it outright instead of coercing.
+    max_spend = body.max_spend
+    if max_spend is not None:
+        try:
+            max_spend = float(max_spend)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_spend must be a number or null")
+        if max_spend <= 0:
+            raise HTTPException(status_code=400, detail="max_spend must be greater than 0 (or omitted for no cap)")
+
     row = await fetch_one(
-        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile, production_style_id, production_style_version, production_style_snapshot, dialogue_audio)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+        """INSERT INTO videos (tenant_id, project_id, video_title, status, source, framework_angle, video_length_minutes, writer_guidance, visual_style, image_style_override, accent_color, aspect_ratio, video_resolution, skip_voice, skip_voice_source, pipeline_stages, reference_url, render_mode, render_style, style_preset_id, script_profile, production_style_id, production_style_version, production_style_snapshot, dialogue_audio, max_spend)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, '#00D4AA'), $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
            RETURNING id, video_title, status, thumbnail_url, accent_color, total_cost, views, ctr,
                      created_at::text, updated_at::text""",
         tenant_id, project_id, title, initial_status, source_val, _strip_md(body.framework_angle),
@@ -613,7 +627,7 @@ async def create_video(
         render_mode, render_style, style_preset_id, script_profile,
         production_style_id, production_style_version,
         json.dumps(production_style_snapshot) if production_style_snapshot else None,
-        dialogue_audio,
+        dialogue_audio, max_spend,
     )
 
     await increment_usage(tenant_id, "videos_created")
@@ -623,27 +637,37 @@ async def create_video(
     from drive_workspace import sync_video_workspace_fail_soft
     background_tasks.add_task(sync_video_workspace_fail_soft, str(row["id"]), tenant_id)
 
-    # House script format: prepend the saved template (if any) so every script
-    # pathway writes in the channel's format. Fail-soft, never blocks creation.
-    try:
-        from routes.script_templates import apply_default_template
-        await apply_default_template(tenant_id, str(row["id"]))
-    except Exception as e:
-        logging.getLogger(__name__).warning("apply script template failed: %s", e)
+    # Silent channel-identity inheritance bug (found live 2026-07-27): a video
+    # about "a dystopian world... bugs" came out narrated as PocoAPoco's
+    # Ryan/Vanessa two-hander because these three fail-soft steps ran
+    # unconditionally for every new video, regardless of what the creator
+    # actually asked for. `apply_channel_identity is False` is the explicit
+    # opt-out (DirectorHome's free-text entry box sets it) — None/True (every
+    # other caller: New Video form, MCP, chat producer, queue, autopilot, the
+    # clone/model path) keeps the original always-inherit behavior, since for
+    # those callers inheriting the channel's identity IS the point.
+    if body.apply_channel_identity is not False:
+        # House script format: prepend the saved template (if any) so every script
+        # pathway writes in the channel's format. Fail-soft, never blocks creation.
+        try:
+            from routes.script_templates import apply_default_template
+            await apply_default_template(tenant_id, str(row["id"]))
+        except Exception as e:
+            logging.getLogger(__name__).warning("apply script template failed: %s", e)
 
-    # Locked channel format: default the look when the creator didn't pick one.
-    try:
-        from channel_format import apply_format_defaults
-        await apply_format_defaults(tenant_id, str(row["id"]))
-    except Exception as e:
-        logging.getLogger(__name__).warning("apply format defaults failed: %s", e)
+        # Locked channel format: default the look when the creator didn't pick one.
+        try:
+            from channel_format import apply_format_defaults
+            await apply_format_defaults(tenant_id, str(row["id"]))
+        except Exception as e:
+            logging.getLogger(__name__).warning("apply format defaults failed: %s", e)
 
-    # Locked channel cast: attach the series characters from second one.
-    try:
-        from routes.characters import apply_locked_cast
-        await apply_locked_cast(tenant_id, str(row["id"]))
-    except Exception as e:
-        logging.getLogger(__name__).warning("apply locked cast failed: %s", e)
+        # Locked channel cast: attach the series characters from second one.
+        try:
+            from routes.characters import apply_locked_cast
+            await apply_locked_cast(tenant_id, str(row["id"]))
+        except Exception as e:
+            logging.getLogger(__name__).warning("apply locked cast failed: %s", e)
 
     # Lock the chosen look in as the channel identity (preset/custom path; the
     # clone path locks in later, when modeling writes the DNA — see model_video).

@@ -47,12 +47,23 @@ def test_pipeline_map_shows_only_creator_safe_ordered_mix():
 
 
 def test_legacy_pipeline_copy_and_path_remain_intact():
+    """Was test_legacy_pipeline_copy_and_path_remain_intact for the old
+    "Legacy video workflow" / "This older video..." fallback copy. Renamed
+    and re-pinned 2026-07-27: that copy called a video created SECONDS ago
+    "legacy" and "older" — false, and confusing, whenever a video simply has
+    no production_style_snapshot (the normal case for anything created
+    outside the four channel cards, e.g. DirectorHome's single-prompt entry
+    box). The classification (no snapshot => no locked production profile)
+    was correct; only the wording was wrong, so only the wording changed —
+    the fallback branch and its structural anchors below are unchanged."""
     source = MAP.read_text()
-    assert 'profile?.label || "Legacy video workflow"' in source
+    assert 'profile?.label || "Standard production"' in source
     assert (
-        '"This older video keeps its original inferred production settings."'
+        '"No locked production profile for this video — it runs the default pipeline."'
         in source
     )
+    assert "Legacy video workflow" not in source
+    assert "older video" not in source
     assert "const visible = PIPELINE_STEPS.filter" in source
     assert "{isCustomFilm && (" in source
 

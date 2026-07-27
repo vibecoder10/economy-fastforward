@@ -505,6 +505,19 @@ export const createVideo = (data: {
   // High-level pipeline shape. A required first-party selection, separate
   // from style_preset_id (image engine) and image_style_override (aesthetic).
   production_style_id?: ProductionStyleId;
+  // False = opt out of silently inheriting the tenant's locked channel
+  // identity (house script format, locked cast, locked visual format) for
+  // THIS video — set by DirectorHome's single-prompt entry box, since a
+  // freshly typed, unrelated description should never come out looking or
+  // sounding like an existing channel. Omit (default/legacy behavior,
+  // still inherits) for every other creation surface — the New Video form,
+  // the clone/model path, MCP, chat producer, queue, autopilot.
+  apply_channel_identity?: boolean;
+  // Optional per-video spend ceiling, settable at creation (the same
+  // videos.max_spend column PATCH /api/videos/{id} writes). Lets a cap
+  // typed IN the creation sentence ("...cap the spend at $1") actually
+  // land instead of being silently dropped.
+  max_spend?: number;
 }) =>
   fetchApi<VideoSummary>("/api/videos", {
     method: "POST",

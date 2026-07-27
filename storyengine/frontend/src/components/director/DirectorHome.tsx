@@ -13,6 +13,12 @@ import {
 } from "@/lib/api";
 import { cn, timeAgo, toDisplayImageUrl } from "@/lib/utils";
 import { COMPLETED_STATUSES, getStageLabel } from "@/lib/constants";
+import {
+  MODEL_VIDEO_MESSAGE_PREFIX,
+  LENGTH_FLOOR_MINUTES,
+  parseLengthMinutes,
+  parseSpendCapDollars,
+} from "@/lib/prompt-parse";
 import { useDirector } from "./DirectorContext";
 import { StyleLibrary } from "./StyleLibrary";
 
@@ -103,56 +109,9 @@ function detectModelUrl(text: string): { kind: "youtube" | "unsupported"; url: s
 // dropped in the realistic case — the row would just sit at whatever
 // createVideo() set. Fixed at the actual point of creation instead: parse
 // it here, clamp to the engine's real 1-30 minute range, and pass it
-// straight to createVideo(). A regex + a plain word->number lookup, not a
-// classifier — good enough for "N minutes"/"N min" and one..thirty spelled
-// out (including "twenty-five" style compounds); anything it can't read
-// falls back to the existing 1-minute default.
-const LENGTH_FLOOR_MINUTES = 1;
-const LENGTH_CEILING_MINUTES = 30;
-
-const ONES = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-const TEENS = [
-  "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
-  "sixteen", "seventeen", "eighteen", "nineteen",
-];
-const NUMBER_WORDS: Record<string, number> = {};
-ONES.forEach((w, i) => (NUMBER_WORDS[w] = i + 1));
-TEENS.forEach((w, i) => (NUMBER_WORDS[w] = i + 10));
-NUMBER_WORDS.twenty = 20;
-NUMBER_WORDS.thirty = 30;
-ONES.forEach((w, i) => {
-  NUMBER_WORDS[`twenty-${w}`] = 20 + i + 1;
-  NUMBER_WORDS[`twenty ${w}`] = 20 + i + 1;
-});
-
-const NUMBER_WORD_ALTERNATION = Object.keys(NUMBER_WORDS)
-  .sort((a, b) => b.length - a.length) // "twenty-five" before "five"
-  .map((w) => w.replace(/[- ]/g, "[- ]"))
-  .join("|");
-const DIGIT_LENGTH_RE = /\b(\d{1,2})\s*[- ]?\s*(minutes?|mins?)\b/i;
-const WORD_LENGTH_RE = new RegExp(
-  `\\b(${NUMBER_WORD_ALTERNATION})\\s*[- ]?\\s*(minutes?|mins?)\\b`,
-  "i"
-);
-
-function clampLength(n: number): number {
-  return Math.max(LENGTH_FLOOR_MINUTES, Math.min(LENGTH_CEILING_MINUTES, Math.round(n)));
-}
-
-function parseLengthMinutes(text: string): number | null {
-  const digit = text.match(DIGIT_LENGTH_RE);
-  if (digit) {
-    const n = parseInt(digit[1], 10);
-    if (!Number.isNaN(n)) return clampLength(n);
-  }
-  const word = text.match(WORD_LENGTH_RE);
-  if (word) {
-    const key = word[1].toLowerCase().replace(/\s+/g, " ").trim();
-    const val = NUMBER_WORDS[key] ?? NUMBER_WORDS[key.replace(/ /g, "-")];
-    if (val != null) return clampLength(val);
-  }
-  return null;
-}
+// straight to createVideo(). Same story for a typed spend cap ("cap the
+// spend at $1") — see @/lib/prompt-parse for both parsers (shared with
+// ChatCore, which discloses what was found/not-found in the opening turn).
 
 function PromptEntrySection() {
   const { setSelectedVideoId, setPendingInitialMessage } = useDirector();
@@ -187,17 +146,32 @@ function PromptEntrySection() {
 
     setSubmitting(true);
     try {
-      // Free — a plain DB insert plus fail-soft housekeeping (Drive workspace,
-      // script template, locked cast). video_length_minutes: a length typed
-      // IN the sentence ("a five minute video…") sticks right here, at
-      // creation — see parseLengthMinutes's comment for why this can't be
-      // left to the chat that opens next. No length mentioned -> the same
-      // 1-minute floor default as before, so this still never blocks on a
-      // form.
+      // Free — a plain DB insert plus fail-soft housekeeping (Drive workspace).
+      // video_length_minutes: a length typed IN the sentence ("a five minute
+      // video…") sticks right here, at creation — see parseLengthMinutes's
+      // comment for why this can't be left to the chat that opens next. No
+      // length mentioned -> the same 1-minute floor default as before, so
+      // this still never blocks on a form. Same story for max_spend: "cap
+      // the spend at $1" is parsed here too — found live 2026-07-27 landing
+      // as a silently-ignored NULL cap otherwise (the classifier picks ONE
+      // verb per turn and "build" never reads a co-occurring budget phrase).
+      //
+      // apply_channel_identity: false — the OTHER live bug from the same
+      // report: this box's whole point is "describe something NEW", so it
+      // must not silently come out looking/sounding like an unrelated
+      // existing channel (a video about "a dystopian world... bugs" came
+      // back as PocoAPoco's locked Ryan/Vanessa two-hander because
+      // create_video's house-format/cast/visual-format defaulting ran
+      // unconditionally). Channel cards (once wired) SHOULD still inherit —
+      // this flag only turns it off for THIS box. ChatCore's initialMessage
+      // effect discloses what got skipped/applied in the opening chat turn.
+      const spendCap = parseSpendCapDollars(sentence);
       const video = await createVideo({
         title: sentence.length > 300 ? `${sentence.slice(0, 297)}…` : sentence,
         writer_guidance: sentence,
         video_length_minutes: parseLengthMinutes(sentence) ?? LENGTH_FLOOR_MINUTES,
+        apply_channel_identity: false,
+        ...(spendCap != null ? { max_spend: spendCap } : {}),
       });
       // Seed the sentence as the opening chat turn, then hand off to the room —
       // DirectorSurface mounts ChatCore for this video id and sends it (see
@@ -218,7 +192,10 @@ function PromptEntrySection() {
       // Paid path — `reference_url` set means backend/routes/videos.py kicks
       // off `_run_modeling` (a real Claude call, ~$0.01-0.05) the moment this
       // resolves. Only reachable by tapping "Model it" below, never by Enter
-      // in the textarea.
+      // in the textarea. Deliberately does NOT set apply_channel_identity —
+      // modeling a reference video is its own explicit choice, so keeping
+      // the channel's locked identity default (inherit) is correct here,
+      // unlike the plain-description box above.
       const video = await createVideo({
         title: modelConfirm.twist,
         reference_url: modelConfirm.url,
@@ -226,8 +203,8 @@ function PromptEntrySection() {
       });
       setPendingInitialMessage(
         modelConfirm.twist
-          ? `Model this video: ${modelConfirm.url} — ${modelConfirm.twist}`
-          : `Model this video: ${modelConfirm.url}`
+          ? `${MODEL_VIDEO_MESSAGE_PREFIX} ${modelConfirm.url} — ${modelConfirm.twist}`
+          : `${MODEL_VIDEO_MESSAGE_PREFIX} ${modelConfirm.url}`
       );
       setSelectedVideoId(video.id);
     } catch (e) {
