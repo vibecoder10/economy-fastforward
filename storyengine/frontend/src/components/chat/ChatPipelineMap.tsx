@@ -168,13 +168,22 @@ export function ChatPipelineMap({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
+          {/* `profile` (production_style_snapshot) is null whenever a video was
+              created WITHOUT picking one of the four channel cards — which is
+              the NORMAL case for the single-prompt entry box (DirectorHome),
+              not a sign the video is aged. The PRIOR fallback copy here
+              called a video created seconds ago "legacy" and implied it was
+              old, which is simply false — found live 2026-07-27 on a
+              brand-new video. The classification (no snapshot => no locked
+              production profile) is correct; only the WORDING was wrong.
+              Fixed at the wording, not the classification. */}
           <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-            {isCustomFilm ? "Custom Film" : profile?.label || "Legacy video workflow"}
+            {isCustomFilm ? "Custom Film" : profile?.label || "Standard production"}
           </p>
           <p className="text-[10px] leading-relaxed mt-0.5" style={{ color: "var(--text-tertiary)" }}>
             {isCustomFilm
               ? `${customFilmSections.length} ordered sections work together as one film.`
-              : profile?.description || "This older video keeps its original inferred production settings."}
+              : profile?.description || "No locked production profile for this video — it runs the default pipeline."}
           </p>
         </div>
         <span

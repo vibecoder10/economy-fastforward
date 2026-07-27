@@ -337,6 +337,30 @@ class CreateVideoRequest(BaseModel):
     # upgraded; when supplied it must name an active public profile and is
     # snapshotted onto the video.
     production_style_id: Optional[str] = None
+    # Whether this creation should silently inherit the tenant's LOCKED
+    # channel identity (house script format, locked cast, locked visual
+    # format) — the three fail-soft background steps just below the INSERT
+    # in create_video. None/True = existing behavior (every caller that
+    # doesn't set this — New Video form, MCP, chat producer, queue,
+    # autopilot, the clone/model path — keeps inheriting exactly as before).
+    # False = explicit opt-out: a creator describing something brand-new in
+    # free text (DirectorHome's single-prompt entry box) should NOT silently
+    # come out looking/sounding like an unrelated existing channel. Root
+    # cause: a video about "a dystopian world... bugs" inherited PocoAPoco's
+    # locked Ryan/Vanessa cast + two-hander dialogue script format + 3D
+    # Pixar-cartoon visual format, unconditionally, because these three
+    # steps never checked WHY the video was being created.
+    apply_channel_identity: Optional[bool] = None
+    # Optional per-video spend ceiling, settable AT creation time (the same
+    # videos.max_spend column PATCH /api/videos/{id} and the copilot's
+    # "cap this video at $X" both write — migration 103, checklist §3.3/C36).
+    # Added so a cap typed IN the creation sentence ("...cap the spend at
+    # $1") can actually land instead of being silently dropped (it used to
+    # have no creation-time home at all: CreateVideoRequest never carried
+    # it, so DirectorHome's entry box had nowhere to put a parsed cap).
+    # None = no cap (default, unchanged). Same validation as the PATCH path:
+    # must be > 0.
+    max_spend: Optional[float] = None
 
 
 # --- Scripts ---

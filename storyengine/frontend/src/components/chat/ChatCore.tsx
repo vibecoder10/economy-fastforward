@@ -34,6 +34,8 @@ import {
   listChatConversations,
   getChatConversationById,
   getVideo,
+  getChannelCast,
+  getStyleDefault,
   type ChatCard,
   type ChatCardImage,
   type ChatDnaFieldRow,
@@ -54,6 +56,11 @@ import {
   failedCustomFilmApprovalCards,
   resolvedCustomFilmApprovalCards,
 } from "@/lib/custom-film-approval-truth";
+import {
+  MODEL_VIDEO_MESSAGE_PREFIX,
+  parseSpendCapDollars,
+  mentionsSpendCapWithoutAmount,
+} from "@/lib/prompt-parse";
 
 // localStorage keys for the OAuth round-trip during onboarding: the connect
 // button stashes the active conversation so ChatCore can resume it when Google
@@ -198,6 +205,49 @@ function maskSecret(text: string): string {
     return "•".repeat(8) + t.slice(-4);
   }
   return text;
+}
+
+// Root-cause context (found live 2026-07-27): a "make a video about a
+// dystopian world... bugs, cap the spend at $1" entry (1) silently
+// inherited PocoAPoco's locked Ryan/Vanessa cast + dialogue format, and
+// (2) silently dropped the $1 spend cap — the classifier picks exactly ONE
+// verb per turn and never surfaces either side effect. DirectorHome.tsx
+// fixed the actual behavior (apply_channel_identity: false on create,
+// max_spend parsed at creation); this builds the disclosure line(s) so
+// NEITHER outcome is silent — a cap that landed, a cap that couldn't be
+// read, and a skipped channel identity all get said out loud, once, as the
+// very first message in the room. Returns null when there's nothing to say
+// (no cap language, and the tenant has no locked identity to skip).
+async function buildEntryDisclosureNote(message: string): Promise<string | null> {
+  const lines: string[] = [];
+
+  const cap = parseSpendCapDollars(message);
+  if (cap != null) {
+    lines.push(`Capped this video's spend at $${cap.toFixed(2)} — I'll check in before any build would push past it.`);
+  } else if (mentionsSpendCapWithoutAmount(message)) {
+    lines.push(`I saw a spending cap mentioned but couldn't read an amount — nothing's capped yet. Say "cap it at $5" any time.`);
+  }
+
+  // Modeling a reference video is its own explicit choice (confirmModel()
+  // in DirectorHome.tsx) — it keeps inheriting the locked channel identity
+  // on purpose, so this disclosure doesn't apply to that path.
+  if (!message.startsWith(MODEL_VIDEO_MESSAGE_PREFIX)) {
+    try {
+      const [cast, style] = await Promise.allSettled([getChannelCast(), getStyleDefault()]);
+      const castLocked = cast.status === "fulfilled" && cast.value.cast_locked;
+      const formatLocked = style.status === "fulfilled" && style.value.source === "locked_format";
+      if (castLocked || formatLocked) {
+        lines.push(
+          "This reads like a fresh idea, so I skipped your locked channel look/cast for it — want them applied here too? Just say so."
+        );
+      }
+    } catch {
+      // Disclosure is enrichment, not a gate — a failed lookup just means
+      // no identity note, never a broken room.
+    }
+  }
+
+  return lines.length ? lines.join(" ") : null;
 }
 
 export function ChatCore({
@@ -417,6 +467,15 @@ export function ChatCore({
     // a brand-new conversation, never a resume.
     if (initialMessage) {
       (async () => {
+        // Disclosure, not silence (found live 2026-07-27, same report as
+        // apply_channel_identity below): a typed sentence can carry a spend
+        // cap ("cap the spend at $1") and/or land on a tenant with a locked
+        // channel identity — either way the creator must be told what
+        // happened, never left to guess. This runs BEFORE the actual turn()
+        // so the disclosure reads as the room's opening line, not a
+        // follow-up to the classifier's own reply.
+        const note = await buildEntryDisclosureNote(initialMessage);
+        if (note) setMessages((m) => [...m, { role: "assistant", text: note }]);
         await turn({ message: initialMessage }, initialMessage);
         setChecking(false);
       })();
