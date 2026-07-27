@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { DirectorProvider } from "@/components/director/DirectorContext";
 import { DirectorSurface } from "@/components/director/DirectorSurface";
 
 export default function HomePage() {
@@ -62,11 +61,17 @@ export default function HomePage() {
   // built on an `h-full` chain already, never raw viewport units) fill that
   // box exactly, with the sidebar staying put and its Collapse control
   // working normally.
+  //
+  // No <DirectorProvider> here anymore (2026-07-27, chat-persist fix) — it's
+  // mounted once at the root layout so it can track the open video via the
+  // URL (`/chat/[videoId]`, see DirectorContext.tsx) across navigation, not
+  // reset on every route change. `selectedVideoId` is always null on THIS
+  // route (bare "/" never carries an id), so DirectorSurface renders
+  // DirectorHome here — opening a video navigates to `/chat/<id>` instead of
+  // just flipping local state, which is what makes a refresh survive.
   return (
     <div className="h-full w-full bg-void">
-      <DirectorProvider>
-        <DirectorSurface />
-      </DirectorProvider>
+      <DirectorSurface />
     </div>
   );
 }

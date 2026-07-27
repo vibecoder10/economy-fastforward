@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Providers } from "./providers";
 import { AuthenticatedShell } from "@/components/auth/AuthenticatedShell";
 import { AmbientBackground } from "@/components/layout/AmbientBackground";
+import { DirectorProvider } from "@/components/director/DirectorContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -39,7 +40,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="font-body antialiased bg-[var(--bg-void)] text-[var(--text-primary)]">
         <Providers>
           <AmbientBackground />
-          <AuthenticatedShell>{children}</AuthenticatedShell>
+          {/* Mounted once, above every route — NOT per-page — so it survives
+              client-side navigation between `/chat` and `/chat/[videoId]`.
+              See DirectorContext.tsx's DirectorProvider comment for why that
+              matters (pendingInitialMessage must not reset mid-navigation).
+              Harmless on routes that never call useDirector(): an unused
+              context provider with no subscribers costs nothing. */}
+          <DirectorProvider>
+            <AuthenticatedShell>{children}</AuthenticatedShell>
+          </DirectorProvider>
         </Providers>
       </body>
     </html>
