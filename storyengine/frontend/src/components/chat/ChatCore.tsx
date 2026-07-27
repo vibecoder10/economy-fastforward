@@ -10,7 +10,7 @@
 // ChatHome is a thin wrapper over <ChatCore /> so the home flow is unchanged.
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign, Dna, RotateCcw, MinusCircle, XCircle, PencilLine } from "lucide-react";
@@ -21,6 +21,7 @@ import { useStyleDescriptions, styleDescriptionIcon, styleDescriptionById } from
 import type { StyleDescription } from "@/lib/api";
 import { StylePresetGallery } from "@/components/style/StylePresetGallery";
 import { ChatPipelineMap } from "@/components/chat/ChatPipelineMap";
+import { ScriptResultCard, CastLocationsCard, StoryboardGridCard } from "@/components/chat/ChatResultCards";
 import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
 import {
   sendChatTurn,
@@ -69,6 +70,18 @@ const CHAT_CID_KEY = "se_chat_cid";
 // The dock caches a SEPARATE conversation id per video (instant reload). Never
 // reuse the tenant-level home thread for a video's co-pilot, and vice versa.
 const dockCidKey = (videoId: string) => `se_chat_cid_${videoId}`;
+
+// One invalidation call for every in-chat result card (ChatResultCards.tsx)
+// plus the video record itself — called on every stage_change / completed
+// task_progress so a finished stage's script/cast/storyboards show up in
+// the chat without a manual refresh. Simpler to keep this list in one place
+// than to remember to update N call sites when a new result card is added.
+function invalidateResultCards(queryClient: QueryClient, videoId: string) {
+  queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+  queryClient.invalidateQueries({ queryKey: ["videoScript", videoId] });
+  queryClient.invalidateQueries({ queryKey: ["videoCharacters", videoId] });
+  queryClient.invalidateQueries({ queryKey: ["videoEnvironments", videoId] });
+}
 
 type Msg = {
   role: "user" | "assistant";
@@ -283,11 +296,11 @@ export function ChatCore({
     enabled: docked && !!videoId,
     videoId,
     onStageChange: () => {
-      if (videoId) queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      if (videoId) invalidateResultCards(queryClient, videoId);
     },
     onTaskProgress: (event) => {
       if (videoId && event.status !== "running") {
-        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+        invalidateResultCards(queryClient, videoId);
       }
     },
   });
@@ -720,7 +733,12 @@ export function ChatCore({
         />
       )}
       {!docked && createdVideoId && (
-        <CreatedCard videoId={createdVideoId} />
+        <>
+          <CreatedCard videoId={createdVideoId} />
+          <ScriptResultCard videoId={createdVideoId} />
+          <CastLocationsCard videoId={createdVideoId} />
+          <StoryboardGridCard videoId={createdVideoId} />
+        </>
       )}
     </>
   );
@@ -752,6 +770,17 @@ export function ChatCore({
         <div ref={dockScrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
           {!started && (
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
+          )}
+          {/* Results land in the chat (bug (b)) — script/cast/storyboards
+              render right here as they're ready, never gated behind a trip
+              to /pipeline/{videoId}. Each card is self-gating (null with no
+              data), so it's safe to always mount. */}
+          {videoId && (
+            <>
+              <ScriptResultCard videoId={videoId} />
+              <CastLocationsCard videoId={videoId} />
+              <StoryboardGridCard videoId={videoId} />
+            </>
           )}
           <MessageThread messages={messages} />
           {sending && <Thinking />}
@@ -2596,11 +2625,11 @@ function CreatedCard({ videoId }: { videoId: string }) {
   const progress = usePipelineSSE({
     videoId,
     onStageChange: () => {
-      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      invalidateResultCards(queryClient, videoId);
     },
     onTaskProgress: (e) => {
       if (e.status !== "running") {
-        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+        invalidateResultCards(queryClient, videoId);
       }
     },
   });
