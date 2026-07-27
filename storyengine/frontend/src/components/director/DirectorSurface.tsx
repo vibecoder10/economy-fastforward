@@ -26,7 +26,37 @@ export function DirectorSurface() {
   const { selectedVideoId, setSelectedVideoId, pendingInitialMessage, setPendingInitialMessage } = useDirector();
   const chatColumnRef = useRef<HTMLDivElement>(null);
   const railColumnRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
   const layout = usePanelLayout();
+
+  // Feeds usePanelLayout's row-fit clamp (usePanelLayout.ts `fitWidths`) the
+  // row's REAL live width — the space chat+dividers+canvas+rail actually
+  // have to share, next to whatever the sidebar is doing right now. A plain
+  // window-resize listener would miss a sidebar collapse/expand (that only
+  // changes `main`'s margin, not the window size); this ResizeObserver
+  // catches both, since either one changes this element's own rendered
+  // width. Root cause this exists for: a live repro (Playwright,
+  // 2026-07-27) showed the untouched DEFAULT layout (chat ~38%, rail fixed
+  // 340px, canvas's 320px floor, two 12px dividers) already adds up to more
+  // than the ~1040px left in a 1280px window next to a 240px EXPANDED
+  // sidebar — the media rail rendered with its own tabs clipped off the
+  // right edge, no drag required to trigger it.
+  //
+  // No dependency array (matches the chat/rail measurement effects below,
+  // and for the same reason): DirectorSurface itself mounts once and stays
+  // mounted across the DirectorHome -> room transition (only
+  // `selectedVideoId` changes), so `rowRef.current` is still null on the
+  // very first run of an effect gated by `[]` — the row div doesn't exist
+  // until a video is selected. Re-running this effect every render is what
+  // lets it pick up the ref the moment the row actually mounts.
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => layout.reportRowWidth(el.getBoundingClientRect().width));
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
 
   // Consume-once: the DirectorHome entry box stashes the creator's typed
   // sentence here right before setSelectedVideoId(newVideoId). ChatCore's own
@@ -85,7 +115,7 @@ export function DirectorSurface() {
     <div className="flex h-full w-full flex-col">
       <CanvasHeader videoId={selectedVideoId} />
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
         {/* Chat column — the shared chat engine (DIRECTOR-CHAT-PLAN.md Task 1.2).
             Mounted `docked={false}` (its default) — the "undocked"/home flavor,
             NOT the old in-pipeline "dock" mode — on purpose:
@@ -124,7 +154,7 @@ export function DirectorSurface() {
           <div
             ref={chatColumnRef}
             style={chatWidthPx != null ? { width: chatWidthPx } : undefined}
-            className={`relative flex w-full flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:border-b-0 lg:border-r ${
+            className={`relative flex w-full min-w-0 flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:border-b-0 lg:border-r ${
               chatWidthPx != null ? "" : "lg:min-w-[380px] lg:max-w-[460px] lg:w-[38%]"
             }`}
             data-director-chat-column="true"

@@ -90,7 +90,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen relative z-10">
         <Sidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
         <main
-          className={`flex-1 pb-16 md:pb-0 overflow-x-hidden transition-[margin-left] duration-200 ${
+          className={`flex-1 min-w-0 pb-16 md:pb-0 overflow-x-hidden transition-[margin-left] duration-200 ${
             collapsed ? "md:ml-16" : "md:ml-60"
           } ${isFullBleed ? "flex h-screen flex-col" : ""}`}
         >
@@ -98,7 +98,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
           <VerifyEmailBanner />
           <TrialBanner />
           {isFullBleed ? (
-            <div className="min-h-0 flex-1">{hasAccess ? children : <UpgradePrompt />}</div>
+            <div className="min-h-0 min-w-0 flex-1">{hasAccess ? children : <UpgradePrompt />}</div>
           ) : (
             <div className="mx-auto max-w-[1400px] px-4 pt-20 pb-6 sm:px-6 md:px-12 md:py-10">
               {hasAccess ? children : <UpgradePrompt />}
