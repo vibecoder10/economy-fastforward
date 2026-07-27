@@ -45,17 +45,25 @@ export default function HomePage() {
 
   // Authenticated: the Director surface (home screen + chat/canvas) replaces
   // the plain chat-first home (DIRECTOR-CHAT-PLAN.md Task 1.3 Step 4). The
-  // full dashboard lives at /dashboard (and in the sidebar).
+  // full dashboard lives at /dashboard (and in the sidebar). The sidebar's
+  // own "Chat" nav item points HERE ("/"), so this route must keep the
+  // sidebar on screen, not take over the whole viewport.
   //
-  // `fixed inset-0` (not h-full/h-screen): AuthenticatedShell's <main> wraps
-  // page children in a padded, sidebar-margined, non-height-bound box
-  // (`md:ml-60` + `mx-auto max-w-[1400px] px-4 pt-20 ...`, see
-  // AuthenticatedShell.tsx). DirectorSurface/DirectorHome need a real,
-  // unpadded viewport box to lay out their columns and internal scrolling —
-  // the same fix the throwaway director-preview route proved out and that
-  // this chunk's job is to carry into the real page.
+  // History: this used to be `fixed inset-0 z-50` to escape AuthenticatedShell's
+  // padded, sidebar-margined, non-height-bound content box (`md:ml-60` +
+  // `mx-auto max-w-[1400px] px-4 pt-20 ...`) so DirectorSurface/DirectorHome
+  // got a real, unpadded viewport box for their columns and internal
+  // scrolling. That worked, but `fixed inset-0` covers the ENTIRE viewport —
+  // sidebar included — so it also erased the app's own navigation. Fixed
+  // 2026-07-27: AuthenticatedShell now recognizes this route (and `/chat`)
+  // as "full bleed" and gives it an unpadded `flex-1 min-h-0` box that fills
+  // the remaining height next to the sidebar instead of the padded/scrolling
+  // box. `h-full w-full` here is what lets DirectorSurface/DirectorHome (both
+  // built on an `h-full` chain already, never raw viewport units) fill that
+  // box exactly, with the sidebar staying put and its Collapse control
+  // working normally.
   return (
-    <div className="fixed inset-0 z-50 bg-void">
+    <div className="h-full w-full bg-void">
       <DirectorProvider>
         <DirectorSurface />
       </DirectorProvider>

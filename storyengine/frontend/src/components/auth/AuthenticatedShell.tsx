@@ -18,6 +18,17 @@ const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "
 // Routes that require Pro plan or above
 const PRO_PATHS = ["/autopilot", "/learnings", "/discovery"];
 
+// Routes whose content is the Director surface (DirectorHome / DirectorSurface)
+// — a fixed-chrome workspace (chat + canvas + rail columns) that manages its
+// own internal scrolling top to bottom, the same way every other route's
+// content manages its own document-flow scrolling. These get an unpadded box
+// that fills the remaining viewport height next to the sidebar instead of the
+// normal padded, max-width, page-scrolls content box. Fixed 2026-07-27: the
+// previous approach (`fixed inset-0` in the page itself) escaped this box by
+// covering the ENTIRE viewport, sidebar included — see git history on
+// app/page.tsx and app/chat/page.tsx for the before/after.
+const FULL_BLEED_PATHS = ["/", "/chat"];
+
 function isPlanAtLeast(plan: string | undefined, required: "starter" | "pro" | "agency"): boolean {
   // "unlimited" is the comped / owner tier (mirrors backend rate_limit.py) and must
   // outrank every paid tier — without it, unlimited accounts fell through to 0 (free)
@@ -66,19 +77,28 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   // Check plan gating for Pro-only routes
   const isProRoute = PRO_PATHS.some((p) => pathname.startsWith(p));
   const hasAccess = !isProRoute || isPlanAtLeast(user.plan, "pro");
+  const isFullBleed = FULL_BLEED_PATHS.includes(pathname);
 
   // Authenticated — full app shell
   return (
     <PipelineNotificationProvider>
       <div className="flex min-h-screen relative z-10">
         <Sidebar />
-        <main className="flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden">
+        <main
+          className={`flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden ${
+            isFullBleed ? "flex h-screen flex-col" : ""
+          }`}
+        >
           <DrainModeBanner />
           <VerifyEmailBanner />
           <TrialBanner />
-          <div className="mx-auto max-w-[1400px] px-4 pt-20 pb-6 sm:px-6 md:px-12 md:py-10">
-            {hasAccess ? children : <UpgradePrompt />}
-          </div>
+          {isFullBleed ? (
+            <div className="min-h-0 flex-1">{hasAccess ? children : <UpgradePrompt />}</div>
+          ) : (
+            <div className="mx-auto max-w-[1400px] px-4 pt-20 pb-6 sm:px-6 md:px-12 md:py-10">
+              {hasAccess ? children : <UpgradePrompt />}
+            </div>
+          )}
         </main>
         <BottomTabs />
       </div>
