@@ -16,11 +16,19 @@ const STORAGE_KEY = "se_director_panel_layout_v1";
 const LG_QUERY = "(min-width: 1024px)";
 
 export const CHAT_MIN_WIDTH = 260;
-export const CHAT_MAX_WIDTH = 640;
+// Capped at 480 (not a more generous 640+) so that chat-max + rail-max +
+// the canvas's own floor (CANVAS_MIN_WIDTH, DirectorSurface.tsx) still
+// leaves the canvas close to usable on a real, sidebar-EXPANDED 1280px-wide
+// window — the tightest realistic case, since the app sidebar reserves
+// 240px when expanded (AuthenticatedShell.tsx, commit 692212db). Dragging
+// both panels to their absolute max on a narrower window can still push the
+// row wider than the viewport; the canvas's own min-width floor keeps the
+// CostDial itself from ever breaking even then — see DirectorSurface.tsx.
+export const CHAT_MAX_WIDTH = 480;
 const CHAT_COLLAPSE_AT = 180; // drag-release below this snaps the chat column closed
 
 export const RAIL_MIN_WIDTH = 240;
-export const RAIL_MAX_WIDTH = 560;
+export const RAIL_MAX_WIDTH = 420;
 const RAIL_COLLAPSE_AT = 170; // drag-release below this snaps the rail column closed
 
 function clamp(value: number, min: number, max: number): number {

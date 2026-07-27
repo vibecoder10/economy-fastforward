@@ -29,6 +29,7 @@ export function PanelDivider({
   measureRef,
   min,
   max,
+  valueNow,
   onLiveResize,
   onCommitResize,
   onCollapse,
@@ -38,11 +39,35 @@ export function PanelDivider({
   measureRef: React.RefObject<HTMLElement | null>;
   min: number;
   max: number;
+  /** Current column width in px, kept live by a ResizeObserver in
+   * DirectorSurface.tsx — drives `aria-valuenow` so it tracks every source
+   * of a width change (drag, keyboard, or the original CSS-driven default),
+   * not just this component's own drag state. */
+  valueNow: number;
   onLiveResize: (px: number) => void;
   onCommitResize: (px: number) => void;
   onCollapse: () => void;
 }) {
-  const drag = useRef<{ startX: number; startWidth: number } | null>(null);
+  const drag = useRef<{ startX: number; startY: number; startWidth: number; startedOnButton: boolean } | null>(
+    null
+  );
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Below this much pointer movement (in px, any direction), a press+release
+  // counts as a click, not a drag. Real fix for a bug found in review: the
+  // "Hide" button sits dead-center on the handle — exactly where a user
+  // naturally grabs to drag — so its own onPointerDown used to call
+  // stopPropagation() to keep clicks from starting a drag. That swallowed
+  // EVERY real-mouse drag that began anywhere near the button (confirmed via
+  // Playwright: a real press-move-release drag never moved the divider).
+  // Removing that stopPropagation fixes dragging, but pointer capture
+  // (below) is set on THIS element once a press starts, and per this
+  // engine's behavior that also suppresses the button's native "click"
+  // synthesis for the rest of that press (confirmed via Playwright: a real
+  // click on the button stopped collapsing once capture moved to the
+  // parent). So click-vs-drag is decided here, in one place, instead of
+  // splitting it between this element and the button's own handlers.
+  const CLICK_MOVE_THRESHOLD = 4;
 
   const widthFromDelta = (deltaX: number, startWidth: number) =>
     side === "left" ? startWidth + deltaX : startWidth - deltaX;
@@ -50,7 +75,12 @@ export function PanelDivider({
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!measureRef.current) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { startX: e.clientX, startWidth: measureRef.current.getBoundingClientRect().width };
+    drag.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: measureRef.current.getBoundingClientRect().width,
+      startedOnButton: !!buttonRef.current?.contains(e.target as Node),
+    };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -60,8 +90,14 @@ export function PanelDivider({
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
-    onCommitResize(widthFromDelta(e.clientX - drag.current.startX, drag.current.startWidth));
+    const { startX, startY, startWidth, startedOnButton } = drag.current;
+    const moved = Math.hypot(e.clientX - startX, e.clientY - startY);
     drag.current = null;
+    if (moved < CLICK_MOVE_THRESHOLD && startedOnButton) {
+      onCollapse();
+      return;
+    }
+    onCommitResize(widthFromDelta(e.clientX - startX, startWidth));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -82,6 +118,12 @@ export function PanelDivider({
     } else if (e.key === "End") {
       onCommitResize(max);
       e.preventDefault();
+    } else if (e.key === "Enter") {
+      // The button is `tabIndex={-1}` (this separator is the one Tab stop
+      // for the whole handle), so a pure-keyboard user has no way to reach
+      // it directly — give the same collapse action a keyboard path here.
+      onCollapse();
+      e.preventDefault();
     }
   };
 
@@ -92,6 +134,7 @@ export function PanelDivider({
       aria-label={`Resize ${label} panel`}
       aria-valuemin={min}
       aria-valuemax={max}
+      aria-valuenow={Math.round(valueNow)}
       tabIndex={0}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -102,10 +145,14 @@ export function PanelDivider({
     >
       <div className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-line-soft transition-colors group-hover:bg-turquoise/50 group-focus-visible:bg-turquoise" />
       <button
+        ref={buttonRef}
         type="button"
         tabIndex={-1}
-        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
+          // Redundant fallback only — the real path is endDrag() above,
+          // since pointer capture on the separator suppresses this engine's
+          // native click synthesis for the rest of an active press. Harmless
+          // to keep: if some environment DOES fire it, it's the same action.
           e.stopPropagation();
           onCollapse();
         }}

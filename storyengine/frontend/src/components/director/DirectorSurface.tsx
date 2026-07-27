@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDirector } from "./DirectorContext";
 import { DirectorHome } from "./DirectorHome";
 import { CanvasHeader } from "./CanvasHeader";
@@ -27,6 +27,35 @@ export function DirectorSurface() {
   const chatColumnRef = useRef<HTMLDivElement>(null);
   const railColumnRef = useRef<HTMLDivElement>(null);
   const layout = usePanelLayout();
+
+  // Live-measured widths, kept in sync with a ResizeObserver rather than
+  // read once — this is what feeds `aria-valuenow` on each divider, and it
+  // stays correct regardless of WHY the width changed (a drag, a keyboard
+  // nudge, or just the original CSS-driven default before any interaction).
+  const [chatMeasuredWidth, setChatMeasuredWidth] = useState<number | null>(null);
+  const [railMeasuredWidth, setRailMeasuredWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = chatColumnRef.current;
+    if (!el) return;
+    // Re-measure via getBoundingClientRect (border-box), NOT the observer
+    // entry's own contentRect (excludes border) — PanelDivider measures the
+    // same ref the same way for its drag math, so aria-valuenow always
+    // agrees with the number that actually drove the resize.
+    const ro = new ResizeObserver(() => setChatMeasuredWidth(el.getBoundingClientRect().width));
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    const el = railColumnRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setRailMeasuredWidth(el.getBoundingClientRect().width));
+    ro.observe(el);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
 
   if (selectedVideoId === null) {
     return <DirectorHome />;
@@ -103,14 +132,27 @@ export function DirectorSurface() {
             measureRef={chatColumnRef}
             min={CHAT_MIN_WIDTH}
             max={CHAT_MAX_WIDTH}
+            valueNow={chatMeasuredWidth ?? CHAT_MIN_WIDTH}
             onLiveResize={layout.liveResizeChat}
             onCommitResize={layout.commitResizeChat}
             onCollapse={layout.collapseChat}
           />
         )}
 
-        {/* Canvas column — the altitude-routed stage (Shot / Scene / Timeline). */}
-        <div className="flex min-w-0 flex-1 flex-col bg-void">
+        {/* Canvas column — the altitude-routed stage (Shot / Scene / Timeline).
+            `min-w-[320px]` is a real floor, not `min-w-0` — verified the
+            CostDial's three totals (SceneAltitudeView.tsx -> CostDial.tsx)
+            still render without wrapping/clipping at exactly this width
+            with the app sidebar EXPANDED (its widest, 240px — the tightest
+            realistic combination). Without a floor here, a flex-1 child
+            can be squeezed to 0 by its flex-none siblings; CHAT_MAX_WIDTH/
+            RAIL_MAX_WIDTH (usePanelLayout.ts) are sized with this floor in
+            mind too, though an aggressive simultaneous drag of both to
+            their max on a narrow browser window can still push the row
+            wider than the viewport — the canvas itself, and the CostDial
+            inside it, never breaks even then; only scoped, deliberately not
+            chased further here (see commit message). */}
+        <div className="flex min-w-[320px] flex-1 flex-col bg-void">
           <CanvasStage videoId={selectedVideoId} />
         </div>
 
@@ -121,6 +163,7 @@ export function DirectorSurface() {
             measureRef={railColumnRef}
             min={RAIL_MIN_WIDTH}
             max={RAIL_MAX_WIDTH}
+            valueNow={railMeasuredWidth ?? RAIL_MIN_WIDTH}
             onLiveResize={layout.liveResizeRail}
             onCommitResize={layout.commitResizeRail}
             onCollapse={layout.collapseRail}
