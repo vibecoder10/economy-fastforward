@@ -254,7 +254,12 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
               </div>
 
               {!isClosed && (
-                <div className="grid grid-cols-1 gap-2.5 px-3.5 pb-3.5 sm:grid-cols-2 xl:grid-cols-3">
+                // Capped at 2 columns (no xl:grid-cols-3) — the model+price
+                // badge needs real width to sit on one line without getting
+                // clipped by the card's overflow-hidden; 3 columns in this
+                // narrower canvas column (chat + rail eat the rest of the
+                // viewport) left too little room even after fixing the wrap.
+                <div className="grid grid-cols-1 gap-2.5 px-3.5 pb-3.5 sm:grid-cols-2">
                   {assets.map((asset) => (
                     <ShotCard
                       key={asset.id}

@@ -352,11 +352,24 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
             <button
               onClick={(e) => { e.stopPropagation(); onOpenModelOverride(); }}
               title={`${modelDisplayName(effectiveModelId) || effectiveModelId} — ${modelReason}. Tap to change this scene's clip model.`}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all hover:brightness-125"
+              // `whitespace-nowrap` fixes a real board bug: without it, this
+              // pill's text (extra-long once priceForModel adds a price)
+              // soft-wrapped mid-word inside the board's narrower 3-col
+              // canvas column and looked clipped/broken. If the whole pill
+              // doesn't fit next to the S-XX.XXX label, it now wraps to the
+              // NEXT ROW as one intact pill (flex-wrap on the parent row),
+              // never mid-word.
+              className="inline-flex items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all hover:brightness-125"
               style={{
-                background: modelOverridden ? "rgba(139, 92, 246, 0.16)" : "rgba(255,255,255,0.05)",
-                color: modelOverridden ? "var(--purple)" : "var(--text-tertiary)",
-                border: modelOverridden ? "1px solid rgba(139, 92, 246, 0.35)" : "1px solid rgba(255,255,255,0.08)",
+                // `priceForModel` is only ever passed by the Director board
+                // (ScenesWorkspaceTab doesn't price per-card), so its presence
+                // doubles as "this chip is the primary/only piece of model
+                // info on this surface, not one detail among many" — reason
+                // enough to read it clearly rather than dimmed, without
+                // touching ScenesWorkspaceTab's unchanged default styling.
+                background: modelOverridden ? "rgba(139, 92, 246, 0.16)" : priceForModel ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.05)",
+                color: modelOverridden ? "var(--purple)" : priceForModel ? "var(--text-secondary)" : "var(--text-tertiary)",
+                border: modelOverridden ? "1px solid rgba(139, 92, 246, 0.35)" : priceForModel ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.08)",
               }}>
               <Film size={9} />
               {modelDisplayName(effectiveModelId) || effectiveModelId}
@@ -365,10 +378,12 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
                   already prices per-action elsewhere, so it keeps its exact
                   prior appearance). Cheapest-tier estimate, same imprecision
                   as the rest of the app (docs/cost-awareness.md) — the `~`
-                  labels it as approximate rather than exact. */}
+                  labels it as approximate rather than exact. No opacity dip
+                  on this span — it needs to read as clearly as the model
+                  name next to it, not fade into the background. */}
               {priceForModel && (() => {
                 const price = priceForModel(effectiveModelId);
-                return price != null ? <span className="opacity-80">· ~${price.toFixed(2)}</span> : null;
+                return price != null ? <span>· ~${price.toFixed(2)}</span> : null;
               })()}
               {modelOverridden && (
                 <span className="w-1 h-1 rounded-full shrink-0" style={{ background: "var(--purple)" }} />
