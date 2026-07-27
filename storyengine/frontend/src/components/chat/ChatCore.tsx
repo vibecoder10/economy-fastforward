@@ -206,12 +206,22 @@ export function ChatCore({
   uiContext,
   onVideoCreated,
   activeVideoId,
+  initialMessage,
 }: {
   videoId?: string;
   docked?: boolean;
   uiContext?: { tab?: string; scene?: number; index?: number } | null;
   onVideoCreated?: (id: string) => void;
   activeVideoId?: string | null;
+  // A message to send as the FIRST turn, automatically, the moment this mounts
+  // with a blank thread — the DirectorHome entry box's one-sentence pitch,
+  // carried across the createVideo() -> setSelectedVideoId() hand-off so the
+  // sentence the creator already typed doesn't have to be retyped into this
+  // (freshly mounted, brand-new-conversation) ChatCore instance. Undocked
+  // only — the dock always resumes a real prior conversation instead (see
+  // the DOCK hydrate effect below), so it never has a "blank thread" moment
+  // this could apply to.
+  initialMessage?: string | null;
 }) {
   const queryClient = useQueryClient();
   const { data: dockedVideo } = useQuery({
@@ -398,6 +408,20 @@ export function ChatCore({
     if (docked) return; // the dock hydrates instead — no onboarding here
     if (autoTriedRef.current) return;
     autoTriedRef.current = true;
+
+    // DirectorHome hand-off: a brand-new video was just created (free, via
+    // createVideo()) and this mount's ONE job is to open with the creator's
+    // own sentence already sent, in the context of that video (activeVideoId
+    // feeds turn()'s video_id — see turn() above). Takes priority over the
+    // savedCid/onboarding checks below on purpose: this IS the first turn of
+    // a brand-new conversation, never a resume.
+    if (initialMessage) {
+      (async () => {
+        await turn({ message: initialMessage }, initialMessage);
+        setChecking(false);
+      })();
+      return;
+    }
 
     // Resume onboarding after an account-connect OAuth round-trip. Google sends
     // the user back to /?connected=yt|drive; we reload the stashed conversation
@@ -2526,12 +2550,26 @@ function CreatedCard({ videoId }: { videoId: string }) {
   const isDone = ["rendered", "uploaded", "uploaded_draft", "published", "done"].includes(
     String(currentStatus || ""),
   );
+  // "idea_logged" is the video's pre-work status (routes/videos.py::create_video
+  // sets it before anything has run) — this card renders as soon as a video id
+  // durably exists on this thread (phase==="created" on EVERY co-pilot reply
+  // once a conversation is bound to a video, not just the turn that actually
+  // started work), so "Building your video…" was claiming work was underway
+  // when the creator hadn't tapped a single confirm card yet. Ryan flagged
+  // this as exactly the kind of copy that reads as spend-has-started when it
+  // hasn't (2026-07-27). Distinguish "nothing has run yet" from "something is
+  // actually in progress" instead of collapsing both into one claim.
+  const notStarted = String(currentStatus || "") === "idea_logged";
 
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
       <div className="flex items-center justify-between gap-4">
         <div className="font-display font-bold text-base" style={{ color: "var(--text-primary)" }}>
-          {isDone ? "Your video is ready to review 🎬" : "Building your video…"}
+          {isDone
+            ? "Your video is ready to review 🎬"
+            : notStarted
+              ? "Video started — nothing's running yet"
+              : "Building your video…"}
         </div>
         <Link
           href={`/pipeline/${videoId}`}

@@ -23,10 +23,22 @@ import { CHAT_MAX_WIDTH, CHAT_MIN_WIDTH, RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, usePane
  * this file follows the chunk brief over the mockup's literal pixel width.
  */
 export function DirectorSurface() {
-  const { selectedVideoId, setSelectedVideoId } = useDirector();
+  const { selectedVideoId, setSelectedVideoId, pendingInitialMessage, setPendingInitialMessage } = useDirector();
   const chatColumnRef = useRef<HTMLDivElement>(null);
   const railColumnRef = useRef<HTMLDivElement>(null);
   const layout = usePanelLayout();
+
+  // Consume-once: the DirectorHome entry box stashes the creator's typed
+  // sentence here right before setSelectedVideoId(newVideoId). ChatCore's own
+  // mount effect reads the `initialMessage` prop synchronously (before this
+  // effect's setState commits), so clearing it here the same tick is safe —
+  // it only prevents a LATER video switch (e.g. via "Recent videos", which
+  // never sets this field) from replaying a stale pitch into an unrelated
+  // conversation.
+  useEffect(() => {
+    if (pendingInitialMessage) setPendingInitialMessage(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVideoId]);
 
   // Live-measured widths, kept in sync with a ResizeObserver rather than
   // read once — this is what feeds `aria-valuenow` on each divider, and it
@@ -121,6 +133,7 @@ export function DirectorSurface() {
               docked={false}
               activeVideoId={selectedVideoId}
               onVideoCreated={(id) => setSelectedVideoId(id)}
+              initialMessage={pendingInitialMessage}
             />
           </div>
         )}

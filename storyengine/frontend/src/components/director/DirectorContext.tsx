@@ -30,6 +30,15 @@ export interface DirectorState {
    * clicking into Shot altitude. `null` when nothing is focused. */
   focusedShotId: string | null;
   setFocusedShotId: (id: string | null) => void;
+
+  /** A one-sentence pitch typed into the DirectorHome entry box, waiting to be
+   * seeded as the opening chat turn once DirectorSurface mounts ChatCore for
+   * the video that box just created. Consumed exactly once (DirectorSurface
+   * clears it right after handing it to ChatCore) so switching to a
+   * DIFFERENT video afterwards (e.g. via "Recent videos") never resends a
+   * stale pitch into an unrelated conversation. `null` the rest of the time. */
+  pendingInitialMessage: string | null;
+  setPendingInitialMessage: (message: string | null) => void;
 }
 
 const DirectorContext = createContext<DirectorState | null>(null);
@@ -50,6 +59,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
   const [altitude, setAltitude] = useState<Altitude>("scene");
   const [focusedShotId, setFocusedShotId] = useState<string | null>(null);
+  const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
 
   const value = useMemo<DirectorState>(
     () => ({
@@ -59,8 +69,10 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       setAltitude,
       focusedShotId,
       setFocusedShotId,
+      pendingInitialMessage,
+      setPendingInitialMessage,
     }),
-    [selectedVideoId, altitude, focusedShotId]
+    [selectedVideoId, altitude, focusedShotId, pendingInitialMessage]
   );
 
   return <DirectorContext.Provider value={value}>{children}</DirectorContext.Provider>;
