@@ -15,13 +15,15 @@ Triggered by Ryan's live test drive on prod, which found four defects at once.
 
 ### Chunks
 - [ ] D3-1 (S) [U][V] Chat column layout: composer pinned to the bottom, stepper contained (no horizontal page scroll at any width), progress card updates in place instead of stacking. Branch `fix/director-chat-layout`.
-- [ ] D3-2 (S) [U][B][V] Director chat survives a refresh: the selected video lives in the URL, chat history rehydrates, in-flight progress reconnects, and the user is never dropped into `/pipeline/[videoId]`. Branch `fix/director-chat-persist`.
+- [x] D3-2 (S) [U][B][V] Director chat survives a refresh: the selected video lives in the URL, chat history rehydrates, in-flight progress reconnects, and the user is never dropped into `/pipeline/[videoId]`. Branch `fix/director-chat-persist`. DONE: merged to main as 23c8653b. Route is /chat/[videoId]; DirectorProvider moved to the root layout and derives the id from usePathname(). Verified live by reloading a real video, opening the URL in a fresh tab, and confirming a foreign video id returns 404 (no cross-tenant leak). Playwright 16 failed / 2 flaky / 19 skipped / 27 passed, identical with the change stashed - zero new failures.
 - [ ] D3-3 (S) [B][V] DIAGNOSIS ONLY: why the pipeline stops after the script stage and never reaches Voice. Read-only, no fix.
 - [ ] D3-3b (S) [B][V] Fix the stall, scoped by D3-3's findings. BLOCKED until D3-3 reports.
 - [ ] D3-4 (S) [B][U][V] Approval gates in the chat. Generalize `CustomFilmApprovalCard` into a reusable `approval_gate` card kind (three edits in ChatCore.tsx: the `CardKind` union, `cardKind()` dispatch, `ACTION_CARD_RENDERERS`) plus a generic backend "awaiting confirmation" slot to replace the seven bespoke `pending_*` keys. Gates: script (Edit / Looks good!), then characters + locations together (View / Looks good!) opening a large named gallery. Reference: DIRECTOR-CHAT-PLAN.md Task 5.2.
 - [ ] D3-5 (S) [U][B][V] Widen `ui_context` from `{tab, scene, index}` to carry `{altitude, scene, index, focusedAssetId, railTab, selectedEntityId}` and actually consume it on the backend so a message routes to the selected shot or character. Reference: DIRECTOR-CHAT-PLAN.md Task 5.4.
 - [ ] D3-6 (H) Documentation refresh (this chunk).
 - [ ] D3-7 (S) [V] INDEPENDENT RE-VERIFY against the Definition of Complete by a worker that never saw the build.
+- [ ] D3-8 (H) Mobile `components/nav/bottom-tabs.tsx` "Home" tab does not highlight on `/chat/[videoId]`. Cosmetic, follow-up from D3-2.
+- [ ] D3-9 (S) `videos.status` reads `ready_for_voice` for video d218b352-8894-45d1-af0a-fb8847d39e55 but there is no matching `stage_transitions` row, so the transition log cannot be trusted as an audit trail. Found during D3-3. Investigate separately.
 
 ### Verified facts carried in (recon, 2026-07-27)
 - There is NO generic "the chat is waiting on you" abstraction. `custom_film_approval` is a one-off: dispatch is a hand-written `state["mode"] == "custom_film"` + selections-key check in `routes/chat.py`, alongside three other copy-pasted special cases (`style_draft`, `quality_rules_draft`, `channel_dna_digest`). State is seven ad hoc `pending_*` keys with no shared shape. Building D3-4 means building that abstraction.

@@ -1,4 +1,4 @@
 # Loop handoff
 
-Last done: D2 (Director board + cost dial + column resizing + single-prompt front door + channel-identity fix + live progress and result cards in chat) merged to main @ a181a7cf and deployed to prod. Ryan then test-drove prod and found four defects; mission D3 opened.
-Next chunk: see `## Active mission - D3 DIRECTOR CHAT IS THE PRODUCT` at the top of tasks/loop-checklist.md. D3-1, D3-2, D3-3 are dispatched and in flight; D3-3b, D3-4, D3-5, D3-7 are unstarted.
+Last done: D3-2 (Director chat URL persistence) merged to main @ 23c8653b. Route is /chat/[videoId]; DirectorProvider derives video id from usePathname().
+Next chunk: D3-1 (chat layout), D3-3b (front door build intent + needs_review), QA click-drive sweep and authorized paid production run are in flight. D3-3 (diagnosis), D3-4 (approval gates), D3-5 (ui_context), D3-7 (independent re-verify) are unstarted.
