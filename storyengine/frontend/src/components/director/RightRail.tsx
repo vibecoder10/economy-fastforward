@@ -50,7 +50,7 @@ export function RightRail({
     <div
       ref={panelRef}
       style={widthPx != null ? { width: widthPx } : undefined}
-      className={`flex flex-none flex-col border-l border-line bg-surface ${widthPx != null ? "" : "w-[340px]"}`}
+      className={`flex min-w-0 flex-none flex-col border-l border-line bg-surface ${widthPx != null ? "" : "w-[340px]"}`}
     >
       <div className="flex flex-none gap-0.5 border-b border-line-soft p-[7px]">
         {RAIL_TABS.map((t) => {
