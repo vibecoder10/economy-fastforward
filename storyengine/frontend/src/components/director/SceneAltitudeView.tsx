@@ -1,35 +1,58 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Star } from "lucide-react";
-import { getVideoAssets, getVideoScript, type Asset } from "@/lib/api";
-import { toDisplayImageUrl } from "@/lib/utils";
+import {
+  getVideoAssets,
+  getVideoScript,
+  getVideo,
+  getModels,
+  getVideoActions,
+  updateAssetModelOverride,
+  type Asset,
+  type VideoModelInfo,
+} from "@/lib/api";
+import { clipCost } from "@/lib/next-action";
+import { ShotCard } from "@/components/canvas-shared/ShotCard";
+import { ModelOverrideSheet } from "@/components/canvas-shared/ModelOverrideSheet";
 import { SaveStyleModal } from "./SaveStyleModal";
 import { CanvasEmptyState } from "./CanvasEmptyState";
+import { useDirector } from "./DirectorContext";
+
+/** Network-failure safety net ONLY, same list ScenesWorkspaceTab.tsx keeps
+ * (FALLBACK_WIRED_MODELS there) — if GET /api/models can't be reached, the
+ * override sheet still needs something selectable instead of rendering
+ * empty. $0.09 = grok-imagine's 6s tier (channel_profile.py, C09a); keep in
+ * sync by hand if that price ever moves. */
+const FALLBACK_WIRED_MODELS: { id: string; label: string }[] = [
+  { id: "grok-imagine", label: "Grok Imagine — $0.09/clip" },
+];
 
 /**
  * Scene altitude (default tab) — the stage bar (gold "Lock this as a style"
  * button + helper copy) plus the scene/shot list structure from
  * storyengine/tasks/director-mockup/index.html `#tab-scene` (~L897-1073).
  *
- * Shot badge derivation (LIVE data, no per-shot "storyboard" field exists on
- * `Asset` — this is the closest honest read of the real columns):
- *   video_clip_url set        -> "Clip"
- *   image_url set, no clip    -> "Picture"
- *   image_prompt set, no url  -> "Storyboard" (planned, not drawn yet)
- *   none of the above         -> "Empty"
+ * Shots render via the shared `ShotCard` (canvas-shared/ShotCard.tsx) — the
+ * same component ScenesWorkspaceTab.tsx's pipeline page uses — instead of a
+ * bespoke thumbnail tile, so this view gets the real model badge, a price,
+ * and a tap-to-focus affordance for free.
  *
- * Per-shot model chips (mockup's `.chip`, clickable to open a model picker)
- * are intentionally NOT reproduced here — that's an editing affordance
- * (ModelOverrideSheet already exists in canvas-shared/ for it) out of scope
- * for this chunk's header/rail/gold-button brief, and wiring it risks an
- * accidental paid click during verification. Scene-level per-scene cost
- * pills from the mockup are also omitted — the ledger this app has is a
- * by-stage total, not a by-scene breakdown, and inventing one would violate
- * "never fake data that looks real."
+ * VIEW + MODEL CHANGE ONLY, on purpose (see the redraw decision this chunk
+ * shipped under): `canAnimate={false}` and `readOnly` hide/disable every
+ * money-triggering or destructive action ShotCard normally offers (animate,
+ * redo clip, delete, re-crop, redraw-picture) — this board never starts
+ * work, so it never needs a task-watcher to poll it. Every in-flight state
+ * prop below (`isGenerating`, `isQueued`, etc.) is honestly `false`: nothing
+ * can ever be mid-flight for a card the board itself can't put into flight.
+ * The one live write this view makes is the free one — `assets.model_override`
+ * via the existing `ModelOverrideSheet` + `updateAssetModelOverride`.
  */
 export function SceneAltitudeView({ videoId }: { videoId: string }) {
+  const queryClient = useQueryClient();
+  const { setFocusedShotId, setAltitude } = useDirector();
+
   const assetsQuery = useQuery({
     queryKey: ["video-assets", videoId],
     queryFn: () => getVideoAssets(videoId),
@@ -38,9 +61,72 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
     queryKey: ["video-script", videoId],
     queryFn: () => getVideoScript(videoId),
   });
+  // Only field this view needs off the video row is video_model — ShotCard's
+  // `effectiveModelId` fallback when a shot has no clip yet and no per-scene
+  // routing/override (ShotCard.tsx ~L78-80). Same ["video", videoId] key the
+  // rest of the app uses (ScenesWorkspaceTab, the pipeline page), so this is
+  // served off the shared cache rather than firing a second request.
+  const videoQuery = useQuery({
+    queryKey: ["video", videoId],
+    queryFn: () => getVideo(videoId),
+  });
+  // Clip-model registry (name + $/clip) — same ["models"] key
+  // ScenesWorkspaceTab.tsx uses, shared cache.
+  const modelsQuery = useQuery({
+    queryKey: ["models"],
+    queryFn: getModels,
+    staleTime: 5 * 60_000,
+  });
+  // Picture price (flat $0.05 today, see docs/cost-awareness.md) — same
+  // ["video-actions", videoId] key ScenesWorkspaceTab.tsx reads.
+  const videoActionsQuery = useQuery({
+    queryKey: ["video-actions", videoId],
+    queryFn: () => getVideoActions(videoId),
+    staleTime: 30_000,
+  });
+
+  const videoDefaultModel = videoQuery.data?.video_model || "grok-imagine";
+  const picturePrice = videoActionsQuery.data?.prices?.picture ?? 0.05;
+
+  const priceByModel = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const mm of modelsQuery.data?.models ?? []) {
+      if (mm.cost_per_clip != null) m[mm.id] = mm.cost_per_clip;
+    }
+    return m;
+  }, [modelsQuery.data]);
+  /** Real per-clip price for a model — F6: `prices.clip[model]`/`cost_per_clip`
+   * is the model's cheapest-duration-tier price, a flat number, not a
+   * per-second rate. Falls back to the shared clipCost() cache (same one
+   * ScenesWorkspaceTab.tsx syncs) so a still-loading models query never
+   * shows $0.00. */
+  const priceForModel = useCallback(
+    (id: string | null | undefined) => priceByModel[id || "grok-imagine"] ?? clipCost(id, 1),
+    [priceByModel],
+  );
+  const perClip = priceForModel(videoDefaultModel);
+
+  const modelDisplayName = useCallback(
+    (id: string | null | undefined) => {
+      if (!id) return "";
+      return (modelsQuery.data?.models ?? []).find((m) => m.id === id)?.name ?? id;
+    },
+    [modelsQuery.data],
+  );
+
+  const wiredModelsForSheet = useMemo((): { id: string; label: string }[] => {
+    const wired = (modelsQuery.data?.models ?? []).filter((m: VideoModelInfo) => m.kind === "video" && m.wired);
+    if (!wired.length) return FALLBACK_WIRED_MODELS;
+    return wired.map((m) => ({
+      id: m.id,
+      label: `${m.name} — $${(m.cost_per_clip ?? priceForModel(m.id)).toFixed(2)}/clip`,
+    }));
+  }, [modelsQuery.data, priceForModel]);
 
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
   const [styleModalOpen, setStyleModalOpen] = useState(false);
+  const [overrideAssetId, setOverrideAssetId] = useState<string | null>(null);
+  const [savingOverride, setSavingOverride] = useState(false);
 
   const scenes = useMemo(() => {
     const byScene = new Map<number, Asset[]>();
@@ -55,6 +141,21 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
     return Array.from(byScene.entries()).sort((a, b) => a[0] - b[0]);
   }, [assetsQuery.data]);
 
+  // Seed the collapse default ONCE the real scene list arrives — scenes load
+  // async off a useQuery, so a plain useState(new Set()) initializer would
+  // never see them (they don't exist yet on mount). Collapse every scene
+  // past the first three BY ORDER in the sorted `scenes` array above, not by
+  // raw scene number (numbers aren't guaranteed contiguous — a 1,2,4,5 list
+  // still collapses starting at its 4th entry). The ref guard fires this
+  // exactly once per mount so a scene the user manually expands or
+  // re-collapses afterward is never stomped back to this default.
+  const collapseSeededRef = useRef(false);
+  useEffect(() => {
+    if (collapseSeededRef.current || scenes.length === 0) return;
+    collapseSeededRef.current = true;
+    setCollapsed(new Set(scenes.slice(3).map(([sceneNum]) => sceneNum)));
+  }, [scenes]);
+
   const sceneText = (n: number) => scriptQuery.data?.find((s) => s.scene === n)?.scene_text || null;
 
   const toggleScene = (n: number) => {
@@ -65,6 +166,28 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
       return next;
     });
   };
+
+  const allAssets = assetsQuery.data ?? [];
+  const overrideAsset = overrideAssetId ? allAssets.find((a) => a.id === overrideAssetId) ?? null : null;
+
+  // C14 model override, board flavor of ScenesWorkspaceTab.tsx's
+  // handleSetModelOverride — fixed to invalidate BOTH video-assets (the
+  // badge) and video-actions (the price/summary), which that one was
+  // missing (see the fix left in ScenesWorkspaceTab.tsx alongside this).
+  const handleSetModelOverride = useCallback(
+    async (assetId: string, next: string | null) => {
+      setSavingOverride(true);
+      try {
+        await updateAssetModelOverride(assetId, next);
+        queryClient.invalidateQueries({ queryKey: ["video-assets", videoId] });
+        queryClient.invalidateQueries({ queryKey: ["video-actions", videoId] });
+        setOverrideAssetId(null);
+      } finally {
+        setSavingOverride(false);
+      }
+    },
+    [queryClient, videoId],
+  );
 
   const isLoading = assetsQuery.isLoading || scriptQuery.isLoading;
   const isError = assetsQuery.isError;
@@ -131,9 +254,48 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
               </div>
 
               {!isClosed && (
-                <div className="flex gap-2.5 overflow-x-auto px-3.5 pb-3.5">
+                <div className="grid grid-cols-1 gap-2.5 px-3.5 pb-3.5 sm:grid-cols-2 xl:grid-cols-3">
                   {assets.map((asset) => (
-                    <ShotTile key={asset.id} asset={asset} />
+                    <ShotCard
+                      key={asset.id}
+                      asset={asset}
+                      // Dialogue-speaker lookup isn't fetched by this view
+                      // (out of scope for this chunk) — null just omits the
+                      // speaker chip, it doesn't fake one.
+                      speaker={null}
+                      perClip={perClip}
+                      picturePrice={picturePrice}
+                      canAnimate={false}
+                      showModelBadge
+                      priceForModel={priceForModel}
+                      readOnly
+                      isGenerating={false}
+                      isRecropping={false}
+                      isFailed={false}
+                      isQueued={false}
+                      isRedrawing={false}
+                      isRedrawQueued={false}
+                      isRedrawFailed={false}
+                      isPlaying={false}
+                      disabled={false}
+                      videoDefaultModel={videoDefaultModel}
+                      modelDisplayName={modelDisplayName}
+                      onTap={() => {
+                        setFocusedShotId(asset.id);
+                        setAltitude("shot");
+                      }}
+                      // readOnly hides every button below in the UI itself, so
+                      // these callbacks are unreachable dead code, not silent
+                      // no-ops standing behind a live control.
+                      onRedoClip={() => {}}
+                      onDeleteClip={() => {}}
+                      onDeletePicture={() => {}}
+                      onRecrop={() => {}}
+                      onRedraw={() => {}}
+                      onOpenModelOverride={() => setOverrideAssetId(asset.id)}
+                      cameraPresets={[]}
+                      onOpenCameraPreset={() => {}}
+                    />
                   ))}
                 </div>
               )}
@@ -151,50 +313,18 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
         defaultName="Untitled style"
         onClose={() => setStyleModalOpen(false)}
       />
-    </div>
-  );
-}
 
-function ShotTile({ asset }: { asset: Asset }) {
-  const hasClip = Boolean(asset.video_clip_url);
-  const hasPicture = Boolean(asset.image_url) && !hasClip;
-  const isPlanned = !hasClip && !hasPicture && Boolean(asset.image_prompt);
-  const badge = hasClip ? "Clip" : hasPicture ? "Picture" : isPlanned ? "Storyboard" : "Empty";
-  const badgeColor = hasClip ? "text-gold-director" : hasPicture ? "text-turquoise" : "text-faint";
-  const thumb = toDisplayImageUrl(asset.image_url);
-
-  return (
-    <div className="w-[172px] flex-none overflow-hidden rounded-[13px] border border-line-soft bg-deep transition-colors hover:border-turquoise/35">
-      <div className="relative flex h-24 items-center justify-center bg-deep">
-        {thumb ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumb} alt="" className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div
-            aria-hidden="true"
-            className="absolute inset-0"
-            style={{
-              background:
-                "repeating-linear-gradient(45deg, rgba(255,255,255,.035) 0 8px, transparent 8px 16px), #0C1018",
-            }}
-          />
-        )}
-        <span
-          className={`absolute left-1.5 top-1.5 rounded-[6px] bg-black/70 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide backdrop-blur-sm ${badgeColor}`}
-        >
-          {badge}
-        </span>
-        {hasClip && asset.duration_seconds ? (
-          <span className="absolute bottom-1.5 right-1.5 rounded-[5px] bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-            {Math.round(asset.duration_seconds)}s
-          </span>
-        ) : null}
-      </div>
-      <div className="p-2.5">
-        <p className="line-clamp-2 h-8 text-[11.5px] leading-tight text-dim">
-          {asset.sentence_text || asset.image_prompt || "—"}
-        </p>
-      </div>
+      {overrideAsset && (
+        <ModelOverrideSheet
+          asset={overrideAsset}
+          models={wiredModelsForSheet}
+          videoDefaultModel={videoDefaultModel}
+          saving={savingOverride}
+          onPick={(id) => handleSetModelOverride(overrideAsset.id, id)}
+          onUseRecommendation={() => handleSetModelOverride(overrideAsset.id, null)}
+          onClose={() => setOverrideAssetId(null)}
+        />
+      )}
     </div>
   );
 }

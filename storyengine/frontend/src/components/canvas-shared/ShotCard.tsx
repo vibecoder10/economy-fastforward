@@ -29,7 +29,7 @@ const IMAGE_MODEL_BADGE: Record<string, string> = {
  * final picture (tap = animate, ~$0.09). Bad crops wear a red badge whose
  * one-tap Re-crop is free and re-animates stale clips automatically.
  */
-export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isQueued, isRedrawing, isRedrawQueued, isRedrawFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset }: {
+export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, isGenerating, isRecropping, isFailed, isQueued, isRedrawing, isRedrawQueued, isRedrawFailed, isPlaying, disabled, videoDefaultModel, modelDisplayName, onTap, onRedoClip, onDeleteClip, onDeletePicture, onRecrop, onRedraw, onOpenModelOverride, cameraPresets, onOpenCameraPreset, showModelBadge = canAnimate, priceForModel, readOnly = false }: {
   asset: Asset;
   speaker: string | null;
   perClip: number;
@@ -66,6 +66,27 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
    * still shows Auto/humanized-id, sheet just has nothing to list yet). */
   cameraPresets: CameraPresetInfo[];
   onOpenCameraPreset: () => void;
+  /** Decouples the model-chip's VISIBILITY from `canAnimate` (Director
+   * board's F4 fix — a view-only surface still wants to show the resolved
+   * clip model even with canAnimate=false, since that flag there means "no
+   * animate button", not "no clip model exists"). Optional and defaulted to
+   * `canAnimate` so every existing caller (ScenesWorkspaceTab) that doesn't
+   * pass this renders byte-identical to before this prop existed. */
+  showModelBadge?: boolean;
+  /** Optional: when provided, the model chip appends this model's real
+   * $/clip (an approximate "cheapest tier" figure, same imprecision the
+   * rest of the app already quotes — see docs/cost-awareness.md) next to
+   * the model name. Omitted by ScenesWorkspaceTab on purpose — that surface
+   * already prices per-action (Animate/Redo button labels), so a second
+   * price in the chip would be new, un-asked-for UI there. */
+  priceForModel?: (id: string | null | undefined) => number | null;
+  /** Director board flavor (F-redraw-decision): hides every money-triggering
+   * or destructive affordance (redo clip, delete clip/picture, bad-crop
+   * re-crop, the image-prompt "edit & redraw" panel) instead of wiring them
+   * to no-ops — a clickable control that silently does nothing is worse
+   * than one that isn't there. Defaults to false so ScenesWorkspaceTab (the
+   * only other caller) is unaffected. */
+  readOnly?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasClip = Boolean(asset.video_clip_url);
@@ -130,7 +151,7 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
 
   return (
     <GlassCard
-      className={`p-0 overflow-hidden group ${hasClip || canAnimate ? "cursor-pointer" : "cursor-default"}`}
+      className={`p-0 overflow-hidden group ${hasClip || canAnimate || readOnly ? "cursor-pointer" : "cursor-default"}`}
       style={isFailed ? { border: "1px solid rgba(255,90,90,0.5)" }
         : badCrop ? { border: "1px solid rgba(255,110,110,0.45)" } : undefined}
       onClick={onTap}
@@ -178,8 +199,10 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
           </span>
         )}
 
-        {/* Bad crop badge — one tap fixes it for free */}
-        {badCrop && !isGenerating && !isRecropping && !isRedrawing && (
+        {/* Bad crop badge — one tap fixes it for free, EXCEPT a re-crop on a
+            shot that already has a clip re-animates it automatically (paid),
+            so it's part of readOnly's money-affordance gate too. */}
+        {badCrop && !readOnly && !isGenerating && !isRecropping && !isRedrawing && (
           <button
             onClick={(e) => { e.stopPropagation(); onRecrop(); }}
             disabled={disabled}
@@ -247,7 +270,11 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
             </span>
           </div>
         )}
-        {hasClip && !isPlaying && (
+        {/* readOnly's onTap does something else entirely (focus + switch
+            altitude, not play/pause) — showing a "tap to play" hint would be
+            misleading there, so this hover hint is part of readOnly's gate
+            too (isPlaying is always false on a readOnly card regardless). */}
+        {hasClip && !isPlaying && !readOnly && (
           <div className="absolute inset-0 z-10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
             style={{ background: "rgba(0,0,0,0.35)" }}>
             <Play size={28} style={{ color: "white" }} />
@@ -259,7 +286,10 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
           </div>
         )}
 
-        {/* Hover actions: clip level when a clip exists, picture level otherwise */}
+        {/* Hover actions: clip level when a clip exists, picture level otherwise.
+            Redo-clip is real spend (same $/clip as Animate); delete is
+            destructive. readOnly (Director board) hides the whole cluster
+            except the free download link, rather than wiring dead buttons. */}
         {!isGenerating && !isRecropping && !isRedrawing && (
           <>
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -274,7 +304,7 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
                   <Download size={13} />
                 </a>
               )}
-              {hasClip ? (
+              {!readOnly && (hasClip ? (
                 <>
                   <button
                     onClick={(e) => { e.stopPropagation(); onRedoClip(); }}
@@ -299,7 +329,7 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
                   style={{ background: "rgba(0,0,0,0.6)", color: "rgb(255,120,120)" }}>
                   <X size={13} />
                 </button>
-              )}
+              ))}
             </div>
             {hasClip && (
               <div className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full flex items-center justify-center group-hover:opacity-0 transition-opacity"
@@ -314,9 +344,11 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
       <div className="p-3">
         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
           <SegmentBadge label={label} />
-          {/* C14 per-scene model badge — tap opens the override sheet. Gated on
-              canAnimate: an images-only plan has no clip model to show. */}
-          {canAnimate && (
+          {/* C14 per-scene model badge — tap opens the override sheet.
+              Visibility is `showModelBadge` (defaults to canAnimate for
+              backward compat — see the prop's doc comment); ScenesWorkspaceTab
+              never passes it, so this renders exactly as before there. */}
+          {showModelBadge && (
             <button
               onClick={(e) => { e.stopPropagation(); onOpenModelOverride(); }}
               title={`${modelDisplayName(effectiveModelId) || effectiveModelId} — ${modelReason}. Tap to change this scene's clip model.`}
@@ -328,6 +360,16 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
               }}>
               <Film size={9} />
               {modelDisplayName(effectiveModelId) || effectiveModelId}
+              {/* Real $/clip for the resolved model, only when the caller
+                  passes priceForModel (ScenesWorkspaceTab doesn't — it
+                  already prices per-action elsewhere, so it keeps its exact
+                  prior appearance). Cheapest-tier estimate, same imprecision
+                  as the rest of the app (docs/cost-awareness.md) — the `~`
+                  labels it as approximate rather than exact. */}
+              {priceForModel && (() => {
+                const price = priceForModel(effectiveModelId);
+                return price != null ? <span className="opacity-80">· ~${price.toFixed(2)}</span> : null;
+              })()}
               {modelOverridden && (
                 <span className="w-1 h-1 rounded-full shrink-0" style={{ background: "var(--purple)" }} />
               )}
@@ -359,7 +401,10 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
         <p className="text-[11px] leading-relaxed line-clamp-2" style={{ color: "var(--text-secondary)" }}>
           {asset.sentence_text || asset.video_prompt || "—"}
         </p>
-        {/* Image prompt — edit + redraw just this picture (anchored on the locked cast). */}
+        {/* Image prompt — edit + redraw just this picture (anchored on the
+            locked cast). Redraw is real spend (~$picturePrice), so this
+            whole panel is part of readOnly's money-affordance gate. */}
+        {!readOnly && (
         <details className="mt-2" onClick={(e) => e.stopPropagation()}>
           <summary className="text-[10px] cursor-pointer select-none inline-flex items-center gap-1" style={{ color: "var(--text-tertiary)" }}>
             <ImageIcon size={10} /> Image prompt — edit &amp; redraw
@@ -410,6 +455,7 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
             </button>
           </div>
         </details>
+        )}
         {/* A static/photo plan has no clip stage, so it must not read as if a
             motion prompt is unfinished work. */}
         {canAnimate && (

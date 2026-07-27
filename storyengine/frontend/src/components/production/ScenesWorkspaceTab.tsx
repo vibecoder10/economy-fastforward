@@ -1063,6 +1063,12 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     try {
       await updateAssetModelOverride(assetId, next);
       queryClient.invalidateQueries({ queryKey: ["video-assets", video.id] });
+      // Bug fix (found auditing the Director board's copy of this same
+      // handler): prices.clip/prices.picture live on video-actions, not
+      // video-assets — without this the per-card price and any summary
+      // total go stale after an override until something else happens to
+      // refetch video-actions.
+      queryClient.invalidateQueries({ queryKey: ["video-actions", video.id] });
       setOverrideAssetId(null);
     } catch (err) {
       toast.error((err as Error).message || "Couldn't save that override.");
