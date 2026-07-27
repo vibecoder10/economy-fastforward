@@ -1,11 +1,14 @@
 "use client";
 
+import { useRef } from "react";
 import { useDirector } from "./DirectorContext";
 import { DirectorHome } from "./DirectorHome";
 import { CanvasHeader } from "./CanvasHeader";
 import { CanvasStage } from "./CanvasStage";
 import { RightRail } from "./RightRail";
 import { ChatCore } from "@/components/chat/ChatCore";
+import { CollapsedPanelStub, PanelDivider } from "./PanelResizeControls";
+import { CHAT_MAX_WIDTH, CHAT_MIN_WIDTH, RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, usePanelLayout } from "./usePanelLayout";
 
 /**
  * Top-level Director surface (Chunk 1.A, header/rail wired in Chunk 1.E).
@@ -21,10 +24,21 @@ import { ChatCore } from "@/components/chat/ChatCore";
  */
 export function DirectorSurface() {
   const { selectedVideoId, setSelectedVideoId } = useDirector();
+  const chatColumnRef = useRef<HTMLDivElement>(null);
+  const railColumnRef = useRef<HTMLDivElement>(null);
+  const layout = usePanelLayout();
 
   if (selectedVideoId === null) {
     return <DirectorHome />;
   }
+
+  // Only apply a custom width once hydrated AND at `lg`+ — before hydration
+  // or below `lg`, render exactly the original classes (no inline style),
+  // so a fresh visitor and a narrow viewport both see today's layout.
+  const chatWidthPx = layout.hydrated && layout.isLgUp ? layout.chatWidth : null;
+  const railWidthPx = layout.hydrated && layout.isLgUp ? layout.railWidth : null;
+  const chatCollapsed = layout.hydrated && layout.isLgUp && layout.chatCollapsed;
+  const railCollapsed = layout.hydrated && layout.isLgUp && layout.railCollapsed;
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -63,24 +77,62 @@ export function DirectorSurface() {
             dropdown is open no longer auto-closes it (clicking anywhere
             inside the column, or picking an item, still does). Scoped,
             low-severity, and unrelated to the composer-escape bug this fixes. */}
-        <div
-          className="relative flex w-full flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:min-w-[380px] lg:max-w-[460px] lg:w-[38%] lg:border-b-0 lg:border-r"
-          data-director-chat-column="true"
-        >
-          <ChatCore
-            docked={false}
-            activeVideoId={selectedVideoId}
-            onVideoCreated={(id) => setSelectedVideoId(id)}
+        {chatCollapsed ? (
+          <CollapsedPanelStub side="left" label="Chat" onExpand={layout.expandChat} />
+        ) : (
+          <div
+            ref={chatColumnRef}
+            style={chatWidthPx != null ? { width: chatWidthPx } : undefined}
+            className={`relative flex w-full flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:border-b-0 lg:border-r ${
+              chatWidthPx != null ? "" : "lg:min-w-[380px] lg:max-w-[460px] lg:w-[38%]"
+            }`}
+            data-director-chat-column="true"
+          >
+            <ChatCore
+              docked={false}
+              activeVideoId={selectedVideoId}
+              onVideoCreated={(id) => setSelectedVideoId(id)}
+            />
+          </div>
+        )}
+
+        {!chatCollapsed && (
+          <PanelDivider
+            side="left"
+            label="chat"
+            measureRef={chatColumnRef}
+            min={CHAT_MIN_WIDTH}
+            max={CHAT_MAX_WIDTH}
+            onLiveResize={layout.liveResizeChat}
+            onCommitResize={layout.commitResizeChat}
+            onCollapse={layout.collapseChat}
           />
-        </div>
+        )}
 
         {/* Canvas column — the altitude-routed stage (Shot / Scene / Timeline). */}
         <div className="flex min-w-0 flex-1 flex-col bg-void">
           <CanvasStage videoId={selectedVideoId} />
         </div>
 
+        {!railCollapsed && (
+          <PanelDivider
+            side="right"
+            label="media rail"
+            measureRef={railColumnRef}
+            min={RAIL_MIN_WIDTH}
+            max={RAIL_MAX_WIDTH}
+            onLiveResize={layout.liveResizeRail}
+            onCommitResize={layout.commitResizeRail}
+            onCollapse={layout.collapseRail}
+          />
+        )}
+
         {/* Right rail — Media / Voice / Music / Cast / Environments. */}
-        <RightRail videoId={selectedVideoId} />
+        {railCollapsed ? (
+          <CollapsedPanelStub side="right" label="Media rail" onExpand={layout.expandRail} />
+        ) : (
+          <RightRail videoId={selectedVideoId} widthPx={railWidthPx ?? undefined} panelRef={railColumnRef} />
+        )}
       </div>
     </div>
   );

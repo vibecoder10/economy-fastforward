@@ -30,11 +30,28 @@ const RAIL_TABS: { id: RailTab; label: string; icon: typeof Images }[] = [
  * panel below is LIVE (real queries, real empty states) except the sub-tab
  * boundary noted on Media/Storyboards — see that panel's own comment.
  */
-export function RightRail({ videoId }: { videoId: string }) {
+export function RightRail({
+  videoId,
+  widthPx,
+  panelRef,
+}: {
+  videoId: string;
+  /** Custom width in px from a user drag (DirectorSurface's panel-resize
+   * feature). Omitted (undefined) keeps the original fixed 340px column —
+   * first load with nothing saved renders byte-for-byte what it did before. */
+  widthPx?: number;
+  /** Forwarded so DirectorSurface can measure this column's live rendered
+   * width at drag/keydown start — see PanelResizeControls.tsx. */
+  panelRef?: React.RefObject<HTMLDivElement | null>;
+}) {
   const [tab, setTab] = useState<RailTab>("media");
 
   return (
-    <div className="flex w-[340px] flex-none flex-col border-l border-line bg-surface">
+    <div
+      ref={panelRef}
+      style={widthPx != null ? { width: widthPx } : undefined}
+      className={`flex flex-none flex-col border-l border-line bg-surface ${widthPx != null ? "" : "w-[340px]"}`}
+    >
       <div className="flex flex-none gap-0.5 border-b border-line-soft p-[7px]">
         {RAIL_TABS.map((t) => {
           const Icon = t.icon;
