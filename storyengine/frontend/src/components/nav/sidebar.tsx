@@ -52,11 +52,17 @@ const advancedNav = [
   { href: "/ideas", icon: Lightbulb, label: "Ideas" },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  collapsed,
+  onCollapsedChange,
+}: {
+  /** Controlled from AuthenticatedShell so <main>'s margin can react too — see hooks/use-sidebar-collapsed.ts */
+  collapsed: boolean;
+  onCollapsedChange: (next: boolean) => void;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const { data: health } = useHealthCheck();
@@ -265,7 +271,8 @@ export function Sidebar() {
       {/* Collapse toggle (desktop only) */}
       <div className="px-2 pb-4 hidden md:block">
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => onCollapsedChange(!collapsed)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={`flex items-center gap-3 px-3 py-2.5 rounded-lg w-full transition-colors hover:bg-[var(--bg-surface)] ${
             collapsed ? "justify-center" : ""
           }`}

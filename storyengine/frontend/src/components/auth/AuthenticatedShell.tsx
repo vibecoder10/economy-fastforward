@@ -12,6 +12,7 @@ import { BottomTabs } from "@/components/nav/bottom-tabs";
 import { Spinner } from "@/components/ui/spinner";
 import { PipelineNotificationProvider } from "@/components/notifications/PipelineNotificationProvider";
 import { DrainModeBanner } from "@/components/system/DrainModeProvider";
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 
 const PUBLIC_PATHS = ["/login", "/onboarding", "/pricing", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/privacy", "/demo"];
 
@@ -41,6 +42,10 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  // Called unconditionally (Rules of Hooks) even though the shell below has
+  // early returns for public/loading/unauthenticated states — none of those
+  // render <Sidebar> or <main>, so the value just goes unused there.
+  const { collapsed, setCollapsed } = useSidebarCollapsed();
 
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const isHome = pathname === "/";
@@ -83,11 +88,11 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   return (
     <PipelineNotificationProvider>
       <div className="flex min-h-screen relative z-10">
-        <Sidebar />
+        <Sidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
         <main
-          className={`flex-1 pb-16 md:pb-0 md:ml-60 overflow-x-hidden ${
-            isFullBleed ? "flex h-screen flex-col" : ""
-          }`}
+          className={`flex-1 pb-16 md:pb-0 overflow-x-hidden transition-[margin-left] duration-200 ${
+            collapsed ? "md:ml-16" : "md:ml-60"
+          } ${isFullBleed ? "flex h-screen flex-col" : ""}`}
         >
           <DrainModeBanner />
           <VerifyEmailBanner />
