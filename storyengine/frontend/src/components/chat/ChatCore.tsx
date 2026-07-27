@@ -10,7 +10,7 @@
 // ChatHome is a thin wrapper over <ChatCore /> so the home flow is unchanged.
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign, Dna, RotateCcw, MinusCircle, XCircle, PencilLine } from "lucide-react";
@@ -21,6 +21,7 @@ import { useStyleDescriptions, styleDescriptionIcon, styleDescriptionById } from
 import type { StyleDescription } from "@/lib/api";
 import { StylePresetGallery } from "@/components/style/StylePresetGallery";
 import { ChatPipelineMap } from "@/components/chat/ChatPipelineMap";
+import { ScriptResultCard, CastLocationsCard, StoryboardGridCard } from "@/components/chat/ChatResultCards";
 import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
 import {
   sendChatTurn,
@@ -69,6 +70,18 @@ const CHAT_CID_KEY = "se_chat_cid";
 // The dock caches a SEPARATE conversation id per video (instant reload). Never
 // reuse the tenant-level home thread for a video's co-pilot, and vice versa.
 const dockCidKey = (videoId: string) => `se_chat_cid_${videoId}`;
+
+// One invalidation call for every in-chat result card (ChatResultCards.tsx)
+// plus the video record itself — called on every stage_change / completed
+// task_progress so a finished stage's script/cast/storyboards show up in
+// the chat without a manual refresh. Simpler to keep this list in one place
+// than to remember to update N call sites when a new result card is added.
+function invalidateResultCards(queryClient: QueryClient, videoId: string) {
+  queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+  queryClient.invalidateQueries({ queryKey: ["videoScript", videoId] });
+  queryClient.invalidateQueries({ queryKey: ["videoCharacters", videoId] });
+  queryClient.invalidateQueries({ queryKey: ["videoEnvironments", videoId] });
+}
 
 type Msg = {
   role: "user" | "assistant";
@@ -274,28 +287,40 @@ export function ChatCore({
   initialMessage?: string | null;
 }) {
   const queryClient = useQueryClient();
-  const { data: dockedVideo } = useQuery({
-    queryKey: ["video", videoId],
-    queryFn: () => getVideo(videoId!),
-    enabled: docked && !!videoId,
-  });
-  const dockProgress = usePipelineSSE({
-    enabled: docked && !!videoId,
-    videoId,
-    onStageChange: () => {
-      if (videoId) queryClient.invalidateQueries({ queryKey: ["video", videoId] });
-    },
-    onTaskProgress: (event) => {
-      if (videoId && event.status !== "running") {
-        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
-      }
-    },
-  });
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [createdVideoId, setCreatedVideoId] = useState<string | null>(null);
+  // The video whose live pipeline map + inline result cards (script/cast/
+  // locations/storyboards) this chat instance shows. The DOCK is always
+  // scoped to its own `videoId`. The undocked Director-surface flow is NOT
+  // always "just created this turn" — reopening an existing video (the
+  // home's "Recent videos" row, or DirectorSurface after a refresh) mounts
+  // ChatCore with `activeVideoId` already set and `createdVideoId` still
+  // null, since no NEW turn ever ran in this mounted instance. Bug caught in
+  // review (2026-07-27): result cards were wired to `createdVideoId` alone,
+  // so they only ever appeared in the single-turn window right after a
+  // brand-new video's first message — reopening any other video's Director
+  // chat showed nothing. Falling back to `activeVideoId` covers that path.
+  const resultCardsVideoId = docked ? (videoId ?? null) : (createdVideoId ?? activeVideoId ?? null);
+  const { data: dockedVideo } = useQuery({
+    queryKey: ["video", resultCardsVideoId],
+    queryFn: () => getVideo(resultCardsVideoId!),
+    enabled: !!resultCardsVideoId,
+  });
+  const dockProgress = usePipelineSSE({
+    enabled: !!resultCardsVideoId,
+    videoId: resultCardsVideoId ?? undefined,
+    onStageChange: () => {
+      if (resultCardsVideoId) invalidateResultCards(queryClient, resultCardsVideoId);
+    },
+    onTaskProgress: (event) => {
+      if (resultCardsVideoId && event.status !== "running") {
+        invalidateResultCards(queryClient, resultCardsVideoId);
+      }
+    },
+  });
   const [picks, setPicks] = useState<Record<string, string | string[]>>({});
   const [checking, setChecking] = useState(true); // first-load onboarding-status / hydrate
   const [suggested, setSuggested] = useState<SuggestedModels | null>(null); // "worth modeling" (home)
@@ -478,6 +503,37 @@ export function ChatCore({
         if (note) setMessages((m) => [...m, { role: "assistant", text: note }]);
         await turn({ message: initialMessage }, initialMessage);
         setChecking(false);
+      })();
+      return;
+    }
+
+    // Director surface, an EXISTING video (no initialMessage — this is a
+    // reopen, not a fresh pitch): the home's "Recent videos" row, or a page
+    // reload while a video is open, both mount ChatCore with `activeVideoId`
+    // already set. Bug found in review (2026-07-27): with no branch for
+    // this case, execution fell through to the tenant-level `savedCid`
+    // check below (or the plain welcome) — showing either an unrelated
+    // GLOBAL conversation or the "What should we make?" hero INSIDE a
+    // specific video's room, and because `started` gates the whole
+    // conversation layout (activeZone, holding the pipeline map + result
+    // cards), NOTHING about this video's progress ever rendered here.
+    // Mirrors the dock's own per-video hydrate effect below, just for the
+    // undocked column.
+    if (activeVideoId) {
+      (async () => {
+        try {
+          const data = await getChatConversation(activeVideoId);
+          if (data.conversation_id) setConversationId(data.conversation_id);
+          if (data.messages?.length) {
+            setMessages(data.messages.map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
+          }
+        } catch {
+          // No conversation yet for this video — fine, the room still shows
+          // its live progress + result cards (see the `started` render gate
+          // below); the next message just starts one.
+        } finally {
+          setChecking(false);
+        }
       })();
       return;
     }
@@ -722,6 +778,28 @@ export function ChatCore({
       {!docked && createdVideoId && (
         <CreatedCard videoId={createdVideoId} />
       )}
+      {/* Director surface fix (2026-07-27 review): this used to be gated on
+          `createdVideoId` alone, which is ONLY ever set by a turn that
+          creates/confirms a video IN THIS mounted conversation. Opening an
+          EXISTING video's Director chat (the home's "Recent videos" row, or
+          just reloading the page) mounts ChatCore with `activeVideoId`
+          already set and `createdVideoId` still null — so the live
+          pipeline map and every result card silently never appeared there.
+          `resultCardsVideoId` (declared above, alongside dockedVideo/
+          dockProgress) covers both cases. */}
+      {!docked && resultCardsVideoId && (
+        <>
+          <ChatPipelineMap
+            video={dockedVideo}
+            stageChange={dockProgress.lastStageChange}
+            taskProgress={dockProgress.lastTaskProgress}
+            connected={dockProgress.isConnected}
+          />
+          <ScriptResultCard videoId={resultCardsVideoId} />
+          <CastLocationsCard videoId={resultCardsVideoId} />
+          <StoryboardGridCard videoId={resultCardsVideoId} />
+        </>
+      )}
     </>
   );
 
@@ -753,6 +831,17 @@ export function ChatCore({
           {!started && (
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
           )}
+          {/* Results land in the chat (bug (b)) — script/cast/storyboards
+              render right here as they're ready, never gated behind a trip
+              to /pipeline/{videoId}. Each card is self-gating (null with no
+              data), so it's safe to always mount. */}
+          {resultCardsVideoId && (
+            <>
+              <ScriptResultCard videoId={resultCardsVideoId} />
+              <CastLocationsCard videoId={resultCardsVideoId} />
+              <StoryboardGridCard videoId={resultCardsVideoId} />
+            </>
+          )}
           <MessageThread messages={messages} />
           {sending && <Thinking />}
           {activeZone}
@@ -776,7 +865,15 @@ export function ChatCore({
   }
 
   // --- HOME welcome screen (no conversation yet) ---
-  if (!started) {
+  // `&& !activeVideoId` (2026-07-27 review fix): the big "What should we
+  // make?" hero is for the tenant-level home (no video open). The Director
+  // surface's room ALSO mounts this undocked flavor, but scoped to a real,
+  // already-selected video (`activeVideoId`) — showing the generic hero
+  // there, instead of that video's live pipeline map + result cards, was
+  // the actual bug: a video with no chat history yet (or not hydrated in
+  // time) fell through to this branch and activeZone — where the pipeline
+  // map and result cards live — never rendered at all.
+  if (!started && !activeVideoId) {
     return (
       <div className="max-w-3xl mx-auto flex flex-col items-center text-center pt-10 md:pt-20">
         <div className="w-full flex justify-end mb-2">
@@ -883,12 +980,16 @@ export function ChatCore({
     );
   }
 
-  // --- HOME conversation ---
+  // --- HOME conversation (also covers the Director surface's per-video
+  // room with no chat history yet — see the `started` gate above) ---
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-4 pb-32">
       <div className="flex justify-end -mb-1">
         <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
       </div>
+      {!started && activeVideoId && (
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
+      )}
       <MessageThread messages={messages} />
 
       {sending && <Thinking />}
@@ -2596,11 +2697,11 @@ function CreatedCard({ videoId }: { videoId: string }) {
   const progress = usePipelineSSE({
     videoId,
     onStageChange: () => {
-      queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+      invalidateResultCards(queryClient, videoId);
     },
     onTaskProgress: (e) => {
       if (e.status !== "running") {
-        queryClient.invalidateQueries({ queryKey: ["video", videoId] });
+        invalidateResultCards(queryClient, videoId);
       }
     },
   });

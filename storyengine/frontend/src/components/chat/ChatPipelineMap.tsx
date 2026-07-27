@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2, TriangleAlert, Wifi, WifiOff } from "lucide-react";
 import type {
   CustomFilmPlan,
@@ -10,6 +12,38 @@ import type {
   SSEStageChangeEvent,
   SSETaskProgressEvent,
 } from "@/hooks/use-pipeline-sse";
+
+// Ryan's testing feedback (2026-07-27): "it looks like they're stalled out
+// and I have no idea what happened." The pipeline strip below already named
+// the current step, but between backend progress messages it went visually
+// silent — nothing counted, nothing moved. This block (modeled on OpenArt's
+// "Ori has been at it for 13s" status — see Screenshot 2026-07-24 at
+// 7.46.01 AM in ~/Desktop/Open Art UI/) is ALWAYS visibly alive while a task
+// is running: a counting elapsed timer (real — Date.now() against the
+// moment we first observed taskProgress.status==="running", never a
+// fabricated estimate) plus a small rotating plain-English line. The
+// rotating line is flavor text only when there is no real backend message;
+// a real `taskProgress.message` always wins over invented copy.
+const STEP_FLAVOR: Record<string, string[]> = {
+  Research: ["Digging up the facts…", "Reading around the topic…", "Checking what's true…"],
+  Script: ["Writing the scenes…", "Finding the hook…", "Shaping the story beats…"],
+  Voice: ["Recording the narration…", "Matching tone to the story…"],
+  Characters: ["Sketching your cast…", "Giving them faces…", "Locking down how they look…"],
+  Environments: ["Building the world…", "Setting each scene's backdrop…"],
+  Storyboards: ["Blocking out each shot…", "Drawing the beats…"],
+  Pictures: ["Painting the frames…", "Rendering the final look…"],
+  Sound: ["Laying in the audio…", "Picking the right effects…"],
+  Clips: ["Bringing the stills to life…", "Animating the motion…"],
+  Thumbnail: ["Designing the cover…", "Trying a few looks…"],
+  Render: ["Stitching everything together…", "Assembling the final cut…"],
+};
+
+function fmtElapsed(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}m ${r}s` : `${r}s`;
+}
 
 const PIPELINE_STEPS = [
   { label: "Research", plan: "research" },
@@ -132,6 +166,81 @@ export function ChatPipelineMap({
   taskProgress: SSETaskProgressEvent | null;
   connected: boolean;
 }) {
+  // Real elapsed timer: starts counting the moment we OBSERVE the task
+  // actually running, never a fabricated estimate. `tick` exists only to
+  // force a re-render once a second while running so the displayed number
+  // keeps counting up (OpenArt's "Ori has been at it for 13s").
+  const taskRunning = taskProgress?.status === "running";
+  const taskFailed = taskProgress?.status === "failed";
+  const [runningSince, setRunningSince] = useState<number | null>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (taskRunning) {
+      setRunningSince((prev) => prev ?? Date.now());
+    } else {
+      setRunningSince(null);
+    }
+  }, [taskRunning]);
+  useEffect(() => {
+    if (!taskRunning) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [taskRunning]);
+  const elapsedSeconds = runningSince ? (Date.now() - runningSince) / 1000 : 0;
+
+  // Real per-step durations: `stageChange.duration_seconds` is the backend's
+  // own measured time for the transition (stage_transitions table) — never
+  // invented here. The step that just finished is the one that was ACTIVE
+  // going into this transition, i.e. the step at pipelineIndex(from_status).
+  // Accumulates across every stage_change observed this session; a step
+  // completed before this panel mounted (or in an earlier session) simply
+  // has no caption — honest silence instead of a guessed number.
+  const [stepDurations, setStepDurations] = useState<Record<string, number>>({});
+  const lastProcessedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!stageChange || stageChange.duration_seconds == null) return;
+    const key = `${stageChange.created_at}|${stageChange.from_status}|${stageChange.to_status}`;
+    if (lastProcessedKeyRef.current === key) return;
+    lastProcessedKeyRef.current = key;
+    const completedIdx = pipelineIndex(stageChange.from_status);
+    const completedStep = PIPELINE_STEPS[completedIdx];
+    if (completedStep) {
+      const duration = stageChange.duration_seconds;
+      setStepDurations((d) => ({ ...d, [completedStep.label]: duration }));
+    }
+  }, [stageChange]);
+
+  // Everything below is a plain (non-hook) derivation, safe to compute even
+  // when `video` is undefined (guarded with `video?.` / `?? []`) — this lets
+  // ALL hooks above stay unconditional (same order every render) while the
+  // "loading" early return still happens, just further down, after hooks.
+  const plan = video?.pipeline_stages;
+  const visible = PIPELINE_STEPS.filter((step) => !plan || plan.includes(step.plan));
+  const rawIndex = pipelineIndex(stageChange?.current_status || video?.status);
+  const doneAll = rawIndex >= PIPELINE_STEPS.length;
+  const activeVisibleIndex = visible.reduce((activeIndex, step, index) => {
+    const originalIndex = PIPELINE_STEPS.findIndex((candidate) => candidate.label === step.label);
+    return originalIndex <= rawIndex ? index : activeIndex;
+  }, 0);
+  const activeLabel = !doneAll ? visible[activeVisibleIndex]?.label ?? null : null;
+
+  // Rotating plain-English flavor line for the active step — text-only
+  // "we're cooking" copy, never a time claim. Resets to the first phrase
+  // whenever the active step changes so it never rotates into a phrase for
+  // the WRONG step.
+  const [flavorIdx, setFlavorIdx] = useState(0);
+  useEffect(() => {
+    setFlavorIdx(0);
+  }, [activeLabel]);
+  useEffect(() => {
+    if (!taskRunning) return;
+    const id = setInterval(() => setFlavorIdx((i) => i + 1), 4000);
+    return () => clearInterval(id);
+  }, [taskRunning, activeLabel]);
+  const flavorOptions = (activeLabel && STEP_FLAVOR[activeLabel]) || ["Working on it…"];
+  const flavorText = flavorOptions[flavorIdx % flavorOptions.length];
+  const realMessage = taskProgress?.message?.trim() || null;
+
   if (!video) {
     return (
       <div
@@ -146,16 +255,6 @@ export function ChatPipelineMap({
   const profile = video.production_style_snapshot;
   const customFilmSections = customFilmSectionViews(video.custom_film_plan);
   const isCustomFilm = Boolean(video.custom_film_plan);
-  const plan = video.pipeline_stages;
-  const visible = PIPELINE_STEPS.filter((step) => !plan || plan.includes(step.plan));
-  const rawIndex = pipelineIndex(stageChange?.current_status || video.status);
-  const doneAll = rawIndex >= PIPELINE_STEPS.length;
-  const activeVisibleIndex = visible.reduce((activeIndex, step, index) => {
-    const originalIndex = PIPELINE_STEPS.findIndex((candidate) => candidate.label === step.label);
-    return originalIndex <= rawIndex ? index : activeIndex;
-  }, 0);
-  const taskFailed = taskProgress?.status === "failed";
-  const taskRunning = taskProgress?.status === "running";
 
   return (
     <section
@@ -195,6 +294,46 @@ export function ChatPipelineMap({
           {connected ? "Live" : "Reconnecting"}
         </span>
       </div>
+
+      {/* The "it's alive" block (bug (a) — Ryan: "it looks like they're
+          stalled out"). Visible ONLY while a task is actually running, so it
+          never lingers as a stale claim once work stops. The elapsed number
+          is real (Date.now() delta); the rotating line below it is flavor
+          copy UNLESS the backend sent a real message, which always wins. */}
+      {taskRunning && (
+        <div
+          className="flex items-center gap-2.5 rounded-lg px-3 py-2.5"
+          style={{ background: "rgba(0,212,170,0.08)", border: "1px solid rgba(0,212,170,0.18)" }}
+        >
+          <span className="relative flex h-6 w-6 shrink-0 items-center justify-center">
+            <motion.span
+              className="absolute inline-flex h-full w-full rounded-full"
+              style={{ background: "var(--turquoise)" }}
+              animate={{ scale: [1, 1.7, 1], opacity: [0.55, 0, 0.55] }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <Loader2 size={14} className="relative animate-spin" style={{ color: "var(--turquoise)" }} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+              Working on {activeLabel ?? "your video"} — {fmtElapsed(elapsedSeconds)}
+            </p>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={realMessage ?? flavorText}
+                initial={{ opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                transition={{ duration: 0.25 }}
+                className="text-[10px] mt-0.5 truncate"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {realMessage ?? flavorText}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+        </div>
+      )}
 
       {isCustomFilm && (
         <div
@@ -284,6 +423,14 @@ export function ChatPipelineMap({
                   >
                     {step.label}
                   </span>
+                  {/* Real duration caption (checklist detail line, OpenArt-
+                      modeled) — only appears when we actually measured this
+                      step's transition; never a guess. */}
+                  {done && stepDurations[step.label] != null && (
+                    <span className="text-[8px] mt-0.5 leading-tight" style={{ color: "var(--text-tertiary)" }}>
+                      Done in {fmtElapsed(stepDurations[step.label])}
+                    </span>
+                  )}
                 </div>
                 {index < visible.length - 1 && (
                   <span
@@ -300,7 +447,9 @@ export function ChatPipelineMap({
         </ol>
       </div>
 
-      {taskProgress?.message && (
+      {/* Failed/completed message only — the running case now lives in the
+          "it's alive" block above (showing it twice was noise, not signal). */}
+      {taskProgress?.message && !taskRunning && (
         <div
           role={taskFailed ? "alert" : "status"}
           className="flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10px] leading-relaxed"
@@ -311,8 +460,6 @@ export function ChatPipelineMap({
         >
           {taskFailed ? (
             <TriangleAlert size={13} className="shrink-0 mt-0.5" />
-          ) : taskRunning ? (
-            <Loader2 size={13} className="animate-spin shrink-0 mt-0.5" style={{ color: "var(--turquoise)" }} />
           ) : (
             <Check size={13} className="shrink-0 mt-0.5" style={{ color: "var(--green)" }} />
           )}

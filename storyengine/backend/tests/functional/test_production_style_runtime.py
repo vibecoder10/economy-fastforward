@@ -468,7 +468,25 @@ def test_chat_progress_map_surfaces_style_and_actual_pipeline_stages():
     actions = (backend / "actions.py").read_text()
     coverage = (backend / "scripts" / "coverage_to_app.py").read_text()
 
-    assert "enabled: docked && !!videoId" in chat_core
+    # Reopening an existing video (Recent-videos tile, or a refresh) mounts
+    # ChatCore with `activeVideoId` set and no fresh `createdVideoId` — the
+    # result cards / progress map must still load. A prior version of this
+    # assertion hard-coded the OLD, buggy gate (`enabled: docked && !!videoId`),
+    # which only ever loaded data for the docked co-pilot and never for a
+    # reopened undocked video (the exact bug fixed here). Assert the current,
+    # correct gate — resultCardsVideoId's fallback chain covers dock, fresh
+    # creation, AND reopen — and pin the old gate's absence so this can't
+    # silently regress back to the pre-fix behaviour.
+    # NOTE: still a source-substring check (brittle to harmless renames), kept
+    # consistent with this test's existing style rather than introducing a
+    # one-off behavioural harness for a single line — flagged here as a known
+    # brittleness, not fixed in scope.
+    assert (
+        "const resultCardsVideoId = docked ? (videoId ?? null) : (createdVideoId ?? activeVideoId ?? null);"
+        in chat_core
+    )
+    assert "enabled: !!resultCardsVideoId" in chat_core
+    assert "enabled: docked && !!videoId" not in chat_core
     assert "production_style: productionStyleId" in chat_core
     assert "disabled={!productionStyleId}" in chat_core
     assert "production_style_snapshot" in progress_map
