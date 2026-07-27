@@ -33,7 +33,11 @@ import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
 // Chat is the primary surface; Dashboard is now secondary. Everything else lives
 // under "Advanced" so the chat-first experience stays uncluttered.
 const primaryNav = [
-  { href: "/", icon: MessageSquare, label: "Chat" },
+  // `match: ["/chat"]` — an open video lives at `/chat/[videoId]` (chat-persist
+  // fix, 2026-07-27), so the plain `href === "/" ? pathname === "/" : ...`
+  // check below needs the escape hatch too, or the Chat item goes dark the
+  // moment a video is open even though it's still the same surface.
+  { href: "/", icon: MessageSquare, label: "Chat", match: ["/chat"] },
   { href: "/dashboard", icon: LayoutGrid, label: "Dashboard" },
 ];
 // API Keys, Billing, and Visual Styles now live as tabs under Profile; Learnings
@@ -93,7 +97,7 @@ export function Sidebar({
     const base = href.split("?")[0];
     const isActive =
       href === "/"
-        ? pathname === "/"
+        ? pathname === "/" || (match?.some((m) => pathname.startsWith(m)) ?? false)
         : pathname.startsWith(base) || (match?.some((m) => pathname.startsWith(m)) ?? false);
     const showBadge = href === "/review" && pendingCount > 0;
     const isLocked = PRO_PATHS.some((p) => href.startsWith(p)) && !isPlanAtLeast(user?.plan, "pro");

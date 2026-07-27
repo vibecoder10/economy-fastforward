@@ -1,4 +1,3 @@
-import { DirectorProvider } from "@/components/director/DirectorContext";
 import { DirectorSurface } from "@/components/director/DirectorSurface";
 
 export default function ChatPage() {
@@ -8,11 +7,14 @@ export default function ChatPage() {
   // `/chat` as a "full bleed" route and gives it an unpadded `flex-1 min-h-0`
   // box next to the sidebar, so this fills that box while the sidebar and
   // its Collapse control keep working.
+  //
+  // No <DirectorProvider> here (2026-07-27, chat-persist fix) — see
+  // app/page.tsx's comment. This is the video-less "home" URL that
+  // CanvasHeader's back arrow and DirectorContext's setSelectedVideoId(null)
+  // navigate to; the video-scoped counterpart is app/chat/[videoId]/page.tsx.
   return (
     <div className="h-full w-full bg-void">
-      <DirectorProvider>
-        <DirectorSurface />
-      </DirectorProvider>
+      <DirectorSurface />
     </div>
   );
 }

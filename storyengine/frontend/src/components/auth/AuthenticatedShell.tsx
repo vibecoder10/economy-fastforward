@@ -28,7 +28,16 @@ const PRO_PATHS = ["/autopilot", "/learnings", "/discovery"];
 // previous approach (`fixed inset-0` in the page itself) escaped this box by
 // covering the ENTIRE viewport, sidebar included — see git history on
 // app/page.tsx and app/chat/page.tsx for the before/after.
+//
+// Exact-match set for the two id-less routes, PLUS a prefix check below for
+// `/chat/[videoId]` (chat-persist fix, 2026-07-27) — a video's id is now part
+// of the path, so an exact-match `.includes(pathname)` alone would stop
+// matching the instant a video was open and silently fall back to the
+// padded/scrolling box (the canvas's columns need the unpadded one just as
+// much with a video open as without one).
 const FULL_BLEED_PATHS = ["/", "/chat"];
+const isFullBleedPath = (pathname: string) =>
+  FULL_BLEED_PATHS.includes(pathname) || pathname.startsWith("/chat/");
 
 function isPlanAtLeast(plan: string | undefined, required: "starter" | "pro" | "agency"): boolean {
   // "unlimited" is the comped / owner tier (mirrors backend rate_limit.py) and must
@@ -82,7 +91,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   // Check plan gating for Pro-only routes
   const isProRoute = PRO_PATHS.some((p) => pathname.startsWith(p));
   const hasAccess = !isProRoute || isPlanAtLeast(user.plan, "pro");
-  const isFullBleed = FULL_BLEED_PATHS.includes(pathname);
+  const isFullBleed = isFullBleedPath(pathname);
 
   // Authenticated — full app shell
   return (
