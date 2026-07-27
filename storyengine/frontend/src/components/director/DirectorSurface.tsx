@@ -134,27 +134,33 @@ export function DirectorSurface() {
             altitude/scene/rail state is its own future task
             (DIRECTOR-CHAT-PLAN.md line ~448), out of this chunk's scope. */}
         {/* `relative` + `transform-gpu` make this column a CSS containing
-            block, so ChatCore's `fixed bottom-0 left-0 right-0 md:left-60`
-            composer (ChatCore.tsx ~L810, undocked/home layout) resolves
-            against THIS column instead of the viewport — it would otherwise
-            span the full app width, on top of the canvas. `transform` (any
-            non-none value, `translateZ(0)` here) is what the CSS spec keys
-            the fixed-positioning containing block off of; no ChatCore change
-            needed. Second-order effect (checked, see DirectorSurface.tsx
-            history / ChatCore.tsx ChatHistoryMenu): ChatCore's only other
-            `fixed` element is `fixed inset-0 z-10` (~L1062), the click-outside
-            backdrop behind the chat-history dropdown — it now also resolves
-            against this column, so clicking the canvas/rail while that
-            dropdown is open no longer auto-closes it (clicking anywhere
-            inside the column, or picking an item, still does). Scoped,
-            low-severity, and unrelated to the composer-escape bug this fixes. */}
+            block. ChatCore's own only truly `fixed` element is the
+            `fixed inset-0 z-10` click-outside backdrop behind the
+            chat-history dropdown (ChatHistoryMenu) — it resolves against
+            THIS column instead of the viewport, so clicking the
+            canvas/rail while that dropdown is open no longer auto-closes
+            it (clicking anywhere inside the column, or picking an item,
+            still does). `transform` (any non-none value, `translateZ(0)`
+            here) is what the CSS spec keys the fixed-positioning
+            containing block off of.
+            Layout fix (2026-07-27, live bug — composer floated mid-column
+            on top of messages/progress cards): this column must NOT be the
+            scrolling element. ChatCore's undocked layout now owns its own
+            internal `flex-1 min-h-0 overflow-y-auto` scroll region, with
+            its composer pinned via `absolute bottom-0` against a
+            non-scrolling `h-full` wrapper — that wrapper only gets a
+            correct, definite height to stretch into if THIS column stops
+            scrolling itself and lets its child stretch to fill it instead
+            (flex row cross-axis stretch, already happening here). Hence
+            `overflow-hidden`, not `overflow-y-auto` — any scrolling now
+            happens strictly inside ChatCore, never at this outer level. */}
         {chatCollapsed ? (
           <CollapsedPanelStub side="left" label="Chat" onExpand={layout.expandChat} />
         ) : (
           <div
             ref={chatColumnRef}
             style={chatWidthPx != null ? { width: chatWidthPx } : undefined}
-            className={`relative flex w-full min-w-0 flex-none flex-col overflow-y-auto border-b border-edge bg-surface transform-gpu lg:border-b-0 lg:border-r ${
+            className={`relative flex w-full min-w-0 flex-none flex-col overflow-hidden border-b border-edge bg-surface transform-gpu lg:border-b-0 lg:border-r ${
               chatWidthPx != null ? "" : "lg:min-w-[380px] lg:max-w-[460px] lg:w-[38%]"
             }`}
             data-director-chat-column="true"

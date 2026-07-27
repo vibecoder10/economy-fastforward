@@ -17,6 +17,7 @@ import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertT
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { usePipelineSSE } from "@/hooks/use-pipeline-sse";
+import type { SSEStageChangeEvent, SSETaskProgressEvent } from "@/hooks/use-pipeline-sse";
 import { useStyleDescriptions, styleDescriptionIcon, styleDescriptionById } from "@/hooks/use-style-descriptions";
 import type { StyleDescription } from "@/lib/api";
 import { StylePresetGallery } from "@/components/style/StylePresetGallery";
@@ -49,6 +50,7 @@ import {
   type SuggestedModels,
   type SuggestedModelVideo,
   type ChatConversationSummary,
+  type VideoDetail,
 } from "@/lib/api";
 import { PasswordInput } from "@/components/forms";
 import { withMediaAuth } from "@/lib/utils";
@@ -328,7 +330,7 @@ export function ChatCore({
   const [attachments, setAttachments] = useState<{ id: string; filename: string; kind: string }[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
-  const dockScrollRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const autoTriedRef = useRef(false);
   // The six style-description ids (checklist §C21b) — one shared query, also
   // used by the New Video "Style description" grid (pipeline/page.tsx).
@@ -357,7 +359,7 @@ export function ChatCore({
     // at all and thought the action had no UI. Run twice (now + after layout
     // settles) so late-painting cards are still brought into view.
     const toBottom = () => {
-      const el = dockScrollRef.current;
+      const el = messagesScrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
       else endRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -776,7 +778,12 @@ export function ChatCore({
         />
       )}
       {!docked && createdVideoId && (
-        <CreatedCard videoId={createdVideoId} />
+        <CreatedCard
+          videoId={createdVideoId}
+          video={dockedVideo}
+          stageChange={dockProgress.lastStageChange}
+          taskProgress={dockProgress.lastTaskProgress}
+        />
       )}
       {/* Director surface fix (2026-07-27 review): this used to be gated on
           `createdVideoId` alone, which is ONLY ever set by a turn that
@@ -827,7 +834,7 @@ export function ChatCore({
         {/* pb-44: the confirm/prompt action cards render at the thread's end —
             with pb-28 their buttons could sit under the pinned composer overlay
             (creators saw the card label but no Do it button). */}
-        <div ref={dockScrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
+        <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
           {!started && (
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
           )}
@@ -982,24 +989,44 @@ export function ChatCore({
 
   // --- HOME conversation (also covers the Director surface's per-video
   // room with no chat history yet — see the `started` gate above) ---
+  // Bug fix (2026-07-27, reported live on the Director chat column): the
+  // composer below used to be `position: absolute; bottom: 0` inside THIS
+  // SAME element — and this element was ALSO the scrolling container (no
+  // separate scroll region existed). An absolutely-positioned descendant
+  // whose containing block is the scroll container itself is laid out
+  // relative to the container's scrollable content, not the visible
+  // viewport — so as messages/cards accumulated, "bottom: 0" pinned the
+  // composer partway UP the column, overlapping message and progress cards
+  // instead of sitting below them. Fixed the same way the DOCK branch above
+  // already does it correctly: a non-scrolling outer shell (`relative h-full
+  // flex flex-col`, the composer's containing block) wraps a SEPARATE
+  // `flex-1 min-h-0 overflow-y-auto` region that is the only thing that
+  // scrolls. `messagesScrollRef` (renamed from `dockScrollRef` — now shared
+  // by both branches, only one of which ever mounts) keeps the existing
+  // imperative "scroll to bottom" effect above working unchanged.
   return (
-    <div className="max-w-3xl mx-auto flex flex-col gap-4 pb-32">
-      <div className="flex justify-end -mb-1">
-        <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
+    <div className="relative h-full flex flex-col">
+      <div
+        ref={messagesScrollRef}
+        className="w-full max-w-3xl mx-auto flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 pb-32"
+      >
+        <div className="flex justify-end -mb-1">
+          <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
+        </div>
+        {!started && activeVideoId && (
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
+        )}
+        <MessageThread messages={messages} />
+
+        {sending && <Thinking />}
+
+        {/* Active zone: cards, plan, or created confirmation */}
+        {activeZone}
+
+        <div ref={endRef} />
       </div>
-      {!started && activeVideoId && (
-        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
-      )}
-      <MessageThread messages={messages} />
 
-      {sending && <Thinking />}
-
-      {/* Active zone: cards, plan, or created confirmation */}
-      {activeZone}
-
-      <div ref={endRef} />
-
-      {/* composer pinned at the bottom of the shell */}
+      {/* composer pinned at the bottom of the (non-scrolling) shell */}
       <div className="absolute bottom-0 left-0 right-0 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
         <div className="max-w-3xl mx-auto">
           <Composer
@@ -2688,25 +2715,34 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // --- created confirmation + live friendly progress tracker ----------------
 
-function CreatedCard({ videoId }: { videoId: string }) {
-  const queryClient = useQueryClient();
-  const { data: video } = useQuery({
-    queryKey: ["video", videoId],
-    queryFn: () => getVideo(videoId),
-  });
-  const progress = usePipelineSSE({
-    videoId,
-    onStageChange: () => {
-      invalidateResultCards(queryClient, videoId);
-    },
-    onTaskProgress: (e) => {
-      if (e.status !== "running") {
-        invalidateResultCards(queryClient, videoId);
-      }
-    },
-  });
-
-  const currentStatus = progress.lastStageChange?.current_status || video?.status;
+// Bug fix (2026-07-27, reported live: two "Standard production" progress
+// cards stacked in the chat at once — one saying "Working on Script — 7s",
+// the other "Writing the script…"). Root cause: this component used to open
+// its OWN `useQuery(["video", videoId])` + its OWN `usePipelineSSE(...)` and
+// render its OWN embedded `<ChatPipelineMap>` — a second, independently
+// ticking instance of the exact same stepper, right next to the ALREADY
+// top-level `dockedVideo`/`dockProgress` (declared once, above, keyed off
+// `resultCardsVideoId` — which equals `createdVideoId` whenever this card is
+// showing) that drives the standalone `<ChatPipelineMap>` rendered directly
+// below this card in `activeZone`. Two component instances subscribing to
+// the same SSE stream each keep their own local `runningSince`/`flavorIdx`
+// state, so they drift out of sync and show different text at the same
+// moment even though the underlying data is identical. Fix: this card only
+// ever renders the "Building your video…" header — `video`/`stageChange` are
+// now props from the SAME single source the standalone map below uses, so
+// there is exactly one stepper on screen, not two.
+function CreatedCard({
+  videoId,
+  video,
+  stageChange,
+  taskProgress,
+}: {
+  videoId: string;
+  video: VideoDetail | undefined;
+  stageChange: SSEStageChangeEvent | null;
+  taskProgress: SSETaskProgressEvent | null;
+}) {
+  const currentStatus = stageChange?.current_status || video?.status;
   const isDone = ["rendered", "uploaded", "uploaded_draft", "published", "done"].includes(
     String(currentStatus || ""),
   );
@@ -2740,14 +2776,10 @@ function CreatedCard({ videoId }: { videoId: string }) {
         </Link>
       </div>
 
-      <ChatPipelineMap
-        video={video}
-        stageChange={progress.lastStageChange}
-        taskProgress={progress.lastTaskProgress}
-        connected={progress.isConnected}
-      />
-
-      {!progress.lastTaskProgress?.message && (
+      {/* The live stepper/progress block lives ONLY in the standalone
+          `<ChatPipelineMap>` rendered right after this card (activeZone,
+          below) — not duplicated here. See fix note above. */}
+      {!taskProgress?.message && (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
           {isDone
             ? "Take a look and tell me if you want any changes."
