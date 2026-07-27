@@ -1,8 +1,12 @@
 # HANDOFF - 2026-07-26 Consolidated Director UI + Codex Custom Film into one baseline
 
+## Superseded
+
+This handoff describes the state BEFORE the D2 board/cost-dial mission and the D3 chat-fix mission. The current source of truth is the `## Active mission - D3 DIRECTOR CHAT IS THE PRODUCT` section at the top of `tasks/loop-checklist.md`.
+
 ## State
-- Prod: 28afc1f4 deployed, healthy
-- Branch: main @ 47a0d91a - clean (one intentional untracked file: storyengine/tasks/ref-dryrun-2026-07-21.txt)
+- Prod: a181a7cf deployed, healthy (deployed via `se deploy ... --with-frontend`)
+- Branch: main @ a181a7cf - clean (one intentional untracked file: storyengine/tasks/ref-dryrun-2026-07-21.txt)
 - What shipped this session:
   - Merged Codex's Custom Film Scene Control (origin/main cd7b7d80, PRs #521-523, migrations 135-138) with the Director UI branch (feat/director-chat, 22 unique commits) into one baseline on main. Two shallow conflicts (backend/main.py, tasks/deferred-verification.md), both resolved keep-both.
   - Deployed cd7b7d80 -> 28afc1f4 via `se deploy osiris-director-chat-unify --with-frontend`. Verified in a browser.
@@ -10,7 +14,7 @@
   - Codex's Scene Control verified still working post-merge: GET /api/custom-film/{video_id}/scene-control returns real data (film locks approved, synthetic:false).
   - Rescued 3 pieces of stranded work, all now pushed to origin: fix/videodetail-aspect-ratio (b3ed4857), preserve/custom-film-continuation-script (5f2a8d42, a 656-line untracked operator script), fix/youtube-granular-quota (8f103527, already remote).
   - Cleaned up: deleted 3 dead branches, removed 6 stale worktrees incl. one nested inside the tracked tree, pruned 4 dead worktree records.
-  - Test baseline re-measured: 43 failed / 3359 passed / 1 error. Pre-merge was 39/3092/1. The 4-delta is inherited from origin/main, not a regression.
+  - Test baseline re-measured: 43 failed / 3364 passed / 1 error (re-measure before trusting; a newer session reported 3370 passed). Pre-merge was 39/3092/1. The 4-delta is inherited from origin/main, not a regression.
 
 ## Next action (start here cold)
 Build Phase 2 of the Director surface (Board + Cost Dial). Plan file is /Users/ryanayler/economy-fastforward/storyengine/DIRECTOR-CHAT-PLAN.md (repo root, NOT under tasks/).

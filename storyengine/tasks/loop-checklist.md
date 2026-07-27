@@ -1,6 +1,44 @@
 # Loop checklist — Custom Film Remotion showcase layer
 
-## Active mission — D2 DIRECTOR BOARD + COST DIAL
+## Active mission — D3 DIRECTOR CHAT IS THE PRODUCT
+
+Started 2026-07-27. Baseline main @ a181a7cf (also what is deployed to prod).
+Triggered by Ryan's live test drive on prod, which found four defects at once.
+
+### Definition of Complete (Ryan's own terms)
+1. The chat column looks right: the message box sits at the bottom, nothing is hidden behind it, there is no sideways scrolling at any column width, and there is ONE progress card that updates in place instead of stacking.
+2. Refreshing the browser keeps you exactly where you were - same video, same chat history, same board - and never dumps you into the old pipeline screen.
+3. A video whose script finishes keeps moving to the next stage on its own, or says plainly in the chat why it stopped.
+4. The chat stops at each stage with a card you can approve: the script first (Edit / Looks good!), then characters and locations together, shown large and named (View / Looks good!), with a fuller side panel behind each.
+5. Typing "make him older" while a shot or character is selected changes THAT shot or character, not something random.
+6. Every item above is proven by driving the real app in a browser with screenshots, with zero paid generation triggered without Ryan's explicit yes.
+
+### Chunks
+- [ ] D3-1 (S) [U][V] Chat column layout: composer pinned to the bottom, stepper contained (no horizontal page scroll at any width), progress card updates in place instead of stacking. Branch `fix/director-chat-layout`.
+- [ ] D3-2 (S) [U][B][V] Director chat survives a refresh: the selected video lives in the URL, chat history rehydrates, in-flight progress reconnects, and the user is never dropped into `/pipeline/[videoId]`. Branch `fix/director-chat-persist`.
+- [ ] D3-3 (S) [B][V] DIAGNOSIS ONLY: why the pipeline stops after the script stage and never reaches Voice. Read-only, no fix.
+- [ ] D3-3b (S) [B][V] Fix the stall, scoped by D3-3's findings. BLOCKED until D3-3 reports.
+- [ ] D3-4 (S) [B][U][V] Approval gates in the chat. Generalize `CustomFilmApprovalCard` into a reusable `approval_gate` card kind (three edits in ChatCore.tsx: the `CardKind` union, `cardKind()` dispatch, `ACTION_CARD_RENDERERS`) plus a generic backend "awaiting confirmation" slot to replace the seven bespoke `pending_*` keys. Gates: script (Edit / Looks good!), then characters + locations together (View / Looks good!) opening a large named gallery. Reference: DIRECTOR-CHAT-PLAN.md Task 5.2.
+- [ ] D3-5 (S) [U][B][V] Widen `ui_context` from `{tab, scene, index}` to carry `{altitude, scene, index, focusedAssetId, railTab, selectedEntityId}` and actually consume it on the backend so a message routes to the selected shot or character. Reference: DIRECTOR-CHAT-PLAN.md Task 5.4.
+- [ ] D3-6 (H) Documentation refresh (this chunk).
+- [ ] D3-7 (S) [V] INDEPENDENT RE-VERIFY against the Definition of Complete by a worker that never saw the build.
+
+### Verified facts carried in (recon, 2026-07-27)
+- There is NO generic "the chat is waiting on you" abstraction. `custom_film_approval` is a one-off: dispatch is a hand-written `state["mode"] == "custom_film"` + selections-key check in `routes/chat.py`, alongside three other copy-pasted special cases (`style_draft`, `quality_rules_draft`, `channel_dna_digest`). State is seven ad hoc `pending_*` keys with no shared shape. Building D3-4 means building that abstraction.
+- `DirectorContext.focusedShotId` is already SET on shot click (`SceneAltitudeView.tsx:305`) but has zero readers anywhere. Write-only dead state - it is the half-built hook D3-5 should use.
+- `ui_context.tab` is sent on every request from the pipeline dock but no backend consumer reads it. Only `.scene` and `.index` are ever read (`routes/chat.py:1439`, `:1675`, `agent_brain.py:265`).
+- Two independent `ui_context` producers exist, not one: the `ChatCore` prop in `pipeline/[videoId]/page.tsx`, and `ImagesStagePanel.tsx` calling `sendChatTurn` directly. Any consolidation must handle both.
+- `quality_rules_draft` renders as a plain radio list and silently drops its `body`, because it is missing from `cardKind()`. Pre-existing bug, filed here.
+- The OpenArt reference (33 screenshots at ~/Desktop/Open Art UI/) confirms TWO gate variants sharing one component: text gates use Edit / Looks good!, visual gates use View / Looks good!. Characters and locations are approved TOGETHER in one "Review Anchors" gate, not separately. The "Looks good!" click appears back in the transcript as a normal user bubble. Decisive screenshots: 7.48.10 AM (script card + full panel side by side), 7.59.43 AM (anchor card), 7.59.55 AM (anchor gallery), 8.00.36 AM (post-approval state).
+- The SSE feed emits only two event types, `stage_change` and `task_progress`, from a 3s polling loop. There is no per-asset event.
+
+### Rules for this mission
+- No paid generation without Ryan's explicit yes, local or prod. Writing `assets.model_override` is free and is the sanctioned routing check; restore anything flipped. Delete test videos created.
+- Ryan approves every deploy separately. Check prod is quiet first - a restart kills in-flight user builds. Deploy only via `scripts/se.sh deploy <name> [--with-frontend]`.
+- Every parallel worker gets its OWN git worktree. Sessions sharing one tree have repeatedly collided on the git index.
+- Verify by looking. Screenshots or it did not happen. Synthetic events prove only that a handler works when handed exactly the events it expects.
+
+## Completed mission — D2 DIRECTOR BOARD + COST DIAL
 
 Started 2026-07-26. Worktree `.claude/worktrees/vibrant-franklin-502811`, branch `claude/vibrant-franklin-502811`. Baseline main @ 47a0d91a (unified Director UI + Codex Custom Film); prod @ 28afc1f4. Plan: `storyengine/DIRECTOR-CHAT-PLAN.md` (repo root, NOT under tasks/), Phase 2.
 
