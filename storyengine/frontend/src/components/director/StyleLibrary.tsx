@@ -133,12 +133,17 @@ function SavedStyleCard({ recipe }: { recipe: CustomFilmRecipe }) {
       </div>
       <button
         type="button"
+        disabled
+        title="Not available yet"
         // Not wired — reusing a saved recipe to start a new video is a
         // creation flow outside this chunk's scope (this path is currently
         // unreachable: recipes.length is always 0 in production today).
-        className="mt-3 self-start text-[11.5px] font-semibold text-turquoise"
+        // Visibly disabled rather than active-looking, per the "no dead
+        // buttons" rule — even though it's unreachable today, it must never
+        // render as clickable if a recipe ever IS saved.
+        className="mt-3 inline-flex w-fit items-center gap-1.5 self-start text-[11.5px] font-semibold text-faint disabled:cursor-not-allowed"
       >
-        Use this &rsaquo;
+        Use this <span className="text-[10px] uppercase tracking-wide">&middot; coming soon</span>
       </button>
     </div>
   );

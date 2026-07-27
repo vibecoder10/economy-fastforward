@@ -206,12 +206,22 @@ export function ChatCore({
   uiContext,
   onVideoCreated,
   activeVideoId,
+  initialMessage,
 }: {
   videoId?: string;
   docked?: boolean;
   uiContext?: { tab?: string; scene?: number; index?: number } | null;
   onVideoCreated?: (id: string) => void;
   activeVideoId?: string | null;
+  // A message to send as the FIRST turn, automatically, the moment this mounts
+  // with a blank thread — the DirectorHome entry box's one-sentence pitch,
+  // carried across the createVideo() -> setSelectedVideoId() hand-off so the
+  // sentence the creator already typed doesn't have to be retyped into this
+  // (freshly mounted, brand-new-conversation) ChatCore instance. Undocked
+  // only — the dock always resumes a real prior conversation instead (see
+  // the DOCK hydrate effect below), so it never has a "blank thread" moment
+  // this could apply to.
+  initialMessage?: string | null;
 }) {
   const queryClient = useQueryClient();
   const { data: dockedVideo } = useQuery({
@@ -398,6 +408,20 @@ export function ChatCore({
     if (docked) return; // the dock hydrates instead — no onboarding here
     if (autoTriedRef.current) return;
     autoTriedRef.current = true;
+
+    // DirectorHome hand-off: a brand-new video was just created (free, via
+    // createVideo()) and this mount's ONE job is to open with the creator's
+    // own sentence already sent, in the context of that video (activeVideoId
+    // feeds turn()'s video_id — see turn() above). Takes priority over the
+    // savedCid/onboarding checks below on purpose: this IS the first turn of
+    // a brand-new conversation, never a resume.
+    if (initialMessage) {
+      (async () => {
+        await turn({ message: initialMessage }, initialMessage);
+        setChecking(false);
+      })();
+      return;
+    }
 
     // Resume onboarding after an account-connect OAuth round-trip. Google sends
     // the user back to /?connected=yt|drive; we reload the stashed conversation

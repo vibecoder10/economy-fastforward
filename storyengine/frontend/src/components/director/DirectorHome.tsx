@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowUp, Loader2 } from "lucide-react";
 import {
+  createVideo,
   getProductionStyles,
   getVideos,
   type ProductionStyleId,
@@ -15,19 +17,25 @@ import { useDirector } from "./DirectorContext";
 import { StyleLibrary } from "./StyleLibrary";
 
 /**
- * Director home screen (Chunk 1.D) — the screen that did not exist before
- * this chunk. Spec of record: storyengine/tasks/director-mockup/index.html
- * `#home` (~L484-744). Every user-facing string below is copied verbatim
- * from that mockup; do not paraphrase or "clean up" the copy.
+ * Director home screen. Entry point rebuilt (see PromptEntrySection below) to
+ * match the single-prompt "front door" Ryan approved from OpenArt's Director
+ * reference (`Open Art UI/Screenshot 2026-07-24 at 7.44.41 AM.png`): one big
+ * box under a headline, right at the TOP of the page — Ryan's own correction
+ * (in chat, after the first pass of this chunk removed the sections below):
+ * "the first thing that you see is a place to type something in and then the
+ * rest of the stuff that is currently on what are we making today would fall
+ * below it." So every section that lived here before (channel cards, "Or
+ * just describe it", "Or clone a video you like", saved styles) stays on the
+ * page, in the same order, BELOW the box — none of them got deleted.
+ *
+ * None of those four sections could be wired to a real creation flow within
+ * this chunk's scope (each needs its own, separate build). Per the "no dead
+ * buttons" rule they instead render their action as a visibly disabled
+ * "Coming soon" control — never an active-looking button with no handler.
+ * "Recent videos" was already fully wired and is unchanged.
  */
 
-// ---------------------------------------------------------------------------
-// Section 1 — "Start from a channel you've built"
-// ---------------------------------------------------------------------------
-
 // The mockup's `.art` gradient placeholders (index.html `.g1`-`.g7`, ~L77-83).
-// Reused verbatim as inline gradients since these are one-off decorative
-// tiles, not reusable design-system colors.
 const ART_GRADIENTS: Record<string, string> = {
   g1: "linear-gradient(150deg,#1B2E4A,#3E5C86 55%,#8FA9C9)",
   g2: "linear-gradient(150deg,#2A1B3D,#5B3A6E 55%,#C08BB0)",
@@ -37,6 +45,237 @@ const ART_GRADIENTS: Record<string, string> = {
   g6: "linear-gradient(150deg,#2B0F19,#7A2338 55%,#D9738C)",
   g7: "linear-gradient(150deg,#151A24,#2E3646 60%,#59617A)",
 };
+
+// A visibly-disabled stand-in for an action that isn't wired to anything yet.
+// Real `disabled` (not just muted color) so it's genuinely unclickable and
+// announces as disabled to assistive tech — never an active-looking dead end.
+function ComingSoonButton({ label }: { label: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      title="Not available yet"
+      className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-[9px] border border-line-soft bg-white/[0.02] px-3 py-1.5 text-[11.5px] font-medium text-faint disabled:cursor-not-allowed"
+    >
+      {label} <span className="text-[10px] uppercase tracking-wide">&middot; coming soon</span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section 1 — the single-prompt entry box
+// ---------------------------------------------------------------------------
+
+const QUICK_STARTS = [
+  "A boy in San Francisco is sad in his room, until he presses a button and gets pulled into an adventure in Bali",
+  "A 90-second explainer on why the sky is blue, made for curious kids",
+  "A dry, funny documentary about why nobody ever fixes potholes",
+];
+
+// The one box takes THREE kinds of input (Ryan's correction): a plain
+// description, a YouTube link ("model this"), or an Instagram/TikTok link.
+// Only YouTube is actually wired end to end — `createVideo({ reference_url })`
+// -> `_run_modeling` (backend/routes/videos.py:535-545, `_parse_youtube_id`)
+// rejects anything that isn't a youtube.com/youtu.be URL with a 400. There is
+// no Instagram/TikTok modeling path anywhere in the backend today (checked:
+// no route, no parser) — so that branch must say so, not pretend to work.
+const YOUTUBE_URL_RE = /\bhttps?:\/\/(www\.)?(youtube\.com\/(watch\?[^\s]*v=|shorts\/)|youtu\.be\/)[\w-]+[^\s]*/i;
+const UNSUPPORTED_MODEL_URL_RE = /\bhttps?:\/\/(www\.)?(instagram\.com|tiktok\.com)\/[^\s]+/i;
+
+function detectModelUrl(text: string): { kind: "youtube" | "unsupported"; url: string } | null {
+  const yt = text.match(YOUTUBE_URL_RE);
+  if (yt) return { kind: "youtube", url: yt[0] };
+  const other = text.match(UNSUPPORTED_MODEL_URL_RE);
+  if (other) return { kind: "unsupported", url: other[0] };
+  return null;
+}
+
+function PromptEntrySection() {
+  const { setSelectedVideoId, setPendingInitialMessage } = useDirector();
+  const [prompt, setPrompt] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Set only for a detected YouTube link, held here UNSENT until the creator
+  // explicitly taps "Model it" — this IS this box's quote-and-confirm gate
+  // (createVideo's own reference_url path has none: backend/routes/videos.py
+  // fires the paid `_run_modeling` background task the instant the row is
+  // inserted, with no server-side confirm step of its own).
+  const [modelConfirm, setModelConfirm] = useState<{ url: string; twist: string } | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  async function send() {
+    const sentence = prompt.trim();
+    if (!sentence || submitting) return;
+    setError(null);
+
+    const detected = detectModelUrl(sentence);
+    if (detected?.kind === "unsupported") {
+      setError(
+        "Instagram and TikTok modeling isn't wired up yet — paste a YouTube link to model a video, or just describe what you want in words."
+      );
+      return;
+    }
+    if (detected?.kind === "youtube") {
+      // Hold for explicit confirmation — never auto-fires the paid call.
+      setModelConfirm({ url: detected.url, twist: sentence.replace(detected.url, "").trim() });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Free — a plain DB insert plus fail-soft housekeeping (Drive workspace,
+      // script template, locked cast). video_length_minutes is a sensible
+      // 1-minute floor default — the chat that opens next can change it, so
+      // this never blocks on a form.
+      const video = await createVideo({
+        title: sentence.length > 300 ? `${sentence.slice(0, 297)}…` : sentence,
+        writer_guidance: sentence,
+        video_length_minutes: 1,
+      });
+      // Seed the sentence as the opening chat turn, then hand off to the room —
+      // DirectorSurface mounts ChatCore for this video id and sends it (see
+      // ChatCore's initialMessage prop).
+      setPendingInitialMessage(sentence);
+      setSelectedVideoId(video.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't start that video — try again.");
+      setSubmitting(false);
+    }
+  }
+
+  async function confirmModel() {
+    if (!modelConfirm || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      // Paid path — `reference_url` set means backend/routes/videos.py kicks
+      // off `_run_modeling` (a real Claude call, ~$0.01-0.05) the moment this
+      // resolves. Only reachable by tapping "Model it" below, never by Enter
+      // in the textarea.
+      const video = await createVideo({
+        title: modelConfirm.twist,
+        reference_url: modelConfirm.url,
+        video_length_minutes: 1,
+      });
+      setPendingInitialMessage(
+        modelConfirm.twist
+          ? `Model this video: ${modelConfirm.url} — ${modelConfirm.twist}`
+          : `Model this video: ${modelConfirm.url}`
+      );
+      setSelectedVideoId(video.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't start that one — try again.");
+      setSubmitting(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  }
+
+  function useQuickStart(text: string) {
+    setPrompt(text);
+    setModelConfirm(null);
+    setError(null);
+    textareaRef.current?.focus();
+  }
+
+  return (
+    <div className="mb-11">
+      <div className="mx-auto max-w-[720px] rounded-card border border-edge bg-gradient-to-b from-turquoise/5 to-transparent bg-surface p-[18px]">
+        <label htmlFor="director-entry-prompt" className="sr-only">
+          Describe the video you want, or paste a YouTube link to model
+        </label>
+        <textarea
+          id="director-entry-prompt"
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => {
+            setPrompt(e.target.value);
+            if (modelConfirm) setModelConfirm(null);
+          }}
+          onKeyDown={handleKeyDown}
+          disabled={submitting}
+          rows={3}
+          autoFocus
+          spellCheck={false}
+          placeholder={`Describe the video you want, or paste a YouTube link to model. e.g. “${QUICK_STARTS[0]}”`}
+          className="w-full resize-none bg-transparent text-[15.5px] leading-relaxed text-ink outline-none placeholder:text-faint disabled:opacity-60"
+        />
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-[12px] text-faint">
+            Enter to send &middot; Shift+Enter for a new line
+          </span>
+          <button
+            type="button"
+            onClick={send}
+            disabled={submitting || !prompt.trim()}
+            aria-label="Send"
+            className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-full bg-gradient-to-b from-[#00E4B8] to-[#00B492] text-[#04120E] shadow-[0_2px_14px_rgba(0,212,170,0.28)] transition-[filter] hover:brightness-[1.08] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+          >
+            {submitting ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={16} />}
+          </button>
+        </div>
+      </div>
+
+      {modelConfirm && (
+        <div className="mx-auto mt-3 max-w-[720px] rounded-card border border-gold-director/25 bg-gold-director/[0.06] p-4">
+          <p className="mb-1 text-[13.5px] font-semibold text-ink">Model a new video from this link?</p>
+          <p className="mb-3 text-[12.5px] leading-relaxed text-dim">
+            I&apos;ll analyze <span className="font-medium text-turquoise">{modelConfirm.url}</span>{" "}
+            and pitch a new video modeled on it
+            {modelConfirm.twist ? <> — your twist: &ldquo;{modelConfirm.twist}&rdquo;</> : null}.
+            This step makes a real AI call (~$0.01&ndash;0.05) to read the video, unlike a plain
+            description, which is free.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={confirmModel}
+              disabled={submitting}
+              className="inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-gold-director px-3.5 text-[12.5px] font-semibold text-[#1A1200] transition-[filter] hover:brightness-[1.08] disabled:opacity-50"
+            >
+              {submitting && <Loader2 size={13} className="animate-spin" />} Model it
+            </button>
+            <button
+              type="button"
+              onClick={() => setModelConfirm(null)}
+              disabled={submitting}
+              className="inline-flex h-8 items-center rounded-[9px] border border-line-soft bg-deep px-3.5 text-[12.5px] font-medium text-dim transition-colors hover:text-ink disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <p className="mx-auto mt-2.5 max-w-[720px] text-center text-[12.5px] text-red">{error}</p>
+      )}
+
+      <div className="mx-auto mt-3.5 flex max-w-[720px] flex-wrap justify-center gap-2">
+        {QUICK_STARTS.map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => useQuickStart(q)}
+            disabled={submitting}
+            className="max-w-full truncate rounded-full border border-line-soft bg-deep px-3.5 py-1.5 text-[12.5px] text-dim transition-colors hover:border-turquoise/40 hover:text-ink disabled:opacity-50"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section 2 — "Start from a channel you've built"
+// ---------------------------------------------------------------------------
 
 // Chunk brief: "If the API's labels are the old internal names, map them to
 // the approved labels in the frontend." Verified live — GET /api/production-styles
@@ -99,13 +338,9 @@ function ChannelSection() {
       </div>
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         {CHANNEL_CARDS.map((card) => (
-          <button
+          <div
             key={card.id}
-            type="button"
-            // Not wired — starting a NEW video from a channel needs a
-            // title/creation flow that is out of this chunk's scope (this
-            // chunk only builds the home screen). Phase 2 wires this.
-            className="group flex flex-col overflow-hidden rounded-card border border-edge bg-surface text-left transition-transform duration-150 hover:-translate-y-[3px] hover:border-turquoise/40"
+            className="flex flex-col overflow-hidden rounded-card border border-edge bg-surface text-left opacity-80"
           >
             <div
               className="h-[84px] w-full"
@@ -113,12 +348,10 @@ function ChannelSection() {
             />
             <div className="flex flex-1 flex-col p-[13px_15px_15px]">
               <h3 className="mb-1 text-[14.5px] font-semibold text-ink">{card.label}</h3>
-              <p className="text-[12.5px] leading-relaxed text-dim">{card.description}</p>
-              <div className="mt-auto flex items-center gap-1.5 pt-2.5 text-[11.5px] font-semibold text-turquoise">
-                Open <span>&rsaquo;</span>
-              </div>
+              <p className="mb-2.5 text-[12.5px] leading-relaxed text-dim">{card.description}</p>
+              <ComingSoonButton label="Open" />
             </div>
-          </button>
+          </div>
         ))}
       </div>
     </div>
@@ -126,7 +359,7 @@ function ChannelSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Section 2 — "Or just describe it" (presentational only this phase)
+// Section 3 — "Or just describe it" (presentational only this phase)
 // ---------------------------------------------------------------------------
 
 function DescribeSection() {
@@ -151,13 +384,7 @@ function DescribeSection() {
             spellCheck={false}
             className="flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-faint"
           />
-          <button
-            type="button"
-            // Phase 2 wires this to the compose API. Local state only for now.
-            className="inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-gradient-to-b from-[#00E4B8] to-[#00B492] px-3.5 text-[13px] font-semibold text-[#04120E] shadow-[0_2px_14px_rgba(0,212,170,0.28)] transition-[filter] hover:brightness-[1.08]"
-          >
-            Compose style &rarr;
-          </button>
+          <ComingSoonButton label="Compose style" />
         </div>
 
         <div className="mt-5">
@@ -243,8 +470,15 @@ function Tag({ label, value }: { label: string; value: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section 3 — "Or clone a video you like" (presentational only this phase)
+// Section 4 — "Or clone a video you like" (presentational only this phase)
 // ---------------------------------------------------------------------------
+//
+// Note: the working version of "paste a link" now lives in the entry box at
+// the top of the page (YouTube modeling, gated behind its own confirm card).
+// This section stays as the fuller, multi-step walkthrough of that same idea
+// (twist text, reference images, automation) — none of which is wired to a
+// real flow yet, so its action stays a visible "Coming soon", same as the
+// other sections on this page.
 
 function CloneSection() {
   const [videoUrl, setVideoUrl] = useState("https://youtube.com/watch?v=9Xk1p2Qd7Lm");
@@ -317,12 +551,12 @@ function CloneSection() {
                   <RefThumb label="Pikachu" art="g4" />
                   <RefThumb label="Bulbasaur" art="g3" />
                   <RefThumb label="Charizard" art="g6" />
-                  <button
-                    type="button"
+                  <div
+                    aria-hidden
                     className="flex h-[52px] w-[52px] flex-none items-center justify-center rounded-[9px] border border-dashed border-white/[0.16] text-base text-faint"
                   >
                     +
-                  </button>
+                  </div>
                 </div>
                 <div className="text-[11px] leading-relaxed text-faint">
                   Drop pictures so it knows exactly which ones you mean — which character, which
@@ -354,14 +588,7 @@ function CloneSection() {
                   <div className="text-[12.5px] font-semibold text-ink">Automate this</div>
                   <div className="text-[11px] text-faint">Keep making these on a schedule</div>
                 </div>
-                <button
-                  type="button"
-                  // Not wired — cloning is an on-ramp for a NEW video, out of
-                  // this chunk's scope. Phase 2 wires this.
-                  className="inline-flex h-8 items-center gap-1.5 rounded-[9px] bg-gradient-to-b from-[#00E4B8] to-[#00B492] px-3.5 text-[13px] font-semibold text-[#04120E] shadow-[0_2px_14px_rgba(0,212,170,0.28)] transition-[filter] hover:brightness-[1.08]"
-                >
-                  Build &rarr;
-                </button>
+                <ComingSoonButton label="Build" />
               </div>
             </Step>
           </div>
@@ -396,7 +623,7 @@ function RefThumb({ label, art }: { label: string; art: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section 5 — "Recent videos"
+// Section 6 — "Recent videos"
 // ---------------------------------------------------------------------------
 
 // Chunk brief's mockup color mapping: teal done, gold building, gray draft,
@@ -520,16 +747,17 @@ export function DirectorHome() {
           </div>
         </div>
 
-        <div className="mb-11">
+        <div className="mb-9 text-center">
           <h1 className="mb-2.5 text-[34px] font-bold leading-tight tracking-tight text-ink">
             What are we making today?
           </h1>
-          <p className="max-w-[640px] text-[15px] text-dim">
-            Start from a channel you&apos;ve already built, or describe something new and let the
-            engine compose a style out of the parts it already knows.
+          <p className="mx-auto max-w-[560px] text-[15px] text-dim">
+            Describe the video, one sentence is plenty — StoryEngine will ask what it needs, then
+            show you the cost before it spends anything.
           </p>
         </div>
 
+        <PromptEntrySection />
         <ChannelSection />
         <DescribeSection />
         <CloneSection />
