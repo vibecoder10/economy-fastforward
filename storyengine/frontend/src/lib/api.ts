@@ -657,6 +657,19 @@ export const updateAssetModelOverride = (id: string, model_override: string | nu
     body: JSON.stringify({ model_override }),
   });
 
+/** Cost Dial's bulk actions ("Make all draft", "Make all cinematic", "Reset
+ * to recommended") — sets (or clears) `model_override` on every asset in a
+ * video in ONE statement, instead of firing one PATCH per shot (slow on a
+ * 150-shot video, and a partial failure halfway through would leave an
+ * invisible half-applied state). Mirrors the single-asset route's exact
+ * validation and tenant scoping (backend/routes/assets.py). `null` or `""`
+ * clears every override back to auto, same as the single-asset route. */
+export const bulkUpdateAssetModelOverride = (video_id: string, model_override: string | null) =>
+  fetchApi<{ status: string; model_override: string | null; updated: number }>(
+    "/api/assets/batch-model-override",
+    { method: "POST", body: JSON.stringify({ video_id, model_override }) },
+  );
+
 export const batchApproveAssets = (assetIds: string[], status: "approved" | "rejected") =>
   fetchApi<{ updated: number }>("/api/assets/batch-approve", {
     method: "POST",
@@ -3447,6 +3460,14 @@ export interface VideoModelInfo {
   /** $/clip at the model's cheapest tier, or null if unwired. Single price
    * source: backend shared.channel_profile.CLIP_PRICE_BY_MODEL. */
   cost_per_clip: number | null;
+  /** "draft" | "standard" | "premium" — the registry's own decision-table tag
+   * (shared.channel_profile.ModelProfile.tier), already returned by GET
+   * /api/models (routes/model_registry.py) but not previously typed here.
+   * CostDial derives "cheapest wired model" / "the premium model" from this
+   * plus cost_per_clip at runtime — the SAME two facts
+   * actions._draft_tier_model_id()/_premium_reference_price() read — instead
+   * of hardcoding a model id, so a registry change picks up automatically. */
+  tier: string;
 }
 export interface ModelsResponse {
   models: VideoModelInfo[];

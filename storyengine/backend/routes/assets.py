@@ -44,6 +44,20 @@ class ModelOverrideUpdate(BaseModel):
     model_override: Optional[str] = None
 
 
+class BatchModelOverrideUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    # Whole-video scope — the Cost Dial's bulk actions (Make all draft/
+    # cinematic, Reset to recommended) always apply to every asset in one
+    # video, never an arbitrary asset_id list, so there is exactly one WHERE
+    # clause (video_id + tenant_id) rather than a second untenant-scoped path.
+    video_id: str
+    # Same contract as the single-asset PATCH (ModelOverrideUpdate above): a
+    # wired MODEL_REGISTRY id, or None/"" to clear every override back to the
+    # router's own recommendation.
+    model_override: Optional[str] = None
+
+
 class CameraPresetUpdate(BaseModel):
     # A camera_moves.py catalog id (e.g. "crash_zoom_in"), or None/"" to
     # clear the override back to Auto — camera_selector.py's earn-the-move
@@ -170,6 +184,51 @@ async def update_model_override(
         value, asset_id, tenant_id,
     )
     return {"status": "saved", "model_override": value}
+
+
+@router.post("/batch-model-override")
+async def batch_model_override(
+    body: BatchModelOverrideUpdate, tenant_id: str = Depends(get_tenant_id)
+):
+    """Cost Dial bulk actions (Make all draft / Make all cinematic / Reset to
+    recommended) — same validation and precedence contract as PATCH
+    /{asset_id}/model-override above, applied to every asset in one video in
+    ONE UPDATE statement rather than one PATCH per shot (a 150-shot video
+    would otherwise need 150 round-trips, and a partial failure halfway
+    through would leave an invisible half-applied mix of overrides no one
+    asked for).
+
+    This is a routing-only write, identical in kind to the single-asset
+    route: it never touches `hero_shot`, `video_clip_url`, or any other
+    column, and it never generates anything. A shot that already has a clip
+    keeps that clip's real cost (`model_used`) until it's redone — this only
+    changes what the NEXT (re)animate would use."""
+    video = await fetch_one(
+        "SELECT id FROM videos WHERE id = $1 AND tenant_id = $2", body.video_id, tenant_id,
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    value = (body.model_override or "").strip() or None
+    if value is not None:
+        profile = MODEL_REGISTRY.get(value)
+        if not profile or not profile.wired:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{value}' isn't an available clip model — pick one from the wired list.",
+            )
+
+    result = await execute(
+        "UPDATE assets SET model_override = $1, updated_at = now() WHERE video_id = $2 AND tenant_id = $3",
+        value, body.video_id, tenant_id,
+    )
+    # asyncpg's execute() returns a "UPDATE N" tag string — parse N so the
+    # caller can show "updated 142 shots" without a second COUNT query.
+    try:
+        updated = int(str(result).split()[-1])
+    except (ValueError, IndexError):
+        updated = 0
+    return {"status": "saved", "model_override": value, "updated": updated}
 
 
 @router.patch("/{asset_id}/camera-preset")

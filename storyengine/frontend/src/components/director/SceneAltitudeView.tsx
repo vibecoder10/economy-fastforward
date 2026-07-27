@@ -18,6 +18,7 @@ import { ShotCard } from "@/components/canvas-shared/ShotCard";
 import { ModelOverrideSheet } from "@/components/canvas-shared/ModelOverrideSheet";
 import { SaveStyleModal } from "./SaveStyleModal";
 import { CanvasEmptyState } from "./CanvasEmptyState";
+import { CostDial } from "./CostDial";
 import { useDirector } from "./DirectorContext";
 
 /** Network-failure safety net ONLY, same list ScenesWorkspaceTab.tsx keeps
@@ -215,6 +216,21 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
           </span>
         </div>
       </div>
+
+      {/* Cost Dial — the scaling story: all-draft / current / all-cinematic
+          totals over this video's real shots, plus the three free bulk
+          re-routing actions. Not gated behind isLoading: it renders `null`
+          internally once `allAssets` is empty (see CostDial's own guard),
+          so an empty/loading video shows nothing here rather than a
+          flash of $0.00 tiles. */}
+      <CostDial
+        videoId={videoId}
+        assets={allAssets}
+        models={modelsQuery.data?.models ?? []}
+        videoDefaultModel={videoDefaultModel}
+        priceForModel={priceForModel}
+        modelDisplayName={modelDisplayName}
+      />
 
       <div className="flex-1 overflow-y-auto px-5 pb-[60px] pt-4.5">
         {isLoading && <div className="py-10 text-center text-sm text-faint">Loading scenes…</div>}

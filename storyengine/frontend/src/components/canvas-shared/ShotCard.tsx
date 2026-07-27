@@ -11,6 +11,7 @@ import { updateImagePrompt, updateVideoPrompt, improvePrompt } from "@/lib/api";
 import type { Asset, CameraPresetInfo } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 import { describeCameraMove } from "./camera-utils";
+import { resolveEffectiveModel } from "./model-resolution";
 
 /** Short labels for the picture-model badge (asset.image_model — the model that
  * ACTUALLY drew this panel, from shared/clients/image_model_router.py). Matches
@@ -96,9 +97,9 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
   // gated on canAnimate (the clip stage being enabled at all) per the
   // wiring checklist's fail-safe rule: no meaningful clip-model data on an
   // images-only plan, so no badge instead of a misleading one.
-  const effectiveModelId = hasClip
-    ? (asset.model_used || videoDefaultModel)
-    : (asset.model_override || asset.routed_model || videoDefaultModel);
+  // Resolver lives in canvas-shared/model-resolution.ts (Cost Dial chunk) so
+  // this badge and CostDial's totals can never disagree.
+  const effectiveModelId = resolveEffectiveModel(asset, videoDefaultModel);
   const modelOverridden = Boolean(asset.model_override);
   // C23 camera-move chip (checklist §2.2) — gated on canAnimate too, same
   // reasoning as the model badge above: an images-only plan has no clip
