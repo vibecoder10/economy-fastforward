@@ -122,6 +122,54 @@ class CritiqueResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Plain-English translation (checklist C-frontdoor2, 2026-07-27)
+#
+# The judge's `failing_gates` names the five universal gates from its own
+# system prompt (_SCRIPT_JUDGE_SYSTEM in originality.py: "HOOK SPEED",
+# "CAUSALITY", "ESCALATION", "PAYOFF", "SPECIFICITY") — internal jargon never
+# meant for a human to read (the class docstring says so: "Never surfaced to
+# the creator"). A needs_review verdict changes that: the creator now DOES
+# see why, so the internal gate key must never leak through as-is (a live
+# repro showed exactly `gates=['hook_speed', 'escalation']` reaching the
+# task-status message). This is intentionally forgiving about the judge's
+# exact casing/spelling (underscores, spaces, capitalized words) since the
+# model is free-text, not a strict enum — anything not recognized falls back
+# to a de-slugged version of whatever the judge said, never a raw crash or a
+# blank line.
+# ---------------------------------------------------------------------------
+
+_GATE_PLAIN_ENGLISH: Dict[str, str] = {
+    "hook_speed": "the opening is slow to hook the viewer",
+    "hook": "the opening is slow to hook the viewer",
+    "causality": "the beats don't connect with a clear cause and effect",
+    "but_therefore": "the beats don't connect with a clear cause and effect",
+    "but_therefore_causality": "the beats don't connect with a clear cause and effect",
+    "escalation": "the story doesn't escalate — it plateaus or sags partway through",
+    "payoff": "the opening's promise never pays off by the end",
+    "specificity": "the script leans on vague, generic language instead of concrete details",
+}
+
+
+def plain_english_violation(name: str) -> str:
+    """One violation name -> a plain-English sentence fragment a creator can
+    act on. Falls back to a de-slugged version of an unrecognized name
+    (a channel-specific rule, or the free-text rewrite_guidance fallback)
+    rather than ever showing a raw internal key or crashing."""
+    raw = (name or "").strip()
+    if not raw:
+        return ""
+    key = re.sub(r"[\s/&-]+", "_", raw.lower()).strip("_")
+    if key in _GATE_PLAIN_ENGLISH:
+        return _GATE_PLAIN_ENGLISH[key]
+    return raw.replace("_", " ").strip()
+
+
+def plain_english_violations(names: Sequence[str]) -> List[str]:
+    """Same translation, applied to a whole violations list, empties dropped."""
+    return [v for v in (plain_english_violation(n) for n in names) if v]
+
+
+# ---------------------------------------------------------------------------
 # Critic — one Claude call, universal gates + optional rules_text
 # ---------------------------------------------------------------------------
 

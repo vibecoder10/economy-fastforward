@@ -12085,6 +12085,15 @@ separate scenes."""
                     review_msg = ("Quality critic still flags issues after the edit-loop bound: "
                                   + "; ".join(violations))[:900]
                     await self._log_activity(bot_name, video_id, "failed", review_msg)
+                    # C-frontdoor2: the internal-log line above keeps the raw
+                    # gate keys (e.g. "hook_speed") for anyone reading logs -
+                    # the human-facing message translates them to plain
+                    # English (script_quality.plain_english_violations) since
+                    # this now actually reaches the creator (see ChatPipelineMap's
+                    # needs_review banner), not just a log line.
+                    import script_quality
+                    human_msg = ("The script needs another look — "
+                                 + "; ".join(script_quality.plain_english_violations(violations)))[:900]
                     # C46d: "message" (not just "violations") so the
                     # task-status/chat surface actually shows something —
                     # make_action_step's _run (actions.py) and routes/
@@ -12094,7 +12103,7 @@ separate scenes."""
                     # "error"/"message" key at all, so the poller/chat
                     # showed a bare "completed" with nothing about why.
                     return {"status": "needs_review", "video_id": video_id,
-                            "violations": violations, "message": review_msg}
+                            "violations": violations, "message": human_msg}
                 return result
 
             await self._log_activity(bot_name, video_id, "started", "Generating script")
@@ -12189,10 +12198,17 @@ separate scenes."""
                 review_msg = ("Quality critic still flags issues after the edit-loop bound: "
                               + "; ".join(violations))[:900]
                 await self._log_activity(bot_name, video_id, "failed", review_msg)
+                # C-frontdoor2: plain-English translation for the human-facing
+                # message — see the modeled-path branch above for the same
+                # fix and why (the internal log line above keeps the raw
+                # gate keys on purpose).
+                import script_quality
+                human_msg = ("The script needs another look — "
+                             + "; ".join(script_quality.plain_english_violations(violations)))[:900]
                 # C46d: see the modeled-path branch above for why "message" is
                 # attached here too (task-status/chat surfacing).
                 return {"status": "needs_review", "video_id": video_id,
-                        "violations": violations, "message": review_msg}
+                        "violations": violations, "message": human_msg}
 
             # Static documentaries are exact-figures formats: fact-check the
             # script against the research payload and re-roll once if claims

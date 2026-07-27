@@ -2331,6 +2331,13 @@ export interface TaskStatus {
   // any other endpoint returning a TaskStatus-shaped object without this
   // field still type-check — absence must always mean "no chip".
   via_agent?: string | null;
+  // C-frontdoor2: additive, same absence-safe contract as via_agent — true
+  // when this "completed" task is actually a script the quality critic
+  // rejected (needs_review), which still normalizes to status="completed"
+  // (see backend/routes/pipeline.py `_set_task_status`'s docstring for why
+  // this is a flag, not a new status value). Absent/false means an ordinary
+  // clean completion, unchanged from before this field existed.
+  needs_review?: boolean;
 }
 
 export interface StyleUpdateResponse {
@@ -3279,6 +3286,13 @@ export interface ChatTurnRequest {
   ui_context?: { tab?: string; scene?: number; index?: number } | null;
   // Files dropped into the chat this turn: chat_assets ids from uploadChatAsset.
   attachments?: string[];
+  // A caller that already KNOWS which verb this turn should run — today, only
+  // DirectorHome's "create a new video" front door, which sends "build" so
+  // the co-pilot never has to guess it from free text (see ChatCore's
+  // initialIntent / backend/routes/chat.py `_handle_copilot`'s explicit_verb).
+  // Anything the backend doesn't recognize as a real action verb is ignored
+  // and falls through to the normal classifier.
+  explicit_verb?: string | null;
 }
 export interface ChatTurnResponse {
   conversation_id: string;

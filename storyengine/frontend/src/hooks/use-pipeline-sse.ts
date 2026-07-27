@@ -26,6 +26,13 @@ export interface SSETaskProgressEvent {
   status: "idle" | "running" | "completed" | "failed";
   message: string | null;
   error: string | null;
+  // C-frontdoor2: additive — true when this "completed" task is really a
+  // script the quality critic rejected (needs_review), which still reports
+  // status="completed" on purpose (see backend `_set_task_status`'s
+  // docstring: widening this status union would break every existing
+  // poller's running->done detection). Absent/false for every event before
+  // this field existed, and for every ordinary clean completion after.
+  needs_review?: boolean;
 }
 
 export interface UsePipelineSSEOptions {

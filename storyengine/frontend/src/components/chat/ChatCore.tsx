@@ -270,6 +270,7 @@ export function ChatCore({
   onVideoCreated,
   activeVideoId,
   initialMessage,
+  initialIntent,
 }: {
   videoId?: string;
   docked?: boolean;
@@ -285,6 +286,15 @@ export function ChatCore({
   // the DOCK hydrate effect below), so it never has a "blank thread" moment
   // this could apply to.
   initialMessage?: string | null;
+  // The declared intent for `initialMessage` — "build" when the producer of
+  // that message already KNOWS it means "build the whole video" (today, only
+  // DirectorHome's plain-description box; see DirectorContext.tsx
+  // `pendingInitialIntent`). Sent to the backend as `explicit_verb`, which
+  // bypasses the co-pilot's free-text classifier for this one turn — it does
+  // NOT skip the paid-confirm-card/cost-quote step, only the guess of WHICH
+  // verb to run. `null`/undefined for every other initialMessage producer,
+  // which keeps going through the classifier exactly as before.
+  initialIntent?: "build" | null;
 }) {
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -501,7 +511,20 @@ export function ChatCore({
         // follow-up to the classifier's own reply.
         const note = await buildEntryDisclosureNote(initialMessage);
         if (note) setMessages((m) => [...m, { role: "assistant", text: note }]);
-        await turn({ message: initialMessage }, initialMessage);
+        // DirectorHome's plain-description box declares its own intent — this
+        // IS "build the whole video", not a sentence for the co-pilot's
+        // classifier to guess at (see explicit_verb's root-cause note in
+        // backend/routes/chat.py `_handle_copilot`). initialIntent is null
+        // for every other producer of initialMessage (e.g. the YouTube model
+        // confirm), so this stays a no-op for them — same classified path
+        // as before.
+        await turn(
+          {
+            message: initialMessage,
+            ...(initialIntent === "build" ? { explicit_verb: "build" } : {}),
+          },
+          initialMessage
+        );
         setChecking(false);
       })();
       return;
