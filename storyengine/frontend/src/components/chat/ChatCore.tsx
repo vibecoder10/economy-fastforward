@@ -2550,12 +2550,26 @@ function CreatedCard({ videoId }: { videoId: string }) {
   const isDone = ["rendered", "uploaded", "uploaded_draft", "published", "done"].includes(
     String(currentStatus || ""),
   );
+  // "idea_logged" is the video's pre-work status (routes/videos.py::create_video
+  // sets it before anything has run) — this card renders as soon as a video id
+  // durably exists on this thread (phase==="created" on EVERY co-pilot reply
+  // once a conversation is bound to a video, not just the turn that actually
+  // started work), so "Building your video…" was claiming work was underway
+  // when the creator hadn't tapped a single confirm card yet. Ryan flagged
+  // this as exactly the kind of copy that reads as spend-has-started when it
+  // hasn't (2026-07-27). Distinguish "nothing has run yet" from "something is
+  // actually in progress" instead of collapsing both into one claim.
+  const notStarted = String(currentStatus || "") === "idea_logged";
 
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
       <div className="flex items-center justify-between gap-4">
         <div className="font-display font-bold text-base" style={{ color: "var(--text-primary)" }}>
-          {isDone ? "Your video is ready to review 🎬" : "Building your video…"}
+          {isDone
+            ? "Your video is ready to review 🎬"
+            : notStarted
+              ? "Video started — nothing's running yet"
+              : "Building your video…"}
         </div>
         <Link
           href={`/pipeline/${videoId}`}

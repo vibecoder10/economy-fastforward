@@ -90,6 +90,70 @@ function detectModelUrl(text: string): { kind: "youtube" | "unsupported"; url: s
   return null;
 }
 
+// Ryan's own example of this box: "make me a five minute video about a boy
+// who found a dragon" — the length is typed IN the sentence, in words, not
+// digits. Traced live (2026-07-27): the seeded message is sent through the
+// existing co-pilot classifier (backend/routes/chat.py `_handle_copilot`),
+// not the producer-pitch flow that owns the length slider — and that
+// classifier's "build" verb (the one "make me a video about X" naturally
+// matches — its own prompt lists "make the video"/"make it" as build
+// triggers) NEVER reads the length it extracts; only "script" applies it,
+// and only after the creator taps the confirm card (actions.py
+// apply_followup_edit:240-256). So a typed length was being silently
+// dropped in the realistic case — the row would just sit at whatever
+// createVideo() set. Fixed at the actual point of creation instead: parse
+// it here, clamp to the engine's real 1-30 minute range, and pass it
+// straight to createVideo(). A regex + a plain word->number lookup, not a
+// classifier — good enough for "N minutes"/"N min" and one..thirty spelled
+// out (including "twenty-five" style compounds); anything it can't read
+// falls back to the existing 1-minute default.
+const LENGTH_FLOOR_MINUTES = 1;
+const LENGTH_CEILING_MINUTES = 30;
+
+const ONES = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+const TEENS = [
+  "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+  "sixteen", "seventeen", "eighteen", "nineteen",
+];
+const NUMBER_WORDS: Record<string, number> = {};
+ONES.forEach((w, i) => (NUMBER_WORDS[w] = i + 1));
+TEENS.forEach((w, i) => (NUMBER_WORDS[w] = i + 10));
+NUMBER_WORDS.twenty = 20;
+NUMBER_WORDS.thirty = 30;
+ONES.forEach((w, i) => {
+  NUMBER_WORDS[`twenty-${w}`] = 20 + i + 1;
+  NUMBER_WORDS[`twenty ${w}`] = 20 + i + 1;
+});
+
+const NUMBER_WORD_ALTERNATION = Object.keys(NUMBER_WORDS)
+  .sort((a, b) => b.length - a.length) // "twenty-five" before "five"
+  .map((w) => w.replace(/[- ]/g, "[- ]"))
+  .join("|");
+const DIGIT_LENGTH_RE = /\b(\d{1,2})\s*[- ]?\s*(minutes?|mins?)\b/i;
+const WORD_LENGTH_RE = new RegExp(
+  `\\b(${NUMBER_WORD_ALTERNATION})\\s*[- ]?\\s*(minutes?|mins?)\\b`,
+  "i"
+);
+
+function clampLength(n: number): number {
+  return Math.max(LENGTH_FLOOR_MINUTES, Math.min(LENGTH_CEILING_MINUTES, Math.round(n)));
+}
+
+function parseLengthMinutes(text: string): number | null {
+  const digit = text.match(DIGIT_LENGTH_RE);
+  if (digit) {
+    const n = parseInt(digit[1], 10);
+    if (!Number.isNaN(n)) return clampLength(n);
+  }
+  const word = text.match(WORD_LENGTH_RE);
+  if (word) {
+    const key = word[1].toLowerCase().replace(/\s+/g, " ").trim();
+    const val = NUMBER_WORDS[key] ?? NUMBER_WORDS[key.replace(/ /g, "-")];
+    if (val != null) return clampLength(val);
+  }
+  return null;
+}
+
 function PromptEntrySection() {
   const { setSelectedVideoId, setPendingInitialMessage } = useDirector();
   const [prompt, setPrompt] = useState("");
@@ -124,13 +188,16 @@ function PromptEntrySection() {
     setSubmitting(true);
     try {
       // Free — a plain DB insert plus fail-soft housekeeping (Drive workspace,
-      // script template, locked cast). video_length_minutes is a sensible
-      // 1-minute floor default — the chat that opens next can change it, so
-      // this never blocks on a form.
+      // script template, locked cast). video_length_minutes: a length typed
+      // IN the sentence ("a five minute video…") sticks right here, at
+      // creation — see parseLengthMinutes's comment for why this can't be
+      // left to the chat that opens next. No length mentioned -> the same
+      // 1-minute floor default as before, so this still never blocks on a
+      // form.
       const video = await createVideo({
         title: sentence.length > 300 ? `${sentence.slice(0, 297)}…` : sentence,
         writer_guidance: sentence,
-        video_length_minutes: 1,
+        video_length_minutes: parseLengthMinutes(sentence) ?? LENGTH_FLOOR_MINUTES,
       });
       // Seed the sentence as the opening chat turn, then hand off to the room —
       // DirectorSurface mounts ChatCore for this video id and sends it (see
@@ -155,7 +222,7 @@ function PromptEntrySection() {
       const video = await createVideo({
         title: modelConfirm.twist,
         reference_url: modelConfirm.url,
-        video_length_minutes: 1,
+        video_length_minutes: parseLengthMinutes(modelConfirm.twist) ?? LENGTH_FLOOR_MINUTES,
       });
       setPendingInitialMessage(
         modelConfirm.twist
