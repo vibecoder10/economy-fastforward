@@ -34,11 +34,26 @@ import { StyleLibrary } from "./StyleLibrary";
  * just describe it", "Or clone a video you like", saved styles) stays on the
  * page, in the same order, BELOW the box — none of them got deleted.
  *
- * None of those four sections could be wired to a real creation flow within
- * this chunk's scope (each needs its own, separate build). Per the "no dead
+ * None of those sections could be wired to a real creation flow within this
+ * chunk's scope (each needs its own, separate build). Per the "no dead
  * buttons" rule they instead render their action as a visibly disabled
  * "Coming soon" control — never an active-looking button with no handler.
  * "Recent videos" was already fully wired and is unchanged.
+ *
+ * "Or clone a video you like" REMOVED (2026-07-27, honesty pass): a QA pass
+ * driving the live app flagged it as a full static mockup — a fake YouTube
+ * URL, fake "what we found" analysis tags, and fake reference images
+ * (Pikachu/Bulbasaur/Charizard) with only a small "coming soon" tag as the
+ * tell. That reads as a working demo, not an unbuilt section — exactly the
+ * "customer could be misled" failure mode this pass exists to remove, and
+ * unlike the other three sections it isn't a single disabled button, it's a
+ * whole fabricated result screen. It's also fully redundant: the real,
+ * working version of "paste a link to model a video" already lives in the
+ * entry box at the top of this page (YouTube modeling, gated behind its own
+ * confirm-and-cost card — see PromptEntrySection above). Removing it outright
+ * was the safer call over re-labeling, since there's no real content behind
+ * it to label honestly and the working equivalent is already on this same
+ * screen.
  */
 
 // The mockup's `.art` gradient placeholders (index.html `.g1`-`.g7`, ~L77-83).
@@ -371,7 +386,7 @@ function ChannelSection() {
   });
 
   return (
-    <div className="mb-11">
+    <div id="channel-looks" className="mb-11 scroll-mt-6">
       <div className="mb-3.5 flex items-baseline justify-between">
         <h2 className="text-base font-semibold tracking-tight text-ink">
           Start from a channel you&apos;ve built
@@ -514,159 +529,6 @@ function Tag({ label, value }: { label: string; value: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Section 4 — "Or clone a video you like" (presentational only this phase)
-// ---------------------------------------------------------------------------
-//
-// Note: the working version of "paste a link" now lives in the entry box at
-// the top of the page (YouTube modeling, gated behind its own confirm card).
-// This section stays as the fuller, multi-step walkthrough of that same idea
-// (twist text, reference images, automation) — none of which is wired to a
-// real flow yet, so its action stays a visible "Coming soon", same as the
-// other sections on this page.
-
-function CloneSection() {
-  const [videoUrl, setVideoUrl] = useState("https://youtube.com/watch?v=9Xk1p2Qd7Lm");
-  const [twist, setTwist] = useState("Same energy, but do it with Pokemon.");
-  const [automate, setAutomate] = useState(false);
-
-  return (
-    <div className="mb-11">
-      <div className="mb-3.5 flex items-baseline justify-between">
-        <h2 className="text-base font-semibold tracking-tight text-ink">
-          Or clone a video you like
-        </h2>
-        <span className="text-[12.5px] text-faint">Drop one in, tell it your twist, let it run</span>
-      </div>
-      <div className="rounded-card border border-edge bg-gradient-to-b from-turquoise/5 to-transparent bg-surface p-[22px]">
-        <div className="grid grid-cols-1 items-start gap-3.5 md:grid-cols-2">
-          <div>
-            <Step n={1}>
-              <div className="mb-1.5 text-[12.5px] font-semibold text-ink">Paste a video link</div>
-              <div className="flex items-center gap-2.5 rounded-[10px] border border-line-soft bg-deep px-2.5 py-2 text-[12.5px]">
-                <span className="text-turquoise">&#128279;</span>
-                <input
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  spellCheck={false}
-                  className="flex-1 bg-transparent text-[12.5px] text-ink outline-none"
-                />
-                <span className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-line-soft bg-deep px-2.5 text-[10.5px] text-dim">
-                  <span className="h-1.5 w-1.5 rounded-full bg-turquoise" /> Read
-                </span>
-              </div>
-              <div className="mt-1.5 text-[11px] text-faint">YouTube, Instagram or TikTok</div>
-            </Step>
-
-            <Step n={2}>
-              <div className="mb-1.5 text-[12.5px] font-semibold text-ink">What we found</div>
-              <div className="rounded-[10px] border border-line-soft bg-deep p-[11px_12px]">
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  <Tag label="Built like" value="a fast hook and payoff" />
-                  <Tag label="Written like" value="punchy narration" />
-                  <Tag label="Looks like" value="photorealistic live-action" />
-                </div>
-                <div className="text-[11px] leading-relaxed text-faint">
-                  We pulled real frames from the middle of the video and described what is
-                  actually on screen — so when the footage is real people, it says{" "}
-                  <b className="font-semibold text-turquoise">live-action</b>. It never guesses
-                  &ldquo;cartoon&rdquo; at a real video.
-                </div>
-              </div>
-            </Step>
-          </div>
-
-          <div>
-            <Step n={3}>
-              <div className="mb-1.5 text-[12.5px] font-semibold text-ink">Make it yours</div>
-              <div className="flex items-center gap-2.5 rounded-[10px] border border-line-soft bg-deep px-2.5 py-2 text-[12.5px]">
-                <input
-                  value={twist}
-                  onChange={(e) => setTwist(e.target.value)}
-                  spellCheck={false}
-                  className="flex-1 bg-transparent text-[12.5px] text-ink outline-none"
-                />
-              </div>
-            </Step>
-
-            <Step n={4}>
-              <div className="mb-1.5 text-[12.5px] font-semibold text-ink">Reference images</div>
-              <div className="rounded-[11px] border border-dashed border-white/[0.14] p-[11px]">
-                <div className="mb-2 flex gap-1.5">
-                  <RefThumb label="Pikachu" art="g4" />
-                  <RefThumb label="Bulbasaur" art="g3" />
-                  <RefThumb label="Charizard" art="g6" />
-                  <div
-                    aria-hidden
-                    className="flex h-[52px] w-[52px] flex-none items-center justify-center rounded-[9px] border border-dashed border-white/[0.16] text-base text-faint"
-                  >
-                    +
-                  </div>
-                </div>
-                <div className="text-[11px] leading-relaxed text-faint">
-                  Drop pictures so it knows exactly which ones you mean — which character, which
-                  product, which person.
-                </div>
-              </div>
-            </Step>
-
-            <Step n={5}>
-              <div className="mb-1.5 text-[12.5px] font-semibold text-ink">Build it</div>
-              <div className="flex items-center gap-2.5 rounded-[11px] border border-gold-director/[0.22] bg-gold-director/[0.06] px-3 py-2.5">
-                <button
-                  type="button"
-                  aria-pressed={automate}
-                  onClick={() => setAutomate((v) => !v)}
-                  className={cn(
-                    "relative h-[19px] w-[34px] flex-none rounded-full transition-colors",
-                    automate ? "bg-gold-director/35" : "bg-white/[0.12]"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-[2px] h-[15px] w-[15px] rounded-full transition-all",
-                      automate ? "left-[17px] bg-gold-director" : "left-[2px] bg-faint"
-                    )}
-                  />
-                </button>
-                <div className="flex-1">
-                  <div className="text-[12.5px] font-semibold text-ink">Automate this</div>
-                  <div className="text-[11px] text-faint">Keep making these on a schedule</div>
-                </div>
-                <ComingSoonButton label="Build" />
-              </div>
-            </Step>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Step({ n, children }: { n: number; children: React.ReactNode }) {
-  return (
-    <div className="mb-[15px] flex gap-3">
-      <div className="mt-px flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full border border-turquoise/30 bg-turquoise/[0.12] text-[11px] font-bold text-turquoise">
-        {n}
-      </div>
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
-
-function RefThumb({ label, art }: { label: string; art: string }) {
-  return (
-    <div
-      className="relative h-[52px] w-[52px] flex-none overflow-hidden rounded-[9px] border border-line-soft"
-      style={{ background: ART_GRADIENTS[art] }}
-    >
-      <span className="absolute inset-x-0 bottom-0 bg-[rgba(5,8,13,0.8)] py-[2px] text-center text-[8px] text-[#D8DEEC]">
-        {label}
-      </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Section 6 — "Recent videos"
 // ---------------------------------------------------------------------------
 
@@ -779,9 +641,24 @@ export function DirectorHome() {
             StoryEngine
           </div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim">
-              <span className="h-1.5 w-1.5 rounded-full bg-turquoise" /> 4 looks ready
-            </span>
+            {/* Was a plain <span> styled like the rest of this row's real
+                controls (pill shape, border) with no onClick — looked
+                clickable, wasn't. Wired to what it's actually describing
+                (jump to the channel-look cards below) instead of just
+                turning off the affordance, since scrolling to real content
+                is something this can genuinely do, not a fake action. Count
+                reads off CHANNEL_CARDS.length so it can't drift from the
+                cards it's describing. */}
+            <button
+              type="button"
+              onClick={() =>
+                document.getElementById("channel-looks")?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
+              title="Jump to your ready-to-use channel looks"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim transition-colors hover:border-turquoise/40 hover:text-ink"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-turquoise" /> {CHANNEL_CARDS.length} looks ready
+            </button>
             <Link
               href="/settings"
               className="inline-flex h-8 items-center rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink transition-colors hover:border-edge hover:bg-[#1B2231]"
@@ -804,7 +681,6 @@ export function DirectorHome() {
         <PromptEntrySection />
         <ChannelSection />
         <DescribeSection />
-        <CloneSection />
         <StyleLibrary />
         <RecentSection />
       </div>
