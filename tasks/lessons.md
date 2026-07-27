@@ -620,3 +620,7 @@ Rules:
 - **The Claude in-app browser pane cannot reach the prod API at all** (`Failed to fetch` to
   `76.13.119.181:8001` even when `curl` from the same Mac returns 200). For any StoryEngine
   local walk against prod data, drive the real Chrome via `claude-in-chrome`, not the pane.
+
+## Session 2026-07-27 — git stash is shared across worktrees
+- **`git stash` is shared across ALL worktrees of a repo. It is NOT per-worktree.** When parallel workers run in separate worktrees at the same time, a stash/pop cycle on one can accidentally pull the other worker's uncommitted work into its own tree. Two separate worktrees shared one stash state; one worker stashed, worked, then popped and got the wrong contents (both tree's uncommitted state mixed). This was caught and restored, but it could have destroyed work silently.
+- **Rule for parallel workers in a shared repo: never use `git stash`.** To prove a fix (the "stash-proof"), use `git diff > /tmp/patch && git checkout -- <explicit paths>` and reapply, or better, prove it on a scratch branch or with a test that fails before and passes after. Also always commit by explicit path only (`git add <exact-path>`, never `git add -A`), to avoid colliding with another worker's staged changes or sweeping up secrets.
