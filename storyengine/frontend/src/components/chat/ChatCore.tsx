@@ -381,11 +381,23 @@ export function ChatCore({
   // --- HOME: auto-start guided setup for brand-new users; never in the dock. ---
   // Established tenants get the normal welcome and are never re-onboarded. Runs
   // once; any failure falls back to the welcome.
+  // NO `cancelled` FLAG HERE, ON PURPOSE. `autoTriedRef` already makes this body
+  // run at most once per mounted ChatCore, so there is no second in-flight run to
+  // race against, and React 18+ makes a setState on a truly unmounted component a
+  // silent no-op. The two guards TOGETHER were the bug. React Strict Mode (on by
+  // default for the App Router: next.config.ts doesn't set `reactStrictMode`, and
+  // Next then defaults `__NEXT_STRICT_MODE_APP` to true) mounts, cleans up, and
+  // remounts every component once in dev. That cleanup flipped `cancelled` for
+  // run #1, and `autoTriedRef` then made run #2 return immediately, so NOTHING
+  // ever called `setChecking(false)` and the undocked chat sat on its first-load
+  // spinner forever even though `/api/dashboard/onboarding/status` returned 200.
+  // It hit the Director chat column (DirectorSurface.tsx, the only `docked={false}`
+  // mount site) on every page load in dev. The dock's own hydrate effect below
+  // never had this: it re-runs on `[docked, videoId]` with a fresh flag each time.
   useEffect(() => {
     if (docked) return; // the dock hydrates instead — no onboarding here
     if (autoTriedRef.current) return;
     autoTriedRef.current = true;
-    let cancelled = false;
 
     // Resume onboarding after an account-connect OAuth round-trip. Google sends
     // the user back to /?connected=yt|drive; we reload the stashed conversation
@@ -397,10 +409,10 @@ export function ChatCore({
       window.history.replaceState(null, "", window.location.pathname); // don't re-resume on refresh
       const sel = connected === "yt" ? { connect_yt: "connected" } : { connect_drive: "connected" };
       (async () => {
-        if (!cancelled) await turn({ conversation_id: cid, selections: sel });
-        if (!cancelled) setChecking(false);
+        await turn({ conversation_id: cid, selections: sel });
+        setChecking(false);
       })();
-      return () => { cancelled = true; };
+      return;
     }
 
     (async () => {
@@ -411,7 +423,7 @@ export function ChatCore({
       if (savedCid) {
         try {
           const data = await getChatConversationById(savedCid);
-          if (!cancelled && data.messages?.length) {
+          if (data.messages?.length) {
             setConversationId(data.conversation_id);
             setMessages(data.messages.map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
             setCreatedVideoId(durableCreatedVideoId(data));
@@ -424,7 +436,7 @@ export function ChatCore({
         const s = await getOnboardingStatus();
         const brandNew =
           !s.completed && !s.steps?.first_video_created && !s.steps?.channel_configured;
-        if (!cancelled && brandNew) {
+        if (brandNew) {
           await turn({ start_onboarding: true }, "Help me get set up");
           return; // keep `checking` until the first turn renders (no welcome flash)
         }
@@ -433,11 +445,8 @@ export function ChatCore({
       }
       // Returning, onboarded creators get the clean welcome; a fresh modeled-idea
       // pitch is one click away via the "Suggest a video idea" button (turn({})).
-      if (!cancelled) setChecking(false);
+      setChecking(false);
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

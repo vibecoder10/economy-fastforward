@@ -590,3 +590,33 @@ hash chain, exact non-synthetic shot read models, same-origin byte-bound playbac
 stale-versus-current evidence labels. Also test adversarial boundaries that happy-path
 fixtures hide: scene-number gaps, arbitrary existing-video seeding, fractional-cent
 rounding, arbitrary transition evidence, and manifest drift.
+
+## 2026-07-27 — A once-per-mount ref plus a `cancelled` cleanup flag = a permanent spinner under Strict Mode
+
+The Director chat column (`DirectorSurface.tsx`, the only `docked={false}` mount of
+`ChatCore`) sat on its first-load spinner forever on every dev page load. It looked like a
+hung or silently-failing fetch. It was neither: `/api/dashboard/onboarding/status` returned
+200 every time. The effect that clears `checking` had TWO guards that cancel each other out:
+an `autoTriedRef` so the body runs once per component instance, and a `cancelled` closure
+flag set by the effect cleanup and checked before every `setChecking(false)`. React Strict
+Mode (ON by default for the App Router whenever `next.config.ts` omits `reactStrictMode`)
+mounts, cleans up, then remounts every component once in dev. Run #1's cleanup set
+`cancelled = true`; run #2 hit the ref and returned instantly. Nothing ever cleared the flag.
+
+Rules:
+- **A ref guard and a cleanup-cancel flag in the same effect is a bug shape.** Pick one. A
+  `cancelled` flag is for effects that RE-RUN and race (keyed on deps, like the dock's
+  `[docked, videoId]` hydrate). A once-per-instance ref means there is no second run to race,
+  so the flag can only ever suppress the single real run. React 18+ makes setState on a truly
+  unmounted component a silent no-op, so the flag buys nothing there either.
+- **Request COUNTS in the network panel identify a Strict Mode remount instantly.** Two
+  effects in the same component, one firing twice (`/api/chat/suggested-models`, no guard)
+  and one firing once (`/api/dashboard/onboarding/status`, ref-guarded), is the signature.
+  A 200 on the single-fire request rules out "the fetch never resolved" in one look.
+- **The backend CORS allowlist is `localhost:3001,3000` only** (`backend/main.py`, the
+  `ALLOWED_ORIGINS` default). A worktree dev server on any other port gets an opaque
+  `TypeError: Failed to fetch` on every API call and lands you on `/login` with no console
+  error, which reads exactly like a broken dev token. Run on 3000 or 3001, or nothing works.
+- **The Claude in-app browser pane cannot reach the prod API at all** (`Failed to fetch` to
+  `76.13.119.181:8001` even when `curl` from the same Mac returns 200). For any StoryEngine
+  local walk against prod data, drive the real Chrome via `claude-in-chrome`, not the pane.
