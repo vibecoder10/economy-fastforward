@@ -1,5 +1,5 @@
 # D3 Director Chat Surface and Spend Fixes
 
-Last done: Roughly 17 fixes merged and deployed, main at ceef025c pushed to origin, suite green at baseline (43 failed / 3461 passed / 1 error).
+Last done: Roughly 19 fixes merged and deployed, main at 23d0a47e pushed to origin, three deploys on 2026-07-27 and 2026-07-28, suite green at baseline (43 failed / 3476 passed / 1 error).
 
-Next chunk: D3-30 (one-window chat with talking gates) and D3-31 (live progress and results landing) in flight; D3-32/33/34 small bugs; D3-35/36/37 waiting on Ryan.
+Next chunk: D3-39 and D3-40 are live bugs on prod and should go first; D3-41 is the "drop in your own scenes or characters" feature Ryan asked for; D3-42 and D3-43 are verification gaps; D3-35, D3-36 and D3-37 need Ryan's decisions.

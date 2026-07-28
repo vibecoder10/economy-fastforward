@@ -2,17 +2,26 @@
 
 ## Where Things Stand
 
-Main is at `ceef025c`, pushed to origin and deployed to production via `se deploy`. Backend suite: 43 failed / 3461 passed / 1 error - the 43 are pre-existing, always compare failing test NAMES not counts to identify regressions. Roughly 17 fixes shipped on 2026-07-27 and 2026-07-28, all merged to main and deployed.
+Main is at `23d0a47e`, pushed to origin, and deployed to production. Backend suite: 43 failed / 3476 passed / 1 error - the 43 are pre-existing, always compare failing test NAMES not counts to identify regressions. Three deploys on 2026-07-27 and 2026-07-28: 865d0be5, ceef025c, 23d0a47e. Roughly 19 fixes shipped, all merged to main and deployed.
 
 ## What Shipped This Session
 
-Chat column layout is now correct - composer pinned at the bottom with no sideways scroll at any width, progress card updates in place instead of stacking (D3-1). Chat survives a refresh via a real `/chat/[videoId]` URL route, rehydrates history and progress, never drops you into the old pipeline screen (D3-2). Front door now sends `explicit_verb: "build"` so it starts a whole video instead of just a script (D3-15). Script quality rejections surface in plain English instead of silent status (D3-12). Stepper reads real per-stage state instead of faking it from coarse video status (D3-12). Voice failures actually stop the pipeline instead of billing for silence (D3-13). Dead controls look dead and the fake clone-a-video mockup is gone (D3-11). Character, environment, and five other paid paths are all metered and capped through one shared helper in actions.py (D3-16, D3-19). Storyboards no longer hidden behind a voice lock (D3-17). Chat cannot freeze silently - 16 of 129 conversations across two tenants were stuck, now fixed with 30s/90s timeouts (D3-18). Approval gates pause the build chain and ask for confirmation instead of auto-running (D3-20). Chat knows which shot or character is selected so editing applies to the right thing (D3-5 partial). Build offer card survives video creation (D3-27). Progress card stops lying about activity on videos with zero spend (D3-28). New videos open on the Scene board instead of a broken "Shot view - not designed yet" screen (D3-29).
+Chat column layout is now correct - composer pinned at the bottom with no sideways scroll at any width, progress card updates in place instead of stacking (D3-1). Chat survives a refresh via a real `/chat/[videoId]` URL route, rehydrates history and progress, never drops you into the old pipeline screen (D3-2). Front door now sends `explicit_verb: "build"` so it starts a whole video instead of just a script (D3-15). Script quality rejections surface in plain English instead of silent status (D3-12). Stepper reads real per-stage state instead of faking it from coarse video status (D3-12). Voice failures actually stop the pipeline instead of billing for silence (D3-13). Dead controls look dead and the fake clone-a-video mockup is gone (D3-11). Character, environment, and five other paid paths are all metered and capped through one shared helper in actions.py (D3-16, D3-19). Storyboards no longer hidden behind a voice lock (D3-17). Chat cannot freeze silently - 16 of 129 conversations across two tenants were stuck, now fixed with 30s/90s timeouts (D3-18). Approval gates pause the build chain and ask for confirmation instead of auto-running (D3-20). Chat knows which shot or character is selected so editing applies to the right thing (D3-5 partial). Build offer card survives video creation (D3-27). Progress card stops lying about activity on videos with zero spend (D3-28). New videos open on the Scene board instead of a broken "Shot view - not designed yet" screen (D3-29). The "Open it" escape hatch to the old pipeline UI is gone from the chat; it's one unified window with no inner scroll on the script card (D3-30). Gates ask real questions and accept typed answers; a rejected script speaks up in the chat (D3-30). Results land one by one as they complete instead of jumping from empty to all-at-once (D3-31). The production guide shows real per-item counts as a plain "2/8 done" caption (D3-31).
 
 ## The Two Rules That Matter Most
 
 1. **You drive the UI yourself and form your own verdict.** A worker saying "Pass" is an input, not a verdict. Ryan set this explicitly on 2026-07-27 after a day where he said "I havent seen you do anything tbh". Every screenshot that matters gets saved to disk and sent to you. Never skip this - synthetic events and green tests prove only that code runs, not that it works for a human.
 
 2. **No paid generation without your explicit yes.** Deploys need separate approval each time, and prod must be quiet first because a restart kills in-flight customer builds. Three workers lost user builds by deploying during peak hours. Always check the clock and the queue depth before touching the restart button.
+
+## Known Broken Right Now
+
+- D3-39: Video header shows "Untitled video" while the database has the correct title.
+- D3-40: "Loading this video's production map..." stuck permanently in chat and never resolves.
+- D3-41: Adding a NEW character or inserting a NEW scene from the chat does not exist - only editing existing ones.
+- D3-42: Free-text gate approval is UNVERIFIED on production; needs either a zero-cost gate or explicit spend approval.
+- D3-43: The rejected-script chat message is UNVERIFIED live; verify on the next rejection.
+- D3-44: Transient "Couldn't load this video" flash in the header on rapid navigation, possibly a fetch race.
 
 ## Hard-Won Gotchas a Fresh Session Must Know
 
@@ -29,6 +38,8 @@ Chat column layout is now correct - composer pinned at the bottom with no sidewa
 - **Workers repeatedly end their turn waiting on a background test run.** Tell them to block in the foreground or poll. Don't leave a session hanging on a background process.
 
 - **For hunting bugs in the SHIPPED product, use Ryan's own Chrome against prod, not a local dev server.** Local dev points at prod anyway; if it's a prod-only bug, you need to see it there.
+
+- **Do not close a bug just because a worker cannot reproduce it. Two bugs were wrongly closed today and one of them (D3-39) turned out to be real and visible on prod. Ryan sees the product more than any worker does.**
 
 ## Next Up
 
