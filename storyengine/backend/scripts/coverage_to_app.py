@@ -715,9 +715,21 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
     # on-disk cast sheet happened to be present, and used a single-view prompt, which left
     # reference_url NULL and the Characters tab empty.
     from routes.characters import _generate_portrait, _persist_portrait_url
+    from actions import budget_check, picture_price_for, video_summary
+    from generation_ledger import record_ledger_entry
     chars = await extract_characters(claude, script_text, model=claude_model)
     n = 0
     for i, ch in enumerate(chars):
+        # Money-safety fix: this content-engine cast build spent real GPT
+        # Image 2 calls with no ledger write and no cap check, same hole as
+        # the Characters tab. Checked fresh every character since spend
+        # accrues across the loop.
+        summary = await video_summary(tenant, vid)
+        breach = budget_check(summary, picture_price_for(None)) if summary else None
+        if breach:
+            print(f"  characters: stopped at {n}/{len(chars)} — would put this video at "
+                  f"${breach['projected']:.2f} against its ${breach['cap']:.2f} cap")
+            break
         row = await fetch_one(
             "INSERT INTO video_characters (tenant_id, video_id, name, description, "
             "status, source, sort) VALUES ($1,$2,$3,$4,'approved','generated',$5) RETURNING id",
@@ -725,10 +737,16 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
         char_id = str(row["id"])
         for attempt in range(3):
             try:
-                temp_url = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "", name=ch.get("name") or "")
-                ref = await _persist_portrait_url(tenant, vid, char_id, temp_url)
+                portrait = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "", name=ch.get("name") or "")
+                ref = await _persist_portrait_url(tenant, vid, char_id, portrait["url"])
                 await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
                               ref, char_id)
+                cost = picture_price_for(portrait["model"])
+                await record_ledger_entry(
+                    tenant_id=tenant, video_id=vid, stage="character_sheet",
+                    model=portrait["model"], units=1, unit_cost=cost, actual_cost=cost,
+                    kie_task_id=portrait.get("task_id"),
+                )
                 break
             except Exception as e:  # noqa: BLE001
                 print(f"  character {ch['name']} sheet attempt {attempt+1} failed: {str(e)[:120]}")

@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one
 from error_utils import humanize_error, user_facing
+from generation_ledger import record_ledger_entry
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +73,41 @@ class ImportCastRequest(BaseModel):
 async def _get_video(video_id: str, tenant_id) -> dict:
     video = await fetch_one(
         "SELECT id, video_title, script, image_style_override, original_dna, "
-        "       story_bible, characters_approved_at, project_id "
+        "       story_bible, characters_approved_at, project_id, total_cost, max_spend "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
+
+
+async def _budget_refusal(tenant_id, video_id: str, quote_cost: float) -> Optional[str]:
+    """Pre-spend cap check for character portraits (money-safety fix — this
+    stage used to spend real GPT Image 2 calls with NO ledger write and NO
+    cap check at all, so a set max_spend could never stop it). Mirrors the
+    only other place in this codebase where a paid stage refuses outright
+    instead of just quoting a warning: actions.make_autobuild_step's
+    per-iteration guard (videos.max_spend vs total_cost, "Paused — ..."
+    message). Uses the SAME canonical summary builder + classifier
+    (actions.video_summary / actions.budget_check) chat.py and mcp.py's
+    confirm-card path already uses for every OTHER paid verb — just phrased
+    as a hard stop, since this endpoint has no confirm-token override step
+    to invite. Returns a plain-English refusal message, or None if this
+    quote fits under the cap (or no cap is set)."""
+    from actions import budget_check, video_summary
+    summary = await video_summary(tenant_id, video_id)
+    if not summary:
+        return None
+    breach = budget_check(summary, quote_cost)
+    if not breach:
+        return None
+    return (
+        f"Paused — this would put you at ${breach['projected']:.2f} against this video's "
+        f"${breach['cap']:.2f} spend cap (${breach['spent']:.2f} already spent, "
+        f"${breach['quote']:.2f} for this portrait). Raise the cap in Settings, then run "
+        "this again."
+    )
 
 
 def _row_to_read(row: dict) -> CharacterRead:
@@ -151,7 +180,7 @@ Return ONLY valid JSON:
     return [c for c in cast if (c.get("name") or "").strip()]
 
 
-async def _generate_portrait(api_key: str, description: str, style_dna: str, name: str = "") -> str:
+async def _generate_portrait(api_key: str, description: str, style_dna: str, name: str = "") -> dict:
     """One character MODEL SHEET — GPT Image 2 first, nano-banana-2 fallback (GPT Image 2
     refuses kid reference sheets; see note below). A polished animation-studio
     reference sheet — TURNAROUND (5 views) + EXPRESSIONS + POSE STUDIES + a small color
@@ -160,7 +189,11 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str, nam
     share one medium (no 2D-vs-3D drift). Text-free by law (docs/SHEET-MODERATION-LAW.md
     rule 2): this sheet becomes a reference image fed into later generation calls, and
     the moderation filter reads text inside reference images, so no name, label or
-    lettering is drawn anywhere on the sheet. Returns the image URL."""
+    lettering is drawn anywhere on the sheet. Returns {'url', 'model', 'task_id'} —
+    model/task_id (money-safety fix) let the caller ledger this real spend against
+    whichever model ACTUALLY generated it (GPT Image 2 or the nano-banana-2
+    fallback), the same 'model actually used, not routed target' rule the clip
+    ledger already follows."""
     style = (style_dna or "").strip()
     art = style or "polished, colorful family-animation style"
     who = (name or "the character").strip()
@@ -192,11 +225,20 @@ async def _generate_portrait(api_key: str, description: str, style_dna: str, nam
     # reference SHEET of a child (tested 2026-06-29), so kid casts come back from the nano
     # fallback; adult / object / creature characters use GPT Image 2 (clean labels).
     from shared.clients.image_client import ImageClient
-    res = await ImageClient(api_key=api_key).generate_scene_image_gpt(prompt, None, aspect_ratio="4:3")
+    task_ids: list = []
+    res = await ImageClient(api_key=api_key).generate_scene_image_gpt(
+        prompt, None, aspect_ratio="4:3", task_id_out=task_ids)
     url = (res or {}).get("url")
     if not url:
         raise RuntimeError("Portrait generation failed")
-    return url
+    # [-1] not [0]: a content-policy retry (GPT -> nano fallback) appends a
+    # SECOND task id — [-1] is the one that actually produced this url, same
+    # convention pipeline_executor.py's clip ledger uses (task_id_box[-1]).
+    return {
+        "url": url,
+        "model": (res or {}).get("model") or "gpt-image-2",
+        "task_id": task_ids[-1] if task_ids else None,
+    }
 
 
 async def _persist_portrait_url(tenant_id, video_id: str, char_id: str, temp_url: str) -> str:
@@ -244,6 +286,12 @@ async def design_characters(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
+    from actions import picture_price_for
+    quote = picture_price_for(None)
+    refusal = await _budget_refusal(tenant_id, video_id, quote)
+    if refusal:
+        raise HTTPException(status_code=400, detail=refusal)
+
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
     if await _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
@@ -276,6 +324,19 @@ async def design_characters(
 
             done = 0
             for i, ch in enumerate(cast):
+                # Money-safety fix: re-check the cap before EVERY portrait, not just
+                # once before the batch starts — spend accrues across this loop
+                # (each ledger write below updates videos.total_cost), so a cap that
+                # covers character 1 can still stop the batch cold at character 3.
+                # Same "pause cleanly, don't spend" shape as
+                # actions.make_autobuild_step's per-iteration budget guard.
+                refusal = await _budget_refusal(tenant_id, video_id, picture_price_for(None))
+                if refusal:
+                    msg = refusal
+                    if done:
+                        msg = f"Cast designed: {done}/{len(cast)} portraits ready before the cap stopped it. " + refusal
+                    _set_task_status(video_id, "completed", msg, tenant_id=tenant_id, task_type=TASK_TYPE)
+                    return
                 _set_task_status(video_id, "running",
                                  f"Designing {ch['name']} ({i + 1}/{len(cast)})…",
                                  tenant_id=tenant_id, task_type=TASK_TYPE)
@@ -292,11 +353,23 @@ async def design_characters(
                 last_err = None
                 for attempt in range(3):
                     try:
-                        temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna, name=ch.get("name") or "")
-                        url = await _persist_portrait_url(tenant_id, video_id, char_id, temp_url)
+                        portrait = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna, name=ch.get("name") or "")
+                        url = await _persist_portrait_url(tenant_id, video_id, char_id, portrait["url"])
                         await execute(
                             "UPDATE video_characters SET reference_url = $1, updated_at = now() WHERE id = $2",
                             url, char_id,
+                        )
+                        # generation_ledger (money-safety fix): this portrait already
+                        # cost real money (GPT Image 2 or the nano-banana-2 fallback) —
+                        # write the receipt and roll videos.total_cost, the SAME single
+                        # write path (record_ledger_entry) every other metered stage
+                        # uses. Priced by the model that ACTUALLY generated it, not a
+                        # hardcoded guess (shared.channel_profile.picture_price_for).
+                        cost = picture_price_for(portrait["model"])
+                        await record_ledger_entry(
+                            tenant_id=tenant_id, video_id=video_id, stage="character_sheet",
+                            model=portrait["model"], units=1, unit_cost=cost, actual_cost=cost,
+                            kie_task_id=portrait.get("task_id"),
                         )
                         done += 1
                         last_err = None
@@ -344,6 +417,11 @@ async def regenerate_character(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
+    from actions import picture_price_for
+    refusal = await _budget_refusal(tenant_id, video_id, picture_price_for(None))
+    if refusal:
+        raise HTTPException(status_code=400, detail=refusal)
+
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
     if await _is_task_active(video_id, tenant_id, lane="characters"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
@@ -355,12 +433,18 @@ async def regenerate_character(
 
     async def _run():
         try:
-            temp_url = await _generate_portrait(api_key, char.get("description") or char["name"], style_dna, name=char.get("name") or "")
-            url = await _persist_portrait_url(tenant_id, video_id, char_id, temp_url)
+            portrait = await _generate_portrait(api_key, char.get("description") or char["name"], style_dna, name=char.get("name") or "")
+            url = await _persist_portrait_url(tenant_id, video_id, char_id, portrait["url"])
             await execute(
                 "UPDATE video_characters SET reference_url = $1, source = 'generated', "
                 "status = 'draft', updated_at = now() WHERE id = $2 AND tenant_id = $3",
                 url, char_id, tenant_id,
+            )
+            cost = picture_price_for(portrait["model"])
+            await record_ledger_entry(
+                tenant_id=tenant_id, video_id=video_id, stage="character_sheet",
+                model=portrait["model"], units=1, unit_cost=cost, actual_cost=cost,
+                kie_task_id=portrait.get("task_id"),
             )
             await execute(
                 "UPDATE videos SET characters_approved_at = NULL WHERE id = $1 AND tenant_id = $2",
