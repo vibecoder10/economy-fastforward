@@ -1,4 +1,5 @@
-# Loop handoff
+# D3 Director Chat Surface and Spend Fixes
 
-Last done: Ten fixes merged to main (D3-10 through D3-18, D3-15 through D3-18 marked), commits 858f39ed through 5c48981b, green at 43 failed / 3402 passed / 1 error. Main is releasable but NOT yet deployed.
-Next chunk: D3-19 (remaining money gaps) and D3-20 (approval gates on the autobuild chain) are in flight; D3-21 (deploy approval) and D3-22 (nginx) are waiting on Ryan; D3-23, D3-24, D3-25 unstarted; D3-7 independent re-verify still to run at the end.
+Last done: Roughly 17 fixes merged and deployed, main at ceef025c pushed to origin, suite green at baseline (43 failed / 3461 passed / 1 error).
+
+Next chunk: D3-30 (one-window chat with talking gates) and D3-31 (live progress and results landing) in flight; D3-32/33/34 small bugs; D3-35/36/37 waiting on Ryan.
