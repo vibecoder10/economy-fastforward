@@ -72,82 +72,128 @@ export function uploadHeaders(): Record<string, string> {
   };
 }
 
-export async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+// Safety-net timeouts for fetchApi — NOT a performance target, just a hard
+// ceiling so a stalled connection eventually fails instead of hanging the
+// awaiting caller (and whatever `finally` it never reaches) forever. See
+// ChatCore.tsx's `turn()`: before this, a request that never settled left
+// `sending` stuck at true permanently — the input and send button are both
+// `disabled={sending}`, so the chat looked like it was still thinking,
+// forever, with no network call for any later message (found live: 16 of
+// the last 129 chat conversations frozen in exactly this signature).
+// DEFAULT_TIMEOUT_MS covers ordinary reads/writes (dashboard, videos,
+// settings, etc.) — 30s is far more than any of those need, but generous
+// enough to never be the thing that breaks a slightly-slow-but-real request.
+export const DEFAULT_TIMEOUT_MS = 30_000;
+// CHAT_TURN_TIMEOUT_MS is longer on purpose: a real chat turn was measured
+// at 7.7s, and some turns do extra synchronous work before the backend
+// hands off to a background task (a profile edit, a Claude call inside
+// run_copilot_brain) — plus Anthropic API latency spikes are real. 90s is
+// ~12x the measured typical case, so a legitimate-but-slow turn won't get
+// cut off by the same mechanism meant to catch a truly stalled one.
+export const CHAT_TURN_TIMEOUT_MS = 90_000;
+
+export async function fetchApi<T>(
+  path: string,
+  options?: RequestInit,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+): Promise<T> {
   // Get token from localStorage, fallback to "dev-token" for development
   const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const token = storedToken || "dev-token";
   const activeTenant = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_TENANT_KEY) : null;
 
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(activeTenant ? { "X-Active-Tenant": activeTenant } : {}),
-      ...options?.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    const body = await res.text();
-    let parsedBody: any = null;
-    try {
-      parsedBody = JSON.parse(body);
-    } catch {
-      // Non-JSON errors keep the original body below.
-    }
-    // On 401 (invalid/expired token), clear auth and redirect to login
-    if (res.status === 401 && typeof window !== "undefined" && !path.includes("/api/auth/")) {
-      localStorage.removeItem("token");
-      window.location.href = "/login";
-      throw new Error("Session expired — redirecting to login");
-    }
-    // On 402 (plan limit reached), show upgrade prompt
-    if (res.status === 402 && typeof window !== "undefined") {
-      try {
-        const detail = parsedBody?.detail || parsedBody;
-        if (detail?.error === "plan_limit_reached") {
-          const goToPricing = window.confirm(
-            `${detail.message}\n\nWould you like to view upgrade options?`
-          );
-          if (goToPricing) {
-            window.location.href = detail.upgrade_url || "/pricing";
-          }
-        }
-      } catch {
-        // ignore parse errors
-      }
-      throw new Error("Plan limit reached");
-    }
-    if (parsedBody?.code === "system_draining" && typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent(DRAIN_MODE_EVENT, { detail: parsedBody.drain || { mode: "draining" } })
-      );
-    }
-    // Only report non-auth errors to RUBRIC (skip dev-token and expected auth 401s)
-    if (storedToken && storedToken !== "dev-token" && !(res.status === 401 && path.includes("/api/auth/"))) {
-      reportError(path, res.status, body, options?.method || "GET");
-    }
-    // Extract descriptive detail from JSON error responses
-    let errorMessage = `API error ${res.status}: ${body}`;
-    if (parsedBody?.message) {
-      errorMessage = parsedBody.message;
-    } else if (parsedBody?.detail) {
-      errorMessage =
-        typeof parsedBody.detail === "string"
-          ? parsedBody.detail
-          : JSON.stringify(parsedBody.detail);
-    }
-    const retryAfterHeader = Number(res.headers.get("Retry-After"));
-    throw new ApiError(errorMessage, {
-      status: res.status,
-      code: parsedBody?.code,
-      retryable: Boolean(parsedBody?.retryable),
-      retryAfter: Number.isFinite(retryAfterHeader) ? retryAfterHeader : undefined,
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      signal: options?.signal ?? controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        ...(activeTenant ? { "X-Active-Tenant": activeTenant } : {}),
+        ...options?.headers,
+      },
     });
-  }
 
-  return res.json();
+    if (!res.ok) {
+      const body = await res.text();
+      let parsedBody: any = null;
+      try {
+        parsedBody = JSON.parse(body);
+      } catch {
+        // Non-JSON errors keep the original body below.
+      }
+      // On 401 (invalid/expired token), clear auth and redirect to login
+      if (res.status === 401 && typeof window !== "undefined" && !path.includes("/api/auth/")) {
+        localStorage.removeItem("token");
+        window.location.href = "/login";
+        throw new Error("Session expired — redirecting to login");
+      }
+      // On 402 (plan limit reached), show upgrade prompt
+      if (res.status === 402 && typeof window !== "undefined") {
+        try {
+          const detail = parsedBody?.detail || parsedBody;
+          if (detail?.error === "plan_limit_reached") {
+            const goToPricing = window.confirm(
+              `${detail.message}\n\nWould you like to view upgrade options?`
+            );
+            if (goToPricing) {
+              window.location.href = detail.upgrade_url || "/pricing";
+            }
+          }
+        } catch {
+          // ignore parse errors
+        }
+        throw new Error("Plan limit reached");
+      }
+      if (parsedBody?.code === "system_draining" && typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(DRAIN_MODE_EVENT, { detail: parsedBody.drain || { mode: "draining" } })
+        );
+      }
+      // Only report non-auth errors to RUBRIC (skip dev-token and expected auth 401s)
+      if (storedToken && storedToken !== "dev-token" && !(res.status === 401 && path.includes("/api/auth/"))) {
+        reportError(path, res.status, body, options?.method || "GET");
+      }
+      // Extract descriptive detail from JSON error responses
+      let errorMessage = `API error ${res.status}: ${body}`;
+      if (parsedBody?.message) {
+        errorMessage = parsedBody.message;
+      } else if (parsedBody?.detail) {
+        errorMessage =
+          typeof parsedBody.detail === "string"
+            ? parsedBody.detail
+            : JSON.stringify(parsedBody.detail);
+      }
+      const retryAfterHeader = Number(res.headers.get("Retry-After"));
+      throw new ApiError(errorMessage, {
+        status: res.status,
+        code: parsedBody?.code,
+        retryable: Boolean(parsedBody?.retryable),
+        retryAfter: Number.isFinite(retryAfterHeader) ? retryAfterHeader : undefined,
+      });
+    }
+
+    return await res.json();
+  } catch (err) {
+    // A stalled connection (no response ever arrives, or the body never
+    // finishes streaming) rejects here as an AbortError once our timeout
+    // fires — never as an unhandled hang. Plain English, no jargon, no
+    // error codes shown to the user: this is the message that reaches the
+    // chat bubble via `e.message` in ChatCore.tsx's turn().
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("That took too long. Please try again.", {
+        status: 0,
+        code: "client_timeout",
+        retryable: true,
+      });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // Auth
@@ -2299,6 +2345,10 @@ export interface ApiKeyStatus {
 
 export interface ApiKeyList {
   keys: ApiKeyStatus[];
+  // Set when this tenant's voice narration is silently routing through
+  // Kie's TTS gateway instead of direct ElevenLabs (no ElevenLabs key
+  // configured, only a Kie key). null/absent otherwise.
+  voice_routing_note?: string | null;
 }
 
 export interface TestKeyResponse {
@@ -3322,10 +3372,14 @@ export interface ChatTurnResponse {
 }
 
 export const sendChatTurn = (body: ChatTurnRequest) =>
-  fetchApi<ChatTurnResponse>("/api/chat", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  fetchApi<ChatTurnResponse>(
+    "/api/chat",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    CHAT_TURN_TIMEOUT_MS
+  );
 
 // A file dropped into the chat: uploaded + parsed server-side, then referenced
 // by id on the next chat turn via ChatTurnRequest.attachments.

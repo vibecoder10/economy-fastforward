@@ -35,9 +35,12 @@ from pydantic import BaseModel, field_validator
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one
 from error_utils import humanize_error, user_facing
+from generation_ledger import record_ledger_entry
 
-# Reuse the character helpers that are pure / table-agnostic.
-from routes.characters import _drive_file_id, _parse_json, _persist_portrait_url
+# Reuse the character helpers that are pure / table-agnostic (_budget_refusal is
+# the SAME per-video spend-cap guard the character routes use — money-safety
+# fix, both stages share one implementation instead of a second copy).
+from routes.characters import _budget_refusal, _drive_file_id, _parse_json, _persist_portrait_url
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +104,8 @@ class EnvironmentUpdate(BaseModel):
 async def _get_video(video_id: str, tenant_id) -> dict:
     video = await fetch_one(
         "SELECT id, video_title, script, image_style_override, original_dna, "
-        "       story_bible, aspect_ratio, environments_approved_at, project_id "
+        "       story_bible, aspect_ratio, environments_approved_at, project_id, "
+        "       total_cost, max_spend "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -185,10 +189,12 @@ Return ONLY valid JSON:
     ]
 
 
-async def _generate_environment(api_key: str, description: str, style_dna: str, aspect_ratio: str = "16:9") -> str:
+async def _generate_environment(api_key: str, description: str, style_dna: str, aspect_ratio: str = "16:9") -> dict:
     """One environment reference (wide establishing shot) via Kie (same job
     pattern as the character portrait generation). Rendered at the video's
-    aspect ratio so it matches the panel frame. Returns the image URL."""
+    aspect ratio so it matches the panel frame. Returns {'url', 'model', 'task_id'}
+    — model/task_id (money-safety fix) let the caller ledger this real spend
+    against whichever model ACTUALLY generated it, same as _generate_portrait."""
     # Same two style guards the storyboard/cast/director seam (_resolve_style)
     # applies: scrub studio names (they read as IP references to the filter),
     # then make a stylized medium carry an explicit photorealism ban. Without
@@ -228,12 +234,17 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
     from shared.clients.image_client import ImageClient
     # 1K, not the client's 2K default — an env ref is a style/layout anchor,
     # not a deliverable, and 1K halves its cost (Ryan, 2026-07-21).
+    task_ids: list = []
     res = await ImageClient(api_key=api_key).generate_scene_image_gpt(
-        prompt, None, aspect_ratio=aspect_ratio or "16:9", resolution="1K")
+        prompt, None, aspect_ratio=aspect_ratio or "16:9", resolution="1K", task_id_out=task_ids)
     url = (res or {}).get("url")
     if not url:
         raise RuntimeError("Environment generation failed")
-    return url
+    return {
+        "url": url,
+        "model": (res or {}).get("model") or "gpt-image-2",
+        "task_id": task_ids[-1] if task_ids else None,
+    }
 
 
 async def _extract_env_props(env_name: str, description: str, img_url: str, creds: dict) -> list[dict]:
@@ -361,8 +372,23 @@ async def run_environments_design_step(
         video_id, tenant_id,
     )
 
+    from actions import picture_price_for
+
     done = 0
     for i, env in enumerate(envs):
+        # Money-safety fix (merged from main): re-check the cap before EVERY
+        # environment, not just once before the batch — spend accrues across
+        # this loop, same reasoning as the character-portrait loop's
+        # per-iteration guard. A cap hit here is NOT a "failed" result (the
+        # caller, e.g. the autobuild anchors checkpoint, must not treat a
+        # capped video as a hard generation error) — "completed" with
+        # whatever got done before the cap stopped it.
+        refusal = await _budget_refusal(tenant_id, video_id, picture_price_for(None))
+        if refusal:
+            msg = refusal
+            if done:
+                msg = f"Environments designed: {done}/{len(envs)} references ready before the cap stopped it. " + refusal
+            return {"status": "completed", "message": msg}
         await _progress(f"Designing {env['name']} ({i + 1}/{len(envs)})…")
         row = await fetch_one(
             "INSERT INTO video_environments (tenant_id, video_id, name, description, sort) "
@@ -375,13 +401,23 @@ async def run_environments_design_step(
         last_err = None
         for attempt in range(3):
             try:
-                temp_url = await _generate_environment(
+                ref = await _generate_environment(
                     api_key, env.get("description") or env["name"], style_dna, aspect_ratio,
                 )
-                url = await _persist_portrait_url(tenant_id, video_id, env_id, temp_url)
+                url = await _persist_portrait_url(tenant_id, video_id, env_id, ref["url"])
                 await execute(
                     "UPDATE video_environments SET reference_url = $1, updated_at = now() WHERE id = $2",
                     url, env_id,
+                )
+                # generation_ledger (money-safety fix, merged from main): this
+                # reference already cost real money — same single write path
+                # every other metered stage uses, priced by the model that
+                # actually generated it.
+                cost = picture_price_for(ref["model"])
+                await record_ledger_entry(
+                    tenant_id=tenant_id, video_id=video_id, stage="environment",
+                    model=ref["model"], units=1, unit_cost=cost, actual_cost=cost,
+                    kie_task_id=ref.get("task_id"),
                 )
                 done += 1
                 last_err = None
@@ -423,6 +459,11 @@ async def design_environments(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
+    from actions import picture_price_for
+    refusal = await _budget_refusal(tenant_id, video_id, picture_price_for(None))
+    if refusal:
+        raise HTTPException(status_code=400, detail=refusal)
+
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
     if await _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
@@ -442,6 +483,11 @@ async def design_environments(
                                  error=user_facing(result.get("error") or "Couldn't design the environments"),
                                  tenant_id=tenant_id, task_type=TASK_TYPE)
             else:
+                # "completed" covers both a full run and a budget-cap stop
+                # mid-run (run_environments_design_step's own per-iteration
+                # _budget_refusal check, merged from main) — both are
+                # "completed", never "failed", same distinction the pre-
+                # existing single-copy version of this loop made.
                 _set_task_status(video_id, "completed", result.get("message"),
                                  tenant_id=tenant_id, task_type=TASK_TYPE)
         except Exception as e:
@@ -477,6 +523,11 @@ async def regenerate_environment(
     if not api_key:
         raise HTTPException(status_code=400, detail="Add your Kie.ai API key in Settings → Keys first.")
 
+    from actions import picture_price_for
+    refusal = await _budget_refusal(tenant_id, video_id, picture_price_for(None))
+    if refusal:
+        raise HTTPException(status_code=400, detail=refusal)
+
     from routes.pipeline import _set_task_status, _clear_task_status, _is_task_active, _lane_begin, _lane_finish
     if await _is_task_active(video_id, tenant_id, lane="environments"):
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
@@ -489,14 +540,20 @@ async def regenerate_environment(
 
     async def _run():
         try:
-            temp_url = await _generate_environment(
+            ref = await _generate_environment(
                 api_key, env.get("description") or env["name"], style_dna, aspect_ratio,
             )
-            url = await _persist_portrait_url(tenant_id, video_id, env_id, temp_url)
+            url = await _persist_portrait_url(tenant_id, video_id, env_id, ref["url"])
             await execute(
                 "UPDATE video_environments SET reference_url = $1, source = 'generated', "
                 "status = 'draft', updated_at = now() WHERE id = $2 AND tenant_id = $3",
                 url, env_id, tenant_id,
+            )
+            cost = picture_price_for(ref["model"])
+            await record_ledger_entry(
+                tenant_id=tenant_id, video_id=video_id, stage="environment",
+                model=ref["model"], units=1, unit_cost=cost, actual_cost=cost,
+                kie_task_id=ref.get("task_id"),
             )
             await execute(
                 "UPDATE videos SET environments_approved_at = NULL WHERE id = $1 AND tenant_id = $2",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /**
@@ -17,6 +18,15 @@ import { X } from "lucide-react";
  * CONTRACT: this renders a bare `<img src={item.url}>` with no URL
  * transform. The caller MUST pass a URL that has already been run through
  * `toDisplayImageUrl` (see `@/lib/utils`) — this component does not do it.
+ *
+ * Portals to `document.body` (found wiring this into the chat co-pilot
+ * panel's result cards, ChatResultCards.tsx): the Director canvas layout
+ * (CanvasStage.tsx) puts a framer-motion `transform` on an ancestor of that
+ * panel, which per the CSS spec makes that ancestor the containing block for
+ * `position: fixed` descendants — without the portal this viewer rendered
+ * clipped to the narrow chat column instead of covering the screen. A portal
+ * is a no-op for ScenesWorkspaceTab.tsx's existing usage (no such ancestor
+ * there), so this is safe for both call sites.
  */
 export function BoardLightbox({ items, index, onNavigate, onClose }: {
   items: { url: string; label: string }[];
@@ -35,7 +45,7 @@ export function BoardLightbox({ items, index, onNavigate, onClose }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [index, items.length, onNavigate, onClose]);
   if (!item) return null;
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex flex-col items-center justify-center"
       style={{ background: "rgba(0,0,0,0.92)" }}
@@ -75,6 +85,7 @@ export function BoardLightbox({ items, index, onNavigate, onClose }: {
       <p className="mt-3 text-sm font-mono" style={{ color: "rgba(255,255,255,0.75)" }}>
         {item.label}{items.length > 1 ? ` · ${index + 1}/${items.length}` : ""}
       </p>
-    </div>
+    </div>,
+    document.body,
   );
 }

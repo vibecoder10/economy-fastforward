@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Check,
   Clock,
+  Info,
 } from "lucide-react";
 import { Card, Modal, Spinner, Tabs, TabPanel } from "@/components/ui";
 import { PasswordInput } from "@/components/forms";
@@ -294,7 +295,18 @@ export default function ApiKeysPage() {
               Failed to load API keys: {fetchError.message}
             </div>
           ) : (
-            renderKeys()
+            <>
+              {keysData?.voice_routing_note && (
+                <div
+                  className="flex items-start gap-2 rounded-lg p-3 text-xs"
+                  style={{ background: "var(--surface-elevated)", color: "var(--text-secondary)" }}
+                >
+                  <Info size={14} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+                  <span>{keysData.voice_routing_note}</span>
+                </div>
+              )}
+              {renderKeys()}
+            </>
           )}
         </div>
       </TabPanel>

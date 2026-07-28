@@ -360,7 +360,19 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
               // doesn't fit next to the S-XX.XXX label, it now wraps to the
               // NEXT ROW as one intact pill (flex-wrap on the parent row),
               // never mid-word.
-              className="inline-flex items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all hover:brightness-125"
+              //
+              // `max-w-full min-w-0` fixes a second, narrower-still bug found
+              // live at the canvas's 320px floor (sidebar expanded): the old
+              // markup made the model name AND price one un-splittable
+              // nowrap run, so once that run was wider than the card itself,
+              // the card's own `overflow-hidden` (GlassCard) silently clipped
+              // the tail — which is always the price, the one number this
+              // badge exists to show. Now only the model-name span is allowed
+              // to truncate (its own `min-w-0 truncate`); the price sits in a
+              // `flex-none` span after it that is never a truncation
+              // candidate, so the model name shortens first and the price
+              // never disappears.
+              className="inline-flex max-w-full min-w-0 items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-md text-[10px] font-mono font-medium transition-all hover:brightness-125"
               style={{
                 // `priceForModel` is only ever passed by the Director board
                 // (ScenesWorkspaceTab doesn't price per-card), so its presence
@@ -372,8 +384,8 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
                 color: modelOverridden ? "var(--purple)" : priceForModel ? "var(--text-secondary)" : "var(--text-tertiary)",
                 border: modelOverridden ? "1px solid rgba(139, 92, 246, 0.35)" : priceForModel ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.08)",
               }}>
-              <Film size={9} />
-              {modelDisplayName(effectiveModelId) || effectiveModelId}
+              <Film size={9} className="shrink-0" />
+              <span className="min-w-0 truncate">{modelDisplayName(effectiveModelId) || effectiveModelId}</span>
               {/* Real $/clip for the resolved model, only when the caller
                   passes priceForModel (ScenesWorkspaceTab doesn't — it
                   already prices per-action elsewhere, so it keeps its exact
@@ -381,10 +393,15 @@ export function ShotCard({ asset, speaker, perClip, picturePrice, canAnimate, is
                   as the rest of the app (docs/cost-awareness.md) — the `~`
                   labels it as approximate rather than exact. No opacity dip
                   on this span — it needs to read as clearly as the model
-                  name next to it, not fade into the background. */}
+                  name next to it, not fade into the background.
+                  `shrink-0` is the fix: this is the one part of the badge
+                  that must never be clipped or truncated (checklist ask —
+                  "the price must never be cut off, it's the whole point of
+                  the badge"), so it's excluded from the flex item that
+                  shrinks/truncates above. */}
               {priceForModel && (() => {
                 const price = priceForModel(effectiveModelId);
-                return price != null ? <span>· ~${price.toFixed(2)}</span> : null;
+                return price != null ? <span className="shrink-0 whitespace-nowrap">· ~${price.toFixed(2)}</span> : null;
               })()}
               {modelOverridden && (
                 <span className="w-1 h-1 rounded-full shrink-0" style={{ background: "var(--purple)" }} />

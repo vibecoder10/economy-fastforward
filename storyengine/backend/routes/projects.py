@@ -336,9 +336,10 @@ async def generate_channel_cast_member(
 
     from routes.characters import _generate_portrait
     try:
-        temp_url = await _generate_portrait(api_key, desc, style_dna, name=name)
+        portrait = await _generate_portrait(api_key, desc, style_dna, name=name)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Character generation failed: {str(e)[:200]}")
+    temp_url = portrait["url"]
 
     url = temp_url
     try:

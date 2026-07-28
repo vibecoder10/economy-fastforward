@@ -329,6 +329,16 @@ def _norm_env_text(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+# The planner's own [SET | LocationName: description...] header names this
+# scene's fixed location as the FIRST thing inside the brackets, before the
+# first colon (parse_set_dressing, skills/video-pipeline/storyboard/
+# coverage.py, returns the whole bracket body; this pulls just the name).
+# When this matches an approved environment's name exactly, it settles the
+# match outright — see _match_scene_env's bug note below for why this
+# structural signal beats generic phrase-counting over the whole text.
+_SET_HEADER_ENV_RE = re.compile(r"\[SET\s*\|\s*([^:\]]{1,80}):", re.IGNORECASE)
+
+
 def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
     """Pick the ONE approved environment this scene lives in.
 
@@ -387,6 +397,28 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
         return None
     if len(envs) == 1:
         return envs[0]
+    # STRONGEST signal, checked first: the planner's own [SET | Name: ...]
+    # header (see _SET_HEADER_ENV_RE above) states this scene's location
+    # directly and unambiguously — trust it outright when it names an
+    # approved environment exactly, before falling through to phrase-scoring
+    # the whole text. Bug found live on video 686b4651, scene 2: the SET
+    # header correctly said "[SET | Elite Viewing Hall: ...]", but that same
+    # scene's SET line ALSO mentions, in passing, that its screen "displays a
+    # live feed of the underground bubble-pod warren" (a different, real
+    # environment shown ON the screen, not the scene's own location) — a
+    # coincidental hyphen-splitting bug (see the head-fragment comment below,
+    # now fixed) inflated that passing mention's score to a TIE with the
+    # scene's genuine "Elite viewing hall" match, and ties silently resolved
+    # to whichever environment iterates first. Checking the header FIRST
+    # sidesteps the whole tie question: the planner already told us the
+    # answer, in a place a passing in-scene mention of another location can
+    # never reach.
+    header_match = _SET_HEADER_ENV_RE.search(text or "")
+    if header_match:
+        declared = _norm_env_text(header_match.group(1))
+        for e in envs:
+            if declared and _norm_env_text(e["name"] or "") == declared:
+                return e
     low_text = f" {_norm_env_text(text)} "
 
     def _phrase_count(phrase: str) -> int:
@@ -396,7 +428,25 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
     best, best_score = None, 0
     for e in envs:
         name = e["name"] or ""
-        head = re.split(r"[—:\-]", name)[0].strip()
+        # Bug found live on video 686b4651 (C-next): this used to split on
+        # ANY bare hyphen (r"[—:\-]"), which also fires inside a compound
+        # word that happens to be part of the environment's own name — e.g.
+        # "Underground bubble-pod warren" split into head "Underground
+        # bubble" at the hyphen in "bubble-pod", a meaningless fragment with
+        # no relation to the location. That fragment then phrase-matched an
+        # UNRELATED scene's SET line — scene 2 ("Elite Viewing Hall") merely
+        # mentions in passing that its screen "displays a live feed of the
+        # underground bubble-pod warren" — inflating "Underground bubble-pod
+        # warren"'s score (3 name + 2 head = 5) above the scene's own,
+        # correct "Elite viewing hall" (3, no head bonus — its name has no
+        # separator), so the LOCKED LOCATION block locked scene 2's storyboard
+        # prompt to the WRONG location, contradicting the prompt's own scene
+        # description and tripping the image provider's content filter (the
+        # prompt named two different, contradictory locations). Only split on
+        # an em-dash/colon, or a hyphen with SPACES on both sides (the
+        # "Title - Subtitle" separator pattern, same shape as the em-dash
+        # case) — never a hyphen glued inside a single word like "bubble-pod".
+        head = re.split(r"[—:]| - ", name)[0].strip()
         score = _phrase_count(name) * 3
         if head and _norm_env_text(head) != _norm_env_text(name) and len(head) >= 8:
             score += _phrase_count(head) * 2
@@ -715,9 +765,21 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
     # on-disk cast sheet happened to be present, and used a single-view prompt, which left
     # reference_url NULL and the Characters tab empty.
     from routes.characters import _generate_portrait, _persist_portrait_url
+    from actions import budget_check, picture_price_for, video_summary
+    from generation_ledger import record_ledger_entry
     chars = await extract_characters(claude, script_text, model=claude_model)
     n = 0
     for i, ch in enumerate(chars):
+        # Money-safety fix: this content-engine cast build spent real GPT
+        # Image 2 calls with no ledger write and no cap check, same hole as
+        # the Characters tab. Checked fresh every character since spend
+        # accrues across the loop.
+        summary = await video_summary(tenant, vid)
+        breach = budget_check(summary, picture_price_for(None)) if summary else None
+        if breach:
+            print(f"  characters: stopped at {n}/{len(chars)} — would put this video at "
+                  f"${breach['projected']:.2f} against its ${breach['cap']:.2f} cap")
+            break
         row = await fetch_one(
             "INSERT INTO video_characters (tenant_id, video_id, name, description, "
             "status, source, sort) VALUES ($1,$2,$3,$4,'approved','generated',$5) RETURNING id",
@@ -725,10 +787,16 @@ async def populate_characters(vid, tenant, claude, claude_model, ic, base_dir, s
         char_id = str(row["id"])
         for attempt in range(3):
             try:
-                temp_url = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "", name=ch.get("name") or "")
-                ref = await _persist_portrait_url(tenant, vid, char_id, temp_url)
+                portrait = await _generate_portrait(ic.api_key, ch.get("description") or ch["name"], style or "", name=ch.get("name") or "")
+                ref = await _persist_portrait_url(tenant, vid, char_id, portrait["url"])
                 await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
                               ref, char_id)
+                cost = picture_price_for(portrait["model"])
+                await record_ledger_entry(
+                    tenant_id=tenant, video_id=vid, stage="character_sheet",
+                    model=portrait["model"], units=1, unit_cost=cost, actual_cost=cost,
+                    kie_task_id=portrait.get("task_id"),
+                )
                 break
             except Exception as e:  # noqa: BLE001
                 print(f"  character {ch['name']} sheet attempt {attempt+1} failed: {str(e)[:120]}")

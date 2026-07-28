@@ -352,6 +352,83 @@ def test_match_scene_env_two_distinct_words_still_win_over_the_fallback():
     assert env["name"] == "Community cooking class kitchen", env
 
 
+# ── locked-location mismatch, video 686b4651 scene 2 (verbatim, `se db`) ──
+# Real environments (video_environments, ORDER BY sort) and the real scene 2
+# coverage_directive (its [SET | ...] header, trimmed to the parts that
+# matter — the full body is ~1500 more chars of shot setups irrelevant to
+# the match). Live failure: scene 2's own SET header correctly names "Elite
+# Viewing Hall", but that same header ALSO mentions, in passing, that its
+# screen "displays a live feed of the underground bubble-pod warren" (what's
+# ON the screen — a real, different environment — not the scene's own
+# location). A hyphen inside "bubble-pod" was mis-split as a title/subtitle
+# separator (the same code path meant for "Home kitchen — cram session"),
+# manufacturing a nonsense "Underground bubble" head-fragment that phrase-
+# matched the passing mention and tied "Underground bubble-pod warren"'s
+# score with the scene's genuine "Elite viewing hall" match — the tie
+# silently resolved to whichever environment iterates first (sort=0,
+# Underground). Storyboard generation then locked the LOCKED LOCATION
+# reference block (scripts/coverage_to_app.py, `env['name']` in the sheet
+# prompt) to the WRONG location, contradicting the prompt's own scene
+# description — and got rejected by the image provider's content filter for
+# naming two different, contradictory locations in one prompt. This test
+# fails on the pre-fix code (asserts "Elite viewing hall", pre-fix code
+# returns "Underground bubble-pod warren") and passes after.
+_VIDEO_686B4651_ENVS = [
+    {"name": "Underground bubble-pod warren", "description": "d"},
+    {"name": "Nyla's glass bubble-pod interior", "description": "d"},
+    {"name": "Elite viewing hall", "description": "d"},
+]
+_VIDEO_686B4651_SCENE_2_DIRECTIVE = (
+    "[SET | Elite Viewing Hall: black ornamental walls with gold accents, "
+    "arched alcoves with sconces, decorative urns in alcoves, ceiling "
+    "chandelier/medallion lit overhead, leather armchairs in curved rows "
+    "with brass candleholders and gold side tables between them, "
+    "railing/barrier panel at the base of the massive curved screen — "
+    "screen currently displaying a live feed of the underground bubble-pod "
+    "warren. No characters from the underground appear in this scene. "
+    "Three Elites seated in the front curved row, spread across the width "
+    "of the hall, all facing the screen.]"
+)
+_VIDEO_686B4651_SCENE_2_TEXT = (
+    "Far above, the elites gather each night around a screen the size of a "
+    "building. They watch the bubbles below like weather, like pets. It is "
+    "their favorite show, and no one below knows they are the cast."
+)
+
+
+def test_match_scene_env_set_header_wins_over_a_passing_mention_of_another_location():
+    env = _match_scene_env(
+        _VIDEO_686B4651_SCENE_2_DIRECTIVE + " " + _VIDEO_686B4651_SCENE_2_TEXT,
+        _VIDEO_686B4651_ENVS,
+    )
+    assert env["name"] == "Elite viewing hall", env
+
+
+def test_match_scene_env_hyphen_inside_a_compound_word_is_not_a_title_separator():
+    """Narrower regression pin, isolating just the head-splitting mechanism
+    (no [SET | ...] header involved, and no full-name or multi-word overlap
+    that the word-fallback's own >=2-distinct-word bar would independently
+    catch). "Basement-level arcade"'s glued hyphen (no surrounding spaces —
+    unlike "Home kitchen — cram session"'s em-dash, or a genuine "Title -
+    Subtitle") is not a title/subtitle separator. Before the fix it was
+    mis-split into head "Basement" (>=8 chars, clears the bonus floor),
+    which phrase-matches the single stray word "basement" in this text and
+    wins OUTRIGHT in the primary scoring loop — bypassing the fallback's
+    deliberately stricter "single stray word never wins alone" bar entirely
+    (see test_match_scene_env_single_stray_word_never_wins_alone above; that
+    guard only runs when the primary loop finds nothing). After the fix, the
+    un-split full name doesn't appear as a phrase, the primary loop finds
+    nothing, and the fallback's own stray-word bar correctly rejects the
+    lone "basement" hit and defaults to envs[0]."""
+    envs = [
+        {"name": "Rooftop garden", "description": "d"},
+        {"name": "Basement-level arcade", "description": "d"},
+    ]
+    text = "It was cold outside. He went down to the basement to grab his coat, then left for the party."
+    env = _match_scene_env(text, envs)
+    assert env["name"] == "Rooftop garden", env
+
+
 def test_enforce_budget_frame_ceiling_strips_angles_first():
     from storyboard.coverage import enforce_shot_budget
     moments = [{"moment_number": i + 1, "summary": f"m{i+1}",
