@@ -1304,7 +1304,23 @@ export function ChatCore({
     <div className="relative h-full flex flex-col">
       <div
         ref={messagesScrollRef}
-        className="w-full max-w-3xl mx-auto flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 pb-32"
+        // D3-45 (measured live on prod, 2026-07-28): every direct child here
+        // (message bubbles, the pipeline map, glass-card result/action/
+        // approval cards, the progress card) inherited the flex default
+        // `flex-shrink: 1` from this flex-col scroller. Once the thread's
+        // total content exceeded the column's height, the browser SHRANK
+        // each child below its own content height instead of letting the
+        // column scroll — and since cards are `.glass-card` (overflow:
+        // hidden, globals.css), the shrunk-away content was silently
+        // clipped rather than visibly overflowing. Measured live: glass-card
+        // heights of 50/30/30/30px against scrollHeights of 122/58/227/182.
+        // `[&>*]:shrink-0` forces every direct child to keep its natural
+        // height, so this scroller (already the correct `flex-1 min-h-0
+        // overflow-y-auto` region — fixed in D3-1) does the shrinking
+        // instead of the cards. One wrapper-level fix covers every card
+        // kind rendered here (current and future) without touching each
+        // card component individually.
+        className="w-full max-w-3xl mx-auto flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 pb-32 [&>*]:shrink-0"
       >
         <div className="flex justify-end -mb-1">
           <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} scopeVideoId={activeVideoId} />
