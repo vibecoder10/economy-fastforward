@@ -68,6 +68,17 @@ numbering system.
   CHUNK FILED: T5b - persist a clip-failure marker on assets in the live
   path so the timeline can show failed honestly (goes with T5).
 
+- T2 DONE 2026-07-28 (second pass, after Ryan's layout correction): branch
+  feat/t2-timeline-altitude @ 96ec9e7c. Horizontal editor timeline docked
+  at the bottom of the canvas: player region above (plays final_video_url
+  when it exists - proven on 973c9bd6), Video track with storyboard-face
+  segments that unpack IN PLACE into slot cells, Voice lane (real
+  voice_over_url blocks), Music lane placeholder, inert playhead + zoom +
+  mutes, honest ruler (sequence markers now, real timecodes auto-activate
+  when T2b exposes durations - proven synthetically). Orchestrator walked
+  both test videos personally on localhost before merge. 13/13 tests, tsc
+  and build clean.
+
 ## Chunks
 
 T1. Slot model (frontend-pure, tested). One function: storyboards + assets
@@ -77,6 +88,12 @@ T1. Slot model (frontend-pure, tested). One function: storyboards + assets
 T2. Timeline altitude becomes real, read-only. Replace the static mock,
     flip the SOON tag. Storyboard blocks per scene; expand to see slots.
     Zero spend, pure frontend. Ship complete or keep the tab disabled.
+T2b. (H, backend, small) Expose assets.video_duration and
+    assigned_video_duration on the existing GET /api/videos/{id}/assets
+    serializer - the DB holds real per-clip seconds but the API drops them
+    (proven by curl 2026-07-28), which is the only thing blocking the real
+    proportional ruler. Frontend already activates automatically (proven
+    synthetically). No new endpoint.
 T3. Unpack + approve. Clicking/approving a storyboard block expands it into
     image slots and persists that state. Reuse the existing storyboard
     approval route if it fits - do NOT invent a third approval mechanism.
@@ -141,7 +158,45 @@ per-scene buttons too, so the timeline is useful before chat routing lands.
 ## Decisions - MADE by Ryan 2026-07-28, plan is APPROVED to build
 
 1. Storyboard N = scene N. Locked.
-2. Ordinal lanes v1, time ruler only once clips exist. Locked.
+2. SUPERSEDED same day - see the layout correction below.
 3. Clips-first (T5/T6 before T4/T7). Locked, with Ryan's rider: after
    clips-first lands, the chat must be able to "do whatever we ask" - T4 is
    not a nice-to-have, it is the committed follow-on, full command coverage.
+
+## LAYOUT CORRECTION (Ryan, 2026-07-28, overrides decision 2)
+
+Ryan rejected the first T2 build (vertical stack of storyboard lane cards)
+with an OpenArt director-suite screenshot: "thats not a timeline, this is a
+timeline." The OpenArt reference is the literal layout spec (consistent with
+the standing Director UI target):
+
+- HORIZONTAL track-based editor timeline DOCKED AT THE BOTTOM of the canvas.
+- The area above it is the player/preview (our existing "Your video will
+  land here" canvas center; the rendered video plays there when it exists).
+- Video track: a horizontal filmstrip of segments in scene order. Pre-clip,
+  a segment is the scene's storyboard block (sheet thumbnails); clicking it
+  expands/unpacks to its slot tiles (T1 model unchanged - the data layer
+  survives this correction untouched).
+- Audio lanes below the video track (voice/narration per scene, music) -
+  render real data read-only; empty lanes show a muted add-slot affordance
+  that does nothing in v1.
+- Time ruler and timecodes: shown with REAL numbers when clip/voice
+  durations exist; before durations exist the ruler area stays but shows
+  sequence markers (Scene 1, Scene 2...) instead of fake seconds. Never
+  invent seconds - honesty rule stands, expressed inside the horizontal
+  layout instead of by going vertical.
+- Zoom slider and track mute toggles: visual placeholders acceptable in v1
+  read-only; Add shot / Add music / Add voiceover buttons are T3+, not v1.
+
+Second clarification (two more OpenArt screenshots, same day) - the altitude
+mapping is now explicit:
+- OpenArt Scene view (scene rows, each with its shot cards and Add Shot
+  affordances) = our existing Scene altitude. The rejected vertical
+  storyboard-card stack was accidentally rebuilding this.
+- OpenArt Shot editor (single shot, player + own filmstrip scrubber,
+  Recreate / Modify / Extend / Upscale / Grab Frame verbs) = our Shot
+  altitude, still a SOON stub - future mission, do not build now.
+- OpenArt Timeline = the real editor timeline and the T2 target. Unpacking
+  a storyboard happens ON the video track: the packed segment expands in
+  place into per-shot cells side by side, like adjacent clip thumbnails in
+  any editor. A playhead line exists from v1 (inert until playback exists).
