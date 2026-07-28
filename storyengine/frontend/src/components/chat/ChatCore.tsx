@@ -383,6 +383,15 @@ export function ChatCore({
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  // D3-49b (found live 2026-07-28): a tap on a confirm card ("Do it") while
+  // `sending` is still true from the PRIOR turn used to die with zero trace —
+  // no network call, no console entry, no UI change. The guard below is
+  // correct (it stops a real double-POST), but silence made a legitimate
+  // "still finishing the last message" state look identical to a broken
+  // button. This banner + the console.warn at the guard site are the fix:
+  // never eat a tap without saying so somewhere the creator (or we, reading
+  // the console) can see it. Auto-clears itself — see the effect below.
+  const [sendGuardNotice, setSendGuardNotice] = useState<string | null>(null);
   const [createdVideoId, setCreatedVideoId] = useState<string | null>(null);
   // The video whose live pipeline map + inline result cards (script/cast/
   // locations/storyboards) this chat instance shows. The DOCK is always
@@ -486,6 +495,15 @@ export function ChatCore({
     return () => ts.forEach(clearTimeout);
   }, [messages, sending, createdVideoId]);
 
+  // Auto-clear the "still finishing the last message" notice (see
+  // `sendGuardNotice` above) — it's a transient nudge, not a persistent
+  // banner, so it shouldn't linger once the creator has had a chance to see it.
+  useEffect(() => {
+    if (!sendGuardNotice) return;
+    const t = setTimeout(() => setSendGuardNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [sendGuardNotice]);
+
   // Home only: load "worth modeling" suggestions from the creator's modeled channel.
   useEffect(() => {
     if (docked) return;
@@ -505,7 +523,22 @@ export function ChatCore({
     | { ok: true; assistantText: string; cards: ChatCard[] | null; plan: ProductionPlan | null; conversationId: string }
     | { ok: false; message: string }
   > {
-    if (sending) return { ok: false, message: "" };
+    if (sending) {
+      // Never eat a tap silently (D3-49b, found live 2026-07-28): a "Do it"
+      // press that lands while the prior turn is still in flight used to
+      // return here with zero trace anywhere — no request, no console entry,
+      // no UI change — indistinguishable from a broken button. The guard
+      // itself is correct (it stops a genuine double-POST), but it needs to
+      // say so. console.warn so this is greppable in prod telemetry/session
+      // replay even when no one is watching the screen; the banner covers
+      // the case where someone IS watching.
+      console.warn(
+        "[ChatCore] turn() dropped — a previous turn is still in flight",
+        { docked, videoId: docked ? videoId ?? null : activeVideoId ?? null, conversationId, attemptedReq: req }
+      );
+      setSendGuardNotice("Still finishing the last message — try again in a moment.");
+      return { ok: false, message: "" };
+    }
     const failedApprovalCards = failedCustomFilmApprovalCards(
       req,
       lastCards,
@@ -1150,6 +1183,7 @@ export function ChatCore({
           <div ref={endRef} />
         </div>
         <div className="absolute bottom-0 left-0 right-0 px-3 py-3" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
+          {sendGuardNotice && <SendGuardNotice text={sendGuardNotice} />}
           {selectionChip}
           <Composer
             input={input}
@@ -1357,6 +1391,7 @@ export function ChatCore({
       {/* composer pinned at the bottom of the (non-scrolling) shell */}
       <div className="absolute bottom-0 left-0 right-0 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
         <div className="max-w-3xl mx-auto">
+          {sendGuardNotice && <SendGuardNotice text={sendGuardNotice} />}
           {selectionChip}
           <Composer
             input={input}
@@ -1483,6 +1518,28 @@ function Thinking() {
         <span className="text-sm">Thinking…</span>
       </div>
     </div>
+  );
+}
+
+// D3-49b: the transient "your tap didn't get dropped, it's just waiting"
+// nudge — see `sendGuardNotice` above `turn()`. Styled after
+// ConfirmActionCard's amber AlertTriangle (a nudge, not an error — pairs
+// with `conversationLoadFailed`'s red banner for the "real failure" case).
+// Self-contained (no `useToast`) on purpose: this is a `turn()`-guard signal
+// specific to this component's own `sending` lifecycle, not a general app
+// notification.
+function SendGuardNotice({ text }: { text: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      className="mb-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs"
+      style={{ background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.25)", color: "var(--text-secondary)" }}
+    >
+      <AlertTriangle size={13} style={{ color: "var(--gold)", flexShrink: 0 }} />
+      <span>{text}</span>
+    </motion.div>
   );
 }
 

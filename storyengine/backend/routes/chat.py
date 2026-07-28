@@ -1374,6 +1374,41 @@ _GATE_DECLINE_MSG = (
     "the word when you're ready to continue."
 )
 
+# Keep this well under a Twitter-length line so the card intro stays a quick
+# read, not a wall of quoted text — see _change_echo_note's doc comment.
+_CHANGE_ECHO_MAX_CHARS = 140
+
+
+def _change_echo_note(change: Optional[str]) -> str:
+    """D3-49b (found live 2026-07-28): the paid-action confirm card's intro
+    (built in _handle_copilot, right before the one-tap confirm card) used to
+    be a FIXED template off cfg['label'] — "Ready when you are — I'll write
+    the script (~$0.40)." — with zero trace of what the creator actually
+    asked for. A rich, specific request ("Add dialogue between the elites and
+    Nyla...") rendered byte-identical to a bare "write the script." The
+    change text itself was never lost — pending["change"] is captured here
+    and already correctly consumed downstream (_run_pending_action ->
+    apply_followup_edit -> writer_guidance) — only the VISIBLE card lied by
+    omission. This returns the short quoted echo to append to that intro (or
+    "" when there's no free-text change to echo, e.g. a plain "write the
+    script" ask with nothing to quote back) — still a plain string append,
+    not a second model call, so the "deterministic, non-model-generated
+    confirmation" the original intro's comment promises stays true.
+
+    Truncates rather than quoting the whole thing: this rides in a one-line
+    chat bubble alongside the cost quote and budget/guardrail notes, not a
+    review surface — the full text is already durably on the pending action
+    for whatever actually applies it.
+    """
+    change = (change or "").strip()
+    if not change:
+        return ""
+    change = " ".join(change.split())  # collapse newlines/whitespace onto one line
+    snippet = change[:_CHANGE_ECHO_MAX_CHARS]
+    if len(change) > _CHANGE_ECHO_MAX_CHARS:
+        snippet += "..."
+    return f' I\'ll also fold in: "{snippet}"'
+
 
 def _gate_question_text(gate_kind: str, cost_text: str) -> str:
     """The genuine, plain-English question each review gate asks — shared by
@@ -2447,9 +2482,10 @@ async def _handle_copilot(
         else ""
     )
     budget_note = f" ⚠️ {budget_warning['message']}" if budget_warning else ""
+    change_note = _change_echo_note(pending.get("change"))
     intro = (
         f"Ready when you are — I'll {cfg['label'].lower()}{where} ({cost_text}{detail}). "
-        f"Tap to run it, or tell me to change anything first.{guard}{budget_note}"
+        f"Tap to run it, or tell me to change anything first.{guard}{budget_note}{change_note}"
     )
     return await _reply(
         intro, cards=[_confirm_card(verb, scene, cost_text, breakdown, budget_warning)]
