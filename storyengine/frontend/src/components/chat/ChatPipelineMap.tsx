@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2, TriangleAlert, Wifi, WifiOff } from "lucide-react";
-import type {
-  CustomFilmPlan,
-  CustomFilmPlanSection,
-  VideoDetail,
+import { Check, Loader2, Minus, TriangleAlert, Wifi, WifiOff } from "lucide-react";
+import {
+  getProductionGuide,
+  type CustomFilmPlan,
+  type CustomFilmPlanSection,
+  type ProductionGuideStage,
+  type VideoDetail,
 } from "@/lib/api";
 import type {
   SSEStageChangeEvent,
@@ -45,18 +48,26 @@ function fmtElapsed(totalSeconds: number): string {
   return m > 0 ? `${m}m ${r}s` : `${r}s`;
 }
 
+// `key` is the production_guide.py GUIDE_STAGES key for this step — the
+// SAME key backend/production_guide.py's get_production_guide returns per
+// stage (research/script/voice/characters/environments/storyboards/images/
+// sound/video/thumbnail/render). This is what lets the stepper below read
+// each step's REAL state instead of guessing from status order (bug (a)
+// fix, 2026-07-27: "the stepper shows Environments as DONE when no
+// environments exist" — it was inferring done-ness from status order, which
+// says nothing about whether that specific stage's work actually happened).
 const PIPELINE_STEPS = [
-  { label: "Research", plan: "research" },
-  { label: "Script", plan: "script" },
-  { label: "Voice", plan: "voice" },
-  { label: "Characters", plan: "images" },
-  { label: "Environments", plan: "images" },
-  { label: "Storyboards", plan: "images" },
-  { label: "Pictures", plan: "images" },
-  { label: "Sound", plan: "sound" },
-  { label: "Clips", plan: "video" },
-  { label: "Thumbnail", plan: "thumbnail" },
-  { label: "Render", plan: "render" },
+  { label: "Research", plan: "research", key: "research" },
+  { label: "Script", plan: "script", key: "script" },
+  { label: "Voice", plan: "voice", key: "voice" },
+  { label: "Characters", plan: "images", key: "characters" },
+  { label: "Environments", plan: "images", key: "environments" },
+  { label: "Storyboards", plan: "images", key: "storyboards" },
+  { label: "Pictures", plan: "images", key: "images" },
+  { label: "Sound", plan: "sound", key: "sound" },
+  { label: "Clips", plan: "video", key: "video" },
+  { label: "Thumbnail", plan: "thumbnail", key: "thumbnail" },
+  { label: "Render", plan: "render", key: "render" },
 ] as const;
 
 type CustomFilmSectionView = {
@@ -210,19 +221,107 @@ export function ChatPipelineMap({
     }
   }, [stageChange]);
 
+  // The production guide (backend/production_guide.py's get_production_
+  // guide, same REST route the /pipeline page's StageRail already trusts) is
+  // the SINGLE source of truth for each stage's real state — done /
+  // in_progress / not_started / skipped_by_format, read from actual stored
+  // data (video_characters/video_environments rows, storyboard columns,
+  // etc), never guessed from status order. Bug (a) fix, 2026-07-27: the
+  // stepper used to derive "done" purely from `pipelineIndex(video.status)`
+  // — any step before the current coarse status was assumed finished, which
+  // is exactly how it showed Environments as done on a video with ZERO
+  // environments ever designed (proof: video f32ed182-be1f-4a24-a8de-
+  // bb8db4ac88df, status "rendered", production-guide reports environments
+  // "not_started" — "No environments designed yet" — 8 undesigned
+  // locations). Reusing the same route the pipeline page already relies on
+  // means this stepper and that page's rail can never disagree.
+  const queryClient = useQueryClient();
+  const videoId = video?.id;
+  const { data: guide } = useQuery({
+    queryKey: ["production-guide", videoId],
+    queryFn: () => getProductionGuide(videoId as string),
+    enabled: Boolean(videoId),
+    staleTime: 5_000,
+  });
+  // Re-check the guide whenever a real signal says the video's stage state
+  // may have moved: a stage_change SSE event, or a background task going
+  // from running to finished (some real actions — e.g. approving
+  // environments — change guide state without a stage_change event at all).
+  useEffect(() => {
+    if (!videoId || !stageChange) return;
+    queryClient.invalidateQueries({ queryKey: ["production-guide", videoId] });
+  }, [stageChange, videoId, queryClient]);
+  const prevTaskRunningRef = useRef(false);
+  useEffect(() => {
+    if (prevTaskRunningRef.current && !taskRunning && videoId) {
+      queryClient.invalidateQueries({ queryKey: ["production-guide", videoId] });
+    }
+    prevTaskRunningRef.current = taskRunning;
+  }, [taskRunning, videoId, queryClient]);
+
   // Everything below is a plain (non-hook) derivation, safe to compute even
   // when `video` is undefined (guarded with `video?.` / `?? []`) — this lets
   // ALL hooks above stay unconditional (same order every render) while the
   // "loading" early return still happens, just further down, after hooks.
+  //
+  // `plan` (video.pipeline_stages) only powers the BEFORE-the-guide-loads
+  // fallback list — once the guide has loaded, every step renders (the
+  // format-excluded ones show as "skipped", not hidden; see visualStateFor
+  // below), since the guide's own skipped_by_format already accounts for
+  // this same plan (and the SFX-block case the plan alone can't see, e.g. a
+  // render path that can never play sound effects even though "sound" is
+  // in the coarse plan — docs/failure-modes.md's SFX row).
   const plan = video?.pipeline_stages;
-  const visible = PIPELINE_STEPS.filter((step) => !plan || plan.includes(step.plan));
-  const rawIndex = pipelineIndex(stageChange?.current_status || video?.status);
-  const doneAll = rawIndex >= PIPELINE_STEPS.length;
-  const activeVisibleIndex = visible.reduce((activeIndex, step, index) => {
-    const originalIndex = PIPELINE_STEPS.findIndex((candidate) => candidate.label === step.label);
-    return originalIndex <= rawIndex ? index : activeIndex;
-  }, 0);
-  const activeLabel = !doneAll ? visible[activeVisibleIndex]?.label ?? null : null;
+  const legacyVisible = PIPELINE_STEPS.filter((step) => !plan || plan.includes(step.plan));
+  const visible = guide ? PIPELINE_STEPS : legacyVisible;
+
+  function stageFor(key: string): ProductionGuideStage | undefined {
+    return guide?.stages.find((s) => s.key === key);
+  }
+
+  // doneAll / activeKey / activeLabel all come from the SAME next_step the
+  // guide already computed (production_guide.py's _recommend_next_step) —
+  // never a second, independently-guessed "what's next" answer. Before the
+  // guide has loaded, doneAll is false and activeLabel is null — an honest
+  // "no evidence yet" default, never a guessed done state.
+  const doneAll = guide?.next_step?.action === "celebrate";
+  const activeKey = !doneAll ? guide?.next_step?.stage ?? null : null;
+  const activeLabel = activeKey
+    ? PIPELINE_STEPS.find((step) => step.key === activeKey)?.label ?? null
+    : null;
+
+  // needs_review is a FIFTH state, layered on top of the four the guide can
+  // report — production_guide.py's "script" rule only counts scenes
+  // (pipeline_executor.py:12069/12196 read `scenes > 0` => "done"), so a
+  // script the quality critic rejected after its bounded edit loop
+  // (backend/actions.py:1288, script_quality.run_critique_and_edit) still
+  // has scenes and still reports "done". Confirmed by reading the backend:
+  // needs_review is set ONLY by run_script (pipeline_executor.py:11990) via
+  // routes/pipeline.py's `_set_task_status(video_id, "needs_review", ...)` —
+  // no other stage ever sets it — so gating this on step.key === "script"
+  // is exact, not a guess. Precedence: needs_review wins over done, because
+  // a rejected script must never look finished to the creator (a green tick
+  // read as "Script — 1 scene" success before this, with no hint the critic
+  // flagged it for another look).
+  type StepVisual = "done" | "active" | "not_started" | "skipped" | "needs_review";
+  function visualStateFor(step: (typeof PIPELINE_STEPS)[number]): StepVisual {
+    if (
+      step.key === "script"
+      && taskProgress?.status === "completed"
+      && taskProgress.needs_review
+    ) {
+      return "needs_review";
+    }
+    const stage = stageFor(step.key);
+    // No guide data yet — never claim done/skipped without evidence.
+    if (!stage) return "not_started";
+    if (stage.state === "skipped_by_format") return "skipped";
+    if (stage.state === "done") return "done";
+    if (stage.state === "in_progress") return "active";
+    // not_started: only the ONE next actionable step (next_step.stage) gets
+    // the "active" highlight; later not-started steps stay plain grey.
+    return step.key === activeKey ? "active" : "not_started";
+  }
 
   // Rotating plain-English flavor line for the active step — text-only
   // "we're cooking" copy, never a time claim. Resets to the first phrase
@@ -391,44 +490,86 @@ export function ChatPipelineMap({
       <div className="overflow-x-auto pb-1">
         <ol className="flex min-w-max items-start">
           {visible.map((step, index) => {
-            const done = doneAll || index < activeVisibleIndex;
-            const active = !doneAll && index === activeVisibleIndex;
+            // Four HONEST, distinguishable states (bug (a) fix) — "skipped"
+            // (not part of this video's plan/format) is never collapsed into
+            // "done" (it didn't happen) or "not_started" (it's not missing,
+            // it was never supposed to run). See visualStateFor above.
+            const visual = visualStateFor(step);
+            const done = visual === "done";
+            const active = visual === "active";
+            const skipped = visual === "skipped";
+            const needsReview = visual === "needs_review";
+            const stage = stageFor(step.key);
             return (
               <li key={step.label} className="flex items-start">
-                <div className="w-[70px] flex flex-col items-center text-center">
+                <div className="w-[70px] flex flex-col items-center text-center" style={{ opacity: skipped ? 0.55 : 1 }}>
                   <span
+                    title={needsReview ? (taskProgress?.message ?? "Needs another look") : stage?.detail}
                     className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold"
                     style={{
-                      background: done
-                        ? "var(--green)"
-                        : active
-                          ? "var(--turquoise)"
-                          : "var(--bg-deep)",
-                      color: done || active ? "var(--bg-void)" : "var(--text-tertiary)",
-                      border: done || active ? "none" : "1px solid var(--border)",
+                      background: needsReview
+                        ? "var(--gold-director)"
+                        : done
+                          ? "var(--green)"
+                          : active
+                            ? "var(--turquoise)"
+                            : "var(--bg-deep)",
+                      color: done || active || needsReview ? "var(--bg-void)" : "var(--text-tertiary)",
+                      border: done || active || needsReview ? "none" : `1px dashed var(--border)`,
                     }}
                   >
-                    {done ? <Check size={13} /> : index + 1}
+                    {needsReview ? (
+                      <TriangleAlert size={13} />
+                    ) : done ? (
+                      <Check size={13} />
+                    ) : skipped ? (
+                      <Minus size={13} />
+                    ) : (
+                      index + 1
+                    )}
                   </span>
                   <span
                     className="text-[9px] mt-1 leading-tight"
                     style={{
-                      color: active
-                        ? "var(--turquoise)"
-                        : done
-                          ? "var(--text-secondary)"
-                          : "var(--text-tertiary)",
-                      fontWeight: active ? 700 : 500,
+                      color: needsReview
+                        ? "var(--gold-director)"
+                        : active
+                          ? "var(--turquoise)"
+                          : done
+                            ? "var(--text-secondary)"
+                            : "var(--text-tertiary)",
+                      fontWeight: active || needsReview ? 700 : 500,
                     }}
                   >
                     {step.label}
                   </span>
                   {/* Real duration caption (checklist detail line, OpenArt-
                       modeled) — only appears when we actually measured this
-                      step's transition; never a guess. */}
-                  {done && stepDurations[step.label] != null && (
+                      step's transition; never a guess. Suppressed by
+                      needsReview so a rejected script never pairs a "Done in
+                      Xs" caption with the amber warning above it. */}
+                  {done && !needsReview && stepDurations[step.label] != null && (
                     <span className="text-[8px] mt-0.5 leading-tight" style={{ color: "var(--text-tertiary)" }}>
                       Done in {fmtElapsed(stepDurations[step.label])}
+                    </span>
+                  )}
+                  {/* Skipped caption — the backend's own reason (real
+                      format/plan text, e.g. "static-documentary render — no
+                      motion/sound"), never a guessed label. */}
+                  {skipped && (
+                    <span className="text-[8px] mt-0.5 leading-tight" style={{ color: "var(--text-tertiary)" }}>
+                      Skipped
+                    </span>
+                  )}
+                  {/* Needs-review caption — the quality critic rejected this
+                      script after its bounded edit loop (backend/actions.py,
+                      script_quality.run_critique_and_edit). This step
+                      technically produced output (scenes > 0, which is what
+                      the production guide alone would call "done") but must
+                      never read as finished — see visualStateFor above. */}
+                  {needsReview && (
+                    <span className="text-[8px] mt-0.5 leading-tight" style={{ color: "var(--gold-director)" }}>
+                      Needs review
                     </span>
                   )}
                 </div>
@@ -437,7 +578,7 @@ export function ChatPipelineMap({
                     aria-hidden
                     className="w-4 h-px mt-3 -mx-2"
                     style={{
-                      background: done ? "var(--green)" : "var(--border)",
+                      background: needsReview ? "var(--gold-director)" : done ? "var(--green)" : "var(--border)",
                     }}
                   />
                 )}
