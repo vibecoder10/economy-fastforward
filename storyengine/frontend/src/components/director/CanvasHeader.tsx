@@ -48,10 +48,19 @@ function humanize(id: string | null | undefined): string | null {
     .join(" ");
 }
 
-const ALTITUDES: { id: Altitude; label: string }[] = [
-  { id: "shot", label: "Shot" },
-  { id: "scene", label: "Scene" },
-  { id: "timeline", label: "Timeline" },
+// `built: false` marks a tab whose CanvasStage.tsx view is still a
+// placeholder (ShotAltitudePlaceholder / TimelineAltitudePlaceholder — both
+// admit as much in their own body text). Honesty pass (2026-07-27): those
+// tabs used to look exactly as clickable as Scene, so a user had no way to
+// know before tapping one that it dead-ends in "not designed yet" copy.
+// Genuinely `disabled` (not just muted color) plus the same faint-text +
+// "coming soon" tag already used for Preview/Export below and DirectorHome's
+// ComingSoonButton — one honesty recipe, reused everywhere it applies,
+// instead of a one-off for this control.
+const ALTITUDES: { id: Altitude; label: string; built: boolean }[] = [
+  { id: "shot", label: "Shot", built: false },
+  { id: "scene", label: "Scene", built: true },
+  { id: "timeline", label: "Timeline", built: false },
 ];
 
 export function CanvasHeader({ videoId }: { videoId: string }) {
@@ -184,14 +193,21 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
               key={a.id}
               type="button"
               data-tab={a.id}
+              disabled={!a.built}
+              title={a.built ? undefined : `${a.label} — not available yet`}
               onClick={() => setAltitude(a.id)}
-              className={`h-[26px] rounded-[7px] px-3.5 text-[12.5px] font-semibold transition-colors ${
+              className={`flex h-[26px] items-center gap-1 rounded-[7px] px-3.5 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed ${
                 altitude === a.id
                   ? "bg-turquoise/[0.14] text-turquoise shadow-[inset_0_0_0_1px_rgba(0,212,170,0.28)]"
-                  : "text-dim hover:text-ink"
+                  : a.built
+                    ? "text-dim hover:text-ink"
+                    : "text-faint"
               }`}
             >
               {a.label}
+              {!a.built && (
+                <span className="text-[8px] font-semibold uppercase tracking-wide text-faint/70">soon</span>
+              )}
             </button>
           ))}
         </div>

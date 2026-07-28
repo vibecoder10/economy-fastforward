@@ -142,6 +142,12 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   // some effect catches up.
   const [selectedVideoId, setSelectedVideoIdState] = useState<string | null>(urlVideoId);
 
+  // Declared here (ahead of the effect and callback below that both reset
+  // it) rather than down with the rest of the plain useState fields, so the
+  // video-id-changed -> altitude-reset relationship reads top to bottom
+  // instead of forward-referencing a declaration two sections down.
+  const [altitude, setAltitude] = useState<Altitude>("scene");
+
   // Keep local state in sync whenever the URL itself changes from OUTSIDE a
   // setSelectedVideoId call — browser back/forward, a fresh navigation, or
   // this same effect settling right after router.push below resolves. Safe
@@ -150,18 +156,35 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   // of an identical setState).
   useEffect(() => {
     setSelectedVideoIdState(urlVideoId);
+    // Bug fix (2026-07-27, live: a brand-new video with 0 scenes/0 shots
+    // opened on the Shot tab's "not designed yet" placeholder instead of the
+    // working Scene board). Root cause: `altitude` below is a single
+    // useState living in this once-mounted provider (see the comment on
+    // `setSelectedVideoId`) — nothing ever reset it when the video changed,
+    // so whichever tab a PRIOR video was left on (e.g. Shot or Timeline,
+    // both real, clickable tabs) silently carried forward onto the next
+    // video opened, including a fresh one that had never been on any tab at
+    // all. This covers browser back/forward and any other path that changes
+    // the URL's video id directly (bypassing `setSelectedVideoId` below,
+    // which handles the same reset for its own programmatic-navigation
+    // callers). Scene is the only altitude with a real, built view
+    // (CanvasStage.tsx) — every video should always open there.
+    setAltitude("scene");
   }, [urlVideoId]);
 
   // Mounted ONCE at the root layout (see app/layout.tsx), not per-page, so
   // this provider instance survives the client-side navigation this
-  // function triggers — `pendingInitialMessage`/`focusedShotId`/`altitude`
-  // below are NOT reset just because the URL changed from `/chat` to
-  // `/chat/<id>`. That matters concretely for DirectorHome's "describe a
-  // video" box: it calls `setPendingInitialMessage(sentence)` immediately
-  // before `setSelectedVideoId(video.id)` — if this provider lived inside
-  // the page component instead, the navigation to `/chat/<id>` would mount
-  // a BRAND NEW provider with `pendingInitialMessage` back to null, and the
-  // seeded pitch would silently never reach ChatCore.
+  // function triggers — `pendingInitialMessage`/`focusedShotId` below are
+  // NOT reset just because the URL changed from `/chat` to `/chat/<id>`.
+  // That matters concretely for DirectorHome's "describe a video" box: it
+  // calls `setPendingInitialMessage(sentence)` immediately before
+  // `setSelectedVideoId(video.id)` — if this provider lived inside the page
+  // component instead, the navigation to `/chat/<id>` would mount a BRAND
+  // NEW provider with `pendingInitialMessage` back to null, and the seeded
+  // pitch would silently never reach ChatCore. `altitude` is the deliberate
+  // exception (see below): a canvas tab is a per-video view, not a
+  // cross-video intent like a pending pitch, so it's reset on every id
+  // change instead of surviving one.
   const setSelectedVideoId = useCallback(
     (id: string | null) => {
       // Optimistic: update immediately so the canvas/chat swap in on the
@@ -169,12 +192,16 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       // effect above re-syncs to whatever the URL ends up being, so this
       // never fights with it.
       setSelectedVideoIdState(id);
+      // Reset in this same batch (not left to the urlVideoId effect above)
+      // so there's no one-frame flash of the new video rendered under the
+      // OLD altitude tab before the effect catches up — see the effect's
+      // comment for the full root-cause story of why this reset exists.
+      setAltitude("scene");
       router.push(id ? `/chat/${id}` : "/chat");
     },
     [router]
   );
 
-  const [altitude, setAltitude] = useState<Altitude>("scene");
   const [focusedShotId, setFocusedShotIdRaw] = useState<string | null>(null);
   const [selectedEntity, setSelectedEntityRaw] = useState<SelectedEntity | null>(null);
   const [railTab, setRailTab] = useState<RailTab>("media");
