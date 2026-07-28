@@ -131,7 +131,7 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
   const stages = ledgerQuery.data ? Object.entries(ledgerQuery.data.by_stage).sort((a, b) => b[1] - a[1]) : [];
 
   return (
-    <div className="relative z-40 flex flex-none flex-col gap-2 border-b border-line bg-surface px-3 py-2 lg:h-[54px] lg:flex-row lg:items-center lg:gap-3 lg:px-3.5 lg:py-0">
+    <div className="relative z-40 flex flex-none flex-col gap-2 border-b border-line bg-surface px-3 py-2 lg:h-[54px] lg:flex-row lg:items-center lg:gap-2 lg:px-3 lg:py-0">
       {/* left cluster — full-width row below `lg`; fixed 330px on the left at `lg`+ */}
       <div className="flex min-w-0 items-center gap-2.5 lg:w-[330px] lg:flex-none">
         <button
@@ -163,71 +163,136 @@ export function CanvasHeader({ videoId }: { videoId: string }) {
       </div>
 
       {/* altitude segmented control — its own row below `lg` (never absolutely
-          centered there, so it can never collide with the right cluster);
-          absolutely centered in the topbar at `lg`+, unchanged from before. */}
-      <div className="flex flex-none self-start gap-0.5 rounded-[10px] border border-line-soft bg-deep p-[3px] lg:absolute lg:left-1/2 lg:-translate-x-1/2 lg:self-auto">
-        {ALTITUDES.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            data-tab={a.id}
-            onClick={() => setAltitude(a.id)}
-            className={`h-[26px] rounded-[7px] px-4 text-[12.5px] font-semibold transition-colors ${
-              altitude === a.id
-                ? "bg-turquoise/[0.14] text-turquoise shadow-[inset_0_0_0_1px_rgba(0,212,170,0.28)]"
-                : "text-dim hover:text-ink"
-            }`}
-          >
-            {a.label}
-          </button>
-        ))}
+          centered there, so it can never collide with the right cluster).
+          At `lg`+ this used to be `absolute left-1/2 -translate-x-1/2`,
+          centered on the FULL bar width with no awareness of how wide the
+          right cluster actually is — found live (2026-07-27) overlapping
+          "Timeline" under "Preview" at 1440px once Preview/Export grew a
+          "coming soon" label: the right cluster's real width (~650px at
+          1440px) pushes past where dead-center sits, and an absolutely
+          positioned element doesn't yield space to its siblings. Fixed by
+          putting it back in normal flex flow as a `flex-1` sibling between
+          the fixed-330px left cluster and the right cluster — flex children
+          never overlap by construction, so it centers in whatever space is
+          actually left instead of the whole bar, and shrinks gracefully
+          before it can collide with anything. `min-w-0`/`basis-0` let it
+          shrink below its content size instead of forcing an overflow. */}
+      <div className="flex flex-none self-start lg:min-w-0 lg:flex-1 lg:basis-0 lg:justify-center lg:self-auto">
+        <div className="flex flex-none gap-0.5 rounded-[10px] border border-line-soft bg-deep p-[3px]">
+          {ALTITUDES.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              data-tab={a.id}
+              onClick={() => setAltitude(a.id)}
+              className={`h-[26px] rounded-[7px] px-3.5 text-[12.5px] font-semibold transition-colors ${
+                altitude === a.id
+                  ? "bg-turquoise/[0.14] text-turquoise shadow-[inset_0_0_0_1px_rgba(0,212,170,0.28)]"
+                  : "text-dim hover:text-ink"
+              }`}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* right cluster — below `lg` the disabled placeholders (Undo, Redo,
-          the 16:9 pill, the divider, Preview, Export) drop out entirely and
-          the row spreads its two load-bearing survivors (cost pill, Build)
-          to opposite edges so neither can be clipped by the viewport. At
-          `lg`+ every control returns and `ml-auto` pushes the whole cluster
-          flush right, unchanged from before. */}
-      <div className="flex items-center justify-between gap-2 lg:ml-auto lg:justify-normal">
-        <button
-          type="button"
-          disabled
-          title="Undo — not available yet"
-          className="hidden h-8 w-8 flex-none items-center justify-center rounded-card-sm text-faint opacity-50 lg:flex"
+      {/* right cluster — below `2xl` the truly-decorative placeholders
+          (Undo, Redo, the divider, Preview, Export) drop out and the row
+          spreads its load-bearing survivors (16:9, cost pill, Build) to
+          opposite edges so nothing can be clipped by the viewport.
+          `flex-none` (not `ml-auto` — that's what the altitude control's
+          `flex-1` neighbor already handles, see its comment) keeps this
+          cluster sized to its own content while sitting flush right in the
+          row.
+          Undo/Redo/divider/Preview/Export switched from `lg:` to `2xl:`
+          (2026-07-27, honesty pass): giving Preview/Export a visible "not
+          available yet" reason (see below) makes each ~45px wider than the
+          plain-text buttons they replaced. Measured live at a real 1440px
+          laptop width: left cluster (330px, fixed) + this cluster's old
+          content width (~650px, with the 16:9 pill still in it) left only
+          ~150px for the altitude control's flex-1 slot — less than its own
+          content (~190px+), so it overflowed both directions and visually
+          overlapped "Timeline" under the honest "Preview" button, the exact
+          overlap this pass exists to remove. `2xl` (1536px) is the first
+          standard breakpoint with room for every one of these five plus the
+          altitude tabs with margin to spare; below it they hide, same as
+          today's mobile behavior.
+          The 16:9 pill is pulled OUT of that group and kept unconditional
+          (2026-07-27, follow-up): it's the one control here backed by a
+          real, persisted field — `videos.aspect_ratio`, set at creation in
+          CreateVideoStep.tsx and PATCHable after via `PATCH /api/videos/{id}`
+          (routes/videos.py's `allowed_fields`, validated against
+          {"16:9","9:16","1:1","4:3","3:4"}) — not a stub like the other
+          four. It was ALSO silently wrong before this fix: hardcoded literal
+          "16:9" text regardless of the video's actual ratio, so a 9:16
+          Shorts video still showed "16:9" here. Now reads the real value.
+          Hiding it behind the 2xl gate would have hidden a genuine,
+          already-correct-when-fixed readout at the exact 1440px width the
+          product owner uses — so it keeps the original `lg` tier instead of
+          following its four dead neighbors up to `2xl`. Still read-only
+          (matches this component's original doc comment, "a read-only 16:9
+          pill") — editing aspect ratio mid-production has real cost/rework
+          implications for an already-generated video that deserve their own
+          confirm-and-cost flow, not a silent side effect of an honesty
+          pass. */}
+      <div className="flex items-center justify-between gap-1.5 2xl:flex-none 2xl:justify-normal">
+        {/* Undo/Redo — genuinely unbuilt (no undo stack exists yet). Grouped
+            in one card so the "not built" signal reads without a hover: faint
+            icons plus a visible "soon" tag, not just a disabled attribute a
+            user can't see. Native title tooltip still carries the full reason
+            on hover, same wording as before. */}
+        <div
+          className="hidden items-center gap-0.5 rounded-card-sm border border-line-soft bg-white/[0.02] py-1 pl-1.5 pr-2 2xl:flex"
+          title="Undo and Redo — not available yet"
         >
-          <Undo2 size={15} />
-        </button>
-        <button
-          type="button"
-          disabled
-          title="Redo — not available yet"
-          className="hidden h-8 w-8 flex-none items-center justify-center rounded-card-sm text-faint opacity-50 lg:flex"
-        >
-          <Redo2 size={15} />
-        </button>
-
-        <div className="hidden h-7 items-center rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim lg:flex">
-          16:9
+          <button
+            type="button"
+            disabled
+            title="Undo — not available yet"
+            className="flex h-6 w-6 flex-none items-center justify-center text-faint disabled:cursor-not-allowed"
+          >
+            <Undo2 size={14} />
+          </button>
+          <button
+            type="button"
+            disabled
+            title="Redo — not available yet"
+            className="flex h-6 w-6 flex-none items-center justify-center text-faint disabled:cursor-not-allowed"
+          >
+            <Redo2 size={14} />
+          </button>
+          <span className="pl-0.5 text-[9px] font-semibold uppercase tracking-wide text-faint/80">soon</span>
         </div>
 
-        <div className="hidden h-[22px] w-px bg-line-soft lg:block" />
+        <div
+          className="hidden h-7 items-center rounded-full border border-line-soft bg-deep px-2 text-xs text-dim lg:flex"
+          title="This video's aspect ratio — set at creation, read-only here"
+        >
+          {video?.aspect_ratio || "16:9"}
+        </div>
 
+        <div className="hidden h-[22px] w-px bg-line-soft 2xl:block" />
+
+        {/* Preview/Export — same "genuinely disabled" recipe as the home
+            screen's ComingSoonButton (faint text, not full-contrast ink, plus
+            a visible "coming soon" tag) so this reads the same everywhere in
+            the app, not as a one-off. */}
         <button
           type="button"
           disabled
           title="Preview — not available yet"
-          className="hidden h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50 lg:block"
+          className="hidden h-8 items-center gap-1.5 rounded-[9px] border border-line-soft bg-white/[0.03] px-3.5 text-[13px] font-medium text-faint disabled:cursor-not-allowed 2xl:flex"
         >
-          Preview
+          Preview <span className="text-[9px] uppercase tracking-wide text-faint/70">&middot; coming soon</span>
         </button>
         <button
           type="button"
           disabled
           title="Export — not available yet"
-          className="hidden h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50 lg:block"
+          className="hidden h-8 items-center gap-1.5 rounded-[9px] border border-line-soft bg-white/[0.03] px-3.5 text-[13px] font-medium text-faint disabled:cursor-not-allowed 2xl:flex"
         >
-          Export
+          Export <span className="text-[9px] uppercase tracking-wide text-faint/70">&middot; coming soon</span>
         </button>
 
         {/* cost dial */}
