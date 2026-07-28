@@ -52,7 +52,7 @@ const FALLBACK_WIRED_MODELS: { id: string; label: string }[] = [
  */
 export function SceneAltitudeView({ videoId }: { videoId: string }) {
   const queryClient = useQueryClient();
-  const { setFocusedShotId, setAltitude } = useDirector();
+  const { setFocusedShotId } = useDirector();
 
   const assetsQuery = useQuery({
     queryKey: ["video-assets", videoId],
@@ -301,9 +301,20 @@ export function SceneAltitudeView({ videoId }: { videoId: string }) {
                       disabled={false}
                       videoDefaultModel={videoDefaultModel}
                       modelDisplayName={modelDisplayName}
+                      // Bug fix (2026-07-27, live dead-end found by the product
+                      // owner): this used to also call setAltitude("shot"),
+                      // sending a click straight into ShotAltitudePlaceholder
+                      // (CanvasStage.tsx) — an honest "not designed yet" empty
+                      // room with no way back except the altitude tabs above.
+                      // Clicking a shot is the single most obvious interaction
+                      // on this board; dumping the user on an empty screen for
+                      // it reads as the app breaking. Selection-only for now:
+                      // focusedShotId still updates (another workstream wires
+                      // it to chat `@` targeting), but the click no longer
+                      // navigates anywhere until the Shot view is actually
+                      // built. Re-add `setAltitude("shot")` here once it is.
                       onTap={() => {
                         setFocusedShotId(asset.id);
-                        setAltitude("shot");
                       }}
                       // readOnly hides every button below in the UI itself, so
                       // these callbacks are unreachable dead code, not silent

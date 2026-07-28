@@ -9,6 +9,7 @@ import { RightRail } from "./RightRail";
 import { ChatCore } from "@/components/chat/ChatCore";
 import { CollapsedPanelStub, PanelDivider } from "./PanelResizeControls";
 import { CHAT_MAX_WIDTH, CHAT_MIN_WIDTH, RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, usePanelLayout } from "./usePanelLayout";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 /**
  * Top-level Director surface (Chunk 1.A, header/rail wired in Chunk 1.E).
@@ -108,7 +109,11 @@ export function DirectorSurface() {
   });
 
   if (selectedVideoId === null) {
-    return <DirectorHome />;
+    return (
+      <ErrorBoundary label="home screen">
+        <DirectorHome />
+      </ErrorBoundary>
+    );
   }
 
   // Only apply a custom width once hydrated AND at `lg`+ — before hydration
@@ -121,7 +126,20 @@ export function DirectorSurface() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <CanvasHeader videoId={selectedVideoId} />
+      {/* Error boundaries wrap each panel individually, NOT the whole
+          surface in one — bug 2 fix (2026-07-27 audit): before this,
+          nothing in layout.tsx / DirectorSurface.tsx / CanvasStage.tsx
+          caught a render exception, so one uncaught throw in ANY of
+          header/chat/canvas/rail took the entire Director surface down.
+          `resetKeys={[selectedVideoId]}` on each so a crash tied to one
+          video doesn't stay stuck showing its fallback after switching to a
+          different, working video. CanvasStage.tsx and SceneAltitudeView.tsx
+          are NOT touched here on purpose — another workstream has live
+          edits in progress there; wrapping from this file gives the same
+          protection without adding a diff to either. */}
+      <ErrorBoundary label="header" resetKeys={[selectedVideoId]}>
+        <CanvasHeader videoId={selectedVideoId} />
+      </ErrorBoundary>
 
       <div ref={rowRef} className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
         {/* Chat column — the shared chat engine (DIRECTOR-CHAT-PLAN.md Task 1.2).
@@ -173,13 +191,15 @@ export function DirectorSurface() {
             }`}
             data-director-chat-column="true"
           >
-            <ChatCore
-              docked={false}
-              activeVideoId={selectedVideoId}
-              onVideoCreated={(id) => setSelectedVideoId(id)}
-              initialMessage={pendingInitialMessage}
-              initialIntent={pendingInitialIntent}
-            />
+            <ErrorBoundary label="chat" resetKeys={[selectedVideoId]}>
+              <ChatCore
+                docked={false}
+                activeVideoId={selectedVideoId}
+                onVideoCreated={(id) => setSelectedVideoId(id)}
+                initialMessage={pendingInitialMessage}
+                initialIntent={pendingInitialIntent}
+              />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -211,7 +231,9 @@ export function DirectorSurface() {
             inside it, never breaks even then; only scoped, deliberately not
             chased further here (see commit message). */}
         <div className="flex min-w-[320px] flex-1 flex-col bg-void">
-          <CanvasStage videoId={selectedVideoId} />
+          <ErrorBoundary label="canvas" resetKeys={[selectedVideoId]}>
+            <CanvasStage videoId={selectedVideoId} />
+          </ErrorBoundary>
         </div>
 
         {!railCollapsed && (
@@ -232,7 +254,9 @@ export function DirectorSurface() {
         {railCollapsed ? (
           <CollapsedPanelStub side="right" label="Media rail" onExpand={layout.expandRail} />
         ) : (
-          <RightRail videoId={selectedVideoId} widthPx={railWidthPx ?? undefined} panelRef={railColumnRef} />
+          <ErrorBoundary label="media rail" resetKeys={[selectedVideoId]}>
+            <RightRail videoId={selectedVideoId} widthPx={railWidthPx ?? undefined} panelRef={railColumnRef} />
+          </ErrorBoundary>
         )}
       </div>
     </div>

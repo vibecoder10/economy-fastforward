@@ -922,7 +922,7 @@ export function ChatCore({
     return (
       <div className="max-w-3xl mx-auto flex flex-col items-center text-center pt-10 md:pt-20">
         <div className="w-full flex justify-end mb-2">
-          <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
+          <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} scopeVideoId={activeVideoId} />
         </div>
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center mb-5"
@@ -1049,7 +1049,7 @@ export function ChatCore({
         className="w-full max-w-3xl mx-auto flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 pb-32"
       >
         <div className="flex justify-end -mb-1">
-          <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} />
+          <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} scopeVideoId={activeVideoId} />
         </div>
         {!started && activeVideoId && (
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
@@ -1281,10 +1281,24 @@ function ChatHistoryMenu({
   onPick,
   onNew,
   disabled,
+  scopeVideoId,
 }: {
   onPick: (cid: string) => void;
   onNew: () => void;
   disabled?: boolean;
+  // Bug fix (2026-07-27 audit, "does one video's chat bleed into another's"):
+  // `listChatConversations` returns the TENANT'S conversations, not this
+  // video's — verified live, picking an entry for a different video loaded
+  // that video's whole thread (script summary, production-progress widget,
+  // "Write the script" action) into THIS video's still-open canvas/header,
+  // with no indication anything had switched. Every call site that renders
+  // this menu today is scoped to one open video (the tenant-level "no video
+  // open" home branch that would leave this `undefined` is currently
+  // unreachable — DirectorSurface always supplies a real video — but the
+  // filter degrades safely to "show everything" if that ever changes). When
+  // set, the list only offers conversations that belong to THIS video, so
+  // picking one can never swap in another video's context.
+  scopeVideoId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<ChatConversationSummary[] | null>(null);
@@ -1296,7 +1310,8 @@ function ChatHistoryMenu({
     if (next) {
       setLoading(true);
       try {
-        setItems(await listChatConversations(20));
+        const all = await listChatConversations(20);
+        setItems(scopeVideoId ? all.filter((c) => c.video_id === scopeVideoId) : all);
       } catch {
         setItems([]);
       } finally {
@@ -1332,7 +1347,9 @@ function ChatHistoryMenu({
             <div className="my-1 h-px" style={{ background: "var(--border-subtle)" }} />
             {loading && <div className="px-3 py-2 text-xs" style={{ color: "var(--text-tertiary)" }}>Loading…</div>}
             {!loading && items && items.length === 0 && (
-              <div className="px-3 py-2 text-xs" style={{ color: "var(--text-tertiary)" }}>No past chats yet.</div>
+              <div className="px-3 py-2 text-xs" style={{ color: "var(--text-tertiary)" }}>
+                {scopeVideoId ? "No past chats for this video yet." : "No past chats yet."}
+              </div>
             )}
             {!loading && items && items.map((c) => (
               <button
