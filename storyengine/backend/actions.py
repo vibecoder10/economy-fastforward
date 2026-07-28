@@ -1073,7 +1073,8 @@ async def ensure_scriptable(tenant_id, video_id) -> None:
 
 
 def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[int] = None,
-                     start_msg: str = "On it…", stage: str = "main"):
+                     start_msg: str = "On it…", stage: str = "main",
+                     force_rewrite: bool = False):
     """Run an action's executor methods in order, passing scene= to the ones that
     accept it. Same task-status channel as the rest so the page's trackers light
     up. Stops on the first error.
@@ -1086,6 +1087,14 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
     finally block that already runs on every exit path (success, the
     first-error break, and any raised exception), so the claim can never
     outlive the task body it was taken for.
+
+    D3-51: `force_rewrite` rides along to run_script only — the caller
+    (routes/chat.py's _run_pending_action) sets it True exactly when this
+    dispatch just applied a follow-up edit (apply_followup_edit) onto the
+    "script" verb, so a confirmed chat change always overrides run_script's
+    "supplied script verbatim" shortcut instead of silently getting eaten
+    by it (see PipelineExecutor.run_script's own docstring for the full
+    story). A no-op for every other verb's calls list.
     """
     from pipeline_executor import PipelineExecutor
     from routes.pipeline import _clear_task_status, _set_task_status
@@ -1120,6 +1129,8 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
                     kwargs["force"] = True
                 if name in {"run_script", "run_voice"}:
                     kwargs["progress_callback"] = _progress
+                if name == "run_script" and force_rewrite:
+                    kwargs["force_rewrite"] = True
                 result = await method(video_id, **kwargs) or {}
                 if result.get("error"):
                     break
