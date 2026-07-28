@@ -50,6 +50,24 @@ the timeline (a scene can span up to 5 board sheets internally - still one
 block). This matches how the chat already numbers scenes and avoids a second
 numbering system.
 
+## Build log
+
+- T1 DONE 2026-07-28: branch feat/t1-timeline-slot-model @ c7dcdb62.
+  buildTimelineSlots() in canvas-shared/timeline-slots.ts, 13/13 unit tests
+  (vitest added - the frontend had NO unit runner before, only Playwright).
+  Parser verdict re-proven two ways: parseEnforcedPlan is canonical,
+  image_index = COVERAGE_INDEX_BASE(100) + per-frame increment over the same
+  post-budget moments list the sheets are built from. TWO NEW FINDINGS:
+  (a) storyboard_prompts is truncated to 5 sheets but the picture pass draws
+  every planned shot - panels past sheet 5 surface as honest "overflow"
+  slots (board null, real fill-state). (b) The LIVE clip-failure path never
+  persists a failure marker on the asset row - a failed clip is
+  indistinguishable from never-attempted. state=failed is wired defensively
+  but only fires for static_docu markers today. T2/T3: do NOT build a
+  failure badge that promises to fire for animation channels. NEW BACKEND
+  CHUNK FILED: T5b - persist a clip-failure marker on assets in the live
+  path so the timeline can show failed honestly (goes with T5).
+
 ## Chunks
 
 T1. Slot model (frontend-pure, tested). One function: storyboards + assets
@@ -92,10 +110,38 @@ per-scene buttons too, so the timeline is useful before chat routing lands.
   the money path is never widened without its guard - contract triangle law).
 - Phase 4: T8 proof walk.
 
-## Decisions Ryan owns before build starts
+## Ryan's expanded vision (2026-07-28, second pass - his words distilled)
 
-1. Approve the vocabulary call (storyboard N = scene N).
-2. Approve ordinal-lanes-v1 (no time ruler until clips exist).
-3. Phase 2/3 order can flip if chat-first matters more than clips-first -
-   default recommendation is clips-first (T5/T6) because it needs no
-   money-path changes.
+- The chat surface IS the product now. The old click-through pipeline pages
+  get retired eventually; they stay untouched for now. The old UI's small
+  side co-pilot inverts: chat up front as the driver, windows show assets.
+- Folder UX: characters, scenes, storyboards all land in clean asset folders
+  that tie back to the user's own Google Drive folders (storage is already
+  Drive - this is surfacing it, not new plumbing).
+- The timeline is the editor function - peek under the hood, edit anything;
+  once locked in, flip to automation. Quick generate-and-edit always stays
+  one chat message away.
+- Flow he described: storyboards populate the timeline as they are drawn ->
+  chat proactively RECOMMENDS the next step ("ready to generate images, or
+  just one storyboard?") -> "generate images from storyboard 1" unpacks it
+  in place, sitting next to still-packed storyboard 2 -> targeted edit:
+  "change storyboard 1 image 5 to have the character do X" rewrites the
+  prompt and regenerates that one image in one go. The system knows where
+  you are at all times.
+- New requirement this adds to T4/T5: the chat should also PROACTIVELY offer
+  the generate step when storyboards finish, not only respond to commands.
+  The approval-gate machinery (D3-20) is the natural home for that offer.
+- Targeted-edit regen ("storyboard 1 image 5") maps to existing pieces:
+  ui_context asset targeting (D3-5) + edit_shot_image_prompt + single-shot
+  redraw. Slot addressing from the timeline must feed the same targeting.
+- CAVEAT filed, not planned: DvsU channels need a similar timeline
+  population but have real layout nuances vs animation channels. Own
+  planning pass later; do not let it block the animation-channel build.
+
+## Decisions - MADE by Ryan 2026-07-28, plan is APPROVED to build
+
+1. Storyboard N = scene N. Locked.
+2. Ordinal lanes v1, time ruler only once clips exist. Locked.
+3. Clips-first (T5/T6 before T4/T7). Locked, with Ryan's rider: after
+   clips-first lands, the chat must be able to "do whatever we ask" - T4 is
+   not a nice-to-have, it is the committed follow-on, full command coverage.
