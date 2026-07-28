@@ -9,7 +9,7 @@
 // (welcome hero, auto-onboarding, OAuth resume) and the layout (composer + width).
 // ChatHome is a thin wrapper over <ChatCore /> so the home flow is unchanged.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -37,6 +37,7 @@ import {
   getVideo,
   getChannelCast,
   getStyleDefault,
+  type ChatUiContext,
   type ChatCard,
   type ChatCardImage,
   type ChatDnaFieldRow,
@@ -267,6 +268,7 @@ export function ChatCore({
   videoId,
   docked = false,
   uiContext,
+  selectionChip,
   onVideoCreated,
   activeVideoId,
   initialMessage,
@@ -274,7 +276,16 @@ export function ChatCore({
 }: {
   videoId?: string;
   docked?: boolean;
-  uiContext?: { tab?: string; scene?: number; index?: number } | null;
+  uiContext?: ChatUiContext | null;
+  // An optional small pill rendered directly above the composer, naming
+  // whatever the NEXT message will act on (a selected shot or character) —
+  // "honest and small", per the Director-surface brief: the creator should
+  // never have to guess what "make him older" is about to change. Deliberately
+  // a plain ReactNode, not a DirectorContext read: ChatCore is also mounted by
+  // the old pipeline dock and ImagesStagePanel, neither of which has a
+  // DirectorProvider in its tree, so the caller (DirectorSurface.tsx) builds
+  // the chip itself and hands it down as a prop — same pattern as `uiContext`.
+  selectionChip?: ReactNode;
   onVideoCreated?: (id: string) => void;
   activeVideoId?: string | null;
   // A message to send as the FIRST turn, automatically, the moment this mounts
@@ -871,6 +882,7 @@ export function ChatCore({
           <div ref={endRef} />
         </div>
         <div className="absolute bottom-0 left-0 right-0 px-3 py-3" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
+          {selectionChip}
           <Composer
             input={input}
             setInput={setInput}
@@ -1025,6 +1037,7 @@ export function ChatCore({
       {/* composer pinned at the bottom of the shell */}
       <div className="absolute bottom-0 left-0 right-0 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
         <div className="max-w-3xl mx-auto">
+          {selectionChip}
           <Composer
             input={input}
             setInput={setInput}

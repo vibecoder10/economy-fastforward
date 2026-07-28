@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useDirector } from "./DirectorContext";
+import { useQuery } from "@tanstack/react-query";
+import { Clapperboard, Film, Users, X } from "lucide-react";
+import { useDirector, type SelectedEntity } from "./DirectorContext";
 import { DirectorHome } from "./DirectorHome";
 import { CanvasHeader } from "./CanvasHeader";
 import { CanvasStage } from "./CanvasStage";
@@ -9,6 +11,7 @@ import { RightRail } from "./RightRail";
 import { ChatCore } from "@/components/chat/ChatCore";
 import { CollapsedPanelStub, PanelDivider } from "./PanelResizeControls";
 import { CHAT_MAX_WIDTH, CHAT_MIN_WIDTH, RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, usePanelLayout } from "./usePanelLayout";
+import { getVideoAssets, getVideoCharacters, getEnvironments, type ChatUiContext } from "@/lib/api";
 
 /**
  * Top-level Director surface (Chunk 1.A, header/rail wired in Chunk 1.E).
@@ -26,6 +29,10 @@ export function DirectorSurface() {
   const {
     selectedVideoId,
     setSelectedVideoId,
+    altitude,
+    focusedShotId,
+    selectedEntity,
+    railTab,
     pendingInitialMessage,
     setPendingInitialMessage,
     pendingInitialIntent,
@@ -111,6 +118,23 @@ export function DirectorSurface() {
     return <DirectorHome />;
   }
 
+  // What the canvas/rail are showing right now (DIRECTOR-CHAT-PLAN.md Task
+  // 5.4a) — sent on every turn so "make him older" resolves to the actual
+  // shot/character on screen instead of the classifier guessing. `scene`/
+  // `index` are deliberately omitted: there is no "current scene" concept on
+  // this surface (SceneAltitudeView lists every scene at once, unlike the
+  // old per-image pipeline dock those two fields were built for) —
+  // `focusedAssetId` is this surface's equivalent, more precise signal, and
+  // the backend already resolves an asset id ahead of any scene/index guess
+  // (routes/chat.py `_resolve_prompt_target`).
+  const uiContext: ChatUiContext = {
+    altitude,
+    focusedAssetId: focusedShotId,
+    railTab,
+    selectedEntityId: selectedEntity?.id ?? null,
+    selectedEntityType: selectedEntity?.kind ?? null,
+  };
+
   // Only apply a custom width once hydrated AND at `lg`+ — before hydration
   // or below `lg`, render exactly the original classes (no inline style),
   // so a fresh visitor and a narrow viewport both see today's layout.
@@ -138,9 +162,12 @@ export function DirectorSurface() {
             `selectedVideoId` is narrowed to a real string here (the `null` case
             returns <DirectorHome /> above), so `activeVideoId` is always the
             real open video, never a stale fallback — never re-derived from
-            anything else. `uiContext` is left unset: widening it to carry
-            altitude/scene/rail state is its own future task
-            (DIRECTOR-CHAT-PLAN.md line ~448), out of this chunk's scope. */}
+            anything else. `uiContext` now carries altitude/focusedAssetId/
+            railTab/selectedEntity state (DIRECTOR-CHAT-PLAN.md Task 5.4a,
+            built just above) — no longer left unset. `selectionChip` is a
+            separate prop (not folded into uiContext, which is opaque data
+            for the backend) so the creator can SEE what that context object
+            is about to target; see `SelectionChip` below. */}
         {/* `relative` + `transform-gpu` make this column a CSS containing
             block, so ChatCore's `fixed bottom-0 left-0 right-0 md:left-60`
             composer (ChatCore.tsx ~L810, undocked/home layout) resolves
@@ -173,6 +200,8 @@ export function DirectorSurface() {
               onVideoCreated={(id) => setSelectedVideoId(id)}
               initialMessage={pendingInitialMessage}
               initialIntent={pendingInitialIntent}
+              uiContext={uiContext}
+              selectionChip={<SelectionChip videoId={selectedVideoId} />}
             />
           </div>
         )}
@@ -229,6 +258,86 @@ export function DirectorSurface() {
           <RightRail videoId={selectedVideoId} widthPx={railWidthPx ?? undefined} panelRef={railColumnRef} />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Show the current target somewhere honest and small" — the visible half
+ * of Task 5.4a. Renders directly above ChatCore's composer (passed in as
+ * the `selectionChip` prop) naming whatever `uiContext.focusedAssetId` /
+ * `selectedEntityId` is about to send, with a one-tap clear. Reads the
+ * SAME cached queries SceneAltitudeView/RightRail already fired
+ * (`["video-assets", videoId]`, `["video-characters-gate", videoId]`,
+ * `["video-environments", videoId]` — React Query dedupes by key, so this
+ * is a cache hit in the normal case, not a second network round-trip) just
+ * to resolve a human label (a shot's scene.index, a character/environment's
+ * name) for an id DirectorContext only stores as a bare string.
+ *
+ * A separate component (not inlined in DirectorSurface) on purpose: these
+ * `useQuery` calls must never run before DirectorSurface's own early
+ * `if (selectedVideoId === null) return <DirectorHome />` — mounting them
+ * here, where `videoId` is only ever a real string, keeps that guard a
+ * plain hooks-safe early return instead of a conditional hook call.
+ */
+function SelectionChip({ videoId }: { videoId: string }) {
+  const { focusedShotId, setFocusedShotId, selectedEntity, setSelectedEntity } = useDirector();
+  const hasSelection = !!focusedShotId || !!selectedEntity;
+
+  const assetsQuery = useQuery({
+    queryKey: ["video-assets", videoId],
+    queryFn: () => getVideoAssets(videoId),
+    enabled: !!focusedShotId,
+  });
+  const charactersQuery = useQuery({
+    queryKey: ["video-characters-gate", videoId],
+    queryFn: () => getVideoCharacters(videoId),
+    enabled: selectedEntity?.kind === "character",
+  });
+  const environmentsQuery = useQuery({
+    queryKey: ["video-environments", videoId],
+    queryFn: () => getEnvironments(videoId),
+    enabled: selectedEntity?.kind === "environment",
+  });
+
+  if (!hasSelection) return null;
+
+  let icon = <Film size={12} />;
+  let label = "Selected shot";
+  let onClear = () => setFocusedShotId(null);
+
+  if (focusedShotId) {
+    const asset = assetsQuery.data?.find((a) => a.id === focusedShotId);
+    label = asset ? `Shot ${asset.scene ?? "?"}.${asset.image_index ?? "?"}` : "Selected shot";
+    onClear = () => setFocusedShotId(null);
+  } else if (selectedEntity?.kind === "character") {
+    const character = charactersQuery.data?.characters.find((c) => c.id === selectedEntity.id);
+    icon = <Users size={12} />;
+    label = character ? character.name : "Selected character";
+    onClear = () => setSelectedEntity(null);
+  } else if (selectedEntity?.kind === "environment") {
+    const environment = environmentsQuery.data?.environments.find((e) => e.id === selectedEntity.id);
+    icon = <Clapperboard size={12} />;
+    label = environment ? environment.name : "Selected location";
+    onClear = () => setSelectedEntity(null);
+  }
+
+  return (
+    <div className="mb-1.5 flex items-center justify-between gap-2 rounded-full px-3 py-1.5" style={{ background: "var(--turquoise-dim)", border: "1px solid var(--turquoise-dim)" }}>
+      <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium" style={{ color: "var(--turquoise)" }}>
+        {icon}
+        <span className="truncate">Talking about: {label}</span>
+      </span>
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={`Clear ${label} as chat's target`}
+        title="Clear — the next message won't be pinned to this"
+        className="shrink-0 rounded-full p-0.5 transition-colors hover:brightness-125"
+        style={{ color: "var(--turquoise)" }}
+      >
+        <X size={13} />
+      </button>
     </div>
   );
 }

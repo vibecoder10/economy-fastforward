@@ -3272,6 +3272,44 @@ export interface ProductionPlan {
   estimated_cost?: number;
   estimated_cost_text?: string;
 }
+// What the creator is looking at, so a bare "this"/"him"/"it" resolves without
+// naming it. Every field is optional and additive — the two long-standing
+// producers (pipeline/[videoId]/page.tsx's `{ tab }`, ImagesStagePanel.tsx's
+// `{ tab, scene }`) are still valid values of this same type, unchanged.
+// Widened (DIRECTOR-CHAT-PLAN.md Task 5.4a) so the Director surface can carry
+// what its canvas/rail are actually showing:
+//   - `altitude`: which of Shot/Scene/Timeline the canvas is on
+//     (DirectorContext.tsx `Altitude`).
+//   - `focusedAssetId`: the exact `assets.id` of a tapped shot
+//     (DirectorContext.tsx `focusedShotId`) — the backend resolves this
+//     DIRECTLY (routes/chat.py `_resolve_prompt_target`), skipping the
+//     scene/index guess entirely, so "make him older" with a shot selected
+//     can never land on the wrong picture in a multi-shot scene.
+//   - `selectedEntityId` / `selectedEntityType`: a character or environment
+//     picked in the right rail (DirectorContext.tsx `SelectedEntity`) — the
+//     plan's shape names only `selectedEntityId`; `selectedEntityType` is an
+//     addition (not in the plan doc) because a character id and an
+//     environment id are different tables/id-spaces on the backend and
+//     `selectedEntityId` alone can't say which one to query.
+//   - `railTab`: which right-rail tab is open (DirectorContext.tsx `RailTab`).
+// `scene`/`index` are NOT populated by the Director surface today — there is
+// no "the creator is looking at scene N" concept there (SceneAltitudeView
+// renders every scene in one scrollable list, not one at a time, unlike the
+// old per-image pipeline dock these two fields were built for). They stay in
+// the type for the two existing producers and as a lower-priority fallback
+// path the backend already had; `focusedAssetId` is the Director surface's
+// equivalent, more precise signal.
+export interface ChatUiContext {
+  tab?: string;
+  scene?: number;
+  index?: number;
+  altitude?: "shot" | "scene" | "timeline";
+  focusedAssetId?: string | null;
+  railTab?: "media" | "voice" | "music" | "cast" | "env";
+  selectedEntityId?: string | null;
+  selectedEntityType?: "character" | "environment" | null;
+}
+
 export interface ChatTurnRequest {
   conversation_id?: string | null;
   message?: string | null;
@@ -3283,7 +3321,7 @@ export interface ChatTurnRequest {
   // conversation per video AND hold paid/destructive actions behind a confirm card.
   video_id?: string | null;
   // What the creator is looking at, so "this image" resolves without naming it.
-  ui_context?: { tab?: string; scene?: number; index?: number } | null;
+  ui_context?: ChatUiContext | null;
   // Files dropped into the chat this turn: chat_assets ids from uploadChatAsset.
   attachments?: string[];
   // A caller that already KNOWS which verb this turn should run — today, only

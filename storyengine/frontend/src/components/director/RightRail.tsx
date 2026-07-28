@@ -12,8 +12,8 @@ import {
 } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 import { SecureAudioPlayer } from "@/components/canvas-shared/SecureAudioPlayer";
+import { useDirector, type RailTab } from "./DirectorContext";
 
-type RailTab = "media" | "voice" | "music" | "cast" | "env";
 type MediaMode = "boards" | "images" | "videos";
 
 const RAIL_TABS: { id: RailTab; label: string; icon: typeof Images }[] = [
@@ -44,7 +44,11 @@ export function RightRail({
    * width at drag/keydown start — see PanelResizeControls.tsx. */
   panelRef?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const [tab, setTab] = useState<RailTab>("media");
+  // Lifted into DirectorContext (was local useState) so DirectorSurface can
+  // read the active tab for chat's `ui_context.railTab` — see RailTab's doc
+  // in DirectorContext.tsx. Behavior here is unchanged, just where the
+  // state lives.
+  const { railTab: tab, setRailTab: setTab } = useDirector();
 
   return (
     <div
@@ -273,10 +277,18 @@ function MusicPanel({ videoId }: { videoId: string }) {
   );
 }
 
-/** Cast — LIVE via getVideoCharacters (same call ScenesWorkspaceTab uses). */
+/** Cast — LIVE via getVideoCharacters (same call ScenesWorkspaceTab uses).
+ * Tapping a tile selects that character as chat's next target (the
+ * DirectorContext `selectedEntity` half of "select a shot or a character,
+ * then say 'make him older'" — see DirectorContext.tsx). Tapping the
+ * already-selected tile clears it, same toggle affordance as a shot's
+ * focus. The selection is surfaced back to the creator by the chip near
+ * the chat composer (DirectorSurface.tsx `SelectionChip`), not here — this
+ * tile only needs to show ITS OWN selected state. */
 function CastPanel({ videoId }: { videoId: string }) {
   const query = useQuery({ queryKey: ["video-characters-gate", videoId], queryFn: () => getVideoCharacters(videoId) });
   const characters = query.data?.characters ?? [];
+  const { selectedEntity, setSelectedEntity } = useDirector();
 
   return (
     <div>
@@ -285,33 +297,46 @@ function CastPanel({ videoId }: { videoId: string }) {
       {!query.isLoading && characters.length === 0 && <EmptyNote>No cast designed yet.</EmptyNote>}
       {characters.length > 0 && (
         <div className="grid grid-cols-3 gap-1.5">
-          {characters.map((c) => (
-            <div key={c.id} className="relative aspect-square overflow-hidden rounded-[9px] border border-line-soft bg-deep">
-              {c.reference_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={toDisplayImageUrl(c.reference_url)} alt="" className="absolute inset-0 h-full w-full object-cover" />
-              ) : null}
-              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 py-1 text-center text-[9px] text-white/90">
-                {c.name}
-              </span>
-            </div>
-          ))}
+          {characters.map((c) => {
+            const on = selectedEntity?.kind === "character" && selectedEntity.id === c.id;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setSelectedEntity(on ? null : { id: c.id, kind: "character" })}
+                title={on ? `Clear ${c.name} as chat's target` : `Talk to chat about ${c.name}`}
+                className="relative aspect-square overflow-hidden rounded-[9px] border bg-deep transition-colors"
+                style={{ borderColor: on ? "var(--turquoise)" : undefined, boxShadow: on ? "0 0 0 1px var(--turquoise)" : undefined }}
+              >
+                {c.reference_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={toDisplayImageUrl(c.reference_url)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : null}
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 py-1 text-center text-[9px] text-white/90">
+                  {c.name}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       {characters.length > 0 && (
         <p className="mt-2.5 text-[10.5px] leading-relaxed text-faint">
           Every drawing in this video is pinned to these sheets. Change a sheet and the shots that use it get
-          flagged for a redraw.
+          flagged for a redraw. Tap one to make it chat&apos;s next target.
         </p>
       )}
     </div>
   );
 }
 
-/** Environments — LIVE via getEnvironments. */
+/** Environments — LIVE via getEnvironments. Same tap-to-select affordance as
+ * CastPanel above, sharing the SAME `selectedEntity` field (`kind: "environment"`
+ * instead of `"character"`). */
 function EnvironmentsPanel({ videoId }: { videoId: string }) {
   const query = useQuery({ queryKey: ["video-environments", videoId], queryFn: () => getEnvironments(videoId) });
   const environments = useMemo(() => query.data?.environments ?? [], [query.data]);
+  const { selectedEntity, setSelectedEntity } = useDirector();
 
   return (
     <div>
@@ -320,23 +345,33 @@ function EnvironmentsPanel({ videoId }: { videoId: string }) {
       {!query.isLoading && environments.length === 0 && <EmptyNote>No environments designed yet.</EmptyNote>}
       {environments.length > 0 && (
         <div className="grid grid-cols-3 gap-1.5">
-          {environments.map((e) => (
-            <div key={e.id} className="relative aspect-square overflow-hidden rounded-[9px] border border-line-soft bg-deep">
-              {e.reference_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={toDisplayImageUrl(e.reference_url)} alt="" className="absolute inset-0 h-full w-full object-cover" />
-              ) : null}
-              <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 py-1 text-center text-[9px] text-white/90">
-                {e.name}
-              </span>
-            </div>
-          ))}
+          {environments.map((e) => {
+            const on = selectedEntity?.kind === "environment" && selectedEntity.id === e.id;
+            return (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => setSelectedEntity(on ? null : { id: e.id, kind: "environment" })}
+                title={on ? `Clear ${e.name} as chat's target` : `Talk to chat about ${e.name}`}
+                className="relative aspect-square overflow-hidden rounded-[9px] border bg-deep transition-colors"
+                style={{ borderColor: on ? "var(--turquoise)" : undefined, boxShadow: on ? "0 0 0 1px var(--turquoise)" : undefined }}
+              >
+                {e.reference_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={toDisplayImageUrl(e.reference_url)} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                ) : null}
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 py-1 text-center text-[9px] text-white/90">
+                  {e.name}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       {environments.length > 0 && (
         <p className="mt-2.5 text-[10.5px] leading-relaxed text-faint">
           Every place the story visits, drawn once and reused. A shot set in one of these always gets this
-          environment.
+          environment. Tap one to make it chat&apos;s next target.
         </p>
       )}
     </div>

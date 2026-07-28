@@ -230,7 +230,7 @@ def _decision_schema() -> str:
         '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
         'render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|'
         'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
-        '"surface":"image|motion|thumbnail|script|null",'
+        '"surface":"image|motion|thumbnail|script|character|environment|null",'
         '"op":"view|suggest|rewrite|null",'
         '"scene":<int or null>,"index":<int or null>,'
         '"change":"<for action edits: a concrete instruction; for remember: the instruction VERBATIM; for '
@@ -242,6 +242,34 @@ def _decision_schema() -> str:
         '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
         '"confidence":<0.0-1.0>}'
     )
+
+
+def _selection_context_note(ui_context: dict) -> str:
+    """Duplicated from routes/chat.py's `_selection_context_note` (same text,
+    same rationale) rather than imported — chat.py imports THIS module lazily,
+    inside `_handle_copilot`, specifically to dodge a circular import, so
+    agent_brain.py can never import back from routes.chat at module load
+    time. See routes/chat.py's copy for the full docstring on why this is
+    text-only (surface classification) and never id resolution."""
+    lines = []
+    if ui_context.get("focusedAssetId"):
+        lines.append(
+            f"A shot is currently focused on the canvas (asset id {ui_context['focusedAssetId']}). If "
+            "they describe a PICTURE or its MOTION with no scene/shot number named ('this shot', 'this "
+            "one', 'make him older', 'zoom in more') — set kind=prompt, surface=image (or motion for a "
+            "motion/camera direction), and leave scene/index null; I resolve the exact shot from the "
+            "selection myself, never guess a number.\n"
+        )
+    entity_type = ui_context.get("selectedEntityType")
+    if entity_type in ("character", "environment"):
+        noun = "person" if entity_type == "character" else "place"
+        lines.append(
+            f"A {entity_type} is currently selected in the right rail. If they describe that {noun} with "
+            "no name given ('make him older', 'she should look tougher', 'add rain to this place') — set "
+            f"kind=prompt, surface={entity_type}, and leave scene/index null; I resolve the exact "
+            f"{entity_type} from the selection myself, never guess which one.\n"
+        )
+    return "".join(lines)
 
 
 async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
@@ -265,6 +293,7 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         + (f"They are currently viewing scene {ui_context.get('scene')}"
            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
            + ".\n" if ui_context.get("scene") else "")
+        + _selection_context_note(ui_context)
         + f'\nThe creator said: "{message}"\n\n'
         + TOOL_DOC + "\n"
         "VERB MEANINGS (for the final decision): script=rewrite the whole script; characters=design/redesign the CAST "
@@ -297,8 +326,12 @@ async def run_copilot_brain(client, model_for_call, tenant_id, video_id,
         "quality ('finalize the approved scenes', 'finish the ones I approved') — no scene number needed, it "
         "always means whichever scenes are currently approved; if none are approved yet it still classifies "
         "as finalize (the runner explains there's nothing to finalize). PROMPT work (kind=prompt) when they "
-        "discuss the generation PROMPT TEXT itself: set "
-        "surface, op (view|suggest|rewrite), scene/index (use the currently-viewing shot for 'this'), and "
+        "discuss the generation PROMPT TEXT itself, OR describe a CHARACTER's or LOCATION's DESCRIPTION with "
+        "one currently focused/selected ('make him older', 'she should look tougher', 'add rain to this "
+        "place' — see the 'currently focused/selected' note above if present): set "
+        "surface (image|motion|thumbnail|script|character|environment), op (view|suggest|rewrite), scene/index "
+        "(use the currently-viewing shot for 'this'; leave both null for character/environment, or when a "
+        "shot is already focused — see above), and "
         "direction. SHOW work (kind=show) when they want to SEE the actual pictures/storyboards for a scene "
         "('show me scene 2's boards', 'let me see scene 3's pictures') — NOT the prompt text; give the scene "
         "(use the currently-viewing one for 'this scene' with no number named).\n"
