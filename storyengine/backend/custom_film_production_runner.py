@@ -4840,6 +4840,29 @@ class SharedSectionProductionSeams:
                 }
             )
             total_chars += len(text)
+            # generation_ledger (money-safety fix): this section's narration
+            # already cost real ElevenLabs money the moment it was durably
+            # checkpointed above — meter it the same per-character way
+            # pipeline_executor.run_voice already does for the ordinary
+            # narration path (stage="voice", model="elevenlabs"); this is the
+            # same provider billed the same way, just Custom Film's own
+            # durable-operation seam instead of run_voice's. No NEW spend-cap
+            # check here — Custom Film already gates its ENTIRE film's
+            # quoted cost against videos.max_spend up front, before
+            # scheduling any section (custom_film_runtime.compile_runtime_plan,
+            # custom_film_contract.py's approval-time budget_check) — adding a
+            # second, incremental per-line refusal here would be a second
+            # cap mechanism for this subsystem, not a reuse of the existing
+            # one. This call only closes the ledger-visibility gap so
+            # videos.total_cost reflects what Custom Film actually spent.
+            from actions import VOICE_PRICE_PER_1K_CHARS
+            from generation_ledger import record_ledger_entry
+            per_char = VOICE_PRICE_PER_1K_CHARS / 1000
+            await record_ledger_entry(
+                tenant_id=self.tenant_id, video_id=request.video_id, stage="voice",
+                model="elevenlabs", units=len(text), unit_cost=round(per_char, 6),
+                actual_cost=round(len(text) * per_char, 2),
+            )
         return {
             "scene_ids": list(request.scene_ids),
             "voiced_scene_ids": voiced,

@@ -12473,6 +12473,7 @@ separate scenes."""
             # voiced lines are skipped, so sweeps are cheap and idempotent).
             sweeps = 1
             while (not result.get("cancelled")
+                   and not result.get("budget_stopped")
                    and result.get("segments_failed", 0) > 0
                    and sweeps < 3):
                 sweeps += 1
@@ -12507,6 +12508,17 @@ separate scenes."""
                        "Run again to resume.")
                 await self._log_activity(bot_name, video_id, "completed", msg)
                 return {"status": "cancelled", "video_id": video_id, "error": msg, **result}
+
+            # Money-safety fix: a mid-batch cap refusal is a clean pause, not
+            # a failure — matches the "Paused — ..." pattern every other
+            # per-video spend cap uses (actions.make_autobuild_step,
+            # routes/characters.py's design_characters batch).
+            if result.get("budget_stopped"):
+                msg = (f"Paused — voiced {result['segments_voiced']} segment(s) before this "
+                       "video's spend cap would have been exceeded. Raise the cap in "
+                       "Settings, then run Generate Voice again to finish the rest.")
+                await self._log_activity(bot_name, video_id, "completed", msg)
+                return {"status": "completed", "video_id": video_id, "message": msg, **result}
 
             still_failed = result.get("segments_failed", 0)
             if still_failed:
@@ -14648,6 +14660,7 @@ separate scenes."""
                         panels = await extract_grid(
                             grid_url, video_id, scene_num, beat_num, panel_offset,
                             rows=rows, cols=cols, expected_panels=expected,
+                            tenant_id=self.tenant_id,
                         )
                         for p in panels:
                             flags = p.get("flags") or []
@@ -14727,7 +14740,21 @@ separate scenes."""
             upscaled = 0
             if image_client and all_panel_records:
                 await _report(f"Panels extracted! Upscaling {len(all_panel_records)} images...")
+                # Money-safety fix: same real Nano Banana 2 spend as
+                # run_upscale_panels above, and this Pass-2 loop had NO
+                # ledger write and NO cap check either. This path is
+                # EXTRACT_AUTO_UPSCALE-gated (off by default per the comment
+                # above), but metered anyway so a future flip of that flag
+                # can't spend silently.
+                from actions import budget_refusal, picture_price_for
+                pass2_quote = picture_price_for("nano-banana-2")
+                pass2_budget_stopped = False
                 for idx, (asset_id, panel_url, sc_num, bt_num, img_idx) in enumerate(all_panel_records):
+                    refusal = await budget_refusal(self.tenant_id, video_id, pass2_quote, "this panel upscale")
+                    if refusal:
+                        _logger.info("Storyboard-extract upscale stopped by spend cap: %s", refusal)
+                        pass2_budget_stopped = True
+                        break
                     try:
                         await _report(f"Upscaling Scene {sc_num} Image {img_idx} ({idx + 1}/{len(all_panel_records)})")
                         prompt = (
@@ -14751,10 +14778,17 @@ separate scenes."""
                                 upscaled_url, asset_id,
                             )
                             upscaled += 1
+                            await record_ledger_entry(
+                                tenant_id=self.tenant_id, video_id=video_id, stage="image",
+                                model="nano-banana-2", units=1, unit_cost=pass2_quote,
+                                actual_cost=pass2_quote,
+                            )
                     except Exception as e:
                         _logger.warning("Upscale failed for panel %d: %s — keeping original", idx, e)
 
                 msg += f", {upscaled}/{len(all_panel_records)} upscaled"
+                if pass2_budget_stopped:
+                    msg += " (stopped early — spend cap reached)"
 
             # AUTO RE-ANIMATE (Ryan's answer 2): pictures replaced under an
             # existing clip regenerate that clip — only clips that already
@@ -14815,12 +14849,31 @@ separate scenes."""
                 f"{(' Intended wording/content: ' + intent[:280] + '.') if intent else ''}"
             )
             sc, idx = asset["scene"], asset["image_index"]
+
+            # Money-safety fix: this one-tap redraw is a real GPT Image 2
+            # call with NO generation_ledger write and NO cap check — same
+            # per-call refusal pattern as every other single-shot paid site
+            # (actions.budget_refusal).
+            from actions import budget_refusal, picture_price_for
+            quote = picture_price_for("gpt-image-2")
+            refusal = await budget_refusal(self.tenant_id, video_id, quote, "this text fix")
+            if refusal:
+                await self._log_activity(bot_name, video_id, "completed", refusal)
+                return {"status": "completed", "video_id": video_id, "message": refusal}
+
             await self._log_activity(bot_name, video_id, "started", f"Fixing text on S{sc}.{idx} (GPT Image 2)…")
             res = await client.generate_thumbnail_gpt2(prompt, [ref_url], aspect_ratio=aspect)
             new_url = (res or {}).get("url")
             if not new_url:
                 await self._log_activity(bot_name, video_id, "failed", "GPT Image 2 didn't return a card — try again.")
                 return {"status": "failed", "error": "The text fix didn't generate — tap Fix text to try again."}
+
+            # generation_ledger: the redraw above already cost real money the
+            # moment new_url came back.
+            await record_ledger_entry(
+                tenant_id=self.tenant_id, video_id=video_id, stage="image",
+                model="gpt-image-2", units=1, unit_cost=quote, actual_cost=quote,
+            )
 
             durable = await self._persist_url(new_url, f"{video_id}/images/S{sc}-{idx}_text.png")
             await execute(
@@ -14894,7 +14947,7 @@ separate scenes."""
                                      f"Re-cropping S{scene_num} beat {beat_num}")
             panels = await extract_grid(grid_url, video_id, scene_num, beat_num,
                                         panel_offset, rows=rows, cols=cols,
-                                        expected_panels=expected)
+                                        expected_panels=expected, tenant_id=self.tenant_id)
             # Which of the beat's assets already had a clip? Their clips go
             # stale the moment the picture under them changes.
             beat_range = await fetch_all(
@@ -14986,8 +15039,24 @@ separate scenes."""
                                      f"Upscaling {len(raw_panels)} panels")
             await _report(f"Upscaling {len(raw_panels)} images — removing KF labels...")
 
+            # Money-safety fix: every panel here is a real Nano Banana 2 call
+            # (image_client.generate_scene_image is hardcoded to that model —
+            # see shared.clients.image_client.ImageClient.SCENE_MODEL) with
+            # NO generation_ledger write and NO cap check — a video could
+            # have dozens of un-upscaled panels, so this loop alone could
+            # blow past a cap with total_cost never moving. Checked fresh
+            # before EVERY panel (spend accrues across the loop), same
+            # per-iteration pattern as routes/environments.py's design loop.
+            from actions import budget_refusal, picture_price_for
+            quote = picture_price_for("nano-banana-2")
             upscaled = 0
+            budget_stopped = False
             for idx, panel in enumerate(raw_panels):
+                refusal = await budget_refusal(self.tenant_id, video_id, quote, "this panel upscale")
+                if refusal:
+                    _logger.info("Panel upscale stopped by spend cap: %s", refusal)
+                    budget_stopped = True
+                    break
                 try:
                     await _report(
                         f"Upscaling Scene {panel['scene']} Image {panel['image_index']} "
@@ -15014,12 +15083,22 @@ separate scenes."""
                             upscaled_url, panel["id"],
                         )
                         upscaled += 1
+                        # generation_ledger: this upscale already cost real
+                        # money the moment the provider returned a url.
+                        await record_ledger_entry(
+                            tenant_id=self.tenant_id, video_id=video_id, stage="image",
+                            model="nano-banana-2", units=1, unit_cost=quote,
+                            actual_cost=quote,
+                        )
                 except Exception as e:
                     _logger.warning("Upscale failed S%d I%d: %s", panel["scene"], panel["image_index"], e)
 
             msg = f"Upscaled {upscaled}/{len(raw_panels)} panels"
+            if budget_stopped:
+                msg += " — stopped early, this video's spend cap was reached"
             await self._log_activity(bot_name, video_id, "completed", msg)
-            return {"status": "completed", "message": msg, "upscaled": upscaled}
+            return {"status": "completed", "message": msg, "upscaled": upscaled,
+                    "budget_stopped": budget_stopped}
 
         except Exception as e:
             error_msg = str(e) or e.__class__.__name__

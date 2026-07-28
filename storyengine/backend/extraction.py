@@ -374,6 +374,7 @@ async def extract_grid(
     rows: int = 0,
     cols: int = 0,
     expected_panels: int = 0,
+    tenant_id: Optional[str] = None,
 ) -> list[dict]:
     """Extract panels from a grid: PIL crop for accuracy, AI upscale for quality.
 
@@ -394,6 +395,13 @@ async def extract_grid(
         cols: Grid columns for the uniform fallback (0 = auto-detect)
         expected_panels: How many panels the story expects from this grid
             (0 = unknown). Guards rect detection against under/over-counts.
+        tenant_id: Required whenever image_client is passed (money-safety
+            fix) — meters each real Nano Banana 2 upscale to
+            generation_ledger and refuses further upscales once the video's
+            spend cap would be exceeded. No live caller passes image_client
+            today (see pipeline_executor.py's two call sites), so this is
+            currently unreachable, but it's wired so a future caller can't
+            spend silently.
 
     Returns:
         List of dicts with {image_index, panel_url, flags} per panel
@@ -486,6 +494,29 @@ async def extract_grid(
         )
 
         async def _upscale_one(panel_result: dict, index: int) -> Optional[dict]:
+            # Money-safety fix: this is real Nano Banana 2 spend (same fixed
+            # model as run_upscale_panels/run_storyboard_extract's Pass-2 —
+            # ImageClient.generate_scene_image always uses SCENE_MODEL). Not
+            # reachable from any live caller today (both call sites in
+            # pipeline_executor.py pass no image_client), but metered anyway
+            # so a future caller can't spend silently. tenant_id is required
+            # for a live cap check/ledger write; without it (a caller that
+            # somehow reaches this with image_client set but no tenant_id)
+            # this keeps upscaling unmetered rather than crashing — same
+            # fail-open-on-missing-context posture as every other optional
+            # money-safety check in this codebase, logged loudly.
+            if tenant_id:
+                from actions import budget_refusal, picture_price_for
+                quote = picture_price_for("nano-banana-2")
+                refusal = await budget_refusal(tenant_id, video_id, quote, "this panel upscale")
+                if refusal:
+                    logger.info("Panel upscale %d stopped by spend cap: %s", index, refusal)
+                    return panel_result
+            else:
+                logger.warning(
+                    "extract_grid: image_client set but no tenant_id — "
+                    "upscaling panel %d WITHOUT a spend-cap check", index,
+                )
             prompt = (
                 "Upscale this image to high resolution. "
                 "Remove any text labels like [KF1 | LS | 12s], [KF7 | MS | 9s], "
@@ -507,6 +538,13 @@ async def extract_grid(
                 # Persist upscaled version, overwriting the cropped one
                 path = f"{video_id}/images/S{scene}-B{beat}-P{index}.png"
                 upscaled_url = await upload_from_url(result["url"], path)
+                if tenant_id:
+                    from generation_ledger import record_ledger_entry
+                    await record_ledger_entry(
+                        tenant_id=tenant_id, video_id=video_id, stage="image",
+                        model="nano-banana-2", units=1, unit_cost=quote,
+                        actual_cost=quote,
+                    )
                 return {"image_index": panel_result["image_index"], "panel_url": upscaled_url,
                         "flags": panel_result.get("flags", [])}
             except Exception as e:

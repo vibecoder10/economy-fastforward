@@ -107,6 +107,17 @@ async def synthesize_video_segments(
     scenes_touched = 0
     warnings: list[str] = []
     cancelled = False
+    # Money-safety fix: this per-segment loop was doing real ElevenLabs
+    # spend with NO generation_ledger write and NO cap check at all — a
+    # video's max_spend could never stop it. Fixed the same way every other
+    # single-shot paid call site in this codebase now does (see
+    # actions.budget_refusal's docstring): check fresh before EVERY paid
+    # call (spend accrues across this loop, same reasoning as the
+    # character-portrait loop's per-iteration guard), then
+    # generation_ledger.record_ledger_entry after every real spend.
+    from actions import budget_refusal, VOICE_PRICE_PER_1K_CHARS, VOICE_COST_ESTIMATE
+    from generation_ledger import record_ledger_entry
+    budget_stopped = False
 
     for sc in scenes:
         scene_num = sc.get("scene")
@@ -133,6 +144,13 @@ async def synthesize_video_segments(
             text = (seg.get("text") or "").strip()
             if not text:
                 continue
+
+            quote_cost = round(len(text) / 1000 * VOICE_PRICE_PER_1K_CHARS, 4) or VOICE_COST_ESTIMATE
+            refusal = await budget_refusal(tenant_id, video_id, quote_cost, "this dialogue line")
+            if refusal:
+                warnings.append(f"S{scene_num} seg{i}: stopped — {refusal}")
+                budget_stopped = True
+                break
 
             is_dialogue = seg.get("type") == "dialogue"
             speaker = (seg.get("speaker") or "").strip()
@@ -180,6 +198,21 @@ async def synthesize_video_segments(
                 failed += 1
                 continue
 
+            # generation_ledger (money-safety fix): this line already cost
+            # real ElevenLabs money the moment `audio` came back non-empty —
+            # meter it before anything else can fail this segment. Same
+            # per-character pricing pipeline_executor.run_voice already uses
+            # for narration (VOICE_PRICE_PER_1K_CHARS), since this is the
+            # SAME provider billed the SAME way, just a different segment
+            # source. No kie_task_id (ElevenLabs doesn't hand back a stable
+            # per-request id here) — same as run_voice's own ledger write.
+            per_char = VOICE_PRICE_PER_1K_CHARS / 1000
+            await record_ledger_entry(
+                tenant_id=tenant_id, video_id=video_id, stage="dialogue_voice",
+                model="elevenlabs", units=len(text), unit_cost=round(per_char, 6),
+                actual_cost=round(len(text) * per_char, 2),
+            )
+
             url = await upload_bytes(
                 audio, f"{video_id}/voice/S{scene_num}-seg{i}.mp3", "audio/mpeg"
             )
@@ -198,7 +231,7 @@ async def synthesize_video_segments(
 
         if scene_changed or any(s.get("audio_url") for s in segments):
             scenes_touched += 1
-        if cancelled:
+        if cancelled or budget_stopped:
             break
 
     return {
@@ -208,4 +241,5 @@ async def synthesize_video_segments(
         "scenes": scenes_touched,
         "warnings": warnings,
         "cancelled": cancelled,
+        "budget_stopped": budget_stopped,
     }

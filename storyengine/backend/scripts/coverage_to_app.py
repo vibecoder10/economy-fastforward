@@ -957,8 +957,21 @@ async def redo_characters(vid, tenant, claude, claude_model, ic, script_text, on
         print("No characters to redo."); return 0
     v = await fetch_one("SELECT image_model_override FROM videos WHERE id=$1 AND tenant_id=$2", vid, tenant)
     model_override = (v or {}).get("image_model_override")
+    # Money-safety fix: this CLI-only rebuild is a real image spend (nano-banana-2
+    # or GPT Image 2 depending on model_override) with NO generation_ledger write
+    # and NO cap check — same per-iteration pattern every other character/image
+    # generation loop in this codebase now uses (actions.budget_refusal). Not
+    # reachable from the app today (CLI-only), but it duplicates a feature
+    # (character-sheet generation) that IS metered elsewhere in the app
+    # (routes/characters.py), so it's fixed the same way here rather than left
+    # as a second, silent way to spend on the same video.
+    from actions import budget_refusal, picture_price_for
     n = 0
     for r in rows:
+        refusal = await budget_refusal(tenant, vid, picture_price_for(model_override), "this character sheet")
+        if refusal:
+            print(f"  Stopped — {refusal}")
+            break
         desc = (r["description"] or "").strip()
         # tighten only if it isn't already a precise locked description
         if len(desc) < 200:
@@ -974,12 +987,17 @@ async def redo_characters(vid, tenant, claude, claude_model, ic, script_text, on
             desc = ((await claude.generate(**kw)) or "").strip() or r["description"]
         prompt = CHARACTER_SHEET_TEMPLATE.format(style=CHARACTER_SHEET_STYLE, desc=desc)
         # No reference image — the 4-view sheet IS the identity anchor being (re)built.
-        url, _model_used = await generate_scene_image_for_model(ic, model_override, prompt, aspect_ratio="16:9")
+        url, model_used = await generate_scene_image_for_model(ic, model_override, prompt, aspect_ratio="16:9")
         if not url:
             print(f"  {r['name']}: 4-view sheet generation FAILED — keeping old"); continue
         stable = await _stable_url(url, f"{vid}/characters/{r['name'].replace(' ', '_')}_sheet.png", tenant)
         await execute("UPDATE video_characters SET description=$1, reference_url=$2, updated_at=now() "
                       "WHERE id=$3", desc, stable, r["id"])
+        sheet_cost = picture_price_for(model_used)
+        await record_ledger_entry(
+            tenant_id=tenant, video_id=vid, stage="character_sheet", model=model_used,
+            units=1, unit_cost=sheet_cost, actual_cost=sheet_cost,
+        )
         n += 1
         print(f"  {r['name']}: PHOTOREAL 4-view sheet set")
     return n
