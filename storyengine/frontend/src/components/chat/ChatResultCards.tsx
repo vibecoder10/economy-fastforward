@@ -17,6 +17,7 @@
 // a collage + a "Characters × N / Locations × M" count line).
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -28,6 +29,9 @@ import {
   LayoutGrid,
   ImageOff,
   Loader2,
+  PencilLine,
+  Images,
+  X,
 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import {
@@ -36,6 +40,7 @@ import {
   getEnvironments,
   type VideoCharacter,
   type VideoEnvironment,
+  type ChatCard,
 } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 
@@ -298,5 +303,491 @@ export function StoryboardGridCard({ videoId }: { videoId: string }) {
         </AnimatePresence>
       </div>
     </GlassCard>
+  );
+}
+
+// --- Approval gate (script / anchors) ------------------------------------
+// ONE reusable card kind (id "approval_gate", card.gate_kind picks the
+// variant) for the two "pause here so I can see it before you spend more"
+// checkpoints the product owner asked for (DIRECTOR-CHAT-PLAN.md Task 5.2):
+//   - "script": the script just finished — review it before the cast and
+//     locations get designed.
+//   - "anchors": the cast AND locations just finished (together, one gate,
+//     never two) — review them before storyboards/pictures spend more.
+// Modeled on ~/Desktop/Open Art UI/ Screenshot 2026-07-24 at 7.48.10 AM (script
+// gate: compact card with a document preview, Edit/Looks good!) and 7.59.43 AM
+// + 7.59.55 AM (anchor gate: compact "Characters x N / Locations x M" card,
+// View opens a named CHARACTERS/LOCATIONS gallery). Both fetch through the
+// SAME endpoints ScriptResultCard/CastLocationsCard above already use — this
+// card never invents a new query, per the reuse note in the backend's
+// _approval_gate_card docstring (routes/chat.py).
+//
+// Honest divergence from the reference: OpenArt's character tile is a
+// composite turnaround sheet (one hero face + smaller full-body/expression
+// shots around it). StoryEngine's data model stores exactly ONE reference
+// image per character/environment (video_characters.reference_url) — there
+// is no multi-angle sheet to show. The large named hero tile below is the
+// closest honest match to what this app actually has, not a simulated sheet.
+
+function costLineFor(card: ChatCard) {
+  const breakdown = card.breakdown;
+  if (breakdown && breakdown.lines.length > 0) {
+    return (
+      <div
+        className="flex flex-col gap-1 rounded-lg px-2.5 py-2"
+        style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+      >
+        {breakdown.lines.map((ln) => (
+          <div key={ln.model_id} className="flex items-center justify-between text-[11px]">
+            <span style={{ color: "var(--text-secondary)" }}>
+              {ln.count} × {ln.display_name}
+            </span>
+            <span style={{ color: "var(--text-primary)" }}>${ln.subtotal.toFixed(2)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (card.cost_text) {
+    return (
+      <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+        Next step: {card.cost_text}
+      </p>
+    );
+  }
+  return null;
+}
+
+function ScriptGatePreview({ videoId, card }: { videoId: string; card: ChatCard }) {
+  const { data: scenes } = useQuery({
+    queryKey: ["videoScript", videoId],
+    queryFn: () => getVideoScript(videoId),
+    enabled: !!videoId,
+  });
+  const rows = (scenes ?? [])
+    .filter((s) => (s.scene_text ?? "").trim().length > 0)
+    .sort((a, b) => (a.scene ?? 0) - (b.scene ?? 0));
+  const first = rows[0]?.scene_text ?? "";
+  const secs = card.duration_seconds;
+  const durLabel =
+    secs != null ? `approx. ${String(Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}` : null;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-lg px-3 py-2.5"
+      style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)", maxHeight: 108 }}
+    >
+      {durLabel && (
+        <p className="text-[10px] font-semibold mb-1.5" style={{ color: "var(--turquoise)" }}>
+          Estimated duration: {durLabel}
+        </p>
+      )}
+      <p className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: "var(--text-tertiary)" }}>
+        Story concept
+      </p>
+      <p className="text-xs leading-relaxed line-clamp-3" style={{ color: "var(--text-secondary)" }}>
+        {first || "…"}
+      </p>
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-8"
+        style={{ background: "linear-gradient(to bottom, transparent, var(--bg-deep))" }}
+      />
+    </div>
+  );
+}
+
+function AnchorGatePreview({ videoId, card }: { videoId: string; card: ChatCard }) {
+  const { data: castData } = useQuery({
+    queryKey: ["videoCharacters", videoId],
+    queryFn: () => getVideoCharacters(videoId),
+    enabled: !!videoId,
+  });
+  const { data: envData } = useQuery({
+    queryKey: ["videoEnvironments", videoId],
+    queryFn: () => getEnvironments(videoId),
+    enabled: !!videoId,
+  });
+  const characters = castData?.characters ?? [];
+  const environments = envData?.environments ?? [];
+  const collage = [...characters, ...environments].slice(0, 4);
+
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className="grid grid-cols-2 grid-rows-2 gap-0.5 w-14 h-14 shrink-0 overflow-hidden rounded-lg"
+        style={{ border: "1px solid var(--border-subtle)", background: "var(--bg-surface)" }}
+      >
+        {collage.length > 0 ? (
+          collage.map((item, i) => {
+            const src = toDisplayImageUrl(item.reference_url);
+            return src ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={item.id ?? i} src={src} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div key={item.id ?? i} style={{ background: "var(--bg-surface)" }} />
+            );
+          })
+        ) : (
+          <Loader2 size={14} className="col-span-2 row-span-2 m-auto animate-spin" style={{ color: "var(--text-tertiary)" }} />
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+          <Users size={12} style={{ color: "var(--turquoise)" }} /> Characters × {card.character_count ?? characters.length}
+        </span>
+        <span className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+          <MapPin size={12} style={{ color: "var(--turquoise)" }} /> Locations × {card.location_count ?? environments.length}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ScriptGateFull({ videoId }: { videoId: string }) {
+  const { data: scenes } = useQuery({
+    queryKey: ["videoScript", videoId],
+    queryFn: () => getVideoScript(videoId),
+    enabled: !!videoId,
+  });
+  const { data: castData } = useQuery({
+    queryKey: ["videoCharacters", videoId],
+    queryFn: () => getVideoCharacters(videoId),
+    enabled: !!videoId,
+  });
+  const rows = (scenes ?? [])
+    .filter((s) => (s.scene_text ?? "").trim().length > 0)
+    .sort((a, b) => (a.scene ?? 0) - (b.scene ?? 0));
+  const characters = castData?.characters ?? [];
+
+  return (
+    <div className="flex flex-col gap-6 sm:flex-row sm:gap-8">
+      <nav className="hidden sm:flex flex-col gap-1.5 w-40 shrink-0 text-xs" style={{ color: "var(--text-tertiary)" }}>
+        {characters.length > 0 && (
+          <a href="#se-gate-characters" className="hover:underline">Characters</a>
+        )}
+        <span className="mt-1" style={{ color: "var(--text-secondary)" }}>Storyboard</span>
+        {rows.map((s) => (
+          <a key={s.id} href={`#se-gate-scene-${s.scene}`} className="pl-2 truncate hover:underline">
+            {s.scene}. Scene {s.scene}
+          </a>
+        ))}
+      </nav>
+      <div className="flex-1 min-w-0 flex flex-col gap-5">
+        {characters.length > 0 && (
+          <section id="se-gate-characters">
+            <h3 className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: "var(--turquoise)" }}>
+              Characters
+            </h3>
+            <ul className="flex flex-col gap-1.5 text-sm">
+              {characters.map((c) => (
+                <li key={c.id} style={{ color: "var(--text-secondary)" }}>
+                  <strong style={{ color: "var(--text-primary)" }}>{c.name}</strong>
+                  {c.description ? ` — ${c.description}` : ""}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        <section>
+          <h3 className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "var(--turquoise)" }}>
+            Storyboard
+          </h3>
+          <div className="flex flex-col gap-4">
+            {rows.map((s) => (
+              <div key={s.id} id={`se-gate-scene-${s.scene}`}>
+                <p className="text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: "var(--text-tertiary)" }}>
+                  Scene {s.scene}
+                </p>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>
+                  {s.scene_text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function AnchorHeroTile({ name, refUrl }: { name: string; refUrl: string | null | undefined }) {
+  const [broken, setBroken] = useState(false);
+  const src = toDisplayImageUrl(refUrl);
+  return (
+    <div
+      className="relative overflow-hidden rounded-xl aspect-[3/4]"
+      style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+    >
+      {src && !broken ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={name} className="w-full h-full object-cover" onError={() => setBroken(true)} />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <ImageOff size={20} style={{ color: "var(--text-tertiary)" }} />
+        </div>
+      )}
+      <span
+        className="absolute bottom-2 left-2 rounded-md px-2 py-1 text-xs font-semibold"
+        style={{ background: "rgba(0,0,0,0.62)", color: "#fff" }}
+      >
+        {name}
+      </span>
+    </div>
+  );
+}
+
+function LocationPlate({ name, refUrl }: { name: string; refUrl: string | null | undefined }) {
+  const [broken, setBroken] = useState(false);
+  const src = toDisplayImageUrl(refUrl);
+  return (
+    <div
+      className="relative overflow-hidden rounded-xl aspect-video"
+      style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+    >
+      {src && !broken ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={name} className="w-full h-full object-cover" onError={() => setBroken(true)} />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <ImageOff size={20} style={{ color: "var(--text-tertiary)" }} />
+        </div>
+      )}
+      <span
+        className="absolute bottom-2 left-2 rounded-md px-2 py-1 text-xs font-semibold"
+        style={{ background: "rgba(0,0,0,0.62)", color: "#fff" }}
+      >
+        {name}
+      </span>
+    </div>
+  );
+}
+
+function AnchorGateFull({ videoId }: { videoId: string }) {
+  const { data: castData } = useQuery({
+    queryKey: ["videoCharacters", videoId],
+    queryFn: () => getVideoCharacters(videoId),
+    enabled: !!videoId,
+  });
+  const { data: envData } = useQuery({
+    queryKey: ["videoEnvironments", videoId],
+    queryFn: () => getEnvironments(videoId),
+    enabled: !!videoId,
+  });
+  const characters: VideoCharacter[] = [...(castData?.characters ?? [])].sort((a, b) => a.sort - b.sort);
+  const environments: VideoEnvironment[] = [...(envData?.environments ?? [])].sort((a, b) => a.sort - b.sort);
+
+  return (
+    <div className="flex flex-col gap-8">
+      {characters.length > 0 && (
+        <section>
+          <h3 className="text-xs font-bold uppercase tracking-[0.14em] mb-3" style={{ color: "var(--turquoise)" }}>
+            CHARACTERS · {characters.length}
+          </h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+            {characters.map((c) => (
+              <AnchorHeroTile key={c.id} name={c.name} refUrl={c.reference_url} />
+            ))}
+          </div>
+        </section>
+      )}
+      {environments.length > 0 && (
+        <section>
+          <h3 className="text-xs font-bold uppercase tracking-[0.14em] mb-3" style={{ color: "var(--turquoise)" }}>
+            LOCATIONS · {environments.length}
+          </h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {environments.map((e) => (
+              <LocationPlate key={e.id} name={e.name} refUrl={e.reference_url} />
+            ))}
+          </div>
+        </section>
+      )}
+      {characters.length === 0 && environments.length === 0 && (
+        <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
+          Nothing drawn yet.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// The side panel: "opens alongside" per DIRECTOR-CHAT-PLAN.md Task 5.2. Honest
+// divergence from the reference: OpenArt's panel is a fixed-width column that
+// literally sits beside the chat inside one shared app shell. StoryEngine's
+// Director surface already spends its horizontal space on chat + canvas +
+// media rail (DirectorSurface.tsx), so there is no free column left for a
+// fourth. This renders as a full-height overlay instead — same header (title,
+// Save when there's something to save, X), same named/grouped content
+// underneath — rather than warping the three-column layout to make room for
+// a permanent fourth pane for what is a rare, one-time review moment.
+export function ApprovalGatePanel({
+  card,
+  videoId,
+  onClose,
+  onApprove,
+}: {
+  card: ChatCard;
+  videoId: string;
+  onClose: () => void;
+  onApprove: () => void;
+}) {
+  const isScript = card.gate_kind === "script";
+  // Portal to document.body (not a plain fixed div in place): the chat
+  // column that hosts this card is itself a CSS containing block
+  // (DirectorSurface.tsx's `transform-gpu` on the chat column, added so
+  // ChatCore's OWN fixed backdrop resolves against the column instead of the
+  // viewport) — a `position: fixed` element without a portal would be
+  // clipped to that ~412px column instead of covering the screen. Rendered
+  // only client-side (`document` guard) since this file has no SSR path
+  // that would hit it regardless (the panel only mounts after a click).
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-40 flex justify-end"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isScript ? card.label || "Script" : "Review Anchors"}
+    >
+      <motion.div
+        initial={{ x: 48, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 48, opacity: 0 }}
+        transition={{ duration: 0.22, ease: "easeOut" }}
+        className="flex h-full w-full max-w-3xl flex-col"
+        style={{ background: "var(--bg-void)", borderLeft: "1px solid var(--border-subtle)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between gap-3 px-5 py-4 shrink-0"
+          style={{ borderBottom: "1px solid var(--border-subtle)" }}
+        >
+          <h2 className="text-base font-display font-bold truncate" style={{ color: "var(--text-primary)" }}>
+            {isScript ? card.label || "Untitled" : "Review Anchors"}
+          </h2>
+          <div className="flex items-center gap-2 shrink-0">
+            {isScript && (
+              <button
+                onClick={onApprove}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-[0.98]"
+                style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+              >
+                Save
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="p-1.5 rounded-lg transition-colors hover:brightness-125"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5">
+          {isScript ? <ScriptGateFull videoId={videoId} /> : <AnchorGateFull videoId={videoId} />}
+        </div>
+        {isScript && (
+          <div
+            className="flex items-center justify-end px-5 py-4 shrink-0"
+            style={{ borderTop: "1px solid var(--border-subtle)" }}
+          >
+            <button
+              onClick={onApprove}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]"
+              style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+            >
+              Save and confirm
+            </button>
+          </div>
+        )}
+      </motion.div>
+    </motion.div>,
+    document.body,
+  );
+}
+
+// The compact chat card — the ONE reusable component both gates render
+// through (card.gate_kind picks the variant; the panel above does the same).
+// After the creator taps "Looks good!", ChatCore's normal transcript
+// mechanics take over: the tap becomes an ordinary user bubble ("Looks
+// good!") and this card is simply not the active card on the next render —
+// same collapse-to-chip behavior every other action card already has
+// (custom_film_approval, confirm_action), not something this card
+// special-cases.
+export function ApprovalGateCard({
+  card,
+  videoId,
+  onChoose,
+}: {
+  card: ChatCard;
+  videoId: string;
+  onChoose: (value: string, label: string) => void;
+}) {
+  const [panelOpen, setPanelOpen] = useState(false);
+  const isScript = card.gate_kind === "script";
+  const Icon = isScript ? PencilLine : Images;
+  const title = isScript ? card.label || "Untitled" : "Review Anchors";
+  const secondaryLabel = isScript ? "Edit" : "View";
+
+  return (
+    <>
+      <GlassCard className="flex flex-col gap-3 p-3.5" style={{ borderColor: "rgba(0, 212, 170, 0.30)" }}>
+        <div className="flex items-center gap-2">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+            style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
+          >
+            <Icon size={14} />
+          </div>
+          <span className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>{title}</span>
+        </div>
+
+        {isScript ? (
+          <ScriptGatePreview videoId={videoId} card={card} />
+        ) : (
+          <AnchorGatePreview videoId={videoId} card={card} />
+        )}
+
+        {costLineFor(card)}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPanelOpen(true)}
+            className="px-4 py-2 rounded-xl text-sm font-medium transition-all active:scale-[0.98]"
+            style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+          >
+            {secondaryLabel}
+          </button>
+          <button
+            onClick={() => onChoose("yes", "Looks good!")}
+            className="flex-1 px-4 py-2 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]"
+            style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+          >
+            Looks good!
+          </button>
+        </div>
+      </GlassCard>
+
+      <AnimatePresence>
+        {panelOpen && (
+          <ApprovalGatePanel
+            card={card}
+            videoId={videoId}
+            onClose={() => setPanelOpen(false)}
+            onApprove={() => {
+              setPanelOpen(false);
+              onChoose("yes", "Looks good!");
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </>
   );
 }

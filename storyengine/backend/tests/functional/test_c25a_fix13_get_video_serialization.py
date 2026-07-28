@@ -58,10 +58,18 @@ _FAKE_VIDEO_ROW = {
     "render_style": "cinematic",
     "total_cost": Decimal("4.50"),
     "max_spend": Decimal("50.00"),
+    # feat/approval-gates: video_summary()'s SELECT now also reads these two
+    # columns (the anchors-gate approval markers) — a fully-populated prod
+    # row has them set once the cast/locations are locked.
+    "characters_approved_at": "2026-06-18T22:01:52.293086+00:00",
+    "environments_approved_at": "2026-06-18T20:15:53.569797+00:00",
 }
 _FAKE_SCRIPTS_ROW = {"scenes": 5, "boards": 5, "voiced": 5, "max_scene": 5}
 _FAKE_ASSETS_ROW = {"pics": 10, "clips": 5}
 _FAKE_CHARACTERS_ROW = {"n": 2}
+# feat/approval-gates: video_summary() added a sibling environments count
+# query right next to the characters one above.
+_FAKE_ENVIRONMENTS_ROW = {"n": 3}
 
 
 async def _fake_fetch_one(query, *args):
@@ -74,6 +82,8 @@ async def _fake_fetch_one(query, *args):
         return dict(_FAKE_ASSETS_ROW)
     if "from video_characters" in q:
         return dict(_FAKE_CHARACTERS_ROW)
+    if "from video_environments" in q:
+        return dict(_FAKE_ENVIRONMENTS_ROW)
     raise AssertionError(f"unexpected fetch_one query: {query!r}")
 
 
@@ -112,6 +122,8 @@ async def test_video_summary_length_min_is_none_when_column_is_null():
             return dict(_FAKE_ASSETS_ROW)
         if "from video_characters" in q:
             return dict(_FAKE_CHARACTERS_ROW)
+        if "from video_environments" in q:
+            return dict(_FAKE_ENVIRONMENTS_ROW)
         raise AssertionError(f"unexpected fetch_one query: {query!r}")
 
     with patch.object(actions, "fetch_one", _fetch_one_null):

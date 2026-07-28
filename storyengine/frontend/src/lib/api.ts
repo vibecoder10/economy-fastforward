@@ -3259,6 +3259,23 @@ export interface ChatCard {
   approval_notice?: string;
   finishing_engine?: "remotion" | "ffmpeg";
   finishing_notice?: string;
+  // Approval gate card (id "approval_gate", feat/approval-gates,
+  // DIRECTOR-CHAT-PLAN.md Task 5.2): ONE reusable card kind for the two
+  // "pause and let me see it before you spend more" checkpoints — script
+  // (before designing cast/locations) and anchors (cast + locations
+  // together, before storyboards/pictures). Deliberately thin: the panel
+  // that opens on View/Edit re-fetches the real script/cast/locations via
+  // the same endpoints ScriptResultCard/CastLocationsCard already use
+  // (ChatResultCards.tsx) rather than this card duplicating that data.
+  // Optional/additive, same rule as every other card-specific field above —
+  // an older frontend simply doesn't recognize "approval_gate" as a card id
+  // and renders nothing for it (cardKind() falls through to "generic").
+  gate_kind?: "script" | "anchors";
+  scene_count?: number;
+  duration_seconds?: number | null;
+  character_count?: number;
+  location_count?: number;
+  cost_text?: string;
 }
 export interface ProductionPlan {
   story_concept?: string;

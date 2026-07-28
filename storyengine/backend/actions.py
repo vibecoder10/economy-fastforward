@@ -308,7 +308,8 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
     estimate, and read answers — all from the video row + scripts + assets."""
     v = await fetch_one(
         "SELECT video_title, status, video_length_minutes, video_model, script_validation, render_style, render_mode, "
-        "total_cost, max_spend, custom_film_plan_id, dialogue_audio, dialogue_mode "
+        "total_cost, max_spend, custom_film_plan_id, dialogue_audio, dialogue_mode, "
+        "characters_approved_at, environments_approved_at "
         "FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
@@ -332,6 +333,13 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         "SELECT count(*) AS n FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
+    # Additive (approval-gate mechanism, feat/approval-gates): environment count,
+    # alongside the character count `c` above — the anchor gate's "Characters x N /
+    # Locations x M" line reads both from here, same as every other copilot read.
+    e = await fetch_one(
+        "SELECT count(*) AS n FROM video_environments WHERE video_id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
     model = v.get("video_model") or "grok-imagine"
     pics, clips = int(a["pics"] or 0), int(a["clips"] or 0)
     cost = round(pics * PICTURE_COST + clips * CLIP_COST.get(model, 0.10), 2)
@@ -352,6 +360,15 @@ async def video_summary(tenant_id, video_id: str) -> Optional[dict[str, Any]]:
         "pics": pics,
         "clips": clips,
         "cast": int(c["n"] or 0),
+        # Additive (approval-gate mechanism): environment count + whether the
+        # cast/locations gate has already been passed. `envs_approved` mirrors
+        # `chars_approved` — both timestamps are set together by the anchor
+        # gate's own approval (routes/chat.py's approval_gate handshake) or by
+        # the existing approve_cast/approve_environments runners, so either
+        # one being null means the anchor gate hasn't cleared yet.
+        "envs": int(e["n"] or 0),
+        "chars_approved": v.get("characters_approved_at") is not None,
+        "envs_approved": v.get("environments_approved_at") is not None,
         "spent": cost,
         # C36 (checklist §3.3 item 3): the REAL ledger-rolled-up spend
         # (generation_ledger.record_ledger_entry's SUM(actual_cost) —
