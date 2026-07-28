@@ -23,7 +23,14 @@ import { CHAT_MAX_WIDTH, CHAT_MIN_WIDTH, RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, usePane
  * this file follows the chunk brief over the mockup's literal pixel width.
  */
 export function DirectorSurface() {
-  const { selectedVideoId, setSelectedVideoId, pendingInitialMessage, setPendingInitialMessage } = useDirector();
+  const {
+    selectedVideoId,
+    setSelectedVideoId,
+    pendingInitialMessage,
+    setPendingInitialMessage,
+    pendingInitialIntent,
+    setPendingInitialIntent,
+  } = useDirector();
   const chatColumnRef = useRef<HTMLDivElement>(null);
   const railColumnRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -67,6 +74,7 @@ export function DirectorSurface() {
   // conversation.
   useEffect(() => {
     if (pendingInitialMessage) setPendingInitialMessage(null);
+    if (pendingInitialIntent) setPendingInitialIntent(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVideoId]);
 
@@ -170,6 +178,7 @@ export function DirectorSurface() {
               activeVideoId={selectedVideoId}
               onVideoCreated={(id) => setSelectedVideoId(id)}
               initialMessage={pendingInitialMessage}
+              initialIntent={pendingInitialIntent}
             />
           </div>
         )}

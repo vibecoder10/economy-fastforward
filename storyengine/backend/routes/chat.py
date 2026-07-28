@@ -125,6 +125,14 @@ class ChatTurnRequest(BaseModel):
     ui_context: Optional[dict[str, Any]] = None
     # Files dropped into the chat this turn: chat_assets ids from POST /api/chat/upload.
     attachments: Optional[list[str]] = None
+    # C-frontdoor (2026-07-27): a caller that already KNOWS what it wants done —
+    # today, only DirectorHome's "create a new video" front door — states the
+    # verb outright instead of letting the co-pilot's classifier guess it from
+    # free text. Must be a real ACTIONS verb (validated in _handle_copilot,
+    # where anything else is ignored and falls through to the classifier as
+    # before) — this is a declaration, not a bypass of the paid-confirm-card
+    # or legality-gate checks every classified verb still goes through.
+    explicit_verb: Optional[str] = None
 
 
 class ChatTurnResponse(BaseModel):
@@ -1598,226 +1606,279 @@ async def _handle_copilot(
             "I can't find that video anymore — it may have been deleted."
         )
 
-    # The co-pilot's intelligence needs a text model. Keyless tenants get the
-    # friendly key prompt (reused from onboarding), never a crash.
-    try:
-        from kie_unified import get_text_client_for_tenant
+    # --- explicit entry intent: state it, don't guess it -----------------------
+    # The single most important action in the product — "build the whole video" —
+    # must never depend on an LLM classifier's guess. DirectorHome's front-door
+    # box (the ONE box that creates a brand-new video) sends its opening chat
+    # turn with `explicit_verb="build"` set (ChatCore's initialMessage mount
+    # effect, gated on `initialIntent === "build"` — see DirectorContext.tsx /
+    # DirectorHome.tsx PromptEntrySection.send()). When that's present, skip
+    # classification (and the API-key requirement it carries) entirely and go
+    # straight to the SAME legality-gate + paid-confirm-card path every
+    # classified verb already goes through below — so a declared "build" still
+    # quotes real cost and still waits for an explicit tap, it just never
+    # risked being misread as some other verb.
+    #
+    # Root-cause context (verified 2026-07-27, video d218b352-8894-45d1-af0a-
+    # fb8847d39e55): "make a 1 minute video about a dystopian world where the
+    # elites watch the citizens through bubbles" — a plain topic pitch with no
+    # explicit "build"-trigger phrase in it — classified as verb=script
+    # (confidence 0.930), which is a single $0.02 stage with no continuation,
+    # not the whole-pipeline build the creator actually asked for by using
+    # this box. That silent misfire is why this deterministic path exists.
+    #
+    # Anything that isn't a real COPILOT_ACTIONS verb is ignored (defends
+    # against a stale or tampered client) and falls through to the classifier
+    # exactly as before.
+    explicit_verb = (getattr(body, "explicit_verb", None) or "").strip()
+    if explicit_verb and explicit_verb not in COPILOT_ACTIONS:
+        explicit_verb = ""
 
-        client = await get_text_client_for_tenant(tenant_id)
-    except Exception:  # noqa: BLE001 — no key configured at all
-        client = None
-    if client is None:
-        return await _reply(
-            "I just need an API key to think this through. Add your Kie.ai or Anthropic key under "
-            "Profile → API Keys, then tell me again — I'll take it from there."
-        )
-    # AnthropicDirectClient.generate defaults to a stale model id; pass the current
-    # one (the Kie client keeps its own valid default). Mirrors coverage_to_app.py.
-    copilot_model = _claude_model_for_direct_client(client)
-
-    # While a proposed prompt is open, plain text REFINES it (no spend). Bail words
-    # drop the draft; otherwise feed the words back as more direction and redraft.
-    draft = state.get("prompt_draft")
-    if draft and msg and not sel:
-        low = msg.lower()
-        if any(
-            w in low
-            for w in (
-                "cancel",
-                "never mind",
-                "nevermind",
-                "forget it",
-                "leave it",
-                "no thanks",
-            )
-        ):
-            state["prompt_draft"] = None
-            return await _reply("No problem — kept the original. What else can I do?")
-        new = await _rewrite_prompt(
-            client,
-            copilot_model,
-            draft["surface"],
-            draft["draft"],
-            msg,
-            summary["model"],
-        )
-        if new:
-            draft["draft"] = new
-            state["prompt_draft"] = draft
-            return await _reply(
-                f"Updated the prompt for {draft['label']} — review and tweak it below, then apply "
-                "(or keep adjusting in words).",
-                cards=[_prompt_apply_card(draft, new)],
-            )
-        return await _reply("I couldn't adjust that — try wording it a different way?")
-
-    # Files the creator has dropped into this video's co-pilot (chat_assets rows
-    # bound to this conversation) — folded into the summary so the copilot can
-    # reference them ("use the reference I dropped", "that image I attached").
-    # THE channel-identity pool brief (checklist P2) goes FIRST, ahead of the
-    # video summary — same position/rationale as the home producer assembly
-    # in chat_turn: its hard precedence law must be the first thing the
-    # co-pilot reads.
-    summary_with_assets = (
-        await _identity_pool_brief(tenant_id)
-        + _summary_line(summary)
-        + await _assets_brief(tenant_id, state)
-        + await _preferences_brief(tenant_id, video_id)
-    )
-
-    prompt = (
-        "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
-        "production step, (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
-        "for a specific shot), or (d) ask to SEE the actual pictures/storyboards for a scene. Decide which.\n\n"
-        + summary_with_assets
-        + "\n"
-        + (
-            f"They are currently viewing scene {ui_context.get('scene')}"
-            + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
-            + ".\n"
-            if ui_context.get("scene")
-            else ""
-        )
-        + f'\nThe creator said: "{msg}"\n\n'
-        "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
-        "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
-        "approve_environments, skip_environments, approve_scene, camera_preset, script_profile, lock, unlock, "
-        "drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
-        "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
-        "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
-        "skips research automatically. "
-        "'characters' = design or REDESIGN the CAST "
-        "(the character reference sheets): 'redesign the cast', 'redo the characters', 'regenerate the cast', "
-        "'design the characters', 'change how Tom looks'. NEVER map a cast/character request to 'script'. "
-        "'animate' is ONE scene (give the scene). "
-        "'research' = fact-find the topic (web research) before scripting. "
-        "'seo' = write the YouTube title/description/tags. 'upload' = publish the RENDERED video to YouTube. "
-        "'approve_cast' = approve/lock the characters ('approve the cast', 'the characters look good, lock them in'). "
-        "'approve_environments' = approve/lock the locations; 'skip_environments' = this video needs no "
-        "distinct locations ('skip the locations', 'no locations needed'). "
-        "'approve_scene' = approve/lock in ONE scene's pictures ('approve scene 2', 'scene 3 looks good, lock "
-        "it in', 'these are good, approve them' while viewing a scene) — give the scene number (use the "
-        "'currently viewing' scene if they say 'this scene'/'these' and name none). Different from approve_cast/"
-        "approve_environments, which gate the whole video's cast/locations, not one scene. "
-        "'camera_preset' = set or clear the CAMERA MOVE for a scene's shots ('use a crash zoom on scene 12', "
-        "'give the opening a slow push-in', 'put scene 4's camera back to auto') — give the scene number "
-        "(use 'currently viewing' for 'this scene') and put the move description ('crash zoom', 'push in', "
-        "'auto', etc.) VERBATIM in change. Free and reversible, no confirm needed. "
-        "'script_profile' = set or clear the SCRIPT VOICE for future script writes ('write it in the "
-        "investigative style', 'use the framework explainer voice', 'put the script voice back to neutral') — "
-        "put the voice description ('investigative reveal', 'framework explainer', 'neutral', etc.) VERBATIM "
-        "in change. Free and reversible, no confirm needed. Does NOT itself rewrite an existing script — that's "
-        "the 'script' verb. "
-        "'budget_cap' = set or clear a SPENDING CAP for this video ('cap this video at $15', 'set a $20 "
-        "budget limit', 'remove the budget cap', 'no spending limit') — put the amount VERBATIM in change "
-        "(e.g. '$15', 'remove the cap'). Free and reversible, no confirm needed — it only changes what future "
-        "paid actions check against, it never spends anything itself. "
-        "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
-        "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
-        "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
-        "Use 'build' when they want the whole video built or moved forward — 'build it', 'make the video', "
-        "'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate everything'. build runs "
-        "the pipeline automatically to the next checkpoint, NOT one step. "
-        "'draft_pass' = animate EVERY scene on the CHEAP draft-tier model in one pass, before spending real "
-        "money — 'draft the whole video', 'rough cut', 'let me see it first', 'draft it cheap'. Different "
-        "from 'animate everything'/build, which animates at REAL (routed/premium) quality — draft_pass is "
-        "explicitly the cheap-preview pass. 'finalize' = regenerate ONLY the scenes already approved "
-        "(approve_scene) at their real routed/premium quality — 'finalize the approved scenes', 'finish "
-        "scenes 3 and 7' (no scene number needed — it always means whichever scenes are currently approved). "
-        "If nothing is approved yet, finalize still classifies as the verb — the runner itself explains "
-        "there's nothing approved yet.\n"
-        "PROMPT work (kind=prompt) when they talk about the generation PROMPT TEXT itself — 'rewrite/enhance "
-        "the prompt', 'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks "
-        "off, rewrite its prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail "
-        "| script), op (view=show current | suggest=ideas only, no change | rewrite=write a new one to apply), "
-        "the scene/index of the shot (use the 'currently viewing' one if they say 'this' and name no shot), "
-        "and the direction.\n"
-        "SHOW work (kind=show) when they want to SEE the actual pictures/storyboards/keyframes for a scene — "
-        "'show me scene 2's boards', 'let me see scene 3's pictures', 'what does scene 1 look like' — NOT the "
-        "prompt text (that's kind=prompt above). Give the scene (use the 'currently viewing' one for 'this "
-        "scene'/'these' with no number named).\n"
-        "REMEMBER work (kind=remember) when they give a STANDING instruction meant to stick across future "
-        "conversations and videos, not just this one ask — 'always...', 'never...', 'remember that...', 'from "
-        "now on...'. Put their instruction VERBATIM in change (do not paraphrase). Set scope='video' only when "
-        "it's clearly specific to THIS video; default scope='channel' (e.g. they said always/never/from now "
-        "on, or it's a general fact about them/their channel).\n"
-        "FORGET work (kind=forget) when they say 'forget that', 'forget #N', 'forget the one about...', or ask "
-        "'what do you remember (about me/this channel)?'. For an ask-to-list, answer directly from the STANDING "
-        "PREFERENCES list above (if present) as kind=read instead. For an actual forget, put their reference "
-        "(a number, 'that'/'last', or the closest matching text) in change.\n"
-        "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
-        "Return ONE JSON object and nothing else:\n"
-        '{"kind":"read|action|prompt|show|remember|forget",'
-        '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
-        "render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|"
-        'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
-        '"surface":"image|motion|thumbnail|script|null",'
-        '"op":"view|suggest|rewrite|null",'
-        '"scene":<int or null>,"index":<int picture/shot number or null>,'
-        '"change":"<for action edits: a concrete instruction; for remember: the instruction VERBATIM; for '
-        'forget: their reference to which one; else empty>",'
-        '"direction":"<for prompt rewrite: the enhancement instruction; else empty>",'
-        '"length_min":<int or null>,'
-        '"scope":"channel|video (only meaningful for kind=remember; default channel)",'
-        '"answer":"<for read: a friendly, specific 1-2 sentence answer using the numbers>",'
-        '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
-        '"confidence":<0.0-1.0>}'
-    )
-    # THE AGENT BRAIN (Phase 6): a tool-using loop that READS the video (state,
-    # script, shots, prompts, history) before deciding, then returns the same
-    # decision shape as the one-shot classifier. Any failure -> None -> the
-    # legacy classifier below runs instead, so the brain can only add smarts.
-    data = None
-    used_brain = False
-    try:
-        from agent_brain import run_copilot_brain
-
-        data = await run_copilot_brain(
-            client,
-            copilot_model,
+    if explicit_verb:
+        kind, verb, reply, conf = "action", explicit_verb, "", 1.0
+        # Downstream reads data.get("scene"/"change"/"length_min") — none of
+        # which apply to a declared "build" on a just-created video, so an
+        # empty dict is the correct (not a stand-in) value, same as a
+        # classified turn that named no scene/change/length.
+        data: dict[str, Any] = {}
+        await _log_classification_confidence(
             tenant_id,
             video_id,
-            summary,
-            msg,
-            ui_context,
-            summary_with_assets,
+            kind=kind,
+            verb=verb,
+            confidence=conf,
+            source="explicit_entry",
+            gated=False,
         )
-        used_brain = data is not None
-    except Exception as e:  # noqa: BLE001
-        logger.warning("copilot: agent brain failed, falling back: %s", e)
-    if data is None:
+    else:
+        # The co-pilot's intelligence needs a text model. Keyless tenants get the
+        # friendly key prompt (reused from onboarding), never a crash.
         try:
-            from producer_prompt import _extract_json
+            from kie_unified import get_text_client_for_tenant
 
-            gen_kwargs: dict[str, Any] = {
-                "prompt": prompt,
-                "max_tokens": 700,
-                "temperature": 0.2,
-            }
-            if copilot_model:
-                gen_kwargs["model"] = copilot_model
-            raw = await client.generate(**gen_kwargs)
-            data = json.loads(_extract_json(raw))
-        except Exception as e:  # noqa: BLE001
-            logger.warning("copilot: classify failed: %s", e)
+            client = await get_text_client_for_tenant(tenant_id)
+        except Exception:  # noqa: BLE001 — no key configured at all
+            client = None
+        if client is None:
             return await _reply(
-                "I didn't quite catch that — want me to change the script, the pictures, the "
-                "thumbnail, animate a scene, or render it?"
+                "I just need an API key to think this through. Add your Kie.ai or Anthropic key under "
+                "Profile → API Keys, then tell me again — I'll take it from there."
             )
+        # AnthropicDirectClient.generate defaults to a stale model id; pass the current
+        # one (the Kie client keeps its own valid default). Mirrors coverage_to_app.py.
+        copilot_model = _claude_model_for_direct_client(client)
 
-    kind = (data.get("kind") or "").strip()
-    verb = (data.get("verb") or "none").strip()
-    reply = (data.get("reply") or "").strip()
-    conf = float(data.get("confidence") or 0)
-    await _log_classification_confidence(
-        tenant_id,
-        video_id,
-        kind=kind,
-        verb=verb,
-        confidence=conf,
-        source="brain" if used_brain else "legacy",
-        gated=(verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE),
-    )
+        # While a proposed prompt is open, plain text REFINES it (no spend). Bail words
+        # drop the draft; otherwise feed the words back as more direction and redraft.
+        draft = state.get("prompt_draft")
+        if draft and msg and not sel:
+            low = msg.lower()
+            if any(
+                w in low
+                for w in (
+                    "cancel",
+                    "never mind",
+                    "nevermind",
+                    "forget it",
+                    "leave it",
+                    "no thanks",
+                )
+            ):
+                state["prompt_draft"] = None
+                return await _reply("No problem — kept the original. What else can I do?")
+            new = await _rewrite_prompt(
+                client,
+                copilot_model,
+                draft["surface"],
+                draft["draft"],
+                msg,
+                summary["model"],
+            )
+            if new:
+                draft["draft"] = new
+                state["prompt_draft"] = draft
+                return await _reply(
+                    f"Updated the prompt for {draft['label']} — review and tweak it below, then apply "
+                    "(or keep adjusting in words).",
+                    cards=[_prompt_apply_card(draft, new)],
+                )
+            return await _reply("I couldn't adjust that — try wording it a different way?")
+
+        # Files the creator has dropped into this video's co-pilot (chat_assets rows
+        # bound to this conversation) — folded into the summary so the copilot can
+        # reference them ("use the reference I dropped", "that image I attached").
+        # THE channel-identity pool brief (checklist P2) goes FIRST, ahead of the
+        # video summary — same position/rationale as the home producer assembly
+        # in chat_turn: its hard precedence law must be the first thing the
+        # co-pilot reads.
+        summary_with_assets = (
+            await _identity_pool_brief(tenant_id)
+            + _summary_line(summary)
+            + await _assets_brief(tenant_id, state)
+            + await _preferences_brief(tenant_id, video_id)
+        )
+
+        prompt = (
+            "You are the in-app co-pilot for ONE video. The creator can (a) ASK a question, (b) tell you to RUN a "
+            "production step, (c) work on a generation PROMPT (view it, get suggestions, or rewrite/enhance it "
+            "for a specific shot), or (d) ask to SEE the actual pictures/storyboards for a scene. Decide which.\n\n"
+            + summary_with_assets
+            + "\n"
+            + (
+                f"They are currently viewing scene {ui_context.get('scene')}"
+                + (f", image {ui_context.get('index')}" if ui_context.get("index") else "")
+                + ".\n"
+                if ui_context.get("scene")
+                else ""
+            )
+            + f'\nThe creator said: "{msg}"\n\n'
+            "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
+            "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
+            "approve_environments, skip_environments, approve_scene, camera_preset, script_profile, lock, unlock, "
+            "drive_push, drive_sync, advance — for RUNNING/redoing a SINGLE step. "
+            "'advance' = skip the CURRENT stage/gate and move on ('skip this step', 'move on', 'skip research', "
+            "'I don't need this'). Note: asking for the script while research hasn't run maps to 'script' — it "
+            "skips research automatically. "
+            "'characters' = design or REDESIGN the CAST "
+            "(the character reference sheets): 'redesign the cast', 'redo the characters', 'regenerate the cast', "
+            "'design the characters', 'change how Tom looks'. NEVER map a cast/character request to 'script'. "
+            "'animate' is ONE scene (give the scene). "
+            "'research' = fact-find the topic (web research) before scripting. "
+            "'seo' = write the YouTube title/description/tags. 'upload' = publish the RENDERED video to YouTube. "
+            "'approve_cast' = approve/lock the characters ('approve the cast', 'the characters look good, lock them in'). "
+            "'approve_environments' = approve/lock the locations; 'skip_environments' = this video needs no "
+            "distinct locations ('skip the locations', 'no locations needed'). "
+            "'approve_scene' = approve/lock in ONE scene's pictures ('approve scene 2', 'scene 3 looks good, lock "
+            "it in', 'these are good, approve them' while viewing a scene) — give the scene number (use the "
+            "'currently viewing' scene if they say 'this scene'/'these' and name none). Different from approve_cast/"
+            "approve_environments, which gate the whole video's cast/locations, not one scene. "
+            "'camera_preset' = set or clear the CAMERA MOVE for a scene's shots ('use a crash zoom on scene 12', "
+            "'give the opening a slow push-in', 'put scene 4's camera back to auto') — give the scene number "
+            "(use 'currently viewing' for 'this scene') and put the move description ('crash zoom', 'push in', "
+            "'auto', etc.) VERBATIM in change. Free and reversible, no confirm needed. "
+            "'script_profile' = set or clear the SCRIPT VOICE for future script writes ('write it in the "
+            "investigative style', 'use the framework explainer voice', 'put the script voice back to neutral') — "
+            "put the voice description ('investigative reveal', 'framework explainer', 'neutral', etc.) VERBATIM "
+            "in change. Free and reversible, no confirm needed. Does NOT itself rewrite an existing script — that's "
+            "the 'script' verb. "
+            "'budget_cap' = set or clear a SPENDING CAP for this video ('cap this video at $15', 'set a $20 "
+            "budget limit', 'remove the budget cap', 'no spending limit') — put the amount VERBATIM in change "
+            "(e.g. '$15', 'remove the cap'). Free and reversible, no confirm needed — it only changes what future "
+            "paid actions check against, it never spends anything itself. "
+            "'lock' / 'unlock' = freeze or unfreeze the story(boards) before image spend. "
+            "'drive_push' = send the script to Google Drive as an editable Doc; 'drive_sync' = pull the creator's "
+            "Doc edits back into the app ('pull my script from Drive', 'sync my Doc changes'). "
+            "Use 'build' when they want the whole video built or moved forward, OR when they are simply "
+            "PITCHING/DESCRIBING a video idea with no prior script or research on this video yet — 'build it', "
+            "'make the video', 'do it', 'run it all', 'keep going', 'generate it', 'finish it', 'animate "
+            "everything', 'make a video about X', 'make me a N minute video about X', 'create a video about X'. "
+            "This matters most on a FRESH video (no script yet, no research yet): a plain topic description "
+            "there ('a dystopian world where...', 'a boy who finds a dragon') is the creator saying what the "
+            "WHOLE video should be about, not a request to write just one stage — classify that as build, "
+            "never as 'script'. Only classify as 'script' when they clearly want JUST the writing step touched "
+            "on a video that already has some history (e.g. 'rewrite the script', 'make the opening punchier', "
+            "'redo scene 3's script'). build runs the pipeline automatically to the next checkpoint, NOT one "
+            "step. "
+            "'draft_pass' = animate EVERY scene on the CHEAP draft-tier model in one pass, before spending real "
+            "money — 'draft the whole video', 'rough cut', 'let me see it first', 'draft it cheap'. Different "
+            "from 'animate everything'/build, which animates at REAL (routed/premium) quality — draft_pass is "
+            "explicitly the cheap-preview pass. 'finalize' = regenerate ONLY the scenes already approved "
+            "(approve_scene) at their real routed/premium quality — 'finalize the approved scenes', 'finish "
+            "scenes 3 and 7' (no scene number needed — it always means whichever scenes are currently approved). "
+            "If nothing is approved yet, finalize still classifies as the verb — the runner itself explains "
+            "there's nothing approved yet.\n"
+            "PROMPT work (kind=prompt) when they talk about the generation PROMPT TEXT itself — 'rewrite/enhance "
+            "the prompt', 'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks "
+            "off, rewrite its prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail "
+            "| script), op (view=show current | suggest=ideas only, no change | rewrite=write a new one to apply), "
+            "the scene/index of the shot (use the 'currently viewing' one if they say 'this' and name no shot), "
+            "and the direction.\n"
+            "SHOW work (kind=show) when they want to SEE the actual pictures/storyboards/keyframes for a scene — "
+            "'show me scene 2's boards', 'let me see scene 3's pictures', 'what does scene 1 look like' — NOT the "
+            "prompt text (that's kind=prompt above). Give the scene (use the 'currently viewing' one for 'this "
+            "scene'/'these' with no number named).\n"
+            "REMEMBER work (kind=remember) when they give a STANDING instruction meant to stick across future "
+            "conversations and videos, not just this one ask — 'always...', 'never...', 'remember that...', 'from "
+            "now on...'. Put their instruction VERBATIM in change (do not paraphrase). Set scope='video' only when "
+            "it's clearly specific to THIS video; default scope='channel' (e.g. they said always/never/from now "
+            "on, or it's a general fact about them/their channel).\n"
+            "FORGET work (kind=forget) when they say 'forget that', 'forget #N', 'forget the one about...', or ask "
+            "'what do you remember (about me/this channel)?'. For an ask-to-list, answer directly from the STANDING "
+            "PREFERENCES list above (if present) as kind=read instead. For an actual forget, put their reference "
+            "(a number, 'that'/'last', or the closest matching text) in change.\n"
+            "If they're ASKING about state (cost/status/what's left/why), kind=read and answer from the numbers.\n\n"
+            "Return ONE JSON object and nothing else:\n"
+            '{"kind":"read|action|prompt|show|remember|forget",'
+            '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
+            "render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|"
+            'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
+            '"surface":"image|motion|thumbnail|script|null",'
+            '"op":"view|suggest|rewrite|null",'
+            '"scene":<int or null>,"index":<int picture/shot number or null>,'
+            '"change":"<for action edits: a concrete instruction; for remember: the instruction VERBATIM; for '
+            'forget: their reference to which one; else empty>",'
+            '"direction":"<for prompt rewrite: the enhancement instruction; else empty>",'
+            '"length_min":<int or null>,'
+            '"scope":"channel|video (only meaningful for kind=remember; default channel)",'
+            '"answer":"<for read: a friendly, specific 1-2 sentence answer using the numbers>",'
+            '"reply":"<for action: one friendly sentence; for none: a clarifying question>",'
+            '"confidence":<0.0-1.0>}'
+        )
+        # THE AGENT BRAIN (Phase 6): a tool-using loop that READS the video (state,
+        # script, shots, prompts, history) before deciding, then returns the same
+        # decision shape as the one-shot classifier. Any failure -> None -> the
+        # legacy classifier below runs instead, so the brain can only add smarts.
+        data = None
+        used_brain = False
+        try:
+            from agent_brain import run_copilot_brain
+
+            data = await run_copilot_brain(
+                client,
+                copilot_model,
+                tenant_id,
+                video_id,
+                summary,
+                msg,
+                ui_context,
+                summary_with_assets,
+            )
+            used_brain = data is not None
+        except Exception as e:  # noqa: BLE001
+            logger.warning("copilot: agent brain failed, falling back: %s", e)
+        if data is None:
+            try:
+                from producer_prompt import _extract_json
+
+                gen_kwargs: dict[str, Any] = {
+                    "prompt": prompt,
+                    "max_tokens": 700,
+                    "temperature": 0.2,
+                }
+                if copilot_model:
+                    gen_kwargs["model"] = copilot_model
+                raw = await client.generate(**gen_kwargs)
+                data = json.loads(_extract_json(raw))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("copilot: classify failed: %s", e)
+                return await _reply(
+                    "I didn't quite catch that — want me to change the script, the pictures, the "
+                    "thumbnail, animate a scene, or render it?"
+                )
+
+        kind = (data.get("kind") or "").strip()
+        verb = (data.get("verb") or "none").strip()
+        reply = (data.get("reply") or "").strip()
+        conf = float(data.get("confidence") or 0)
+        await _log_classification_confidence(
+            tenant_id,
+            video_id,
+            kind=kind,
+            verb=verb,
+            confidence=conf,
+            source="brain" if used_brain else "legacy",
+            gated=(verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE),
+        )
 
     # --- prompt studio: view / suggest / rewrite a generation prompt ---
     if kind == "prompt":

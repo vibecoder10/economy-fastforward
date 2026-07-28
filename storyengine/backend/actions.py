@@ -1273,6 +1273,29 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                             tenant_id=tenant_id,
                         )
                         return
+                    # C-frontdoor2 (2026-07-27): a needs_review verdict (the
+                    # quality critic still flags the script after its bounded
+                    # edit loop — script_quality.run_critique_and_edit) must
+                    # STOP the chain here, with the real reason, not fall
+                    # through to `continue`. Before this fix, falling through
+                    # looped back to the top, re-read the SAME status (video
+                    # status never advances on needs_review — see
+                    # pipeline_executor.run_script), and only stopped via the
+                    # generic "no progress" branch below with a bare "Paused
+                    # at ready_for_scripting." — never mentioning that a
+                    # script existed and was rejected, or why. That silently
+                    # read as a stall, not a decision waiting on the creator.
+                    if script_result.get("status") == "needs_review":
+                        _set_task_status(
+                            video_id,
+                            "needs_review",
+                            script_result.get("message")
+                            or "The script needs another look before I keep building — "
+                            "check the notes and tell me to redo it, or say \"use it anyway\" "
+                            "to keep going as-is.",
+                            tenant_id=tenant_id,
+                        )
+                        return
                     continue
                 # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the
                 # Scenes-page "pictures" button uses (generate_coverage_for_video). Coverage

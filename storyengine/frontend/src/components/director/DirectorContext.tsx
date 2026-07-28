@@ -48,6 +48,21 @@ export interface DirectorState {
    * stale pitch into an unrelated conversation. `null` the rest of the time. */
   pendingInitialMessage: string | null;
   setPendingInitialMessage: (message: string | null) => void;
+
+  /** The declared intent for `pendingInitialMessage`, when the box that
+   * produced it already KNOWS what should happen — today, only "build":
+   * PromptEntrySection's plain-description box (DirectorHome.tsx) creates a
+   * brand-new video and means "build the whole thing", full stop. That is
+   * not a guess for the chat classifier to make (see the root-cause note in
+   * backend/routes/chat.py `_handle_copilot`, `explicit_verb`) — so it rides
+   * alongside the seeded message and ChatCore's mount effect passes it
+   * straight through as `ChatTurnRequest.explicit_verb`. `null` for every
+   * other producer of `pendingInitialMessage` (e.g. the YouTube "Model it"
+   * confirm, which already has its own explicit paid-confirm gate and a
+   * different first move) and consumed once, same lifecycle as the message
+   * itself. */
+  pendingInitialIntent: "build" | null;
+  setPendingInitialIntent: (intent: "build" | null) => void;
 }
 
 const DirectorContext = createContext<DirectorState | null>(null);
@@ -130,6 +145,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   const [altitude, setAltitude] = useState<Altitude>("scene");
   const [focusedShotId, setFocusedShotId] = useState<string | null>(null);
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
+  const [pendingInitialIntent, setPendingInitialIntent] = useState<"build" | null>(null);
 
   const value = useMemo<DirectorState>(
     () => ({
@@ -141,8 +157,17 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       setFocusedShotId,
       pendingInitialMessage,
       setPendingInitialMessage,
+      pendingInitialIntent,
+      setPendingInitialIntent,
     }),
-    [selectedVideoId, setSelectedVideoId, altitude, focusedShotId, pendingInitialMessage]
+    [
+      selectedVideoId,
+      setSelectedVideoId,
+      altitude,
+      focusedShotId,
+      pendingInitialMessage,
+      pendingInitialIntent,
+    ]
   );
 
   return <DirectorContext.Provider value={value}>{children}</DirectorContext.Provider>;

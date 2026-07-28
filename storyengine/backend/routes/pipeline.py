@@ -392,8 +392,28 @@ def _set_task_status(
     Normalizes status to: running | completed | failed
     ('cancelled' reads as completed to pollers — the message tells the story —
     but persists as 'cancelled' in background_tasks for history.)
+
+    C-frontdoor2 (2026-07-27): a caller can also pass status="needs_review"
+    (a script the quality critic rejected after its bounded edit loop —
+    script_quality.run_critique_and_edit — see actions.py's make_action_step/
+    make_autobuild_step and routes/pipeline.py's direct /script route). This
+    is DELIBERATELY NOT a new bucket in the running/completed/failed
+    normalization every poller (useTaskPoller, useTaskWatcher, the
+    background_tasks.status DB CHECK constraint) already keys its
+    running->done transition off of — widening that enum would silently
+    break every one of those consumers (an unmatched status stops NONE of
+    their branches, so polling would never stop). Instead: normalizes to
+    "completed" exactly as before (byte-identical to every other terminal
+    status), and additively flags `needs_review: True` in the in-memory
+    entry — read by the SSE task_progress stream and the GET /task/{id}
+    poll (both additive fields, ignored by any client that doesn't know
+    about them yet) so the ONE consumer that needs to react differently
+    (ChatCore, which turns this into a visible "the script needs another
+    look" chat message instead of silently treating it as a clean success)
+    can, without touching the shared status vocabulary at all.
     """
     db_status = None
+    needs_review = status == "needs_review"
     # Normalize: anything not running/failed is completed
     if status == "cancelled":
         normalized = "completed"
@@ -424,6 +444,7 @@ def _set_task_status(
         "status": normalized,
         "message": resolved_message,
         "error": resolved_error,
+        "needs_review": needs_review,
         "lane": _task_lane.get(),
         "started_at": (previous or {}).get("started_at", _time.time()),
     }
@@ -2955,6 +2976,11 @@ async def get_task_status(
         "message": task.get("message"),
         "error": task.get("error"),
         "via_agent": via_agent,
+        # C-frontdoor2: additive, same "absence means no" contract as via_agent —
+        # a needs_review verdict still reports status="completed" (see
+        # _set_task_status's docstring for why), this is the one place a
+        # caller can tell the difference from an ordinary clean completion.
+        "needs_review": task.get("needs_review", False),
     }
 
 
@@ -3291,6 +3317,9 @@ async def pipeline_stream(
                         "status": task["status"] if task else "idle",
                         "message": task.get("message") if task else None,
                         "error": task.get("error") if task else None,
+                        # C-frontdoor2: additive (see GET /task/{id} above) —
+                        # an old frontend build ignores an unknown key.
+                        "needs_review": task.get("needs_review", False) if task else False,
                     }
                     yield f"event: task_progress\ndata: {json.dumps(event)}\n\n"
                     last_task_snapshot[video_id] = task_key
@@ -3305,6 +3334,7 @@ async def pipeline_stream(
                             "status": task.get("status", "idle"),
                             "message": task.get("message"),
                             "error": task.get("error"),
+                            "needs_review": task.get("needs_review", False),
                         }
                         yield f"event: task_progress\ndata: {json.dumps(event)}\n\n"
                         last_task_snapshot[vid] = task_key

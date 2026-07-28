@@ -305,7 +305,14 @@ def test_plain_path_short_circuits_to_needs_review(monkeypatch):
 
     assert result == {
         "status": "needs_review", "video_id": "video-test", "violations": ["hook speed"],
-        "message": "Quality critic still flags issues after the edit-loop bound: hook speed",
+        # C-frontdoor2 (2026-07-27): the human-facing "message" now translates
+        # the raw gate name to plain English (script_quality.
+        # plain_english_violations) instead of echoing the internal jargon
+        # verbatim — this message now actually reaches the creator (see
+        # ChatPipelineMap's needs_review banner / actions.make_autobuild_step),
+        # so "hook speed" must never leak through as-is. The raw "violations"
+        # list above is unchanged — this only affects the display message.
+        "message": "The script needs another look — the opening is slow to hook the viewer",
     }
     assert calls["update_status"] == 0, "a needs_review verdict must not advance the stage"
 
@@ -393,7 +400,9 @@ def test_modeled_path_passes_hold_status_and_short_circuits_on_needs_review(monk
 
     assert result == {
         "status": "needs_review", "video_id": "video-test", "violations": ["payoff"],
-        "message": "Quality critic still flags issues after the edit-loop bound: payoff",
+        # C-frontdoor2 (2026-07-27): see the plain-path test above for why
+        # this is now plain English, not the raw gate name.
+        "message": "The script needs another look — the opening's promise never pays off by the end",
     }
     assert captured["hold_status"] == "ready_for_scripting", (
         "the modeled path already advanced status before grading — hold_status must be passed"

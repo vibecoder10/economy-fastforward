@@ -114,7 +114,7 @@ function detectModelUrl(text: string): { kind: "youtube" | "unsupported"; url: s
 // ChatCore, which discloses what was found/not-found in the opening turn).
 
 function PromptEntrySection() {
-  const { setSelectedVideoId, setPendingInitialMessage } = useDirector();
+  const { setSelectedVideoId, setPendingInitialMessage, setPendingInitialIntent } = useDirector();
   const [prompt, setPrompt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,8 +175,12 @@ function PromptEntrySection() {
       });
       // Seed the sentence as the opening chat turn, then hand off to the room —
       // DirectorSurface mounts ChatCore for this video id and sends it (see
-      // ChatCore's initialMessage prop).
+      // ChatCore's initialMessage prop). This box's whole reason to exist is
+      // "build me a new video" — that is declared here, not left for the chat
+      // classifier to guess from the sentence's wording (see the root-cause
+      // note on `explicit_verb` in backend/routes/chat.py `_handle_copilot`).
       setPendingInitialMessage(sentence);
+      setPendingInitialIntent("build");
       setSelectedVideoId(video.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't start that video — try again.");

@@ -448,17 +448,33 @@ export function ChatPipelineMap({
       </div>
 
       {/* Failed/completed message only — the running case now lives in the
-          "it's alive" block above (showing it twice was noise, not signal). */}
+          "it's alive" block above (showing it twice was noise, not signal).
+          C-frontdoor2 (2026-07-27): a needs_review completion (the script
+          quality critic rejected the draft — task.status is "completed" on
+          purpose, see backend `_set_task_status`'s docstring) gets its OWN
+          amber/warning look, distinct from an ordinary green "done" — before
+          this it rendered with the same green checkmark as a clean success,
+          which is exactly how a real content rejection read as "Script — 1
+          scene" success to the creator with no idea anything needed another
+          look. */}
       {taskProgress?.message && !taskRunning && (
         <div
           role={taskFailed ? "alert" : "status"}
           className="flex items-start gap-2 rounded-lg px-2.5 py-2 text-[10px] leading-relaxed"
           style={{
-            background: taskFailed ? "rgba(239,68,68,0.08)" : "rgba(0,212,170,0.07)",
-            color: taskFailed ? "var(--red)" : "var(--text-secondary)",
+            background: taskFailed
+              ? "rgba(239,68,68,0.08)"
+              : taskProgress.needs_review
+              ? "rgba(234,179,8,0.10)"
+              : "rgba(0,212,170,0.07)",
+            color: taskFailed
+              ? "var(--red)"
+              : taskProgress.needs_review
+              ? "var(--gold-director)"
+              : "var(--text-secondary)",
           }}
         >
-          {taskFailed ? (
+          {taskFailed || taskProgress.needs_review ? (
             <TriangleAlert size={13} className="shrink-0 mt-0.5" />
           ) : (
             <Check size={13} className="shrink-0 mt-0.5" style={{ color: "var(--green)" }} />
