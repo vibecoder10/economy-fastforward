@@ -39,6 +39,14 @@ async def _execute(query, *args):
     STATE["executes"].append((query, args))
 
 
+async def _fetch_one(query, *args):
+    # actions.py (imported below, transitively, by the money-safety fix's
+    # `from actions import budget_refusal, ...`) needs this name to exist at
+    # its own module-import time — never actually called here since
+    # budget_refusal itself is monkeypatched to a no-op right below.
+    return None
+
+
 async def _upload_bytes(data, path, content_type=None, tenant_id=None):
     STATE["uploads"].append(path)
     return f"https://drive.example/{path}"
@@ -46,11 +54,34 @@ async def _upload_bytes(data, path, content_type=None, tenant_id=None):
 
 _db.fetch_all = _fetch_all
 _db.execute = _execute
+_db.fetch_one = _fetch_one
 _storage.upload_bytes = _upload_bytes
 sys.modules["database"] = _db
 sys.modules["storage"] = _storage
 
 from dialogue_voice import synthesize_video_segments, _as_segments, _mp3_duration_seconds  # noqa: E402
+
+# Money-safety fix (C56): synthesize_video_segments now calls
+# actions.budget_refusal before every real ElevenLabs call and
+# generation_ledger.record_ledger_entry after each one. None of this file's
+# tests are about the spend cap (see test_money_safety_gaps_c56.py for that
+# — it exercises this exact function's ledger writes and refusals directly),
+# so patch both to "never refuse, ledger writes are no-ops" — every existing
+# assertion here keeps testing exactly what it tested before this fix.
+import actions as _actions_mod  # noqa: E402
+import generation_ledger as _ledger_mod  # noqa: E402
+
+
+async def _fake_budget_refusal(tenant_id, video_id, quote, label="this generation"):
+    return None
+
+
+async def _fake_record_ledger_entry(**kwargs):
+    STATE.setdefault("ledger_calls", []).append(kwargs)
+
+
+_actions_mod.budget_refusal = _fake_budget_refusal
+_ledger_mod.record_ledger_entry = _fake_record_ledger_entry
 
 
 class FakeTTS:

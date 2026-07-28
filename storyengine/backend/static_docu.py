@@ -1729,6 +1729,26 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                 f"{STATIC_VIEWS_TARGET}: {view_plan['label']}…"
             )
 
+            # Money-safety fix: this stage spent real GPT Image 2 calls (2-3
+            # views per scene, each with an optional QA retry — a SECOND real
+            # generation) with NO generation_ledger write and NO cap check at
+            # all. Checked fresh before EVERY provider call — scenes run
+            # concurrently (Semaphore(6) above), so this is the same
+            # per-call re-check pattern every other paid image site in this
+            # codebase now uses (actions.budget_refusal), not a one-time
+            # up-front gate a concurrent batch could slip past.
+            from actions import budget_refusal, picture_price_for
+            from generation_ledger import record_ledger_entry
+            quote = picture_price_for("gpt-image-2")
+            refusal = await budget_refusal(tenant_id, video_id, quote, "this view")
+            if refusal:
+                _p(f"Segment {sc}, view {view_index}: {refusal}")
+                await execute(
+                    "UPDATE assets SET status='budget_capped', image_url=NULL WHERE id=$1",
+                    view_row_id,
+                )
+                return False
+
             # GPT Image 2 only, reference required, 1K. No fallback model can
             # silently trade historical accuracy for completion.
             res = await ic.generate_scene_image_gpt(
@@ -1739,6 +1759,13 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
             if not url:
                 await execute("DELETE FROM assets WHERE id=$1", view_row_id)
                 return False
+            # This view's picture already cost real money the moment `url`
+            # came back — meter it now, before the QA retry decision below
+            # (which may spend a SECOND time on the same view).
+            await record_ledger_entry(
+                tenant_id=tenant_id, video_id=video_id, stage="image",
+                model="gpt-image-2", units=1, unit_cost=quote, actual_cost=quote,
+            )
 
             qa_note = ""
             if not await _render_matches_reference(
@@ -1755,11 +1782,24 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
                     "Change only the requested camera viewpoint. "
                     + prompt
                 )
-                res = await ic.generate_scene_image_gpt(
-                    retry_prompt, ref_url, aspect_ratio=v["aspect"],
-                    allow_fallback=False, resolution="1K",
-                )
-                url2 = (res or {}).get("url")
+                retry_refusal = await budget_refusal(
+                    tenant_id, video_id, quote, "this view's QA retry")
+                if retry_refusal:
+                    _p(f"Segment {sc}, view {view_index}: {retry_refusal} — "
+                       "keeping the first render unretried.")
+                    url2 = None
+                else:
+                    res = await ic.generate_scene_image_gpt(
+                        retry_prompt, ref_url, aspect_ratio=v["aspect"],
+                        allow_fallback=False, resolution="1K",
+                    )
+                    url2 = (res or {}).get("url")
+                    if url2:
+                        await record_ledger_entry(
+                            tenant_id=tenant_id, video_id=video_id, stage="image",
+                            model="gpt-image-2", units=1, unit_cost=quote,
+                            actual_cost=quote,
+                        )
                 if url2 and await _render_matches_reference(
                     tenant_id, url2, ref_url, machine, sub.get("aliases")
                 ):

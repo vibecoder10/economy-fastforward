@@ -424,6 +424,37 @@ def budget_check(summary: dict[str, Any], quote_cost: float) -> Optional[dict[st
     }
 
 
+async def budget_refusal(
+    tenant_id, video_id: str, quote_cost: float, item_label: str = "this generation",
+) -> Optional[str]:
+    """Pre-spend cap check, generalized for every paid call site that isn't
+    already inside the confirm-card/autobuild machinery (money-safety fix —
+    dialogue voice, static-documentary images, panel upscaling, the "fix
+    text" card redraw, and any future single-shot paid generation). Same
+    two building blocks as everything else in this module — video_summary
+    for the live total_cost/max_spend read, budget_check for the
+    over-cap classification — just packaged as one awaitable a call site
+    can check right before its provider call. Mirrors
+    routes/characters.py's ``_budget_refusal`` (the character/environment
+    money-safety fix) exactly; that one stays route-local since
+    routes/environments.py already imports it, but the underlying pattern
+    is this same video_summary + budget_check pair, not a second mechanism.
+    Returns a plain-English refusal message, or None if this quote fits
+    under the cap (or no cap is set)."""
+    summary = await video_summary(tenant_id, video_id)
+    if not summary:
+        return None
+    breach = budget_check(summary, quote_cost)
+    if not breach:
+        return None
+    return (
+        f"Paused — this would put you at ${breach['projected']:.2f} against this video's "
+        f"${breach['cap']:.2f} spend cap (${breach['spent']:.2f} already spent, "
+        f"${breach['quote']:.2f} for {item_label}). Raise the cap in Settings, then run "
+        "this again."
+    )
+
+
 def blocked_reason(verb: str, summary: dict[str, Any]) -> Optional[str]:
     """Return a plain-English reason this action can't run yet, or None if it's allowed."""
     needs = (ACTIONS.get(verb) or {}).get("needs")

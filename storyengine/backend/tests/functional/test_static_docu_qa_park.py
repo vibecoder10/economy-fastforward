@@ -225,6 +225,45 @@ def _pipeline_env(monkeypatch, *, verdicts, gen_urls, upload_raises=False,
                         fake_get_text_client_for_tenant)
     monkeypatch.setattr(image_client_module.ImageClient, "generate_scene_image_gpt",
                         fake_generate)
+
+    # Money-safety fix (C56): generate_static_images_for_video now calls
+    # actions.budget_refusal before every real GPT Image 2 call and
+    # generation_ledger.record_ledger_entry after each one. This suite's
+    # DB stub above only covers docu_module's own fetch_one/fetch_all/
+    # execute, not the SEPARATE database bindings actions.py and
+    # generation_ledger.py imported at THEIR OWN module-load time — left
+    # real here, they'd hit an actual DB connection attempt and blow up
+    # every scene as a generic exception (_bounded's per-scene try/except
+    # swallowing it into a silent "failed", not a loud test error). None of
+    # these tests are about the spend cap (see test_money_safety_gaps_c56.py
+    # for that), so default to "never refuse, ledger writes are no-ops" —
+    # every existing assertion here keeps testing exactly what it tested
+    # before this fix.
+    #
+    # Import actions/generation_ledger HERE, fresh, rather than at this
+    # test file's own module scope: tests/conftest.py's IsolatedModule gives
+    # every test FILE its own private sys.modules['actions'] (repo modules
+    # are evicted and re-imported per file, see conftest.py's _is_shared_
+    # cacheable). A module-level `import actions` captured in THIS file
+    # would be the wrong object when _pipeline_env is called from a
+    # DIFFERENT file (test_static_docu_three_view_contract.py imports this
+    # helper) — static_docu.py's `from actions import budget_refusal` would
+    # resolve against that OTHER file's isolated copy, silently missing this
+    # patch and hitting a real DB call. A fresh import at call time always
+    # resolves the CALLING test's own isolated module.
+    import actions as _actions_mod
+    import generation_ledger as _ledger_mod
+
+    env["ledger_calls"] = []
+
+    async def fake_budget_refusal(tenant_id, video_id, quote, label="this generation"):
+        return None
+
+    async def fake_record_ledger_entry(**kwargs):
+        env["ledger_calls"].append(kwargs)
+
+    monkeypatch.setattr(_actions_mod, "budget_refusal", fake_budget_refusal)
+    monkeypatch.setattr(_ledger_mod, "record_ledger_entry", fake_record_ledger_entry)
     return env
 
 
