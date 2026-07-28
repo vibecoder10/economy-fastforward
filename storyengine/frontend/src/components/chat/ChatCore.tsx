@@ -402,8 +402,24 @@ export function ChatCore({
     onStageChange: () => {
       if (resultCardsVideoId) invalidateResultCards(queryClient, resultCardsVideoId);
     },
-    onTaskProgress: (event) => {
-      if (resultCardsVideoId && event.status !== "running") {
+    // Job-2 fix (2026-07-28, live-progress branch): this used to skip
+    // invalidation for every "running" event and only refresh once the
+    // WHOLE stage finished. But characters/environments/scenes are each
+    // written to the DB one at a time (routes/characters.py,
+    // routes/environments.py, scripts/coverage_to_app.py's per-scene
+    // store_scene() — confirmed by reading the loops, not guessed), with a
+    // distinct task_progress message per item ("Designing Bob (2/5)…",
+    // "Scene 3: ... coverage frames + board done") — the backend only ever
+    // emits a NEW event when that message actually changes (routes/
+    // pipeline.py's task_key comparison), so every event here already is a
+    // real "something just landed" signal. Skipping "running" events threw
+    // that away: the cast/location/storyboard tiles below stayed empty for
+    // the whole run and then all populated at once on completion — exactly
+    // the "I expect them to fall in" gap this branch exists to close.
+    // Invalidating on every event is cheap (3 lightweight GETs, deduped by
+    // React Query, naturally rate-limited to the SSE loop's own 3s poll).
+    onTaskProgress: () => {
+      if (resultCardsVideoId) {
         invalidateResultCards(queryClient, resultCardsVideoId);
       }
     },
