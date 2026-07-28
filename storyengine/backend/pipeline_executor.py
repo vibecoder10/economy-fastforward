@@ -7428,22 +7428,27 @@ class PipelineExecutor:
                 (video or {}).get("image_style_override") or ""
             ).strip()
 
-    async def _check_voice_exists(self, video_id: str) -> tuple[bool, int, int]:
-        """Check if voice has been generated for all scenes.
+    async def _check_voice_exists(self, video_id: str, scene: int = None) -> tuple[bool, int, int]:
+        """Check if voice has been generated for all scenes (or just one).
 
         A scene is voiced when its narrator track exists (scripts.voice_over_url)
         OR when dialogue-voice finished every spoken line (each dialogue_segments
         entry with text carries its own audio_url). All-dialogue scenes never get
         a narrator track, so voice_over_url alone would reject them forever.
 
+        Pass `scene` to scope the check to a single scene (used by the coverage
+        image-generation gate below for a targeted single-scene redraw).
+
         Returns (all_have_voice, total_scenes, scenes_with_voice).
         """
         from dialogue_voice import _as_segments
 
-        rows = await fetch_all(
-            "SELECT voice_over_url, dialogue_segments FROM scripts WHERE video_id = $1",
-            video_id,
-        )
+        query = "SELECT voice_over_url, dialogue_segments FROM scripts WHERE video_id = $1"
+        params: list = [video_id]
+        if scene is not None:
+            query += " AND scene = $2"
+            params.append(scene)
+        rows = await fetch_all(query, *params)
         total = len(rows)
         with_voice = 0
         for r in rows:
@@ -13978,7 +13983,27 @@ separate scenes."""
         to the static path (scene-scoped when a scene is given — lets a review-gate
         re-roll fix ONE segment without re-rolling the others)."""
         video = await self._get_video(video_id)
-        if video and (video.get("render_mode") or "") == "static_docu":
+        if not video:
+            return {"status": "failed", "error": "Video not found"}
+        # Money gate (voicefix): image generation must never run on a video
+        # whose scenes have no narration. This is the modern, single live
+        # image path — chat's "images" verb (actions.py ACTIONS["images"]),
+        # the MCP `images` tool, and ClaudeOrchestrator's autonomous "images"
+        # skill dispatch (claude_orchestrator.py skill_to_method) ALL
+        # converge here — it replaced the old run_prompts/run_images 3x3-grid
+        # handlers (which DO have this same check) without carrying the
+        # check over. That gap is exactly how video 146242df (tenant tgb29,
+        # 0/3 scenes voiced) got billed $1.50 of real image spend three times
+        # after voice silently failed and (pre-fix) advanced status anyway.
+        # Mirrors _check_voice_exists's use in run_images/run_prompts.
+        if not video.get("skip_voice"):
+            all_voiced, total, voiced = await self._check_voice_exists(video_id, scene=scene)
+            if not all_voiced:
+                label = f"scene {scene}" if scene is not None else f"{total - voiced}/{total} scenes"
+                msg = f"Voice generation must complete before image generation. Missing voice for {label}."
+                await self._log_activity("Image Bot", video_id, "failed", msg)
+                return {"status": "failed", "error": msg}
+        if (video.get("render_mode") or "") == "static_docu":
             return await self.run_coverage_stage(
                 video_id, only_scenes={scene} if scene else None)
         from scripts.coverage_to_app import generate_coverage_for_video
@@ -14011,6 +14036,25 @@ separate scenes."""
         video = await self._get_video(video_id)
         if not video:
             return {"status": "failed", "error": "Video not found"}
+        # Money gate (voicefix) — same guard as run_coverage_images, and for
+        # the same reason: this method IS the modern image stage (the
+        # "ready_for_storyboards"/"ready_for_storyboard_images"/
+        # "ready_for_storyboard_extraction" status-map handlers and
+        # ClaudeOrchestrator's "storyboard" skill dispatch all call this
+        # directly, not through run_coverage_images), so it needs its own
+        # copy of the check rather than relying on the caller to have it.
+        # only_scenes narrows the check to those scenes when it's a single
+        # scene; anything else (None, or more than one) checks every scene,
+        # since a partial redo must not be a loophole for an otherwise
+        # unvoiced video.
+        if not video.get("skip_voice"):
+            check_scene = next(iter(only_scenes)) if only_scenes and len(only_scenes) == 1 else None
+            all_voiced, total, voiced = await self._check_voice_exists(video_id, scene=check_scene)
+            if not all_voiced:
+                label = f"scene {check_scene}" if check_scene is not None else f"{total - voiced}/{total} scenes"
+                msg = f"Voice generation must complete before image generation. Missing voice for {label}."
+                await self._log_activity(bot_name, video_id, "failed", msg)
+                return {"status": "failed", "error": msg}
         # STATIC-DOCU videos take 2–3 verified aircraft views per segment instead
         # of generic coverage (no cast, no story bible) — same branch as the
         # chat auto-build, so every entry point produces the same result.

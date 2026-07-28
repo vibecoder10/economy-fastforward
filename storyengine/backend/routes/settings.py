@@ -45,6 +45,14 @@ class ApiKeyStatus(BaseModel):
 class ApiKeyList(BaseModel):
     """List of all API key statuses."""
     keys: list[ApiKeyStatus]
+    # Set when this tenant's voice narration is silently routing through
+    # Kie's TTS gateway instead of direct ElevenLabs (voicefix fix #4) — a
+    # Kie key with no ElevenLabs key means ElevenLabsClient falls back to
+    # the Kie gateway (elevenlabs_client.py's `_kie_mode`), which is less
+    # reliable (the transient "internal error" failures that silently
+    # dropped a tenant's narration came from this gateway) and previously
+    # had no UI signal anywhere — only a backend print statement nobody sees.
+    voice_routing_note: Optional[str] = None
 
 
 class SetKeyRequest(BaseModel):
@@ -75,8 +83,10 @@ async def list_api_keys(tenant_id: str = Depends(get_tenant_id)):
 
     # Get status for all known keys
     keys = []
+    configured_by_name: dict[str, bool] = {}
     for key_name in SECRET_ENV_MAP.keys():
         status = await get_secret_status(key_name, tenant_id)
+        configured_by_name[key_name] = bool(status["configured"])
         keys.append(ApiKeyStatus(
             name=status["name"],
             configured=status["configured"],
@@ -84,7 +94,17 @@ async def list_api_keys(tenant_id: str = Depends(get_tenant_id)):
             masked_value=status.get("masked_value"),
         ))
 
-    return ApiKeyList(keys=keys)
+    # Fix #4 (voicefix): a tenant with a Kie key but no ElevenLabs key gets
+    # their narration silently routed through Kie's TTS gateway — say so
+    # here, in plain words, rather than leaving it invisible.
+    voice_routing_note = None
+    if configured_by_name.get("kie_ai_api_key") and not configured_by_name.get("elevenlabs_api_key"):
+        voice_routing_note = (
+            "Your voice is going through Kie's text-to-speech because you have not "
+            "added an ElevenLabs key. Adding one is more reliable."
+        )
+
+    return ApiKeyList(keys=keys, voice_routing_note=voice_routing_note)
 
 
 @router.post("/keys/validate")
