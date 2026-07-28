@@ -24,6 +24,26 @@ import { usePathname, useRouter } from "next/navigation";
  */
 export type Altitude = "shot" | "scene" | "timeline";
 
+/** Which right-rail tab is active (RightRail.tsx `RailTab`, mirrored here so
+ * DirectorSurface can read it for `ui_context.railTab` without RightRail
+ * importing DirectorContext just to announce its own tab — the state now
+ * LIVES here and RightRail reads/writes it via useDirector(), same pattern
+ * as `altitude`. Kept as a plain string union, not re-exported from
+ * RightRail, to avoid a circular import between the two files. */
+export type RailTab = "media" | "voice" | "music" | "cast" | "env";
+
+/** A character or environment picked in the right rail's Cast/Environments
+ * tab (RightRail.tsx `CastPanel`/`EnvironmentsPanel`) — the second half of
+ * "select a shot or a character, then say 'make him older'" alongside
+ * `focusedShotId`. `kind` disambiguates the id: `video_characters.id` and
+ * `video_environments.id` are separate id spaces, so a bare id alone can't
+ * say which table (or which chat `ui_context.selectedEntityId` resolver
+ * path) it belongs to. */
+export interface SelectedEntity {
+  id: string;
+  kind: "character" | "environment";
+}
+
 export interface DirectorState {
   /** The video currently open on the Director surface. `null` means the
    * home screen (`DirectorHome`) should render instead of the two-column
@@ -39,6 +59,18 @@ export interface DirectorState {
    * clicking into Shot altitude. `null` when nothing is focused. */
   focusedShotId: string | null;
   setFocusedShotId: (id: string | null) => void;
+
+  /** The character or environment currently selected in the right rail's
+   * Cast/Environments tab. Mutually exclusive with `focusedShotId` in the
+   * UI (selecting one clears the other — see RightRail.tsx's click
+   * handlers) so chat's `ui_context` never has to arbitrate two live
+   * targets at once. `null` when nothing is selected. */
+  selectedEntity: SelectedEntity | null;
+  setSelectedEntity: (entity: SelectedEntity | null) => void;
+
+  /** Which right-rail tab is active — see the `RailTab` doc above. */
+  railTab: RailTab;
+  setRailTab: (tab: RailTab) => void;
 
   /** A one-sentence pitch typed into the DirectorHome entry box, waiting to be
    * seeded as the opening chat turn once DirectorSurface mounts ChatCore for
@@ -143,9 +175,25 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   );
 
   const [altitude, setAltitude] = useState<Altitude>("scene");
-  const [focusedShotId, setFocusedShotId] = useState<string | null>(null);
+  const [focusedShotId, setFocusedShotIdRaw] = useState<string | null>(null);
+  const [selectedEntity, setSelectedEntityRaw] = useState<SelectedEntity | null>(null);
+  const [railTab, setRailTab] = useState<RailTab>("media");
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
   const [pendingInitialIntent, setPendingInitialIntent] = useState<"build" | null>(null);
+
+  // A shot and an entity (character/environment) are mutually exclusive as
+  // chat's next target — picking one clears the other here, centrally, so
+  // every caller (SceneAltitudeView's shot `onTap`, RightRail's Cast/
+  // Environments tiles) gets the exclusivity for free instead of each
+  // remembering to clear the other field itself.
+  const setFocusedShotId = (id: string | null) => {
+    setFocusedShotIdRaw(id);
+    if (id !== null) setSelectedEntityRaw(null);
+  };
+  const setSelectedEntity = (entity: SelectedEntity | null) => {
+    setSelectedEntityRaw(entity);
+    if (entity !== null) setFocusedShotIdRaw(null);
+  };
 
   const value = useMemo<DirectorState>(
     () => ({
@@ -155,6 +203,10 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       setAltitude,
       focusedShotId,
       setFocusedShotId,
+      selectedEntity,
+      setSelectedEntity,
+      railTab,
+      setRailTab,
       pendingInitialMessage,
       setPendingInitialMessage,
       pendingInitialIntent,
@@ -165,6 +217,8 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       setSelectedVideoId,
       altitude,
       focusedShotId,
+      selectedEntity,
+      railTab,
       pendingInitialMessage,
       pendingInitialIntent,
     ]

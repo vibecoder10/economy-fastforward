@@ -120,8 +120,16 @@ class ChatTurnRequest(BaseModel):
     # presence means "this is the co-pilot dock" — find-or-create one conversation
     # per video AND hold paid/destructive actions behind a confirm card.
     video_id: Optional[str] = None
-    # What the creator is looking at in the dock, so "this image" / "image 1"
-    # resolves without naming the scene: {"scene": int, "index": int, "tab": str}.
+    # What the creator is looking at, so "this image" / "image 1" / "him" resolves
+    # without naming it. Started as the dock's {"scene": int, "index": int, "tab":
+    # str}; widened (DIRECTOR-CHAT-PLAN.md Task 5.4a) for the Director surface,
+    # which additionally sends {"altitude": str, "focusedAssetId": str, "railTab":
+    # str, "selectedEntityId": str, "selectedEntityType": "character"|"environment"}.
+    # Every field optional — an older/other caller sending only a subset (or the
+    # old {"tab"}/{"tab","scene"} shape) is still a fully valid value of this same
+    # dict. `focusedAssetId`/`selectedEntityId` are read DETERMINISTICALLY by
+    # `_resolve_prompt_target`/`_resolve_character_target`/
+    # `_resolve_environment_target` below — an id, never re-derived from a guess.
     ui_context: Optional[dict[str, Any]] = None
     # Files dropped into the chat this turn: chat_assets ids from POST /api/chat/upload.
     attachments: Optional[list[str]] = None
@@ -1650,6 +1658,40 @@ async def _handle_show_op(tenant_id, video_id, summary, data, ui_context, _reply
     )
 
 
+def _selection_context_note(ui_context: dict[str, Any]) -> str:
+    """DIRECTOR-CHAT-PLAN.md Task 5.4a/b: tell the classifier what's ALREADY
+    selected on the Director canvas/rail, so it only has to pick the right
+    SURFACE (image/motion/character/environment) — never an id. The actual id
+    resolution is 100% code, off `ui_context` directly (routes/chat.py
+    `_resolve_prompt_target`/`_resolve_character_target`/
+    `_resolve_environment_target`), so a misread here can misclassify the
+    KIND of edit but can never point a correctly-classified one at the wrong
+    shot/character/environment — that's the deterministic half the plan asks
+    for. Duplicated (not shared) in agent_brain.py's system prompt, matching
+    this file's existing precedent for the scene/index injection right above
+    every call site — chat.py imports agent_brain lazily, inside a function
+    body, specifically to avoid a circular import back here."""
+    lines = []
+    if ui_context.get("focusedAssetId"):
+        lines.append(
+            f"A shot is currently focused on the canvas (asset id {ui_context['focusedAssetId']}). If "
+            "they describe a PICTURE or its MOTION with no scene/shot number named ('this shot', 'this "
+            "one', 'make him older', 'zoom in more') — set kind=prompt, surface=image (or motion for a "
+            "motion/camera direction), and leave scene/index null; I resolve the exact shot from the "
+            "selection myself, never guess a number.\n"
+        )
+    entity_type = ui_context.get("selectedEntityType")
+    if entity_type in ("character", "environment"):
+        noun = "person" if entity_type == "character" else "place"
+        lines.append(
+            f"A {entity_type} is currently selected in the right rail. If they describe that {noun} with "
+            "no name given ('make him older', 'she should look tougher', 'add rain to this place') — set "
+            f"kind=prompt, surface={entity_type}, and leave scene/index null; I resolve the exact "
+            f"{entity_type} from the selection myself, never guess which one.\n"
+        )
+    return "".join(lines)
+
+
 async def _handle_copilot(
     body, conversation_id, tenant_id, transcript, state, video_id, background_tasks
 ):
@@ -1909,6 +1951,7 @@ async def _handle_copilot(
                 if ui_context.get("scene")
                 else ""
             )
+            + _selection_context_note(ui_context)
             + f'\nThe creator said: "{msg}"\n\n'
             "ACTIONS (kind=action, exact verb): script, characters, storyboards, images, voice, animate, "
             "draft_pass, finalize, sound, thumbnail, render, research, seo, upload, approve_cast, "
@@ -1967,10 +2010,14 @@ async def _handle_copilot(
             "there's nothing approved yet.\n"
             "PROMPT work (kind=prompt) when they talk about the generation PROMPT TEXT itself — 'rewrite/enhance "
             "the prompt', 'show me the prompt', 'suggest improvements', 'make a better prompt', 'image 1 looks "
-            "off, rewrite its prompt to…'. Then set surface (image=a picture | motion=a clip's motion | thumbnail "
-            "| script), op (view=show current | suggest=ideas only, no change | rewrite=write a new one to apply), "
-            "the scene/index of the shot (use the 'currently viewing' one if they say 'this' and name no shot), "
-            "and the direction.\n"
+            "off, rewrite its prompt to…' — OR when they describe a CHARACTER's or LOCATION's DESCRIPTION with "
+            "one selected ('make him older', 'she should look tougher', 'add rain to this place' — see the "
+            "'currently focused/selected' note below if present). Then set surface (image=a picture | "
+            "motion=a clip's motion | thumbnail | script | character=a character's description | "
+            "environment=a location's description), op (view=show current | suggest=ideas only, no change | "
+            "rewrite=write a new one to apply), the scene/index of the shot (use the 'currently viewing' one if "
+            "they say 'this' and name no shot; leave both null for character/environment, or when a shot is "
+            "already focused — see below), and the direction.\n"
             "SHOW work (kind=show) when they want to SEE the actual pictures/storyboards/keyframes for a scene — "
             "'show me scene 2's boards', 'let me see scene 3's pictures', 'what does scene 1 look like' — NOT the "
             "prompt text (that's kind=prompt above). Give the scene (use the 'currently viewing' one for 'this "
@@ -1990,7 +2037,7 @@ async def _handle_copilot(
             '"verb":"script|characters|storyboards|images|voice|animate|draft_pass|finalize|sound|thumbnail|'
             "render|research|seo|upload|approve_cast|approve_environments|skip_environments|approve_scene|"
             'camera_preset|script_profile|budget_cap|lock|unlock|drive_push|drive_sync|advance|build|none",'
-            '"surface":"image|motion|thumbnail|script|null",'
+            '"surface":"image|motion|thumbnail|script|character|environment|null",'
             '"op":"view|suggest|rewrite|null",'
             '"scene":<int or null>,"index":<int picture/shot number or null>,'
             '"change":"<for action edits: a concrete instruction; for remember: the instruction VERBATIM; for '
@@ -2238,7 +2285,7 @@ async def _handle_copilot(
 # save + regenerate that one shot. Reuses the same one-shot routes the Scenes page
 # uses (redraw_asset_image / run_clip_generation(force) / run_thumbnail).
 
-_PROMPT_SURFACES = {"image", "motion", "thumbnail", "script"}
+_PROMPT_SURFACES = {"image", "motion", "thumbnail", "script", "character", "environment"}
 _IMAGE_GUIDE = (
     "Target: GPT Image 2 drawing ONE cinematic 16:9 frame. Keep the locked characters' exact looks. "
     "Be concrete and visual — subject, action, composition, lighting, lens, mood. One flowing prompt, no lists."
@@ -2250,6 +2297,24 @@ _THUMB_GUIDE = (
 _SCRIPT_GUIDE = (
     "Target: the spoken script for this scene. Keep the story beats and characters; sharpen the hook, "
     "clarity, pacing and voice. Return the rewritten scene text only."
+)
+# DIRECTOR-CHAT-PLAN.md Task 5.4b: "an indian boy", "a mexican grandma", "make him
+# older" — free text against a CHARACTER's/ENVIRONMENT's description field, the
+# same one-tap propose-then-apply shape as image/motion/thumbnail/script above.
+# Free (apply_cost=0.0, see _resolve_character_target/_resolve_environment_target)
+# — this only rewrites the description text (routes.characters.update_character /
+# routes.environments.update_environment); it does NOT redraw the portrait/
+# reference image (that's the separate, paid redo_character_sheet/redo_environment
+# MCP tools — out of scope here, same distinction the MCP tool docstrings draw).
+_CHARACTER_GUIDE = (
+    "Target: a character's DESCRIPTION text (what future artwork of them is drawn from), not the portrait "
+    "image itself. Keep their name and any locked visual traits the creator didn't ask to change. Return the "
+    "FULL updated description (not just the changed clause)."
+)
+_ENVIRONMENT_GUIDE = (
+    "Target: a location's DESCRIPTION text (what future artwork of this place is drawn from), not the "
+    "reference image itself. Keep anything the creator didn't ask to change. Return the FULL updated "
+    "description (not just the changed clause)."
 )
 # Motion guidance keyed by the chosen video model (self-contained — no import risk).
 _MOTION_MODEL_GUIDE = {
@@ -2267,19 +2332,114 @@ def _surface_guide(surface: str, video_model: str) -> str:
         return _THUMB_GUIDE
     if surface == "script":
         return _SCRIPT_GUIDE
+    if surface == "character":
+        return _CHARACTER_GUIDE
+    if surface == "environment":
+        return _ENVIRONMENT_GUIDE
     return _MOTION_MODEL_GUIDE.get(
         video_model,
         "Target: a short motion clip from the picture. Describe the motion and action clearly.",
     )
 
 
+async def _resolve_character_target(tenant_id, video_id, ui: dict[str, Any]) -> dict[str, Any]:
+    """DETERMINISTIC id-based resolution — same shape/contract as
+    _resolve_prompt_target's image/motion branch, split out because a character
+    lives in a different table/id-space than an asset. Never guesses a name from
+    the message; `ui_context.selectedEntityId` (DirectorContext.tsx `selectedEntity`,
+    set by tapping a Cast tile — RightRail.tsx) is the ONLY source of the id."""
+    if (ui.get("selectedEntityType") or "") != "character" or not ui.get("selectedEntityId"):
+        return {"error": "Which character do you mean? Select one in the Cast rail, or name them."}
+    row = await fetch_one(
+        "SELECT id, name, description FROM video_characters WHERE id=$1 AND video_id=$2 AND tenant_id=$3",
+        ui["selectedEntityId"],
+        video_id,
+        tenant_id,
+    )
+    if not row:
+        return {"error": "That character isn't there anymore — pick another one?"}
+    return {
+        "surface": "character",
+        "entity_id": str(row["id"]),
+        "label": f"the character {row['name']}",
+        "current": (row.get("description") or "").strip(),
+        "apply_cost": 0.0,
+    }
+
+
+async def _resolve_environment_target(tenant_id, video_id, ui: dict[str, Any]) -> dict[str, Any]:
+    """Environment counterpart to _resolve_character_target — same contract,
+    `video_environments` table, sourced from `ui_context.selectedEntityId` with
+    `selectedEntityType == "environment"`."""
+    if (ui.get("selectedEntityType") or "") != "environment" or not ui.get("selectedEntityId"):
+        return {"error": "Which location do you mean? Select one in the Environments rail, or name it."}
+    row = await fetch_one(
+        "SELECT id, name, description FROM video_environments WHERE id=$1 AND video_id=$2 AND tenant_id=$3",
+        ui["selectedEntityId"],
+        video_id,
+        tenant_id,
+    )
+    if not row:
+        return {"error": "That location isn't there anymore — pick another one?"}
+    return {
+        "surface": "environment",
+        "entity_id": str(row["id"]),
+        "label": f"the location {row['name']}",
+        "current": (row.get("description") or "").strip(),
+        "apply_cost": 0.0,
+    }
+
+
 async def _resolve_prompt_target(
     tenant_id, video_id, surface, scene, index, ui_context, summary
 ) -> dict[str, Any]:
     """Point a prompt op at a concrete thing + read its current prompt. Falls back to
-    the scene/image the creator is viewing; returns {"error": <ask>} when ambiguous."""
+    the scene/image the creator is viewing; returns {"error": <ask>} when ambiguous.
+
+    Resolution order for image/motion, most specific first — DETERMINISTIC, never a
+    guess handed to the LLM: (1) a scene/index the classifier read straight out of
+    the creator's own words ("redo scene 5 image 2") always wins, since they named a
+    different target on purpose; (2) failing that, `ui_context.focusedAssetId` — the
+    EXACT `assets.id` of whatever shot is tapped/focused on the Director canvas right
+    now (DirectorContext.tsx `focusedShotId`) — resolves straight to that one row, no
+    scene/index list-and-guess involved, so "make him older" with shot 3.2 focused
+    can never land on shot 3.1 in the same multi-shot scene; (3) failing that, the
+    older `ui_context.scene`/`.index` ambient hint (pre-Task-5.4a producers: the old
+    pipeline dock, ImagesStagePanel — unchanged). Character/environment surfaces
+    resolve the same way off `ui_context.selectedEntityId`/`.selectedEntityType` —
+    see _resolve_character_target/_resolve_environment_target above."""
     ui = ui_context or {}
+    if surface == "character":
+        return await _resolve_character_target(tenant_id, video_id, ui)
+    if surface == "environment":
+        return await _resolve_environment_target(tenant_id, video_id, ui)
     if surface in ("image", "motion"):
+        if scene is None and index is None and ui.get("focusedAssetId"):
+            row = await fetch_one(
+                "SELECT id, scene, image_index, image_prompt, video_prompt, image_url "
+                "FROM assets WHERE id=$1 AND video_id=$2 AND tenant_id=$3",
+                ui["focusedAssetId"],
+                video_id,
+                tenant_id,
+            )
+            if not row:
+                return {"error": "That shot isn't there anymore — pick another one?"}
+            if surface == "motion" and not row.get("image_url"):
+                return {
+                    "error": f"Scene {row.get('scene')} image {row.get('image_index')} hasn't been drawn yet — make the picture first."
+                }
+            cur = (row.get("image_prompt" if surface == "image" else "video_prompt") or "").strip()
+            cost = _PICTURE_COST if surface == "image" else _CLIP_COST.get(summary["model"], 0.10)
+            noun = "picture" if surface == "image" else "clip"
+            return {
+                "surface": surface,
+                "asset_id": str(row["id"]),
+                "scene": int(row["scene"]) if row.get("scene") is not None else None,
+                "index": int(row["image_index"]) if row.get("image_index") is not None else None,
+                "label": f"scene {row.get('scene')} {noun} {row.get('image_index')}",
+                "current": cur,
+                "apply_cost": cost,
+            }
         sc = scene if scene is not None else ui.get("scene")
         if sc is None:
             return {
@@ -2419,10 +2579,14 @@ def _prompt_apply_card(target: dict[str, Any], draft_text: str) -> dict[str, Any
         "motion": "re-animate",
         "thumbnail": "redo",
         "script": "save",
+        "character": "save",
+        "environment": "save",
     }[target["surface"]]
+    # character/environment are a free text-only save (Task 5.4b) — same "no
+    # regenerate" contract as script, not a redraw/re-animate.
     do = (
         "Save it"
-        if target["surface"] == "script"
+        if target["surface"] in ("script", "character", "environment")
         else f"Apply & {verb} · {'no extra cost' if cost <= 0 else f'~${cost:.2f}'}"
     )
     return {
@@ -2540,6 +2704,33 @@ async def _apply_prompt_draft(
             )
         )
         return "Saved and redoing the thumbnail now — I'll update you here."
+    if surface == "character":
+        # Free text-only save (Task 5.4b) — reuses the SAME route function the
+        # edit_character MCP tool wraps (routes/mcp.py `_call_edit_character`),
+        # so this goes through the one real write path, not a second one.
+        # Deliberately does NOT queue redo_character_sheet (the paid portrait
+        # redraw) — that stays an explicit separate ask, same distinction the
+        # MCP tool docstrings draw ("edit_character... Free, no cost" vs
+        # "redo_character_sheet... PAID").
+        from routes.characters import CharacterUpdate, update_character
+
+        await update_character(
+            video_id, draft["entity_id"], CharacterUpdate(description=text), tenant_id=tenant_id
+        )
+        return (
+            f"Done — I've updated {label}. If they already have a portrait, you may want to redo their "
+            "character sheet so it matches (that one does cost a redraw)."
+        )
+    if surface == "environment":
+        from routes.environments import EnvironmentUpdate, update_environment
+
+        await update_environment(
+            video_id, draft["entity_id"], EnvironmentUpdate(description=text), tenant_id=tenant_id
+        )
+        return (
+            f"Done — I've updated {label}. If it already has a reference image, you may want to redo "
+            "the environment so it matches (that one does cost a redraw)."
+        )
     # script: just save the new scene text; downstream art is regenerated separately.
     await execute(
         "UPDATE scripts SET scene_text=$1, updated_at=now() WHERE video_id=$2 AND scene=$3 AND tenant_id=$4",
@@ -2576,8 +2767,8 @@ async def _handle_prompt_op(
     direction = (data.get("direction") or data.get("change") or "").strip()
     if surface not in _PROMPT_SURFACES:
         return await _reply(
-            "I can rewrite the picture, motion, thumbnail, or script prompt — which one, "
-            "and for which shot?"
+            "I can rewrite the picture, motion, thumbnail, or script prompt — or update a character's "
+            "or location's description — which one, and for which shot?"
         )
     target = await _resolve_prompt_target(
         tenant_id, video_id, surface, scene, index, ui_context, summary
@@ -2607,6 +2798,7 @@ async def _handle_prompt_op(
     state["prompt_draft"] = {
         "surface": surface,
         "asset_id": target.get("asset_id"),
+        "entity_id": target.get("entity_id"),
         "scene": target.get("scene"),
         "index": target.get("index"),
         "label": target["label"],
