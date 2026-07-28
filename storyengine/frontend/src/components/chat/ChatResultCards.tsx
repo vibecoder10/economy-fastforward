@@ -97,6 +97,17 @@ export function ScriptResultCard({ videoId }: { videoId: string }) {
           {rows[0].scene_text}
         </p>
       )}
+      {/* Job 2 (surface plan, 2026-07-28): "the script came in, but it's so
+          small and is in some micro window I need to scroll, it should all
+          be one window that houses everything." This used to be
+          `max-h-72 overflow-y-auto` — a fixed-height inner scroller nested
+          inside the chat's own outer scroll region (ChatCore's
+          `messagesScrollRef`), i.e. exactly the "scroll inside a tiny window
+          inside the window" bug. The honest expand/collapse control above
+          (the whole card header, `aria-expanded`) is the ONE control the
+          creator needs — once expanded, the full script now flows to its
+          natural height and scrolls with the rest of the chat, never in its
+          own clipped box. */}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -106,7 +117,7 @@ export function ScriptResultCard({ videoId }: { videoId: string }) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="flex flex-col gap-2.5 max-h-72 overflow-y-auto pr-1 pt-1">
+            <div className="flex flex-col gap-2.5 pr-1 pt-1">
               {rows.map((s) => (
                 <div
                   key={s.id}

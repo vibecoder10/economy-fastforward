@@ -1125,6 +1125,28 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
                     break
             _set_task_status(video_id, result.get("status", "completed"),
                              result.get("error") or result.get("message"), tenant_id=tenant_id)
+            # Job 4 (surface plan, 2026-07-28): a needs_review verdict reaches
+            # THIS generic runner too — a direct "rewrite the script" tap
+            # (outside the "Make it" autobuild chain, which has its own copy
+            # of this same post in make_autobuild_step above) also stalls
+            # silently for anyone not staring at the stepper banner. Scoped
+            # to run_script specifically (`any(name == "run_script"...)`) —
+            # needs_review is a run_script-only status today, but this keeps
+            # the script-specific card/buttons from firing on some other
+            # stage's status string if that ever changed.
+            if result.get("status") == "needs_review" and any(
+                name == "run_script" for name, _ in calls
+            ):
+                try:
+                    from routes.chat import _post_script_review_message
+                    await _post_script_review_message(
+                        tenant_id, video_id,
+                        result.get("message") or "The script needs another look before I keep going.",
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "script review chat post failed (direct verb)", exc_info=True,
+                    )
         except Exception as e:  # noqa: BLE001
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
@@ -1366,15 +1388,32 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                     # script existed and was rejected, or why. That silently
                     # read as a stall, not a decision waiting on the creator.
                     if script_result.get("status") == "needs_review":
-                        _set_task_status(
-                            video_id,
-                            "needs_review",
+                        review_msg = (
                             script_result.get("message")
                             or "The script needs another look before I keep building — "
                             "check the notes and tell me to redo it, or say \"use it anyway\" "
-                            "to keep going as-is.",
-                            tenant_id=tenant_id,
+                            "to keep going as-is."
                         )
+                        _set_task_status(
+                            video_id, "needs_review", review_msg, tenant_id=tenant_id,
+                        )
+                        # Job 4 (surface plan, 2026-07-28): "the run correctly
+                        # stopped... he never saw it. From his seat the app
+                        # looked frozen." The task-status write above only
+                        # ever reached the live stepper banner (a creator not
+                        # looking at it sees nothing) — this ALSO posts the
+                        # SAME message as a normal, persisted chat turn with
+                        # a real "Rewrite it" / "Use it anyway" choice, same
+                        # pattern as _pause_for_approval_gate's chat post
+                        # just below in this file. Fail-soft: a chat-post
+                        # failure must never fail the build itself.
+                        try:
+                            from routes.chat import _post_script_review_message
+                            await _post_script_review_message(tenant_id, video_id, review_msg)
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "script review chat post failed (autobuild)", exc_info=True,
+                            )
                         return
                     # feat/approval-gates checkpoint 1 (script gate): pause here,
                     # BEFORE spending on the cast/locations, the first time this
