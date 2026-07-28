@@ -1338,6 +1338,61 @@ async def _approval_gate_card(
     return card
 
 
+async def _post_approval_gate_for_autobuild(
+    tenant_id, video_id: str, gate_kind: str, resume: dict[str, Any],
+) -> None:
+    """Called by actions.make_autobuild_step (lazy import from there — chat.py
+    already imports actions.py at module level, so the reverse import must
+    stay inside the function it's used from) when the auto-build chain
+    ("Make it ✨", or the front door's declared explicit_verb="build" turn)
+    reaches one of the two review checkpoints instead of the conversational
+    verb-classification path in _handle_copilot.
+
+    Posts the EXACT SAME approval_gate card a conversational "design the
+    characters"/"make the pictures" turn would show, as a normal PERSISTED
+    assistant turn in whichever conversation is bound to this video
+    (_conversation_for_video — find-or-create, same lookup the dock's first
+    open already uses). This is deliberately not a new, transient
+    "the build is paused" flag: persisting it as an ordinary turn means a
+    page reload re-hydrates the gate the exact same way it already
+    reconstructs every other pending action card (ChatCore's
+    `actionCard = lastCards?.find(...)` over the loaded transcript) — no
+    new frontend reload-handling needed for this to survive a refresh.
+
+    Money-wise this function only DISPLAYS the gate; it never runs
+    generation itself (the caller already did whatever cheap design work
+    happens before this checkpoint) and "Looks good!" resumes via the SAME
+    untouched approval_gate handshake + `_run_pending_action("build", ...)`
+    path every other gate approval already goes through.
+    """
+    conv = await _conversation_for_video(tenant_id, video_id)
+    if not conv:
+        return
+    summary = await _copilot_summary(tenant_id, video_id)
+    if not summary:
+        return
+    transcript = _as_list(conv.get("transcript"))
+    state = _as_dict(conv.get("state"))
+    # The cost quote shown on the card: the script gate's "next step" is
+    # designing the cast (verb "characters"); the anchors gate's "next
+    # step" is the REST of the autobuild chain (a "build" quote), since
+    # approving it resumes the whole chain, not one single verb.
+    quote_verb = "characters" if gate_kind == "script" else "build"
+    _cost, cost_text = await _estimate_cost(tenant_id, video_id, quote_verb, None, summary)
+    breakdown = await _cost_breakdown(tenant_id, video_id, quote_verb, None, summary)
+    card = await _approval_gate_card(gate_kind, tenant_id, video_id, summary, cost_text, breakdown)
+    state["pending_approval_gate"] = {"gate_kind": gate_kind, "resume": resume}
+    state["pending_action"] = None
+    text = (
+        "Script's ready — take a look, then say the word and I'll design the cast and locations."
+        if gate_kind == "script"
+        else "Anchors are ready — the cast and locations. Take a look, then say the word and "
+        f"I'll keep building ({cost_text})."
+    )
+    transcript.append(_assistant_turn({"assistant_text": text, "cards": [card], "phase": "created"}))
+    await _persist(str(conv["id"]), tenant_id, transcript, state, "created", video_id=video_id)
+
+
 def _confirm_card(
     verb: str,
     scene: Optional[int],

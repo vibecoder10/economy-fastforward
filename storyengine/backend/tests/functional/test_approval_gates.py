@@ -400,6 +400,85 @@ def test_video_summary_carries_the_new_gate_fields():
     print("✅ test_video_summary_carries_the_new_gate_fields")
 
 
+# ---------------------------------------------------------------------------
+# 6. _post_approval_gate_for_autobuild — the seam actions.make_autobuild_step
+#    calls (lazy import) when its own loop pauses at a checkpoint. Proves
+#    the pause is a normal PERSISTED assistant turn (survives a reload the
+#    same way every other pending action card already does), carrying the
+#    SAME approval_gate card + pending_approval_gate slot the conversational
+#    path already produces — never a second, parallel mechanism.
+# ---------------------------------------------------------------------------
+
+def test_post_approval_gate_for_autobuild_persists_a_normal_chat_turn():
+    conv_row = {"id": "conv-1", "project_id": None, "video_id": VIDEO,
+                "transcript": [], "state": {}, "phase": "created"}
+
+    async def fake_fetch_one(query, *a):
+        if "FROM videos WHERE id" in query and "chat_conversations" not in query:
+            return {"id": VIDEO}  # _conversation_for_video's ownership check
+        if "FROM chat_conversations" in query:
+            return conv_row
+        if "video_characters" in query:
+            return {"n": 0}
+        raise AssertionError(f"unexpected fetch_one: {query}")
+
+    persisted = {}
+
+    async def fake_persist(conversation_id, tenant_id, transcript, state, phase, video_id=None):
+        persisted["conversation_id"] = conversation_id
+        persisted["transcript"] = transcript
+        persisted["state"] = state
+
+    async def fake_summary(*_a, **_k):
+        return _summary(status="ready_for_image_prompts", scenes=8, cast=0)
+
+    resume = {"verb": "build", "target": "pictures", "scene": None, "change": "", "length_min": None}
+
+    # _estimate_cost("characters", ...) calls actions.fetch_one directly (a
+    # module-level name bound inside actions.py, not chat.fetch_one) — same
+    # video_characters count query the script-gate cost quote needs.
+    async def fake_actions_fetch_one(query, *a):
+        if "video_characters" in query:
+            return {"n": 0}
+        raise AssertionError(f"unexpected actions.fetch_one: {query}")
+
+    with patch.object(chat, "fetch_one", fake_fetch_one), \
+         patch.object(chat, "_persist", fake_persist), \
+         patch.object(chat, "_copilot_summary", fake_summary), \
+         patch.object(actions, "fetch_one", fake_actions_fetch_one):
+        asyncio.run(chat._post_approval_gate_for_autobuild(TENANT, VIDEO, "script", resume))
+
+    assert persisted, "must persist a turn — a silent pause is the exact bug this exists to avoid"
+    assert persisted["state"]["pending_approval_gate"] == {"gate_kind": "script", "resume": resume}
+    turn = persisted["transcript"][-1]
+    assert turn["role"] == "assistant"
+    import json as _json
+    payload = _json.loads(turn["content"])
+    assert payload["cards"][0]["id"] == "approval_gate"
+    assert payload["cards"][0]["gate_kind"] == "script"
+    # Must read as "waiting on you", never as a stall — the exact bug
+    # (chat froze silently, no way to tell thinking from dead) this
+    # mechanism exists to not repeat.
+    assert "take a look" in payload["assistant_text"].lower()
+    print("✅ test_post_approval_gate_for_autobuild_persists_a_normal_chat_turn")
+
+
+def test_post_approval_gate_for_autobuild_missing_video_is_a_safe_no_op():
+    async def fake_fetch_one(query, *a):
+        return None  # video doesn't exist / doesn't belong to this tenant
+
+    async def fail_persist(*a, **k):
+        raise AssertionError("must never persist for a video it can't find")
+
+    with patch.object(chat, "fetch_one", fake_fetch_one), \
+         patch.object(chat, "_persist", fail_persist):
+        asyncio.run(chat._post_approval_gate_for_autobuild(
+            TENANT, "no-such-video", "script",
+            {"verb": "build", "target": "pictures", "scene": None, "change": "", "length_min": None},
+        ))
+    print("✅ test_post_approval_gate_for_autobuild_missing_video_is_a_safe_no_op")
+
+
 if __name__ == "__main__":
     test_script_gate_fires_only_before_any_character_exists()
     test_anchors_gate_fires_for_storyboards_and_images_when_cast_exists_and_unapproved()
@@ -418,4 +497,6 @@ if __name__ == "__main__":
     test_not_yet_clears_the_gate_without_spending()
     test_approval_gate_yes_with_no_pending_gate_is_a_safe_no_op()
     test_video_summary_carries_the_new_gate_fields()
+    test_post_approval_gate_for_autobuild_persists_a_normal_chat_turn()
+    test_post_approval_gate_for_autobuild_missing_video_is_a_safe_no_op()
     print("All tests passed!")

@@ -1104,6 +1104,38 @@ def make_action_step(tenant_id, video_id: str, calls: list, *, scene: Optional[i
     return _run
 
 
+async def _pause_for_approval_gate(
+    tenant_id, video_id: str, gate_kind: str, target: str, wait_message: str,
+) -> None:
+    """Shared pause action for make_autobuild_step's two checkpoints
+    (feat/approval-gates): posts the approval_gate card into the video's
+    chat conversation (lazy import — routes.chat imports actions.py at
+    module level, so the reverse must stay lazy to avoid a circular
+    import, same pattern as every other routes.* import in this file) and
+    sets a task status that reads as "waiting on you", never as a stall —
+    the exact "chat froze silently, no idea if it was thinking or dead" bug
+    this whole mechanism exists to avoid repeating.
+
+    Resuming reuses the untouched "build" verb path in
+    routes.chat._run_pending_action: the gate's resume payload is
+    `{"verb": "build", "target": target, ...}`, exactly what a normal
+    "keep going" turn already sends — approving the gate is not a new way
+    to schedule the autobuild chain, it's the SAME one, one tap sooner.
+    """
+    from routes.pipeline import _set_task_status
+    try:
+        from routes.chat import _post_approval_gate_for_autobuild
+        await _post_approval_gate_for_autobuild(
+            tenant_id, video_id, gate_kind,
+            {"verb": "build", "target": target, "scene": None, "change": "", "length_min": None},
+        )
+    except Exception:  # noqa: BLE001 — the pause itself must never crash the build;
+        # worst case the chat card doesn't appear but the task-status message
+        # (set unconditionally below) still tells the creator to look.
+        logger.warning("approval gate post failed (%s)", gate_kind, exc_info=True)
+    _set_task_status(video_id, "completed", wait_message, tenant_id=tenant_id)
+
+
 def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         start_msg: str = "Building your video…"):
     """Chain the pipeline automatically instead of running one step. target='pictures'
@@ -1313,7 +1345,118 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                             tenant_id=tenant_id,
                         )
                         return
+                    # feat/approval-gates checkpoint 1 (script gate): pause here,
+                    # BEFORE spending on the cast/locations, the first time this
+                    # video reaches this point — same durable signal (cast==0)
+                    # routes/chat.py's _pending_gate_kind_for uses for the
+                    # conversational "design the characters" turn, so the
+                    # automatic chain and a typed request make the identical
+                    # decision. Only for target=="pictures": a "finish" chain
+                    # runs on a video already well past this checkpoint.
+                    # Guarded on static_docu too — that format never designs a
+                    # cast at all (see the STATIC-DOCU branch below).
+                    if target == "pictures" and (video.get("render_mode") or "") != "static_docu":
+                        crow = await fetch_one(
+                            "SELECT count(*) AS n FROM video_characters WHERE video_id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                        if int((crow or {}).get("n") or 0) == 0:
+                            await _pause_for_approval_gate(
+                                tenant_id, video_id, "script", target,
+                                "Script's ready — waiting on you to take a look before I design "
+                                "the cast and locations. Say the word (or tap \"Looks good!\" in "
+                                "chat) when you're ready.",
+                            )
+                            return
                     continue
+                # feat/approval-gates checkpoint 2 (anchors gate): the cast and
+                # locations used to get silently auto-approved right here (the
+                # COALESCE stamp just below) the instant the chain reached the
+                # image phase — characters/environments were designed IMPLICITLY
+                # inside coverage generation, never shown to the creator before
+                # the big picture spend. Now: design them explicitly (still
+                # cheap — a handful of $0.03-ish reference sheets, not the full
+                # ~120-picture coverage pass) and PAUSE for review before that
+                # spend, unless this checkpoint already cleared (both approved).
+                # Guarded exactly like checkpoint 1 (target=="pictures", not
+                # static_docu — that format skips cast/locations entirely).
+                if (
+                    status in ("ready_for_image_prompts", "ready_for_storyboards",
+                               "ready_for_storyboard_images", "ready_for_storyboard_extraction")
+                    and target == "pictures"
+                    and (video.get("render_mode") or "") != "static_docu"
+                ):
+                    vrow = await fetch_one(
+                        "SELECT characters_approved_at, environments_approved_at FROM videos "
+                        "WHERE id=$1 AND tenant_id=$2", video_id, tenant_id)
+                    both_approved = bool((vrow or {}).get("characters_approved_at")) and bool(
+                        (vrow or {}).get("environments_approved_at"))
+                    if not both_approved:
+                        crow = await fetch_one(
+                            "SELECT count(*) AS n FROM video_characters WHERE video_id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                        erow = await fetch_one(
+                            "SELECT count(*) AS n FROM video_environments WHERE video_id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                        cast_n = int((crow or {}).get("n") or 0)
+                        env_n = int((erow or {}).get("n") or 0)
+                        # Design each ONLY the first time through this checkpoint.
+                        # Neither run_characters nor the environments design step
+                        # is skip-if-done — BOTH unconditionally delete and
+                        # regenerate every character/location sheet whenever
+                        # called (verified by reading pipeline_executor.py's
+                        # run_characters and routes/environments.py's
+                        # design_environments: each starts with a DELETE ...
+                        # WHERE source='generated' AND status='draft' followed
+                        # by a fresh generate-per-row loop). Calling either on a
+                        # RESUMED pass (cast_n/env_n already > 0, or an
+                        # approved-anchors video that looped back here for some
+                        # other reason) would silently re-spend on sheets the
+                        # creator already reviewed and approved — this count
+                        # check is the guard that makes resuming safe.
+                        if cast_n == 0:
+                            _set_task_status(video_id, "running", "Designing the cast…", tenant_id=tenant_id)
+                            char_result = await ex.run_characters(video_id) or {}
+                            char_err = (char_result.get("error") or "") if char_result.get("status") == "failed" else ""
+                            # Only a hard blocker (no API key — every later paid
+                            # step would fail identically) stops the build.
+                            # "No recurring characters found" is a legitimate
+                            # empty result (a simple/abstract video), not a
+                            # failure — continue with cast_n staying 0.
+                            if char_err and "api key" in char_err.lower():
+                                _set_task_status(video_id, "failed", char_err, tenant_id=tenant_id)
+                                return
+                        if env_n == 0:
+                            _set_task_status(video_id, "running", "Designing the locations…", tenant_id=tenant_id)
+                            try:
+                                from routes.environments import run_environments_design_step
+                                await run_environments_design_step(video, tenant_id)
+                            except Exception:  # noqa: BLE001 — locations are optional; never block the build on this
+                                logger.warning("environments design step failed", exc_info=True)
+                        # Re-count after design — both may still be 0 (a video
+                        # with no recurring characters AND no distinct
+                        # locations has nothing to gate; skip straight through
+                        # rather than showing an empty "Characters x 0,
+                        # Locations x 0" review with nothing to look at).
+                        crow2 = await fetch_one(
+                            "SELECT count(*) AS n FROM video_characters WHERE video_id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                        erow2 = await fetch_one(
+                            "SELECT count(*) AS n FROM video_environments WHERE video_id=$1 AND tenant_id=$2",
+                            video_id, tenant_id)
+                        if int((crow2 or {}).get("n") or 0) == 0 and int((erow2 or {}).get("n") or 0) == 0:
+                            await execute(
+                                "UPDATE videos SET characters_approved_at = COALESCE(characters_approved_at, now()), "
+                                "environments_approved_at = COALESCE(environments_approved_at, now()), "
+                                "updated_at = now() WHERE id = $1 AND tenant_id = $2",
+                                video_id, tenant_id)
+                        else:
+                            await _pause_for_approval_gate(
+                                tenant_id, video_id, "anchors", target,
+                                "The cast and locations are ready — waiting on you to take a "
+                                "look before I draw the storyboards. Say the word (or tap "
+                                "\"Looks good!\" in chat) when you're ready.",
+                            )
+                            return
                 # IMAGE PHASE: draw the pictures via the COVERAGE flow — the same path the
                 # Scenes-page "pictures" button uses (generate_coverage_for_video). Coverage
                 # builds its own cast sheet from the script when no characters are locked
@@ -1325,6 +1468,13 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                               "ready_for_storyboard_images", "ready_for_storyboard_extraction"):
                     # Satisfy the storyboard gates (env skipped, characters approved) and
                     # write the Story Bible (continuity anchor for the shot directives).
+                    # By the time execution reaches here the checkpoint above has already
+                    # stamped both columns (via the approval_gate handshake, or the
+                    # nothing-to-gate fallback just above) for every target=="pictures",
+                    # non-static_docu video — this COALESCE is now a defensive backstop
+                    # for every OTHER path that reaches this status (static_docu, and
+                    # target=="finish" continuing a video from before this feature),
+                    # unchanged from before.
                     await execute(
                         "UPDATE videos SET environments_approved_at = COALESCE(environments_approved_at, now()), "
                         "characters_approved_at = COALESCE(characters_approved_at, now()), "

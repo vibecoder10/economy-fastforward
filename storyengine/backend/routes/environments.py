@@ -304,16 +304,120 @@ async def list_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
 
 
 @router.post("/{video_id}/environments/design")
+async def run_environments_design_step(
+    video: dict, tenant_id, *, progress=None,
+) -> dict:
+    """The awaitable core of environment design — extracted (feat/approval-
+    gates) so actions.make_autobuild_step's anchors checkpoint can run this
+    step directly, IN LINE, and know when it's actually finished, rather
+    than firing a detached background task the way the route below does.
+    Returns {"status": "completed"/"failed", "message"/"error": ...} —
+    same shape as PipelineExecutor.run_characters, its sibling call in the
+    autobuild chain.
+
+    NOT skip-if-done: always deletes prior generated drafts and regenerates
+    every location, exactly like the pre-extraction version of this
+    function did (unchanged behavior for the existing route below). Callers
+    that must not re-spend on a video that already has locations (the
+    autobuild chain's checkpoint) are responsible for checking
+    `video_environments` is empty BEFORE calling this — same discipline
+    PipelineExecutor.run_characters' callers already need, since neither
+    function guards itself.
+    """
+    video_id = video["id"]
+    tenant_id = str(tenant_id)
+
+    async def _progress(message: str) -> None:
+        if progress:
+            await progress(message)
+
+    from vault import get_secret
+    api_key = await get_secret("kie_ai_api_key", tenant_id)
+    if not api_key:
+        return {"status": "failed", "error": "Add your Kie.ai API key in Settings → Keys first."}
+
+    style_dna = video.get("image_style_override") or ""
+    aspect_ratio = video.get("aspect_ratio") or "16:9"
+
+    await _progress("Reading the Story Bible for locations…")
+    envs = _extract_environments(video)
+    if not envs:
+        # Story Bible not built yet (it's generated at the image step) —
+        # fall back to reading locations from the script, exactly like
+        # character design does. Only truly skip when the script has none.
+        await _progress("Reading the script for locations…")
+        envs = await _extract_locations_from_script(video, api_key)
+    if not envs:
+        return {"status": "failed", "error": "No recurring locations found in the script — this video can skip environment design."}
+
+    # Replace prior generated drafts; keep uploaded/imported ones
+    await execute(
+        "DELETE FROM video_environments WHERE video_id = $1 AND tenant_id = $2 "
+        "AND source = 'generated' AND status = 'draft'",
+        video_id, tenant_id,
+    )
+    await execute(
+        "UPDATE videos SET environments_approved_at = NULL WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+
+    done = 0
+    for i, env in enumerate(envs):
+        await _progress(f"Designing {env['name']} ({i + 1}/{len(envs)})…")
+        row = await fetch_one(
+            "INSERT INTO video_environments (tenant_id, video_id, name, description, sort) "
+            "VALUES ($1, $2, $3, $4, $5) RETURNING id",
+            tenant_id, video_id, env["name"][:120], env.get("description") or "", i,
+        )
+        env_id = str(row["id"])
+        # Retry each reference before giving up — a transient blip used to drop
+        # the image silently, leaving an empty card that then blocks approve.
+        last_err = None
+        for attempt in range(3):
+            try:
+                temp_url = await _generate_environment(
+                    api_key, env.get("description") or env["name"], style_dna, aspect_ratio,
+                )
+                url = await _persist_portrait_url(tenant_id, video_id, env_id, temp_url)
+                await execute(
+                    "UPDATE video_environments SET reference_url = $1, updated_at = now() WHERE id = $2",
+                    url, env_id,
+                )
+                done += 1
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(2 * (attempt + 1))
+        if last_err is not None:
+            logger.warning("[environments] reference failed for %s after 3 tries: %s", env["name"], str(last_err)[:200])
+
+    msg = f"Environments designed: {done}/{len(envs)} references ready — review, tweak, then approve."
+    if done < len(envs):
+        msg += " Some references failed — hit regenerate on the empty cards."
+    return {"status": "completed", "message": msg}
+
+
 async def design_environments(
     video_id: str,
     background_tasks: BackgroundTasks,
     tenant_id=Depends(get_tenant_id),
 ):
     """Read the bible's locations and generate a reference per location
-    (background task, progress via the shared /api/pipeline/task poller)."""
+    (background task, progress via the shared /api/pipeline/task poller).
+    Thin wrapper (feat/approval-gates extraction) around
+    run_environments_design_step — this route owns ONLY the HTTP/background-
+    task/lane-claim ceremony; the actual generation logic lives in that one
+    shared function so the autobuild chain's checkpoint runs the identical
+    code, awaited in line, instead of a second copy."""
     video = await _get_video(video_id, tenant_id)
     video["tenant_id"] = tenant_id
 
+    # Fast-fail synchronously (unchanged from before the extraction above) —
+    # the shared step also checks this (defense in depth for the autobuild
+    # caller, which has no HTTPException to catch), but THIS route must keep
+    # returning an immediate 400, not a 200 that flips to "failed" a moment
+    # later, since the Environments tab's button expects the old contract.
     from vault import get_secret
     api_key = await get_secret("kie_ai_api_key", str(tenant_id))
     if not api_key:
@@ -324,76 +428,22 @@ async def design_environments(
         raise HTTPException(status_code=409, detail="A task is already running for this video.")
     _lane_begin(video_id, tenant_id, "environments")
 
-    style_dna = video.get("image_style_override") or ""
-    aspect_ratio = video.get("aspect_ratio") or "16:9"
-
     _set_task_status(video_id, "running", "Reading the Story Bible for locations…",
                      tenant_id=tenant_id, task_type=TASK_TYPE)
 
     async def _run():
         try:
-            envs = _extract_environments(video)
-            if not envs:
-                # Story Bible not built yet (it's generated at the image step) —
-                # fall back to reading locations from the script, exactly like
-                # character design does. Only truly skip when the script has none.
-                _set_task_status(video_id, "running", "Reading the script for locations…",
-                                 tenant_id=tenant_id, task_type=TASK_TYPE)
-                envs = await _extract_locations_from_script(video, api_key)
-            if not envs:
+            async def _progress(message: str) -> None:
+                _set_task_status(video_id, "running", message, tenant_id=tenant_id, task_type=TASK_TYPE)
+
+            result = await run_environments_design_step(video, tenant_id, progress=_progress)
+            if result.get("status") == "failed":
                 _set_task_status(video_id, "failed",
-                                 error=user_facing("No recurring locations found in the script — this video can skip environment design."),
+                                 error=user_facing(result.get("error") or "Couldn't design the environments"),
                                  tenant_id=tenant_id, task_type=TASK_TYPE)
-                return
-
-            # Replace prior generated drafts; keep uploaded/imported ones
-            await execute(
-                "DELETE FROM video_environments WHERE video_id = $1 AND tenant_id = $2 "
-                "AND source = 'generated' AND status = 'draft'",
-                video_id, tenant_id,
-            )
-            await execute(
-                "UPDATE videos SET environments_approved_at = NULL WHERE id = $1 AND tenant_id = $2",
-                video_id, tenant_id,
-            )
-
-            done = 0
-            for i, env in enumerate(envs):
-                _set_task_status(video_id, "running",
-                                 f"Designing {env['name']} ({i + 1}/{len(envs)})…",
+            else:
+                _set_task_status(video_id, "completed", result.get("message"),
                                  tenant_id=tenant_id, task_type=TASK_TYPE)
-                row = await fetch_one(
-                    "INSERT INTO video_environments (tenant_id, video_id, name, description, sort) "
-                    "VALUES ($1, $2, $3, $4, $5) RETURNING id",
-                    tenant_id, video_id, env["name"][:120], env.get("description") or "", i,
-                )
-                env_id = str(row["id"])
-                # Retry each reference before giving up — a transient blip used to drop
-                # the image silently, leaving an empty card that then blocks approve.
-                last_err = None
-                for attempt in range(3):
-                    try:
-                        temp_url = await _generate_environment(
-                            api_key, env.get("description") or env["name"], style_dna, aspect_ratio,
-                        )
-                        url = await _persist_portrait_url(tenant_id, video_id, env_id, temp_url)
-                        await execute(
-                            "UPDATE video_environments SET reference_url = $1, updated_at = now() WHERE id = $2",
-                            url, env_id,
-                        )
-                        done += 1
-                        last_err = None
-                        break
-                    except Exception as e:
-                        last_err = e
-                        await asyncio.sleep(2 * (attempt + 1))
-                if last_err is not None:
-                    logger.warning("[environments] reference failed for %s after 3 tries: %s", env["name"], str(last_err)[:200])
-
-            msg = f"Environments designed: {done}/{len(envs)} references ready — review, tweak, then approve."
-            if done < len(envs):
-                msg += " Some references failed — hit regenerate on the empty cards."
-            _set_task_status(video_id, "completed", msg, tenant_id=tenant_id, task_type=TASK_TYPE)
         except Exception as e:
             _set_task_status(video_id, "failed",
                              error=user_facing(humanize_error(e, context="We couldn't design the environments")),

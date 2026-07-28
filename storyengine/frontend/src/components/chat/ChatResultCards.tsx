@@ -510,17 +510,34 @@ function ScriptGateFull({ videoId }: { videoId: string }) {
   );
 }
 
+// Real-data finding (2026-07-28, queried live against video_characters —
+// see the branch's own verification notes for the exact query and the two
+// example rows): `reference_url` is always exactly ONE file per character,
+// but what that ONE file CONTAINS varies by when/how it was generated —
+// some are a single portrait pose (e.g. a 2048x2048 square), others are a
+// full turnaround SHEET baked into one wide image (5 body poses + 6
+// expressions + 4 action poses, landscape ~4:3 — matches
+// pipeline_executor.py's own "4-view character reference sheets" comment
+// on run_characters). There is no separate row/file per view to pull out
+// and re-arrange into OpenArt's hero-plus-thumbnails layout — the
+// composite, when it exists, is already baked into the one image. The
+// honest, correct rendering for BOTH shapes is: show the whole file,
+// uncropped (`object-contain`, not `object-cover`) — a single portrait
+// pillarboxes cleanly; a rich sheet shows every pose/expression it has,
+// instead of `object-cover` hiding ~80% of it behind a portrait crop (the
+// bug this replaces — verified live: a 2048x1536 sheet in a 3:4 portrait
+// box showed only the first pose in the top-left corner).
 function AnchorHeroTile({ name, refUrl }: { name: string; refUrl: string | null | undefined }) {
   const [broken, setBroken] = useState(false);
   const src = toDisplayImageUrl(refUrl);
   return (
     <div
-      className="relative overflow-hidden rounded-xl aspect-[3/4]"
+      className="relative overflow-hidden rounded-xl aspect-[4/3]"
       style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
     >
       {src && !broken ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name} className="w-full h-full object-cover" onError={() => setBroken(true)} />
+        <img src={src} alt={name} className="w-full h-full object-contain" onError={() => setBroken(true)} />
       ) : (
         <div className="w-full h-full flex items-center justify-center">
           <ImageOff size={20} style={{ color: "var(--text-tertiary)" }} />
@@ -583,7 +600,11 @@ function AnchorGateFull({ videoId }: { videoId: string }) {
           <h3 className="text-xs font-bold uppercase tracking-[0.14em] mb-3" style={{ color: "var(--turquoise)" }}>
             CHARACTERS · {characters.length}
           </h3>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          {/* grid-cols-1/2 (not 3/4): a character sheet can be dense — up
+              to 15 poses/expressions baked into one image (see
+              AnchorHeroTile's comment) — a narrower 4-up grid would shrink
+              that detail past legible. Matches the LOCATIONS grid below. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {characters.map((c) => (
               <AnchorHeroTile key={c.id} name={c.name} refUrl={c.reference_url} />
             ))}
