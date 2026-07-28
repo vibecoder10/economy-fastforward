@@ -54,7 +54,7 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   // Called unconditionally (Rules of Hooks) even though the shell below has
   // early returns for public/loading/unauthenticated states — none of those
   // render <Sidebar> or <main>, so the value just goes unused there.
-  const { collapsed, setCollapsed } = useSidebarCollapsed();
+  const { collapsed, setCollapsed, hidden, setHidden } = useSidebarCollapsed();
 
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
   const isHome = pathname === "/";
@@ -97,10 +97,10 @@ export function AuthenticatedShell({ children }: { children: ReactNode }) {
   return (
     <PipelineNotificationProvider>
       <div className="flex min-h-screen relative z-10">
-        <Sidebar collapsed={collapsed} onCollapsedChange={setCollapsed} />
+        <Sidebar collapsed={collapsed} onCollapsedChange={setCollapsed} hidden={hidden} onHiddenChange={setHidden} />
         <main
           className={`flex-1 min-w-0 pb-16 md:pb-0 overflow-x-hidden transition-[margin-left] duration-200 ${
-            collapsed ? "md:ml-16" : "md:ml-60"
+            hidden ? "md:ml-0" : collapsed ? "md:ml-16" : "md:ml-60"
           } ${isFullBleed ? "flex h-screen flex-col" : ""}`}
         >
           <DrainModeBanner />

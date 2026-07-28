@@ -26,6 +26,8 @@ import {
   BookOpen,
   MessageSquare,
   Lightbulb,
+  ChevronsLeft,
+  ChevronRight,
 } from "lucide-react";
 import { isPlanAtLeast, PRO_PATHS } from "@/components/auth/AuthenticatedShell";
 import { WorkspaceSwitcher } from "@/components/nav/workspace-switcher";
@@ -59,10 +61,15 @@ const advancedNav = [
 export function Sidebar({
   collapsed,
   onCollapsedChange,
+  hidden,
+  onHiddenChange,
 }: {
   /** Controlled from AuthenticatedShell so <main>'s margin can react too — see hooks/use-sidebar-collapsed.ts */
   collapsed: boolean;
   onCollapsedChange: (next: boolean) => void;
+  /** Full-panel hide (D3-48) — distinct from icon-rail `collapsed`. Supersedes it visually: hidden wins over collapsed. */
+  hidden: boolean;
+  onHiddenChange: (next: boolean) => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -148,9 +155,22 @@ export function Sidebar({
           S
         </div>
         {!collapsed && (
-          <span className="text-sm font-semibold font-body" style={{ color: "var(--text-primary)" }}>
-            StoryEngine
-          </span>
+          <div className="flex items-center justify-between flex-1 min-w-0">
+            <span className="text-sm font-semibold font-body truncate" style={{ color: "var(--text-primary)" }}>
+              StoryEngine
+            </span>
+            {/* Full-hide toggle (D3-48) — desktop only; mobile already closes via the
+                overlay's X button and doesn't persist a "hidden" preference. */}
+            <button
+              onClick={() => onHiddenChange(true)}
+              aria-label="Hide sidebar"
+              title="Hide sidebar"
+              className="hidden md:inline-flex shrink-0 p-1.5 rounded-md transition-colors hover:bg-[var(--bg-surface)]"
+              style={{ color: "var(--text-tertiary)" }}
+            >
+              <ChevronsLeft size={16} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -327,11 +347,16 @@ export function Sidebar({
         </div>
       )}
 
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — `hidden` (D3-48, full panel hide) supersedes `collapsed`
+          (icon-rail density). It stays mounted and just slides fully off-screen so
+          the collapse/expand transition still animates instead of popping; AuthenticatedShell
+          drops <main>'s margin-left to 0 in lockstep so the content actually reclaims
+          the width instead of leaving a dead gutter. */}
       <aside
+        aria-hidden={hidden}
         className={`hidden md:flex flex-col fixed left-0 top-0 bottom-0 z-40 transition-all duration-200 ${
           collapsed ? "w-16" : "w-60"
-        }`}
+        } ${hidden ? "-translate-x-full pointer-events-none opacity-0" : "translate-x-0 opacity-100"}`}
         style={{
           background: "var(--bg-deep)",
           borderRight: "1px solid var(--border-subtle)",
@@ -339,6 +364,25 @@ export function Sidebar({
       >
         {sidebarContent}
       </aside>
+
+      {/* Restore affordance — slim edge tab, desktop only. The one thing that must
+          always be reachable when the panel is hidden so Ryan is never stranded. */}
+      {hidden && (
+        <button
+          onClick={() => onHiddenChange(false)}
+          aria-label="Show sidebar"
+          title="Show sidebar"
+          className="hidden md:flex items-center justify-center fixed left-0 top-4 z-50 w-6 h-12 rounded-r-lg transition-colors hover:brightness-110"
+          style={{
+            background: "var(--bg-deep)",
+            border: "1px solid var(--border-subtle)",
+            borderLeft: "none",
+            color: "var(--text-tertiary)",
+          }}
+        >
+          <ChevronRight size={14} />
+        </button>
+      )}
     </>
   );
 }
