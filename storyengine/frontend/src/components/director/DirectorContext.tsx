@@ -45,6 +45,37 @@ export interface SelectedEntity {
   kind: "character" | "environment";
 }
 
+/** One media asset the right rail's lightbox can show large — see
+ * `LightboxState` and MediaLightbox.tsx (Chunk D3-46). Deliberately its own
+ * small shape rather than reusing `Asset`/`ScriptScene` directly: a
+ * storyboard sheet is a per-scene `ScriptScene` row (no `assets.id` at all),
+ * while an image/video tile IS an `Asset` — the lightbox needs one uniform
+ * shape it can step through regardless of which of those produced it. */
+export interface LightboxItem {
+  /** Stable React key + the value MediaPanel's `findIndex` matches a clicked
+   * tile back against (a `ScriptScene.id` for boards, an `Asset.id` for
+   * images/videos). Not shown to the user. */
+  key: string;
+  kind: "image" | "video";
+  /** Already run through `toDisplayImageUrl` by the caller — this field is
+   * ready to hand straight to an `<img src>` / `<video src>`. */
+  url: string;
+  /** Human label shown under the large view, e.g. "Scene 3 storyboard". */
+  label: string;
+}
+
+/** The right rail's lightbox (Chunk D3-46: media thumbnails were dead —
+ * clicking one did nothing). `items` is whichever sub-tab's list was on
+ * screen when a thumbnail was clicked (Storyboards/Images/Videos are three
+ * separate lists — see RightRail.tsx `MediaPanel`), so the lightbox's
+ * left/right arrows only ever step through siblings from THAT tab, matching
+ * what's visibly on screen in the rail. `null` when the lightbox is closed —
+ * that's the only "is it open" signal MediaLightbox.tsx needs. */
+export interface LightboxState {
+  items: LightboxItem[];
+  index: number;
+}
+
 export interface DirectorState {
   /** The video currently open on the Director surface. `null` means the
    * home screen (`DirectorHome`) should render instead of the two-column
@@ -72,6 +103,17 @@ export interface DirectorState {
   /** Which right-rail tab is active — see the `RailTab` doc above. */
   railTab: RailTab;
   setRailTab: (tab: RailTab) => void;
+
+  /** The right rail's media lightbox (Chunk D3-46) — see `LightboxState`
+   * doc above. Deliberately NOT layered onto `focusedShotId`: that field is
+   * a chat-targeting concept scoped to `assets.id` ("select a shot, then
+   * say 'make him older'"), read by SceneAltitudeView and sent to chat as
+   * `ui_context.focusedAssetId`. A storyboard sheet has no asset id, and
+   * "show this large" is a display concern with no chat-targeting meaning —
+   * conflating the two would mean either lying about a storyboard being a
+   * "shot", or bolting a second id space onto a field with one already. */
+  lightbox: LightboxState | null;
+  setLightbox: (state: LightboxState | null) => void;
 
   /** A one-sentence pitch typed into the DirectorHome entry box, waiting to be
    * seeded as the opening chat turn once DirectorSurface mounts ChatCore for
@@ -187,6 +229,11 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
     // callers). Scene is the only altitude with a real, built view
     // (CanvasStage.tsx) — every video should always open there.
     setAltitude("scene");
+    // A lightbox left open across a video switch (browser back/forward, a
+    // fresh navigation) would keep showing the OLD video's storyboard/image/
+    // clip — its `url`s stay individually valid, they'd just belong to the
+    // wrong video. Same "reset on id change" treatment as altitude above.
+    setLightbox(null);
   }, [urlVideoId]);
 
   // Mounted ONCE at the root layout (see app/layout.tsx), not per-page, so
@@ -214,6 +261,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       // OLD altitude tab before the effect catches up — see the effect's
       // comment for the full root-cause story of why this reset exists.
       setAltitude("scene");
+      setLightbox(null);
       router.push(id ? `/chat/${id}` : "/chat");
     },
     [router]
@@ -222,6 +270,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   const [focusedShotId, setFocusedShotIdRaw] = useState<string | null>(null);
   const [selectedEntity, setSelectedEntityRaw] = useState<SelectedEntity | null>(null);
   const [railTab, setRailTab] = useState<RailTab>("media");
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null);
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
   const [pendingInitialIntent, setPendingInitialIntent] = useState<"build" | null>(null);
   const [pendingInitialTurn, setPendingInitialTurn] = useState<PendingInitialTurn | null>(null);
@@ -252,6 +301,8 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       setSelectedEntity,
       railTab,
       setRailTab,
+      lightbox,
+      setLightbox,
       pendingInitialMessage,
       setPendingInitialMessage,
       pendingInitialIntent,
@@ -266,6 +317,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       focusedShotId,
       selectedEntity,
       railTab,
+      lightbox,
       pendingInitialMessage,
       pendingInitialIntent,
       pendingInitialTurn,
