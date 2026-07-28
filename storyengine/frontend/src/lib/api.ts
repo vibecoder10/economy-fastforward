@@ -2299,6 +2299,10 @@ export interface ApiKeyStatus {
 
 export interface ApiKeyList {
   keys: ApiKeyStatus[];
+  // Set when this tenant's voice narration is silently routing through
+  // Kie's TTS gateway instead of direct ElevenLabs (no ElevenLabs key
+  // configured, only a Kie key). null/absent otherwise.
+  voice_routing_note?: string | null;
 }
 
 export interface TestKeyResponse {

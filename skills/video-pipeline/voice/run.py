@@ -76,6 +76,20 @@ async def run(pipeline) -> dict:
     # character count instead of a flat per-run guess (checklist §0.3c/C09).
     total_chars = 0
     cancelled = False
+    # A scene that needed narration but never got audio is a FAILURE, not a
+    # silent skip — before this fix, a provider error (e.g. Kie TTS's own
+    # "internal error, please try again later") returned None from
+    # generate_and_wait, the scene was quietly dropped, and the run below
+    # still advanced status as if every scene were voiced (confirmed on
+    # video 146242df: 3/3 scenes with voice_over_url NULL, status advanced
+    # three stages past voice, $1.50 of image spend logged afterward).
+    # Partial-success rule: ANY missing scene stops the run and reports
+    # exactly which scenes failed and why, rather than silently rendering a
+    # film with gaps. Already-voiced scenes stay marked finished (this stage
+    # is already resumable — see docs/failure-modes.md's per-scene "already
+    # done" check above), so re-running after a fix only retries the
+    # failures, it does not re-pay for scenes that already succeeded.
+    failures: list[dict] = []
     for script in scripts:
         if await _cancelled():
             print("  🛑 Stop requested — halting voice generation")
@@ -98,8 +112,11 @@ async def run(pipeline) -> dict:
 
         print(f"  Generating voice for scene {scene_number}...")
 
-        # Generate voice
-        audio_url = await pipeline.elevenlabs.generate_and_wait(scene_text)
+        # Generate voice. fail_info_out captures WHY it failed (Kie's
+        # failCode/failMsg/creditsConsumed, or the direct-API exception
+        # text) so a real failure is reported instead of silently skipped.
+        fail_info: list = []
+        audio_url = await pipeline.elevenlabs.generate_and_wait(scene_text, fail_info_out=fail_info)
 
         if audio_url:
             # Download audio (reads temp file or URL)
@@ -119,17 +136,48 @@ async def run(pipeline) -> dict:
             pipeline.airtable.mark_script_finished(script["id"], persistent_url)
             voice_count += 1
             total_chars += len(scene_text)
+        else:
+            reason = ((fail_info[-1] or {}).get("failMsg") if fail_info else None) or "voice synthesis failed"
+            print(f"  ❌ Scene {scene_number}: {reason}")
+            failures.append({"scene": scene_number, "error": reason})
 
     # UPDATE STATUS (skip if targeted run)
     if cancelled:
         print(f"  🛑 Stopped by user — kept {voice_count} completed voice track(s)")
-        return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count,
-                "total_chars": total_chars, "cancelled": True}
+        result = {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count,
+                  "total_chars": total_chars, "cancelled": True}
+        if failures:
+            result["failed_scenes"] = [f["scene"] for f in failures]
+        return result
 
     if pipeline._is_targeted_run:
         print(f"  🎯 Targeted run — status NOT advanced")
+        result = {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count,
+                  "total_chars": total_chars, "targeted": True}
+        # A targeted (single-scene) regeneration that itself failed must
+        # never be reported as a quiet no-op — the caller needs to know the
+        # retry didn't take.
+        if failures:
+            result["error"] = "; ".join(f"scene {f['scene']}: {f['error']}" for f in failures)
+            result["failed_scenes"] = [f["scene"] for f in failures]
+        return result
+
+    if failures:
+        # Zero-tolerance gate: a full run that left even one scene unvoiced
+        # must NOT advance status — advancing here is exactly what let
+        # image/sound spend happen on a video with no narration. Scenes that
+        # DID succeed above are already marked finished in Supabase, so a
+        # re-run of Voice only retries what's in `failures`.
+        scenes_failed = ", ".join(str(f["scene"]) for f in failures)
+        reasons = "; ".join(f"scene {f['scene']}: {f['error']}" for f in failures)
+        error_msg = (
+            f"Voice generation failed for {len(failures)} of {voice_count + len(failures)} "
+            f"scene(s) ({scenes_failed}) — status NOT advanced. {reasons}"
+        )
+        print(f"  ❌ {error_msg}")
         return {"bot": "Voice Bot", "video_title": pipeline.video_title, "voice_count": voice_count,
-                "total_chars": total_chars, "targeted": True}
+                "total_chars": total_chars, "error": error_msg,
+                "failed_scenes": [f["scene"] for f in failures]}
 
     # Sound design runs AFTER images exist (needs Image Prompt + Sentence Text)
     pipeline._update_status(Statuses.READY_IMAGE_PROMPTS)
