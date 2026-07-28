@@ -314,7 +314,6 @@ async def list_environments(video_id: str, tenant_id=Depends(get_tenant_id)):
     }
 
 
-@router.post("/{video_id}/environments/design")
 async def run_environments_design_step(
     video: dict, tenant_id, *, progress=None,
 ) -> dict:
@@ -434,6 +433,7 @@ async def run_environments_design_step(
     return {"status": "completed", "message": msg}
 
 
+@router.post("/{video_id}/environments/design")
 async def design_environments(
     video_id: str,
     background_tasks: BackgroundTasks,
