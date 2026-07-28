@@ -7,6 +7,7 @@ import { useDirector, type SelectedEntity } from "./DirectorContext";
 import { DirectorHome } from "./DirectorHome";
 import { CanvasHeader } from "./CanvasHeader";
 import { CanvasStage } from "./CanvasStage";
+import { MediaLightbox } from "./MediaLightbox";
 import { RightRail } from "./RightRail";
 import { ChatCore } from "@/components/chat/ChatCore";
 import { CollapsedPanelStub, PanelDivider } from "./PanelResizeControls";
@@ -277,9 +278,16 @@ export function DirectorSurface() {
             wider than the viewport — the canvas itself, and the CostDial
             inside it, never breaks even then; only scoped, deliberately not
             chased further here (see commit message). */}
-        <div className="flex min-w-[320px] flex-1 flex-col bg-void">
+        {/* `relative` makes this the containing block for MediaLightbox's
+            `absolute inset-0` overlay (Chunk D3-46) — the lightbox covers
+            just this canvas column, not chat/rail/the whole viewport, per
+            the chunk's "show large over/in the middle canvas region" ask. */}
+        <div className="relative flex min-w-[320px] flex-1 flex-col bg-void">
           <ErrorBoundary label="canvas" resetKeys={[selectedVideoId]}>
             <CanvasStage videoId={selectedVideoId} />
+          </ErrorBoundary>
+          <ErrorBoundary label="media lightbox" resetKeys={[selectedVideoId]}>
+            <MediaLightbox />
           </ErrorBoundary>
         </div>
 

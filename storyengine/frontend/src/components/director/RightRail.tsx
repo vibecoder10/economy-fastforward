@@ -12,7 +12,7 @@ import {
 } from "@/lib/api";
 import { toDisplayImageUrl } from "@/lib/utils";
 import { SecureAudioPlayer } from "@/components/canvas-shared/SecureAudioPlayer";
-import { useDirector, type RailTab } from "./DirectorContext";
+import { useDirector, type LightboxItem, type RailTab } from "./DirectorContext";
 
 type MediaMode = "boards" | "images" | "videos";
 
@@ -113,6 +113,7 @@ function MediaPanel({ videoId }: { videoId: string }) {
   const [mode, setMode] = useState<MediaMode>("boards");
   const assetsQuery = useQuery({ queryKey: ["video-assets", videoId], queryFn: () => getVideoAssets(videoId) });
   const scriptQuery = useQuery({ queryKey: ["video-script", videoId], queryFn: () => getVideoScript(videoId) });
+  const { setLightbox } = useDirector();
 
   const images = (assetsQuery.data ?? []).filter((a) => a.image_url);
   const videos = (assetsQuery.data ?? []).filter((a) => a.video_clip_url);
@@ -121,6 +122,35 @@ function MediaPanel({ videoId }: { videoId: string }) {
   );
 
   const isLoading = assetsQuery.isLoading || scriptQuery.isLoading;
+
+  // Chunk D3-46: one sibling list per sub-tab, built from the SAME
+  // boards/images/videos arrays the grids below already render — so the
+  // lightbox's left/right arrows only ever step through what's visibly on
+  // screen in whichever tab was clicked, never across tabs. `url`-less rows
+  // (no image proxied yet) are dropped — nothing to show large for those.
+  const boardItems: LightboxItem[] = boards.flatMap((s) => {
+    const url = toDisplayImageUrl(s.storyboard_1_url);
+    return url ? [{ key: s.id, kind: "image" as const, url, label: `Scene ${s.scene} storyboard` }] : [];
+  });
+  const imageItems: LightboxItem[] = images.flatMap((a) => {
+    const url = toDisplayImageUrl(a.image_url);
+    return url
+      ? [{ key: a.id, kind: "image" as const, url, label: `Scene ${a.scene ?? "?"}, shot ${a.image_index ?? "?"}` }]
+      : [];
+  });
+  const videoItems: LightboxItem[] = videos.flatMap((a) => {
+    const url = toDisplayImageUrl(a.video_clip_url);
+    return url
+      ? [
+          {
+            key: a.id,
+            kind: "video" as const,
+            url,
+            label: `Scene ${a.scene ?? "?"}, shot ${a.image_index ?? "?"} clip`,
+          },
+        ]
+      : [];
+  });
 
   return (
     <div>
@@ -151,8 +181,28 @@ function MediaPanel({ videoId }: { videoId: string }) {
           <div className="grid grid-cols-3 gap-1.5">
             {boards.map((s) => {
               const url = toDisplayImageUrl(s.storyboard_1_url);
+              const boardIndex = boardItems.findIndex((it) => it.key === s.id);
+              const openable = boardIndex >= 0;
               return (
-                <div key={s.id} className="relative aspect-square overflow-hidden rounded-[9px] border border-line-soft bg-deep">
+                <div
+                  key={s.id}
+                  role={openable ? "button" : undefined}
+                  tabIndex={openable ? 0 : undefined}
+                  onClick={openable ? () => setLightbox({ items: boardItems, index: boardIndex }) : undefined}
+                  onKeyDown={
+                    openable
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setLightbox({ items: boardItems, index: boardIndex });
+                          }
+                        }
+                      : undefined
+                  }
+                  className={`relative aspect-square overflow-hidden rounded-[9px] border border-line-soft bg-deep transition-transform duration-150 ${
+                    openable ? "cursor-pointer hover:scale-[1.03] hover:ring-2 hover:ring-turquoise/60" : ""
+                  }`}
+                >
                   {url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={url} alt="" className="absolute inset-0 h-full w-full object-cover" />
@@ -172,9 +222,16 @@ function MediaPanel({ videoId }: { videoId: string }) {
           <EmptyNote>No finished stills yet.</EmptyNote>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
-            {images.map((a) => (
-              <ThumbTile key={a.id} asset={a} />
-            ))}
+            {images.map((a) => {
+              const idx = imageItems.findIndex((it) => it.key === a.id);
+              return (
+                <ThumbTile
+                  key={a.id}
+                  asset={a}
+                  onClick={idx >= 0 ? () => setLightbox({ items: imageItems, index: idx }) : undefined}
+                />
+              );
+            })}
           </div>
         )
       )}
@@ -184,9 +241,17 @@ function MediaPanel({ videoId }: { videoId: string }) {
           <EmptyNote>No clips made yet.</EmptyNote>
         ) : (
           <div className="grid grid-cols-3 gap-1.5">
-            {videos.map((a) => (
-              <ThumbTile key={a.id} asset={a} showPlay />
-            ))}
+            {videos.map((a) => {
+              const idx = videoItems.findIndex((it) => it.key === a.id);
+              return (
+                <ThumbTile
+                  key={a.id}
+                  asset={a}
+                  showPlay
+                  onClick={idx >= 0 ? () => setLightbox({ items: videoItems, index: idx }) : undefined}
+                />
+              );
+            })}
           </div>
         )
       )}
@@ -194,11 +259,28 @@ function MediaPanel({ videoId }: { videoId: string }) {
   );
 }
 
-function ThumbTile({ asset, showPlay }: { asset: Asset; showPlay?: boolean }) {
+function ThumbTile({ asset, showPlay, onClick }: { asset: Asset; showPlay?: boolean; onClick?: () => void }) {
   const url = toDisplayImageUrl(asset.image_url);
   const label = `${asset.scene ?? 0}.${asset.image_index ?? 0}`;
   return (
-    <div className="relative aspect-square overflow-hidden rounded-[9px] border border-line-soft bg-deep">
+    <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      className={`relative aspect-square overflow-hidden rounded-[9px] border border-line-soft bg-deep transition-transform duration-150 ${
+        onClick ? "cursor-pointer hover:scale-[1.03] hover:ring-2 hover:ring-turquoise/60" : ""
+      }`}
+    >
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt="" className="absolute inset-0 h-full w-full object-cover" />
