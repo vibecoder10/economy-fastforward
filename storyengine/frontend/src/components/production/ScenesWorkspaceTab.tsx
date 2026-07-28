@@ -473,6 +473,23 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     });
   }, [scriptScenes, assets]);
 
+  // Storyboards are separate, already-paid-for content from final coverage
+  // pictures — a scene can have drawn storyboard grids (scriptScenes'
+  // storyboard_N_url columns, reflected above as each scene's
+  // storyboardGridCount) while the `assets` table (what hasPictures checks)
+  // still has zero rows, because final-picture generation hasn't run yet.
+  // The voice gate below used to only check hasPictures/hasVoice, so a video
+  // whose voice stage failed (a separate bug) locked the user out of
+  // storyboards they had already paid $0.60 for — found live on video
+  // 686b4651-e495-44be-baf6-97fc6dd527e9 (6 scenes, 12 storyboard sheets,
+  // zero `assets` rows, voice never ran). Treat storyboards the same as
+  // pictures for this gate: either one existing proves there is real content
+  // to show, regardless of whether voice ever completed.
+  const hasStoryboards = useMemo(
+    () => scenes.some((s) => s.storyboardGridCount > 0),
+    [scenes],
+  );
+
   // ── Local state ──
   // generatingClipIds/failedClipIds/confirmKey now live in useClipTrustLadder
   // (S9-7 extraction) — see the hook call below, after taskWatcher/refreshAll.
@@ -1174,7 +1191,7 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
     );
   }
 
-  if (!hasVoice && !voiceSkipped && !hasPictures) {
+  if (!hasVoice && !voiceSkipped && !hasPictures && !hasStoryboards) {
     return (
       <GlassCard className="p-10 text-center max-w-lg mx-auto">
         <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
