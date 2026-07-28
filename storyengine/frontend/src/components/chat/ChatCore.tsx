@@ -11,7 +11,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign, Dna, RotateCcw, MinusCircle, XCircle, PencilLine } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -195,7 +194,12 @@ const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string
 // ONE reusable kind for the script and anchors (cast+locations) review
 // checkpoints, same pattern as every entry above: one more lookup-table row,
 // not a new scattered `card.id === …` branch anywhere else.
-type CardKind = "prompt_apply" | "confirm_action" | "custom_film_approval" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "approval_gate" | "generic";
+// Job 4 (surface plan, 2026-07-28) adds "script_review" — the "the script
+// needs another look" card posted after a needs_review verdict (see
+// _post_script_review_message, backend/routes/chat.py). Same
+// one-more-lookup-row pattern as every kind above, not a new scattered
+// `card.id === …` branch anywhere else.
+type CardKind = "prompt_apply" | "confirm_action" | "custom_film_approval" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "approval_gate" | "script_review" | "generic";
 
 function cardKind(card: ChatCard): CardKind {
   if (card.id === "prompt_apply") return "prompt_apply";
@@ -207,11 +211,12 @@ function cardKind(card: ChatCard): CardKind {
   if (card.id === "style_draft") return "style_draft";
   if (card.id === "channel_dna_digest") return "channel_dna_digest";
   if (card.id === "approval_gate") return "approval_gate";
+  if (card.id === "script_review") return "script_review";
   if ((card.images?.length ?? 0) > 0) return "images";
   return "generic";
 }
 
-const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "custom_film_approval", "secure_key", "style_draft", "channel_dna_digest", "approval_gate"]);
+const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "custom_film_approval", "secure_key", "style_draft", "channel_dna_digest", "approval_gate", "script_review"]);
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -1041,6 +1046,13 @@ export function ChatCore({
         />
       ) : null
     ),
+    script_review: () => (
+      <ScriptReviewCard
+        key={`sr-${messages.length}`}
+        card={actionCard!}
+        onChoose={(value, label) => turn({ selections: { script_review: value } }, label)}
+      />
+    ),
   };
 
   // The active zone (cards / plan / created confirmation), shared by both layouts.
@@ -1860,6 +1872,54 @@ function ConfirmActionCard({
           style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
         >
           {no?.label ?? "Cancel"}
+        </button>
+      </div>
+    </GlassCard>
+  );
+}
+
+// --- script-review card (job 4, surface plan 2026-07-28) ------------------
+// "The run correctly stopped... he never saw it. From his seat the app
+// looked frozen." Posted by _post_script_review_message (backend/routes/
+// chat.py) as a normal assistant turn — the assistant_text above this card
+// IS the quality critic's rejection reason in plain English (see
+// script_quality.plain_english_violations), not a separate banner the
+// creator has to notice on their own. This card is just the two obvious
+// next steps: rewrite it, or use it anyway. Deliberately its own small
+// component rather than reusing ConfirmActionCard — that one is hardcoded to
+// options named "yes"/"no"; this card's two options ("rewrite"/"use_anyway")
+// are a genuine choice between two actions, not a yes/no to one.
+function ScriptReviewCard({
+  card,
+  onChoose,
+}: {
+  card: ChatCard;
+  onChoose: (value: string, label: string) => void;
+}) {
+  const rewrite = card.options?.find((o) => o.value === "rewrite");
+  const useAnyway = card.options?.find((o) => o.value === "use_anyway");
+  return (
+    <GlassCard className="flex flex-col gap-3" style={{ borderColor: "rgba(239,68,68,0.25)" }}>
+      <div className="flex items-center gap-2">
+        <AlertTriangle size={16} className="shrink-0" style={{ color: "var(--gold)" }} />
+        <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+          What would you like me to do?
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onChoose("rewrite", rewrite?.label ?? "Rewrite it")}
+          className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]"
+          style={{ background: "var(--turquoise)", color: "var(--bg-void)" }}
+        >
+          {rewrite?.label ?? "Rewrite it"}
+        </button>
+        <button
+          onClick={() => onChoose("use_anyway", useAnyway?.label ?? "Use it anyway")}
+          className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98]"
+          style={{ background: "var(--bg-deep)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+        >
+          {useAnyway?.label ?? "Use it anyway"}
         </button>
       </div>
     </GlassCard>
@@ -3050,11 +3110,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // now props from the SAME single source the standalone map below uses, so
 // there is exactly one stepper on screen, not two.
 function CreatedCard({
-  videoId,
   video,
   stageChange,
   taskProgress,
 }: {
+  // videoId is no longer read here (the "Open it →" link that used it was
+  // removed, job 1 above) but stays in the prop type — the caller
+  // (ChatCore's activeZone) still passes it, and dropping it from the type
+  // would be a pointless second edit for zero benefit.
   videoId: string;
   video: VideoDetail | undefined;
   stageChange: SSEStageChangeEvent | null;
@@ -3075,23 +3138,23 @@ function CreatedCard({
   // actually in progress" instead of collapsing both into one claim.
   const notStarted = String(currentStatus || "") === "idea_logged";
 
+  // Job 1 (surface plan, 2026-07-28): this card used to carry an "Open it →"
+  // (or "Review it →") button linking to the legacy /pipeline/{videoId}
+  // screen — the ONE thing Ryan explicitly said not to show: "I see it tells
+  // me to open it in the old ui, I dont want this option to be right there
+  // in front because I want to click it and that defeats the purpose."
+  // Removed here, not the legacy page itself (still linked from elsewhere,
+  // e.g. video history) — everything for THIS video now stays in the chat:
+  // the live stepper below (ChatPipelineMap), then the script/cast/
+  // storyboard result cards, all in the same scrolling column.
   return (
     <GlassCard className="flex flex-col gap-4" style={{ borderColor: "var(--turquoise-dim)" }}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="font-display font-bold text-base" style={{ color: "var(--text-primary)" }}>
-          {isDone
-            ? "Your video is ready to review 🎬"
-            : notStarted
-              ? "Video started — nothing's running yet"
-              : "Building your video…"}
-        </div>
-        <Link
-          href={`/pipeline/${videoId}`}
-          className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
-          style={{ background: "var(--turquoise-dim)", color: "var(--turquoise)" }}
-        >
-          {isDone ? "Review it" : "Open it"} <ArrowRight size={14} />
-        </Link>
+      <div className="font-display font-bold text-base" style={{ color: "var(--text-primary)" }}>
+        {isDone
+          ? "Your video is ready to review 🎬"
+          : notStarted
+            ? "Video started — nothing's running yet"
+            : "Building your video…"}
       </div>
 
       {/* The live stepper/progress block lives ONLY in the standalone
@@ -3100,7 +3163,7 @@ function CreatedCard({
       {!taskProgress?.message && (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
           {isDone
-            ? "Take a look and tell me if you want any changes."
+            ? "Take a look below and tell me if you want any changes."
             : "I'll keep working — follow along here or ask for a change anytime."}
         </div>
       )}

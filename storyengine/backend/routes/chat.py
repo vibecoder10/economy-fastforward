@@ -1154,13 +1154,36 @@ COPILOT_CONFIDENCE = 0.55
 # hostage. "yes" / "run it" / "do it" / "write" runs the pending action;
 # "no" / "cancel" clears it. (Bug: creators typed 'write' and just got the
 # same proposal again.)
+#
+# Job 3 (surface plan, 2026-07-28) added "looks good"/"looks great" and "not
+# yet" — the EXACT button labels the approval_gate card shows ("Looks good!"
+# / "Not yet") — so typing the words on the button does the same thing as
+# tapping it. See the pending_approval_gate / pending_script_review typed-
+# consent checks below, which reuse these same two patterns.
 _AFFIRM_RE = re.compile(
     r"^\s*(y+e+s+|yep|yeah|ya|ok(ay)?|sure|do it|run( it)?|go( ahead)?|start|"
-    r"confirm|proceed|make it|write( it)?|yes please|please do|let'?s (do it|go)|send it)[.!\s]*$",
+    r"confirm|proceed|make it|write( it)?|yes please|please do|let'?s (do it|go)|send it|"
+    r"looks good|looks great|looks right)[.!\s]*$",
     re.I,
 )
 _DENY_RE = re.compile(
-    r"^\s*(n+o+|nope|cancel|stop|never ?mind|nevermind|don'?t|leave it|not now|hold off)[.!\s]*$",
+    r"^\s*(n+o+|nope|cancel|stop|never ?mind|nevermind|don'?t|leave it|not now|hold off|not yet)[.!\s]*$",
+    re.I,
+)
+
+# Job 3: typed consent for the script-review card (posted after a script gets
+# rejected by the quality critic — see _post_script_review_message below).
+# Its two buttons are "Rewrite it" / "Use it anyway", distinct wording from
+# the plain yes/no above because a bare "yes" here is genuinely ambiguous
+# (yes to which option?) — only the button's own words (or a close paraphrase)
+# resolve it via typed text; anything else falls through to the ordinary
+# classifier, same as any other unmatched message while a card is pending.
+_REWRITE_RE = re.compile(
+    r"^\s*(rewrite( it)?|redo( it)?|try again|regenerate( it)?|redo the script|rewrite the script)[.!\s]*$",
+    re.I,
+)
+_USE_ANYWAY_RE = re.compile(
+    r"^\s*(use it anyway|use anyway|keep it( as is)?|accept it( as is)?|good enough|it'?s fine|leave it as is)[.!\s]*$",
     re.I,
 )
 
@@ -1346,6 +1369,70 @@ async def _approval_gate_card(
     return card
 
 
+_GATE_DECLINE_MSG = (
+    "No problem — take your time. Tell me if you'd like any changes, or say "
+    "the word when you're ready to continue."
+)
+
+
+def _gate_question_text(gate_kind: str, cost_text: str) -> str:
+    """The genuine, plain-English question each review gate asks — shared by
+    the conversational path (_handle_copilot's gate_intro) and the autobuild-
+    chain path (_post_approval_gate_for_autobuild) so both ask literally the
+    SAME thing, one source of text instead of two copies that can drift.
+
+    Job 3 (surface plan, 2026-07-28): Ryan's own examples were real questions
+    — "does this script look correct to you? how do you like the characters?
+    or do you like the scenes?" — not a form with just Approve/Reject. Both
+    variants below ask a real question and name a real way to answer it in
+    words, not just the two buttons.
+
+    Deliberately does NOT invite "drop in your own character" or "add a
+    scene" — verified against the actual code paths (routes/chat.py's PROMPT-
+    surface resolvers, actions.py's ACTIONS registry) that a single video's
+    Director chat has no way to CREATE a new character/environment row or
+    INSERT a new scene from free text or an uploaded image; it can only
+    rewrite an EXISTING character/location's description (once selected in
+    the Cast/Environments rail) or an EXISTING scene's text. The invitation
+    below is scoped to what's actually wired, not what would be nice to say.
+    """
+    if gate_kind == "script":
+        return (
+            "Here's the script — does it look right to you? Take a look below. If something "
+            "needs to change, just tell me what — rewrite a scene, sharpen the hook, anything. "
+            "Otherwise tap \"Looks good!\" and I'll design the cast and locations next."
+        )
+    return (
+        "Here are the characters and locations — how do they look to you? Take a look below. "
+        "Want something changed? Select the one you'd like to fix and tell me what to change. "
+        f"Otherwise tap \"Looks good!\" and I'll draw the storyboards next ({cost_text})."
+    )
+
+
+async def _approve_pending_gate(tenant_id, video_id, pending_gate: dict[str, Any], background_tasks) -> str:
+    """Runs a pending approval_gate's resume action — the SAME thing tapping
+    'Looks good!' does. Shared by the button handshake (`"approval_gate" in
+    sel`) and the typed-consent path (a plain 'looks good'/'yes' while the
+    gate is open, job 3) so both do the exact same thing instead of two
+    copies that could drift apart."""
+    resume = pending_gate.get("resume") or {}
+    if not resume.get("verb"):
+        return _GATE_DECLINE_MSG
+    if pending_gate.get("gate_kind") == "anchors":
+        # Mirrors the ad hoc UPDATE the autobuild image-phase already runs
+        # (actions.make_autobuild_step) when it silently auto-passes this
+        # same gate — doing it explicitly here means an anchors gate, once
+        # approved, is never re-offered on a later "make the pictures"/
+        # "generate storyboards" turn.
+        await execute(
+            "UPDATE videos SET characters_approved_at = COALESCE(characters_approved_at, now()), "
+            "environments_approved_at = COALESCE(environments_approved_at, now()), "
+            "updated_at = now() WHERE id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+    return await _run_pending_action(tenant_id, video_id, resume, background_tasks)
+
+
 async def _post_approval_gate_for_autobuild(
     tenant_id, video_id: str, gate_kind: str, resume: dict[str, Any],
 ) -> None:
@@ -1391,12 +1478,72 @@ async def _post_approval_gate_for_autobuild(
     card = await _approval_gate_card(gate_kind, tenant_id, video_id, summary, cost_text, breakdown)
     state["pending_approval_gate"] = {"gate_kind": gate_kind, "resume": resume}
     state["pending_action"] = None
-    text = (
-        "Script's ready — take a look, then say the word and I'll design the cast and locations."
-        if gate_kind == "script"
-        else "Anchors are ready — the cast and locations. Take a look, then say the word and "
-        f"I'll keep building ({cost_text})."
-    )
+    text = _gate_question_text(gate_kind, cost_text)
+    transcript.append(_assistant_turn({"assistant_text": text, "cards": [card], "phase": "created"}))
+    await _persist(str(conv["id"]), tenant_id, transcript, state, "created", video_id=video_id)
+
+
+async def _post_script_review_message(tenant_id, video_id: str, message: str) -> None:
+    """Job 4 (surface plan, 2026-07-28): "the run correctly stopped... he
+    never saw it. From his seat the app looked frozen." Root cause: a
+    needs_review verdict from the script quality critic only ever wrote to
+    the `background_tasks` task-status row (routes/pipeline._set_task_status)
+    — a live SSE banner the stepper can show, but nothing that lands as an
+    actual message in the conversation. A creator who isn't staring at the
+    stepper (most of the time, per Ryan's own report) never sees it at all.
+
+    Mirrors _post_approval_gate_for_autobuild's proven pattern exactly:
+    find-or-create the video's conversation, append a REAL persisted
+    assistant turn — so a reload/reopen shows the same message, same as
+    every other pending card (ChatCore's `actionCard = lastCards?.find(...)`
+    over the loaded transcript reconstructs it with no new frontend
+    reload-handling needed).
+
+    Offers the two things the message already tells the creator to do in
+    words ("tell me to redo it, or say 'use it anyway'") as real, one-tap
+    buttons wired to mechanisms that already exist:
+      - "Rewrite it" -> resumes the ordinary paid 'script' verb (the SAME
+        one a typed "rewrite the script" already runs) — tapping the button
+        IS the informed consent, same one-tap-resumes-a-quoted-action
+        pattern the approval_gate handshake already uses.
+      - "Use it anyway" -> the existing FREE 'advance' verb/runner
+        (routes.videos.advance_video via actions.RUNNERS["advance"]) — the
+        draft the critic flagged is already sitting in the scripts table
+        (needs_review holds the video's STATUS back, it doesn't delete the
+        draft); advancing is the same "keep it, move on" action the
+        pipeline page's own Skip control already does elsewhere, not a new
+        way to bypass review.
+
+    Called from BOTH actions.make_autobuild_step (the "Make it" chain,
+    video 67a87d3c's case) and actions.make_action_step (a direct "rewrite
+    the script" tap outside autobuild) — pipeline_executor.run_script
+    returns the SAME needs_review shape to both callers, so both post the
+    SAME card.
+
+    Fail-soft by design at every call site (wrapped in try/except there) —
+    a chat-post failure must never fail the pipeline stage itself; the
+    task-status string (set unconditionally by the caller either way) is
+    the fallback if this silently no-ops."""
+    conv = await _conversation_for_video(tenant_id, video_id)
+    if not conv:
+        return
+    transcript = _as_list(conv.get("transcript"))
+    state = _as_dict(conv.get("state"))
+    card = {
+        "id": "script_review",
+        "label": "Script needs another look",
+        "type": "single",
+        "options": [
+            {"value": "rewrite", "label": "Rewrite it"},
+            {"value": "use_anyway", "label": "Use it anyway"},
+        ],
+    }
+    state["pending_action"] = {"verb": "script", "scene": None, "change": "", "length_min": None}
+    state["pending_script_review"] = True
+    text = message.rstrip()
+    if not text.endswith(("?", ".", "!")):
+        text += "."
+    text += ' Want me to rewrite it, or use it as-is and keep going?'
     transcript.append(_assistant_turn({"assistant_text": text, "cards": [card], "phase": "created"}))
     await _persist(str(conv["id"]), tenant_id, transcript, state, "created", video_id=video_id)
 
@@ -1745,26 +1892,29 @@ async def _handle_copilot(
         pending_gate = state.get("pending_approval_gate")
         state["pending_approval_gate"] = None
         if sel["approval_gate"] == "yes" and pending_gate and (pending_gate.get("resume") or {}).get("verb"):
-            resume = pending_gate["resume"]
-            if pending_gate.get("gate_kind") == "anchors":
-                # Mirrors the ad hoc UPDATE the autobuild image-phase already
-                # runs (actions.make_autobuild_step) when it silently
-                # auto-passes this same gate — doing it explicitly here means
-                # an anchors gate, once approved, is never re-offered on a
-                # later "make the pictures"/"generate storyboards" turn.
-                await execute(
-                    "UPDATE videos SET characters_approved_at = COALESCE(characters_approved_at, now()), "
-                    "environments_approved_at = COALESCE(environments_approved_at, now()), "
-                    "updated_at = now() WHERE id = $1 AND tenant_id = $2",
-                    video_id, tenant_id,
-                )
             state["pending_action"] = None
-            line = await _run_pending_action(tenant_id, video_id, resume, background_tasks)
+            line = await _approve_pending_gate(tenant_id, video_id, pending_gate, background_tasks)
             return await _reply(line)
-        return await _reply(
-            "No problem — take your time. Tell me if you'd like any changes, or say "
-            "the word when you're ready to continue."
-        )
+        return await _reply(_GATE_DECLINE_MSG)
+
+    # --- script-review handshake (job 4, surface plan 2026-07-28): turn 2 of
+    # the "the script needs another look" card _post_script_review_message
+    # posts. Same one-tap-resumes-a-quoted-action shape as approval_gate
+    # above — "Rewrite it" resumes the pending 'script' verb this card set,
+    # "Use it anyway" runs the existing free 'advance' verb/runner (moves the
+    # video's status past the script stage without re-spending — the draft
+    # the critic flagged is already saved, this just accepts it).
+    if "script_review" in sel:
+        state["pending_script_review"] = None
+        pending = state.get("pending_action")
+        state["pending_action"] = None
+        if sel["script_review"] == "rewrite" and pending:
+            line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
+            return await _reply(line)
+        if sel["script_review"] == "use_anyway":
+            line = await _ACTION_RUNNERS["advance"](tenant_id, video_id, background_tasks, {})
+            return await _reply(line)
+        return await _reply("Okay — tell me what you'd like instead.")
 
     # --- prompt studio: apply (or cancel) a proposed prompt rewrite ---
     if "prompt_apply" in sel:
@@ -1809,13 +1959,50 @@ async def _handle_copilot(
         )
 
     # --- typed consent: a pending confirm answered in words runs (or clears) it ---
+    #
+    # Job 3 (surface plan, 2026-07-28): before this, ONLY the plain
+    # pending_action confirm card understood a typed "yes"/"no" — a gate
+    # answered in words ("looks good", not a button tap) fell straight
+    # through to the general classifier below, which had no idea a gate was
+    # even open. Verified live: this was a real gap, not a guess. These two
+    # checks run FIRST (before the plain pending_action check further down)
+    # since a gate ALSO sets pending_action (to the resume/rewrite verb) —
+    # checking the more specific gate state first keeps the reply text and
+    # any approval-column stamping correct for a gate answered in words.
+    pending_script_review = bool(state.get("pending_script_review"))
+    if pending_script_review and _USE_ANYWAY_RE.match(msg):
+        state["pending_script_review"] = None
+        state["pending_action"] = None
+        line = await _ACTION_RUNNERS["advance"](tenant_id, video_id, background_tasks, {})
+        return await _reply(line)
+    if pending_script_review and _REWRITE_RE.match(msg):
+        pending = state.get("pending_action")
+        state["pending_script_review"] = None
+        state["pending_action"] = None
+        if pending:
+            line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
+            return await _reply(line)
+
+    pending_gate = state.get("pending_approval_gate")
+    if pending_gate and _AFFIRM_RE.match(msg):
+        state["pending_approval_gate"] = None
+        state["pending_action"] = None
+        line = await _approve_pending_gate(tenant_id, video_id, pending_gate, background_tasks)
+        return await _reply(line)
+    if pending_gate and _DENY_RE.match(msg):
+        state["pending_approval_gate"] = None
+        return await _reply(_GATE_DECLINE_MSG)
+
+    # --- typed consent: a pending confirm answered in words runs (or clears) it ---
     pending = state.get("pending_action")
     if pending and _AFFIRM_RE.match(msg):
         state["pending_action"] = None
+        state["pending_script_review"] = None
         line = await _run_pending_action(tenant_id, video_id, pending, background_tasks)
         return await _reply(line)
     if pending and _DENY_RE.match(msg):
         state["pending_action"] = None
+        state["pending_script_review"] = None
         return await _reply(
             "No problem — left it as it is. Tell me what you'd like instead."
         )
@@ -2221,12 +2408,7 @@ async def _handle_copilot(
         gate_card = await _approval_gate_card(
             gate_kind, tenant_id, video_id, summary, cost_text, breakdown
         )
-        gate_intro = (
-            "Here's the script — take a look, then say the word and I'll design the cast and locations."
-            if gate_kind == "script"
-            else "Here are the anchors — the cast and locations. Take a look, then say the word and I'll "
-            f"draw the storyboards ({cost_text})."
-        )
+        gate_intro = _gate_question_text(gate_kind, cost_text)
         return await _reply(gate_intro, cards=[gate_card])
 
     state["pending_action"] = pending
