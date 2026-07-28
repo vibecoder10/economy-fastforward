@@ -48,6 +48,20 @@ function fmtElapsed(totalSeconds: number): string {
   return m > 0 ? `${m}m ${r}s` : `${r}s`;
 }
 
+// Pulls the leading "N/M" fraction out of a guide stage's `detail` string
+// (production_guide.py's _stage_snapshot, e.g. "3/6 scene(s) have a
+// storyboard grid.") when one is there — real per-item counts, never
+// invented. `detail` was previously only surfaced as a hover tooltip on the
+// step chip (easy to miss); this makes the honest count actually visible.
+// A detail with no fraction ("Rendering now.", "No research yet.") returns
+// null — plain motion state, nothing to count, so nothing is shown rather
+// than a caption implying a number that isn't there.
+function itemCountCaption(detail: string | undefined): string | null {
+  if (!detail) return null;
+  const m = detail.match(/^(\d+)\/(\d+)\b/);
+  return m ? `${m[1]}/${m[2]} done` : null;
+}
+
 // `key` is the production_guide.py GUIDE_STAGES key for this step — the
 // SAME key backend/production_guide.py's get_production_guide returns per
 // stage (research/script/voice/characters/environments/storyboards/images/
@@ -251,13 +265,26 @@ export function ChatPipelineMap({
     if (!videoId || !stageChange) return;
     queryClient.invalidateQueries({ queryKey: ["production-guide", videoId] });
   }, [stageChange, videoId, queryClient]);
-  const prevTaskRunningRef = useRef(false);
+  // Job-1 gap fix (2026-07-28): the guide's own per-stage counts ("3/6
+  // scene(s) have a storyboard grid.", production_guide.py's _stage_snapshot)
+  // are real, honest fractions read straight off the DB rows the backend
+  // writes ONE AT A TIME inside its generation loops (confirmed by reading
+  // routes/characters.py, routes/environments.py, and
+  // scripts/coverage_to_app.py's per-scene store_scene() call — each item is
+  // persisted, then its own progress message is sent, before moving to the
+  // next). But this component only re-fetched the guide on a coarse
+  // stage_change or once the WHOLE task finished — so a real "2/5 designed"
+  // count sat frozen at its stale value for the entire run, then jumped
+  // straight to "5/5" at the end, even though the backend had the honest
+  // number the whole time. Every distinct task_progress event IS a new
+  // per-item signal (the backend only emits when its message actually
+  // changes — routes/pipeline.py's task_key comparison), so re-checking the
+  // guide on every one of them is what makes these counts actually move
+  // instead of just the elapsed timer and flavor text above.
   useEffect(() => {
-    if (prevTaskRunningRef.current && !taskRunning && videoId) {
-      queryClient.invalidateQueries({ queryKey: ["production-guide", videoId] });
-    }
-    prevTaskRunningRef.current = taskRunning;
-  }, [taskRunning, videoId, queryClient]);
+    if (!videoId || !taskProgress) return;
+    queryClient.invalidateQueries({ queryKey: ["production-guide", videoId] });
+  }, [taskProgress, videoId, queryClient]);
 
   // Everything below is a plain (non-hook) derivation, safe to compute even
   // when `video` is undefined (guarded with `video?.` / `?? []`) — this lets
@@ -588,6 +615,16 @@ export function ChatPipelineMap({
                   {done && !needsReview && stepDurations[step.label] != null && (
                     <span className="text-[8px] mt-0.5 leading-tight" style={{ color: "var(--text-tertiary)" }}>
                       Done in {fmtElapsed(stepDurations[step.label])}
+                    </span>
+                  )}
+                  {/* Real per-item count for the ACTIVE step — "2/5 done"
+                      read straight from the guide's own fraction (see
+                      itemCountCaption above), visible without a hover.
+                      Complements the elapsed-timer block's per-item MESSAGE
+                      ("Designing Bob (2/5)…") with the running total. */}
+                  {active && !needsReview && itemCountCaption(stage?.detail) && (
+                    <span className="text-[8px] mt-0.5 leading-tight" style={{ color: "var(--turquoise)" }}>
+                      {itemCountCaption(stage?.detail)}
                     </span>
                   )}
                   {/* Skipped caption — the backend's own reason (real
