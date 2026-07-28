@@ -329,6 +329,16 @@ def _norm_env_text(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+# The planner's own [SET | LocationName: description...] header names this
+# scene's fixed location as the FIRST thing inside the brackets, before the
+# first colon (parse_set_dressing, skills/video-pipeline/storyboard/
+# coverage.py, returns the whole bracket body; this pulls just the name).
+# When this matches an approved environment's name exactly, it settles the
+# match outright — see _match_scene_env's bug note below for why this
+# structural signal beats generic phrase-counting over the whole text.
+_SET_HEADER_ENV_RE = re.compile(r"\[SET\s*\|\s*([^:\]]{1,80}):", re.IGNORECASE)
+
+
 def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
     """Pick the ONE approved environment this scene lives in.
 
@@ -387,6 +397,28 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
         return None
     if len(envs) == 1:
         return envs[0]
+    # STRONGEST signal, checked first: the planner's own [SET | Name: ...]
+    # header (see _SET_HEADER_ENV_RE above) states this scene's location
+    # directly and unambiguously — trust it outright when it names an
+    # approved environment exactly, before falling through to phrase-scoring
+    # the whole text. Bug found live on video 686b4651, scene 2: the SET
+    # header correctly said "[SET | Elite Viewing Hall: ...]", but that same
+    # scene's SET line ALSO mentions, in passing, that its screen "displays a
+    # live feed of the underground bubble-pod warren" (a different, real
+    # environment shown ON the screen, not the scene's own location) — a
+    # coincidental hyphen-splitting bug (see the head-fragment comment below,
+    # now fixed) inflated that passing mention's score to a TIE with the
+    # scene's genuine "Elite viewing hall" match, and ties silently resolved
+    # to whichever environment iterates first. Checking the header FIRST
+    # sidesteps the whole tie question: the planner already told us the
+    # answer, in a place a passing in-scene mention of another location can
+    # never reach.
+    header_match = _SET_HEADER_ENV_RE.search(text or "")
+    if header_match:
+        declared = _norm_env_text(header_match.group(1))
+        for e in envs:
+            if declared and _norm_env_text(e["name"] or "") == declared:
+                return e
     low_text = f" {_norm_env_text(text)} "
 
     def _phrase_count(phrase: str) -> int:
@@ -396,7 +428,25 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
     best, best_score = None, 0
     for e in envs:
         name = e["name"] or ""
-        head = re.split(r"[—:\-]", name)[0].strip()
+        # Bug found live on video 686b4651 (C-next): this used to split on
+        # ANY bare hyphen (r"[—:\-]"), which also fires inside a compound
+        # word that happens to be part of the environment's own name — e.g.
+        # "Underground bubble-pod warren" split into head "Underground
+        # bubble" at the hyphen in "bubble-pod", a meaningless fragment with
+        # no relation to the location. That fragment then phrase-matched an
+        # UNRELATED scene's SET line — scene 2 ("Elite Viewing Hall") merely
+        # mentions in passing that its screen "displays a live feed of the
+        # underground bubble-pod warren" — inflating "Underground bubble-pod
+        # warren"'s score (3 name + 2 head = 5) above the scene's own,
+        # correct "Elite viewing hall" (3, no head bonus — its name has no
+        # separator), so the LOCKED LOCATION block locked scene 2's storyboard
+        # prompt to the WRONG location, contradicting the prompt's own scene
+        # description and tripping the image provider's content filter (the
+        # prompt named two different, contradictory locations). Only split on
+        # an em-dash/colon, or a hyphen with SPACES on both sides (the
+        # "Title - Subtitle" separator pattern, same shape as the em-dash
+        # case) — never a hyphen glued inside a single word like "bubble-pod".
+        head = re.split(r"[—:]| - ", name)[0].strip()
         score = _phrase_count(name) * 3
         if head and _norm_env_text(head) != _norm_env_text(name) and len(head) >= 8:
             score += _phrase_count(head) * 2
