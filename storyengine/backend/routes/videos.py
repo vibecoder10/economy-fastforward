@@ -812,6 +812,9 @@ async def get_video(video_id: str, tenant_id: str = Depends(get_tenant_id)):
         youtube_url=r.get("youtube_url"),
         final_video_url=r.get("final_video_url"),
         total_cost=float(r.get("total_cost") or 0),
+        # Selected above but never passed — the app could never show a user
+        # their own spend cap even though PATCH .../max_spend wrote it fine.
+        max_spend=float(r["max_spend"]) if r.get("max_spend") is not None else None,
         views=r.get("views") or 0,
         ctr=float(r["ctr"]) if r.get("ctr") else None,
         avg_retention=float(r["avg_retention"]) if r.get("avg_retention") else None,

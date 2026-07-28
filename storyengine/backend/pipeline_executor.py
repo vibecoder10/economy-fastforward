@@ -14194,8 +14194,26 @@ separate scenes."""
                       "AND source='generated' AND status='draft'", video_id, self.tenant_id)
         await execute("UPDATE videos SET characters_approved_at = NULL WHERE id=$1 AND tenant_id=$2",
                       video_id, self.tenant_id)
+        from actions import budget_check, picture_price_for, video_summary
+        from generation_ledger import record_ledger_entry
         done = 0
         for i, ch in enumerate(cast):
+            # Money-safety fix: this copilot "redesign the cast" verb is the
+            # SAME real GPT Image 2 spend as the Characters tab button
+            # (routes/characters.py), which had no ledger write and no cap
+            # check at all — fixed the same way here, checked fresh every
+            # character since spend accrues across the loop.
+            summary = await video_summary(self.tenant_id, video_id)
+            breach = budget_check(summary, picture_price_for(None)) if summary else None
+            if breach:
+                msg = (
+                    f"Paused — this would put you at ${breach['projected']:.2f} against this "
+                    f"video's ${breach['cap']:.2f} spend cap (${breach['spent']:.2f} already "
+                    "spent). Raise the cap in Settings, then try again."
+                )
+                if done:
+                    msg = f"Cast designed: {done}/{len(cast)} character sheets ready before the cap stopped it. " + msg
+                return {"status": "completed", "message": msg}
             row = await fetch_one(
                 "INSERT INTO video_characters (tenant_id, video_id, name, description, sort) "
                 "VALUES ($1,$2,$3,$4,$5) RETURNING id",
@@ -14203,10 +14221,16 @@ separate scenes."""
             char_id = str(row["id"])
             for attempt in range(3):
                 try:
-                    temp_url = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna, name=ch.get("name") or "")
-                    url = await _persist_portrait_url(self.tenant_id, video_id, char_id, temp_url)
+                    portrait = await _generate_portrait(api_key, ch.get("description") or ch["name"], style_dna, name=ch.get("name") or "")
+                    url = await _persist_portrait_url(self.tenant_id, video_id, char_id, portrait["url"])
                     await execute("UPDATE video_characters SET reference_url=$1, updated_at=now() WHERE id=$2",
                                   url, char_id)
+                    cost = picture_price_for(portrait["model"])
+                    await record_ledger_entry(
+                        tenant_id=self.tenant_id, video_id=video_id, stage="character_sheet",
+                        model=portrait["model"], units=1, unit_cost=cost, actual_cost=cost,
+                        kie_task_id=portrait.get("task_id"),
+                    )
                     done += 1
                     break
                 except Exception:  # noqa: BLE001
