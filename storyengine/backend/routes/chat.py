@@ -1249,6 +1249,150 @@ def _summary_line(s: dict[str, Any]) -> str:
     return line
 
 
+def _pending_gate_kind_for(verb: str, summary: dict[str, Any]) -> Optional[str]:
+    """Which review gate (if any) belongs in front of this verb's spend, given
+    where this video already is. Reusable-mechanism seam (feat/approval-gates,
+    DIRECTOR-CHAT-PLAN.md Task 5.2): the two checkpoints Ryan asked for —
+    "review the script before spending on cast/locations", "review the cast
+    + locations together before spending on storyboards/pictures" — read
+    ONLY from durable video state (never a conversation-only flag), so a
+    reload or a second conversation for the same video sees the same
+    decision.
+
+    - "script": verb == "characters" is the very next paid step after the
+      script — designing the cast — and no character rows exist yet
+      (`summary["cast"] == 0`). Once ANY character exists (drafted, whether
+      approved or not), the gate has already been shown once; a later
+      "redo the characters" confirms normally, it doesn't re-litigate the
+      script.
+    - "anchors": verb is "storyboards" or "images" (the two paid steps that
+      spend on drawing pictures) and the cast+locations gate hasn't cleared
+      (`chars_approved` / `envs_approved` — set together, see the
+      approval_gate handshake above and the pre-existing approve_cast/
+      approve_environments runners). Once BOTH are approved, this is a no-op
+      forever for this video, matching "approved together in one gate, not
+      two" from the design brief.
+
+    Returns None for every other verb — this never touches build/voice/
+    animate/render/upload/etc., and NEITHER new gate applies to a video that
+    already has real progress past that checkpoint (an old video reusing
+    these verbs behaves exactly as it did before this feature existed).
+    """
+    if verb == "characters" and int(summary.get("cast") or 0) == 0:
+        return "script"
+    # Guarded on `cast > 0` (not just the approval flags): a video that jumps
+    # straight to "make the pictures" without ever designing a cast has
+    # nothing to show in an anchors review — showing the card anyway would
+    # display "Characters x 0" and let the tap fast-track past a gate with
+    # nothing behind it. That video confirms exactly as it did before this
+    # feature (the plain confirm_action card), same as any verb this function
+    # returns None for.
+    if (
+        verb in ("storyboards", "images")
+        and int(summary.get("cast") or 0) > 0
+        and not (summary.get("chars_approved") and summary.get("envs_approved"))
+    ):
+        return "anchors"
+    return None
+
+
+async def _approval_gate_card(
+    gate_kind: str,
+    tenant_id,
+    video_id: str,
+    summary: dict[str, Any],
+    cost_text: str,
+    breakdown: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the compact `approval_gate` card (id="approval_gate"). Deliberately
+    thin: counts + the cost quote for what happens on approval, nothing more —
+    the frontend's side panel re-fetches the real script/cast/locations via the
+    SAME endpoints ScriptResultCard/CastLocationsCard already use
+    (frontend/src/components/chat/ChatResultCards.tsx), rather than this card
+    duplicating that data. Every field is additive on top of the existing
+    ChatCard shape (frontend/src/lib/api.ts) — an older frontend build that
+    doesn't know "approval_gate" simply doesn't render this card kind at all,
+    same as any other unrecognized card.id.
+    """
+    card: dict[str, Any] = {
+        "id": "approval_gate",
+        "gate_kind": gate_kind,
+        "type": "single",
+        "options": [
+            {"value": "yes", "label": "Looks good!"},
+            {"value": "no", "label": "Not yet"},
+        ],
+        "cost_text": cost_text,
+    }
+    if breakdown and breakdown.get("lines"):
+        card["breakdown"] = breakdown
+    if gate_kind == "script":
+        card["label"] = summary.get("title") or "Untitled"
+        card["scene_count"] = int(summary.get("scenes") or 0)
+        length_min = summary.get("length_min")
+        card["duration_seconds"] = int(round(length_min * 60)) if length_min else None
+    else:
+        card["label"] = "Review Anchors"
+        card["character_count"] = int(summary.get("cast") or 0)
+        card["location_count"] = int(summary.get("envs") or 0)
+    return card
+
+
+async def _post_approval_gate_for_autobuild(
+    tenant_id, video_id: str, gate_kind: str, resume: dict[str, Any],
+) -> None:
+    """Called by actions.make_autobuild_step (lazy import from there — chat.py
+    already imports actions.py at module level, so the reverse import must
+    stay inside the function it's used from) when the auto-build chain
+    ("Make it ✨", or the front door's declared explicit_verb="build" turn)
+    reaches one of the two review checkpoints instead of the conversational
+    verb-classification path in _handle_copilot.
+
+    Posts the EXACT SAME approval_gate card a conversational "design the
+    characters"/"make the pictures" turn would show, as a normal PERSISTED
+    assistant turn in whichever conversation is bound to this video
+    (_conversation_for_video — find-or-create, same lookup the dock's first
+    open already uses). This is deliberately not a new, transient
+    "the build is paused" flag: persisting it as an ordinary turn means a
+    page reload re-hydrates the gate the exact same way it already
+    reconstructs every other pending action card (ChatCore's
+    `actionCard = lastCards?.find(...)` over the loaded transcript) — no
+    new frontend reload-handling needed for this to survive a refresh.
+
+    Money-wise this function only DISPLAYS the gate; it never runs
+    generation itself (the caller already did whatever cheap design work
+    happens before this checkpoint) and "Looks good!" resumes via the SAME
+    untouched approval_gate handshake + `_run_pending_action("build", ...)`
+    path every other gate approval already goes through.
+    """
+    conv = await _conversation_for_video(tenant_id, video_id)
+    if not conv:
+        return
+    summary = await _copilot_summary(tenant_id, video_id)
+    if not summary:
+        return
+    transcript = _as_list(conv.get("transcript"))
+    state = _as_dict(conv.get("state"))
+    # The cost quote shown on the card: the script gate's "next step" is
+    # designing the cast (verb "characters"); the anchors gate's "next
+    # step" is the REST of the autobuild chain (a "build" quote), since
+    # approving it resumes the whole chain, not one single verb.
+    quote_verb = "characters" if gate_kind == "script" else "build"
+    _cost, cost_text = await _estimate_cost(tenant_id, video_id, quote_verb, None, summary)
+    breakdown = await _cost_breakdown(tenant_id, video_id, quote_verb, None, summary)
+    card = await _approval_gate_card(gate_kind, tenant_id, video_id, summary, cost_text, breakdown)
+    state["pending_approval_gate"] = {"gate_kind": gate_kind, "resume": resume}
+    state["pending_action"] = None
+    text = (
+        "Script's ready — take a look, then say the word and I'll design the cast and locations."
+        if gate_kind == "script"
+        else "Anchors are ready — the cast and locations. Take a look, then say the word and "
+        f"I'll keep building ({cost_text})."
+    )
+    transcript.append(_assistant_turn({"assistant_text": text, "cards": [card], "phase": "created"}))
+    await _persist(str(conv["id"]), tenant_id, transcript, state, "created", video_id=video_id)
+
+
 def _confirm_card(
     verb: str,
     scene: Optional[int],
@@ -1544,6 +1688,40 @@ async def _handle_copilot(
             return await _reply(line)
         return await _reply(
             "No problem — left it as it is. Tell me what you'd like instead."
+        )
+
+    # --- approval gate handshake (feat/approval-gates): turn 2 of the script
+    # or anchors (characters + locations) review card. Deliberately its OWN
+    # state slot (`pending_approval_gate`), not a reuse of `pending_action` —
+    # a gate carries a `gate_kind` the frontend needs to pick the right card
+    # body, and approving it can also stamp durable approval columns (below)
+    # before resuming. Resuming reuses the EXACT same `_run_pending_action`
+    # dispatcher every confirm_action tap already goes through, so a gate's
+    # "Looks good!" is not a new way to spend money — it's the same one-tap
+    # confirm, wrapped in a richer preview.
+    if "approval_gate" in sel:
+        pending_gate = state.get("pending_approval_gate")
+        state["pending_approval_gate"] = None
+        if sel["approval_gate"] == "yes" and pending_gate and (pending_gate.get("resume") or {}).get("verb"):
+            resume = pending_gate["resume"]
+            if pending_gate.get("gate_kind") == "anchors":
+                # Mirrors the ad hoc UPDATE the autobuild image-phase already
+                # runs (actions.make_autobuild_step) when it silently
+                # auto-passes this same gate — doing it explicitly here means
+                # an anchors gate, once approved, is never re-offered on a
+                # later "make the pictures"/"generate storyboards" turn.
+                await execute(
+                    "UPDATE videos SET characters_approved_at = COALESCE(characters_approved_at, now()), "
+                    "environments_approved_at = COALESCE(environments_approved_at, now()), "
+                    "updated_at = now() WHERE id = $1 AND tenant_id = $2",
+                    video_id, tenant_id,
+                )
+            state["pending_action"] = None
+            line = await _run_pending_action(tenant_id, video_id, resume, background_tasks)
+            return await _reply(line)
+        return await _reply(
+            "No problem — take your time. Tell me if you'd like any changes, or say "
+            "the word when you're ready to continue."
         )
 
     # --- prompt studio: apply (or cancel) a proposed prompt rewrite ---
@@ -1980,6 +2158,30 @@ async def _handle_copilot(
     # exist) — cost_text alone carries the confirm text in that case,
     # unchanged from pre-C15 behavior.
     breakdown = await _cost_breakdown(tenant_id, video_id, verb, scene, summary)
+
+    # --- approval gate (feat/approval-gates): the SAME cost quote computed
+    # above, shown as the rich script/anchors review card instead of the
+    # plain confirm_action card — the whole feature's job is to make these
+    # two moments a genuine review, not a smaller change in disguise. Only
+    # fires the FIRST time each checkpoint is reached (see
+    # _pending_gate_kind_for); once past it, this verb confirms exactly as
+    # it always has. Never a SECOND, more expensive quote than the one that
+    # was about to show — this literally IS that quote, just in a richer card.
+    gate_kind = _pending_gate_kind_for(verb, summary)
+    if gate_kind:
+        state["pending_approval_gate"] = {"gate_kind": gate_kind, "resume": pending}
+        state["pending_action"] = None
+        gate_card = await _approval_gate_card(
+            gate_kind, tenant_id, video_id, summary, cost_text, breakdown
+        )
+        gate_intro = (
+            "Here's the script — take a look, then say the word and I'll design the cast and locations."
+            if gate_kind == "script"
+            else "Here are the anchors — the cast and locations. Take a look, then say the word and I'll "
+            f"draw the storyboards ({cost_text})."
+        )
+        return await _reply(gate_intro, cards=[gate_card])
+
     state["pending_action"] = pending
     # Deterministic, confirmation-clear message — NOT the model's free-text reply, which
     # tended to say "Generating now…" even though this is gated behind a tap (the money

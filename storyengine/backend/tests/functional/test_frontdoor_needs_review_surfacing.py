@@ -322,12 +322,24 @@ def test_autobuild_still_fails_hard_on_a_real_script_failure():
 
 def test_autobuild_passing_script_is_unaffected():
     """Sanity/regression: a script that passes quality (no needs_review key
-    at all) must keep advancing exactly as before — proves the new check is
-    additive, not a new gate on the happy path."""
+    at all) must keep advancing exactly as before — proves the new
+    needs_review check is additive, not a new gate on the happy path.
+
+    Updated (feat/approval-gates, per DIRECTOR-CHAT-PLAN.md Task 5.3's own
+    "update the tests asserting the old invariant in their own commit"
+    precedent): a script that passes quality on a video with NO characters
+    yet now correctly PAUSES right here for the script-review gate — that
+    IS the new intended behavior this test must now pin, not the old
+    straight-through-to-ready_for_images path. What this test still proves,
+    unchanged, is its actual point: passing the quality check never
+    produces "needs_review" or "failed" — only the (new) "waiting on you"
+    pause. _get_video is called exactly once (the pause happens without a
+    second loop iteration), not twice.
+    """
     set_calls = []
 
     def _fake_set_task_status(video_id, status, message=None, error=None, *, tenant_id, task_type="pipeline"):
-        set_calls.append({"status": status})
+        set_calls.append({"status": status, "message": message})
 
     call_count = {"n": 0}
 
@@ -353,22 +365,41 @@ def test_autobuild_passing_script_is_unaffected():
     fake_rp = types.ModuleType("routes.pipeline")
     fake_rp._set_task_status = _fake_set_task_status
     fake_rp._clear_task_status = lambda *a, **k: None
+    # feat/approval-gates: the script-gate checkpoint reads the video's
+    # character count (0 here — nothing designed yet on a video that just
+    # got its script) and posts the gate via routes.chat, lazy-imported —
+    # both stubbed the same way test_approval_gates_autobuild.py stubs them.
+    fake_rc = types.ModuleType("routes.chat")
+    gate_calls = []
+
+    async def _fake_post_gate(tenant_id, video_id, gate_kind, resume):
+        gate_calls.append(gate_kind)
+    fake_rc._post_approval_gate_for_autobuild = _fake_post_gate
+
+    async def _fake_fetch_one(query, *args):
+        if "video_characters" in query:
+            return {"n": 0}
+        raise AssertionError(f"unexpected fetch_one: {query}")
 
     async def _fast_sleep(*_a, **_k):
         return None
 
-    with patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}):
-        with patch("asyncio.sleep", _fast_sleep):
-            step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
-            asyncio.run(step())
+    with patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp,
+                                   "routes.chat": fake_rc}):
+        with patch.object(actions, "fetch_one", _fake_fetch_one):
+            with patch("asyncio.sleep", _fast_sleep):
+                step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
+                asyncio.run(step())
 
-    # Must have progressed past the script stage (2 _get_video calls) and
-    # completed cleanly — no "needs_review"/"failed" ever appears.
-    assert call_count["n"] == 2
+    # Pauses for the script gate right after the script stage — one
+    # _get_video call, never a second loop iteration.
+    assert call_count["n"] == 1
+    assert gate_calls == ["script"]
     statuses = [c["status"] for c in set_calls]
     assert "needs_review" not in statuses
     assert "failed" not in statuses
     assert statuses[-1] == "completed"
+    assert "take a look" in (set_calls[-1]["message"] or "").lower()
     print("✅ test_autobuild_passing_script_is_unaffected")
 
 

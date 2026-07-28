@@ -22,7 +22,7 @@ import { useStyleDescriptions, styleDescriptionIcon, styleDescriptionById } from
 import type { StyleDescription } from "@/lib/api";
 import { StylePresetGallery } from "@/components/style/StylePresetGallery";
 import { ChatPipelineMap } from "@/components/chat/ChatPipelineMap";
-import { ScriptResultCard, CastLocationsCard, StoryboardGridCard } from "@/components/chat/ChatResultCards";
+import { ScriptResultCard, CastLocationsCard, StoryboardGridCard, ApprovalGateCard } from "@/components/chat/ChatResultCards";
 import { ProductionStyleSelector } from "@/components/production/ProductionStyleSelector";
 import {
   sendChatTurn,
@@ -143,7 +143,11 @@ const isSliderCard = (c: ChatCard) => c.id === "length" || (c as { type?: string
 // (the conversational "make me a new style" preview/confirm card) the same way.
 // C42 adds "channel_dna_digest" (the "learn this channel" confirmable digest)
 // the same way — one more lookup-table entry, no new string-match branch.
-type CardKind = "prompt_apply" | "confirm_action" | "custom_film_approval" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "generic";
+// feat/approval-gates adds "approval_gate" (DIRECTOR-CHAT-PLAN.md Task 5.2) —
+// ONE reusable kind for the script and anchors (cast+locations) review
+// checkpoints, same pattern as every entry above: one more lookup-table row,
+// not a new scattered `card.id === …` branch anywhere else.
+type CardKind = "prompt_apply" | "confirm_action" | "custom_film_approval" | "secure_key" | "connect" | "images" | "look_engine" | "style_draft" | "channel_dna_digest" | "approval_gate" | "generic";
 
 function cardKind(card: ChatCard): CardKind {
   if (card.id === "prompt_apply") return "prompt_apply";
@@ -154,11 +158,12 @@ function cardKind(card: ChatCard): CardKind {
   if (card.id === "look_engine") return "look_engine";
   if (card.id === "style_draft") return "style_draft";
   if (card.id === "channel_dna_digest") return "channel_dna_digest";
+  if (card.id === "approval_gate") return "approval_gate";
   if ((card.images?.length ?? 0) > 0) return "images";
   return "generic";
 }
 
-const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "custom_film_approval", "secure_key", "style_draft", "channel_dna_digest"]);
+const ACTION_CARD_KINDS: ReadonlySet<CardKind> = new Set(["prompt_apply", "confirm_action", "custom_film_approval", "secure_key", "style_draft", "channel_dna_digest", "approval_gate"]);
 
 function formatLength(secs: number): string {
   if (secs < 60) return `${secs} sec`;
@@ -780,6 +785,16 @@ export function ChatCore({
         card={actionCard!}
         onAction={(selections, label) => turn({ selections }, label)}
       />
+    ),
+    approval_gate: () => (
+      resultCardsVideoId ? (
+        <ApprovalGateCard
+          key={`gate-${messages.length}`}
+          card={actionCard!}
+          videoId={resultCardsVideoId}
+          onChoose={(value, label) => turn({ selections: { approval_gate: value } }, label)}
+        />
+      ) : null
     ),
   };
 
