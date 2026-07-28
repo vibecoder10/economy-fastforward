@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import type { PendingInitialTurn } from "@/components/chat/ChatCore";
 
 /**
  * Altitude the Director canvas is currently viewing at.
@@ -95,6 +96,22 @@ export interface DirectorState {
    * itself. */
   pendingInitialIntent: "build" | null;
   setPendingInitialIntent: (intent: "build" | null) => void;
+
+  /** The RESULT (in-flight, done, or errored) of the seed turn ChatCore's
+   * `initialMessage` effect fires for `pendingInitialMessage` above — see
+   * ChatCore.tsx's `PendingInitialTurn` doc comment for the full root-cause
+   * story. Lives here, not in ChatCore's own local state, because
+   * DirectorHome's entry box hands off across a REAL Next.js navigation
+   * (`/` or `/chat` -> `/chat/<id>`, `setSelectedVideoId` below) that
+   * unmounts the ChatCore instance that started the turn well before its
+   * `/api/chat` response lands — losing that response used to mean the
+   * result never rendered until a manual refresh. DirectorProvider is
+   * mounted once at the root layout, so this state (unlike ChatCore's own)
+   * survives that navigation intact for the replacement instance to read.
+   * `null` whenever no seed turn is in flight/pending consumption — the
+   * common case. */
+  pendingInitialTurn: PendingInitialTurn | null;
+  setPendingInitialTurn: (turn: PendingInitialTurn | null) => void;
 }
 
 const DirectorContext = createContext<DirectorState | null>(null);
@@ -180,6 +197,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
   const [railTab, setRailTab] = useState<RailTab>("media");
   const [pendingInitialMessage, setPendingInitialMessage] = useState<string | null>(null);
   const [pendingInitialIntent, setPendingInitialIntent] = useState<"build" | null>(null);
+  const [pendingInitialTurn, setPendingInitialTurn] = useState<PendingInitialTurn | null>(null);
 
   // A shot and an entity (character/environment) are mutually exclusive as
   // chat's next target — picking one clears the other here, centrally, so
@@ -211,6 +229,8 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       setPendingInitialMessage,
       pendingInitialIntent,
       setPendingInitialIntent,
+      pendingInitialTurn,
+      setPendingInitialTurn,
     }),
     [
       selectedVideoId,
@@ -221,6 +241,7 @@ export function DirectorProvider({ children }: { children: ReactNode }) {
       railTab,
       pendingInitialMessage,
       pendingInitialIntent,
+      pendingInitialTurn,
     ]
   );
 

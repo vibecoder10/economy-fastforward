@@ -38,6 +38,8 @@ export function DirectorSurface() {
     setPendingInitialMessage,
     pendingInitialIntent,
     setPendingInitialIntent,
+    pendingInitialTurn,
+    setPendingInitialTurn,
   } = useDirector();
   const chatColumnRef = useRef<HTMLDivElement>(null);
   const railColumnRef = useRef<HTMLDivElement>(null);
@@ -83,6 +85,20 @@ export function DirectorSurface() {
   useEffect(() => {
     if (pendingInitialMessage) setPendingInitialMessage(null);
     if (pendingInitialIntent) setPendingInitialIntent(null);
+    // Safety net, not the main fix (ChatCore's own consume-once effect is —
+    // see PendingInitialTurn's doc comment): a `pendingInitialTurn` that
+    // belongs to a DIFFERENT video than the one now open must never leak
+    // forward — e.g. the creator bounced to a different video (Recent
+    // Videos) before the first one's seed turn ever got picked up. Scoped
+    // to "different video", not "any change", so THIS video's own
+    // in-flight/just-finished seed turn (written by ChatCore in the SAME
+    // commit this effect runs in, so it's read here as whatever it was
+    // BEFORE that write — i.e. still null the very first time this effect
+    // fires for a brand-new video) is never wiped by the very transition
+    // that created it.
+    if (pendingInitialTurn && pendingInitialTurn.videoId !== selectedVideoId) {
+      setPendingInitialTurn(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedVideoId]);
 
@@ -225,6 +241,8 @@ export function DirectorSurface() {
                 onVideoCreated={(id) => setSelectedVideoId(id)}
                 initialMessage={pendingInitialMessage}
                 initialIntent={pendingInitialIntent}
+                pendingInitialTurn={pendingInitialTurn}
+                setPendingInitialTurn={setPendingInitialTurn}
                 uiContext={uiContext}
                 selectionChip={<SelectionChip videoId={selectedVideoId} />}
               />

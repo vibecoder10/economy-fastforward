@@ -93,6 +93,53 @@ type Msg = {
   plan?: ProductionPlan | null;
 };
 
+/**
+ * The seed turn DirectorHome kicks off when it hands a brand-new video to
+ * the Director surface (this file's `initialMessage`/`initialIntent` props)
+ * — lifted out of local component state into DirectorContext
+ * (DirectorContext.tsx `pendingInitialTurn`, passed down here as a prop —
+ * see the note on `initialMessage` below for why ChatCore never reads
+ * DirectorContext directly) so its RESULT survives the client-side
+ * navigation that hands it off.
+ *
+ * Root cause this exists to fix (proven live, 2026-07-27+2): DirectorHome's
+ * entry box lives on `/` (or `/chat`), and DirectorContext.tsx's
+ * `setSelectedVideoId` both mounts THIS component with `initialMessage` set
+ * (optimistic local state, same tick) AND calls `router.push('/chat/<id>')`
+ * — a real Next.js navigation to a DIFFERENT route (`/chat/[videoId]/page.tsx`
+ * vs `/page.tsx` or `/chat/page.tsx`), which unmounts this whole component
+ * tree (DirectorSurface, ChatCore) the moment that navigation resolves —
+ * almost always well before the seeded turn's `/api/chat` response has come
+ * back (a real chat turn measured at ~7.7s; the route swap resolves in
+ * well under a second). The replacement ChatCore instance that mounts after
+ * the swap has `initialMessage` already null (DirectorSurface clears it the
+ * same tick the first instance reads it) and used to call
+ * `getChatConversation` immediately — racing, and usually losing, against
+ * the backend still finishing that very turn. That's the exact bug: the
+ * card never renders, and only a manual refresh (which re-hydrates from the
+ * now-persisted conversation) ever shows it.
+ *
+ * Storing the result here — DirectorProvider is mounted once at the root
+ * layout, so it outlives this navigation — lets the replacement instance
+ * hydrate directly from the shared result instead of re-fetching (and
+ * crucially, never means a second `/api/chat` POST: only the ORIGINAL
+ * `initialMessage`-carrying instance ever calls `turn()` for this seed;
+ * every later instance only reads this field, never sends). `status:
+ * "sending"` is written synchronously, before the network call, so even an
+ * unmount a millisecond later still leaves a marker the next instance can
+ * wait on instead of racing ahead with a stale read.
+ */
+export interface PendingInitialTurn {
+  videoId: string;
+  status: "sending" | "done" | "error";
+  userText: string;
+  disclosureNote?: string | null;
+  assistantText?: string | null;
+  cards?: ChatCard[] | null;
+  plan?: ProductionPlan | null;
+  conversationId?: string | null;
+}
+
 const GREETING =
   "Tell me about the video you want to make — one sentence is plenty. I'll ask anything I need, then build it for you.";
 const EXAMPLES = [
@@ -280,6 +327,8 @@ export function ChatCore({
   activeVideoId,
   initialMessage,
   initialIntent,
+  pendingInitialTurn,
+  setPendingInitialTurn,
 }: {
   videoId?: string;
   docked?: boolean;
@@ -313,6 +362,16 @@ export function ChatCore({
   // verb to run. `null`/undefined for every other initialMessage producer,
   // which keeps going through the classifier exactly as before.
   initialIntent?: "build" | null;
+  // DirectorContext.tsx's `pendingInitialTurn` / `setPendingInitialTurn`,
+  // passed down as plain props for the SAME reason `selectionChip` is —
+  // ChatCore is also mounted by the old pipeline dock and ImagesStagePanel,
+  // neither of which has a DirectorProvider in its tree, so it can never
+  // call `useDirector()` itself. `undefined` on every call site that
+  // doesn't pass them (the dock, ImagesStagePanel) is treated exactly like
+  // `null` — the seed-turn hand-off below is a no-op there, matching today's
+  // behavior. See the `PendingInitialTurn` type above for the full story.
+  pendingInitialTurn?: PendingInitialTurn | null;
+  setPendingInitialTurn?: (turn: PendingInitialTurn | null) => void;
 }) {
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -351,6 +410,15 @@ export function ChatCore({
   });
   const [picks, setPicks] = useState<Record<string, string | string[]>>({});
   const [checking, setChecking] = useState(true); // first-load onboarding-status / hydrate
+  // True when the "reopen an existing video" hydrate (below) genuinely
+  // FAILED (network error, non-2xx, etc) rather than just finding zero
+  // messages. Coordinator report, 2026-07-28: a customer's video showed the
+  // same generic "Ask about this video…" hint an honestly-empty room shows —
+  // indistinguishable from "we tried to load your conversation and
+  // couldn't." The bare `catch {}` below used to treat every failure as
+  // silent success; this makes a real failure say so instead of guessing at
+  // "nothing saved yet."
+  const [conversationLoadFailed, setConversationLoadFailed] = useState(false);
   const [suggested, setSuggested] = useState<SuggestedModels | null>(null); // "worth modeling" (home)
   // Files dropped/attached but not yet sent with a message (home chat only).
   const [attachments, setAttachments] = useState<{ id: string; filename: string; kind: string }[]>([]);
@@ -403,8 +471,20 @@ export function ChatCore({
     getSuggestedModels().then(setSuggested).catch(() => { /* none — fall back to examples */ });
   }, [docked]);
 
-  async function turn(req: ChatTurnRequest, userBubble?: string) {
-    if (sending) return;
+  // Return value added for exactly one caller (the `initialMessage` seed-turn
+  // effect below) to mirror this outcome into DirectorContext's
+  // `pendingInitialTurn` — see PendingInitialTurn's doc comment for why.
+  // Every existing call site (button onClicks, etc.) already discarded
+  // turn()'s return value, so this is additive, not a behavior change for
+  // them.
+  async function turn(
+    req: ChatTurnRequest,
+    userBubble?: string
+  ): Promise<
+    | { ok: true; assistantText: string; cards: ChatCard[] | null; plan: ProductionPlan | null; conversationId: string }
+    | { ok: false; message: string }
+  > {
+    if (sending) return { ok: false, message: "" };
     const failedApprovalCards = failedCustomFilmApprovalCards(
       req,
       lastCards,
@@ -450,7 +530,15 @@ export function ChatCore({
           plan: res.plan,
         },
       ]);
+      return {
+        ok: true,
+        assistantText: res.assistant_text,
+        cards: responseCards ?? null,
+        plan: res.plan ?? null,
+        conversationId: res.conversation_id,
+      };
     } catch (e) {
+      const message = e instanceof Error ? e.message : "Something went wrong — try again.";
       if (failedApprovalCards && !docked) {
         // A reserved video id is not proof that approval succeeded. Keep the
         // exact approval card actionable and remove fabricated progress UI.
@@ -460,10 +548,11 @@ export function ChatCore({
         ...m,
         {
           role: "assistant",
-          text: e instanceof Error ? e.message : "Something went wrong — try again.",
+          text: message,
           cards: failedApprovalCards,
         },
       ]);
+      return { ok: false, message };
     } finally {
       setSending(false);
     }
@@ -520,6 +609,18 @@ export function ChatCore({
     // a brand-new conversation, never a resume.
     if (initialMessage) {
       (async () => {
+        // Mark the seed turn "sending" in DirectorContext BEFORE any await —
+        // synchronously, in this same tick — so a navigation-driven unmount
+        // even a millisecond later (see PendingInitialTurn's doc comment)
+        // still leaves a marker the replacement instance can wait on instead
+        // of racing a `getChatConversation` read against the backend. Only
+        // THIS instance (the one that actually got `initialMessage`) ever
+        // writes "sending" — every other instance only reads this field, so
+        // there is exactly one `/api/chat` POST per seed, never two.
+        const seedVideoId = activeVideoId ?? null;
+        if (seedVideoId) {
+          setPendingInitialTurn?.({ videoId: seedVideoId, status: "sending", userText: initialMessage });
+        }
         // Disclosure, not silence (found live 2026-07-27, same report as
         // apply_channel_identity below): a typed sentence can carry a spend
         // cap ("cap the spend at $1") and/or land on a tenant with a locked
@@ -536,13 +637,44 @@ export function ChatCore({
         // for every other producer of initialMessage (e.g. the YouTube model
         // confirm), so this stays a no-op for them — same classified path
         // as before.
-        await turn(
+        const outcome = await turn(
           {
             message: initialMessage,
             ...(initialIntent === "build" ? { explicit_verb: "build" } : {}),
           },
           initialMessage
         );
+        // Mirror the finished (or failed) turn into DirectorContext too —
+        // regardless of whether THIS component instance is still mounted by
+        // the time this line runs. Calling a context setter is safe even
+        // after the calling component has unmounted, as long as the
+        // component that OWNS the state (DirectorProvider, mounted once at
+        // the root layout) is still mounted — which it always is. This is
+        // what lets a replacement ChatCore instance (mounted after the
+        // `/`→`/chat/<id>` or `/chat`→`/chat/<id>` navigation this seed turn
+        // triggers) render the real result instead of an empty placeholder.
+        if (seedVideoId) {
+          setPendingInitialTurn?.(
+            outcome.ok
+              ? {
+                  videoId: seedVideoId,
+                  status: "done",
+                  userText: initialMessage,
+                  disclosureNote: note,
+                  assistantText: outcome.assistantText,
+                  cards: outcome.cards,
+                  plan: outcome.plan,
+                  conversationId: outcome.conversationId,
+                }
+              : {
+                  videoId: seedVideoId,
+                  status: "error",
+                  userText: initialMessage,
+                  disclosureNote: note,
+                  assistantText: outcome.message,
+                }
+          );
+        }
         setChecking(false);
       })();
       return;
@@ -561,6 +693,18 @@ export function ChatCore({
     // Mirrors the dock's own per-video hydrate effect below, just for the
     // undocked column.
     if (activeVideoId) {
+      // A seed turn for THIS exact video may already be in flight (or just
+      // finished) in DirectorContext — the effect below (watching
+      // `pendingInitialTurn`) owns hydrating that case. Calling
+      // `getChatConversation` here too would race the backend that's still
+      // finishing the very same turn and, more often than not, lose (a
+      // real chat turn measured at ~7.7s; this mount happens well under a
+      // second after the navigation that got us here) — that race is the
+      // root cause of the "card never appears, refresh fixes it" bug. See
+      // PendingInitialTurn's doc comment in this file for the full story.
+      if (pendingInitialTurn?.videoId === activeVideoId) {
+        return;
+      }
       (async () => {
         try {
           const data = await getChatConversation(activeVideoId);
@@ -569,9 +713,16 @@ export function ChatCore({
             setMessages(data.messages.map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
           }
         } catch {
-          // No conversation yet for this video — fine, the room still shows
-          // its live progress + result cards (see the `started` render gate
-          // below); the next message just starts one.
+          // Distinguish "no conversation exists yet" (fine — the room still
+          // shows its live progress + result cards; the next message just
+          // starts one) from "we couldn't reach the backend" (NOT fine — see
+          // conversationLoadFailed's doc comment above). The backend's own
+          // GET /api/chat/conversation NEVER throws for "nothing saved yet"
+          // — it resolves with {conversation_id: null, messages: []} (see
+          // routes/chat.py get_conversation_for_video). So landing in this
+          // catch block at all means the request itself failed (network
+          // error, timeout, non-2xx) — a real failure, not an empty room.
+          setConversationLoadFailed(true);
         } finally {
           setChecking(false);
         }
@@ -629,6 +780,73 @@ export function ChatCore({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Consume a seed turn's result once DirectorContext has it — this is what
+  // actually fixes the "card never appears" bug (see PendingInitialTurn's
+  // doc comment above): the mount effect above already skipped its own
+  // `getChatConversation` call when `pendingInitialTurn` matched this video,
+  // so THIS effect is the only path that ever renders that result for a
+  // "reopen" instance (mounted after the navigation killed the original
+  // seed-sending instance).
+  //
+  // Guarded to `!initialMessage` on purpose: an instance that itself
+  // RECEIVED `initialMessage` is the one that OWNS this seed turn — it
+  // already rendered the result via turn()'s own setMessages call and must
+  // never also run this branch, or the assistant bubble (and the
+  // disclosure note) would render twice. Since exactly one instance ever
+  // gets `initialMessage` (DirectorSurface clears it from DirectorContext
+  // the same tick the owning instance reads it), this guard is exact, not
+  // a heuristic.
+  useEffect(() => {
+    if (docked) return;
+    if (initialMessage) return; // this instance owns the seed turn itself
+    if (!activeVideoId) return;
+    if (!pendingInitialTurn || pendingInitialTurn.videoId !== activeVideoId) return;
+    if (pendingInitialTurn.status === "sending") return; // wait for the next update
+
+    setMessages((m) => [
+      ...m,
+      { role: "user", text: pendingInitialTurn.userText },
+      ...(pendingInitialTurn.disclosureNote
+        ? [{ role: "assistant" as const, text: pendingInitialTurn.disclosureNote }]
+        : []),
+      {
+        role: "assistant" as const,
+        text: pendingInitialTurn.assistantText ?? "Something went wrong — try again.",
+        cards: pendingInitialTurn.cards ?? null,
+        plan: pendingInitialTurn.plan ?? null,
+      },
+    ]);
+    if (pendingInitialTurn.conversationId) {
+      setConversationId(pendingInitialTurn.conversationId);
+      try { localStorage.setItem(cidKey, pendingInitialTurn.conversationId); } catch { /* private mode */ }
+    }
+    // Consumed once — clear it so a LATER, unrelated video (or a genuine
+    // resume of this same conversation on a future visit) never replays it.
+    setPendingInitialTurn?.(null);
+    setChecking(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingInitialTurn, activeVideoId, docked, initialMessage, cidKey]);
+
+  // Retry after a failed reopen (see conversationLoadFailed's doc comment) —
+  // a plain re-run of the same GET, not a full remount, so it can't
+  // re-trigger the seed-turn path or send anything.
+  async function retryLoadConversation() {
+    if (!activeVideoId) return;
+    setConversationLoadFailed(false);
+    setChecking(true);
+    try {
+      const data = await getChatConversation(activeVideoId);
+      if (data.conversation_id) setConversationId(data.conversation_id);
+      if (data.messages?.length) {
+        setMessages(data.messages.map((m) => ({ role: m.role, text: m.text, cards: m.cards, plan: m.plan })));
+      }
+    } catch {
+      setConversationLoadFailed(true);
+    } finally {
+      setChecking(false);
+    }
+  }
 
   function submitInput() {
     const text = input.trim();
@@ -1063,7 +1281,23 @@ export function ChatCore({
         <div className="flex justify-end -mb-1">
           <ChatHistoryMenu onPick={loadConversation} onNew={newChat} disabled={sending} scopeVideoId={activeVideoId} />
         </div>
-        {!started && activeVideoId && (
+        {!started && activeVideoId && conversationLoadFailed && (
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl px-3.5 py-3 text-sm"
+            style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "var(--text-secondary)" }}
+          >
+            <span>Couldn&apos;t load this conversation — nothing shown here is confirmed empty, we just failed to fetch it.</span>
+            <button
+              type="button"
+              onClick={retryLoadConversation}
+              className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all hover:brightness-110"
+              style={{ background: "var(--red)", color: "#0A0A0B" }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!started && activeVideoId && !conversationLoadFailed && (
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
         )}
         <MessageThread messages={messages} />

@@ -351,6 +351,43 @@ export function ChatPipelineMap({
     );
   }
 
+  // Honest "not started" state — a second bug found live 2026-07-28 on the
+  // SAME video the card-render bug above was reported on
+  // (d1a3feae-3e87-454b-b725-b3611bd52ea6): status still "idea_logged", $0
+  // spent, zero rows in `stage_transitions` and `background_tasks`
+  // (confirmed read-only via `se db` against the real row) — nothing has
+  // ever run. This card still rendered "Standard production" with a green
+  // "Live" badge and Research highlighted turquoise as the active step,
+  // which reads as "your video is being made right now." It never was:
+  // `visualStateFor` below marks `next_step.stage` "active" purely as "here
+  // is what would run next," a design meant for an APPROVED, in-progress
+  // pipeline — it was never taught that a video can also just be sitting
+  // unapproved, and nothing here said so. `Live` only ever meant "the SSE
+  // connection succeeded," never "work is happening"; the two looked
+  // identical. Gated on `taskRunning` too (not status alone) so a video
+  // that genuinely IS working despite still reading "idea_logged" — e.g. a
+  // YouTube-modeled video, which parks there until its style copy lands but
+  // has a real background task running the whole time (routes/videos.py
+  // `_run_modeling`) — never gets mistaken for idle.
+  const notYetApproved = (!video.status || video.status === "idea_logged") && !taskRunning;
+  if (notYetApproved) {
+    return (
+      <section
+        aria-label="Video production progress"
+        className="rounded-xl p-3 space-y-1"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+      >
+        <p className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+          Waiting on you
+        </p>
+        <p className="text-[10px] leading-relaxed" style={{ color: "var(--text-tertiary)" }}>
+          Nothing has started yet and nothing has been spent — approve the build above (or tell me
+          to change something first) to begin.
+        </p>
+      </section>
+    );
+  }
+
   const profile = video.production_style_snapshot;
   const customFilmSections = customFilmSectionViews(video.custom_film_plan);
   const isCustomFilm = Boolean(video.custom_film_plan);
