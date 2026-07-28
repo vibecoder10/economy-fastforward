@@ -55,7 +55,16 @@ def test_legacy_pipeline_copy_and_path_remain_intact():
     outside the four channel cards, e.g. DirectorHome's single-prompt entry
     box). The classification (no snapshot => no locked production profile)
     was correct; only the wording was wrong, so only the wording changed —
-    the fallback branch and its structural anchors below are unchanged."""
+    the fallback branch and its structural anchors below are unchanged.
+
+    Re-pinned again 2026-07-27 (fix/director-truth-bugs, commit 1ae14a9f):
+    the plan-filtered list moved from `const visible = PIPELINE_STEPS.filter`
+    straight to `legacyVisible`, a fallback ONLY used before the production
+    guide has loaded — once `guide` is present every step renders (format-
+    excluded ones show "skipped", not hidden). This is an intentional
+    structural change (the stepper now reads real per-stage state instead of
+    guessing from status order), not a regression — re-pin to the new
+    anchors instead of the stale ones."""
     source = MAP.read_text()
     assert 'profile?.label || "Standard production"' in source
     assert (
@@ -64,7 +73,8 @@ def test_legacy_pipeline_copy_and_path_remain_intact():
     )
     assert "Legacy video workflow" not in source
     assert "older video" not in source
-    assert "const visible = PIPELINE_STEPS.filter" in source
+    assert "legacyVisible = PIPELINE_STEPS.filter" in source
+    assert "const visible = guide ? PIPELINE_STEPS : legacyVisible" in source
     assert "{isCustomFilm && (" in source
 
 

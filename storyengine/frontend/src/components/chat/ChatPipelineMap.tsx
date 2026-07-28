@@ -290,8 +290,8 @@ export function ChatPipelineMap({
     ? PIPELINE_STEPS.find((step) => step.key === activeKey)?.label ?? null
     : null;
 
-  // needs_review is a FIFTH state, layered on top of the four the guide can
-  // report — production_guide.py's "script" rule only counts scenes
+  // needs_review is an additional state, layered on top of the four the
+  // guide can report — production_guide.py's "script" rule only counts scenes
   // (pipeline_executor.py:12069/12196 read `scenes > 0` => "done"), so a
   // script the quality critic rejected after its bounded edit loop
   // (backend/actions.py:1288, script_quality.run_critique_and_edit) still
