@@ -1,5 +1,5 @@
 # D3 Director Chat Surface and Spend Fixes
 
-Last done: Roughly 19 fixes merged and deployed, main at 23d0a47e pushed to origin, three deploys on 2026-07-27 and 2026-07-28, suite green at baseline (43 failed / 3476 passed / 1 error).
+Last done: Live drive of prod video 686b4651 in Ryan's Chrome (2026-07-28) confirmed two new defects and filed them: D3-45 (chat cards crushed by flex-shrink, root cause measured: cards render 50/30/30/30px vs scrollHeights 122/58/227/182) and D3-46 (right-rail media thumbnails have no click handler). D3-39/D3-40 did NOT reproduce on this video - still open, seen on 67a87d3c. Ryan gave the timeline-unpacking vision, filed as D3-47.
 
-Next chunk: D3-39 and D3-40 are live bugs on prod and should go first; D3-41 is the "drop in your own scenes or characters" feature Ryan asked for; D3-42 and D3-43 are verification gaps; D3-35, D3-36 and D3-37 need Ryan's decisions.
+Next chunk: D3-45 and D3-46 dispatched in parallel (own worktrees, dev ports 3000/3001), D3-47 recon dispatched read-only. After those land: D3-39/D3-40 on video 67a87d3c, then D3-32..34.
