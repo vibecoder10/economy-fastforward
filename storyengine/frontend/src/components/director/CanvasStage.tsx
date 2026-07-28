@@ -60,11 +60,21 @@ function TimelineAltitudePlaceholder() {
     <div className="h-full overflow-y-auto p-[22px]">
       <div className="overflow-hidden rounded-card border border-line-soft bg-surface">
         <div className="flex items-center gap-2.5 border-b border-line-soft px-3.5 py-2.5">
-          <span className="font-mono text-xs text-dim">00:41 / 02:18</span>
-          <span className="ml-2 flex h-7 items-center rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim">
+          <span className="flex-none whitespace-nowrap font-mono text-xs text-dim">00:41 / 02:18</span>
+          {/* Fixed `h-7` + `items-center` centers this pill's content vertically
+              around a 28px box — fine while the text stays on one line, but at
+              narrow canvas widths the flex row above used to squeeze this
+              pill's width until its text wrapped, and since the box's height
+              never grew, the wrapped lines spilled out above/below it and
+              visually collided with the timecode (left) and Split/Fit
+              (right). `min-w-0` lets the pill actually shrink instead of
+              forcing the row to overflow, and `truncate` (nowrap + hidden +
+              ellipsis) keeps the label to one line no matter how little room
+              is left — it shortens, it never overlaps another control. */}
+          <span className="ml-2 flex h-7 min-w-0 shrink items-center truncate rounded-full border border-line-soft bg-deep px-2.5 text-xs text-dim">
             New — doesn&apos;t exist in the product yet
           </span>
-          <div className="ml-auto flex gap-1.5">
+          <div className="ml-auto flex flex-none gap-1.5">
             <button type="button" disabled className="h-8 rounded-[9px] border border-line-soft bg-raise px-3.5 text-[13px] font-medium text-ink opacity-50">
               Split
             </button>
