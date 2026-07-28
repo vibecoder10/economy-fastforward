@@ -49,18 +49,25 @@ function humanize(id: string | null | undefined): string | null {
 }
 
 // `built: false` marks a tab whose CanvasStage.tsx view is still a
-// placeholder (ShotAltitudePlaceholder / TimelineAltitudePlaceholder — both
-// admit as much in their own body text). Honesty pass (2026-07-27): those
-// tabs used to look exactly as clickable as Scene, so a user had no way to
-// know before tapping one that it dead-ends in "not designed yet" copy.
-// Genuinely `disabled` (not just muted color) plus the same faint-text +
-// "coming soon" tag already used for Preview/Export below and DirectorHome's
-// ComingSoonButton — one honesty recipe, reused everywhere it applies,
-// instead of a one-off for this control.
+// placeholder (ShotAltitudePlaceholder — still admits as much in its own
+// body text). Honesty pass (2026-07-27): those tabs used to look exactly as
+// clickable as Scene, so a user had no way to know before tapping one that
+// it dead-ends in "not designed yet" copy. Genuinely `disabled` (not just
+// muted color) plus the same faint-text + "coming soon" tag already used for
+// Preview/Export below and DirectorHome's ComingSoonButton — one honesty
+// recipe, reused everywhere it applies, instead of a one-off for this
+// control.
+//
+// Timeline flipped to `built: true` in chunk T2 (2026-07-28): the old
+// TimelineAltitudePlaceholder static mock (and its own "New — doesn't exist
+// in the product yet" pill) is gone from CanvasStage.tsx, replaced by a
+// real, read-only TimelineAltitudeView reading the same
+// video-script/video-assets data Scene already uses. See
+// TIMELINE-WORKBENCH-PLAN.md.
 const ALTITUDES: { id: Altitude; label: string; built: boolean }[] = [
   { id: "shot", label: "Shot", built: false },
   { id: "scene", label: "Scene", built: true },
-  { id: "timeline", label: "Timeline", built: false },
+  { id: "timeline", label: "Timeline", built: true },
 ];
 
 export function CanvasHeader({ videoId }: { videoId: string }) {
