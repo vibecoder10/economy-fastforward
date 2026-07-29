@@ -31,13 +31,30 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
 - Aircraft/bomber roster behaviour is a regression surface, not a target.
 
 ## Chunks
-- [ ] C1+C2 (S) [B][V] Backend fetch path: move dispatch_roster_prefetch above
-      the gate early-return; pass real aliases into _gather_reference_candidates
-      from _prefetch_one_machine. Files: backend/pipeline_executor.py,
-      backend/static_docu.py, backend/tests/**. IN FLIGHT.
-- [ ] C6 (S) [U][V] Roster panel live progress + auto-refresh during a sweep.
-      Files: frontend/src/components/production/RosterStagePanel.tsx,
-      possibly backend/routes/pipeline.py. IN FLIGHT.
+- [x] C1+C2 (S) [B][V] Backend fetch path. DONE 2026-07-29, commit c7116ef0.
+      dispatch_roster_prefetch moved above the roster-gate early return, firing
+      right after the research_payload save succeeds. Aliases now plumbed:
+      new _unit_roster_aliases(item) and _machine_documentary_hold_roster_entries(video)
+      in pipeline_executor.py; _prefetch_one_machine gained an aliases param
+      passed to both _gather_reference_candidates and _vision_confirms.
+      Display names unchanged (cache keys safe). Stash-proof: 8 new tests fail
+      without the change, pass with it. Suite 43 failed / 1 error = baseline.
+- [x] C6 (S) [U][V] Roster panel live progress. DONE 2026-07-29, commit f615772a.
+      Side-car coroutine in routes/pipeline.py polls static_reference_cache every
+      5s and republishes "N/M verified so far" onto the SAME task-status slot the
+      frontend already polls every 3s — no new channel, prefetch_roster_references
+      itself unmodified. Panel shows a climbing count with spinner, invalidates the
+      roster-dashboard query each tick so the grid self-refreshes, and swaps each
+      missing card's red badge + URL form for a turquoise "checking..." badge with
+      the manual paste demoted to a secondary link. Settles automatically on
+      completion. tsc + npm run build clean.
+      CAVEAT: running state was SIMULATED via a browser fetch mock, not a real
+      10-minute sweep. No clean per-card grid screenshot (browser tooling stalled);
+      an accessibility-tree dump was substituted. Real visual walk logged in
+      deferred-verification.md.
+      NOTE: this worker confirmed the video's real tenant is 561b872d, NOT ee93e6d1
+      (ee93e6d1 is the owner account acting on it, which is what appears in request
+      logs). Earlier chunk briefs in this loop carried the wrong tenant id.
 - [ ] SWEEP (S) [V] Read-only audit: every consumer of roster `designation`,
       the research prompt text that defines it, _roster_validation hard-vs-soft
       conditions, and any existing never-built/no-photo state. IN FLIGHT.
@@ -47,24 +64,30 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
       _designation_token / _machine_key / _roster_validation /
       _machine_documentary_hold_roster for BOTH a real 23-entry British-carrier
       roster and an aircraft control roster. No source files edited.
-- [ ] C3 (S) [B][V] NARROWED 2026-07-29 to ADDITIVE ONLY. Add an optional
-      `member_units` field to the roster research schema
-      (skills/video-pipeline/research/agent.py, ROSTER_DISCOVERY_PROMPT_TEMPLATE
-      ~line 810 and COMPLETE_ROSTER_SYSTEM_APPEND ~line 620). `designation`
-      keeps its current meaning. Alias derivation prefers `member_units` when
-      present. Prompt + repair warning + gate in one commit.
-      BLOCKED ON: C1+C2 landing.
-- [ ] C4 (S) [B][V] INTRODUCE severity tiers in _roster_validation
-      (pipeline_executor.py ~5973-6245). Today `passed = len(warnings) == 0`
-      with no weighting — there is nothing to "split", the distinction must be
-      added. HARD: missing/short unit_roster, recommended_final_roster length
-      mismatch, candidate in both roster and excluded_candidates, missing
-      roster_audit, <6 search queries, <3 source families, confidence not
-      high/medium, script paragraph/roster count mismatch, script omissions or
-      additions. SOFT (mark needs-review, do not block): all pacing/count
-      warnings including the "larger than the runtime target plus reserve"
-      condition at ~6080-6092 that stalled video d2e37cd6.
-      BLOCKED ON: C1+C2 landing.
+- [x] C3+C4 (S) [B][V] Research contract + gate severity. DONE 2026-07-29, commit 4dbd9049.
+      C3: optional `member_units` field added to ROSTER_DISCOVERY_PROMPT_TEMPLATE in
+      skills/video-pipeline/research/agent.py; `designation` instruction tightened to
+      "short and directly searchable, never a list of member units".
+      _unit_roster_aliases now prefers member_units (list or comma string), with the
+      existing comma/slash-split fallback unchanged beneath it. A soft repair warning
+      fires when designation holds a comma-separated member list — prompt + repair
+      warning + gate in one commit, per the contract-triangle law.
+      C4: _roster_validation gained a `_warn(message, *, hard=)` helper tagging every
+      call site. `passed` is now `len(hard_warnings) == 0` (was `len(warnings) == 0`).
+      Returns new keys hard_warnings / soft_warnings / needs_review; the original
+      `warnings` list is preserved byte-identical in order so every existing consumer
+      (research_ingest.py, routes/videos.py, frontend) keeps working untouched.
+      PROOF: the real 23-ship 20-minute roster now returns passed=true,
+      needs_review=true, hard_warnings=[], and gates to next_status="ready_for_scripting".
+      Stash-proof: 8 tests fail without, 23 pass with. Suite 43 failed / 3609 passed /
+      1 error — diff vs reference is exactly the +8 new tests, same failure ids.
+      Backward compat proven byte-identical for rosters lacking member_units.
+      SIDE EFFECT, deliberate, flagged to Ryan 2026-07-29: the subvariant-padding
+      check was classified SOFT. It is inert for ships but DOES fire for aircraft, so
+      bomber rosters padded with near-duplicate subvariants (B-29 + B-29B) now advance
+      flagged instead of blocking. Ryan may want this reverted to hard — one-line change.
+      NOT VERIFIED: never exercised end-to-end through the live API or the MCP
+      research / submit_research paths. Unit/function level only.
 - [ ] C5 (S) [B][U][V] Never-built / no-photo-can-exist state. Roster item
       `status` is free text today and never parsed by any code branch. Lean on
       the existing `blocked_no_reference` fail-closed path in static_docu.py
@@ -98,6 +121,49 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
       ship `designation` values are sometimes full member-ship lists, making a
       shared 80-char-prefix collision plausible in a future roster. Not observed
       in the current roster. Monitor. LOW PRIORITY.
+- [ ] C12 (S) [B][V] HIGH PRIORITY. The roster prefetch is fire-and-forget with
+      NO durability. dispatch_roster_prefetch (static_docu.py ~2123-2150) calls
+      a bare asyncio.create_task. It writes no background_tasks row, so the
+      repo's own reapers — recover_stale_tasks and reap_stale_running_tasks
+      (routes/pipeline.py ~327-370) — cannot see it, retry it, or know it
+      existed. main.py's periodic loops reference nothing roster-related.
+      A restart or redeploy mid-sweep silently drops the fetch with zero record.
+      A 23-machine sweep takes ~10 minutes; deploys are more frequent than that.
+      This reproduces the 2026-07-27 failure mode (roster saved, photos never
+      arrive, human must notice) via a deploy race instead of gate ordering.
+      The C1+C2 fix moved the dispatch earlier; it did NOT make it durable.
+      Fix direction: register the sweep in background_tasks so the existing
+      reaper picks it up, or move it onto arq. Affects BOTH seams (run_research
+      and accept_submitted_research), not just one.
+      BLOCKED ON: C9 (holds static_docu.py) and C6 (holds routes/pipeline.py).
+- [ ] C13 DECISION FOR RYAN — parked, does not block the loop.
+      research_ingest.accept_submitted_research reuses _roster_validation
+      verbatim, so the roster gate is identical to the paid verb. But it never
+      runs _run_unit_research_hold and never computes passed_unit_research_hold
+      — it sets next_status = "ready_for_scripting" the instant the roster gate
+      passes. Documented as intentional in the module docstring (~L32-42): a
+      submitted payload is trusted like a creator's own verbatim script.
+      Consequence: a roster submitted via the MCP submit_research path advances
+      to scripting under conditions the paid `research` verb would hold back.
+      The StoryEngine MCP docs call submit_research "THE STANDARD WAY" to get
+      research onto a video, so this is the path most used in practice — the
+      quality gate is weakest where traffic is heaviest. Question for Ryan:
+      keep the trust boundary as designed, or run the unit-research hold on
+      submitted payloads too?
+- [ ] C14 (S) [B] LATENT, low priority. routes/model_video.py `_persist_pack`
+      (~650-681, the clone-video / modeled-idea flow) is a third writer of
+      videos.research_payload and never calls dispatch_roster_prefetch. Inert
+      today: its payload carries "type": "modeled_idea" and never sets the
+      documentary_style / pipeline_style / machine_discovery_buckets /
+      unit_research_hold_validation markers that _static_docu_locked_unit_roster
+      (pipeline_executor.py ~5896-5917) requires, so the roster accessor returns
+      [] for it. Becomes a real hole the moment a cloned video can carry
+      render_mode='static_docu' plus a machine-documentary marker. Add a guard
+      or an explicit comment so this is not rediscovered the hard way.
+- [ ] C15 DECISION FOR RYAN — parked, does not block. Should the subvariant-padding
+      check in _roster_validation be SOFT (current, set by C4) or HARD (previous
+      behaviour)? Soft means a padded aircraft roster advances with a needs-review
+      mark; hard means it blocks as before. Inert for ships either way.
 
 ## Known debt (deliberately not in this loop)
 - The aircraft designation regex is reimplemented in SIX independent places:
@@ -934,3 +1000,4 @@ Notes / lessons: (append as we learn)
 - [ ] L14 LAW ADDED 2026-07-29 (Ryan: "nothing about the character spacing between the two main characters changed from my comments"): the L13 seating fix DID land in the wides (panels 1 and 5 show the pair adjacent, nobody between) but never reached the viewer, because no shot in the sheet PROVES the adjacency - the group wide is too wide to read and OTS pairs compress space by design. Real gap = the missing TWO-SHOT rung of standard coverage (master -> two-shot of the pair -> singles). Fix in scene 2 v3: new SETUP H, and panel 5 converted from a redundant group wide into an MS two-shot holding both speakers at the same size, side by side, mid-laugh - it sits between the two OTS panels where the confusion happened. Law: a spatial relationship the audience never sees stated does not exist, however correct the data is.
 - [ ] L15 LAW ADDED 2026-07-29 (scene 2 v3 round, Ryan: "shot five now is weird because they are no longer sitting together, they somehow turned around in the scene... shot eight and shot five are now in confliction"): the L14 two-shot fix WORKED as coverage (Ryan passed v2's sheet retroactively once he saw the pair together) but v3's panel 5 specified ATTENTION ("turned three-quarter toward him", "tips his head toward her") without locking ORIENTATION, so the model rotated both bodies AND both armchairs into a face-to-face dinner configuration - contradicting panels 1/8/9 where the whole row faces the screen. LAW L15: a partial turn must name its anchor (chairs, hips, knees unchanged and still pointed where the wide established them; only head/shoulders/gaze move) and must state the prohibition (never re-orient the chairs, never seat the pair face-to-face). v4 fixes SETUP H with an explicit ORIENTATION LOCK plus a constraints-line addition covering every HALL panel. Pattern worth remembering: a fix can create the next defect - each round converged (7/9 -> 8/9 -> 9/9 on scene 1; scene 2 at 8/9 with only panel 5 outstanding).
 - [ ] L16 + L17 ADDED 2026-07-29 (scene 2 v4 round: Ryan passed 1/2/4/6/7/9, flagged 3 as passable-but-weird, failed 5 and 8). L15's orientation lock WORKED - the pair stayed in the row - but v4 introduced a NEW defect from an IMPOSSIBLE instruction I wrote: SETUP H places the camera forward of the row shooting back, AND asked for "the screen's glow visible past the OLD MAN" - if the lens is between the row and the screen then the screen is BEHIND CAMERA, so the model resolved the contradiction by turning the room around and putting the pod-wall behind the cast. LAW L16: a reverse angle changes the background - state what sits behind the subject per camera position, and a source the camera stands in front of appears as LIGHT ON THE FACE, never as an object behind them. LAW L17: lock the headcount as a NUMBER in every panel where the group appears (panel 8 rendered four silhouettes for five elites; counts drift when implied by a list rather than stated as a quantity). Also refined L12 with a DEPTH clause: state occupants-per-container and that anything behind the readable front layer falls into shadow (panel 3 stacked bodies through the transparent pods until each looked like it held two people). v5 saved at tasks/evidence/d3-64-fixes/scene2_board_prompt_v5.txt.
+- [ ] SCENE 3 BOARD v1 written 2026-07-29 (tasks/evidence/d3-64-fixes/scene3_board_prompt_v1.txt) - the pivot scene and the hardest law test yet: a hidden lens whose DISCOVERY is the beat (so it must be planted without emphasis) and "she looks straight into it", which makes the camera the object she looks at. Two NEW laws written while designing it, both marked UNTESTED in BOARD-LAWS.md until the free round judges them: L18 THE UNREMARKED PLANT (exception to L7 - object genuinely present and visible in earlier panels, small and ordinary among its neighbours, with every form of emphasis explicitly forbidden: no lighting, glow, indicator, centring or enlarging; unchanged in size/position from the notice panel onward) and L19 DIEGETIC CAMERA POV (a setup that OCCUPIES the in-story lens's position, marked NEUTRAL, eyes directly into camera with no three-quarter, plus L16 applied so the dome is NOT visible from inside itself, plus an optical signature - barrel distortion - so it reads as that device's view). Structure: discover (1-3) -> instinct to hide (4-5) -> the decision (6-7) -> the look back (8, lens POV) -> hold it (9, exterior wide). DEPENDENCY: scene 3 puts her back inside her pod while scene 1 now ends with her running the corridor - the return beat is STILL owed and awaiting Ryan's ruling.

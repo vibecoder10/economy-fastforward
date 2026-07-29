@@ -154,6 +154,30 @@ six"). Counts silently drift between panels whenever they are implied by a list
 rather than stated as a quantity — scene 2 lost an elite between the wide and the
 screen insert.
 
+**L18 — THE UNREMARKED PLANT (the exception to L7).** When the *discovery* of an
+object is the story beat, L7's establish-before-use still applies, but emphasis is
+forbidden. State that the object is genuinely present and genuinely visible in the
+earlier panels, state that it is small and ordinary among its neighbours, and then
+forbid every form of emphasis explicitly — no lighting it, no glow, no indicator,
+no centring the composition on it, no enlarging it. "Easy to miss on a first look
+and unmistakable on a second." From the notice panel onward it must not change
+size or position: the shot sizes change, the object never does. Without the ban on
+emphasis the model announces the object and kills the reveal; without the plant the
+discovery is invented.
+
+**L19 — DIEGETIC CAMERA POV.** When a character looks at a lens, mirror, or camera
+that exists inside the story, define a setup that OCCUPIES that object's position,
+mark it NEUTRAL (it legally breaks the axis), and state that the character's eyes
+go directly into the lens — "square to the lens, eyes directly into camera, no
+three-quarter." Then apply L16 to it: from that position the object's own housing
+is NOT visible, because the camera is inside it, and what surrounds the subject is
+whatever lies on the far side of them. Optionally state the optical signature of
+the diegetic device (barrel distortion for a security lens) so the shot reads as
+that device's view rather than a stylistic choice.
+
+*(L18 and L19 are derived from craft reasoning while writing scene 3 and are
+UNTESTED until that scene's free round is judged.)*
+
 ---
 
 ## Method (Ryan's rule, 2026-07-29)
