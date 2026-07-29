@@ -630,3 +630,38 @@ Rules:
 1. **A clean git merge is not proof.** Twice today two branches touched different lines of the same file, git reported "Automatic merge went well" with zero conflicts, and the combined behaviour was still wrong - once a rejected script still showed a green tick because the two changes touched different lines but contradicted in meaning. After every merge, ask what each side intended and confirm the combined result still delivers both. Compare the sorted list of FAILING TEST NAMES before and after, not just the counts.
 
 2. **When a code path is replaced, its guards do not come with it.** Confirmed twice today. A March guard stopping image spend on a voiceless video was left behind when the image system moved to a new coverage path - the old guarded code still sits there unused while every real caller goes around it. Separately, character generation exists in three independent implementations and all three were missing the same ledger write. When you find a missing guard, grep for OTHER implementations of the same feature before assuming you fixed it.
+
+## Session 2026-07-29 — Driving the in-app Browser pane against prod: the working recipe
+
+Context: verified chat-card inline scene editing live against the prod API from a
+worktree, with ports 3000/3001 both held by OTHER sessions' dev servers. All four
+of these were paid for in wasted clicks; together they make the pane fully usable:
+
+- **Scratchpad CORS proxy beats both known blockers at once.** The pane page can't
+  fetch `76.13.119.181:8001` directly (2026-07-27 lesson) and the backend's CORS
+  allowlist is 3000/3001 only. Fix: tiny python proxy on `localhost:9001` that
+  forwards to prod and answers CORS/preflight itself (auth is a Bearer header, so
+  `Access-Control-Allow-Origin: *` is safe), plus `.env.local` pointing
+  `NEXT_PUBLIC_API_URL` at it. Dev server can then run on ANY free port. Proxy
+  lives in the session scratchpad, zero tracked-file changes.
+- **`computer` click coordinates are SCREENSHOT-pixel space, not viewport space.**
+  Screenshots come back 800x450 for a 1280x720 viewport; multiply
+  `getBoundingClientRect()` centers by 0.625 before clicking. A click in the wrong
+  space hits `<html>` (instrument with a capture-phase click listener logging
+  `e.target` to see this instantly). Misleading detail: the tool ECHOES ref-based
+  click positions in viewport space, which makes the two spaces look identical.
+- **In a hidden pane, programmatic `el.focus()`/`el.blur()` fire no real focus
+  events** (document isn't focused), so React `onBlur` handlers never run and
+  `element.click()`-opened editors autofocus silently fails. Real injected clicks
+  DO move focus. Rule: enter/exit focus states with real clicks at converted
+  coordinates; keep synthetic events for dispatching keydowns (React sees those).
+- **Transient UI states (a 1.5s "Saved" flash) can't be caught across tool calls**
+  (~1-2s latency each). Install a MutationObserver logging to a `window.__x` array
+  BEFORE the real interaction, then read the array after. Caught the full
+  Saving→Saved lifecycle on the first try after three timing misses.
+- Also: a fresh worktree needs no `npm install` for frontend checks — symlink the
+  main checkout's `frontend/node_modules` (works for tsc, `npm run build`, AND the
+  dev server). And ChatCore's rAF scroll re-anchor loop will yank
+  `scrollIntoView()` away right after mount or a card expand — measure element
+  rects in the SAME eval that scrolls, immediately before clicking, once
+  animations have settled.
