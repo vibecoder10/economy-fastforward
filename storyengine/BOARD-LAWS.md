@@ -1,222 +1,255 @@
-# BOARD LAWS — the storyboard prompt contract
+# BOARD LAWS — how a story is told and visualised in storyboards
 
-Ryan's priority order: **the script is the most important step, the storyboard is
-the second.** Get those two wrong and nothing downstream can save the video. These
-laws govern what the board planner must emit.
+**These are universal laws, not notes about one video.** Every law below states a
+general rule of visual storytelling that any scene of any film must satisfy. Each
+was discovered by a specific failure, and that failure is recorded underneath in
+italics as *provenance* — evidence that the law is real, never a limit on its
+scope. If a law reads as being about a particular character, set or story, it is
+written wrong and should be rewritten.
 
-Established 2026-07-29 by hand-writing a corrected scene-1 board prompt and
-testing it free in ChatGPT, with no character sheets and no environment locks,
-across four rounds: v1 scored 7/9 panels, v2 scored 8/9, v3 scored **9/9 —
-Ryan: "this is exactly what we want. This is perfect."** Every defect found in
-those rounds is a law below. Prompt versions and the rejected production prompt
-are preserved in `tasks/evidence/d3-64-fixes/`.
+Priority order behind all of it: **the script is the most important step, the
+storyboard is the second.** Get those two wrong and nothing downstream can save
+the film.
 
-The laws are cumulative with the proven AXIS-contract system (2026-07-07), which
+## How these were established
+
+Hand-written board prompts, generated on a free tool with no character sheets and
+no environment references, judged panel by panel, rewritten, repeated. A
+four-round arc took one scene from "the board contains no exit at all" to nine of
+nine panels approved; a five-round arc covered a dialogue scene with a nested
+screen; a scene built around a hidden object and a look into the lens passed on
+its first round. Every prompt version is preserved in
+`tasks/evidence/d3-64-fixes/`. Total spend: nothing.
+
+These laws are cumulative with the AXIS-contract system proven 2026-07-07, which
 they extend rather than replace.
 
 ---
 
-## The inherited law (do not break it)
+## Index by craft area
 
-**L0 — SCREEN SPACE ONLY.** Image models measurably cannot execute world-space
-camera geometry ("three feet to her left at 45 degrees" fails ~100%). The
-planner resolves all blocking into frame coordinates; the drawer paints a
-finished frame. Every law below is expressed in screen space for this reason.
-
-**L1 — AXIS LOCK.** The camera never crosses the 180 line. Each character holds
-one frame side and one looking direction for the whole scene. Over-the-shoulder
-pairs go over *opposite* shoulders at *matched* sizes. Only an explicit NEUTRAL
-marker legally resets the axis.
-
-**L2 — ONE ACTION PER PANEL.** Never mirror or flip a panel. No readable text in
-panel artwork except the panel-number label.
+- **The camera resolves in screen space** — L0, L5, L10, L19
+- **Space and geography hold across shots** — L1, L9, L13, L14, L15, L16
+- **The set is defined before it is shot** — L3, L7, L8, L11, L20
+- **People are specified, not assumed** — L6, L12, L17
+- **Action is legal** — L4
+- **Panel discipline** — L2
+- **Laws that belong to the script** — S1, S2
 
 ---
 
-## The new laws
+## The camera
 
-**L3 — LOCATION SCOPING.** Sets are defined per location and scoped to the panels
-in that location. A scene may contain more than one location. Props from one
-location never appear in another, and this must be stated as a prohibition, not
-implied. *Never* write "identical in every shot of this scene" across locations —
-that single phrase caused corridor shots to render as a bedroom, item for item.
-
-**L4 — MOTION IS LEGAL.** The fixed-camera / planted-actor rule applies *within a
-location*, not across a scene. A character may move, cross, exit, and change
-location. Planted staging is correct for a conversation and a category error for
-action: a wake-cross-run scene needs setups that describe a move (exits
-frame-right and camera holds / runs toward the lens / travels alongside).
+**L0 — SCREEN SPACE ONLY.** Image models cannot execute world-space camera
+geometry. Resolve every spatial instruction into frame coordinates: frame-left and
+frame-right, fractions of the frame, what occupies which region. The planner
+resolves the geometry; the drawer paints an already-finished frame.
+*Provenance: research, 2026-07-07 — world-space placement instructions failed
+almost every time; screen-space placement held nine panels out of nine.*
 
 **L5 — CAMERA FACTS PER PANEL.** Every panel states four things, all
-screen-relative:
-1. which side of any barrier the lens is on (inside the glass vs shooting in
-   through it — the single biggest variable in a glass-walled set, and the one
-   most often left implied);
-2. camera height;
-3. how much of the frame the subject occupies;
-4. **face visibility as an explicit term** — to-lens / three-quarter / profile /
-   from-behind. "Body angled toward the window" is ambiguous between her face and
-   the back of her head, and that ambiguity is what produced the wrong-facing
-   shot Ryan caught by eye.
-
-**L6 — IDENTITY ONCE.** Appearance is stated once, at the top, as a short locked
-tag. Never repeat wardrobe descriptions per panel: long re-descriptions provably
-fight the cast reference images, and they consume the word budget that camera
-facts need. References own *what things look like*; prose owns *where the camera
-is and what fills the frame*.
-
-**L7 — ESTABLISH BEFORE USE.** Anything a character touches, uses, or passes
-through must be visible in that location's establishing wide *before* the panel
-that uses it, and must be authored into the location's SET definition as a
-permanent feature — not mentioned only in the panel that needs it. The hatch
-Nyla escapes through existed only in the threshold panel, so the wides drew a
-seamless sphere and she climbed out of a door that had never existed.
-
-**L8 — SCALE AND ARRIVAL SURFACE.** Establishing an element is not enough; its
-scale must establish too. Any opening or object a character passes through states
-(a) its size relative to the character ("diameter roughly three-quarters of her
-standing height — she climbs through upright with a duck of the head, never a
-porthole she would crawl through on her stomach") and (b) how it meets the
-surface she arrives on ("sill flush with the catwalk that runs directly outside,
-so it opens straight onto that walkway at foot level"). Both facts repeat in the
-establishing wides.
-
-**L9 — FRAME-SIDE CONTINUITY ON REPEATED SETUPS.** A repeated setup must name the
-same frame side or the same surface it progresses from. "Pressed to the glass"
-unqualified made a repeated wide read as the character relocating to a different
-pane instead of progressing at the same one. A repeat should feel like editing,
-never like teleporting.
+screen-relative: (1) which side of any barrier the lens is on; (2) camera height;
+(3) what fraction of the frame the subject occupies; (4) **face visibility as an
+explicit term** — to-lens, three-quarter, profile, or from-behind.
+*Provenance: a close-up whose entire purpose was an expression, written with the
+subject looking away from the lens, rendered with the face turned away. The prompt
+was obeyed; it asked for the wrong thing.*
 
 **L10 — BODY VECTOR TO VISIBLE AXIS.** A motion panel ties the subject's travel
-direction to a visible line *in the same panel*: state that the vanishing line is
-visible past a named shoulder, that the set's lines converge on it, and that her
-travel runs along it — "her direction of travel and the corridor's vanishing line
-must read as the same axis." Specifying drive direction and vanishing point
-separately lets the two float free of each other.
+direction to a visible line inside the same panel: state that the vanishing line
+is visible past a named shoulder, that the set's lines converge on it, and that
+the subject travels along it.
+*Provenance: a run specified with a drive direction and a vanishing point in
+separate clauses; the two rendered as unrelated, so the subject's turn floated free
+of the corridor she was running down.*
 
-**L11 — NESTED FRAMES.** A screen, monitor, window, or mirror inside the set is a
-second frame. Specify its content in every panel where it is visible, or the
-content drifts panel to panel. (Added for scene 2, whose building-sized screen
-shows the warren below.)
-
-**L12 — SPECIFY THE POPULATION.** Background people are part of the set. State
-what the crowd, the sleepers, the extras look like, so the hero's contrast is
-authored rather than accidental. In scene 2's screen feed the other pod occupants
-were unspecified; the model invented pale sleepwear, which made Nyla pop — by
-luck. Luck does not repeat across six scenes. Where a hero must stand out, say
-what everyone else looks like and say what makes the hero different (the only
-dark figure, the only one standing, the only one awake). Also state what the
-population does IN DEPTH: how many occupants per container, and that anything
-behind the readable front layer falls into shadow — scene 2 rendered bodies
-stacked through the transparent pods until each pod looked like it held two
-people.
-
-**L13 — COVERAGE AGREES WITH THE WIDE.** Two-character coverage must be
-consistent with the seating and spacing the establishing wide establishes. An
-over-the-shoulder pair implies the two are adjacent; if the wide then reveals
-people sitting between them, the audience feels the contradiction even when it
-cannot name it. Either seat them adjacent in the wide, or state the compression
-in the setup ("long lens across the row, the intervening figures soft and out of
-focus in the foreground"). Ryan caught this in scene 2 panels 4 and 6 against
-panel 5.
-
-**L14 — GIVE THE PAIR A TWO-SHOT.** A spatial relationship the audience never
-sees stated does not exist, however correct the data is. Before covering a
-dialogue pair in singles or over-the-shoulders, include one medium two-shot that
-holds BOTH characters in the same frame at the same size, so their adjacency and
-spacing are unmistakable. Coverage runs master, then two-shot of the pair, then
-singles — skipping the middle rung is why scene 2's corrected seating was
-invisible to Ryan even though the wides were fixed: the wide was too wide to read
-and the over-the-shoulders compress space by design. Prefer converting a
-redundant wide into the two-shot rather than adding a panel.
-
-**L15 — SEPARATE ATTENTION FROM ORIENTATION.** When a character shifts attention
-to another character, state what stays FIXED and what MOVES: the chair, hips and
-knees stay pointed where the wide established them; only head, shoulders and gaze
-turn. Say it as a prohibition too. Scene 2 v3 asked for one speaker "turned
-three-quarter toward him" and the model rotated both bodies and both armchairs
-into a face-to-face dinner-table configuration — breaking the hall's geography,
-since every other panel has the row facing the screen. A partial turn that does
-not name its anchor becomes a full re-staging.
-
-**L16 — A REVERSE ANGLE CHANGES THE BACKGROUND.** State what sits behind the
-subject for each camera position, and never carry one background across opposing
-angles. If the camera stands between the subject and a light source or screen,
-that source is BEHIND CAMERA: it appears as light on the subject's face, never as
-an object behind them. Scene 2 v4 asked for a camera forward of the row *and* for
-the screen to be visible past the far speaker — a geometric impossibility, which
-the model resolved by turning the whole room around. When a setup reverses, say
-explicitly what is now visible behind the subject and what is now off-frame.
-
-**L17 — LOCK THE HEADCOUNT.** State the number of people in every panel where a
-group appears, as a number, and forbid drift ("exactly five, never four and never
-six"). Counts silently drift between panels whenever they are implied by a list
-rather than stated as a quantity — scene 2 lost an elite between the wide and the
-screen insert.
-
-**L18 — THE UNREMARKED PLANT (the exception to L7).** When the *discovery* of an
-object is the story beat, L7's establish-before-use still applies, but emphasis is
-forbidden. State that the object is genuinely present and genuinely visible in the
-earlier panels, state that it is small and ordinary among its neighbours, and then
-forbid every form of emphasis explicitly — no lighting it, no glow, no indicator,
-no centring the composition on it, no enlarging it. "Easy to miss on a first look
-and unmistakable on a second." From the notice panel onward it must not change
-size or position: the shot sizes change, the object never does. Without the ban on
-emphasis the model announces the object and kills the reveal; without the plant the
-discovery is invented.
-
-**L19 — DIEGETIC CAMERA POV.** When a character looks at a lens, mirror, or camera
-that exists inside the story, define a setup that OCCUPIES that object's position,
-mark it NEUTRAL (it legally breaks the axis), and state that the character's eyes
-go directly into the lens — "square to the lens, eyes directly into camera, no
-three-quarter." Then apply L16 to it: from that position the object's own housing
-is NOT visible, because the camera is inside it, and what surrounds the subject is
-whatever lies on the far side of them. Optionally state the optical signature of
-the diegetic device (barrel distortion for a security lens) so the shot reads as
-that device's view rather than a stylistic choice.
-
-**L20 — DEFINE THE SET'S MATERIAL MAP ONCE.** State which surfaces of a set are
-solid and which are transparent, and where the boundary between them runs — once,
-for the whole film. Ambiguity here lets every scene invent its own version of the
-set. Writing scene 3 I called Nyla's pod ceiling an opaque "curved white shell"
-(to give a dark lens bead contrast); correcting myself I then called the whole
-sphere clear glass. Ryan corrected the correction: the pod was never either — its
-FRONT is clear glass she presses her palm against, its REAR AND UPPER-REAR is a
-solid matte white shell holding the bed alcove, desk recess and plant niche, and
-the two meet at pale structural ribs. Both of my versions were half-right because
-the material map had never been written down. Once it is, a scene needing a
-property (contrast, a mounting point) finds it inside the established set instead
-of redefining the set.
-
-*(L18 and L19 are derived from craft reasoning while writing scene 3; Ryan passed
-that sheet on the first round, which is supporting evidence, not proof.)*
+**L19 — DIEGETIC CAMERA POV.** When a character looks into a lens, mirror, screen
+or camera that exists inside the story, define a setup that occupies that object's
+position, mark it NEUTRAL (it legally breaks the axis), and state that the eyes go
+directly into camera with no three-quarter. Apply L16 to it: the object's own
+housing is not visible from inside itself. Give the shot the device's optical
+signature so it reads as that device's view rather than a stylistic flourish.
 
 ---
 
-## Method (Ryan's rule, 2026-07-29)
+## Space and geography
 
-Tune prompts with **free tools** — hand-write the prompt, generate it in ChatGPT,
-judge it panel by panel, fix the words, repeat — and only then spend on the real
-pipeline. Four free rounds took scene 1 from "no exit exists" to 9/9. Move to
-harder scenes deliberately to dial in more laws: dialogue axis, nested screens,
-crowds, multi-location action.
+**L1 — AXIS LOCK.** The camera never crosses the 180 line. Each character holds one
+frame side and one looking direction for the whole scene. Over-the-shoulder pairs
+go over opposite shoulders at matched sizes. Only an explicit NEUTRAL marker resets
+the axis.
 
-Every defect found this way is a *law*, not a fix for one scene.
+**L9 — FRAME-SIDE CONTINUITY ON REPEATED SETUPS.** A repeated setup must name the
+same frame side, or the same surface, that it progresses from. A repeat should read
+as editing; unqualified, it reads as teleporting.
+*Provenance: a repeated wide asked only for a subject "pressed to the glass," and
+she appeared at a different pane than the shot it was progressing from.*
 
-**Keep the best-known-good, and be willing to regress to it.** Ryan's rule during
-the scene-2 rounds: "if this gets any worse, we need to regress back to the one
-that I said I didn't see the two people together — I would actually call that
-good." Every version is saved and committed so a revert is one command, never a
-rewrite. Iteration is only progress while each round is better than the last
-KNOWN-GOOD version, not merely better than the previous attempt — two of scene
-2's later defects were introduced by fixes, so forward motion is not automatically
-improvement. When a round regresses, revert and re-approach; do not iterate
-forward from a worse state.
+**L13 — COVERAGE AGREES WITH THE WIDE.** Two-character coverage must be consistent
+with the spacing the establishing wide establishes. An over-the-shoulder pair
+implies adjacency; if the wide then shows people between them, the audience feels
+the contradiction even when it cannot name it. Either place them adjacent, or state
+the compression in the setup.
+
+**L14 — GIVE THE PAIR A TWO-SHOT.** A spatial relationship the audience never sees
+stated does not exist, however correct the underlying data is. Before covering a
+pair in singles or over-the-shoulders, include one medium two-shot holding both in
+the same frame at the same size. Coverage runs master, then two-shot of the pair,
+then singles; skipping the middle rung leaves the geography unread.
+*Provenance: a seating correction genuinely present in the wides and invisible to
+the viewer, because the wide was too wide to read and over-the-shoulders compress
+space by design.*
+
+**L15 — SEPARATE ATTENTION FROM ORIENTATION.** When a character shifts attention to
+another, state what stays FIXED — chair, hips, feet, the direction the wide
+established — and what MOVES — head, shoulders, gaze. State the prohibition too. A
+partial turn that does not name its anchor becomes a full re-staging.
+*Provenance: "turned three-quarter toward him" rotated both bodies and both chairs
+into a face-to-face configuration, breaking a room where everyone faced one way.*
+
+**L16 — A REVERSE ANGLE CHANGES THE BACKGROUND.** State what sits behind the subject
+for each camera position, and never carry one background across opposing angles. If
+the camera stands between the subject and a light source or screen, that source is
+behind camera: it appears as light on the face, never as an object behind them.
+*Provenance: a setup that placed the camera in front of a row and also asked for the
+screen visible behind them — a geometric impossibility, which the model resolved by
+turning the entire room around.*
+
+---
+
+## The set
+
+**L3 — LOCATION SCOPING.** Define a set per location, scope it to the panels in that
+location, and forbid cross-contamination explicitly rather than by implication. Never
+declare one location's dressing as applying to every panel of a scene.
+*Provenance: a scene whose corridor shots rendered as a bedroom, reproducing the
+furniture list item for item, because the lock read "identical in every shot of this
+scene."*
+
+**L7 — ESTABLISH BEFORE USE.** Anything a character touches, uses or passes through
+must be visible in that location's establishing wide before the panel that uses it,
+and must be authored into the set definition as a permanent feature — not mentioned
+only in the panel that needs it.
+*Provenance: an exit that existed only in the panel where it opened; the establishing
+wides drew an unbroken wall, so the character climbed out through a door that had
+never been there.*
+
+**L8 — SCALE AND ARRIVAL SURFACE.** Establishing an element is not enough; its scale
+must establish too. State its size relative to the character, and how it meets the
+surface the character arrives on. Repeat both facts in the establishing wides.
+*Provenance: an opening given a position but no scale, drawn small enough to crawl
+through, contradicting the shot where the character walked out of it upright.*
+
+**L11 — NESTED FRAMES.** A screen, monitor, window or mirror inside the set is a
+second frame. Specify its content in every panel where it is visible, or the content
+drifts from panel to panel.
+
+**L20 — DEFINE THE SET'S MATERIAL MAP ONCE.** State which surfaces of a set are solid
+and which are transparent, and where the boundary between them runs — once, for the
+whole film. Ambiguity lets every scene invent its own version of the set. When a
+scene needs a property the set lacks (contrast, a mounting point, a surface), find it
+inside the established set rather than redefining the set.
+*Provenance: a part-glass, part-solid interior that one scene wrote as fully opaque to
+get contrast for a small dark object, and the correction then wrote as fully
+transparent. Both were half-right, because the material map had never been written
+down.*
+
+---
+
+## People
+
+**L6 — IDENTITY ONCE.** State appearance once, at the top, as a short locked tag.
+Never repeat wardrobe descriptions per panel: long re-descriptions fight the reference
+images and consume the word budget camera facts need. References own what things look
+like; prose owns where the camera is and what fills the frame.
+
+**L12 — SPECIFY THE POPULATION.** Background people are part of the set. State what
+the crowd, the sleepers, the extras look like, so the hero's contrast is authored
+rather than accidental. State the population in depth too: how many occupants per
+container, and that anything behind the readable front layer falls into shadow.
+*Provenance: unspecified background figures rendered pale, which made the hero stand
+out by luck; and transparent containers rendering bodies stacked through one another
+until each looked like it held two people.*
+
+**L17 — LOCK THE HEADCOUNT.** State the number of people in every panel where a group
+appears, as a number, and forbid drift. Counts silently drift whenever they are
+implied by a list rather than stated as a quantity.
+
+---
+
+## Action
+
+**L4 — MOTION IS LEGAL.** The fixed-camera, planted-actor convention applies within a
+location, not across a scene. Characters may move, cross, exit and change location.
+Planted staging is correct for a conversation and a category error for action: action
+needs setups that describe a move — exits frame-right and camera holds, runs toward
+the lens, travels alongside.
+*Provenance: a static-tableau board architecture, validated on a seated conversation,
+applied to a scene where a character wakes, crosses a room and runs down a corridor.
+It could not express a character leaving a room, so the exit silently vanished from
+the board.*
+
+---
+
+## Panel discipline
+
+**L2 — ONE ACTION PER PANEL.** One action. Never mirror or flip a panel. No readable
+text in panel artwork except the panel-number label.
+
+---
+
+## Laws that belong to the script
+
+Discovered while boarding, but the board cannot fix them — they must be fixed in the
+script, where fixing costs nothing.
+
+**S1 — NARRATE EVERY LOCATION CHANGE.** If a character is in one place and then in
+another, the script contains the transit. A board asked to draw an unnarrated move
+will either invent one or silently skip it, and both read as a broken cut.
+*Provenance: found twice in one story — a character who left a sealed room with no
+sentence for leaving it, and the same character back inside it two scenes later with
+no sentence for returning.*
+
+**S2 — A PAYOFF MUST BE PAID FOR EARLIER.** A theme asserted in the closing scene has
+to be bought by a cost the character pays before it. If the last line states the
+idea, an earlier scene must have proved it the hard way.
+*Provenance: a closing line about where power really lies, asserted rather than earned
+— fixed by making an earlier escape attempt fail, so the character discovers the real
+exit only after the obvious one is gone.*
+
+---
+
+## Method
+
+**Tune with free tools before spending anything.** Hand-write the board prompt,
+generate it on a free tool, judge it panel by panel, fix the WORDS, repeat. Then, and
+only then, spend on the real pipeline. Escalate to harder scenes on purpose — dialogue
+axis, nested screens, crowds, hidden objects, multi-location action — because each new
+difficulty surfaces new laws.
+
+**Every defect becomes a law, not a patch.** If a fix applies only to the scene in
+front of you, it has not been understood yet.
+
+**Judge every batch on the full rubric, unprompted.** Per-shot purpose against facing
+and framing; pair-wise axis, eyelines and cut grammar; scene-level causality and style
+drift. Then trace every failure to its prompt and classify it: either the model
+disobeyed a correct instruction, or the instruction itself was wrong. Only the first
+kind is worth re-rolling; the second kind is a law.
+
+**Keep the best-known-good, and be willing to regress to it.** Every version is saved
+so a revert is one command. Iteration is progress only while each round beats the last
+known-good version, not merely the previous attempt — fixes can and do introduce the
+next defect.
+
+**Judge at the cheapest artifact that shows the defect.** A wrong-facing character
+caught on a board costs one board; caught after the frames, it costs every frame. The
+board is where the film is decided.
+
+---
 
 ## Status
 
-These laws are proven in prose and NOT yet implemented in the planner. The build
-lane is D3-66 through D3-70 in `tasks/loop-checklist.md`; the acceptance target is
-`tasks/evidence/d3-64-fixes/scene1_board_prompt_CORRECTED_v3.txt` — the planner
-should emit that shape on its own. Until then, production boards do not obey
-these laws.
+These laws are proven in prose and NOT yet implemented in any planner. The acceptance
+target for that build is
+`tasks/evidence/d3-64-fixes/scene1_board_prompt_CORRECTED_v3.txt` — a planner should
+emit that shape unaided. Until then, generated boards do not obey these laws.
