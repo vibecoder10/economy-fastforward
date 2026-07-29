@@ -41,16 +41,79 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
 - [ ] SWEEP (S) [V] Read-only audit: every consumer of roster `designation`,
       the research prompt text that defines it, _roster_validation hard-vs-soft
       conditions, and any existing never-built/no-photo state. IN FLIGHT.
-- [ ] C3 (S) [B][V] Research contract: `designation` becomes a searchable
-      identifier or empty; member units move to their own field. Prompt +
-      repair warning + gate in the same commit (contract-triangle law).
-      BLOCKED ON: SWEEP.
-- [ ] C4 (S) [B][V] Split _roster_validation hard failures from soft pacing
-      warnings. A count overrun sets needs-review, not passed=False.
-      BLOCKED ON: SWEEP.
-- [ ] C5 (S) [B][U][V] Never-built / no-photo-exists state for cancelled
-      programs (e.g. CVA-01). BLOCKED ON: C1+C2 — until aliases land we do not
-      know the real never-built set.
+- [x] C7 (S) [V] Ship-shaped roster regression net. DONE 2026-07-29.
+      backend/tests/functional/test_ship_roster_shapes.py, 15 tests passing.
+      Pins _unit_display_name / _unit_code / _normalized_unit_code /
+      _designation_token / _machine_key / _roster_validation /
+      _machine_documentary_hold_roster for BOTH a real 23-entry British-carrier
+      roster and an aircraft control roster. No source files edited.
+- [ ] C3 (S) [B][V] NARROWED 2026-07-29 to ADDITIVE ONLY. Add an optional
+      `member_units` field to the roster research schema
+      (skills/video-pipeline/research/agent.py, ROSTER_DISCOVERY_PROMPT_TEMPLATE
+      ~line 810 and COMPLETE_ROSTER_SYSTEM_APPEND ~line 620). `designation`
+      keeps its current meaning. Alias derivation prefers `member_units` when
+      present. Prompt + repair warning + gate in one commit.
+      BLOCKED ON: C1+C2 landing.
+- [ ] C4 (S) [B][V] INTRODUCE severity tiers in _roster_validation
+      (pipeline_executor.py ~5973-6245). Today `passed = len(warnings) == 0`
+      with no weighting — there is nothing to "split", the distinction must be
+      added. HARD: missing/short unit_roster, recommended_final_roster length
+      mismatch, candidate in both roster and excluded_candidates, missing
+      roster_audit, <6 search queries, <3 source families, confidence not
+      high/medium, script paragraph/roster count mismatch, script omissions or
+      additions. SOFT (mark needs-review, do not block): all pacing/count
+      warnings including the "larger than the runtime target plus reserve"
+      condition at ~6080-6092 that stalled video d2e37cd6.
+      BLOCKED ON: C1+C2 landing.
+- [ ] C5 (S) [B][U][V] Never-built / no-photo-can-exist state. Roster item
+      `status` is free text today and never parsed by any code branch. Lean on
+      the existing `blocked_no_reference` fail-closed path in static_docu.py
+      (law comment ~lines 91-103) rather than inventing a parallel mechanism.
+      CVA-01 is the live example. BLOCKED ON: C1+C2 and C8.
+- [ ] C8 (S) [B][U][V] Record WHY a machine missed. Today a miss is a bare
+      absence, so three different problems look identical in the UI:
+      no-photo-can-exist (CVA-01), search-found-nothing (Attacker class),
+      vision-rejected-the-photo (HMS Pretoria Castle). Persist a reason on the
+      miss and surface it in the roster panel. This is the chunk that makes the
+      2026-07-27 incident self-diagnosing. BLOCKED ON: C1+C2 landing.
+- [ ] C9 (S) [B][V] BUG found by C7, not yet fixed. static_docu._designation_token
+      (~line 938) output feeds _page_matches (~907-935) with NO minimum-length
+      floor, while _commons_title_matches (~948-964) explicitly requires
+      len(tok) >= 3. A short numeric token such as "91" — derived from the
+      pennant number in "HMS Ark Royal (91)" — can substring-match an unrelated
+      Wikipedia page title (a year, another hull or squadron number) and
+      silently confer TRUSTED provenance on the wrong photo. Trusted provenance
+      skips the strict vision check, so this can put the wrong ship on screen.
+      Direct violation of the fail-closed law. Fix: apply the same >=3 floor in
+      _page_matches. HIGH PRIORITY. BLOCKED ON: C1+C2 landing.
+- [ ] C10 (S) [B][V] The subvariant-padding QA check in _roster_validation
+      (~6140-6149) is aircraft-only and a total no-op for ships — it hinges on
+      a regex requiring a literal "B-"/"FB-" prefix in _unit_code output, which
+      no ship code shape can produce. Ship rosters get ZERO padding protection.
+      Proven by test_unit_code_family_detection_is_aircraft_only. Either add
+      ship-family awareness or document explicitly that the rule is
+      aircraft-only. LOW PRIORITY.
+- [ ] C11 (S) [B] CANARY, not a live bug. static_docu._machine_key truncates to
+      80 chars. Aircraft designations are short so this was never exercised;
+      ship `designation` values are sometimes full member-ship lists, making a
+      shared 80-char-prefix collision plausible in a future roster. Not observed
+      in the current roster. Monitor. LOW PRIORITY.
+
+## Known debt (deliberately not in this loop)
+- The aircraft designation regex is reimplemented in SIX independent places:
+  pipeline_executor.py (_unit_code/_normalized_unit_code, canonical, ~150 call
+  sites), routes/videos.py (full duplicate), drive_workspace.py (_display),
+  frontend ResearchTab.tsx and ScriptVoiceTab.tsx (byte-identical TS copies),
+  and static_docu.py (_designation_token, separate implementation). Unifying
+  them is correct engineering but carries ~150 call sites and a tenant-global
+  cache key in the blast radius for zero user-visible gain. Decision 2026-07-29
+  (Fable, endorsed by Ryan): leave alone, record as debt.
+- static_reference_cache is TENANT-GLOBAL and keyed on a naive lowercase-alnum
+  hash of the DISPLAY string (static_docu._machine_key). Any change to how
+  _unit_display_name composes designation + name silently orphans every cached
+  verified photo for every machine for every tenant — no error, just a full
+  cache miss that re-runs live Wikimedia lookups and paid vision checks. This is
+  why display names are frozen byte-exact and why C3 was narrowed to additive.
 
 ## Lessons
 - Worktree isolation is unavailable when the orchestrating session's cwd is not
@@ -870,3 +933,4 @@ Notes / lessons: (append as we learn)
 - [ ] SCRIPT CONTINUITY GAP (Ryan's ruling needed, FREE to fix): scene 1 now ends with Nyla running the corridor AWAY from her pod, but scene 3 opens with "a lens hidden in her ceiling" and scene 4 calls it "her grey pod" - she is back inside with no return beat. Same defect class as the original missing escape. RECOMMENDED FIX (strengthens the theme rather than patching it): the run FAILS - she gets out, runs the warren, finds it has no exit, and returns to her own pod; then she finds the lens. Arc becomes try the door -> there is no door -> find the camera -> realise the only exit is the gaze, which earns scene 6's "whoever holds the gaze, holds the power" instead of asserting it. Do NOT apply without Ryan's word.
 - [ ] L14 LAW ADDED 2026-07-29 (Ryan: "nothing about the character spacing between the two main characters changed from my comments"): the L13 seating fix DID land in the wides (panels 1 and 5 show the pair adjacent, nobody between) but never reached the viewer, because no shot in the sheet PROVES the adjacency - the group wide is too wide to read and OTS pairs compress space by design. Real gap = the missing TWO-SHOT rung of standard coverage (master -> two-shot of the pair -> singles). Fix in scene 2 v3: new SETUP H, and panel 5 converted from a redundant group wide into an MS two-shot holding both speakers at the same size, side by side, mid-laugh - it sits between the two OTS panels where the confusion happened. Law: a spatial relationship the audience never sees stated does not exist, however correct the data is.
 - [ ] L15 LAW ADDED 2026-07-29 (scene 2 v3 round, Ryan: "shot five now is weird because they are no longer sitting together, they somehow turned around in the scene... shot eight and shot five are now in confliction"): the L14 two-shot fix WORKED as coverage (Ryan passed v2's sheet retroactively once he saw the pair together) but v3's panel 5 specified ATTENTION ("turned three-quarter toward him", "tips his head toward her") without locking ORIENTATION, so the model rotated both bodies AND both armchairs into a face-to-face dinner configuration - contradicting panels 1/8/9 where the whole row faces the screen. LAW L15: a partial turn must name its anchor (chairs, hips, knees unchanged and still pointed where the wide established them; only head/shoulders/gaze move) and must state the prohibition (never re-orient the chairs, never seat the pair face-to-face). v4 fixes SETUP H with an explicit ORIENTATION LOCK plus a constraints-line addition covering every HALL panel. Pattern worth remembering: a fix can create the next defect - each round converged (7/9 -> 8/9 -> 9/9 on scene 1; scene 2 at 8/9 with only panel 5 outstanding).
+- [ ] L16 + L17 ADDED 2026-07-29 (scene 2 v4 round: Ryan passed 1/2/4/6/7/9, flagged 3 as passable-but-weird, failed 5 and 8). L15's orientation lock WORKED - the pair stayed in the row - but v4 introduced a NEW defect from an IMPOSSIBLE instruction I wrote: SETUP H places the camera forward of the row shooting back, AND asked for "the screen's glow visible past the OLD MAN" - if the lens is between the row and the screen then the screen is BEHIND CAMERA, so the model resolved the contradiction by turning the room around and putting the pod-wall behind the cast. LAW L16: a reverse angle changes the background - state what sits behind the subject per camera position, and a source the camera stands in front of appears as LIGHT ON THE FACE, never as an object behind them. LAW L17: lock the headcount as a NUMBER in every panel where the group appears (panel 8 rendered four silhouettes for five elites; counts drift when implied by a list rather than stated as a quantity). Also refined L12 with a DEPTH clause: state occupants-per-container and that anything behind the readable front layer falls into shadow (panel 3 stacked bodies through the transparent pods until each looked like it held two people). v5 saved at tasks/evidence/d3-64-fixes/scene2_board_prompt_v5.txt.

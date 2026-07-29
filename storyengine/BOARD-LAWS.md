@@ -105,7 +105,11 @@ authored rather than accidental. In scene 2's screen feed the other pod occupant
 were unspecified; the model invented pale sleepwear, which made Nyla pop — by
 luck. Luck does not repeat across six scenes. Where a hero must stand out, say
 what everyone else looks like and say what makes the hero different (the only
-dark figure, the only one standing, the only one awake).
+dark figure, the only one standing, the only one awake). Also state what the
+population does IN DEPTH: how many occupants per container, and that anything
+behind the readable front layer falls into shadow — scene 2 rendered bodies
+stacked through the transparent pods until each pod looked like it held two
+people.
 
 **L13 — COVERAGE AGREES WITH THE WIDE.** Two-character coverage must be
 consistent with the seating and spacing the establishing wide establishes. An
@@ -134,6 +138,21 @@ three-quarter toward him" and the model rotated both bodies and both armchairs
 into a face-to-face dinner-table configuration — breaking the hall's geography,
 since every other panel has the row facing the screen. A partial turn that does
 not name its anchor becomes a full re-staging.
+
+**L16 — A REVERSE ANGLE CHANGES THE BACKGROUND.** State what sits behind the
+subject for each camera position, and never carry one background across opposing
+angles. If the camera stands between the subject and a light source or screen,
+that source is BEHIND CAMERA: it appears as light on the subject's face, never as
+an object behind them. Scene 2 v4 asked for a camera forward of the row *and* for
+the screen to be visible past the far speaker — a geometric impossibility, which
+the model resolved by turning the whole room around. When a setup reverses, say
+explicitly what is now visible behind the subject and what is now off-frame.
+
+**L17 — LOCK THE HEADCOUNT.** State the number of people in every panel where a
+group appears, as a number, and forbid drift ("exactly five, never four and never
+six"). Counts silently drift between panels whenever they are implied by a list
+rather than stated as a quantity — scene 2 lost an elite between the wide and the
+screen insert.
 
 ---
 
