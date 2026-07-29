@@ -5952,12 +5952,23 @@ def _unit_roster_aliases(item: Any) -> list[str]:
     machines had zero verified reference photo two days after research
     completed, and several of those misses were exactly this shape.
 
-    Aliases returned here:
+    Aliases returned here, in order:
+      - C3 (2026-07-29, additive `member_units` field): each entry in
+        `member_units` when the research schema supplied it, preferred
+        first — this is the clean, purpose-built field for a class's named
+        members, so it needs no comma/slash surgery to be searchable.
       - the bare `name`
       - the bare `designation`
       - each comma-split member (handles "Courageous, Glorious")
       - each side of a slash-compound (handles "Audacious class / Malta
         class"), also comma-split within each side
+
+    The `member_units` step is purely additive: a roster item with no
+    `member_units` key (every roster persisted before this field existed,
+    and any future roster where the researcher left designation short/
+    empty as instructed) produces byte-identical output to before this
+    field existed — the name/designation comma/slash-split fallback below
+    is untouched.
 
     Order-preserving, de-duplicated case-insensitively. Never includes the
     combined display name itself (the caller already has that separately).
@@ -5977,6 +5988,17 @@ def _unit_roster_aliases(item: Any) -> list[str]:
         if s and key not in seen_lower:
             seen_lower.add(key)
             aliases.append(s)
+
+    member_units_raw = item.get("member_units")
+    if isinstance(member_units_raw, list):
+        for unit in member_units_raw:
+            if isinstance(unit, dict):
+                _add(unit.get("name") or unit.get("title") or "")
+            else:
+                _add(unit)
+    elif isinstance(member_units_raw, str):
+        for part in member_units_raw.split(","):
+            _add(part.strip())
 
     name = str(item.get("name") or item.get("title") or "").strip()
     designation = str(item.get("designation") or item.get("code") or "").strip()
@@ -6107,6 +6129,25 @@ def _roster_validation(
 
     warnings: list[str] = []
     gaps: list[str] = []
+    # C4 (2026-07-29): severity tiers. `warnings` stays the full combined list
+    # (unchanged shape/order — every existing reader that just dumps
+    # `warnings` keeps working byte-for-byte). `hard_warnings` are structural/
+    # data-integrity failures that must still block a complete-title video
+    # from advancing; `soft_warnings` are pacing/count nitpicks (roster a bit
+    # short or a bit long vs the runtime target, the generic edge-case-class
+    # heuristic, the aircraft-only subvariant-padding check) that get
+    # recorded and flagged for human review but must NOT dead-end the video.
+    # This is what let video d2e37cd6's real 23-ship roster sit at 0/23
+    # verified photos for two days on one soft pacing warning alone (see
+    # loop-checklist.md "Why"). `passed` now means "no hard failures" —
+    # a soft-only roster passes and advances, marked needs_review.
+    hard_warnings: list[str] = []
+    soft_warnings: list[str] = []
+
+    def _warn(message: str, *, hard: bool) -> None:
+        warnings.append(message)
+        (hard_warnings if hard else soft_warnings).append(message)
+
     lower = f"{contract}\n{counter}".lower()
     bucket_counts = _machine_bucket_summary(payload or {})
     bucket_total = sum(bucket_counts.values())
@@ -6155,12 +6196,15 @@ def _roster_validation(
     is_incomplete = contract_norm.startswith("incomplete") and not is_review_ready
 
     if complete_title and not roster:
-        warnings.append("This title promises a complete roster, but research_payload.unit_roster is missing.")
+        _warn("This title promises a complete roster, but research_payload.unit_roster is missing.", hard=True)
     if complete_title and len(roster) < 3:
-        warnings.append(f"Complete-roster title has only {len(roster)} roster item(s); likely incomplete.")
+        _warn(f"Complete-roster title has only {len(roster)} roster item(s); likely incomplete.", hard=True)
     if _title_is_broad_machine_roster(title) and len(roster) < 15:
-        warnings.append(
-            f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
+        # SOFT: a count/pacing signal, same family as the minimum/expected/
+        # candidate-universe pacing checks below — not a structural failure.
+        _warn(
+            f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise.",
+            hard=False,
         )
     small_category_proof = any(term in lower for term in ("genuinely small", "small closed category", "only known", "no additional built"))
     if (
@@ -6170,11 +6214,13 @@ def _roster_validation(
         and len(roster) < pacing_targets["minimum_final_roster"]
         and not small_category_proof
     ):
-        warnings.append(
+        # SOFT: pacing/count warning — record + needs-review, do not block.
+        _warn(
             "Broad complete-roster title has fewer than "
             f"{pacing_targets['minimum_final_roster']} final items for a "
             f"{pacing_targets['video_length_minutes']:g}-minute Anton-paced video "
-            f"(expected around {pacing_targets['expected_final_roster']}) without proving the category is genuinely small."
+            f"(expected around {pacing_targets['expected_final_roster']}) without proving the category is genuinely small.",
+            hard=False,
         )
     if (
         _title_is_broad_machine_roster(title)
@@ -6183,11 +6229,13 @@ def _roster_validation(
         and len(roster) < pacing_targets["expected_final_roster"]
         and not small_category_proof
     ):
-        warnings.append(
+        # SOFT: pacing/count warning — record + needs-review, do not block.
+        _warn(
             "Broad complete-roster title is below the Anton-paced final roster target: "
             f"{len(roster)} final items vs expected around {pacing_targets['expected_final_roster']} "
             f"for a {pacing_targets['video_length_minutes']:g}-minute video. Lock enough source-backed machines to fit the runtime or "
-            "prove with sources that the category is genuinely smaller."
+            "prove with sources that the category is genuinely smaller.",
+            hard=False,
         )
     if (
         _title_is_broad_machine_roster(title)
@@ -6196,26 +6244,34 @@ def _roster_validation(
         and len(roster) > pacing_targets["candidate_universe_target"]
         and not small_category_proof
     ):
-        warnings.append(
+        # SOFT: pacing/count warning — this is the EXACT condition that
+        # stalled video d2e37cd6 ("23 final items vs target around 20") for
+        # two days. Record + needs-review, never block.
+        _warn(
             "Broad complete-roster final roster is larger than the runtime target plus reserve: "
             f"{len(roster)} final items vs target around {pacing_targets['expected_final_roster']} "
             f"for a {pacing_targets['video_length_minutes']:g}-minute video. Tighten the roster to fit the requested runtime, "
-            "or prove that the title requires the larger count."
+            "or prove that the title requires the larger count.",
+            hard=False,
         )
     if _title_is_broad_machine_roster(title):
         if bucket_total == 0:
-            warnings.append("Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.")
+            _warn(
+                "Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.",
+                hard=True,
+            )
         if not has_recommendation:
-            warnings.append("Broad machine-roster research is missing recommended_final_roster.")
+            _warn("Broad machine-roster research is missing recommended_final_roster.", hard=True)
         elif isinstance(recommended, list) and len(recommended) != len(roster):
-            warnings.append(
+            _warn(
                 f"recommended_final_roster count ({len(recommended)}) does not match unit_roster count ({len(roster)}); "
-                "the locked machine list is internally inconsistent."
+                "the locked machine list is internally inconsistent.",
+                hard=True,
             )
         if not has_gap_hunt:
-            warnings.append("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.")
+            _warn("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.", hard=True)
         if not has_edge_case_matrix:
-            warnings.append("Broad machine-roster research is missing edge_case_matrix showing generic omission classes checked.")
+            _warn("Broad machine-roster research is missing edge_case_matrix showing generic omission classes checked.", hard=True)
         blob_lower = _payload_blob(payload or {}).lower()
         generic_edge_classes = {
             "designation/number sequence gaps": ("designation", "sequence", "number"),
@@ -6230,7 +6286,8 @@ def _roster_validation(
             if any(needle in blob_lower for needle in needles)
         ]
         if len(covered_classes) < 4:
-            warnings.append("Broad machine-roster research did not explicitly resolve enough generic edge-case classes.")
+            # SOFT: heuristic, not a data-integrity failure.
+            _warn("Broad machine-roster research did not explicitly resolve enough generic edge-case classes.", hard=False)
             for label in generic_edge_classes:
                 if label not in covered_classes and label not in gaps:
                     gaps.append(label)
@@ -6254,10 +6311,53 @@ def _roster_validation(
             if family in codes and any(code != family for code in codes)
         ]
         if padded_families and not any(term in str(title or "").lower() for term in ("variant", "variants", "class", "classes")):
-            warnings.append(
+            # SOFT: aircraft-only heuristic (test_unit_code_family_detection_is_aircraft_only
+            # proves it is a structural no-op for ship rosters) — a nitpick, not a
+            # data-integrity failure.
+            _warn(
                 "Final roster appears padded with minor subvariants while the parent machine is already included: "
                 + ", ".join(padded_families)
-                + ". Combine minor variants under the parent unless the title asks for variants/classes or the subvariant is a distinct audience-facing program."
+                + ". Combine minor variants under the parent unless the title asks for variants/classes or the subvariant is a distinct audience-facing program.",
+                hard=False,
+            )
+
+        # C3 (2026-07-29, additive `member_units` field): contract-triangle
+        # repair-warning half. The research prompt now has an explicit place
+        # (`member_units`) for a class's individual named units, so a
+        # `designation` that's still a comma-separated member-ship/unit list
+        # (e.g. "Courageous, Glorious" or "Illustrious, Formidable, Victorious,
+        # Indomitable") with no `member_units` supplied means the researcher
+        # stuffed the list into the wrong field instead of leaving
+        # `designation` as a short searchable identifier. Flagged SOFT so
+        # every pre-existing roster in the DB (frozen, no `member_units`
+        # field ever) keeps passing/advancing exactly as before — this is
+        # visibility to steer the NEXT repair/research pass, never a new hard
+        # gate. Deliberately conservative (comma-list shape only): a
+        # designation that's merely a multi-word category phrase with no
+        # comma (e.g. "Lend-Lease escort carriers") is NOT caught here — a
+        # reliable heuristic for that shape risks false-positiving on
+        # legitimate multi-word designations, so it's left as a known
+        # follow-up rather than guessed at.
+        designation_stuffed_items: list[str] = []
+        for item in roster_raw or []:
+            if not isinstance(item, dict) or item.get("member_units"):
+                continue
+            designation_value = str(item.get("designation") or item.get("code") or "")
+            comma_parts = [p.strip() for p in designation_value.split(",") if p.strip()]
+            if len(comma_parts) >= 2:
+                display = _unit_display_name(item) or str(item.get("name") or "").strip()
+                if display:
+                    designation_stuffed_items.append(display)
+        if designation_stuffed_items:
+            shown = designation_stuffed_items[:8]
+            more = len(designation_stuffed_items) - len(shown)
+            _warn(
+                "designation holds a comma-separated member-ship/unit list instead of a short "
+                "searchable code for: " + ", ".join(shown)
+                + (f" (+{more} more)" if more > 0 else "")
+                + ". Move the individual member units into member_units and keep designation "
+                "short or empty — a glued member-list designation is not a searchable machine name.",
+                hard=False,
             )
 
         excluded_codes: dict[str, str] = {}
@@ -6268,9 +6368,10 @@ def _roster_validation(
                 excluded_codes[code] = name
         overlap = [name for name, code in zip(roster, roster_codes) if code in excluded_codes]
         if overlap:
-            warnings.append(
+            _warn(
                 "Roster is internally inconsistent: candidate appears in both unit_roster and excluded_candidates: "
-                + ", ".join(overlap)
+                + ", ".join(overlap),
+                hard=True,
             )
 
         title_lower = str(title or "").lower()
@@ -6278,12 +6379,13 @@ def _roster_validation(
             term in _payload_blob(audit_excluded).lower()
             for term in ("not operationally delivered", "not yet operational", "not operationally deployed")
         ):
-            warnings.append(
+            _warn(
                 "Ever-built title is excluding a candidate for not being operational/delivered. "
-                "For 'ever built', physical build/flight is the boundary; operational status alone is not a valid exclusion."
+                "For 'ever built', physical build/flight is the boundary; operational status alone is not a valid exclusion.",
+                hard=True,
             )
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
-        warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
+        _warn("Research payload admits the roster/title may be incomplete or narrowed.", hard=True)
     if complete_title:
         queries = audit.get("search_queries_used") or []
         families = audit.get("source_families_crosschecked") or []
@@ -6295,15 +6397,15 @@ def _roster_validation(
                 confidence = level
                 break
         if not audit:
-            warnings.append("Complete-roster research is missing roster_audit proof of exhaustive search.")
+            _warn("Complete-roster research is missing roster_audit proof of exhaustive search.", hard=True)
         elif len(queries) < 6:
-            warnings.append("Complete-roster research used fewer than 6 distinct roster-discovery searches.")
+            _warn("Complete-roster research used fewer than 6 distinct roster-discovery searches.", hard=True)
         if audit and len(families) < 3:
-            warnings.append("Complete-roster research cross-checked fewer than 3 source families.")
+            _warn("Complete-roster research cross-checked fewer than 3 source families.", hard=True)
         if audit and unresolved and not (is_review_ready and has_recommendation):
-            warnings.append(f"Complete-roster research still has {len(unresolved)} unresolved candidate(s).")
+            _warn(f"Complete-roster research still has {len(unresolved)} unresolved candidate(s).", hard=True)
         if audit and confidence and confidence not in ("high", "medium"):
-            warnings.append(f"Complete-roster audit confidence is {confidence}, not high/medium.")
+            _warn(f"Complete-roster audit confidence is {confidence}, not high/medium.", hard=True)
         if isinstance(unresolved, list):
             for item in unresolved:
                 name = _unit_display_name(item)
@@ -6321,9 +6423,10 @@ def _roster_validation(
     script_extra: list[str] = []
     if script_units is not None and roster_codes:
         if len(script_units) != len(roster):
-            warnings.append(
+            _warn(
                 f"Script has {len(script_units)} paragraph(s) for {len(roster)} locked roster item(s); "
-                "static DVsU scripts must not add separate conclusion, transition, or non-machine rows."
+                "static DVsU scripts must not add separate conclusion, transition, or non-machine rows.",
+                hard=True,
             )
         script_blob = "\n".join(script_units)
         script_codes = [_unit_code(u) for u in script_units if _unit_code(u)]
@@ -6334,15 +6437,31 @@ def _roster_validation(
             if code and code not in roster_codes and code not in script_extra:
                 script_extra.append(code)
         if script_missing:
-            warnings.append(f"Script omitted {len(script_missing)} roster item(s).")
+            _warn(f"Script omitted {len(script_missing)} roster item(s).", hard=True)
         if script_extra:
-            warnings.append(f"Script added {len(script_extra)} item(s) outside the locked roster.")
+            _warn(f"Script added {len(script_extra)} item(s) outside the locked roster.", hard=True)
 
     return {
-        "passed": len(warnings) == 0,
+        # C4 (2026-07-29): `passed` now means "no HARD failures" — a
+        # soft-only roster (pacing/count nitpicks, the generic edge-case
+        # heuristic, aircraft-only subvariant padding) passes and is free to
+        # advance. Every existing caller that gates on `.get("passed")`
+        # (run_research's autonomous-repair trigger and advance-to-scripting
+        # check, run_unit_research, _validate_static_script_roster's callers,
+        # research_ingest.accept_submitted_research) gets this looser,
+        # intentional behavior for free just by reading the same key.
+        "passed": len(hard_warnings) == 0,
+        # New keys for callers that want to distinguish severity explicitly
+        # rather than infer it from `passed` alone.
+        "hard_warnings": hard_warnings,
+        "soft_warnings": soft_warnings,
+        "needs_review": len(soft_warnings) > 0,
         "complete_title": complete_title,
         "roster_count": len(roster),
         "roster": roster,
+        # Unchanged: full combined list, same order, same content as before
+        # the severity split — every existing reader that just displays or
+        # joins `warnings` keeps working byte-for-byte.
         "warnings": warnings,
         "gaps": gaps,
         "script_missing": script_missing,
@@ -8141,6 +8260,16 @@ class PipelineExecutor:
                 await self._log_activity(
                     bot_name, video_id, "running",
                     "Roster contract needs review: " + "; ".join(roster_check.get("warnings", []))[:800],
+                )
+            elif roster_check.get("needs_review"):
+                # C4: a soft-only roster (pacing/count nitpicks etc, no hard
+                # failures) still ADVANCES — but log it visibly so a human
+                # can see it flagged, instead of the old behavior where a
+                # single soft warning silently dead-ended the whole video.
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    "Roster passed with soft warnings, needs review: "
+                    + "; ".join(roster_check.get("soft_warnings", []))[:800],
                 )
 
             # Update Supabase with research payload. Never advance a complete-roster

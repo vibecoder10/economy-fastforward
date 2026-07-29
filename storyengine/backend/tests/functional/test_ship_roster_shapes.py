@@ -274,12 +274,18 @@ def test_machine_key_stability_canary_on_ship_display_names():
 # ---------------------------------------------------------------------------
 # 5. _roster_validation on the realistic 23-entry ship roster, 20-min video.
 #
-# This is the exact condition that stalled the real video: a ship roster
-# padded slightly past the runtime target trips a SINGLE pacing warning and
-# nothing else. Note `passed = len(warnings) == 0` today — there is no
-# severity split, so this one soft pacing note fails the roster exactly as
-# hard as a missing roster_audit would. That flat pass/fail is the gap the
-# upcoming hard/soft severity split is meant to close.
+# UPDATED 2026-07-29 (C3 + C4 landed): this used to pin `passed is False` on
+# the theory that `passed = len(warnings) == 0` with no severity split makes
+# one soft pacing note fail exactly as hard as a data-integrity problem —
+# the exact condition that stalled the real video for two days. C4 added the
+# hard/soft severity split this test predicted: `passed` now means "no HARD
+# failures", so this soft-only roster (a pacing overrun plus C3's new
+# designation-stuffing detector, both SOFT) now PASSES and would advance,
+# marked `needs_review`. C3 (additive `member_units` field) also added a new
+# soft warning on this exact fixture: 9 of the 23 real entries glue a
+# comma-separated member-ship list into `designation` with no `member_units`
+# supplied (this fixture predates the field), which is now flagged for
+# repair rather than silently accepted.
 # ---------------------------------------------------------------------------
 
 def _ship_roster_validation_payload():
@@ -326,24 +332,54 @@ def _ship_roster_validation_payload():
     }
 
 
-def test_roster_validation_ship_roster_fails_on_pacing_alone():
+def test_roster_validation_ship_roster_passes_soft_only_and_needs_review():
+    # RENAMED from test_roster_validation_ship_roster_fails_on_pacing_alone.
+    # JUSTIFICATION: C4 introduced a hard/soft severity split; this roster's
+    # only issues (pacing overrun + C3's designation-stuffing detector) are
+    # both SOFT by the loop brief's explicit classification, so `passed` is
+    # now True (the deliberate, user-visible point of C4) and `needs_review`
+    # is True. This is the exact real-world case (video d2e37cd6, 23 ships
+    # vs a ~20 target) that stalled production for two days before this fix.
     payload = _ship_roster_validation_payload()
     result = pe._roster_validation(SHIP_TITLE, payload, video_length_minutes=20)
 
     assert result["roster_count"] == 23
-    assert result["passed"] is False
-    assert result["warnings"] == [
+    assert result["passed"] is True, (
+        "This is the C4 fix landing: a soft-only roster (pacing overrun, no "
+        "hard data-integrity failure) must PASS and be free to advance "
+        "instead of dead-ending like it did for video d2e37cd6."
+    )
+    assert result["hard_warnings"] == []
+    pacing_warning = (
         "Broad complete-roster final roster is larger than the runtime target plus reserve: "
         "23 final items vs target around 20 for a 20-minute video. Tighten the roster to fit "
         "the requested runtime, or prove that the title requires the larger count."
-    ], (
-        "Ship roster's warning set drifted — this pins the EXACT single "
-        "pacing warning (23 items vs a 22-item candidate_universe_target "
-        "for a 20-minute video) that stalled the real prod video. "
-        "passed = len(warnings) == 0 with no severity tiering today, so "
-        "this one soft pacing note is indistinguishable from a hard data "
-        "-integrity failure in the `passed` field alone."
     )
+    stuffing_warning = (
+        "designation holds a comma-separated member-ship/unit list instead of a short "
+        "searchable code for: Courageous, Glorious Courageous class, Illustrious, Formidable, "
+        "Victorious, Indomitable Illustrious class, Implacable, Indefatigable Implacable class, "
+        "Colossus, Glory, Ocean, Theseus, Triumph, Venerable, Vengeance, Warrior, Pioneer, Perseus "
+        "Colossus class, Majestic, Hercules, Leviathan, Magnificent, Powerful, Terrible Majestic "
+        "class, Centaur, Albion, Bulwark, Hermes Centaur class, Invincible, Illustrious, Ark Royal "
+        "Invincible class, Queen Elizabeth, Prince of Wales Queen Elizabeth class (modern) "
+        "(+1 more). Move the individual member units into member_units and keep designation "
+        "short or empty — a glued member-list designation is not a searchable machine name."
+    )
+    assert result["soft_warnings"] == [pacing_warning, stuffing_warning], (
+        "Ship roster's soft-warning set drifted. First is the EXACT pacing warning "
+        "(23 items vs a 22-item candidate_universe_target for a 20-minute video) that "
+        "stalled the real prod video. Second is NEW from C3 (additive `member_units` "
+        "field): 9 of these 23 real entries glue a comma-separated member-ship list "
+        "into `designation` with no `member_units` supplied (this fixture predates the "
+        "field) — now flagged for repair instead of silently accepted."
+    )
+    assert result["warnings"] == result["soft_warnings"], (
+        "warnings must stay the full combined (hard+soft) list for backward "
+        "compatibility with every existing reader that just displays/joins it; "
+        "with zero hard warnings here it should equal soft_warnings exactly."
+    )
+    assert result["needs_review"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -397,11 +433,21 @@ def _aircraft_roster_validation_payload():
 
 
 def test_roster_validation_aircraft_control_pins_subvariant_padding_warning():
+    # UPDATED 2026-07-29 (C4): `passed` used to pin False here too, on the
+    # same flat "any warning fails" logic the ship test above used to pin.
+    # The loop brief explicitly classifies the subvariant-padding check as
+    # SOFT ("the subvariant-padding check ... note: it is aircraft-only and
+    # provably inert for ships"), so with the hard/soft split this roster's
+    # one warning no longer blocks — `passed` is now True, `needs_review`
+    # True. The warning text/content itself (the actual regression net this
+    # test protects) is UNCHANGED.
     payload = _aircraft_roster_validation_payload()
     result = pe._roster_validation(AIRCRAFT_TITLE, payload, video_length_minutes=20)
 
     assert result["roster_count"] == 20
-    assert result["passed"] is False
+    assert result["passed"] is True
+    assert result["hard_warnings"] == []
+    assert result["needs_review"] is True
     assert result["warnings"] == [
         "Final roster appears padded with minor subvariants while the parent machine is "
         "already included: B-29. Combine minor variants under the parent unless the title "
@@ -412,6 +458,7 @@ def test_roster_validation_aircraft_control_pins_subvariant_padding_warning():
         "breaks this B-29/B-29B subvariant-padding detection, this test "
         "catches it — completely independent of anything ship-related."
     )
+    assert result["soft_warnings"] == result["warnings"]
 
 
 def test_unit_code_family_detection_is_aircraft_only():
@@ -449,6 +496,169 @@ def test_machine_documentary_hold_roster_returns_combined_ship_display_strings()
     assert result[0] == "Courageous, Glorious Courageous class"
     assert result[1] == "HMS Ark Royal (91) Ark Royal (1937)"
     assert result == [pe._unit_display_name(e) for e in SHIP_ROSTER_ENTRIES]
+
+
+# ---------------------------------------------------------------------------
+# 8. C3 (2026-07-29): additive `member_units` field — new coverage, not a
+# pinned characterization of pre-existing behavior.
+# ---------------------------------------------------------------------------
+
+def test_unit_roster_aliases_prefers_member_units_when_present():
+    item = {
+        "name": "Courageous class",
+        "designation": "",
+        "member_units": ["Courageous", "Glorious"],
+    }
+    aliases = pe._unit_roster_aliases(item)
+    # member_units entries come first (preferred), name/designation fallback
+    # still runs after (designation is empty here so it contributes nothing).
+    assert aliases[:2] == ["Courageous", "Glorious"]
+    assert "Courageous class" in aliases
+
+
+def test_unit_roster_aliases_member_units_additive_alongside_stuffed_designation():
+    # A payload that still stuffs the member list into `designation` (old
+    # shape) AND supplies the new `member_units` field gets aliases from
+    # BOTH — no information is lost, member_units is simply preferred first.
+    item = {
+        "name": "Courageous class",
+        "designation": "Courageous, Glorious",
+        "member_units": ["Courageous", "Glorious"],
+    }
+    aliases = pe._unit_roster_aliases(item)
+    assert aliases[0] == "Courageous"
+    assert aliases[1] == "Glorious"
+    assert "Courageous class" in aliases
+    assert "Courageous, Glorious" in aliases
+
+
+def test_unit_roster_aliases_with_no_member_units_field_is_byte_identical_to_before():
+    # BACKWARD COMPATIBILITY (mandatory): every roster in the DB today lacks
+    # `member_units`. This must produce EXACTLY the same aliases as the
+    # pre-C3 function — same order, same content, nothing added or dropped.
+    item = {"name": "Courageous class", "designation": "Courageous, Glorious"}
+    aliases = pe._unit_roster_aliases(item)
+    assert aliases == ["Courageous class", "Courageous, Glorious", "Courageous", "Glorious"]
+
+
+def test_unit_roster_aliases_member_units_accepts_dict_entries():
+    # Defensive: a research payload that nests member units as {"name": ...}
+    # dicts (rather than bare strings) is still handled without crashing.
+    item = {
+        "name": "Colossus class",
+        "member_units": [{"name": "Colossus"}, {"name": "Glory"}, "Ocean"],
+    }
+    aliases = pe._unit_roster_aliases(item)
+    assert aliases[:3] == ["Colossus", "Glory", "Ocean"]
+
+
+def test_roster_validation_designation_stuffing_detector_is_additive_and_soft():
+    # A roster where every class row properly uses member_units (the NEW
+    # correct shape) trips NEITHER the stuffing detector NOR any hard
+    # warning — proving the detector only fires on the OLD stuffed shape,
+    # not on `designation` being short/empty as newly instructed.
+    entries = [
+        {"name": "Courageous class", "designation": "", "member_units": ["Courageous", "Glorious"]},
+        {"name": "Illustrious class", "designation": "", "member_units": ["Illustrious", "Formidable", "Victorious", "Indomitable"]},
+    ]
+    display_names = [pe._unit_display_name(e) for e in entries]
+    payload = {
+        "unit_roster": entries,
+        "machine_discovery_buckets": {"core_roster": list(display_names)},
+        "recommended_final_roster": list(display_names),
+        "gap_hunt_matrix": [{"candidate": "x", "resolution": "y"}],
+        "edge_case_matrix": [{"class": c} for c in (
+            "designation/number sequence gaps", "prefix/classification variants",
+            "mission-converted/special-purpose variants", "renamed/reclassified/predecessor-successor programs",
+        )],
+        "roster_audit": {
+            "search_queries_used": ["q1", "q2", "q3", "q4", "q5", "q6"],
+            "source_families_crosschecked": ["a", "b", "c"],
+            "unresolved_candidates": [],
+            "confidence": "high",
+        },
+    }
+    result = pe._roster_validation("Every Test Ship Class Ever Built", payload, video_length_minutes=2)
+    stuffing_hits = [w for w in result["warnings"] if "member-ship/unit list" in w]
+    assert stuffing_hits == [], "member_units-correct rows must never trip the designation-stuffing detector"
+
+
+def test_roster_validation_designation_stuffing_detector_fires_and_is_soft_not_hard():
+    # 3 entries (not 1) so this isolates the stuffing detector from the
+    # unrelated "complete-title roster has fewer than 3 items" HARD check —
+    # only the first entry's designation is stuffed.
+    entries = [
+        {"name": "Courageous class", "designation": "Courageous, Glorious"},
+        {"name": "Ark Royal (1937)", "designation": "HMS Ark Royal (91)"},
+        {"name": "Eagle (1946)", "designation": "HMS Eagle (R05)"},
+    ]
+    display_names = [pe._unit_display_name(e) for e in entries]
+    payload = {
+        "unit_roster": entries,
+        "machine_discovery_buckets": {"core_roster": list(display_names)},
+        "recommended_final_roster": list(display_names),
+        "gap_hunt_matrix": [{"candidate": "x", "resolution": "y"}],
+        "edge_case_matrix": [{"class": c} for c in (
+            "designation/number sequence gaps", "prefix/classification variants",
+            "mission-converted/special-purpose variants", "renamed/reclassified/predecessor-successor programs",
+        )],
+        "roster_audit": {
+            "search_queries_used": ["q1", "q2", "q3", "q4", "q5", "q6"],
+            "source_families_crosschecked": ["a", "b", "c"],
+            "unresolved_candidates": [],
+            "confidence": "high",
+        },
+    }
+    result = pe._roster_validation("Every Test Ship Class Ever Built", payload, video_length_minutes=2)
+    assert any("member-ship/unit list" in w for w in result["hard_warnings"]) is False
+    assert any("member-ship/unit list" in w for w in result["soft_warnings"]) is True
+    assert result["passed"] is True, "designation-stuffing is SOFT — it must never block by itself"
+    assert result["needs_review"] is True
+
+
+# ---------------------------------------------------------------------------
+# 9. C4 (2026-07-29): severity tiers — new coverage, not a pinned
+# characterization of pre-existing behavior (there was no severity concept
+# before this chunk).
+# ---------------------------------------------------------------------------
+
+def test_roster_validation_hard_failure_still_blocks_regardless_of_soft_warnings():
+    # Missing roster_audit entirely on a complete-title video is HARD per the
+    # loop brief. Must still fail the gate even though nothing else is wrong.
+    payload = {
+        "unit_roster": [{"name": f"Machine {i}"} for i in range(20)],
+        "machine_discovery_buckets": {"core_roster": [f"Machine {i}" for i in range(20)]},
+        "recommended_final_roster": [f"Machine {i}" for i in range(20)],
+        "gap_hunt_matrix": [{"candidate": "x", "resolution": "y"}],
+        "edge_case_matrix": [{"class": c} for c in (
+            "designation/number sequence gaps", "prefix/classification variants",
+            "mission-converted/special-purpose variants", "renamed/reclassified/predecessor-successor programs",
+        )],
+        # roster_audit deliberately omitted.
+    }
+    result = pe._roster_validation("Every Test Machine Ever Built", payload, video_length_minutes=20)
+    assert result["passed"] is False
+    assert any("missing roster_audit" in w for w in result["hard_warnings"])
+    assert result["needs_review"] is False, "no soft warnings tripped here, only a hard one"
+
+
+def test_roster_validation_needs_review_key_present_even_with_no_warnings_at_all():
+    payload = _ship_roster_validation_payload()
+    # Strip every entry down to a clean shape with member_units so neither
+    # the pacing warning (fits target) nor the stuffing detector fires.
+    payload["unit_roster"] = [
+        {"name": f"Ship class {i}", "designation": "", "member_units": ["A", "B"]}
+        for i in range(20)
+    ]
+    display_names = [pe._unit_display_name(e) for e in payload["unit_roster"]]
+    payload["machine_discovery_buckets"]["core_roster"] = display_names
+    payload["recommended_final_roster"] = display_names
+    result = pe._roster_validation(SHIP_TITLE, payload, video_length_minutes=20)
+    assert result["passed"] is True
+    assert result["needs_review"] is False
+    assert result["hard_warnings"] == []
+    assert result["soft_warnings"] == []
+    assert result["warnings"] == []
 
 
 def test_machine_documentary_hold_roster_gates_on_render_mode():

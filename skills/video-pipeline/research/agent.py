@@ -623,7 +623,10 @@ battlecruiser, fast battleship, dreadnought. Tanks/vehicles: prototype,
 production, conversion, assault gun/tank-destroyer boundary, captured conversion,
 secret program. Cross-check against official/service history, manufacturer or
 program history, museum/encyclopedia lists, designation/index lists, and
-credible specialist references.
+credible specialist references. For a ship/vehicle class row, list the
+individual named hull(s)/units the class covers in `member_units`, not glued
+into `designation` — each member name must be independently searchable on its
+own.
 
 Before finalizing the roster, run an explicit adversarial gap-hunt pass. Assume
 your first roster missed machines. Search for omissions by designation sequence,
@@ -774,6 +777,14 @@ Rules:
 - `unit_roster` must be the recommended final documentary roster: one section per
   audience-facing machine/program, not every subvariant unless the subvariant is
   itself the machine viewers expect to see.
+- Keep `designation` short and directly searchable (a real code, hull number, or
+  tail number) or leave it empty — never a category description or a list of a
+  class's individual named members. When one roster row covers a class/family
+  with several individually-named units (a ship class's named ships, a family of
+  named variants, etc.), put those individual names in `member_units` instead.
+  A glued designation like "Courageous, Glorious" or "Lend-Lease escort
+  carriers" produces an unsearchable machine name downstream and photo lookups
+  for it will fail.
 - Also return `machine_discovery_buckets` as an audit trail for the candidates
   actually researched while locking the target roster; it is not a mandate to
   enumerate every possible machine outside the video scope.
@@ -807,7 +818,8 @@ Respond ONLY as raw JSON in this format:
   "unit_roster": [
     {{
       "name": "Exact machine/program name for the RECOMMENDED final documentary roster",
-      "designation": "Short code/designation/hull number/class if applicable",
+      "designation": "Short code/designation/hull number if applicable. Keep this SHORT and directly searchable (a tail number, hull number, or program code) or leave it empty. Never put a list of a class's individual named members here — that goes in member_units below.",
+      "member_units": "OPTIONAL. Only for a class/family/program row that covers several individually-named units (e.g. a ship class, a squadron of named aircraft, a missile family with named variants): a list of the individual member names, e.g. [\"Courageous\", \"Glorious\"] for a class named Courageous. Omit entirely (or leave empty) for a single named machine/program — do not add an empty list just to satisfy the schema.",
       "role": "Why it belongs under the title boundary",
       "status": "production/built-prototype/cancelled-built/converted/special-purpose/secret-or-black-program/edge-case",
       "bucket": "core_roster/built_prototypes/converted_or_special_variants/secret_cancelled_or_black_programs/boundary_disputes",
