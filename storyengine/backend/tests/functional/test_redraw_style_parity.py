@@ -4,6 +4,12 @@ attached. assets.image_prompt stores only the composition, so a bare redraw
 carried no style pressure and drifted semi-realistic on cd5d2883's scene-1
 redraws — this pins the wrapper so that can't regress.
 
+This fixture's asset is a MASTER shot (hero_shot=True) so it never triggers
+the D3-65 moment-master anchor lookup (that lookup only fires for non-master/
+angle shots) — see test_redraw_moment_master_parity.py for that behavior.
+Keeping this file master-only keeps it scoped to STYLE/ENV wrapping, unchanged
+since 2026-07-21.
+
 Run:
     cd storyengine/backend && ./venv/bin/python -m pytest tests/functional/test_redraw_style_parity.py -q
 """
@@ -53,6 +59,7 @@ def _run(style=STYLE, envs=None):
     async def fake_fetch_one(query, *args):
         if "FROM assets a JOIN videos v" in query:
             return {"id": ASSET, "scene": 1, "image_index": 122, "image_prompt": STORED_PROMPT,
+                    "hero_shot": True, "generation_method": "coverage",
                     "aspect": "16:9", "image_model_override": None,
                     "image_style_override": style, "visual_style": None}
         if "coverage_directive, scene_text FROM scripts" in query:
