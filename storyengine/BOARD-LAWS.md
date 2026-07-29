@@ -107,6 +107,16 @@ luck. Luck does not repeat across six scenes. Where a hero must stand out, say
 what everyone else looks like and say what makes the hero different (the only
 dark figure, the only one standing, the only one awake).
 
+**L14 — GIVE THE PAIR A TWO-SHOT.** A spatial relationship the audience never
+sees stated does not exist, however correct the data is. Before covering a
+dialogue pair in singles or over-the-shoulders, include one medium two-shot that
+holds BOTH characters in the same frame at the same size, so their adjacency and
+spacing are unmistakable. Coverage runs master, then two-shot of the pair, then
+singles — skipping the middle rung is why scene 2's corrected seating was
+invisible to Ryan even though the wides were fixed: the wide was too wide to read
+and the over-the-shoulders compress space by design. Prefer converting a
+redundant wide into the two-shot rather than adding a panel.
+
 **L13 — COVERAGE AGREES WITH THE WIDE.** Two-character coverage must be
 consistent with the seating and spacing the establishing wide establishes. An
 over-the-shoulder pair implies the two are adjacent; if the wide then reveals
