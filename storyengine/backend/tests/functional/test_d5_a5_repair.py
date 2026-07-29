@@ -3,8 +3,8 @@ Arbiter's auto-repair wiring, backend/arbiter_repair.py. BOARD-LEVEL ONLY —
 the frames station is frozen pending D5-A3b-2 (tasks/loop-checklist.md).
 
 $0 suite: every DB/network boundary is dependency-injected (is_frozen_fn,
-budget_check, reroll_fn, record_finding_fn, ledger_write are keyword params
-on repair_board_finding by design — same convention judge_frame/
+budget_check, reroll_fn, ledger_write are keyword params on
+repair_board_finding by design — same convention judge_frame/
 judge_scene_batch/judge_board_sheet already use) or a stateful fake
 standing in for the real Postgres row (same "fake DB enforces the real
 constraint" convention test_d5_a2_arbiter_fingerprints.py's own
@@ -12,12 +12,20 @@ _fake_fetch_one uses — reused verbatim here via monkeypatching
 arbiter_fingerprints.fetch_one directly, not a second reimplementation).
 NO live DB, NO network, NO paid calls of any kind.
 
-DoC #2's law (only MODEL_DEFECT ever triggers repair) and DoC #4's law
-(the same fingerprint firing twice freezes auto-repair, files a root-cause
-finding instead of a third redraw) are both proven here at the repair
-layer — DoC #4 already has its A2-level proof in
-test_d5_a2_arbiter_fingerprints.py; this file proves the SAME law holds
-one layer up, through repair_board_finding's own decision ladder.
+RULING (see arbiter_repair.py's module docstring): fingerprint occurrences
+are recorded at JUDGMENT TIME ONLY — repair_board_finding never calls
+record_finding, for any classification. DoC #4's law (the same fingerprint
+firing twice freezes auto-repair) is proven here through the CORRECT
+sequence: a judge-time record_finding call (modeling what
+judge_board_sheet does at judgment time) is strike one; repair_board_
+finding acts on it (rolls, records nothing); a second judge-time
+record_finding call (modeling either a post-repair rejudge_board_after_
+repair still finding the same fingerprint, or the fingerprint recurring in
+some later judgment) is strike two and crosses the freeze; a THIRD repair
+attempt for that fingerprint is what actually gets turned away, at the
+freeze check, before budget. The happy path (rejudge passes) is proven
+too: no second record_finding call ever fires, so the fingerprint stays
+at one occurrence, unfrozen.
 
 Non-vacuous / stash-proof (DoC "prove the guard is actually exercised"):
 test_frozen_short_circuits_before_budget_check_order_matters and
@@ -110,53 +118,46 @@ def _make_sink():
 # TASTE_QUESTION / AUTHORING_DEFECT: never touch the re-roll path (DoC #2).
 # =============================================================================
 
-def test_taste_question_never_acts_no_reroll_no_record():
+def test_taste_question_never_acts_no_reroll():
     reroll = _make_tracker()
-    record = _make_sink()
     result = _run(ar.repair_board_finding(
         TENANT, VIDEO, 4, _finding(classification="TASTE_QUESTION"),
-        is_frozen_fn=_never_frozen, budget_check=_no_breach,
-        reroll_fn=reroll, record_finding_fn=record,
+        is_frozen_fn=_never_frozen, budget_check=_no_breach, reroll_fn=reroll,
     ))
     assert result["action"] == "card"
     assert result["acted"] is False
     assert reroll.calls == []
-    assert record.calls == []  # nothing wrong to remember, only a preference to ask about
     assert result["card"]["classification"] == "TASTE_QUESTION"
 
 
-def test_authoring_defect_never_touches_reroll_but_files_finding():
+def test_authoring_defect_never_touches_reroll_and_never_records():
+    """Already recorded by judge_board_sheet at judgment time — this
+    module writes nothing, ever (RULING, module docstring)."""
     reroll = _make_tracker()
-    record = _make_sink()
     result = _run(ar.repair_board_finding(
         TENANT, VIDEO, 4, _finding(classification="AUTHORING_DEFECT", failure_class="facing_law_violation"),
-        is_frozen_fn=_never_frozen, budget_check=_no_breach,
-        reroll_fn=reroll, record_finding_fn=record,
+        is_frozen_fn=_never_frozen, budget_check=_no_breach, reroll_fn=reroll,
     ))
-    assert result["action"] == "filed"
+    assert result["action"] == "no_repair"
+    assert result["reason"] == "authoring_defect"
     assert result["acted"] is False
     assert reroll.calls == []  # never repairs — the spec, not the pixels, is the flaw
-    assert len(record.calls) == 1
-    assert record.calls[0]["classification"] == "AUTHORING_DEFECT"
-    assert record.calls[0]["stage"] == FRAME_QA_STAGE
 
 
 def test_ok_classification_does_nothing():
     reroll = _make_tracker()
-    record = _make_sink()
     result = _run(ar.repair_board_finding(
         TENANT, VIDEO, 4, _finding(classification="OK"),
-        is_frozen_fn=_never_frozen, budget_check=_no_breach,
-        reroll_fn=reroll, record_finding_fn=record,
+        is_frozen_fn=_never_frozen, budget_check=_no_breach, reroll_fn=reroll,
     ))
     assert result["acted"] is False
     assert result["action"] == "none"
     assert reroll.calls == []
-    assert record.calls == []
 
 
 # =============================================================================
-# MODEL_DEFECT ladder ordering: FREEZE -> BUDGET -> ROLL -> RECORD.
+# MODEL_DEFECT ladder ordering: FREEZE -> BUDGET -> ROLL. No record step —
+# repair_board_finding never writes to the fingerprint ratchet (RULING).
 # =============================================================================
 
 def test_frozen_short_circuits_before_budget_check_order_matters():
@@ -182,16 +183,13 @@ def test_budget_refusal_short_circuits_the_reroll():
         return {"scope": "scene", "cap": 0.25, "spent": 0.23, "quote": 0.05, "projected": 0.28, "message": "no"}
 
     reroll = _make_tracker()
-    record = _make_sink()
     result = _run(ar.repair_board_finding(
         TENANT, VIDEO, 4, _finding(),
-        is_frozen_fn=_never_frozen, budget_check=breach,
-        reroll_fn=reroll, record_finding_fn=record,
+        is_frozen_fn=_never_frozen, budget_check=breach, reroll_fn=reroll,
     ))
     assert result["action"] == "budget_refused"
     assert result["acted"] is False
     assert reroll.calls == []
-    assert record.calls == []  # a refused repair is not an occurrence of anything
 
 
 def test_missing_sheet_index_refuses_before_the_ladder_even_starts():
@@ -211,51 +209,49 @@ def test_missing_sheet_index_refuses_before_the_ladder_even_starts():
     assert is_frozen_probe.calls == []  # refused before even the freeze check
 
 
-def test_reroll_failure_does_not_record_an_occurrence():
+def test_reroll_failure_is_reported_and_nothing_else_happens():
     async def failing_reroll(*_a, **_k):
         return {"status": "failed", "error": "no current plan"}
 
-    record = _make_sink()
     result = _run(ar.repair_board_finding(
         TENANT, VIDEO, 4, _finding(),
-        is_frozen_fn=_never_frozen, budget_check=_no_breach,
-        reroll_fn=failing_reroll, record_finding_fn=record,
+        is_frozen_fn=_never_frozen, budget_check=_no_breach, reroll_fn=failing_reroll,
     ))
     assert result["action"] == "reroll_failed"
     assert result["acted"] is False
-    assert record.calls == []
 
 
-def test_successful_repair_ledgers_the_repair_spend():
+def test_successful_repair_ledgers_the_spend_and_never_records_a_finding():
     reroll = _make_tracker()
     ledger = _make_sink()
-    record = _make_sink()
     result = _run(ar.repair_board_finding(
         TENANT, VIDEO, 4, _finding(rule_id="QL-9"),
         is_frozen_fn=_never_frozen, budget_check=_no_breach,
-        reroll_fn=reroll, ledger_write=ledger, record_finding_fn=record,
+        reroll_fn=reroll, ledger_write=ledger,
     ))
     assert result["acted"] is True
     assert result["action"] == "repaired"
+    assert "fingerprint_record" not in result  # this module never writes the ratchet
     assert len(reroll.calls) == 1
     ((rargs, rkwargs),) = reroll.calls
     assert rargs == (VIDEO, TENANT)
     assert rkwargs["scene"] == 4
     assert rkwargs["beat"] == 1  # the finding's own sheet_index
-    assert len(ledger.calls) == 1
+    assert len(ledger.calls) == 1  # money spent still ledgers — a separate axis from the ratchet
     assert ledger.calls[0]["actual_cost"] == ar.DEFAULT_BOARD_REPAIR_QUOTE
     assert ledger.calls[0]["fingerprint"] == "QL-9"  # rule_id wins fingerprint_key
-    assert len(record.calls) == 1
 
 
 # =============================================================================
-# DoC #4 at the repair layer: repeat-repair freeze crosses on the 2nd
-# occurrence, via a REAL is_frozen/record_finding pair backed by the exact
-# ON-CONFLICT upsert semantics migrations/139 specifies (same stateful-fake
-# convention test_d5_a2_arbiter_fingerprints.py already validated at the
-# A2 layer — reused here via monkeypatching arbiter_fingerprints.fetch_one
-# directly, so THIS test proves the real ratchet functions, not a
-# hand-wavy substitute).
+# DoC #4 at the repair layer, CORRECTED semantics (RULING): fingerprint
+# occurrences are recorded at judgment time only. Each test below models
+# judge_board_sheet's own record_finding call DIRECTLY (via the real
+# af.record_finding, backed by a stateful fake that mirrors migrations/139's
+# exact ON-CONFLICT upsert semantics — same convention
+# test_d5_a2_arbiter_fingerprints.py already validated at the A2 layer) to
+# stand in for "a judgment happened", interleaved with real
+# ar.repair_board_finding calls (is_frozen_fn=af.is_frozen, real) to prove
+# repair never itself moves the ratchet, only reads it.
 # =============================================================================
 
 class _FakeUniqueViolation(Exception):
@@ -310,53 +306,109 @@ def fingerprint_rows(monkeypatch):
     return rows
 
 
-def test_repeat_repair_freeze_crosses_on_the_second_occurrence(fingerprint_rows):
+async def _judgment(failure_class="set_bleed", classification="MODEL_DEFECT", rule_id=None):
+    """Stands in for judge_board_sheet's own record_finding call at
+    judgment time — the ONLY writer of fingerprint occurrences."""
+    return await af.record_finding(
+        TENANT, rule_id=rule_id, stage=FRAME_QA_STAGE,
+        failure_class=failure_class, classification=classification,
+    )
+
+
+def _repair(reroll, sheet_index=1, budget_check=_no_breach, scene=4):
+    return _run(ar.repair_board_finding(
+        TENANT, VIDEO, scene, _finding(failure_class="set_bleed", sheet_index=sheet_index),
+        is_frozen_fn=af.is_frozen, budget_check=budget_check,
+        reroll_fn=reroll, ledger_write=_make_sink(),
+    ))
+
+
+def test_repeat_repair_freeze_crosses_via_rejudge_not_via_repair_itself(fingerprint_rows):
+    """The corrected sequence: judge finds the defect (strike 1) -> repair
+    rolls, recording nothing -> post-repair re-judge still fails (strike 2,
+    freeze crosses HERE, not inside repair) -> a later repair attempt for
+    the same fingerprint is blocked at the freeze check, before budget."""
     reroll = _make_tracker()
 
-    def _repair():
-        return _run(ar.repair_board_finding(
-            TENANT, VIDEO, 4, _finding(failure_class="set_bleed"),
-            is_frozen_fn=af.is_frozen, budget_check=_no_breach,
-            reroll_fn=reroll, ledger_write=_make_sink(), record_finding_fn=af.record_finding,
-        ))
+    strike1 = _run(_judgment())
+    assert strike1["violation_count"] == 1
+    assert strike1["frozen"] is False
 
-    first = _repair()
-    assert first["acted"] is True
-    assert first["action"] == "repaired"
-    assert first["fingerprint_record"]["frozen"] is False
+    repaired = _repair(reroll)
+    assert repaired["acted"] is True
+    assert repaired["action"] == "repaired"
+    assert "fingerprint_record" not in repaired  # repair itself writes nothing
     assert len(reroll.calls) == 1
+    # Still only one occurrence on the books — the repair did not record.
+    assert _run(af.is_frozen(TENANT, rule_id=None, stage=FRAME_QA_STAGE, failure_class="set_bleed")) is False
 
-    second = _repair()
-    assert second["acted"] is True  # not frozen going INTO this call — the 2nd occurrence still repairs
-    assert second["action"] == "repaired"
-    assert second["fingerprint_record"]["violation_count"] == 2
-    assert second["fingerprint_record"]["frozen"] is True  # THIS record call is what crosses it
-    assert second["fingerprint_record"]["crossed_threshold"] is True
+    # Post-repair re-judge (rejudge_board_after_repair's own job, modeled
+    # here as the judgment it would trigger): STILL FAILING, same fingerprint.
+    strike2 = _run(_judgment())
+    assert strike2["violation_count"] == 2
+    assert strike2["frozen"] is True  # THIS judgment is what crosses it
+    assert strike2["crossed_threshold"] is True
+
+    # A later repair attempt (e.g. another sheet hitting the same class)
+    # never reaches budget or the reroll — turned away at the freeze check.
+    budget_probe = _make_tracker()
+    blocked = _repair(reroll, sheet_index=2, budget_check=budget_probe, scene=5)
+    assert blocked["acted"] is False
+    assert blocked["action"] == "frozen"
+    assert budget_probe.calls == []  # no quota consumed
+    assert len(reroll.calls) == 1  # unchanged — no third roll
+
+
+def test_repair_happy_path_rejudge_passes_no_second_strike(fingerprint_rows):
+    """The rejudge coming back clean means judge_board_sheet never calls
+    record_finding again (OK isn't one of A2's three defect buckets) — the
+    fingerprint stays at one occurrence, unfrozen, and a later finding of
+    the SAME class is free to repair again."""
+    reroll = _make_tracker()
+
+    strike1 = _run(_judgment())
+    assert strike1["violation_count"] == 1
+
+    repaired = _repair(reroll)
+    assert repaired["acted"] is True
+
+    # Re-judge PASSES this time — no record_finding call fires at all (OK
+    # verdicts never reach the ratchet), so nothing changes here. Modeled
+    # by simply NOT calling _judgment() again.
+    row = next(r for r in fingerprint_rows if r["failure_class"] == "set_bleed")
+    assert row["violation_count"] == 1
+    assert row["frozen"] is False
+    assert _run(af.is_frozen(TENANT, rule_id=None, stage=FRAME_QA_STAGE, failure_class="set_bleed")) is False
+
+    # A later finding of the same class is still free to repair — the
+    # ratchet never crossed.
+    again = _repair(reroll, sheet_index=3, scene=6)
+    assert again["acted"] is True
+    assert again["action"] == "repaired"
     assert len(reroll.calls) == 2
-
-    third = _repair()
-    assert third["acted"] is False  # blocked at the freeze check — no third roll
-    assert third["action"] == "frozen"
-    assert len(reroll.calls) == 2  # unchanged — the reroll never fired a third time
 
 
 def test_different_fingerprint_is_not_blocked_by_a_sibling_freeze(fingerprint_rows):
     reroll = _make_tracker()
 
-    def _repair(failure_class):
-        return _run(ar.repair_board_finding(
-            TENANT, VIDEO, 4, _finding(failure_class=failure_class),
-            is_frozen_fn=af.is_frozen, budget_check=_no_breach,
-            reroll_fn=reroll, ledger_write=_make_sink(), record_finding_fn=af.record_finding,
-        ))
+    # Freeze set_bleed via two judge-time occurrences (no repair involved
+    # in crossing it — matches the RULING).
+    _run(_judgment(failure_class="set_bleed"))
+    _run(_judgment(failure_class="set_bleed"))
+    assert _run(af.is_frozen(TENANT, rule_id=None, stage=FRAME_QA_STAGE, failure_class="set_bleed")) is True
 
-    _repair("set_bleed")
-    _repair("set_bleed")  # freezes set_bleed
-    other = _repair("facing_law_violation")  # different fingerprint, same tenant/stage
+    # A DIFFERENT fingerprint (facing_law_violation), only ever judged
+    # once, is untouched by set_bleed's freeze.
+    _run(_judgment(failure_class="facing_law_violation"))
+    other = _run(ar.repair_board_finding(
+        TENANT, VIDEO, 4, _finding(failure_class="facing_law_violation", sheet_index=1),
+        is_frozen_fn=af.is_frozen, budget_check=_no_breach,
+        reroll_fn=reroll, ledger_write=_make_sink(),
+    ))
 
     assert other["acted"] is True
     assert other["action"] == "repaired"
-    assert len(reroll.calls) == 3
+    assert len(reroll.calls) == 1
 
 
 # =============================================================================

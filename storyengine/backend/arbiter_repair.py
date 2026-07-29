@@ -18,53 +18,42 @@ this behind a flag; nothing in the product calls this module yet, same
 
 DoC #2 (only MODEL_DEFECT ever triggers repair) is the law this whole
 module exists to enforce structurally, not just by convention:
-  - MODEL_DEFECT -> the repair ladder below (freeze -> budget -> roll -> record).
-  - AUTHORING_DEFECT -> never repairs; files the occurrence via
-    ``record_finding`` (the PROMPT/SPEC authored the flaw — redrawing the
-    same spec would just reproduce it) and returns, no spend.
+  - MODEL_DEFECT -> the repair ladder below (freeze -> budget -> roll).
+  - AUTHORING_DEFECT -> never repairs (the PROMPT/SPEC authored the flaw —
+    redrawing the same spec would just reproduce it) and returns, no
+    spend, no ratchet write here (see the ruling below for why).
   - TASTE_QUESTION -> never acts at all; returns card material for the
-    Review feed (A7) — not even a fingerprint write, since there is
-    nothing wrong to remember, only a preference to surface to a human.
+    Review feed (A7) — nothing wrong to remember, only a preference to
+    surface to a human.
 
-Repair ladder order matters and is unit-tested (see
+RULING (coordinator, same session as this chunk, resolving the question
+this file originally flagged as open): fingerprint occurrences are
+recorded at JUDGMENT TIME ONLY. A finding and its own immediate repair
+are ONE occurrence of the mistake, not two — repairs are ACTIONS ON
+findings, not findings themselves, so nothing in this module ever calls
+``record_finding``. ``frame_arbiter.judge_board_sheet`` is the single
+writer, for every classification, always. The second strike that crosses
+the freeze is either the post-repair re-judge (``rejudge_board_after_
+repair`` below, itself just another call into ``judge_board_sheet``)
+still finding the SAME fingerprint, or that fingerprint recurring in some
+later, unrelated judgment (another sheet/scene/batch) — never this
+module's own bookkeeping. A6 inherits this as settled, not open.
+
+Repair ladder order still matters and is unit-tested (see
 tests/functional/test_d5_a5_repair.py): FREEZE is checked before BUDGET,
 so a frozen fingerprint never consumes budget quota just to be told no —
 consistent with DoC #3's "checked BEFORE any paid call fires, never
 audited after" law applying to the freeze gate too. Only after both gates
-clear does the sheet re-roll fire; only after a successful re-roll does
-this module call ``record_finding`` for the occurrence — deliberately
-LAST, because per A2's semantics that record call is what may CROSS the
-freeze threshold (violation_count hits 2 on this exact call, not before).
-The natural consequence: a fingerprint's 1st repair spends and records
-(not yet frozen); its 2nd repair ALSO spends and records (this is the call
-that flips frozen=True); a 3rd occurrence of the same fingerprint never
-reaches the roll or the record — it is turned away at the freeze check,
-step 1, before a single dollar moves. "A repair that recurs is the
-ratchet's signal" (the plan's own words) — the recurrence itself is what
-teaches the system to stop, not a separate counter.
-
-Reconciliation note for A6 (not resolved here, out of this chunk's
-scope): ``frame_arbiter.judge_board_sheet`` ALREADY calls
-``record_finding`` unconditionally for every classified verdict it
-parses, at judge time — before any repair decision is made. This module's
-own step 4 (record) is a SECOND call to the same underlying fingerprint
-row for a MODEL_DEFECT finding that gets repaired. Tested here in
-isolation (this module's own DI seams let ``is_frozen_fn``/
-``record_finding_fn`` be swapped for a stateful fake that proves the
-ladder's ordering and the 2-strikes freeze crossing correctly, entirely on
-its own), but in the REAL pipeline A6 wires, these are two calls against
-the same fingerprint key. A6 must explicitly decide — not guess — whether
-that is intentional double-counting (the "finding recorded" event and the
-"repair attempted" event are legitimately different ratchets) or whether
-the judge-time call needs to become a no-op for MODEL_DEFECT findings
-destined for repair, with this module as the sole recorder. Flag this as
-a real design decision when A6 starts, not something to silently pick.
+clear does the sheet re-roll fire. The ledger write (real dollars spent
+on the redraw) still happens on a successful roll — that is metering
+money spent, a completely different bookkeeping axis from the
+fingerprint ratchet this module now stays out of entirely.
 """
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Optional
 
-from arbiter_fingerprints import fingerprint_key, is_frozen, record_finding
+from arbiter_fingerprints import fingerprint_key, is_frozen
 from frame_arbiter import judge_board_sheet
 from frame_arbiter_budget import FRAME_QA_STAGE, arbiter_budget_check, record_frame_qa_entry
 
@@ -141,7 +130,6 @@ async def repair_board_finding(
     is_frozen_fn: Callable[..., Awaitable[bool]] = is_frozen,
     budget_check: Callable[..., Awaitable] = arbiter_budget_check,
     reroll_fn: Optional[Callable[..., Awaitable[dict]]] = None,
-    record_finding_fn: Callable[..., Awaitable[dict]] = record_finding,
     ledger_write: Optional[Callable[..., Awaitable]] = None,
     projected_cost: float = DEFAULT_BOARD_REPAIR_QUOTE,
 ) -> dict:
@@ -156,19 +144,25 @@ async def repair_board_finding(
     even starts (see ``_default_board_reroll``'s docstring for why beat=None
     is dangerous here, not just invalid).
 
-    All five DB/network boundaries are dependency-injected (same convention
+    This function NEVER calls ``record_finding`` (see the module docstring's
+    RULING) — it only decides whether to spend, spends or doesn't, and
+    returns. The fingerprint ratchet is judge_board_sheet's job alone, at
+    judgment time, both for the original finding and for the post-repair
+    re-judgment (``rejudge_board_after_repair`` below).
+
+    All DB/network boundaries are dependency-injected (same convention
     ``judge_board_sheet``/``judge_frame`` already use) so every test in
     tests/functional/test_d5_a5_repair.py runs at $0 with no live DB.
 
-    Returns one of these shapes (``acted`` distinguishes "money moved / a
-    fingerprint occurrence was recorded" from "nothing happened"):
+    Returns one of these shapes (``acted`` means "money moved / a real
+    reroll fired"):
       - TASTE_QUESTION:      {"acted": False, "action": "card", "card": {...}}
-      - AUTHORING_DEFECT:    {"acted": False, "action": "filed", "fingerprint_record": {...}}
+      - AUTHORING_DEFECT:    {"acted": False, "action": "no_repair", "reason": "authoring_defect"}
       - missing sheet_index: {"acted": False, "action": "missing_sheet_index"}
       - frozen fingerprint:  {"acted": False, "action": "frozen", "fingerprint": "..."}
       - budget breach:       {"acted": False, "action": "budget_refused", "breach": {...}}
       - reroll failure:      {"acted": False, "action": "reroll_failed", "reroll_result": {...}}
-      - repaired:            {"acted": True, "action": "repaired", "reroll_result": {...}, "fingerprint_record": {...}}
+      - repaired:            {"acted": True, "action": "repaired", "reroll_result": {...}}
       - anything else:       {"acted": False, "action": "none", "reason": "..."}
     """
     classification = str(finding.get("classification") or "").strip().upper()
@@ -176,18 +170,15 @@ async def repair_board_finding(
     rule_id = finding.get("rule_id")
     beat = sheet_index if sheet_index is not None else finding.get("sheet_index")
 
-    # TASTE_QUESTION: never acts, not even a fingerprint write.
+    # TASTE_QUESTION: never acts.
     if classification == "TASTE_QUESTION":
         return {"acted": False, "action": "card", "reason": "taste_question", "card": _card_material(finding)}
 
     # AUTHORING_DEFECT: never repairs (the SPEC authored the flaw, not the
-    # pixels) — files the occurrence so the ratchet still tracks it, no spend.
+    # pixels). Already recorded by judge_board_sheet at judgment time —
+    # this module writes nothing, ever (see the RULING above).
     if classification == "AUTHORING_DEFECT":
-        record = await record_finding_fn(
-            tenant_id, rule_id=rule_id, stage=FRAME_QA_STAGE,
-            failure_class=failure_class, classification=classification,
-        )
-        return {"acted": False, "action": "filed", "reason": "authoring_defect", "fingerprint_record": record}
+        return {"acted": False, "action": "no_repair", "reason": "authoring_defect"}
 
     if classification != "MODEL_DEFECT":
         # Includes NO_FINDING/"OK" (should never reach this function from a
@@ -199,7 +190,7 @@ async def repair_board_finding(
         return {"acted": False, "action": "missing_sheet_index", "reason": "no sheet_index to re-roll"}
 
     # =========================================================================
-    # MODEL_DEFECT repair ladder: FREEZE -> BUDGET -> ROLL -> RECORD.
+    # MODEL_DEFECT repair ladder: FREEZE -> BUDGET -> ROLL.
     # Order is load-bearing and unit-tested — see module docstring.
     # =========================================================================
 
@@ -222,7 +213,9 @@ async def repair_board_finding(
 
     # 3. ROLL. Same call shape as
     #    POST /api/pipeline/storyboard-images/{video_id}?scene=N&beat=M —
-    #    the underlying function, never HTTP.
+    #    the underlying function, never HTTP. No record_finding call here or
+    #    after — the ratchet only moves through judge_board_sheet, via the
+    #    post-repair rejudge_board_after_repair below.
     roll = reroll_fn or _default_board_reroll
     reroll_result = await roll(video_id, tenant_id, scene=scene, beat=beat)
     if not isinstance(reroll_result, dict) or reroll_result.get("status") == "failed":
@@ -235,15 +228,7 @@ async def repair_board_finding(
         fingerprint=fingerprint_key(rule_id, failure_class),
     )
 
-    # 4. RECORD. Deliberately LAST — this occurrence is the ratchet's own
-    #    signal. On a fingerprint's 2nd repair, THIS call is what crosses
-    #    the freeze threshold (A2's violation_count hits 2 here); a 3rd
-    #    occurrence never reaches this line at all (blocked at step 1).
-    record = await record_finding_fn(
-        tenant_id, rule_id=rule_id, stage=FRAME_QA_STAGE,
-        failure_class=failure_class, classification=classification,
-    )
-    return {"acted": True, "action": "repaired", "reroll_result": reroll_result, "fingerprint_record": record}
+    return {"acted": True, "action": "repaired", "reroll_result": reroll_result}
 
 
 async def rejudge_board_after_repair(
@@ -260,17 +245,25 @@ async def rejudge_board_after_repair(
     call the original judgment used — same budget/ledger/fingerprint
     contract, no separate re-judge pathway to drift from the primary one.
 
+    This is where the SECOND strike actually happens, per the module
+    docstring's RULING: the original finding was strike one (recorded by
+    judge_board_sheet at judgment time); repair_board_finding's own reroll
+    recorded nothing. If THIS re-judgment still comes back MODEL_DEFECT on
+    the SAME fingerprint, judge_board_sheet's own (already-existing)
+    record_finding_fn call records that as the fingerprint's second
+    occurrence — which is what crosses the freeze threshold. If the
+    re-judgment comes back clean (OK), judge_board_sheet never calls
+    record_finding_fn at all (an OK verdict isn't one of A2's three defect
+    buckets) and the fingerprint stays at one occurrence, unfrozen.
+
     This function does not decide anything and does not loop: it calls
     ``judge_fn`` exactly once and returns whatever it returns. The "no
-    third roll" guarantee is structural, not a check written here — a
-    STILL-FAILING MODEL_DEFECT verdict on the SAME fingerprint causes
-    ``judge_board_sheet``'s own (already-existing) ``record_finding_fn``
-    call to record that fingerprint's occurrence again, which is what
-    crosses the freeze threshold; any LATER call to
-    ``repair_board_finding`` for that fingerprint is what actually gets
-    turned away (step 1 of its ladder). This function never calls
-    ``repair_board_finding`` itself, by design — chaining a third roll
-    would require this function to do so, and it structurally cannot.
+    third roll" guarantee is structural, not a check written here — any
+    LATER call to ``repair_board_finding`` for a fingerprint that just
+    crossed the freeze here is what actually gets turned away (step 1 of
+    its ladder). This function never calls ``repair_board_finding``
+    itself, by design — chaining a third roll would require this function
+    to do so, and it structurally cannot.
 
     A6 schedules exactly one call to this function right after a
     successful ``repair_board_finding`` reroll (its ``reroll_result``
