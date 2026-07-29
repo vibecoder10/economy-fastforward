@@ -375,35 +375,17 @@ def test_neighbor_download_failure_is_best_effort_not_fatal(monkeypatch):
 
 
 # =============================================================================
-# 7. judge_scene_batch — A4's neighbor-wiring across a whole scene: first
-#    frame gets only its next-neighbor, last frame only its prev-neighbor,
-#    interior frames get both, in draw order.
+# 7. judge_scene_batch — SUPERSEDED by D5 chunk A3b (2026-07-29). The
+# one-call-per-frame loop this section originally tested (each frame
+# delegated to judge_frame with only its immediate draw-order neighbor
+# pair attached) is the exact shape A3's own live test proved too
+# expensive AND too blind (missed the 101/102 duplicate two frames apart,
+# outside either one's neighbor pair — see frame_arbiter.py's module
+# docstring). judge_scene_batch now fires ONE vision call for the whole
+# scene with every frame's own header/prompt attached together, so there
+# is no more "judge_frame delegation" or "neighbor pair" contract left to
+# test here. The new contract (one call, correct image_index mapping,
+# fail-closed on budget/download/vision/parse failure, non-vacuous
+# scoring) is covered end to end in
+# tests/functional/test_d5_a3b_eval_harness.py — see its section 4.
 # =============================================================================
-
-def test_judge_scene_batch_wires_neighbors_by_draw_order(monkeypatch):
-    frames = [_frame(100), _frame(101), _frame(102)]
-
-    async def fake_fetch_frames(tenant_id, video_id, scene):
-        return frames
-
-    async def fake_list_rules(tenant_id, *, active_only=False):
-        return []
-
-    monkeypatch.setattr(fa, "list_all_rules", fake_list_rules)
-
-    seen_calls = []
-
-    async def fake_judge_frame(tenant_id, video_id, scene, frame, neighbors, **kwargs):
-        seen_calls.append((frame["image_index"], [n["image_index"] for n in neighbors]))
-        return {"skipped": False, "image_index": frame["image_index"], "classification": "OK"}
-
-    monkeypatch.setattr(fa, "judge_frame", fake_judge_frame)
-
-    results = _run(fa.judge_scene_batch(TENANT, VIDEO, 1, fetch_frames=fake_fetch_frames))
-
-    assert [r["image_index"] for r in results] == [100, 101, 102]
-    assert seen_calls == [
-        (100, [101]),        # first frame: next-neighbor only
-        (101, [100, 102]),   # interior frame: both neighbors
-        (102, [101]),        # last frame: prev-neighbor only
-    ]
