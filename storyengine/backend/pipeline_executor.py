@@ -5877,6 +5877,46 @@ def _anton_preview_quality_audit(
     }
 
 
+def _static_docu_locked_unit_roster(video: dict) -> Optional[list]:
+    """Shared gate for the siloed static-docu machine-roster path: return the
+    RAW ``unit_roster`` list from a video's persisted research payload, or
+    None if this video isn't (yet) on the locked machine-documentary path.
+
+    Animation, narrative, dialogue, modeled, and clip-based videos remain on
+    the global whole-video writer even if a roster-shaped field appears in
+    research. No fact-sheet/LLM inference is allowed here: the roster must
+    already be an explicit persisted list.
+
+    Factored out of what used to be _machine_documentary_hold_roster's own
+    body so that function (flat display-name strings — many callers depend
+    on that exact shape) and _machine_documentary_hold_roster_entries (name +
+    aliases, added for the roster reference-photo prefetch) can never drift
+    apart on WHICH videos/rosters qualify.
+    """
+    import json as _json_mh
+
+    if not isinstance(video, dict) or (video.get("render_mode") or "") != "static_docu":
+        return None
+    payload = video.get("research_payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = _json_mh.loads(payload)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(payload, dict):
+        return None
+    marker = str(payload.get("documentary_style") or payload.get("pipeline_style") or "").strip().lower()
+    has_machine_marker = (
+        marker in {"machine_documentary", "designed_vs_used", "dvsu"}
+        or isinstance(payload.get("machine_discovery_buckets"), dict)
+        or isinstance(payload.get("unit_research_hold_validation"), dict)
+    )
+    if not has_machine_marker:
+        return None
+    roster = payload.get("unit_roster")
+    return roster if isinstance(roster, list) else None
+
+
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
     """Return the locked machine roster only for the siloed static-docu path.
 
@@ -5885,32 +5925,104 @@ def _machine_documentary_hold_roster(video: dict) -> list[str]:
     No fact-sheet/LLM inference is allowed here: the roster must already be an
     explicit persisted list.
     """
-    import json as _json_mh
-
-    if not isinstance(video, dict) or (video.get("render_mode") or "") != "static_docu":
-        return []
-    payload = video.get("research_payload") or {}
-    if isinstance(payload, str):
-        try:
-            payload = _json_mh.loads(payload)
-        except (ValueError, TypeError):
-            return []
-    if not isinstance(payload, dict):
-        return []
-    marker = str(payload.get("documentary_style") or payload.get("pipeline_style") or "").strip().lower()
-    has_machine_marker = (
-        marker in {"machine_documentary", "designed_vs_used", "dvsu"}
-        or isinstance(payload.get("machine_discovery_buckets"), dict)
-        or isinstance(payload.get("unit_research_hold_validation"), dict)
-    )
-    if not has_machine_marker:
-        return []
-    roster = payload.get("unit_roster")
-    if not isinstance(roster, list):
+    roster = _static_docu_locked_unit_roster(video)
+    if roster is None:
         return []
     names = [_unit_display_name(item) for item in roster]
     names = [name for name in names if name]
     return names if 3 <= len(names) <= 40 else []
+
+
+def _unit_roster_aliases(item: Any) -> list[str]:
+    """Derive searchable aliases for one unit_roster entry, WITHOUT touching
+    its display name (see _unit_display_name / _machine_key — the display
+    name is the static_reference_cache primary key and must never change).
+
+    For an aircraft/bomber roster entry (e.g. name="Valkyrie",
+    designation="XB-70") the display name alone is already a clean, unique,
+    searchable string. But for a ship-class roster entry the researcher
+    often fills `designation` with a category/member-ship list instead of a
+    real designation (e.g. name="Attacker class (US-built)",
+    designation="Lend-Lease escort carriers"; or name="Courageous class",
+    designation="Courageous, Glorious" — the actual member ships). Gluing
+    those together the way _unit_display_name does for the SAVED string
+    ("Lend-Lease escort carriers Attacker class (US-built)") produces a
+    Wikipedia/Commons query nobody can match. Real-world proof (Every
+    British Aircraft Carrier Class Ever Built, 2026-07-27): 6 of 23 roster
+    machines had zero verified reference photo two days after research
+    completed, and several of those misses were exactly this shape.
+
+    Aliases returned here:
+      - the bare `name`
+      - the bare `designation`
+      - each comma-split member (handles "Courageous, Glorious")
+      - each side of a slash-compound (handles "Audacious class / Malta
+        class"), also comma-split within each side
+
+    Order-preserving, de-duplicated case-insensitively. Never includes the
+    combined display name itself (the caller already has that separately).
+    """
+    if not isinstance(item, dict):
+        return []
+    nested = item.get("unit") or item.get("machine")
+    if nested and not (item.get("name") or item.get("title") or item.get("designation") or item.get("code")):
+        return _unit_roster_aliases(nested)
+
+    aliases: list[str] = []
+    seen_lower: set = set()
+
+    def _add(raw: Any) -> None:
+        s = str(raw or "").strip()
+        key = s.lower()
+        if s and key not in seen_lower:
+            seen_lower.add(key)
+            aliases.append(s)
+
+    name = str(item.get("name") or item.get("title") or "").strip()
+    designation = str(item.get("designation") or item.get("code") or "").strip()
+    for base in (name, designation):
+        if not base:
+            continue
+        for slash_part in base.split("/"):
+            slash_part = slash_part.strip()
+            if not slash_part:
+                continue
+            _add(slash_part)
+            for comma_part in slash_part.split(","):
+                _add(comma_part.strip())
+    return aliases
+
+
+def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
+    """Same gate as _machine_documentary_hold_roster (same 3-40 bound, same
+    static-docu machine-marker requirement), but returns each roster item as
+    {"name": <UNCHANGED display name>, "aliases": [...]} instead of throwing
+    the structured entry away.
+
+    This is an ADDITIVE parallel accessor, not a replacement:
+    _machine_documentary_hold_roster has many other callers
+    (pipeline_executor.py's own run_research/run_one_machine_research/etc,
+    scripts/dvsu_machine_preflight.py) that depend on the flat list[str]
+    shape and on the display name being byte-identical to what's cached in
+    static_reference_cache (_machine_key hashes that exact string — there
+    are live cached rows keyed on today's names). Only the roster reference-
+    photo prefetch (static_docu.prefetch_roster_references) needs aliases,
+    so only it calls this.
+
+    Aliases equal to the display name (case-insensitive) are dropped as
+    redundant.
+    """
+    roster = _static_docu_locked_unit_roster(video)
+    if roster is None:
+        return []
+    entries: list[dict] = []
+    for item in roster:
+        name = _unit_display_name(item)
+        if not name:
+            continue
+        aliases = [a for a in _unit_roster_aliases(item) if a.lower() != name.lower()]
+        entries.append({"name": name, "aliases": aliases})
+    return entries if 3 <= len(entries) <= 40 else []
 
 
 def _anton_inventory_title_mode(title: str) -> bool:
@@ -8070,6 +8182,24 @@ class PipelineExecutor:
             from drive_workspace import sync_video_workspace_fail_soft
             await sync_video_workspace_fail_soft(video_id, self.tenant_id)
 
+            # C3 fix (2026-07-29): the roster is ALREADY PERSISTED above
+            # (research_payload = $1, just written) the instant it exists,
+            # independent of whether the roster/unit-research gate below
+            # passes. Dispatching here (before the gate check, not after it)
+            # means a roster that fails the gate on a soft warning (e.g. "23
+            # items vs target ~20") still gets its reference photos fetched
+            # instead of sitting with zero photos until a human intervenes —
+            # exactly what happened live to video
+            # d2e37cd6-521a-43aa-a14d-ce096a783c1e for two days. `video`
+            # (the ORIGINAL pre-payload-update dict, not `hold_video`) is
+            # passed deliberately: dispatch_roster_prefetch only reads
+            # render_mode off it to decide whether to schedule anything at
+            # all, and render_mode never changes over a research run, so the
+            # original dict is exactly as valid a source for it as any later
+            # copy would be.
+            from static_docu import dispatch_roster_prefetch
+            dispatch_roster_prefetch(video, video_id, self.tenant_id)
+
             if not (passed_roster_gate and passed_unit_research_hold):
                 gate_error = "Roster validation failed" if not passed_roster_gate else "Unit research-hold failed"
                 await self._log_transition(video_id, current_status or "unknown", next_status, "api", error_message=gate_error)
@@ -8083,12 +8213,6 @@ class PipelineExecutor:
 
             await self._log_transition(video_id, current_status, "ready_for_scripting", "api")
             await self._log_activity(bot_name, video_id, "completed", "Research complete")
-
-            # C3: the instant a static-docu video's machine roster is locked,
-            # prefetch+verify+self-host+cache a reference photo for every
-            # roster machine — fire-and-forget, never blocks/fails research.
-            from static_docu import dispatch_roster_prefetch
-            dispatch_roster_prefetch(video, video_id, self.tenant_id)
 
             return {
                 "status": "ready_for_scripting",

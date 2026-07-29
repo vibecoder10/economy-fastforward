@@ -1970,24 +1970,34 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
 
 
 async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
-                                roster_index: int) -> bool:
+                                roster_index: int,
+                                aliases: Optional[list] = None) -> bool:
     """Verify + self-host + cache ONE roster machine's reference photo, using
     the SAME candidate chain _one_scene uses (_gather_reference_candidates).
     Returns True once a verified candidate is cached, False if the whole
     chain exhausts with nothing passing (a miss — not an exception; the
-    caller records it and moves on to the next machine). No aliases are
-    available this early (the roster is a flat list of designation strings
-    — see pipeline_executor._machine_documentary_hold_roster), so the
-    machine's own name doubles as the Commons search query, exactly like
-    _one_scene's own fallback branch does when no explicit search_query is
-    supplied."""
-    candidates = await _gather_reference_candidates(machine, None, machine)
+    caller records it and moves on to the next machine).
+
+    `aliases` (added 2026-07-29): the roster's display name is a flat string
+    (see pipeline_executor._machine_documentary_hold_roster) that, for a
+    ship-class entry, is often an unsearchable glue of a designation-shaped
+    field holding a category/member-ship list plus the class name (e.g.
+    "Lend-Lease escort carriers Attacker class (US-built)"). The CALLER
+    (static_docu.prefetch_roster_references) now derives real aliases from
+    the structured roster entry
+    (pipeline_executor._machine_documentary_hold_roster_entries) — the bare
+    name, the bare designation, and each comma/slash-split member — and
+    passes them through here so _gather_reference_candidates and
+    _vision_confirms can use them for lookup and identification the same
+    way _one_scene's live per-scene path already does. Defaults to None
+    (the pre-alias behavior) so any other caller is unaffected."""
+    candidates = await _gather_reference_candidates(machine, aliases, machine)
     mkey = _machine_key(machine)
     for idx, (cand, trusted) in enumerate(candidates):
         hosted = await _host_reference(cand, video_id, tenant_id, f"roster{roster_index:02d}_{idx}")
         if not hosted:
             continue
-        if await _vision_confirms(tenant_id, hosted, machine, None, trusted_source=trusted):
+        if await _vision_confirms(tenant_id, hosted, machine, aliases, trusted_source=trusted):
             await execute(
                 """INSERT INTO static_reference_cache
                        (tenant_id, machine_key, machine, hosted_url, source_url)
@@ -2044,10 +2054,14 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
 
 async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
     """Roster-time reference prefetch (C3). Reads the video's LOCKED machine
-    roster (pipeline_executor._machine_documentary_hold_roster — the same
-    roster the orchestrator/dashboard/repair endpoints already use) and, for
-    every machine not already in static_reference_cache, runs the full
-    lookup+verify+host+cache chain. Serial per machine, on purpose: _wm_get's
+    roster — via pipeline_executor._machine_documentary_hold_roster_entries,
+    which gates on the exact same conditions as
+    _machine_documentary_hold_roster (the flat-string accessor the
+    orchestrator/dashboard/repair endpoints use) but keeps each entry's
+    derived aliases alongside its UNCHANGED display name (see
+    pipeline_executor._unit_roster_aliases) — and, for every machine not
+    already in static_reference_cache, runs the full lookup+verify+host+
+    cache chain WITH those aliases. Serial per machine, on purpose: _wm_get's
     politeness throttle is a single process-global gate regardless of how
     many machines call it concurrently, so parallelizing here would only
     interleave log lines, not buy real concurrency. One machine's exception
@@ -2060,21 +2074,23 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
     # generate_static_images_for_video call site) — importing at module top
     # either direction would risk a circular import given pipeline_executor's
     # size and reach.
-    from pipeline_executor import _machine_documentary_hold_roster
+    from pipeline_executor import _machine_documentary_hold_roster_entries
 
     video = await fetch_one(
         "SELECT id, render_mode, research_payload FROM videos "
         "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not video:
         return {"status": "failed", "error": "video not found"}
-    roster = _machine_documentary_hold_roster(video)
-    if not roster:
+    entries = _machine_documentary_hold_roster_entries(video)
+    if not entries:
         return {"status": "skipped", "message": "no locked static-docu machine roster"}
 
     await _ensure_ref_cache_schema()
 
     verified, missed = 0, 0
-    for i, machine in enumerate(roster):
+    for i, entry in enumerate(entries):
+        machine = entry["name"]
+        aliases = entry.get("aliases") or []
         mkey = _machine_key(machine)
         try:
             cached = await fetch_one(
@@ -2083,7 +2099,7 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
             if cached:
                 verified += 1
                 continue
-            if await _prefetch_one_machine(tenant_id, video_id, machine, i):
+            if await _prefetch_one_machine(tenant_id, video_id, machine, i, aliases=aliases):
                 verified += 1
             else:
                 missed += 1
@@ -2099,8 +2115,8 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
 
     _logger.info(
         "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d",
-        video_id, len(roster), verified, missed)
-    return {"status": "completed", "roster_count": len(roster),
+        video_id, len(entries), verified, missed)
+    return {"status": "completed", "roster_count": len(entries),
             "verified": verified, "missed": missed}
 
 
