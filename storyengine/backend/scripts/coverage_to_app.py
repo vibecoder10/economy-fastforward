@@ -1930,13 +1930,25 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # board count, and without this a stale failure entry for a beat
             # PAST the new plan's count would survive invisibly and could
             # resurface if the plan later grows back to that beat number.
-            blocks = "\n\n".join(f"--- BEAT {i} ---\n{p}" for i, p in enumerate(prompts, start=1))
-            await execute(
-                "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
-                "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
-                "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
-                "storyboard_5_url=NULL, storyboard_errors=NULL, updated_at=now() WHERE id=$5",
-                directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
+            #
+            # D3-59 (2026-07-28): this write is SKIPPED ENTIRELY when
+            # plan_only — it nulls storyboard_1_url..storyboard_5_url and
+            # storyboard_errors unconditionally, which would blow away
+            # already-drawn, already-paid-for board images on a call meant
+            # to be a zero-spend dry run. plan_only now persists NOTHING;
+            # the plan is returned in the response only. This is safe: the
+            # real draw call (plan_only=False) always recomputes and
+            # persists its own directive/hash/prompts/beat_count from
+            # scratch before it draws anything, so it never depends on a
+            # plan_only call having run first.
+            if not plan_only:
+                blocks = "\n\n".join(f"--- BEAT {i} ---\n{p}" for i, p in enumerate(prompts, start=1))
+                await execute(
+                    "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
+                    "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
+                    "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
+                    "storyboard_5_url=NULL, storyboard_errors=NULL, updated_at=now() WHERE id=$5",
+                    directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
             if plan_only:
                 # PLAN GATE (Ryan, 2026-07-07): stop here — the creator reads
                 # the shot plan in the app, then draws boards one at a time.
