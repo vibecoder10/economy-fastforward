@@ -1,0 +1,49 @@
+STORYBOARD SHEET — SCENE 1 — 9 PANELS  (v3)
+
+This is a storyboard sheet: a grid of 9 panels in 3 columns and 3 rows on a plain light grey page. Each panel is a wide 16:9 cinematic frame — never square, never tall. Every panel uses the same art style: photorealistic cinematic film still, with matching lighting and colour grading throughout. A small plain strip below each panel shows only its panel number and shot type. The panel artwork contains no lettering, signs, speech bubbles, captions or written words of any kind — only the small panel-number label.
+
+CHARACTER — stated once, drawn identically in every panel: Nyla, a young woman with shoulder-length black shaggy hair, wearing a charcoal grey zip-up bodysuit.
+
+TWO LOCATIONS. Each set applies ONLY to the panels marked with it.
+
+POD SET — applies ONLY to panels marked POD: Nyla's glass bubble-pod, a sealed transparent sphere. Upholstered bed frame-LEFT against the curved wall, rounded armchair CENTRE-RIGHT beside a low cylindrical coffee table, desk with storage FAR RIGHT against the curve, circular floor mat CENTRE, potted plant in the upper-LEFT wall niche, small glowing sphere lamp on the coffee table. Cold blue-white LED light from the dome overhead.
+THE HATCH IS A PERMANENT FEATURE OF THIS SPHERE, AND IT IS HUMAN-SIZED: a round door set into the sphere's frame-LEFT curve, its diameter roughly three-quarters of Nyla's standing height — big enough that she climbs through it upright with a duck of the head, NEVER a small porthole she would have to crawl through on her stomach. Its sill sits flush with the metal catwalk walkway that runs directly outside the sphere, so the hatch opens straight onto that walkway at foot level. A small recessed release panel sits beside it. In every panel that shows the sphere from outside, the hatch must be VISIBLE and CLOSED, and the catwalk walkway must be visible passing directly outside its sill, so the audience sees both the door and where it leads before it opens. Never draw the sphere as a seamless unbroken shell.
+These props and this hatch appear ONLY in POD panels.
+
+CORRIDOR SET — applies ONLY to panels marked CORRIDOR: the underground warren. A long metal catwalk running away from camera between towering stacks of cylindrical glass pods, each pod faintly lit from within with a sleeping figure inside; wet reflective floor plating, handrails, vertical cable runs, blue-white glow receding into darkness. These elements appear ONLY in CORRIDOR panels. No bed, armchair, desk, coffee table, rug, plant or lamp ever appears in a CORRIDOR panel.
+
+THRESHOLD — applies ONLY to panels marked THRESHOLD: the same round hatch described in the POD SET, now standing open, showing the lit pod interior on one side and the catwalk on the other. Both sets may appear in a THRESHOLD panel.
+
+SCREEN DIRECTION — holds across the whole sheet: once Nyla is moving she travels frame-RIGHT; the corridor recedes toward a frame-RIGHT vanishing point; key light from above and screen-LEFT. Never mirror or flip a panel.
+
+CAMERA KIT — every panel names its setup. A setup fixes the camera's side of the glass, its height and its distance. The action inside a setup progresses from panel to panel.
+A — WS, camera OUTSIDE the pod at bed height, shooting in through the curved pane: the whole sphere in frame with the dark warren around it, the closed human-sized hatch clearly visible in the sphere's frame-LEFT curve, and the metal catwalk walkway running past its sill in the lower frame; Nyla small inside.
+B — MS, camera INSIDE the pod at her eye height, Nyla in the middle third of the frame.
+C — MCU, camera INSIDE the pod, low and tilted up: her head and shoulders fill the lower two-thirds, the dome curving across the upper third.
+D — INSERT, camera INSIDE the pod, macro-close on one detail, no full figure.
+E — MS THRESHOLD, camera in the CORRIDOR at chest height looking back at the open hatch.
+F — WS CORRIDOR, camera low on the wet catwalk, lens down the tunnel, Nyla small against the vanishing point.
+G — MCU TRAVEL, camera in the CORRIDOR at her eye height moving alongside her, pods streaking behind.
+Panels sharing a setup letter keep that same camera position, height and distance; only her action, expression and the moment advance. She physically moves between locations at the THRESHOLD panel — the fixed-camera rule applies within a location, not across the scene.
+
+DRAW THESE PANELS IN ORDER:
+
+[1] POD · WS · (SETUP A) — Nyla lies on the bed at frame-LEFT, eyes closed, arms at her sides, a small figure inside the lit sphere; the closed human-sized hatch sits in the sphere's frame-LEFT curve, its sill flush with the catwalk walkway that runs past it in the lower frame; the warren's dark pod-stacks frame the sphere on both sides. She occupies roughly a tenth of the frame.
+
+[2] POD · MCU · (SETUP C) — Nyla's face fills the lower two-thirds, eyes just opening, three-quarter to the lens; the cold dome curves across the upper third above her.
+
+[3] POD · MS · (SETUP B) — Nyla stands in the middle third, three-quarter to the lens, one palm flat on the curved glass at frame-RIGHT, lips parted mid-whisper; the empty bed sits behind her at frame-LEFT.
+
+[4] POD · INSERT · (SETUP D) — macro on her hand: fingers splayed flat on the glass, breath-fog blooming around them, the corridor's blue glow smeared beyond the pane. No face in frame.
+
+[5] POD · WS · (SETUP A) — the same camera and same sphere as panel 1, her posture progressed: Nyla now stands at the sphere's frame-RIGHT curve, both palms flat against THAT SAME frame-RIGHT pane she touched in panel 3, facing frame-RIGHT and away from camera, tiny inside the sphere; the bed sits empty at frame-LEFT and the same closed human-sized hatch is still visible in the sphere's frame-LEFT curve with the catwalk walkway running past its sill; the identical warren stacks surround her.
+
+[6] POD · INSERT · (SETUP D) — macro on the recessed release panel beside the round hatch: her fingers pressing it, the indicator light shifting under her fingertips, the hatch's curved metal rim filling the frame edge. No face in frame.
+
+[7] THRESHOLD · MS · (SETUP E) — from the corridor at chest height: the same round hatch now stands open, a seam of escaping air fogging its rim, Nyla climbing through the opening face-to-lens, one foot already down on the catwalk plating; the lit pod interior glows behind her through the hatch.
+
+[8] CORRIDOR · WS · (SETUP F) — camera low on the wet plating: Nyla small and centre-frame, already running away from camera toward the frame-RIGHT vanishing point, her back to the lens, her reflection streaking beneath her; sleeping figures faintly visible inside the pods stacked on both sides.
+
+[9] CORRIDOR · MCU TRAVEL · (SETUP G) — alongside her at eye height, the camera travelling with her down the corridor: the corridor's bright vanishing point is visible past her far shoulder at frame-RIGHT and the pod stacks on both sides converge on that same line; Nyla fills the middle third with her body driving straight along that line toward frame-RIGHT mid-stride, head turned back over her near shoulder so her face is square to the lens, expression set and determined; the pod faces behind her blur into streaks of blue-white light. Her direction of travel and the corridor's vanishing line must read as the same axis.
+
+CONSTRAINTS: one action per panel; never mirror or flip a panel; never swap which side of the frame the bed, armchair, desk or hatch occupies in POD panels; the hatch is the same human-sized door at the same scale and position in every panel that shows it, closed or open; POD props never appear in CORRIDOR panels, and corridor structures appear inside the pod only as blurred shapes seen through the glass; anything a character touches or uses in a later panel must already be visible in that location's earlier wide shots; keep every panel free of readable text except its number label.
