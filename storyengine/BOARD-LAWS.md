@@ -126,6 +126,15 @@ invisible to Ryan even though the wides were fixed: the wide was too wide to rea
 and the over-the-shoulders compress space by design. Prefer converting a
 redundant wide into the two-shot rather than adding a panel.
 
+**L15 — SEPARATE ATTENTION FROM ORIENTATION.** When a character shifts attention
+to another character, state what stays FIXED and what MOVES: the chair, hips and
+knees stay pointed where the wide established them; only head, shoulders and gaze
+turn. Say it as a prohibition too. Scene 2 v3 asked for one speaker "turned
+three-quarter toward him" and the model rotated both bodies and both armchairs
+into a face-to-face dinner-table configuration — breaking the hall's geography,
+since every other panel has the row facing the screen. A partial turn that does
+not name its anchor becomes a full re-staging.
+
 ---
 
 ## Method (Ryan's rule, 2026-07-29)
