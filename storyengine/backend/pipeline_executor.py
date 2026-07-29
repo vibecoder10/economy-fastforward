@@ -11992,11 +11992,28 @@ separate scenes."""
             save_target_script=True,
         )
 
-    async def run_script(self, video_id: str, progress_callback=None) -> dict:
+    async def run_script(self, video_id: str, progress_callback=None,
+                         force_rewrite: bool = False) -> dict:
         """Generate script for a video.
 
         Args:
             video_id: Supabase video UUID
+            force_rewrite: D3-51 — set by the chat follow-up-edit path
+                (actions.make_action_step, only when the "script" verb's
+                confirm card carried an actual change: cfg["edit"] and
+                pending["change"] in routes/chat.py's _run_pending_action)
+                to make an EXPLICIT confirmed rewrite request always take
+                the real generation path below, never the "supplied script
+                verbatim" shortcut. Proven live 2026-07-28 on video
+                686b4651-e495-44be-baf6-97fc6dd527e9: a confirmed chat edit
+                appended text to writer_guidance correctly, then run_script's
+                script_source=='user_supplied' shortcut fired anyway,
+                reported "completed" with cost=0, and never touched the
+                scenes rows — the user's confirmed rewrite was silently
+                discarded while the bot claimed success. A user_supplied
+                video with no pending change (plain re-run, queue/autopilot
+                pass-through) is unaffected — this only overrides the
+                shortcut, it never forces a rewrite nobody asked for.
 
         Returns:
             Dict with status and result
@@ -12048,7 +12065,21 @@ separate scenes."""
             # grading, no gates (user_script.set_user_script already persisted
             # the scenes). This guard also makes re-runs and the queue/autopilot
             # step loop pass straight through the script stage.
-            if (video.get("script_source") or "generated") == "user_supplied" and (video.get("script") or "").strip():
+            #
+            # D3-51: `not force_rewrite` is the fix for the verbatim shortcut
+            # silently eating a CONFIRMED chat follow-up edit. An explicit
+            # user change must always win over "keep using what I gave you
+            # before" — force_rewrite=True (set only by the follow-up-edit
+            # dispatch path) skips this shortcut entirely and falls through
+            # to the real generation below, which reads the just-appended
+            # writer_guidance. A plain re-run with no pending change (the
+            # ordinary queue/autopilot pass-through this guard exists for)
+            # still takes the verbatim path exactly as before.
+            if (
+                (video.get("script_source") or "generated") == "user_supplied"
+                and (video.get("script") or "").strip()
+                and not force_rewrite
+            ):
                 eff_status = self._skip_disabled_next(video, "ready_for_voice")
                 if not is_at_or_past_stage(current_status, eff_status):
                     await self._update_video_status(video_id, eff_status)

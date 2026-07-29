@@ -1647,7 +1647,15 @@ async def _run_pending_action(
     scene = pending.get("scene")
     cfg = COPILOT_ACTIONS[verb]
     # Edit-style verbs apply the creator's change to the stage guidance first.
-    if cfg.get("edit") and pending.get("change"):
+    # D3-51: remember that this dispatch carried a real confirmed change —
+    # threaded through as force_rewrite below so the "script" verb's run
+    # can't take run_script's "supplied script verbatim" shortcut and
+    # silently discard the edit the user just confirmed (proven live on
+    # video 686b4651-e495-44be-baf6-97fc6dd527e9). A plain "write the
+    # script"/"redo it" tap with no change text leaves this False, same as
+    # before.
+    followup_edit_applied = bool(cfg.get("edit") and pending.get("change"))
+    if followup_edit_applied:
         await _apply_followup_edit(
             tenant_id,
             video_id,
@@ -1737,6 +1745,7 @@ async def _run_pending_action(
             scene=scene,
             start_msg=f"On it — {doing}…",
             stage=claim_stage,
+            force_rewrite=followup_edit_applied,
         )
     )
     return f"On it — {doing} now. I'll update you right here."
