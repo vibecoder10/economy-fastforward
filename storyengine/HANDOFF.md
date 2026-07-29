@@ -1,25 +1,25 @@
-# HANDOFF - 2026-07-29 Overnight loop: chat render fixed for real, cohesion law live and proven, $0.50 spent
+# HANDOFF - 2026-07-29 evening. D5 Frame Arbiter arc through A5 merged; cohesion + facing laws live; repair-path anchor fixed
 
 ## State
-- Prod: 845e7daf deployed and healthy; frontend manually rebuilt 07:08Z (BUILD_ID sXOMgj7ceQWaenIDlAgll) after se deploy's silent frontend skip (D3-60); final scroll probe 3/3 PASS
-- Branch: main, pushed. Tonight's worktrees (all merged): d3-52-chat-render, d3-53-cohesion, d3-53c-bridge, d3-59-planonly, t-lane - removable after a three-dot diff check
-- Shipped: D3-52 chat render (anchor scroll -> settle loop -> setInterval hidden-tab-proof; both "prod failures" were the stale bundle), D3-53b+c storyboard cohesion law (causal chain + additive BRIDGE output contract, 2/2 plan proof), D3-59 plan_only true dry run, T3 unpack/approve persistence, T2b real-timecode ruler (DV-5 closed live), T5b clip-failure marker + deriveState precedence fix
-- $1 proof RUN AND PASSED: scene 1 of 686b4651 regenerated under the new law - 10 frames, $0.50, judge verdict COHESIVE (real bridge shot: her own pod visible behind her as she exits). Evidence: tasks/evidence/d3-53-proof/. Money: total_cost 1.55 / max_spend 2.10.
+- Prod: d5cb85cb deployed, healthy. Live on prod: storyboard cohesion law (causal chain + BRIDGE), facing law rule 5g + FACING LOCK, image_prompt truncation fix, plan_only true dry run, D3-52 chat scroll fix (bundle verified by literal after the D3-60 stale-bundle saga), timeline T3/T2b/T5b, D3-65 redraw moment-master anchor fix.
+- Merged on main, NOT yet applied/live (inert until A6): migrations 139 (arbiter_fingerprints) + 140 (frame_qa ledger columns), frame_arbiter.py (one-call scene judge + judge_board_sheet), arbiter_repair.py (board-only repair ladder, FRAME_REPAIR_ENABLED=False lock), A3b eval harness.
+- Money on video 686b4651: total_cost 1.80 / max_spend 2.10. Of Ryan's authorized $1: $0.75 spent ($0.50 cohesion proof, $0.20 failed redraws now serving as the D3-65 repro, $0.05 scene-4 sheet fix - bleed gone, hash-verified), $0.25 left with $0.20 earmarked for the four scene-1 re-rolls.
+- Scene 1 on prod currently holds 4 known-bad frames (101/102/108/109) awaiting re-rolls under the fixed anchor path.
 
 ## Next action (start here cold)
-Ryan's morning decisions: (1) pending chat confirm on 686b4651 ("Do it ~$0.30 / Cancel") - scene-1 pictures were JUST regenerated; Do it re-spends. Recommend Cancel. (2) OpenArt parity chunks D3-55 (collapse turns to one-liners), D3-56 (Undo/Redo/Preview/Export toolbar), D3-57 (inline result card) - pick. (3) D3-60 deploy-tooling fix - small, needs a go since it is deploy tooling.
+Read storyengine/tasks/loop-handoff.md and the D5 section of tasks/loop-checklist.md. Waiting on Ryan: (1) "roll them" - four scene-1 re-rolls, $0.20, recipe DV-6 in deferred-verification.md, judge each vs its labeled defect; (2) A6 go-live quote approval - apply migrations 139/140, feature flag, storyboard-stage hook calling judge_board_sheet then repair_board_finding, re-judge scheduling, ONE-scene live checkpoint (quote the vision+repair cost before running); (3) then A7 Review feed, A8 ruling wire-up, A9 rollout, A3b-2 frames re-exam (108 label re-adjudication with Ryan + cluster-level duplicate scoring).
 
-## Open threads
-- D3-60 (NEW, HIGH): se deploy silent frontend no-op - until fixed, ALWAYS `se deploy <name> --with-frontend` and verify BUILD_ID mtime after
-- (BRIDGE) tag absent from stored image_prompts though the rendered transition is correct - cheap plumbing check owed before trusting the formal contract
-- Scene-1 board GRID (storyboard_1_url) still the old sheet - the coverage-images endpoint draws frames only
-- D3-54 docked co-pilot never hydrates chat history; D3-58 stale env.local guard; D3-42/43 still parked
-- Backend baseline doc correction: test_custom_film_remotion.py = 28 of the 43 baseline failures, not 4
+## Standing laws set this session (all in code/memory, not just prose)
+- Board gate first: judge at the $0.05 storyboard before frames exist (Ryan's ruling, proven same-day: sheet fix $0.05 vs frame fixes $0.20+).
+- Learning ratchet: fingerprint occurrences record at JUDGMENT time only; repairs never write the ratchet; 2nd strike freezes the class and files root-cause instead of spending.
+- Judge every batch with the full director rubric, unprompted - narrow judge briefs miss what Ryan catches in minutes.
+- Frame-level auto-repair FROZEN until the judge passes A3b-2's exam (>=3/3 labeled defects, correct classes).
 
-## Gotchas learned this session
-- `se deploy` MUST get a session-name arg before flags (D3-60): the flag otherwise binds to WHO and the build silently skips while the log looks right
-- requestAnimationFrame AND ResizeObserver never fire in a hidden/backgrounded tab; correctors need setInterval (throttled to 1Hz hidden, still fires)
-- Dev-mode Next timing masks production-build races - verify layout/scroll behavior on `npm run build && npm start`
-- plan_only used to null drawn storyboard URLs (fixed, D3-59); the raw coverage path has NO budget_check (chat layer only)
-- The coverage-images endpoint replaces a scene's frames wholesale (stale 07-28 batch silently swapped out) and never redraws the board grid
-- Subagents refuse relayed money authorization by design - the orchestrator itself executes consent-bearing acts (cap raise, paid trigger)
+## Gotchas (new this session, on top of yesterday's)
+- se deploy REQUIRES a session-name arg before flags (D3-60 open) - bare flags bind to WHO and the frontend build silently skips; verify BUILD_ID mtime or grep a literal in the deployed chunks.
+- Storyboard regen overwrites the SAME Drive file id - URLs never rotate; verify by content hash.
+- redraw-image previously sent no moment-master anchor (fixed, D3-65) - but setup-level (s_ref) anchoring is still not persisted per-asset; watch DV-6's re-rolls for under-anchoring.
+- The still-redraw price is $0.05 at 1k (gpt-image-2); the $0.09 chips in the Director UI are CLIP routing, not still price.
+- Chat scoped single-shot redraw requests resolve to the bulk $0.30 card (D3-61, reproduced twice with the shot chip attached).
+- MCP server in the desktop session is scoped to the WRONG tenant for owner-tenant videos - use the VPS API with the /tmp/se_token bearer directly.
+- Subagents refuse relayed money authorization by design: the orchestrator executes consent-bearing acts (cap raises, paid triggers) with its own hands.
