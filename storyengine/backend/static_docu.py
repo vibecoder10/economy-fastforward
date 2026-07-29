@@ -592,12 +592,20 @@ async def find_wikipedia_lead_images(names: list, limit: int = 3) -> list[str]:
                             # PROVENANCE: an image from the article whose title
                             # matches the designation is near-certainly the
                             # right machine — by-sight naming is not required.
-                            page_tok = re.sub(r"[^a-z0-9]", "",
-                                              (p.get("title") or "").lower())
+                            # C36 fix: this used to be its own raw, unfloored
+                            # `tok in page_tok` substring test — the SAME
+                            # weakness as _page_matches, duplicated here one
+                            # call earlier, so fixing only _page_matches left
+                            # this upstream trust computation still forging
+                            # false matches (e.g. '91' matching 'No. 91
+                            # Squadron RAF'). Now routed through the one
+                            # shared, floored, boundary-anchored helper.
+                            page_title = p.get("title") or ""
                             trusted = any(
-                                t and t in page_tok
-                                for t in (_designation_token(n) for n in names if n))
-                            out.append({"url": src, "page": p.get("title") or "",
+                                _designation_token_in_title(
+                                    _designation_token(n), page_title)
+                                for n in names if n)
+                            out.append({"url": src, "page": page_title,
                                         "trusted": trusted})
                 except Exception:  # noqa: BLE001 — try the next name
                     continue
@@ -912,7 +920,17 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     machine's article (seen live: the 'Covenanter' search returned the
     Crusader tank's lead image). If the page title doesn't share the
     machine's designation token or a significant name word, the provenance
-    guarantee is void and the candidate must pass the strict vision check."""
+    guarantee is void and the candidate must pass the strict vision check.
+
+    C36 fix: the designation-token half of this check used to be a raw,
+    unfloored substring test (`tok in compact_page`, compact_page being the
+    page title with ALL spaces stripped) — verified live to let a roster
+    machine's short digit token ("91" from "HMS Ark Royal (91)") false-match
+    the unrelated Wikipedia article "No. 91 Squadron RAF" (a WWII RAF fighter
+    squadron with its own aircraft photo), because the compacted-title
+    substring test has no length floor and no boundary. Now routed through
+    _designation_token_in_title, shared with find_wikipedia_lead_images so
+    the two checks can't drift apart again."""
     _GENERIC = {"tank", "tanks", "aircraft", "airplane", "plane", "ship",
                 "boat", "submarine", "helicopter", "carrier", "battleship",
                 "destroyer", "cruiser", "frigate", "bomber", "fighter",
@@ -923,11 +941,10 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     norm_page = re.sub(r"[^a-z0-9 ]", "", (page or "").lower())
     if not norm_page:
         return False
-    compact_page = norm_page.replace(" ", "")
     page_words = set(norm_page.split())
     for name in [machine] + list(aliases or []):
         tok = _designation_token(name)
-        if tok and tok in compact_page:
+        if _designation_token_in_title(tok, page):
             return True
         for word in re.sub(r"[^a-z0-9 ]", "", (name or "").lower()).split():
             if len(word) >= 4 and word not in _GENERIC and word in page_words:
@@ -943,6 +960,49 @@ def _designation_token(machine: str) -> str:
         if any(ch.isdigit() for ch in word):
             return re.sub(r"[^a-z0-9]", "", word.lower())
     return re.sub(r"[^a-z0-9]", "", (machine or "").lower())[:12]
+
+
+def _designation_token_in_title(tok: str, title: str) -> bool:
+    """Boundary-anchored, length-floored check: does `_designation_token`
+    output `tok` appear as a standalone alphanumeric unit inside a Wikipedia
+    ARTICLE TITLE `title`? Shared by _page_matches and
+    find_wikipedia_lead_images — the two used to each carry their own raw
+    `tok in compact_title` substring test, and letting them drift apart is
+    exactly how this bug (C36) existed twice over. Deliberately distinct from
+    _commons_title_matches (which judges Commons FILE names, a different
+    string shape — designations glued directly to serial numbers with no
+    natural boundary, e.g. 'XB-35_11-300.jpg' — so it stays a plain substring
+    test with only the length floor).
+
+    Two guards, for two different real collisions:
+
+    1. LENGTH FLOOR (>=3, matching _commons_title_matches): a 2-character
+       digit token ('91' from 'HMS Ark Royal (91)', '95' from 'HMS Hermes
+       (95)') is common enough to appear in almost any page title by chance.
+       Verified live: 'No. 91 Squadron RAF' — a real WWII RAF fighter
+       squadron article with its own aircraft photo — contains '91' as a
+       standalone word, so the roster machine 'HMS Ark Royal (91)' could
+       mark that squadron's photo as trusted.
+
+    2. WORD-BOUNDARY ANCHOR: a floor alone still isn't enough — pennant-
+       number tokens that clear it ('d48' from 'HMS Campania (D48)', 'f61'
+       from an Ark Royal-class carrier) are exactly the numbers the Royal
+       Navy has reused across different eras and ship classes, and a raw
+       substring test also lets a short token match embedded inside a longer
+       unrelated alphanumeric run once the title's spaces are stripped for
+       comparison (no boundary survives that compaction). Anchoring with
+       \\b...\\b requires the token to sit at an actual word edge in the
+       title, so it can never match as a fragment glued inside a bigger,
+       unrelated word/number run. It does NOT guarantee two different ships
+       can never share the exact same short pennant number in Wikipedia's own
+       title text — that residual ambiguity is inherent to a token-only
+       check and is left to the vision-model confirmation layer."""
+    if not tok or len(tok) < 3:
+        return False
+    norm_title = re.sub(r"[^a-z0-9 ]", "", (title or "").lower())
+    if not norm_title:
+        return False
+    return re.search(r"\b" + re.escape(tok) + r"\b", norm_title) is not None
 
 
 def _commons_title_matches(machine: str, aliases: Optional[list], title: str) -> bool:
@@ -1036,15 +1096,36 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
 
     TRUSTED candidates (provenance: the photo appears on the machine's own
     Wikipedia article, or its own filename carries the designation token —
-    see _gather_reference_candidates) do NOT need the model to confirm
-    identification at all — provenance outranks a weak model's guess (a
-    haiku-tier vision model misidentified genuine XB-15/B-21 lead-image
-    photos as "a B-17"/"a B-2" live). Hard rejections (interiors, people/
-    portraits, maps, flat/non-photo media) still apply to trusted candidates
-    — provenance only excuses not being able to name it by sight, never a
-    wrong-media or clearly-wrong-content image. UNTRUSTED candidates still
-    require an explicit YES, and the question is deliberately strict about
-    VARIANT — a modern B-52H photo must NOT pass as the prototype XB-52.
+    see _gather_reference_candidates) do NOT need the model to volunteer a
+    leading YES to confirm identification — provenance excuses a weak
+    model's failure to POSITIVELY name an obscure machine (a haiku-tier
+    vision model misidentified genuine XB-15/B-21 lead-image photos as "a
+    B-17"/"a B-2" live, yet those really were the right machine). Hard
+    rejections (interiors, people/portraits, maps, flat/non-photo media)
+    still apply to trusted candidates — provenance only excuses not being
+    able to name it by sight, never a wrong-media or clearly-wrong-content
+    image.
+
+    C36 fix: provenance is NOT allowed to override an explicit NEGATIVE
+    identification. The old rule ignored the model's YES/NO entirely for
+    trusted candidates and looked ONLY at the hard-reject keyword lists —
+    which meant a reply like "NO, this is a Supermarine Spitfire fighter
+    aircraft, not a ship" contains none of _WRONG_CONTENT_KEYWORDS and was
+    silently treated as a PASS (verified live: this is exactly how a
+    misrouted "No. 91 Squadron RAF" photo would have been hosted and cached
+    forever as "HMS Ark Royal"). A trusted candidate is now rejected when the
+    model's answer explicitly opens with NO, in addition to the existing
+    hard-reject keywords — an ambiguous or uncertain reply that doesn't
+    volunteer a leading NO can still pass (preserving the original intent:
+    provenance excuses a weak/uncertain identification), but an active "NO,
+    this is a different machine" always loses. This does NOT fully close the
+    door on a reused-designation collision the model itself fails to catch
+    (nothing at the text layer can), but it stops discarding a correct
+    negative identification the model DID give us.
+
+    UNTRUSTED candidates still require an explicit YES, and the question is
+    deliberately strict about VARIANT — a modern B-52H photo must NOT pass as
+    the prototype XB-52.
 
     FAILS CLOSED on transport failure: a request that raises or comes back
     with no usable reply text is retried ONCE, then treated as REJECTED (not
@@ -1187,7 +1268,14 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     is_flat = _has_keyword(txt, _FLAT_MEDIA_KEYWORDS)
     wrong = _has_keyword(txt, _WRONG_CONTENT_KEYWORDS)
     if trusted_source:
-        return not is_flat and not wrong
+        # C36 fix: provenance may still excuse the ABSENCE of a leading YES
+        # (a weak model failing to positively name an obscure machine), but
+        # it must never override an explicit leading NO — that's the model
+        # actively telling us this is a different machine, and discarding
+        # that signal is what let a misrouted trusted candidate ("NO, this
+        # is a Supermarine Spitfire ... not a ship") pass silently before.
+        said_no = bool(re.match(r"^\W*no\b", txt))
+        return not said_no and not is_flat and not wrong
     said_yes = bool(re.match(r"^\W*yes\b", txt))
     return said_yes and not is_flat and not wrong
 
