@@ -1,0 +1,52 @@
+T3 evidence — unpack/approve persists across a full page reload.
+
+Method: same local mock backend (scratchpad/t_lane_mock_backend.py, port
+8099) driving the REAL, unmodified TimelineAltitudeView.tsx code in the
+Browser pane. The mock's POST /api/review/storyboard/{script_id}/approve
+handler is the exact same route shape as the real
+backend/routes/review.py::approve_storyboard — reused per the plan's "do NOT
+invent a third approval mechanism" instruction. Zero prod writes (fully
+local mock, no prod traffic).
+
+Video: 22222222-2222-2222-2222-222222222222 ("[T3/T5B DEMO] Unpack, persist,
+failed marker"). Scene 1's script row (id "script-b-1") starts with
+storyboard_status="prompts_ready" (unapproved) in the fixture.
+
+Step 1 — BEFORE (first load): read_page shows
+  button "Storyboard 1 — click to expand" [ref_55]
+  button "Collapse Storyboard 2" [ref_56]
+  button "Collapse Storyboard 3" [ref_57]
+Scene 1 is packed (unapproved); scenes 2 and 3 are ALREADY expanded on load
+because their fixture rows start with storyboard_status="approved" — this
+alone proves the SEEDING half of T3 (an already-approved scene opens
+expanded with zero clicks, first load or reload alike).
+
+Step 2 — click ref_55 ("Storyboard 1 — click to expand").
+Network log (read_network_requests, urlPattern "approve") immediately shows:
+  POST http://127.0.0.1:8099/api/review/storyboard/script-b-1/approve -> 200 OK
+"script-b-1" is exactly scene 1's script row id — proves handleToggle's
+`scriptByScene.get(block.scene).id` wiring reaches the right row, not a
+guess or a scene number.
+UI updates immediately: scene 1 now shows 2 slot tiles (#1 clip, #2 planned)
+— T1's slot states, unaffected.
+
+Step 3 — full page reload (navigate with force:true to
+http://localhost:3021/chat/22222222-2222-2222-2222-222222222222, a real
+fresh GET, no client cache carried over), then click the Timeline tab again
+(altitude tab selection itself is not URL-persisted — out of scope, a
+pre-existing, unrelated fact of this surface).
+read_page now shows:
+  button "Collapse Storyboard 1" [ref_55]   <-- was "click to expand" before
+  button "Collapse Storyboard 2" [ref_56]
+  button "Collapse Storyboard 3" [ref_57]
+Scene 1 is expanded on reload with ZERO clicks — the approve mutation's
+write to storyboard_status genuinely persisted (the mock backend is a fresh
+process with no client-side state; the only way scene 1 renders expanded on
+a brand-new page load is that GET /api/videos/{id}/script now returns
+storyboard_status="approved" for script-b-1, which only happened because
+the POST from step 2 landed and the mock recorded it server-side).
+
+Regression check (T1/T2 untouched): the ruler still reads "Sequence order —
+no real durations yet" throughout (scene 3's failed-clip slot has no
+duration) — same honest all-or-nothing fallback as before this chunk,
+unaffected by the T3 change.
