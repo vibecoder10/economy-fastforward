@@ -1,3 +1,65 @@
+# Loop: static-docu roster reference-photo pipeline
+
+Owner: Ryan. Started 2026-07-29. Orchestrated via maestro.
+
+## Why
+DvsU video d2e37cd6-521a-43aa-a14d-ce096a783c1e ("Every British Aircraft Carrier
+Class Ever Built", tenant ee93e6d1) sat at 0/23 verified reference photos for two
+days. Research on 2026-07-27 built a good 23-ship roster, then failed the roster
+gate on one soft pacing warning ("23 final items vs target around 20"). Because
+the gate failed, run_research returned early at pipeline_executor.py:8078 — and
+dispatch_roster_prefetch sits at :8090, BELOW that return. The photo fetch never
+fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
+17 verified, 6 missed in about 10 minutes.
+
+## Definition of Complete
+1. A roster that saves but fails the gate still fetches its photos automatically,
+   with no human clicking "Re-check missing".
+2. The 6 misses on d2e37cd6 drop to only genuinely-unphotographable machines.
+3. The Roster panel shows live progress during a sweep, never a frozen "0/23".
+4. New rosters produce searchable machine names AND the bomber/aircraft rosters
+   that work today still work.
+5. Roster-gate hard failures (gaps, missing sources) are separated from soft
+   pacing warnings; a count overrun marks needs-review instead of dead-ending.
+6. Never-built machines are a distinct state, not an eternal paste-a-URL row.
+7. Backend suite shows no NEW failures vs baseline (2026-07-26: 43 failed,
+   3359 passed, 1 error).
+
+## Assumptions (stated, not asked)
+- Display names stay byte-identical; static_reference_cache.machine_key is
+  derived from them and 27 prod rows depend on it.
+- Aircraft/bomber roster behaviour is a regression surface, not a target.
+
+## Chunks
+- [ ] C1+C2 (S) [B][V] Backend fetch path: move dispatch_roster_prefetch above
+      the gate early-return; pass real aliases into _gather_reference_candidates
+      from _prefetch_one_machine. Files: backend/pipeline_executor.py,
+      backend/static_docu.py, backend/tests/**. IN FLIGHT.
+- [ ] C6 (S) [U][V] Roster panel live progress + auto-refresh during a sweep.
+      Files: frontend/src/components/production/RosterStagePanel.tsx,
+      possibly backend/routes/pipeline.py. IN FLIGHT.
+- [ ] SWEEP (S) [V] Read-only audit: every consumer of roster `designation`,
+      the research prompt text that defines it, _roster_validation hard-vs-soft
+      conditions, and any existing never-built/no-photo state. IN FLIGHT.
+- [ ] C3 (S) [B][V] Research contract: `designation` becomes a searchable
+      identifier or empty; member units move to their own field. Prompt +
+      repair warning + gate in the same commit (contract-triangle law).
+      BLOCKED ON: SWEEP.
+- [ ] C4 (S) [B][V] Split _roster_validation hard failures from soft pacing
+      warnings. A count overrun sets needs-review, not passed=False.
+      BLOCKED ON: SWEEP.
+- [ ] C5 (S) [B][U][V] Never-built / no-photo-exists state for cancelled
+      programs (e.g. CVA-01). BLOCKED ON: C1+C2 — until aliases land we do not
+      know the real never-built set.
+
+## Lessons
+- Worktree isolation is unavailable when the orchestrating session's cwd is not
+  inside the git repo. Parallel lanes must instead be file-scoped by brief, and
+  workers told never to `git add -A`.
+
+---
+<!-- previous loop below -->
+
 # Loop checklist — Custom Film Remotion showcase layer
 
 ## Active mission — D3 DIRECTOR CHAT IS THE PRODUCT
@@ -804,3 +866,5 @@ Notes / lessons: (append as we learn)
 - [ ] D3-70 (S) [B] FOURTH BOARD LAW - SCALE AND ARRIVAL SURFACE. v2 of the hand-written board prompt scored 8/9 with Ryan (only defect: "the door size in shot five and its location relative to the mezzanine corridor" - the model drew a small porthole low on the sphere that she would have to crawl out of on her stomach, contradicting panel 7 where she climbs through a human-sized opening standing). Cause: the prompt named the hatch's POSITION but never its SCALE or its relationship to the walking surface she arrives on. LAW: any opening or object a character passes through or uses must state (a) its size RELATIVE TO THE CHARACTER ("diameter roughly three-quarters of her standing height - she climbs through upright with a duck, never a porthole she crawls through") and (b) how it meets the surface she arrives on ("sill flush with the catwalk walkway that runs directly outside, so it opens straight onto that walkway at foot level"), and both facts must be repeated in the establishing wides so scale is established before use. Pairs with D3-69's establish-before-use: establishing an element is not enough, its SCALE must establish too. v3 with this fix saved at tasks/evidence/d3-64-fixes/scene1_board_prompt_CORRECTED_v3.txt.
 - [x] BOARD LAWS LOCKED 2026-07-29: storyengine/BOARD-LAWS.md written - L0-L11, the prompt contract the planner must emit. Proven free in 4 ChatGPT rounds on scene 1 with no refs and no env locks: v1 7/9, v2 8/9, v3 9/9 (Ryan: "this is exactly what we want. This is perfect."). L11 (nested frames - specify screen/monitor/mirror content in every panel where visible) added while writing scene 2. Acceptance target for the planner build lane (D3-66..D3-70) = tasks/evidence/d3-64-fixes/scene1_board_prompt_CORRECTED_v3.txt. METHOD LAW: tune prompts with free tools (hand-write, generate in ChatGPT, judge panel by panel, fix words, repeat), escalate to harder scenes deliberately, and only then spend on the real pipeline.
 - [ ] SCENE 2 BOARD v1 written 2026-07-29 for a free ChatGPT round (tasks/evidence/d3-64-fixes/scene2_board_prompt_v1.txt): the hard case - two speakers on a locked axis with matched OTS pairs, plus L11's nested screen showing the warren. FINDING while writing it: the PRODUCTION scene-2 board prompt (also saved, scene2_board_current.txt, 10006 chars) casts THREE elderly elites in navy/burgundy with gold trim, but the script says "a woman in gold" and "an old man" - the board cast does not match the script's own description. Ryan's ruling needed on cast identity; v1 follows the SCRIPT (Gold Woman in a gold gown + Old Man in a dinner suit + three non-speaking elites).
+- [ ] SCENE 2 free round judged 2026-07-29: Ryan approved all 9 panels ("the dress and clothing is actually perfect, the over the shoulder looks really good"), with two defects that became LAWS L12 + L13 in BOARD-LAWS.md. (1) L12 SPECIFY THE POPULATION: the other pod occupants in the screen feed were never specified, the model invented pale sleepwear, and that accident is what made Nyla pop - now authored (grid of pale sleeping figures lying down; Nyla the only dark, standing, awake one). Her own tag WAS specified charcoal grey and the render drifted darker - tolerable at that scale, watch for cross-scene drift. (2) L13 COVERAGE AGREES WITH THE WIDE: the OTS pairs (4, 6) read as the pair sitting close while the wide (5) revealed elites seated between them - fixed by seating GOLD WOMAN and OLD MAN adjacent at the frame-LEFT end of the row, stated in the SET, the wide, and the constraints. v2 saved at tasks/evidence/d3-64-fixes/scene2_board_prompt_v2.txt.
+- [ ] SCRIPT CONTINUITY GAP (Ryan's ruling needed, FREE to fix): scene 1 now ends with Nyla running the corridor AWAY from her pod, but scene 3 opens with "a lens hidden in her ceiling" and scene 4 calls it "her grey pod" - she is back inside with no return beat. Same defect class as the original missing escape. RECOMMENDED FIX (strengthens the theme rather than patching it): the run FAILS - she gets out, runs the warren, finds it has no exit, and returns to her own pod; then she finds the lens. Arc becomes try the door -> there is no door -> find the camera -> realise the only exit is the gaze, which earns scene 6's "whoever holds the gaze, holds the power" instead of asserting it. Do NOT apply without Ryan's word.

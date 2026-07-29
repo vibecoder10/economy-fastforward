@@ -99,6 +99,23 @@ second frame. Specify its content in every panel where it is visible, or the
 content drifts panel to panel. (Added for scene 2, whose building-sized screen
 shows the warren below.)
 
+**L12 — SPECIFY THE POPULATION.** Background people are part of the set. State
+what the crowd, the sleepers, the extras look like, so the hero's contrast is
+authored rather than accidental. In scene 2's screen feed the other pod occupants
+were unspecified; the model invented pale sleepwear, which made Nyla pop — by
+luck. Luck does not repeat across six scenes. Where a hero must stand out, say
+what everyone else looks like and say what makes the hero different (the only
+dark figure, the only one standing, the only one awake).
+
+**L13 — COVERAGE AGREES WITH THE WIDE.** Two-character coverage must be
+consistent with the seating and spacing the establishing wide establishes. An
+over-the-shoulder pair implies the two are adjacent; if the wide then reveals
+people sitting between them, the audience feels the contradiction even when it
+cannot name it. Either seat them adjacent in the wide, or state the compression
+in the setup ("long lens across the row, the intervening figures soft and out of
+focus in the foreground"). Ryan caught this in scene 2 panels 4 and 6 against
+panel 5.
+
 ---
 
 ## Method (Ryan's rule, 2026-07-29)
