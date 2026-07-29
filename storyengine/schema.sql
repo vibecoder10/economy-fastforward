@@ -4204,3 +4204,30 @@ ALTER TABLE custom_film_scene_storyboard_operations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON custom_film_scene_storyboard_runs FROM anon, authenticated;
 REVOKE ALL ON custom_film_scene_storyboard_operations FROM anon, authenticated;
 -- CUSTOM_FILM_SCENE_STORYBOARDS_END
+
+-- D5_A2_ARBITER_FINGERPRINTS_START
+-- migrations/139_arbiter_fingerprints.sql — Frame Arbiter learning-ratchet
+-- memory. See that file's header for the full fingerprint law and RLS
+-- rationale.
+CREATE TABLE IF NOT EXISTS arbiter_fingerprints (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  rule_id TEXT,
+  stage TEXT NOT NULL CHECK (length(stage) > 0),
+  failure_class TEXT NOT NULL CHECK (length(failure_class) > 0),
+  fingerprint_key TEXT GENERATED ALWAYS AS (COALESCE(rule_id, failure_class)) STORED,
+  classification TEXT NOT NULL CHECK (classification IN ('MODEL_DEFECT', 'AUTHORING_DEFECT', 'TASTE_QUESTION')),
+  violation_count INTEGER NOT NULL DEFAULT 1 CHECK (violation_count >= 1),
+  frozen BOOLEAN NOT NULL DEFAULT false,
+  root_cause_finding_id UUID,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, fingerprint_key, stage, failure_class)
+);
+
+CREATE INDEX IF NOT EXISTS arbiter_fingerprints_tenant_frozen_idx
+  ON arbiter_fingerprints (tenant_id, frozen);
+
+ALTER TABLE arbiter_fingerprints ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON arbiter_fingerprints FROM anon, authenticated;
+-- D5_A2_ARBITER_FINGERPRINTS_END
