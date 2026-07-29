@@ -219,6 +219,22 @@ RE-ESTABLISH: a WIDE two-shot reusing SETUP A (the scene's establishing shot) to
 the whole staging — no special tag needed, it's just a repeat of SETUP A at a WIDE size. These are \
 FLOORS, not a rigid schedule: place them where the scene's rhythm earns them, IN ADDITION TO (never \
 instead of) whatever coverage the moment already needs.{motivated_rule}
+5g) THE FACE MUST BE READABLE TO CAMERA ON AN EXPRESSION OR DIALOGUE BEAT (D3-63). A shot only \
+earns a close size (MCU/CU/ECU) when the audience can actually SEE the payload it exists for — the \
+speaking MASTER carrying a LINE, a "(REACTION)" angle, or any close shot whose description reads an \
+emotion off the face (determined, afraid, relieved, dread, and the like). On THOSE shots the face \
+must be legible to the LENS, not merely angled toward the other character or the direction of \
+travel — a runner's cheek and hairline in tight profile is not an expression shot, no matter how \
+close the frame. Two framings satisfy this: (a) FACE-TO-CAMERA / THREE-QUARTER — the face turned \
+enough toward camera that the expression actually reads, even while the eyeline still obeys the \
+axis (rule 5d) or the character is mid-action; or (b) an EXPLICIT LOOK-BACK — the body keeps moving \
+AWAY from camera (running, walking off, turning to leave) but the head turns BACK over the shoulder \
+so the face is square to the lens, spelled out in the description itself, e.g. "sprinting frame-\
+RIGHT, glancing back over her shoulder at the camera, face square to the lens, jaw set." NEVER write \
+a close "expression" shot where the face is simply turned away with no camera-facing or look-back \
+language in it. This does NOT touch movement or screen direction: frame-left/right eyeline stays \
+exactly as the axis line (rule 5d) declares — facing-to-camera is a SEPARATE axis (how much of the \
+face the lens actually sees), layered on top of the eyeline, never a replacement for it.
 7) CONTENT SAFETY — NOTHING SHARP, NOTHING VIOLENT (Ryan's ruling 2026-07-21: sheets and \
 pictures draw on GPT Image 2, whose content filter randomly rejects any composition it can \
 read as threatening — a knife on a counter near two people is enough, proven repeatedly on \
@@ -747,6 +763,92 @@ def _shot_family(shot) -> str | None:
     (C2 item 3) — B and B-CU count as the SAME family: a same-axis size
     change still reads as the camera never moving to a viewer."""
     return _setup_base_id(_setup_id(shot))
+
+
+# Close shot sizes rule 5g (D3-63) treats as expression-carrying BY DEFAULT —
+# an MCU/CU/ECU exists to show a face, so if it isn't tagged (INSERT) it is
+# presumed to be about the face until proven otherwise.
+_CLOSE_SHOT_TYPES = {"MCU", "CU", "ECU"}
+
+
+def _carries_facing_law(moment: dict, shot: dict, is_master: bool) -> bool:
+    """True when a shot structurally carries rule 5g's facing requirement
+    (D3-63): a speaking MASTER (the moment has a LINE), a "(REACTION)" angle,
+    or any close-size (MCU/CU/ECU) shot — UNLESS it's tagged "(INSERT)",
+    which is explicitly a no-faces detail shot (see the INSERT tail two
+    blocks up) and can't violate a face-readability rule it was never
+    subject to. Deterministic and cheap — shared by the FACING LOCK stamp
+    below and check_facing_law_compliance so the two can't silently diverge
+    on which shots the law applies to (same reasoning as plan_moments_
+    deterministic being the ONE shared parse/budget pipeline)."""
+    if _shot_tag(shot) == "INSERT":
+        return False
+    if _shot_tag(shot) == "REACTION":
+        return True
+    if (shot.get("shot_type") or "").upper() in _CLOSE_SHOT_TYPES:
+        return True
+    return bool(is_master and moment.get("line"))
+
+
+# Deterministic cues for check_facing_law_compliance (D3-63). Detecting "the
+# face is actually turned away from the lens" from free prose isn't reliable
+# in general — a shot can say "looking frame-right" while still being
+# three-quarter to camera, and a look-back can be phrased a dozen ways — so
+# this only recognizes the NARROW, high-confidence cases in both directions
+# rather than trying to parse composition from English.
+_FACE_TO_CAMERA_RE = re.compile(
+    r"(?:toward|towards|at|into|square to)\s+(?:the\s+)?camera|"
+    r"three[- ]quarter|camera[- ]facing|facing\s+(?:the\s+)?camera|"
+    r"faces?\s+(?:the\s+)?camera|square to the lens",
+    re.IGNORECASE)
+_LOOK_BACK_RE = re.compile(
+    r"(?:glanc\w*|looks?|looking|turns?|turned|turning|head)\s+back\b|"
+    r"over (?:her|his|their)\s+shoulder\b.{0,40}\bcamera\b|back over (?:her|his|their) shoulder",
+    re.IGNORECASE)
+_EYELINE_AWAY_RE = re.compile(
+    r"looking\s+(?:frame[- ](?:left|right)|away)|back to (?:the\s+)?camera|face(?:d)?\s+(?:turned\s+)?away",
+    re.IGNORECASE)
+
+
+def check_facing_law_compliance(moments: list[dict]) -> int:
+    """Cheap, deterministic drift ALARM for rule 5g (D3-63) — same
+    warning-only pattern as check_prop_manifest_consistency below: NOT a
+    gate, never blocks or rewrites a shot, just logs loudly and counts.
+
+    A hard REJECT gate here was considered and rejected: whether a face
+    actually reads to camera is a composition judgment prose can express in
+    too many ways for a keyword scan to adjudicate reliably (see the D3-62/
+    D3-63 chunk note) — a false-positive block would stall real generations
+    over a wording choice, not a real facing bug. So this flags only the
+    narrow, high-confidence case: a shot that structurally carries the
+    moment's expression (_carries_facing_law) whose text has an eyeline-
+    or-away-only cue (_EYELINE_AWAY_RE) and NO face-to-camera or explicit
+    look-back cue anywhere. MUST run on the freshly-parsed description
+    BEFORE the SET/AXIS/STAGING/SEQUENCE/FACING lock tails are appended —
+    every shot's axis tail routinely contains "looking frame-RIGHT"
+    boilerplate, which would otherwise trip this on every single shot in
+    the scene.
+
+    Returns the number of shots flagged. 0 when every expression/dialogue
+    shot either has no eyeline-away cue or already pairs it with a face-to-
+    camera/look-back cue."""
+    warnings = 0
+    for m in moments:
+        shots = [(m["master"], True)] + [(a, False) for a in (m.get("angles") or [])]
+        for shot, is_master in shots:
+            if not _carries_facing_law(m, shot, is_master):
+                continue
+            desc = shot.get("description") or ""
+            if _FACE_TO_CAMERA_RE.search(desc) or _LOOK_BACK_RE.search(desc):
+                continue
+            if _EYELINE_AWAY_RE.search(desc):
+                warnings += 1
+                role = "MASTER" if is_master else "ANGLE"
+                print(f"  ⚠️ facing law check: moment {m.get('moment_number')} {role} "
+                      f"({shot.get('shot_type')}) reads as an expression/dialogue shot but its "
+                      f"description has no face-to-camera or look-back cue — worth a human "
+                      f"glance, not a hard failure", flush=True)
+    return warnings
 
 
 def _flatten_shots(moments: list) -> list[dict]:
@@ -2019,6 +2121,13 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     if not moments:
         return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
 
+    # FACING LAW drift ALARM (rule 5g, D3-63) — warning-only, same reasoning as
+    # check_prop_manifest_consistency below. MUST run here, on the freshly
+    # parsed descriptions, before any lock tail below is appended (the axis
+    # tail alone puts "looking frame-RIGHT" on every shot in the scene, which
+    # would otherwise swamp this check with false positives).
+    check_facing_law_compliance(moments)
+
     # SET-DRESSING LOCK: the planner declares the scene's fixed props once on the
     # [SET | ...] line; stamp it into EVERY shot's image prompt. Per-shot prompts
     # that stay silent about props let the image model invent them — observed
@@ -2070,6 +2179,27 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
             for a in m.get("angles") or []:
                 a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
         print("  📷 staging/setup lock applied to every shot", flush=True)
+
+    # FACING LOCK (rule 5g's contract-triangle repair leg, D3-63): a shot
+    # that structurally carries the moment's expression (_carries_facing_law
+    # — a speaking master, a (REACTION) angle, or any MCU/CU/ECU) gets the
+    # facing requirement stamped into its OWN draw prompt, not just left to
+    # the planner's memory of rule 5g. Same reasoning as the SEQUENCE LOCK
+    # below: assets.image_prompt is stamped verbatim from this same text, so
+    # a later manual redraw_asset_image repair call inherits the requirement
+    # too instead of silently losing it.
+    facing_tail = ("Facing lock: this shot's expression is the point — the face must be readable "
+                   "to the lens (face-to-camera/three-quarter, or an explicit look-back with the "
+                   "head turned to camera) even as movement or axis eyeline holds; never a shot "
+                   "where the face is simply turned away.")
+    n_facing = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            if _carries_facing_law(m, shot, shot is m["master"]):
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {facing_tail}"
+                n_facing += 1
+    if n_facing:
+        print(f"  🙂 facing lock applied to {n_facing} expression/dialogue shot(s)", flush=True)
 
     # SEQUENCE LOCK (D3-53b, rule 4b's contract-triangle repair leg): every
     # per-shot draw prompt below is stamped from moments[i]["master"/"angles"]

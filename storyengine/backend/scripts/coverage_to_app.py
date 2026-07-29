@@ -533,7 +533,22 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',"
                 "$15,$16,$17,$18,$19,$20,$21)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
-                summary[:500], (fr.get("description") or "")[:1000], fr.get("shot_type") or "",
+                # D3-62: image_prompt used to be hard-sliced to 1000 chars here —
+                # a copy-paste of the short-bio [:1000] convention used elsewhere
+                # in this codebase (character/environment description fields),
+                # applied to the WRONG kind of text. Those are short human-authored
+                # bios; this is the full per-shot draw prompt with every SET/AXIS/
+                # STAGING/SEQUENCE/FACING lock tail appended (coverage.py) — often
+                # well over 1000 chars, and the cut landed mid-word INSIDE a lock's
+                # tail on live rows (S-01.107-109, video 686b4651: all three exactly
+                # 1000 chars, cut mid-word). assets.image_prompt is documented
+                # (coverage.py's SEQUENCE LOCK comment) as the VERBATIM base prompt
+                # a later manual redraw reuses — a silently truncated lock tail is a
+                # verbatim-storage bug, not a size limit: the assets.image_prompt
+                # column is unbounded TEXT (migrations/000_baseline_schema.sql), so
+                # there was never a DB constraint requiring this slice. Store the
+                # full prompt.
+                summary[:500], fr.get("description") or "", fr.get("shot_type") or "",
                 title, aspect, url, url, is_master, assigned, location_id,
                 fr.get("camera_move"),  # camera engine plan: "move_id|PURPOSE" or "static"
                 fr.get("image_model"),  # WHICH model actually drew this frame (image_model_router)

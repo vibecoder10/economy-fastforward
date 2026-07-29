@@ -27,7 +27,7 @@ from storyboard.coverage import (  # noqa: E402
     plan_moments_deterministic, run_coverage, parse_setups_line,
     _parse_setup_kit, _facing_family, _no_people_families,
     _insert_subject_hint, _insert_desc_violation, _INSERT_FRAMING_CLAUSE,
-    _INSERT_FALLBACK_SUBJECT,
+    _INSERT_FALLBACK_SUBJECT, _carries_facing_law, check_facing_law_compliance,
 )
 
 SAMPLE = """\
@@ -1459,6 +1459,195 @@ def test_board_anchor_applies_when_no_ground_truth_is_available():
     assert m["angles"][0].get("board_panel") == 2
 
 
+# =============================================================================
+# D3-63: rule 5g — the face must be readable to camera on an expression/
+# dialogue beat. Reproduces the live bug: video 686b4651 shot S-01.108, an
+# eye-level MCU whose emotional payload IS the face ("face set and
+# determined") written with the face turned away, pure profile, from the
+# axis eyeline alone.
+# =============================================================================
+
+def test_facing_law_rule_present_and_structural():
+    """The prompt actually states rule 5g: both legal framings (face-to-
+    camera/three-quarter, and the explicit look-back geometry), and the
+    explicit ban on a close 'expression' shot with the face just turned
+    away — without weakening rule 5d's axis/eyeline law."""
+    from shared.channel_profile import load_profile
+    profile = load_profile({})
+    prompt = _coverage_system_prompt(profile, max_moments=8, angles_min=2, angles_max=4)
+
+    assert "5g)" in prompt
+    rule_5g_start = prompt.index("5g)")
+    rule_5g_text = prompt[rule_5g_start: prompt.index("\n7)", rule_5g_start)]
+
+    assert "READABLE TO CAMERA" in rule_5g_text
+    assert "FACE-TO-CAMERA" in rule_5g_text and "THREE-QUARTER" in rule_5g_text
+    assert "LOOK-BACK" in rule_5g_text and "over the shoulder" in rule_5g_text.lower()
+    assert "NEVER write a close" in rule_5g_text
+    assert '"(REACTION)"' in rule_5g_text  # ties to rule 5f's tag, not a fresh vocabulary
+
+    # must not weaken the axis/eyeline law rule 5d still owns.
+    assert "rule 5d" in rule_5g_text
+    assert "5d) THE 180-DEGREE RULE — THE CAMERA NEVER CROSSES THE AXIS" in prompt
+    assert "frame-left/right eyeline stays exactly as the axis line" in rule_5g_text.lower() \
+        or "frame-left/right eyeline stays exactly" in rule_5g_text
+
+
+def test_carries_facing_law_identifies_structural_expression_shots():
+    """(_carries_facing_law) the shared detector both the FACING LOCK stamp
+    and check_facing_law_compliance use: REACTION angles, close sizes
+    (MCU/CU/ECU), and a speaking master all carry the law; a plain WS
+    establishing master and any INSERT (even a close one) never do."""
+    speaking_moment = {"line": "One day, I will see the real sky."}
+    silent_moment = {"line": None}
+
+    reaction_shot = {"shot_type": "MCU", "description": "(SETUP C)(REACTION) MCU on Vanessa listening."}
+    assert _carries_facing_law(silent_moment, reaction_shot, is_master=False) is True
+
+    close_shot = {"shot_type": "CU", "description": "(SETUP C) NEUTRAL CU on Nyla's hand and face."}
+    assert _carries_facing_law(silent_moment, close_shot, is_master=False) is True
+
+    ecu_shot = {"shot_type": "ECU", "description": "(SETUP C) ECU on Nyla's eyes."}
+    assert _carries_facing_law(silent_moment, ecu_shot, is_master=False) is True
+
+    speaking_master = {"shot_type": "MCU", "description": "(SETUP B) MCU on Nyla speaking her line."}
+    assert _carries_facing_law(speaking_moment, speaking_master, is_master=True) is True
+
+    # A close size (MCU/CU/ECU) is presumed a face shot BY DEFAULT — reliably
+    # detecting "this specific close shot's text happens to name an emotion"
+    # from free prose isn't feasible (same reasoning check_facing_law_
+    # compliance's docstring gives for not hard-gating), so any non-INSERT
+    # close shot carries the law even with no LINE and no emotion word.
+    silent_master_close_no_line = {"shot_type": "MCU", "description": "(SETUP B) MCU, no line here."}
+    assert _carries_facing_law(silent_moment, silent_master_close_no_line, is_master=True) is True
+
+    # A WIDE or medium (non-close) silent, non-speaking, non-REACTION shot
+    # never carries it — the law is scoped to close/expression sizes only.
+    wide_master = {"shot_type": "WS", "description": "(SETUP A) WS pod interior, establishing."}
+    assert _carries_facing_law(silent_moment, wide_master, is_master=True) is False
+    medium_angle = {"shot_type": "MS", "description": "(SETUP A) MS two-shot, both characters."}
+    assert _carries_facing_law(silent_moment, medium_angle, is_master=False) is False
+    # A non-close ANGLE never carries it even mid-dialogue moment — only the
+    # speaking MASTER does (the LINE lives on the master, per rule 5).
+    ots_angle_in_speaking_moment = {"shot_type": "OTS", "description": "(SETUP B) OTS over Ryan onto Nyla."}
+    assert _carries_facing_law(speaking_moment, ots_angle_in_speaking_moment, is_master=False) is False
+
+    # INSERT wins even on a close size — an insert has no face by definition
+    # (see the INSERT tail: "no faces visible, detail only").
+    insert_cu = {"shot_type": "CU", "description": "(SETUP E)(INSERT) Insert on the control panel."}
+    assert _carries_facing_law(silent_moment, insert_cu, is_master=False) is False
+
+
+def test_facing_law_compliance_flags_the_live_bug_pattern():
+    """check_facing_law_compliance must flag the EXACT live pattern (video
+    686b4651 shot S-01.108, quoted verbatim from the plan's own directive):
+    an MCU whose text reads an emotion off the face ("face set and
+    determined") but whose only orientation cue is a bare axis eyeline
+    ("looking frame-right as she runs") — no face-to-camera or look-back
+    language anywhere."""
+    moments = [_moment(
+        1, "MCU",
+        "(SETUP E) MCU tracking at Nyla's eye level — Nyla (shoulder-length black shaggy hair, "
+        "charcoal gray zip-up bodysuit) fills frame-left, face set and determined, looking "
+        "frame-right as she runs; the pod columns blur into streaks of blue-white light behind "
+        "her right shoulder, metal railings strobing past, her breath coming fast.",
+    )]
+    assert check_facing_law_compliance(moments) == 1
+
+
+def test_facing_law_compliance_passes_an_explicit_look_back():
+    """The SAME running beat, rewritten to satisfy rule 5g's look-back
+    option, must NOT be flagged."""
+    moments = [_moment(
+        1, "MCU",
+        "(SETUP E) MCU tracking at Nyla's eye level — Nyla fills frame-left, sprinting frame-"
+        "RIGHT, glancing back over her shoulder at the camera, face square to the lens, jaw set "
+        "and determined; the pod columns blur into streaks of blue-white light behind her.",
+    )]
+    assert check_facing_law_compliance(moments) == 0
+
+
+def test_facing_law_compliance_passes_face_to_camera_framing():
+    """A dialogue master phrased as face-to-camera/three-quarter (rule 5g
+    option a) must not be flagged even though the axis tail elsewhere in a
+    real prompt would also mention a frame-left/right eyeline."""
+    moments = [_moment(
+        1, "MCU", "(SETUP B) MCU, Nyla three-quarter to camera at the glass wall, her palm flat "
+        "against the surface, lips moving with the whispered line.",
+        speaker="Nyla", line="One day, I will see the real sky.",
+    )]
+    assert check_facing_law_compliance(moments) == 0
+
+
+def test_facing_law_compliance_ignores_insert_and_wide_shots():
+    """An INSERT (no faces by definition) and a plain WS establishing master
+    with no line are never carriers, even when their prose happens to say
+    'looking away' or 'looking frame-right' — the law doesn't apply to them
+    at all, so this must never false-positive on set/prop/establishing
+    prose."""
+    moments = [_moment(
+        1, "WS", "(SETUP A) WS pod interior, Nyla lying on the bed, eyes closed, facing away "
+        "from the door.",
+        angles=[{"shot_type": "INSERT",
+                 "description": "(SETUP E)(INSERT) Insert on the control panel, looking frame-"
+                                 "right toward the corridor, no faces visible, detail only."}],
+    )]
+    assert check_facing_law_compliance(moments) == 0
+
+
+def test_facing_law_compliance_never_raises_on_empty_or_missing_fields():
+    """Warning-only ALARM, same contract as check_prop_manifest_consistency
+    — must be safe to call on minimal/legacy shot dicts, never raise."""
+    assert check_facing_law_compliance([]) == 0
+    minimal = [{"moment_number": 1, "summary": "x", "master": {"shot_type": None, "description": None},
+                "angles": [], "speaker": None, "line": None}]
+    assert check_facing_law_compliance(minimal) == 0
+
+
+def test_run_coverage_facing_lock_applied_to_expression_shots(tmp_path):
+    """(D3-63 repair leg) run_coverage's FACING LOCK tail — the SEQUENCE
+    LOCK-pattern stamp that carries rule 5g into the shot's OWN stored draw
+    prompt, so a later manual redraw inherits it too: a speaking MCU master
+    and a (REACTION) angle both get the 'Facing lock:' tail; a plain WS
+    establishing master and an (INSERT) angle never do."""
+    directive = (
+        "[MOMENT 1 | Nyla wakes]\n"
+        "- MASTER [WS]: (SETUP A) WS pod interior establishing shot, Nyla asleep on the bed.\n"
+        "\n"
+        "[MOMENT 2 | Nyla whispers her wish]\n"
+        'LINE: Nyla | "One day, I will see the real sky."\n'
+        "- MASTER [MCU]: (SETUP B) MCU on Nyla at the glass wall, delivering her line.\n"
+        "- ANGLE [MCU]: (SETUP C)(REACTION) MCU reaction, listening.\n"
+        "- ANGLE [INSERT]: (SETUP E)(INSERT) Insert on the control panel, no faces visible.\n"
+    )
+
+    async def _fake_frames(moment, cast_url, image_client, profile=None, env_url=None,
+                           aspect="16:9", resolution="1K", sem=None, model_override=None,
+                           setup_anchors=None):
+        frames = [{"role": "master", "shot_type": moment["master"]["shot_type"],
+                  "description": moment["master"]["description"], "url": "https://img/m.png"}]
+        for a in moment.get("angles") or []:
+            frames.append({"role": "angle", "shot_type": a["shot_type"],
+                           "description": a["description"], "url": "https://img/a.png"})
+        return frames
+
+    outdir = str(tmp_path)
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames)), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and whispers her wish", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=directive,
+            max_moments=10, angles_max=4, max_frames=None,
+        ))
+    assert not out.get("error"), out
+    m1, m2 = out["moments"][0], out["moments"][1]
+    assert "Facing lock:" not in m1["master"]["description"]  # plain WS establishing, no facing law
+    assert "Facing lock:" in m2["master"]["description"]  # speaking MCU master
+    assert "Facing lock:" in m2["angles"][0]["description"]  # (REACTION) angle
+    assert "Facing lock:" not in m2["angles"][1]["description"]  # (INSERT) angle, exempt
+
+
 if __name__ == "__main__":
     test_parses_two_moments()
     test_parses_no_bracket_and_multiword_shot_types()
@@ -1500,4 +1689,12 @@ if __name__ == "__main__":
     test_board_anchor_skips_on_legacy_panel_count_mismatch()
     test_board_anchor_applies_normally_on_matching_panel_count()
     test_board_anchor_applies_when_no_ground_truth_is_available()
+    test_facing_law_rule_present_and_structural()
+    test_carries_facing_law_identifies_structural_expression_shots()
+    test_facing_law_compliance_flags_the_live_bug_pattern()
+    test_facing_law_compliance_passes_an_explicit_look_back()
+    test_facing_law_compliance_passes_face_to_camera_framing()
+    test_facing_law_compliance_ignores_insert_and_wide_shots()
+    test_facing_law_compliance_never_raises_on_empty_or_missing_fields()
+    test_run_coverage_facing_lock_applied_to_expression_shots()
     print("ok — coverage parser + cast-builder self-checks passed")
