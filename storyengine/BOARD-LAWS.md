@@ -166,6 +166,16 @@ crowds, multi-location action.
 
 Every defect found this way is a *law*, not a fix for one scene.
 
+**Keep the best-known-good, and be willing to regress to it.** Ryan's rule during
+the scene-2 rounds: "if this gets any worse, we need to regress back to the one
+that I said I didn't see the two people together — I would actually call that
+good." Every version is saved and committed so a revert is one command, never a
+rewrite. Iteration is only progress while each round is better than the last
+KNOWN-GOOD version, not merely better than the previous attempt — two of scene
+2's later defects were introduced by fixes, so forward motion is not automatically
+improvement. When a round regresses, revert and re-approach; do not iterate
+forward from a worse state.
+
 ## Status
 
 These laws are proven in prose and NOT yet implemented in the planner. The build
