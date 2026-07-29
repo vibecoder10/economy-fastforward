@@ -829,3 +829,60 @@ generation, no video/scene was touched or regenerated.
   `curl -H "Authorization: Bearer <DEV_TOKEN value>" http://127.0.0.1:8020/api/videos/973c9bd6-1fc7-43d8-802a-83a743a48d66/assets`
   and confirm `video_duration`/`assigned_video_duration` appear with real numbers in the
   JSON. Expected result: matches the `se db` values already confirmed above.
+
+### DV-6: D3-65's fix (redraw now anchors a non-master shot on its moment's master frame) — 4 real re-rolls, $0.05 each
+
+- Why deferred: the chunk is capped at $0 (code diagnosis + fix + unit tests only). The
+  fix is proven at the code level (field-identical-to-coverage assembly, unit-tested,
+  stash-proofed — see the D3-65 report) but NOT yet proven on real pixels. This is the
+  orchestrator's call to spend the $0.20.
+- Mechanism being tested: `redraw_asset_image` (`storyengine/backend/scripts/coverage_to_app.py`)
+  now looks up the nearest EARLIER `hero_shot=true` row in the same
+  (`video_id`, `tenant_id`, `scene`) — that row IS the failed shot's moment's master frame
+  — and attaches its `image_url` as a reference (`cast_refs + [master_url] + env_refs`,
+  matching `generate_coverage_frames`' `angle_base` exactly) plus the `_SAME_SUBJECT` text
+  guard in the prompt. Before the fix, a non-master redraw got only `cast_refs + env_refs`
+  — no shot-specific photo anchor — and regressed toward the scene's one generic
+  environment reference regardless of its own correct, full-length text.
+- Fixture: video `686b4651-e495-44be-baf6-97fc6dd527e9`, scene 1. Masters at image_index
+  100/103/107 (hero_shot=true) are untouched and correct — do NOT redraw them. The four
+  broken angles are 101, 102, 108, 109 (all hero_shot=false), saved "before" at
+  `storyengine/tasks/evidence/d3-64-fixes/S-01.101/102/108/109.png` with untouched
+  neighbors in `context/`.
+- Recipe (run from the deployed/merged code, NOT this worktree — this branch is
+  uncommitted-to-main by design):
+  1. Confirm current DB state per asset first: `se db "SELECT image_index, hero_shot,
+     image_url FROM assets WHERE video_id='686b4651-e495-44be-baf6-97fc6dd527e9' AND
+     scene=1 ORDER BY image_index"` — the 4 target rows' `image_url` should still be the
+     failed-redraw pixels (or whatever they were last set to); masters 100/103/107 must
+     show real, non-null `image_url`s (the fix silently no-ops to the pre-fix behavior if
+     a moment's master row is missing or has a null `image_url` — that's an acceptable
+     fallback, not a bug, but it must not be the reason a re-roll "passes").
+  2. One `POST /api/pipeline/redraw-image/{video_id}?asset_id=<id>` call per asset
+     (owner token), same as the original failed run — 101, 102, 108, 109, one at a time or
+     as `asset_ids=101,102,108,109` in a single call (both paths go through
+     `redraw_asset_image` per-asset). Cost: 4 × $0.05 = $0.20 (GPT Image 2 @ 1K, unchanged
+     by this fix).
+  3. Judge each redrawn frame against its ORIGINAL labeled defect, not against a vague
+     "looks better":
+     - **101**: must show an MCU **through the glass** (per SETUP B's own prompt head),
+       NOT a repeat of frame 100's WIDE pod-interior composition.
+     - **102**: must show a **NEUTRAL ECU on Nyla's eyes alone** (per SETUP C's prompt
+       head), NOT a medium/wider shot that includes the bed.
+     - **108**: must be a **corridor** shot (SETUP E, following master 107's corridor
+       establishing shot), NOT the pod bedroom — facing/expression was already correct
+       before, so judge location only.
+     - **109**: must show **Moment 3's receding-tunnel/corridor beat** (SETUP D, same
+       setup as master 107), NOT Moment 2's hand-on-glass beat (that's asset 104's
+       content, a different moment entirely).
+  4. Pass criteria for the chunk: all 4 redraws land the correct SETUP-tagged composition
+     AND correct location for their own moment — 4/4, not "improved but still off." A
+     partial pass (e.g. 3/4 correct) means the master-anchor fix is real but insufficient
+     alone (candidate next layer: the SETUP anchor for same-setup repeats — 109 shares
+     SETUP D with its own master 107, so it already gets fully covered by this fix; but a
+     shot whose setup differs from its moment's master's setup, e.g. an INSERT under a
+     different SETUP letter, only gets the moment-master photo, not a same-setup one —
+     watch for that specific pattern in the judged results before scoping a follow-up).
+  5. Record the actual before/after frames under
+     `storyengine/tasks/evidence/d3-65-fixes/` (mirroring the `d3-64-fixes/` layout this
+     chunk's repro evidence already uses) so the judgment is reviewable, not just narrated.

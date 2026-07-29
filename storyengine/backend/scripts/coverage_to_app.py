@@ -82,6 +82,11 @@ from storyboard.coverage import (  # noqa: E402
     parse_set_dressing, parse_axis_line, parse_setups_line, panels_per_sheet_for,
     sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
     plan_moments_deterministic,
+    # D3-65: the SAME "this is the master's moment, different camera" guard
+    # generate_coverage_frames appends to every ANGLE prompt alongside the
+    # master frame's own url as a reference — see redraw_asset_image below
+    # for why a redraw needs this too (never re-authored, the proven text).
+    _SAME_SUBJECT,
     # C8 fix (a): the SAME ratios enforce_reaction_insert_floors uses to decide
     # how many reaction/insert/re-establish shots a scene needs — imported
     # (never re-guessed) so _coverage_shape's pure-dialogue headroom always
@@ -2198,7 +2203,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
                 pass
 
     a = await fetch_one(
-        "SELECT a.id, a.scene, a.image_index, a.image_prompt, "
+        "SELECT a.id, a.scene, a.image_index, a.image_prompt, a.hero_shot, "
+        "a.generation_method, "
         "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
         "v.image_style_override, v.visual_style "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
@@ -2263,6 +2269,48 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this
         _p(f"  (no location lock for this redraw: {str(env_err)[:80]})")
 
+    # MOMENT-MASTER ANCHOR (D3-65): the fix for "the redraw repair path draws
+    # the wrong picture, systematically". generate_coverage_frames NEVER draws
+    # an angle on cast+env alone — every angle's reference list is
+    # `cast_refs + [master_url] + env_refs` (angle_base, coverage.py) PLUS
+    # _SAME_SUBJECT stamped into its prompt ("this is the SAME moment from a
+    # different camera... match the staging and setting of the attached
+    # reference exactly"). redraw_asset_image only ever sent cast_refs +
+    # env_refs — no photo anchoring a non-master shot to ITS OWN moment's
+    # composition/location, just a photo of the character(s) and ONE generic
+    # per-scene environment reference (the same env photo for every shot in
+    # the scene, master or angle, correct location or not — see
+    # _match_scene_env above). Proven live on 686b4651 scene 1: all four
+    # failed redraws (S-01.101/102/108/109) were non-master angles (hero_shot
+    # =false); the untouched masters (100/103/107) were never redrawn and
+    # stayed correct. Without the master photo, a non-master redraw had
+    # nothing pulling it toward its own moment's specific staging — it
+    # regressed toward the one generic reference photo it DID have (the
+    # scene's single env shot, sometimes the wrong location entirely for a
+    # multi-location scene, e.g. 108/109's corridor moment vs. the scene's
+    # only approved env being the pod interior) and drew a generic, wrong
+    # composition even though its own stored prompt was full-length and
+    # correct. Reconstructing the master: coverage rows are inserted
+    # master-then-its-angles per moment in ascending image_index order
+    # (store_scene), so the nearest EARLIER hero_shot row in this same scene
+    # IS this shot's moment's master — the exact frame angle_base anchors on
+    # at draw time. hero_shot is scoped to generation_method='coverage' since
+    # that master/angle block ordering is a coverage-path invariant, not a
+    # promise other generation methods make for the column.
+    master_refs, master_note = [], ""
+    if not a.get("hero_shot"):
+        try:
+            mrow = await fetch_one(
+                "SELECT image_url FROM assets WHERE video_id=$1 AND tenant_id=$2 AND scene=$3 "
+                "AND generation_method='coverage' AND hero_shot=true AND image_index<$4 "
+                "AND image_url IS NOT NULL ORDER BY image_index DESC LIMIT 1",
+                video_id, tenant_id, a["scene"], a["image_index"])
+            if mrow and mrow.get("image_url"):
+                master_refs = [mrow["image_url"]]
+                master_note = _SAME_SUBJECT
+        except Exception as master_err:  # noqa: BLE001 — redraw must never die on this
+            _p(f"  (no moment-master anchor for this redraw: {str(master_err)[:80]})")
+
     model_override = a.get("image_model_override")
     _p(f"Redrawing S{a['scene']}.{a['image_index']} ({model_override or 'GPT Image 2'})…")
     # Fresh box per call (checklist C16c) — this is a single-image redraw,
@@ -2273,9 +2321,12 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # would contradict it — use the hygiene-only block (same split the batch
     # path uses in storyboard.coverage.generate_coverage_frames).
     _style_block = _STYLE_LOCK_HYGIENE if style_prefix else _STYLE_LOCK
+    # Reference + prompt ORDER now mirrors generate_coverage_frames' angle_base
+    # + prompt assembly exactly: cast_refs + [master_url] + env_refs, and
+    # style_prefix + composition + _SAME_SUBJECT + style_block + env_note.
     url, model_used = await generate_scene_image_for_model(
-        ic, model_override, style_prefix + prompt + _style_block + env_note,
-        reference_urls=cast_refs + env_refs,
+        ic, model_override, style_prefix + prompt + master_note + _style_block + env_note,
+        reference_urls=cast_refs + master_refs + env_refs,
         aspect_ratio=a["aspect"], task_id_out=task_id_box)
     if not url:
         return {"status": "failed", "error": "image generation failed"}
