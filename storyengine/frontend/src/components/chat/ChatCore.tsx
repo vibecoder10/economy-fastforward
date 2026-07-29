@@ -581,31 +581,53 @@ export function ChatCore({
     hasUserScrolledRef.current = false;
     if (!el) return; // container isn't mounted yet (checking/welcome branch) — nothing to do
     toBottom();
-    // D3-52 follow-up: keep re-anchoring every animation frame — driven by
-    // the ACTUAL scrollHeight settling, not a guessed delay — because
+    // D3-52 bounce 2 (root cause instrumented on a PRODUCTION build):
+    // this loop used to be `requestAnimationFrame`-scheduled. Proven dead —
+    // not just throttled, dead — the instant this tab isn't the foreground/
+    // visible one: a raw rAF probe (`requestAnimationFrame` re-armed on
+    // itself, counted) logged 0 fires over 11.8 real seconds while
+    // `document.hidden` was true, and a `ResizeObserver` on this exact
+    // container, watched across a forced 500px DOM height change, ALSO
+    // logged 0 fires — both are gated to the rendering/compositing pipeline,
+    // which a backgrounded tab never runs. `setTimeout`, by contrast, kept
+    // firing in the same probe (event-loop-scheduled, not render-pipeline-
+    // scheduled). That fully explains the prod-build failure signature
+    // (scrollTop pinned at EXACT max): the one synchronous
+    // "effect-immediate" `toBottom()` call above computed its target before
     // ChatPipelineMap / ScriptResultCard / CastLocationsCard /
-    // StoryboardGridCard each run their own separate network fetch
-    // unrelated to `messages`, so layout can keep growing for well over a
-    // second after this effect fires (measured live: scrollHeight still
-    // climbing 3.7s after mount against the real prod API). Stops once
-    // scrollHeight has held for ~20 frames (~1/3s) of no change, is capped
-    // at 6s so a pathological page can't spin forever, or the moment the
-    // creator actually scrolls (wheel/touch — see setMessagesScrollEl).
-    let stableFrames = 0;
-    let lastHeight = el.scrollHeight;
-    let rafId = 0;
+    // StoryboardGridCard's own network fetches had grown the layout, and the
+    // rAF "corrector" meant to re-anchor as they resolved never ran even
+    // once whenever the tab was backgrounded during that window — a real
+    // condition (alt-tab during a slow load, this exact verification
+    // harness) not a contrived one. Swapping the scheduling primitive to
+    // `setInterval` survives backgrounding, since timers are event-loop-
+    // scheduled, not paint-scheduled.
+    //
+    // A first pass at this also kept FIX 2's "stop once scrollHeight has
+    // held steady for N ticks" early-exit (6 stable 50ms ticks = 300ms of
+    // quiet). A hostile-timing re-test caught that as its own bug: a
+    // late-arriving image (content injected ~2s into a fresh mount, well
+    // within the 6s budget) landed AFTER the loop had already declared
+    // "stable" off an earlier 300ms lull and cleared itself — scrollTop
+    // stayed frozen at the pre-injection value, card rect ended up entirely
+    // outside the viewport ([1532,1572] against an [0,800] viewport; before
+    // injection it was correctly [616,656]). 300ms of quiet is nowhere near
+    // long enough to conclude every recap fetch has resolved. Simplest fix
+    // that closes the gap: drop the early-exit and just keep re-anchoring
+    // every 50ms for the full 6s cap unconditionally — cheap (two property
+    // reads and maybe one write per tick), still bounded, still cut off the
+    // instant the creator actually scrolls (`hasUserScrolledRef` — see
+    // `setMessagesScrollEl`), and now provably survives a late-arriving
+    // image anywhere in that 6s window instead of only the ones that land
+    // in the first 300ms.
     const start = performance.now();
-    const tick = () => {
+    const intervalId = setInterval(() => {
       if (!hasUserScrolledRef.current) toBottom();
-      const h = el.scrollHeight;
-      if (h === lastHeight) stableFrames++;
-      else { stableFrames = 0; lastHeight = h; }
-      if (performance.now() - start < 6000 && stableFrames < 20) {
-        rafId = requestAnimationFrame(tick);
+      if (performance.now() - start >= 6000) {
+        clearInterval(intervalId);
       }
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    }, 50);
+    return () => clearInterval(intervalId);
     // `checking` is deliberately included: the scroll container only exists
     // once the checking/welcome branches give way to the conversation view,
     // so this effect must re-fire the moment that happens even on a render
