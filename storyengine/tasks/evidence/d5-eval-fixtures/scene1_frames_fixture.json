@@ -1,0 +1,94 @@
+{
+  "_comment": "D5 chunk A3b eval fixture 1 (frames). Immutable local snapshot of video 686b4651-e495-44be-baf6-97fc6dd527e9 scene 1, image_index 100-109, pulled from prod via se db BEFORE the concurrent driver agent's live repair redraws (image_prompt values are capped at 1000 chars — confirmed this is the real stored value for the 6 never-repaired frames, not a query artifact; see the chunk report). image_path is relative to storyengine/tasks/evidence/d3-53-proof/. Ground truth labels below are D3-64's full-rubric director pass (loop-checklist.md, 2026-07-29 entry) — the SAME source Ryan's D5-A3b task brief cites.",
+  "video_id": "686b4651-e495-44be-baf6-97fc6dd527e9",
+  "tenant_id": "ee93e6d1-a9cc-44c3-81e9-84adee8329aa",
+  "scene": 1,
+  "frames": [
+    {
+      "image_index": 100,
+      "shot_type": "WS",
+      "image_prompt": "(SETUP A) WS pod interior — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit, medium tan skin) lies center-left of frame on the upholstered bed, eyes just opening, body still, the curved glass dome above her glowing with cool blue-white LED light; cylindrical coffee table center-frame, rounded armchair right-of-center, desk against the far right wall, all undisturbed. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-gro",
+      "image_url": "frame_100.png"
+    },
+    {
+      "image_index": 101,
+      "shot_type": "MCU",
+      "image_prompt": "(SETUP B) MCU from outside the glass looking in — Nyla's face soft and sleepy behind the curved glass surface, her reflection a faint ghost layered over her real face, the pod's warm interior glow pressing against the cold exterior blue; she stares upward at the dome ceiling, unmoving. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/control interface lower-left wall, vertical cable runs down center columns, access ",
+      "image_url": "frame_101.png"
+    },
+    {
+      "image_index": 102,
+      "shot_type": "ECU",
+      "image_prompt": "(SETUP C) NEUTRAL ECU — Nyla's eyes alone, center-frame, lids heavy, irises catching the cool overhead light; no orientation, pure emotional texture — the first waking moment, still and hollow. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/control interface lower-left wall, vertical cable runs down center columns, access ladder lower-left pod structure. Nyla runs down the central catwalk corridor between pod colu",
+      "image_url": "frame_102.png"
+    },
+    {
+      "image_index": 103,
+      "shot_type": "MCU",
+      "image_prompt": "(SETUP B) MCU from outside the glass — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) stands now at the curved glass wall, frame-left looking frame-right, her palm flat against the inner surface, breath fogging the glass between her face and the camera; her lips move with the whispered line, eyes fixed on a middle distance beyond the glass. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/co",
+      "image_url": "frame_103.png"
+    },
+    {
+      "image_index": 104,
+      "shot_type": "CU",
+      "image_prompt": "(SETUP C) NEUTRAL CU — tight on Nyla's hand pressed flat to the curved glass surface, her fingers spread, the fog of her breath blooming outward from her palm across the cold glass; her chin and parted lips visible at the top of frame. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/control interface lower-left wall, vertical cable runs down center columns, access ladder lower-left pod structure. Nyla runs down the",
+      "image_url": "frame_104.png"
+    },
+    {
+      "image_index": 105,
+      "shot_type": "WS",
+      "image_prompt": "(SETUP A) WS pod interior — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) stands small at the far left of frame against the curved glass wall, the entire pod spread around her: bed behind her left, armchair and coffee table center, desk right, the dome above dwarfing her; she is a single figure pressing against the boundary of her world. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/cont",
+      "image_url": "frame_105.png"
+    },
+    {
+      "image_index": 106,
+      "shot_type": "INSERT",
+      "image_prompt": "(SETUP B)(INSERT) Extreme close-up, tight detail shot, shallow depth of field, no faces visible — Upholstered Bed, punctuating the beat. Set dressing continuity with the rest of this scene (lighting, palette, surfaces), identical throughout: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/control interface lower-left wall, vertical cable runs down center columns, access ladder lower-left pod structure. Nyla runs down the central catwalk corridor between pod columns.. This is a detail inser",
+      "image_url": "frame_106.png"
+    },
+    {
+      "image_index": 107,
+      "shot_type": "WS",
+      "image_prompt": "(SETUP D) WS low-angle corridor shot — camera planted on the wet reflective catwalk floor, the tunnel of stacked cylindrical glass pods receding to a vanishing point frame-right; Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) launches into the corridor from frame-left, a sharp silhouette against the blue-white glow of a hundred pod interiors, her reflection streaking in the wet floor below her; the illuminated control panel glows lower-left, vertical cable runs frame the center column, sleeping faces faint inside the pods on both sides. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curve",
+      "image_url": "frame_107.png"
+    },
+    {
+      "image_index": 108,
+      "shot_type": "MCU",
+      "image_prompt": "(SETUP E) MCU tracking at Nyla's eye level — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) fills frame-left, face set and determined, looking frame-right as she runs; the pod columns blur into streaks of blue-white light behind her right shoulder, metal railings strobing past, her breath coming fast. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/control interface lower-left wall, vertica",
+      "image_url": "frame_108.png"
+    },
+    {
+      "image_index": 109,
+      "shot_type": "WS",
+      "image_prompt": "(SETUP D) WS corridor — same vanishing-point framing, camera still low on the reflective floor; Nyla is now smaller, deeper into the tunnel, her figure receding toward the far darkness between the pod stacks, footsteps implied by the rhythm of her shrinking silhouette and its mirror-image twin in the floor below — the warren swallowing her whole. Set dressing and character blocking, identical in every shot of this scene: NYLA'S GLASS BUBBLE-POD INTERIOR: upholstered bed left against curved wall, rounded armchair center-right, cylindrical coffee table center on gray floor mat, desk with storage right against curved wall, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla begins lying on the bed, rises to standing at the pod's curved glass wall, then exits. UNDERGROUND BUBBLE-POD WARREN: towering cylindrical glass pods stacked on metal framework, wet reflective floors, metal catwalks and railings mid-ground, illuminated panel/control interface low",
+      "image_url": "frame_109.png"
+    }
+  ],
+  "labels": {
+    "100": {
+      "classification": "OK",
+      "note": "healthy — must NOT be flagged (explicit label in the D5-A3b brief)"
+    },
+    "101": {
+      "classification": "MODEL_DEFECT",
+      "failure_class": "duplicate_setup",
+      "note": "drawn as a duplicate of 103's hand-on-glass pose"
+    },
+    "102": {
+      "classification": "MODEL_DEFECT",
+      "failure_class": "duplicate_setup",
+      "note": "drawn as a duplicate of 103's hand-on-glass pose"
+    },
+    "108": {
+      "classification": "MODEL_DEFECT",
+      "failure_class": "facing_law_violation",
+      "note": "model disobeyed the prompt's 'looking frame-right' facing cue"
+    },
+    "109": {
+      "classification": "MODEL_DEFECT",
+      "failure_class": "rogue_figure",
+      "note": "rogue second figure doing Nyla's signature gesture"
+    }
+  }
+}
