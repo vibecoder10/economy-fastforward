@@ -200,22 +200,11 @@ text in panel artwork except the panel-number label.
 
 ## Laws that belong to the script
 
-Discovered while boarding, but the board cannot fix them — they must be fixed in the
-script, where fixing costs nothing.
-
-**S1 — NARRATE EVERY LOCATION CHANGE.** If a character is in one place and then in
-another, the script contains the transit. A board asked to draw an unnarrated move
-will either invent one or silently skip it, and both read as a broken cut.
-*Provenance: found twice in one story — a character who left a sealed room with no
-sentence for leaving it, and the same character back inside it two scenes later with
-no sentence for returning.*
-
-**S2 — A PAYOFF MUST BE PAID FOR EARLIER.** A theme asserted in the closing scene has
-to be bought by a cost the character pays before it. If the last line states the
-idea, an earlier scene must have proved it the hard way.
-*Provenance: a closing line about where power really lies, asserted rather than earned
-— fixed by making an earlier escape attempt fail, so the character discovers the real
-exit only after the obvious one is gone.*
+Boarding a script is the cheapest way to find script defects, but the board cannot
+fix them. Those laws live in `STORY-LAWS.md` (S1-S5): narrate every location
+change; a payoff must be paid for earlier; one scene is one location and one
+continuous beat; the script is the source of truth for cast; a scene states where
+it is.
 
 ---
 
@@ -246,6 +235,35 @@ caught on a board costs one board; caught after the frames, it costs every frame
 board is where the film is decided.
 
 ---
+
+## How a law becomes behaviour
+
+A law in a document changes nothing. Each law lands in three places, in the same
+commit — the contract triangle this project already enforces:
+
+1. **PROMPT** — the law's text enters the board planner's system prompt, so plans
+   are written to satisfy it in the first place. For the L-series this means the
+   coverage planner's system prompt and the sheet-prompt assembly that composes
+   what the drawer actually receives.
+2. **GATE** — a deterministic check that flags or rejects output violating the law.
+   Some are mechanical (L17: is the stated headcount present in every group panel?
+   L5: does every panel carry all four camera facts? L3: does a panel's text name
+   props from a location it is not in?). Others are not deterministically checkable
+   with today's schema (L13, L14) and need either a schema addition or a vision
+   judge. Where no deterministic gate is feasible, say so in the commit rather than
+   pretending one exists.
+3. **REPAIR** — the law's text is stamped into the per-shot artifact the next stage
+   reads, so a regeneration or a manual repair inherits the rule instead of
+   reverting to pre-law behaviour. This project already stamps SET, AXIS, STAGING
+   and SEQUENCE locks this way; every new law needs its own stamp or it evaporates
+   the first time a single shot is redrawn.
+
+Runtime-editable rules belong in the `quality_rules` table so a new ruling does not
+require a code deploy. That table currently has no board or image scope — adding
+one is a prerequisite, not an optimisation.
+
+**A law with a prompt leg but no gate is a suggestion. A law with a prompt and a
+gate but no repair leg survives until the first redraw. All three, or it is prose.**
 
 ## Status
 
