@@ -455,6 +455,31 @@ export function ChatCore({
   const [uploadingFiles, setUploadingFiles] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  // D3-52 (proven live 2026-07-28 on video 686b4651): marks the end of "this
+  // turn's news" — the message thread, any confirm/action/plan card, and the
+  // just-created video's CreatedCard — right BEFORE the always-rendered
+  // recap widgets the undocked Director surface stacks after them
+  // (ChatPipelineMap, ScriptResultCard, CastLocationsCard, StoryboardGridCard
+  // in `activeZone` below). Those recap cards only grow as a video
+  // progresses (more scenes, more storyboards, more images) and are easily
+  // 3-4x a viewport's height. The scroll effect below used to pin the panel
+  // to the container's absolute bottom (`scrollHeight`), which — once those
+  // recap widgets existed — scrolled the just-sent user bubble AND its
+  // pending confirm card (a real one-tap money card, not cosmetic) fully out
+  // of view. Verified live: "Generate the pictures for scene 1" posted (200),
+  // the backend correctly queued pending_action, and the confirm card WAS in
+  // the DOM (found via the accessibility tree) but sat ~900px above the
+  // scrolled-to viewport — indistinguishable from "never rendered" to a real
+  // user, live AND after a full reload (the same effect re-fires on
+  // hydration). This ref, not `scrollHeight`, is what "bottom" now means.
+  const activeAnchorRef = useRef<HTMLDivElement>(null);
+  // The composer is absolutely positioned OVER the bottom of the scroll
+  // container (both layouts), so it never takes layout space there — but it
+  // DOES visually cover whatever content sits under it. The scroll effect
+  // below reads this element's real height so the anchor-scrolled confirm
+  // card clears it, rather than guessing a fixed px buffer that drifts the
+  // next time the composer grows (sendGuardNotice, an attachment row, …).
+  const composerWrapRef = useRef<HTMLDivElement>(null);
   const autoTriedRef = useRef(false);
   // The six style-description ids (checklist §C21b) — one shared query, also
   // used by the New Video "Style description" grid (pipeline/page.tsx).
@@ -484,8 +509,30 @@ export function ChatCore({
     // settles) so late-painting cards are still brought into view.
     const toBottom = () => {
       const el = messagesScrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-      else endRef.current?.scrollIntoView({ behavior: "smooth" });
+      const anchor = activeAnchorRef.current;
+      // D3-52: scroll to the anchor (end of this turn's news), not the
+      // container's absolute bottom — see activeAnchorRef's doc comment.
+      // Degrades to the old "true bottom" behavior automatically wherever
+      // nothing renders after the anchor (the dock, or an undocked room
+      // with no video open yet), since the anchor then IS the last node.
+      if (el && anchor) {
+        // Position of the anchor within the FULL scrollable content (not the
+        // viewport) — analogous to `scrollHeight` for the true bottom.
+        const anchorContentTop =
+          anchor.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+        // Put THAT position at the bottom of the viewport, the same way
+        // `scrollTop = scrollHeight` puts the true bottom there — minus the
+        // composer's real height (+ a little headroom) so it doesn't cover
+        // the confirm button it's absolutely positioned over. Falls back to
+        // a conservative guess (matches this container's own `pb-32`) if the
+        // composer hasn't measured yet.
+        const composerH = composerWrapRef.current?.getBoundingClientRect().height ?? 128;
+        el.scrollTop = Math.max(0, anchorContentTop - el.clientHeight + composerH + 16);
+      } else if (el) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        endRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     };
     toBottom();
     // Staggered retries: on hydration/reload the surrounding page keeps
@@ -1113,6 +1160,12 @@ export function ChatCore({
           taskProgress={dockProgress.lastTaskProgress}
         />
       )}
+      {/* D3-52: "this turn's news" ends here — the scroll effect above
+          targets this marker instead of the container's true bottom, so the
+          recap widgets below (pipeline map + script/cast/storyboards, which
+          only grow as a video fills in) never push the just-sent message or
+          its confirm card out of view. See activeAnchorRef's doc comment. */}
+      <div ref={activeAnchorRef} />
       {/* Director surface fix (2026-07-27 review): this used to be gated on
           `createdVideoId` alone, which is ONLY ever set by a turn that
           creates/confirms a video IN THIS mounted conversation. Opening an
@@ -1182,7 +1235,7 @@ export function ChatCore({
           {activeZone}
           <div ref={endRef} />
         </div>
-        <div className="absolute bottom-0 left-0 right-0 px-3 py-3" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
+        <div ref={composerWrapRef} className="absolute bottom-0 left-0 right-0 px-3 py-3" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
           {sendGuardNotice && <SendGuardNotice text={sendGuardNotice} />}
           {selectionChip}
           <Composer
@@ -1389,7 +1442,7 @@ export function ChatCore({
       </div>
 
       {/* composer pinned at the bottom of the (non-scrolling) shell */}
-      <div className="absolute bottom-0 left-0 right-0 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
+      <div ref={composerWrapRef} className="absolute bottom-0 left-0 right-0 px-4 py-4" style={{ background: "linear-gradient(to top, var(--bg-void) 70%, transparent)" }}>
         <div className="max-w-3xl mx-auto">
           {sendGuardNotice && <SendGuardNotice text={sendGuardNotice} />}
           {selectionChip}

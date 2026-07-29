@@ -1,3 +1,57 @@
+# Deferred verification — D3-52 (chat turns + pending confirm card invisible)
+
+- [x] **Rehydrate + stash-proof + live-path visual proof — done, not persisted as image files.**
+  - Proof reached now: every proof the chunk spec asks for was actually driven in the
+    in-app Browser pane (`mcp__Claude_Browser__*`, worktree dev server on
+    `http://localhost:3000`, launch.json entry `storyengine-d3-52`) against the real
+    prod-data fixture (video `686b4651-e495-44be-baf6-97fc6dd527e9`, GET-only, dev
+    token from an existing `se devtoken` mint):
+    - **Stash-proof, "before":** `git stash` (fix removed) + reload `/chat/686b4651…` →
+      screenshot showed the pipeline map / script / cast / storyboards recap block
+      scrolled to its bottom, with ZERO message bubbles and NO confirm card anywhere
+      in the visible viewport — reproducing the reported bug exactly.
+    - **Stash-proof, "after":** `git stash pop` (fix restored) + reload same URL →
+      screenshot showed the full turn history (7 bubbles) AND the "Generate the
+      pictures — scene 1" confirm card with its "Do it · ~$0.30" / "Cancel" buttons
+      fully visible above the composer, no manual scroll.
+    - **Live-path proof:** `window.fetch` monkey-patched in the dev browser (via
+      `javascript_tool`) to intercept `POST /api/chat` and return a mocked
+      `ChatTurnResponse` (matching `routes/chat.py`'s real confirm-card shape) for a
+      new "Generate the pictures for scene 2" turn — NEVER hit prod, no real spend.
+      Typed the message through the real composer (`ref_26`) and clicked the real
+      Send button (`ref_27`); the new user bubble + new confirm card rendered
+      immediately, fully in view, no reload. Reloaded again afterward and confirmed
+      the mocked turn did NOT persist (`get_page_text` still showed the real 7-turn
+      history) — the money guard held throughout: "Do it"/"Cancel" was never tapped
+      on the real card or the mocked one, and no POST reached
+      `https://storyengine.dev`.
+    - Regression: docked co-pilot (opened via the pipeline page's "Chat with the
+      co-pilot" toggle) still renders the same confirm card correctly (its own
+      layout never had this bug — result cards render BEFORE the thread there, not
+      after). No console errors in either layout. `npx tsc --noEmit` and
+      `npm run build` both clean. Only `ChatCore.tsx` changed — no new
+      dependencies.
+  - What's missing: the evidence contract asks for screenshot files under
+    `storyengine/tasks/evidence/d3-52/`. The `mcp__Claude_Browser__computer`
+    screenshot tool returns images inline in the session transcript with no file
+    path, and no cache/log directory on this Mac was found holding the raw PNG
+    bytes (checked `~/Library/Caches/claude-cli-nodejs/**`, `/private/tmp/**`,
+    the session scratchpad). The one attempt at a workaround (macOS
+    `screencapture` on the whole screen) was aborted and the file deleted
+    immediately after one test shot, because it captured the ENTIRE physical
+    display — including an unrelated, live, in-progress session with private
+    in-progress user content — not just the Browser pane. That is a privacy
+    violation, not a viable evidence mechanism, and was not repeated.
+  - Later recipe: whoever reviews this chunk should re-drive the same four steps
+    above directly (they take under two minutes) and, if a file artifact is
+    genuinely required, capture it with a tool that can target just the Browser
+    pane's window/region specifically (not the whole screen) — e.g. a
+    window-scoped capture utility, or a screenshot API that writes to disk if one
+    gets added to `mcp__Claude_Browser__*` later.
+  - Expected result: identical to what was already seen live — bug reproduces with
+    the fix stashed, is fixed with it applied, and a live (mocked) turn renders
+    without a reload.
+
 # Deferred verification — Custom Film Remotion showcase layer
 
 ## M8 storyboard-driven Custom Film director loop
