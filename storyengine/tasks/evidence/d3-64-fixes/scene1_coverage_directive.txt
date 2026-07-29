@@ -1,0 +1,24 @@
+[SET | Nyla's Glass Bubble-Pod Interior: upholstered bed LEFT against curved wall, rounded armchair CENTER-RIGHT near cylindrical coffee table, desk with storage FAR RIGHT against curved wall, floor mat CENTER beneath coffee table, potted plant upper-left wall niche, small accent light/sphere on coffee table surface. Nyla lies on the bed, waking — no second character present.]
+[AXIS | NEUTRAL — single-character scene; no fixed 180° axis required; key light from above (pod's bright overhead LED illumination), cool blue-white spill from curved glass dome ceiling casting gentle downward shadows on Nyla's face and the pod interior]
+[SETUPS | A: WS two-shot — NEUTRAL wide, full pod interior visible, Nyla small on the LEFT bed against the curved wall, coffee table and armchair CENTER-RIGHT, desk FAR RIGHT, overhead light flooding the dome; B: MS — camera at mid-height just inside the curved glass wall, Nyla center-frame on the bed, upper body rising, dome ceiling arcing above her, porthole windows dark behind; C: MCU — low camera close on Nyla's face and shoulders, curved glass dome ceiling filling the upper frame, cold overhead light raking across her features; D: INSERT — extreme close on a specific pod detail, no people]
+
+---
+
+[MOMENT 1 | Nyla lies motionless on the bed in the sealed pod — the first breath of wakefulness]
+- MASTER [WS]: (SETUP A) WS of the full pod interior — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) flat on the LEFT bed, eyes closed, arms at her sides; armchair and cylindrical coffee table sit untouched CENTER-RIGHT; desk holds its position FAR RIGHT; the curved glass dome ceiling arcs overhead flooding the space with cold blue-white LED light, porthole windows pitch-black beyond the glass.
+- ANGLE [MS]: (SETUP B) MS — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) centered on the bed, body still horizontal, chest barely rising with a slow breath; the dark porthole windows curve behind her and the dome ceiling fills the upper frame with pale overhead light.
+- ANGLE [INSERT]: (SETUP D)(INSERT) ECU on the small accent light/sphere resting on the cylindrical coffee table surface — its soft glow pulses faintly against the cool ambient light of the pod, no people in frame.
+
+---
+
+[MOMENT 2 | Nyla opens her eyes and sits upright — registering the cold, humming silence of the warren around her]
+- MASTER [MS]: (SETUP B) MS — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) center-frame, now sitting upright on the LEFT bed, eyes open and scanning the pod ceiling; dark porthole windows arc behind her; the dome's bright overhead illumination falls hard across her face and the curved gray walls.
+- ANGLE [MCU]: (SETUP C) MCU — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) fills the lower two-thirds of frame, face tilted slightly upward, warm brown eyes open wide and still, lips parted; the cold blue-white dome ceiling curves into the upper frame above her, casting a sharp downward shadow under her jaw.
+- ANGLE [WS]: (SETUP A) WS — NEUTRAL re-establish of the full pod: Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) now sitting upright on the LEFT bed, a small figure inside the sealed glass sphere; the armchair, coffee table, desk and floor mat sit in their fixed positions; the glass dome above her reflects the warren's industrial blue-white light, thousands of identical pods implied in the darkness beyond the porthole windows.
+
+---
+
+[MOMENT 3 | Nyla stands and steps to the curved glass wall, pressing one hand flat against it — staring out into the vast grey underground warren beyond]
+- MASTER [MS]: (SETUP B) MS — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) now standing center-frame, one palm pressed flat against the curved glass wall, body angled toward the porthole window; the bed sits empty to her left, the dome ceiling arcs above; through the dark porthole the faintest suggestion of stacked cylindrical pods and metal catwalks bleeds in from the warren beyond.
+- ANGLE [MCU]: (SETUP C) MCU — Nyla (shoulder-length black shaggy hair, charcoal gray zip-up bodysuit) in the lower-center of frame, face turned toward the glass, warm brown eyes fixed on something unseen outside; her outstretched arm leads the eye to the curved wall at the frame edge; cold overhead light rakes a hard shadow across her cheekbone.
+- ANGLE [INSERT]: (SETUP D)(INSERT) ECU on Nyla's hand — fingers splayed flat against the curved glass surface, the reflection of the pod's LED interior light ghosting across the transparent wall; beyond the glass, the blurred vertical columns and blue-white glow of the underground warren stretch into darkness. Empty of people except the hand.
