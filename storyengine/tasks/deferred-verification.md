@@ -701,3 +701,47 @@ generation, no video/scene was touched or regenerated.
   - If it fails: the prose-only rule 4b isn't strong enough on its own — revisit whether a
     real per-moment location field (structured gate) is worth the schema change this chunk
     deliberately deferred.
+
+## T3 / T2b / T5b (2026-07-28, branch feat/t3-t2b-t5b, worktree .claude/worktrees/t-lane)
+
+### DV-5: T2b's live curl proof against the REAL DB, from THIS Mac, was blocked by a Supabase pooler error
+- Goal: quote a real `curl` against `GET /api/videos/{id}/assets` showing `video_duration`
+  in the JSON, using a local backend running this branch's code against the real Supabase
+  DB (the code isn't deployed yet, so the already-deployed VPS API can't be used for this).
+- What was tried: `backend/.env` copied from the main checkout (real `DATABASE_URL`),
+  `uvicorn main:app --port 8020` started from the worktree with the env exported, plus a
+  local-only `DEV_MODE=true`/`DEV_TOKEN` auth bypass scoped to the real owner tenant
+  (`ee93e6d1-a9cc-44c3-81e9-84adee8329aa`, video `973c9bd6-1fc7-43d8-802a-83a743a48d66`,
+  confirmed via `se db` to have real `video_duration` values — 7,6,7,6,9,6,6,10,6,7,7,6 —
+  on every one of its 44 coverage assets).
+- Every request against that live-DB-connected local backend, including a plain
+  `GET /api/health`, returned `"database": false` / a 500 with
+  `asyncpg.exceptions.InternalServerError: (ENOTFOUND) tenant/user postgres.rcbobwaldrefnyllhjyo
+  not found` (a Supavisor pooler error). Confirmed this is NOT specific to this worker's
+  setup: the OTHER active worker's pre-existing local backend on port 8001 (different
+  worktree, running before this session started) showed the identical `"database": false`
+  at the same time. The VPS's own backend connected fine in the same window (`se health`
+  showed `"database": true`) — so this is a Mac-to-Supabase-pooler connectivity issue from
+  this machine/network right now, not a project-wide outage and not a credentials mistake
+  (same `backend/.env`, same `DATABASE_URL`).
+- What WAS proven instead, as the substitute evidence (see the T2b report section for the
+  exact commands/output):
+  1. `backend/tests/functional/test_t2b_asset_duration_serializer.py` drives the REAL
+     `routes.videos.get_video_assets` coroutine with `fetch_all` monkeypatched, asserts the
+     SQL literally selects `video_duration`/`assigned_video_duration`, and asserts real
+     values (7.0/6.5) and honest nulls both round-trip unmodified. Stash-proofed (fails
+     against the pre-fix code with the exact "not in query" assertion).
+  2. `se db "SELECT ... FROM assets WHERE video_id='973c9bd6...' AND image_index>=100"`
+     independently confirms the DB genuinely holds those real per-clip second values today.
+  3. A local mock backend (scratchpad/t_lane_mock_backend.py, zero DB, zero prod traffic)
+     serving the exact JSON shape the fixed serializer produces drove the REAL, unmodified
+     `TimelineAltitudeView.tsx` in the Browser pane and showed "Real timecodes" + correct
+     `0:00/0:05/0:10` ticks — proving the frontend's consuming half of T2b.
+- Recipe to close this once local-Mac connectivity works again (or from a machine/network
+  that can reach the pooler): `cp storyengine/backend/.env <worktree>/backend/.env`, add
+  `DEV_MODE=true`, `DEV_TOKEN=<any string>`, `DEV_TENANT_ID=ee93e6d1-a9cc-44c3-81e9-84adee8329aa`
+  to that copied `.env`, `set -a && source backend/.env && set +a`, run
+  `uvicorn main:app --port 8020` from `<worktree>/backend`, then
+  `curl -H "Authorization: Bearer <DEV_TOKEN value>" http://127.0.0.1:8020/api/videos/973c9bd6-1fc7-43d8-802a-83a743a48d66/assets`
+  and confirm `video_duration`/`assigned_video_duration` appear with real numbers in the
+  JSON. Expected result: matches the `se db` values already confirmed above.

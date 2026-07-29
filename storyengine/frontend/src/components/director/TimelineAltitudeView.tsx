@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Clock, Film, ImageOff, AlertTriangle, MicOff, Music, Play } from "lucide-react";
-import { getVideoAssets, getVideoScript, getVideo, type Asset, type ScriptScene } from "@/lib/api";
+import { getVideoAssets, getVideoScript, getVideo, approveStoryboard, type Asset, type ScriptScene } from "@/lib/api";
 import { toDisplayImageUrl, toDisplayVideoUrl } from "@/lib/utils";
 import { buildTimelineSlots, type TimelineSlot, type TimelineStoryboardBlock } from "@/components/canvas-shared/timeline-slots";
 import { CanvasEmptyState } from "./CanvasEmptyState";
@@ -176,17 +176,79 @@ export function TimelineAltitudeView({ videoId }: { videoId: string }) {
     return sawAny ? "real" : "sequence";
   }, [blocks, durationForSlot]);
 
-  // Expansion is component-local on purpose — persisting which storyboards
-  // are unpacked is T3's job (see the chunk brief), not this one's.
+  // T3: unpack + approve persistence. Local view state (which segments are
+  // CURRENTLY drawn expanded on screen) stays a plain Set — T3's persistence
+  // requirement is "does the unpack survive a reload", not "every collapse
+  // click is a server round trip". The persisted half is
+  // `scripts.storyboard_status` (via the SAME existing
+  // POST /api/review/storyboard/{script_id}/approve route the old /review
+  // page already uses — reused verbatim per the plan's "do NOT invent a
+  // third approval mechanism" instruction, not a new column/endpoint): the
+  // seeding effect below expands any scene that's ALREADY approved the
+  // instant its data loads (first load or a hard reload alike), and the
+  // first unpack click on an unapproved scene calls the same route to make
+  // that true going forward. Collapsing again is purely a view toggle and
+  // deliberately does NOT un-approve — there is no reject-only-the-unpack
+  // primitive in the reused route (reject clears the drawn sheets entirely,
+  // a destructive action far outside this chunk's scope), so once unpacked,
+  // a scene stays "unpack on load" from then on, same as any other one-way
+  // approval gate in this app.
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
-  const toggleScene = (scene: number) => {
+  // Ref-guarded, same pattern SceneAltitudeView's D2-1 default-collapse used:
+  // seeds each scene's initial expand state exactly once, the first render
+  // where that scene's data exists — never re-stomps a later manual
+  // collapse/expand when `blocks` recomputes (e.g. after this component's
+  // own approve mutation invalidates the script query).
+  const seededScenesRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
     setExpandedScenes((prev) => {
+      let changed = false;
       const next = new Set(prev);
-      if (next.has(scene)) next.delete(scene);
-      else next.add(scene);
-      return next;
+      for (const block of blocks) {
+        if (seededScenesRef.current.has(block.scene)) continue;
+        seededScenesRef.current.add(block.scene);
+        if (block.storyboardStatus === "approved" && block.expanded) {
+          next.add(block.scene);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
-  };
+  }, [blocks]);
+
+  const queryClient = useQueryClient();
+  const approveMutation = useMutation({
+    mutationFn: (scriptId: string) => approveStoryboard(scriptId),
+    onSuccess: () => {
+      // Re-fetch so `storyboard_status` (and therefore `block.storyboardStatus`
+      // the seeding effect above reads) reflects the real persisted value —
+      // proves the write actually landed rather than trusting the optimistic
+      // local expand alone.
+      queryClient.invalidateQueries({ queryKey: ["video-script", videoId] });
+    },
+  });
+
+  const handleToggle = useCallback(
+    (block: TimelineStoryboardBlock) => {
+      if (!block.expanded) return; // nothing real to unpack yet — VideoSegment already disables the click for this case
+      const isExpanded = expandedScenes.has(block.scene);
+      if (isExpanded) {
+        // Collapse is local-only — see the comment above on why this never un-approves.
+        setExpandedScenes((prev) => {
+          const next = new Set(prev);
+          next.delete(block.scene);
+          return next;
+        });
+        return;
+      }
+      setExpandedScenes((prev) => new Set(prev).add(block.scene));
+      if (block.storyboardStatus !== "approved") {
+        const scriptRow = scriptByScene.get(block.scene);
+        if (scriptRow) approveMutation.mutate(scriptRow.id);
+      }
+    },
+    [expandedScenes, scriptByScene, approveMutation],
+  );
 
   const segmentWidths = useMemo(() => {
     const m = new Map<number, number>();
@@ -290,7 +352,7 @@ export function TimelineAltitudeView({ videoId }: { videoId: string }) {
                       block={block}
                       width={segmentWidths.get(block.scene) ?? ORDINAL_EMPTY_W}
                       expanded={expandedScenes.has(block.scene)}
-                      onToggle={() => toggleScene(block.scene)}
+                      onToggle={() => handleToggle(block)}
                     />
                   ))}
                 </div>

@@ -13339,10 +13339,17 @@ separate scenes."""
                     # carries_own_line rides the SAME statement as the clip
                     # url so a re-animate can never leave a stale marker from
                     # a dead clip's timing (assembler sizes windows from it).
+                    # video_status=NULL (T5b, 2026-07-28): a prior failed
+                    # attempt on this row (see _safe_one below) may have left
+                    # video_status='failed' — this success write clears it in
+                    # the same statement, mirroring the existing redraw path
+                    # (coverage_to_app.py's picture-redraw clears it the same
+                    # way when a stale clip is invalidated).
                     await execute(
                         "UPDATE assets SET video_clip_url = $1, video_duration = $2, "
                         "carries_own_line = $3, clip_speech_start = $4, "
-                        "clip_speech_end = $5, updated_at = now() WHERE id = $6",
+                        "clip_speech_end = $5, video_status = NULL, updated_at = now() "
+                        "WHERE id = $6",
                         drive_url, clip_dur, carries_line,
                         clip_speech[0], clip_speech[1], r["id"],
                     )
@@ -13419,6 +13426,28 @@ separate scenes."""
                     failed += 1
                     print(f"[clips] S{r.get('scene')}.{r.get('image_index')} isolated error: "
                           f"{type(e).__name__}: {str(e)[:150]}", flush=True)
+                    # T5b (2026-07-28): persist a real failure marker so the
+                    # Timeline Workbench can show "failed" honestly instead
+                    # of indistinguishable-from-never-attempted (T1's
+                    # finding). video_status is the right column — it's
+                    # already the dedicated clip-status field (unused by any
+                    # live read path today except this one and the redraw
+                    # clear above), never conflicts with `status` (which
+                    # means "picture done"), and is excluded from every
+                    # retry-candidate query (those only check
+                    # image_url/video_clip_url) — so a failed row is still
+                    # picked up and retried next run exactly as before.
+                    # Wrapped in its own try/except: a marker-write failure
+                    # must never mask the real error this branch already
+                    # caught, or break the batch for the other rows.
+                    try:
+                        await execute(
+                            "UPDATE assets SET video_status = $1, updated_at = now() WHERE id = $2",
+                            "failed", r["id"],
+                        )
+                    except Exception as marker_err:  # noqa: BLE001
+                        print(f"[clips] S{r.get('scene')}.{r.get('image_index')} "
+                              f"failure-marker write failed: {str(marker_err)[:150]}", flush=True)
                     try:
                         await _report(f"S{r.get('scene')}.{r.get('image_index')} hit an error ({done + failed}/{total})")
                     except Exception:
