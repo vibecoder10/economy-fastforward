@@ -130,13 +130,24 @@ track the classic 4-beat arc as the moments progress: {profile.emotional_arc.bea
 For a DIALOGUE moment, rule 5's script-turn order below already fixes WHERE it sits — this rule \
 adds the causal logic on top of that order, it does not change it. For a SILENT/narration moment \
 (establishing, insert, cutaway, reaction, transit — no LINE row), this rule IS the sequencing law: \
-follow the scene narration's OWN event order, never reorder events for a prettier shot. \
-IF THE NARRATION MOVES THE STORY TO A NEW LOCATION PARTWAY THROUGH THE SCENE, that is a HARD \
-requirement for a BRIDGE moment — tag it "(BRIDGE)" right after its setup letter, e.g. "(SETUP \
-F)(BRIDGE) WS Ryan pushes through the pod's hatch into the corridor beyond, harsh fluorescent \
-light replacing the pod's blue glow." — showing the exit, the travel, or the arrival. NEVER cut \
-straight from one location's moments to a different location's moments with no transition shot; \
-the audience needs to see how the character got there.
+follow the scene narration's OWN event order, never reorder events for a prettier shot.
+BRIDGE MOMENTS ARE ADDITIVE — THEY SIT OUTSIDE THE NARRATED SEQUENCE, NEVER IN COMPETITION WITH \
+IT. When the scene narration moves the story to a new location partway through, INSERT an extra \
+moment BETWEEN the last narrated moment at the old location and the first narrated moment at the \
+new one, with a plain one-line summary like any other moment (e.g. "[MOMENT 4 | Nyla pushes \
+through the hatch into the corridor]") — then tag its MASTER shot "(BRIDGE)" right after the setup \
+letter, e.g. "- MASTER [WS]: (SETUP F)(BRIDGE) Ryan pushes through the pod's hatch into the \
+corridor beyond, harsh fluorescent light replacing the pod's blue glow." The "(BRIDGE)" tag \
+belongs on the shot's OWN description line — the SAME position as the "(REACTION)"/"(INSERT)" \
+tags in rule 5f — NEVER inside the "[MOMENT n | ...]" summary bracket itself. A bridge moment \
+needs NO narration sentence of its own to justify it: the location change itself is the \
+justification, so do not skip it just because the narration jumps straight from one location's \
+action to the next with no in-between sentence. It NEVER displaces, merges into, or reorders a \
+narrated moment — it is added ON TOP of them — and it does NOT count against the moment/shot \
+budget below (see the output contract): if a location change needs one, plan one more moment than \
+the stated cap. NEVER cut straight from one location's moments to a different location's moments \
+with no transition shot; the audience needs to see how the character got there. This is a \
+structural MUST, enforced in the output contract below, not just a stylistic preference.
 5) DIALOGUE = ONE SPEAKER PER MOMENT, ASSIGNED HERE. A clip can only lip-sync one character, so plan \
 ONE moment per speaker TURN (each time the speaker changes, that is a new moment), IN SCRIPT ORDER, \
 covering EVERY spoken line exactly once. For a speaking moment, put the spoken line on its own \
@@ -265,7 +276,15 @@ shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
 Plan up to {max_moments} moments from the narration below; pick the moments that carry the scene, \
 IN THE NARRATION'S OWN EVENT ORDER as a causal chain (rule 4b) — never reorder events for a \
-prettier shot, and never skip the BRIDGE moment a location change requires.
+prettier shot.
+A WELL-FORMED PLAN MUST SATISFY THIS CONTRACT: for every adjacent pair of moments that sit in \
+DIFFERENT locations, there MUST be a moment between them whose MASTER shot description carries \
+the "(BRIDGE)" tag right after its setup letter (same placement as "(REACTION)"/"(INSERT)" — \
+NEVER inside the "[MOMENT n | ...]" bracket) showing the exit, the travel, or the arrival (rule \
+4b). A bridge moment is ADDITIVE: it does NOT count against the {max_moments} cap above, and it \
+needs no narration sentence of its own to earn its place — the location change is the only \
+justification it needs. A plan that changes location with no shot tagged "(BRIDGE)" between the \
+two locations is INCOMPLETE; do not output one.
 Describe every person by APPEARANCE ONLY — height, build, hair, clothing — never by age words \
 (no kid/child/boy/girl/teen or ages like "7-year-old"); the image model rejects prompts that \
 mention minors. Write "short character with curly brown hair in a red hoodie", not "a young boy".

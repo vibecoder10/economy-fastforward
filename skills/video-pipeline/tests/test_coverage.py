@@ -673,6 +673,107 @@ def test_setup_target_scales_with_max_moments():
     assert f"aim for roughly {big_target} setups" in big
 
 
+# =============================================================================
+# D3-53c: rule 4b's BRIDGE requirement must be structural (output contract),
+# additive (exempt from the moment budget, no narration sentence needed), and
+# present for BOTH a dialogue-shaped scene and a silent one (the profile/
+# max_moments knobs the system prompt is built from don't vary by scene
+# content, so one system-prompt build covers both call shapes).
+# =============================================================================
+
+def test_bridge_contract_line_present_and_structural():
+    """The output contract (not just rule 4b's prose) states the BRIDGE
+    requirement as a MUST, tied to the pattern 'adjacent moments in different
+    locations', independent of whether the scene has dialogue or is silent —
+    _coverage_system_prompt() takes no beat_text, so this is the ONE prompt
+    build both call shapes share."""
+    from shared.channel_profile import load_profile
+    profile = load_profile({})
+    prompt = _coverage_system_prompt(profile, max_moments=8, angles_min=2, angles_max=4)
+
+    # rule 4b still carries the rationale + tag convention.
+    assert "4b)" in prompt
+    assert '"(BRIDGE)"' in prompt
+    assert "ADDITIVE" in prompt
+
+    # the output contract section states it as a MUST, not prose guidance.
+    tail_start = prompt.index("shot_type is one of")
+    contract_tail = prompt[tail_start:prompt.index("Describe every person", tail_start)]
+    assert "MUST" in contract_tail and "(BRIDGE)" in contract_tail, \
+        "FAIL: output contract doesn't structurally require a (BRIDGE) moment"
+    assert "adjacent" in contract_tail.lower() and "different locations" in contract_tail.lower()
+    assert "INCOMPLETE" in contract_tail, "FAIL: contract doesn't say a plan without it is invalid"
+
+
+def test_bridge_is_exempt_from_the_moment_budget():
+    """A bridge moment must not be presented as competing with max_moments —
+    the contract line must say it doesn't count against the cap."""
+    from shared.channel_profile import load_profile
+    profile = load_profile({})
+    prompt = _coverage_system_prompt(profile, max_moments=8, angles_min=2, angles_max=4)
+    tail_start = prompt.index("shot_type is one of")
+    contract_tail = prompt[tail_start:prompt.index("Describe every person", tail_start)]
+    assert "does NOT count against the" in contract_tail
+    assert "{max_moments}" not in contract_tail  # sanity: f-string substituted, no stray braces
+    assert "8" in contract_tail  # the formatted max_moments cap appears, restated
+
+
+def test_bridge_needs_no_narration_sentence_of_its_own():
+    """Rule 4b must explicitly say a bridge shot doesn't need its own
+    narration sentence — this is the exact conflict D3-53c diagnosed: literal
+    narration-order compliance was starving the bridge shot of a reason to
+    exist. Also confirm rule 4b no longer frames BRIDGE as competing with
+    'follow the narration's own event order' for silent moments — that clause
+    must stay (silent-moment ordering is unchanged) but the BRIDGE clause is
+    now a separate, additive paragraph."""
+    from shared.channel_profile import load_profile
+    profile = load_profile({})
+    prompt = _coverage_system_prompt(profile, max_moments=8, angles_min=2, angles_max=4)
+    rule_4b_start = prompt.index("4b)")
+    rule_4b_text = prompt[rule_4b_start: prompt.index("\n5)", rule_4b_start)]
+    assert "follow the scene narration's OWN event order" in rule_4b_text, \
+        "FAIL: silent-moment narration-order law regressed"
+    assert "NO narration sentence" in rule_4b_text or "NO narration sentence".lower() in rule_4b_text.lower()
+    assert "NEVER displaces" in rule_4b_text or "never displaces" in rule_4b_text.lower()
+
+
+def test_bridge_contract_present_for_both_dialogue_and_silent_call_shape():
+    """_coverage_user_prompt diverges by scene content (dialogue turns block
+    vs none, per the existing D3-53b evidence script) but the BRIDGE contract
+    lives entirely in the system prompt, so it applies uniformly to both."""
+    from shared.channel_profile import load_profile
+    from storyboard.coverage import _coverage_user_prompt, _scene_turns
+
+    system_prompt = _coverage_system_prompt(load_profile({}), max_moments=8, angles_min=2, angles_max=4)
+    assert "(BRIDGE)" in system_prompt
+
+    dialogue_scene = "Ryan: I sealed the hatch.\nVanessa: Then why is it open?\n"
+    silent_scene = ("Inside the sealed pod, Ryan checks the gauge. He pushes the hatch open "
+                     "and steps into the exterior hallway, scanning both directions.")
+
+    dialogue_user_prompt = _coverage_user_prompt(dialogue_scene, "Test", None, None, None)
+    silent_user_prompt = _coverage_user_prompt(silent_scene, "Test", None, None, None)
+    assert _scene_turns(dialogue_scene), "sanity: dialogue fixture should parse turns"
+    assert not _scene_turns(silent_scene), "sanity: silent fixture should parse zero turns"
+    assert "DIALOGUE TURNS" in dialogue_user_prompt
+    assert "DIALOGUE TURNS" not in silent_user_prompt
+    # both share the SAME system prompt in a real call, so the contract line
+    # doesn't need to be re-derived per scene type — proven by construction
+    # above (one system_prompt build, used for both).
+
+
+def test_rule5_dialogue_order_unchanged_by_bridge_restructure():
+    """Guard against the restructure bleeding into rule 5 (dialogue speaker
+    order) — must stay byte-identical in substance."""
+    from shared.channel_profile import load_profile
+    profile = load_profile({})
+    prompt = _coverage_system_prompt(profile, max_moments=8, angles_min=2, angles_max=4)
+    assert "DIALOGUE = ONE SPEAKER PER MOMENT" in prompt
+    assert "IN SCRIPT ORDER" in prompt
+    assert "5b) BLOCKING IS FIXED" in prompt
+    assert "5d) THE 180-DEGREE RULE" in prompt
+
+
 def test_tension_sizing_guidance_present_in_user_prompt():
     """(d)-adjacent: the dialogue-turn block teaches tighter framing/size-
     variant setups as turns progress, using the turn index as the signal."""
