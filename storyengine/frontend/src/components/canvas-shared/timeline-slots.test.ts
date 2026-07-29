@@ -129,7 +129,7 @@ describe("buildTimelineSlots — edge cases (required by the T1 brief)", () => {
     expect(blocks[0].slots[1].state).toBe("planned");
   });
 
-  it("video_status/animation_status failure markers -> state=failed (defensive; documented as speculative in the header)", () => {
+  it("video_status/animation_status failure markers -> state=failed with NO image present (real, live-written marker as of T5b)", () => {
     const prompts = beatBlock(1, [panelLine(1, 1, "WIDE", "establishing"), panelLine(2, 1, "CU", "detail")]);
     const scenes = [scene({ scene: 1, storyboard_prompts: prompts, storyboard_beat_count: 1 })];
     const assets = [
@@ -149,12 +149,34 @@ describe("buildTimelineSlots — edge cases (required by the T1 brief)", () => {
     expect(blocks[0].slots[0].state).toBe("failed");
   });
 
-  it("a clip already present beats a stale failure marker (clip/image truth wins precedence)", () => {
+  it("T5b (2026-07-28): a failed CLIP on an already-imaged shot shows failed, not image — this is the primary case T5b exists for", () => {
+    // CHANGED from the pre-T5b precedence (image_url used to win over a
+    // video/animation-stage marker, on the theory the marker might be
+    // stale). That theory no longer holds: pipeline_executor.py's clip
+    // success write clears video_status=NULL in the SAME statement as
+    // video_clip_url, and the redraw path clears it too — so a picture
+    // with an image_url AND a video_status failure marker, and NO clip,
+    // can only mean "the most recent clip attempt on this exact image
+    // failed and hasn't been retried since." That is precisely the shot a
+    // creator needs the timeline to flag — the whole reason T5b exists (a
+    // failed clip attempt was previously indistinguishable from "never
+    // attempted"; showing "image" here would still be exactly that bug).
     const prompts = beatBlock(1, [panelLine(1, 1, "WIDE", "establishing")]);
     const scenes = [scene({ scene: 1, storyboard_prompts: prompts, storyboard_beat_count: 1 })];
     const assets = [asset({ scene: 1, image_index: 100, image_url: "https://x/img.png", video_status: "failed" })];
     const blocks = buildTimelineSlots(scenes, assets);
-    expect(blocks[0].slots[0].state).toBe("image");
+    expect(blocks[0].slots[0].state).toBe("failed");
+  });
+
+  it("a real clip still beats a failure marker (clip truth is the strongest signal, checked first, unconditionally)", () => {
+    const prompts = beatBlock(1, [panelLine(1, 1, "WIDE", "establishing")]);
+    const scenes = [scene({ scene: 1, storyboard_prompts: prompts, storyboard_beat_count: 1 })];
+    const assets = [asset({
+      scene: 1, image_index: 100, image_url: "https://x/img.png",
+      video_clip_url: "https://x/clip.mp4", video_status: "failed",
+    })];
+    const blocks = buildTimelineSlots(scenes, assets);
+    expect(blocks[0].slots[0].state).toBe("clip");
   });
 
   it("scene longer than 5 board sheets: overflow assets still surface as slots, honestly unlabeled (board=null, no plan metadata)", () => {

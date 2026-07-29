@@ -1,0 +1,47 @@
+T5b evidence — a real clip-generation failure marker renders as "failed" on
+the Timeline, including a precedence bug found and fixed to make it visible.
+
+Method: same local mock backend (port 8099) driving the REAL frontend code.
+Video 22222222-2222-2222-2222-222222222222, scene 3, asset "ab-3-1":
+image_url set (a picture was drawn), video_clip_url null (no clip),
+video_status="failed" — exactly the shape pipeline_executor.py's
+_safe_one except branch now persists (T5b backend change) after a clip
+generation attempt raises.
+
+FINDING mid-verification: the FIRST pass through this scenario rendered
+scene 3's slot as "image", not "failed" — a real, pre-existing bug in T1's
+`deriveState` (canvas-shared/timeline-slots.ts), which checked
+`asset.image_url` BEFORE the video_status/animation_status failure markers.
+T1's own comment called this "clip/image truth wins precedence" on the
+theory a failure marker might be stale — but a clip is always animated FROM
+an existing image, so `image_url` being set was never real evidence a CLIP
+attempt succeeded; it only proved the earlier IMAGE stage worked. Since this
+exact case (image done, clip failed) is the primary scenario T5b exists to
+surface, shipping T5b's backend write without this fix would have persisted
+a marker the timeline could still never show for its main use case. Fixed
+by moving the video_status/animation_status check ahead of the image_url
+check in deriveState (backend now also guarantees the marker can't go stale:
+the clip-success write clears video_status=NULL in the same statement as
+video_clip_url, same as the existing picture-redraw path already did).
+Existing test "a clip already present beats a stale failure marker" was
+updated to match — see timeline-slots.test.ts (14/14 passing, stash-proofed
+both directions).
+
+Live DOM proof after the fix (javascript_tool, read-only inspection):
+  document.querySelectorAll('[title]') filtered to the scene-3 tile:
+
+  {
+    "title": "[1] MASTER WIDE\nCrane arm swings the container over the flatbed.\n(may not have generated — this indicator is not reliable yet)",
+    "classes": "relative flex h-16 w-16 flex-none flex-col items-center justify-center gap-1 rounded-[7px] border border-line-soft bg-deep opacity-70",
+    "html": "<svg ... class=\"lucide lucide-triangle-alert text-faint\" ...>..."
+  }
+
+This is SlotTile's exact "failed" branch (timeline-slots.ts's
+STATE MACHINE / TimelineAltitudeView.tsx's SlotTile "failed" case): the
+honest disclaimer suffix, the dimmed `opacity-70` styling, and the
+AlertTriangle icon (`lucide-triangle-alert`) all match — not a guess, read
+directly off the live DOM node's own attributes and innerHTML.
+
+Sibling tiles (scenes 1 and 2, real clips) render with `border-turquoise/30`
+and a "clip" badge instead — confirmed via the same query, showing the
+failed tile is visually and semantically distinct, not a rendering fluke.

@@ -2173,6 +2173,16 @@ export interface Asset {
    * read these to auto-activate the real proportional ruler. */
   video_duration?: number | null;
   assigned_video_duration?: number | null;
+  /** T5b (TIMELINE-WORKBENCH-PLAN.md): the clip-generation failure marker.
+   * 'failed' when the live clip path's isolated-error branch
+   * (pipeline_executor.py's `_safe_one`) caught an exception animating this
+   * shot; cleared to null the moment a later attempt succeeds (same
+   * statement that writes video_clip_url) or the source picture is
+   * redrawn. Null/undefined for a row that was never attempted or is still
+   * mid-flight — that ambiguity is a known, documented limit (see
+   * timeline-slots.ts's STATE MACHINE section), not something this field
+   * alone can resolve. */
+  video_status?: string | null;
   created_at: string | null;
 }
 

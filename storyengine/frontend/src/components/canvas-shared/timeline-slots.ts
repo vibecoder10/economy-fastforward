@@ -93,11 +93,20 @@
  * Precedence (first match wins), computed per slot from its matched
  * asset row (matched by `image_index === 99 + panel`):
  *
- *   no matching asset row exists           -> "planned"
- *   asset.video_clip_url is set             -> "clip"
- *   asset.image_url is set                  -> "image"
- *   asset carries a known failure marker    -> "failed"
- *   otherwise (asset row exists, no image)  -> "pending"
+ *   no matching asset row exists                    -> "planned"
+ *   asset.video_clip_url is set                      -> "clip"
+ *   asset carries a video/animation failure marker   -> "failed"  (T5b)
+ *   asset.image_url is set                            -> "image"
+ *   asset carries an image-stage failure marker       -> "failed"  (static_docu)
+ *   otherwise (asset row exists, no image)            -> "pending"
+ *
+ * CHANGED 2026-07-28 (T5b): the video/animation-marker check now runs
+ * BEFORE the `image_url` check, not after. Read the STATE MACHINE section
+ * below for why — short version: a clip is generated FROM an existing
+ * image, so `image_url` being set is never evidence a clip attempt
+ * succeeded, and T5b's backend write (pipeline_executor.py) guarantees
+ * `video_status`/`animation_status` can no longer go stale the way the old
+ * ordering assumed.
  *
  * "planned" vs "pending" is a real, verifiable distinction in the data
  * model, not an invented one: `store_scene()` (coverage_to_app.py
@@ -121,33 +130,35 @@
  * spinner (T5) will need a signal this function's inputs do not carry;
  * this function alone cannot tell "queued" from "actively rendering".
  *
- * "failed" is implemented defensively and its real-world coverage is
- * thin — say this plainly rather than pretend otherwise. Verified by
- * reading the actual write paths:
+ * "failed" — real coverage as of T5b (2026-07-28), verified by reading the
+ * actual write paths, not guessed:
  *   - `assets.status` values 'blocked_no_reference' / 'budget_capped' /
  *     'qa_rejected' (static_docu.py only, ~L1706/1747/1840) ARE real,
  *     persisted failure markers — but only for the static-documentary
  *     format, which is explicitly out of scope for this mission's
  *     animation-channel build (see TIMELINE-WORKBENCH-PLAN.md's DvsU
- *     caveat). They're still checked below since a slot from a
- *     static_docu-format scene, if one ever flows through this function,
- *     should show failed rather than silently misreport pending.
- *   - `assets.video_status` / `assets.animation_status` DO exist as real
- *     Postgres columns (migrations/000_baseline_schema.sql L246/251) —
- *     but a repo-wide grep found writes to them ONLY in
- *     `supabase_adapter.py`, a separate Airtable-facing adapter, NOT in
- *     the live Postgres path `pipeline_executor.py`/`coverage_to_app.py`
- *     actually use. The live clip-generation failure path
- *     (`pipeline_executor.py` ~L13382-13394, `_safe_one`'s except
- *     branch) counts a failed clip in an in-memory counter and logs an
- *     activity-feed line — it does NOT write `video_status`,
- *     `animation_status`, or anything else back onto the asset row. A
- *     failed clip attempt is, today, indistinguishable from "never
- *     attempted" once the request that tried it has returned.
- *   These two optional fields are read defensively below (checked, never
- *   assumed) so `state: "failed"` activates automatically the day the
- *   backend starts persisting a failure marker for the animation-channel
- *   path — without a second pass through this file.
+ *     caveat). Still checked below since a slot from a static_docu-format
+ *     scene, if one ever flows through this function, should show failed
+ *     rather than silently misreport pending. Checked AFTER `image_url`
+ *     (unchanged) — an image-stage failure only means anything when no
+ *     image ever landed.
+ *   - `assets.video_status` — a real Postgres column
+ *     (migrations/000_baseline_schema.sql) that the live clip-generation
+ *     path now genuinely writes: `pipeline_executor.py`'s `_safe_one`
+ *     except branch sets it to `'failed'` on an isolated clip error (T5b),
+ *     and BOTH the success write (same statement as `video_clip_url`) and
+ *     the redraw path (coverage_to_app.py) clear it back to NULL. That
+ *     clear-on-success/clear-on-redraw guarantee is exactly why this check
+ *     now runs BEFORE `image_url` below: a clip is animated FROM an
+ *     existing image, so `image_url` being set was never real evidence a
+ *     clip attempt succeeded, and the marker can no longer go stale the
+ *     way the pre-T5b ordering (image wins) assumed when it was purely
+ *     defensive/speculative.
+ *   - `assets.animation_status` is the same real column, still unwritten by
+ *     any live path today (only `supabase_adapter.py`, a separate
+ *     Airtable-facing adapter) — checked defensively alongside
+ *     `video_status` so it activates automatically if that ever changes,
+ *     with zero further changes here.
  *
  * ---------------------------------------------------------------------
  * STALE PLAN (coverage_directive_hash) — genuinely client-invisible.
@@ -305,14 +316,17 @@ function isFailureMarker(value: string | null | undefined): boolean {
 function deriveState(asset: TimelineAssetInput | null): SlotState {
   if (!asset) return "planned";
   if (asset.video_clip_url) return "clip";
-  if (asset.image_url) return "image";
-  if (
-    isFailureMarker(asset.status) ||
-    isFailureMarker(asset.video_status) ||
-    isFailureMarker(asset.animation_status)
-  ) {
+  // T5b: video/animation-stage failure checked BEFORE image_url — a clip is
+  // generated FROM an existing image, so having one is never evidence a
+  // clip attempt succeeded. See the file header's STATE MACHINE section for
+  // why this is now safe (the marker can no longer go stale).
+  if (isFailureMarker(asset.video_status) || isFailureMarker(asset.animation_status)) {
     return "failed";
   }
+  if (asset.image_url) return "image";
+  // Image-stage failure (static_docu only) — only meaningful when no image
+  // ever landed; unchanged from before T5b.
+  if (isFailureMarker(asset.status)) return "failed";
   return "pending";
 }
 
