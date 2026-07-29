@@ -175,8 +175,19 @@ whatever lies on the far side of them. Optionally state the optical signature of
 the diegetic device (barrel distortion for a security lens) so the shot reads as
 that device's view rather than a stylistic choice.
 
-*(L18 and L19 are derived from craft reasoning while writing scene 3 and are
-UNTESTED until that scene's free round is judged.)*
+**L20 — CROSS-SCENE SET CONSISTENCY.** A set's material and structure are defined
+once for the whole film and never altered to serve one scene's needs. Writing
+scene 3, I made Nyla's transparent glass dome an opaque "curved white shell"
+because a dark lens bead needed a pale surface to read against — silently
+contradicting every other scene, where the pod is a clear sphere with the warren
+visible through it. Ryan spotted it, then talked himself out of it; the
+inconsistency was real and would have shown the moment two scenes sat in the same
+cut. When a scene needs a property the set does not have (contrast, a mounting
+point, a surface), find it INSIDE the established set — here, the pale structural
+ribs between the glass panes — rather than changing the set's nature.
+
+*(L18 and L19 are derived from craft reasoning while writing scene 3; Ryan passed
+that sheet on the first round, which is supporting evidence, not proof.)*
 
 ---
 
