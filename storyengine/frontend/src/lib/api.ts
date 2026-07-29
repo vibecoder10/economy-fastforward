@@ -2165,6 +2165,14 @@ export interface Asset {
    * JSON-stringified by the route (`caption::text`) so it always arrives as a
    * string here — parse before use, and handle parse failure (older/odd rows). */
   caption?: string | null;
+  /** T2b (TIMELINE-WORKBENCH-PLAN.md): real per-clip seconds, now exposed by
+   * GET /api/videos/{id}/assets (routes/videos.py's get_video_assets).
+   * `assigned_video_duration` is an editorial override when set, else
+   * `video_duration` is the model's actual render length — both null until
+   * a clip exists. canvas-shared timeline-slots.ts / TimelineAltitudeView.tsx
+   * read these to auto-activate the real proportional ruler. */
+  video_duration?: number | null;
+  assigned_video_duration?: number | null;
   created_at: string | null;
 }
 
