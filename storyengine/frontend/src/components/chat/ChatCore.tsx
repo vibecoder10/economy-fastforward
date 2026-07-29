@@ -9,7 +9,7 @@
 // (welcome hero, auto-onboarding, OAuth resume) and the layout (composer + width).
 // ChatHome is a thin wrapper over <ChatCore /> so the home flow is unchanged.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Send, Loader2, CheckCircle2, ArrowRight, Clapperboard, AlertTriangle, Youtube, HardDrive, TrendingUp, Eye, Palette, CalendarDays, Lightbulb, Compass, Activity, Link2, Settings2, History, Plus, Paperclip, X, CircleDollarSign, Dna, RotateCcw, MinusCircle, XCircle, PencilLine } from "lucide-react";
@@ -480,6 +480,48 @@ export function ChatCore({
   // card clears it, rather than guessing a fixed px buffer that drifts the
   // next time the composer grows (sendGuardNotice, an attachment row, …).
   const composerWrapRef = useRef<HTMLDivElement>(null);
+  // D3-52 follow-up (independent review found the anchor scroll STILL missed
+  // on a genuinely fresh mount, reproduced live against prod on
+  // http://76.13.119.181:8001): instrumented with a real console/state log
+  // and found the root cause — on first mount the scroll container isn't
+  // even in the DOM yet (the `!started && checking` spinner branch renders
+  // instead), so the earliest effect runs are no-ops; once hydrate finishes
+  // and the container mounts, `scrollHeight` was STILL climbing well past
+  // the fixed 180/600/1500ms retry window because ChatPipelineMap,
+  // ScriptResultCard, CastLocationsCard, and StoryboardGridCard each run
+  // their OWN separate network fetch (unrelated to `messages`) — logged
+  // scrollHeight 4681 -> 4661 -> 5238 -> 5480 between 2s and 4.7s after
+  // mount. The last scheduled retry fired before layout had actually
+  // settled, and nothing corrected it afterward, so scrollTop stayed at
+  // whatever that early (wrong) computation left it — 0, on the reviewer's
+  // fresh probe. Fixed-delay retries can't outrun a variable, real-network
+  // async chain. `hasUserScrolledRef` + the rAF loop below replace them:
+  // keep re-anchoring every frame — driven by the ACTUAL scrollHeight, not a
+  // guessed delay — until it holds steady, capped generously, or the user
+  // takes over by actually scrolling (wheel/touch, not our own programmatic
+  // scrollTop writes).
+  const hasUserScrolledRef = useRef(false);
+  // Cleans up the previous scroll container's wheel/touch listeners before
+  // attaching to a new one — a callback ref (not `useEffect`) because the
+  // container mounts/unmounts across this component's several early-return
+  // branches (checking spinner / welcome / conversation), and an
+  // effect keyed on the wrong deps can miss that transition entirely (this
+  // exact class of bug is what caused gap #1 above).
+  const scrollListenerCleanupRef = useRef<(() => void) | null>(null);
+  const setMessagesScrollEl = useCallback((el: HTMLDivElement | null) => {
+    scrollListenerCleanupRef.current?.();
+    scrollListenerCleanupRef.current = null;
+    messagesScrollRef.current = el;
+    if (el) {
+      const onUserScroll = () => { hasUserScrolledRef.current = true; };
+      el.addEventListener("wheel", onUserScroll, { passive: true });
+      el.addEventListener("touchstart", onUserScroll, { passive: true });
+      scrollListenerCleanupRef.current = () => {
+        el.removeEventListener("wheel", onUserScroll);
+        el.removeEventListener("touchstart", onUserScroll);
+      };
+    }
+  }, []);
   const autoTriedRef = useRef(false);
   // The six style-description ids (checklist §C21b) — one shared query, also
   // used by the New Video "Style description" grid (pipeline/page.tsx).
@@ -501,14 +543,13 @@ export function ChatCore({
   const actionCard = lastCards?.find((c) => ACTION_CARD_KINDS.has(cardKind(c))) ?? null;
 
   useEffect(() => {
+    const el = messagesScrollRef.current;
     // Pin the thread to its newest content. In the DOCK, scroll the panel's own
     // container imperatively — smooth scrollIntoView loses the race when a
     // reply arrives WITH an action card (the panel resizes mid-scroll), which
     // left confirm cards rendered below the fold: creators saw no Do-it button
-    // at all and thought the action had no UI. Run twice (now + after layout
-    // settles) so late-painting cards are still brought into view.
+    // at all and thought the action had no UI.
     const toBottom = () => {
-      const el = messagesScrollRef.current;
       const anchor = activeAnchorRef.current;
       // D3-52: scroll to the anchor (end of this turn's news), not the
       // container's absolute bottom — see activeAnchorRef's doc comment.
@@ -534,13 +575,45 @@ export function ChatCore({
         endRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     };
+    // New content (a fresh turn, or the initial hydrate populating history) —
+    // resume auto-scroll even if the creator had scrolled up to read
+    // something earlier in the thread.
+    hasUserScrolledRef.current = false;
+    if (!el) return; // container isn't mounted yet (checking/welcome branch) — nothing to do
     toBottom();
-    // Staggered retries: on hydration/reload the surrounding page keeps
-    // reflowing for a second or two AFTER the first scroll, which used to
-    // leave the newest card ~a row below the fold again.
-    const ts = [180, 600, 1500].map((ms) => setTimeout(toBottom, ms));
-    return () => ts.forEach(clearTimeout);
-  }, [messages, sending, createdVideoId]);
+    // D3-52 follow-up: keep re-anchoring every animation frame — driven by
+    // the ACTUAL scrollHeight settling, not a guessed delay — because
+    // ChatPipelineMap / ScriptResultCard / CastLocationsCard /
+    // StoryboardGridCard each run their own separate network fetch
+    // unrelated to `messages`, so layout can keep growing for well over a
+    // second after this effect fires (measured live: scrollHeight still
+    // climbing 3.7s after mount against the real prod API). Stops once
+    // scrollHeight has held for ~20 frames (~1/3s) of no change, is capped
+    // at 6s so a pathological page can't spin forever, or the moment the
+    // creator actually scrolls (wheel/touch — see setMessagesScrollEl).
+    let stableFrames = 0;
+    let lastHeight = el.scrollHeight;
+    let rafId = 0;
+    const start = performance.now();
+    const tick = () => {
+      if (!hasUserScrolledRef.current) toBottom();
+      const h = el.scrollHeight;
+      if (h === lastHeight) stableFrames++;
+      else { stableFrames = 0; lastHeight = h; }
+      if (performance.now() - start < 6000 && stableFrames < 20) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+    // `checking` is deliberately included: the scroll container only exists
+    // once the checking/welcome branches give way to the conversation view,
+    // so this effect must re-fire the moment that happens even on a render
+    // where `messages` itself didn't change (belt-and-suspenders alongside
+    // the `if (!el) return` guard above — instrumentation showed
+    // `setMessages`/`setChecking(false)` landing in the same render in
+    // practice, but nothing here should depend on that always being true).
+  }, [messages, sending, createdVideoId, checking]);
 
   // Auto-clear the "still finishing the last message" notice (see
   // `sendGuardNotice` above) — it's a transient nudge, not a persistent
@@ -1215,7 +1288,7 @@ export function ChatCore({
         {/* pb-44: the confirm/prompt action cards render at the thread's end —
             with pb-28 their buttons could sit under the pinned composer overlay
             (creators saw the card label but no Do it button). */}
-        <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
+        <div ref={setMessagesScrollEl} className="flex-1 overflow-y-auto px-4 pt-4 pb-44 flex flex-col gap-4">
           {!started && (
             <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>{DOCK_HINT}</p>
           )}
@@ -1390,7 +1463,7 @@ export function ChatCore({
   return (
     <div className="relative h-full flex flex-col">
       <div
-        ref={messagesScrollRef}
+        ref={setMessagesScrollEl}
         // D3-45 (measured live on prod, 2026-07-28): every direct child here
         // (message bubbles, the pipeline map, glass-card result/action/
         // approval cards, the progress card) inherited the flex default

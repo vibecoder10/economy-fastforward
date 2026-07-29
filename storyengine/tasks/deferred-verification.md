@@ -52,6 +52,84 @@
     the fix stashed, is fixed with it applied, and a live (mocked) turn renders
     without a reload.
 
+## D3-52 follow-up (bounce): fresh-mount miss found by independent review, fixed
+
+- [x] **Fresh-navigation scroll miss — root cause instrumented, fixed, re-verified.**
+  - Proof reached now: an independent fresh-eyes sweep on merged main (`293dd507`)
+    found the anchor-scroll fix from the first pass worked on reload but NOT on a
+    genuinely fresh `/chat/686b4651…` navigation — DOM-verified scrollTop stuck at
+    0 of scrollHeight 1869, confirm card ~1200px below the fold. Instrumented (a
+    temporary `window.__d352Log` array logging effect-fire time, `checking`,
+    `scrollHeight`, `clientHeight`, and `scrollTop` at each retry, later removed)
+    and reproduced it directly: on first mount the scroll container isn't in the
+    DOM yet (the `!started && checking` spinner branch renders instead); once
+    hydrate finishes and it mounts, `scrollHeight` was STILL climbing well past
+    the old fixed 180/600/1500ms retry window (logged 4681 → 4661 → 5238 → 5480
+    between 2s and 4.7s after mount) because `ChatPipelineMap`,
+    `ScriptResultCard`, `CastLocationsCard`, and `StoryboardGridCard` each run
+    their own separate network fetch, unrelated to `messages`. The last
+    scheduled retry fired before layout had actually settled, and nothing
+    corrected it afterward.
+  - Fix: replaced the fixed-delay retries with a `requestAnimationFrame` loop
+    that keeps re-anchoring every frame — driven by the ACTUAL `scrollHeight`
+    settling (20 consecutive stable frames, ~1/3s), capped at 6s — plus a
+    `hasUserScrolledRef` (set via real `wheel`/`touchstart` listeners, never by
+    our own programmatic `scrollTop` writes) so it stops fighting a creator who
+    is actually scrolling. `checking` was added to the effect's dependency array
+    as a belt-and-suspenders guard for the container-mounts-late race, even
+    though instrumentation showed `setMessages`/`setChecking(false)` landing in
+    the same render in the practice run measured.
+  - Re-verified with the SAME merge-then-fix flow the bounce asked for
+    (`git merge main` — fast-forward, no conflicts, nobody else touched
+    `ChatCore.tsx`): stash-proof re-run on the merged code (bug reproduces with
+    the follow-up diff stashed out, fixed with it restored — screenshots showed
+    the un-fixed state scrolled to the very TOP of the thread, i.e. worse than
+    "stuck partway", matching a cold scrollTop=0 render); a DOM-verified
+    zero-manual-scroll probe (`getBoundingClientRect()` on the "Do it" button vs
+    `window.innerHeight`, fresh tab + `force:true` reload each time, explicit
+    1280x800 viewport) passed 3 consecutive fresh-navigation runs
+    (`scrollTop: 372`, button `top: 616, bottom: 656`, fully inside `[0, 800]`);
+    the live-path mocked-POST re-check (same technique as the first pass, a new
+    "scene 2" confirm card) still renders immediately with no reload, and the
+    mock was confirmed NOT to persist on reload afterward. `npx tsc --noEmit`
+    and `npm run build` both clean on the final diff.
+  - Real tool caveat found along the way: `mcp__Claude_Browser__javascript_tool`
+    intermittently evaluates against what looks like a stale/backgrounded tab
+    context (`window.innerHeight`/`innerWidth` reading `0`, `scrollHeight`
+    equal to `clientHeight` — an "unconstrained layout" signature, and
+    `performance.now()` reading far larger than the actual elapsed test time)
+    when a tab has been repeatedly navigated or several tabs are open at once.
+    Calling `resize_window` (even to a size the tab may already have) and/or
+    using a single freshly-created tab per check reliably fixed it. Screenshots
+    taken in the SAME moments were always accurate — this looks like a
+    JS-eval-context quirk of the tool, not a page bug — but it means any
+    `javascript_tool` numeric read in this environment that looks like "totally
+    unconstrained/zeroed" should be treated as suspect and re-checked with a
+    resize or a fresh tab before trusting it as evidence either way.
+  - Pre-existing bug found, NOT fixed (out of scope for D3-52, confirmed
+    unrelated to this diff): the DOCKED co-pilot (opened via the `/pipeline/
+    [videoId]` page's "Chat with the co-pilot" toggle) never hydrates this
+    video's real history — it shows the empty "Ask about this video…" hint
+    indefinitely, and `GET /api/chat/conversation?video_id=…` never fires at
+    all (checked `read_network_requests` after 5+ seconds and after a
+    close/reopen toggle). Reproduced identically with the D3-52 follow-up diff
+    stashed OUT (pure merged main) and stashed back IN — same broken behavior
+    both times, so it predates and is independent of this chunk's changes. Not
+    investigated further (out of scope for this bounce); flagging for a
+    separate chunk since it means the dock's "resume this video's conversation
+    on open" promise (the comment at the dock's own hydrate effect) is
+    currently false for at least this video.
+  - Later recipe: same screenshot-persistence gap as above — the visual proof
+    (multiple screenshots per run showing the before/after difference) lives in
+    the session transcript, not as files. The dock hydrate bug needs its own
+    investigation: instrument `getChatConversation`'s call site in the dock's
+    `useEffect` (`if (!docked || !videoId) return;`) the same way this chunk
+    instrumented the scroll effect, to find why the fetch never fires for this
+    video/session.
+  - Expected result: identical to what was already verified — scrollTop lands
+    correctly on a genuinely fresh, uncached, first-ever navigation, not just on
+    reload; the live-send path still works; nothing else regressed.
+
 # Deferred verification — Custom Film Remotion showcase layer
 
 ## M8 storyboard-driven Custom Film director loop
