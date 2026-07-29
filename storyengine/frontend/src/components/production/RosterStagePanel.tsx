@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle, ImageIcon, RefreshCw, Loader2, Link2 } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
@@ -41,10 +41,23 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
   const [pendingUrl, setPendingUrl] = useState<Record<string, string>>({});
   const [seeding, setSeeding] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<Record<string, string>>({});
+  const [manualOverride, setManualOverride] = useState<Record<string, boolean>>({});
 
-  useSharedTaskWatcher({
+  // UX-1 (2026-07-29): a sweep takes ~10min for a 23-machine roster (serial,
+  // Wikimedia-politeness-throttled) and used to leave the panel frozen at its
+  // starting "0/23" the whole time — a user watching it had no way to tell
+  // "broken" from "15 machines in." The backend now republishes an honest
+  // "X/Y verified so far" onto the task-status message every ~5s (see
+  // routes/pipeline.py's recheck_roster_references), so this poll (already
+  // running every ~3s for completion/failure) also drives: (1) `liveMessage`
+  // for the climbing headline text, (2) a roster-dashboard refetch on every
+  // tick so verified photos pop into the grid live, not just at the end.
+  const { message: liveMessage } = useSharedTaskWatcher({
     bridge: taskWatcher,
     enabled: taskRunning,
+    onProgress: () => {
+      queryClient.invalidateQueries({ queryKey: ["roster-dashboard", videoId] });
+    },
     onComplete: (msg) => {
       setTaskRunning(false);
       setRechecking(false);
@@ -58,6 +71,24 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
       toast.error(`Re-check failed: ${error}`);
     },
   });
+
+  // The bridge's own `running` is always-on for this video's single task
+  // slot (see use-task-poller.ts), so it already reflects a sweep kicked off
+  // before this panel mounted — a page reload or revisit mid-sweep, or a
+  // recheck started elsewhere. Matched on the message text this task type
+  // alone writes ("Re-checking machine references[...]") so an unrelated
+  // task (e.g. script generation) occupying the slot doesn't get mistaken
+  // for a roster sweep.
+  const bridgeIsRosterSweep =
+    taskWatcher.running && (taskWatcher.message || "").toLowerCase().includes("machine reference");
+
+  useEffect(() => {
+    if (bridgeIsRosterSweep && !taskRunning) {
+      setTaskRunning(true);
+    }
+  }, [bridgeIsRosterSweep, taskRunning]);
+
+  const showRunning = taskRunning || bridgeIsRosterSweep;
 
   const handleRecheck = async () => {
     setRechecking(true);
@@ -133,21 +164,38 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
               voice spend — this is the gate that stops an invented machine from
               ever reaching the screen.
             </p>
-            <p
-              className="text-sm mt-2 font-semibold"
-              style={{ color: allVerified ? "var(--green)" : "var(--gold)" }}
-            >
-              {verifiedCount}/{total} verified
-              {allVerified ? " — roster is clear to proceed." : " — fix the missing photos below."}
-            </p>
+            {showRunning ? (
+              <p
+                className="text-sm mt-2 font-semibold flex items-center gap-2"
+                style={{ color: "var(--turquoise)" }}
+              >
+                <Loader2 size={14} className="animate-spin shrink-0" />
+                {liveMessage || "Re-checking machine references…"}
+              </p>
+            ) : (
+              <p
+                className="text-sm mt-2 font-semibold"
+                style={{ color: allVerified ? "var(--green)" : "var(--gold)" }}
+              >
+                {verifiedCount}/{total} verified
+                {allVerified ? " — roster is clear to proceed." : " — fix the missing photos below."}
+              </p>
+            )}
+            {showRunning && (
+              <p className="text-xs mt-1" style={{ color: "var(--text-tertiary)" }}>
+                This roster is large enough that a full sweep can take several
+                minutes — the count above updates on its own as each machine
+                clears. No need to add photos manually while this runs.
+              </p>
+            )}
           </div>
           <ActionButton
-            icon={rechecking || taskRunning ? Loader2 : RefreshCw}
+            icon={rechecking || showRunning ? Loader2 : RefreshCw}
             variant="outline"
             onClick={handleRecheck}
-            disabled={rechecking || taskRunning}
+            disabled={rechecking || showRunning}
           >
-            {rechecking || taskRunning ? "Re-checking…" : "Re-check missing"}
+            {rechecking || showRunning ? "Re-checking…" : "Re-check missing"}
           </ActionButton>
         </div>
       </GlassCard>
@@ -177,19 +225,45 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 <p className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }} title={u.machine}>
                   {u.machine}
                 </p>
-                <span
-                  className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
-                  style={{
-                    color: verified ? "var(--green)" : "var(--red)",
-                    border: `1px solid ${verified ? "var(--green)" : "var(--red)"}`,
-                  }}
-                >
-                  {verified ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-                  {verified ? "verified" : "missing"}
-                </span>
+                {verified ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                    style={{ color: "var(--green)", border: "1px solid var(--green)" }}
+                  >
+                    <CheckCircle2 size={11} /> verified
+                  </span>
+                ) : showRunning && !manualOverride[u.machine] ? (
+                  // UX-1: while an automatic sweep is mid-flight, a red
+                  // "missing" badge reads as "the machine gave up" — it
+                  // hasn't, this unit just hasn't been reached yet (or is
+                  // being retried right now). Say that instead.
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                    style={{ color: "var(--turquoise)", border: "1px solid var(--turquoise)" }}
+                  >
+                    <Loader2 size={11} className="animate-spin" /> checking…
+                  </span>
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                    style={{ color: "var(--red)", border: "1px solid var(--red)" }}
+                  >
+                    <XCircle size={11} /> missing
+                  </span>
+                )}
               </div>
 
-              {!verified && (
+              {!verified && showRunning && !manualOverride[u.machine] && (
+                <button
+                  onClick={() => setManualOverride((prev) => ({ ...prev, [u.machine]: true }))}
+                  className="text-[11px] text-left underline underline-offset-2 opacity-70 hover:opacity-100"
+                  style={{ color: "var(--text-tertiary)" }}
+                >
+                  Don&apos;t want to wait? Add a photo manually instead.
+                </button>
+              )}
+
+              {!verified && (!showRunning || manualOverride[u.machine]) && (
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
                     <Link2 size={12} style={{ color: "var(--text-tertiary)" }} className="shrink-0" />
