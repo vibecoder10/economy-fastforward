@@ -761,15 +761,21 @@ generation, no video/scene was touched or regenerated.
   actually FOLLOWS the new causal-chain/bridge instruction on a real scene, especially one
   matching the original repro (a scene whose narration moves from inside a sealed space to
   an exterior corridor/hallway partway through).
-  - Recipe: pick (or create) a video with a scene whose narration includes a mid-scene
-    location change — the closest thing to the original repro. Call the MCP `storyboards`
-    tool (or `POST /api/pipeline/coverage/{video_id}?scene=<N>&plan_only=1` if the route
-    supports a plan-only/no-draw mode — confirm via `routes/pipeline.py` before relying on
-    it; if no plan-only flag exists, use `scripts/coverage_to_app.py`'s
-    `generate_coverage_directive`-only path, which is text generation, no image spend) for
-    ONE scene. This step is a single Anthropic text call, not an image draw — effectively
-    free (a few cents of LLM tokens), but still needs Ryan's go given the "quote the cost,
-    wait for yes" rule for anything that spends against workspace API keys.
+  - Recipe: use video `686b4651-e495-44be-baf6-97fc6dd527e9` (tenant
+    `ee93e6d1-a9cc-44c3-81e9-84adee8329aa`), **scene 1** — confirmed via `se db` (2026-07-28)
+    to be the scene with the mid-scene location change: Nyla wakes inside a glass bubble-pod
+    then runs down the warren hallway, i.e. the exact pod-interior → exterior-hallway repro
+    D3-53's original diagnosis names. **Not scene 2** — that scene is single-location
+    dialogue (the elites watching from their viewing room), so there is no location change
+    for rule 4b's BRIDGE tag to ever fire on; it can't exercise this fix. Call the MCP
+    `storyboards` tool (or `POST /api/pipeline/coverage/{video_id}?scene=1&plan_only=1` —
+    the route DOES support a plan-only/no-draw mode, confirmed in `routes/pipeline.py`; and
+    as of the D3-59 fix in this commit, `plan_only=1` is now a true dry run — it persists
+    nothing to the DB, so it's safe to call against this video without disturbing its
+    already-drawn boards or its pending confirm). This step is a single Anthropic text
+    call, not an image draw — effectively free (a few cents of LLM tokens), but still needs
+    Ryan's go given the "quote the cost, wait for yes" rule for anything that spends against
+    workspace API keys.
   - Expected "pass": every adjacent panel pair in the returned plan is either (a) the same
     location as its neighbor and a plausible direct consequence/escalation of it, or (b) an
     explicit "(BRIDGE)" tagged moment showing the exit/travel/arrival between two different
