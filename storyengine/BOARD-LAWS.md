@@ -34,7 +34,7 @@ they extend rather than replace.
 - **People are specified, not assumed** — L6, L12, L17
 - **Action is legal** — L4
 - **Panel discipline** — L2
-- **Laws that belong to the script** — S1, S2
+- **Laws that belong to the script** — S1-S5, in `STORY-LAWS.md`
 
 ---
 
