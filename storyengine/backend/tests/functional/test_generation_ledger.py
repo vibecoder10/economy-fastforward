@@ -35,7 +35,7 @@ async def _fake_execute(query: str, *args):
     if "INSERT INTO generation_ledger" in query:
         if RAISE_ON_INSERT:
             raise RuntimeError("simulated DB outage on ledger insert")
-        # D5 chunk A1 (migration 139) added two additive, optional columns —
+        # D5 chunk A1 (migration 140) added two additive, optional columns —
         # scene, fingerprint — to this same INSERT (frame_qa stage only;
         # every call site in THIS file omits them, so they arrive as None
         # here exactly like kie_task_id already could). Unpack all 10 to
@@ -135,7 +135,7 @@ def test_ledger_row_written_with_correct_fields():
         "tenant_id": "tenant-1", "video_id": "video-1", "stage": "clip",
         "model": "grok-imagine", "units": 1, "unit_cost": 0.10,
         "actual_cost": 0.10, "kie_task_id": "kie-task-abc",
-        # scene/fingerprint (migration 139, D5 chunk A1): additive, optional,
+        # scene/fingerprint (migration 140, D5 chunk A1): additive, optional,
         # None for every call site here (only the frame_qa stage sets them).
         "scene": None, "fingerprint": None,
     }

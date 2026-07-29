@@ -877,7 +877,7 @@ CREATE TABLE bot_activity (
 -- backend/generation_ledger.py::record_ledger_entry(). RLS enabled with no
 -- policies (backend connects as postgres, bypasses RLS) — same pattern as
 -- migration 083.
--- scene + fingerprint (migration 139, D5 chunk A1): NULLable, additive,
+-- scene + fingerprint (migration 140, D5 chunk A1): NULLable, additive,
 -- written only by the frame_qa stage (backend/frame_arbiter_budget.py) —
 -- scene backs the per-scene $0.25 arbiter cap, fingerprint tags a row to
 -- the learning-ratchet's repeat-failure key. Every other stage leaves both
@@ -944,7 +944,7 @@ CREATE INDEX idx_generation_ledger_tenant_created ON generation_ledger(tenant_id
 CREATE UNIQUE INDEX generation_ledger_dedup_idx
   ON generation_ledger (video_id, stage, kie_task_id)
   WHERE kie_task_id IS NOT NULL;
--- Frame Arbiter's per-scene cap read (migration 139, D5 chunk A1) — scoped
+-- Frame Arbiter's per-scene cap read (migration 140, D5 chunk A1) — scoped
 -- to frame_qa rows only, same shape as the dedup index above.
 CREATE INDEX idx_generation_ledger_frame_qa_scene
   ON generation_ledger (video_id, scene)

@@ -74,7 +74,7 @@ async def record_ledger_entry(
     without ever double-counting, and self-healing if a row is ever added or
     corrected out of band.
 
-    ``scene``/``fingerprint`` (migration 139, D5 chunk A1) are additive,
+    ``scene``/``fingerprint`` (migration 140, D5 chunk A1) are additive,
     optional, and NULL for every call site that doesn't pass them — every
     existing caller (clips, images, voice, thumbnail, sound) is byte-
     identical after this change. Only the frame_qa stage

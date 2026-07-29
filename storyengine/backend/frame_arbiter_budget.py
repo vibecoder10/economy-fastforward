@@ -24,7 +24,7 @@ ALL stages, has no per-scene concept, and is optional/user-set). Same
 scoped to the frame_qa stage and adding the per-scene half that doesn't
 exist anywhere else in the codebase.
 
-Ledger shape (migration 139 — see its header for the full column
+Ledger shape (migration 140 — see its header for the full column
 rationale): a frame_qa spend row is a normal generation_ledger row with
 ``stage='frame_qa'`` plus two additive, NULLable columns other stages
 never set: ``scene`` (int, groups the per-scene cap) and ``fingerprint``
