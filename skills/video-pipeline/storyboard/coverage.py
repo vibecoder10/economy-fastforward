@@ -122,6 +122,21 @@ The scene's SET DRESSING is FIXED: decide once what surfaces and props exist and
 (what's on the table, what's against the wall), declare it on the [SET | ...] line, and never \
 add, remove or move a prop between moments. If the image model isn't told, it invents props that \
 flicker in and out between shots — the [SET | ...] line is what stops that.
+4b) SEQUENCE IS A CAUSAL CHAIN, NOT A GRAB-BAG OF PRETTY SHOTS — THIS APPLIES TO EVERY MOMENT, \
+SPEAKING OR SILENT. Each moment must be a direct CONSEQUENCE of, or an ESCALATION from, the \
+moment right before it — never an unrelated "nice shot" dropped in because it looks good. Loosely \
+track the classic 4-beat arc as the moments progress: {profile.emotional_arc.beat_1} → \
+{profile.emotional_arc.beat_2} → {profile.emotional_arc.beat_3} → {profile.emotional_arc.beat_4}. \
+For a DIALOGUE moment, rule 5's script-turn order below already fixes WHERE it sits — this rule \
+adds the causal logic on top of that order, it does not change it. For a SILENT/narration moment \
+(establishing, insert, cutaway, reaction, transit — no LINE row), this rule IS the sequencing law: \
+follow the scene narration's OWN event order, never reorder events for a prettier shot. \
+IF THE NARRATION MOVES THE STORY TO A NEW LOCATION PARTWAY THROUGH THE SCENE, that is a HARD \
+requirement for a BRIDGE moment — tag it "(BRIDGE)" right after its setup letter, e.g. "(SETUP \
+F)(BRIDGE) WS Ryan pushes through the pod's hatch into the corridor beyond, harsh fluorescent \
+light replacing the pod's blue glow." — showing the exit, the travel, or the arrival. NEVER cut \
+straight from one location's moments to a different location's moments with no transition shot; \
+the audience needs to see how the character got there.
 5) DIALOGUE = ONE SPEAKER PER MOMENT, ASSIGNED HERE. A clip can only lip-sync one character, so plan \
 ONE moment per speaker TURN (each time the speaker changes, that is a new moment), IN SCRIPT ORDER, \
 covering EVERY spoken line exactly once. For a speaking moment, put the spoken line on its own \
@@ -248,7 +263,9 @@ placement + eyeline, then what the new framing emphasises. The axis still holds.
 
 shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
-Plan up to {max_moments} moments from the narration below; pick the moments that carry the scene.
+Plan up to {max_moments} moments from the narration below; pick the moments that carry the scene, \
+IN THE NARRATION'S OWN EVENT ORDER as a causal chain (rule 4b) — never reorder events for a \
+prettier shot, and never skip the BRIDGE moment a location change requires.
 Describe every person by APPEARANCE ONLY — height, build, hair, clothing — never by age words \
 (no kid/child/boy/girl/teen or ages like "7-year-old"); the image model rejects prompts that \
 mention minors. Write "short character with curly brown hair in a red hoodie", not "a young boy".
@@ -2034,6 +2051,40 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
             for a in m.get("angles") or []:
                 a["description"] = f"{a['description'].rstrip('. ')}. {tail}"
         print("  📷 staging/setup lock applied to every shot", flush=True)
+
+    # SEQUENCE LOCK (D3-53b, rule 4b's contract-triangle repair leg): every
+    # per-shot draw prompt below is stamped from moments[i]["master"/"angles"]
+    # ["description"], and assets.image_prompt (store_scene) is stamped
+    # VERBATIM from that same text — so whatever lands here also becomes the
+    # base prompt for a later manual redraw_asset_image repair call. Before
+    # this, a single shot's draw/redraw prompt had ZERO awareness of its
+    # neighbours: nothing stopped a lone frame (or a repaired one) drifting
+    # out of the causal chain rule 4b asks the planner for, or silently
+    # dropping a location's bridge on a solo redraw. Stamp each shot with its
+    # position in the chain and the previous moment's summary — cheap,
+    # deterministic, code-rendered (never a fresh LLM paraphrase), same
+    # pattern as the SET/AXIS/STAGING locks above it.
+    for i, m in enumerate(moments):
+        seq_bits = [f"Moment {i + 1} of {len(moments)} in this scene's causal chain"]
+        if i > 0:
+            seq_bits.append(f'following directly from: "{moments[i - 1]["summary"]}"')
+        seq_tail = "; ".join(seq_bits) + "."
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            shot["description"] = f"{shot['description'].rstrip('. ')}. {seq_tail}"
+    print("  🔗 sequence/causal-chain lock applied to every shot", flush=True)
+
+    # NOT BUILT — an adjacent-panel LOCATION-JUMP gate (D3-53b contract-triangle
+    # third leg): today's schema has no per-moment location field to check.
+    # [SET | ...] declares ONE fixed location for the WHOLE scene (parse_set_
+    # dressing, above) and moments carry no analogous per-moment slot — so
+    # "does moment i's location differ from moment i-1's" isn't a structured
+    # comparison, only a fuzzy match against free-text shot prose, which
+    # check_prop_manifest_consistency's own docstring (below) already rules
+    # out as unreliable for this exact reason. A real gate needs a per-moment
+    # location field added to parse_coverage's output schema plus every
+    # downstream consumer updated — out of scope for this capped chunk. Left
+    # for a future chunk if the deferred-verification paid proof shows rule
+    # 4b's prose alone isn't enough.
 
     # PROP MANIFEST LOCK (C4): the environment's canonical, code-rendered prop
     # list — authored ONCE at env-approval time, never a fresh LLM

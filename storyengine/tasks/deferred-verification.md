@@ -652,3 +652,52 @@ separate refreshed exact approval and is not implied by this completion.
 ### DV-4 (MINOR BUG, not a Phase 0 regression): `npm run dev` ignores PORT
 - `package.json`'s `dev` script hardcodes `--port 3001`, so `PORT=3021 npm run dev` silently
   uses 3001. Workaround: `npx next dev --webpack --port <N>`. One-line fix, not done here.
+
+# Deferred verification — D3-53b storyboard sequential through-line
+
+Ryan's complaint: boards/frames play as "a whole bunch of random shots with no real
+through line." Diagnosed root cause: `_coverage_system_prompt()`
+(`skills/video-pipeline/storyboard/coverage.py`) had no sequencing law for silent/
+narration moments (only "pick the moments that carry the scene") and no rule requiring a
+bridge shot on a location change — dialogue moments were fine because rule 5 already
+forces them into script-turn order. This chunk added rule 4b (causal-chain sequencing +
+mandatory "(BRIDGE)" tag on a location change, reusing the EmotionalArc setup→build→turn→
+payoff vocabulary from `shared/channel_profile.py`) plus a code-side SEQUENCE LOCK that
+stamps each shot's chain position and the previous moment's summary into every draw prompt
+(and, since `assets.image_prompt` is stamped verbatim from that same text, into a later
+manual `redraw_asset_image` repair call too — the contract-triangle repair leg). No
+deterministic gate was built: today's schema has exactly ONE `[SET | ...]` line per whole
+scene (no per-moment location field), so "does moment i's location differ from moment
+i-1's" isn't a structured comparison — see the `NOT BUILT` comment directly above the
+PROP MANIFEST LOCK in `run_coverage()` for the full reasoning.
+
+Everything reached here is $0: `_coverage_system_prompt`/`_coverage_user_prompt` called
+directly against fixtures, a stash/pop presence proof, and the full backend + dedicated
+`skills/video-pipeline/tests/test_coverage.py` suites. No planner call, no image
+generation, no video/scene was touched or regenerated.
+
+- [ ] **Paid planner proof — does a real coverage plan now read as one through-line?**
+  Proof reached now: the prompt-level fixtures above prove rule 4b's text reaches the live
+  system prompt for both dialogue and silent scenes, and that rule 5 (dialogue script-turn
+  order) is byte-unchanged. What is NOT provable without a real LLM call: whether Claude
+  actually FOLLOWS the new causal-chain/bridge instruction on a real scene, especially one
+  matching the original repro (a scene whose narration moves from inside a sealed space to
+  an exterior corridor/hallway partway through).
+  - Recipe: pick (or create) a video with a scene whose narration includes a mid-scene
+    location change — the closest thing to the original repro. Call the MCP `storyboards`
+    tool (or `POST /api/pipeline/coverage/{video_id}?scene=<N>&plan_only=1` if the route
+    supports a plan-only/no-draw mode — confirm via `routes/pipeline.py` before relying on
+    it; if no plan-only flag exists, use `scripts/coverage_to_app.py`'s
+    `generate_coverage_directive`-only path, which is text generation, no image spend) for
+    ONE scene. This step is a single Anthropic text call, not an image draw — effectively
+    free (a few cents of LLM tokens), but still needs Ryan's go given the "quote the cost,
+    wait for yes" rule for anything that spends against workspace API keys.
+  - Expected "pass": every adjacent panel pair in the returned plan is either (a) the same
+    location as its neighbor and a plausible direct consequence/escalation of it, or (b) an
+    explicit "(BRIDGE)" tagged moment showing the exit/travel/arrival between two different
+    locations. Expected "fail": any silent cut from one location's moments straight to a
+    different location's moments with no bridge tag between them, or moments that read as
+    disconnected "pretty shots" rather than a chain.
+  - If it fails: the prose-only rule 4b isn't strong enough on its own — revisit whether a
+    real per-moment location field (structured gate) is worth the schema change this chunk
+    deliberately deferred.
