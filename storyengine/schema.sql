@@ -877,6 +877,11 @@ CREATE TABLE bot_activity (
 -- backend/generation_ledger.py::record_ledger_entry(). RLS enabled with no
 -- policies (backend connects as postgres, bypasses RLS) — same pattern as
 -- migration 083.
+-- scene + fingerprint (migration 139, D5 chunk A1): NULLable, additive,
+-- written only by the frame_qa stage (backend/frame_arbiter_budget.py) —
+-- scene backs the per-scene $0.25 arbiter cap, fingerprint tags a row to
+-- the learning-ratchet's repeat-failure key. Every other stage leaves both
+-- NULL.
 CREATE TABLE generation_ledger (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID REFERENCES tenants(id) NOT NULL,
@@ -887,6 +892,8 @@ CREATE TABLE generation_ledger (
   unit_cost NUMERIC NOT NULL DEFAULT 0,
   actual_cost NUMERIC NOT NULL DEFAULT 0,
   kie_task_id TEXT,
+  scene INTEGER,
+  fingerprint TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -937,6 +944,11 @@ CREATE INDEX idx_generation_ledger_tenant_created ON generation_ledger(tenant_id
 CREATE UNIQUE INDEX generation_ledger_dedup_idx
   ON generation_ledger (video_id, stage, kie_task_id)
   WHERE kie_task_id IS NOT NULL;
+-- Frame Arbiter's per-scene cap read (migration 139, D5 chunk A1) — scoped
+-- to frame_qa rows only, same shape as the dedup index above.
+CREATE INDEX idx_generation_ledger_frame_qa_scene
+  ON generation_ledger (video_id, scene)
+  WHERE stage = 'frame_qa';
 CREATE INDEX idx_channel_profiles_tenant ON channel_profiles(tenant_id);
 CREATE INDEX idx_accounts_email ON accounts(email);
 CREATE INDEX idx_projects_account ON projects(account_id);

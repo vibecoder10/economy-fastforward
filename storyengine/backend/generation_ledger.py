@@ -63,6 +63,8 @@ async def record_ledger_entry(
     unit_cost: float,
     actual_cost: float,
     kie_task_id: Optional[str] = None,
+    scene: Optional[int] = None,
+    fingerprint: Optional[str] = None,
 ) -> None:
     """Write one generation_ledger row, then recompute videos.total_cost as
     SUM(actual_cost) over every ledger row for this video.
@@ -71,15 +73,25 @@ async def record_ledger_entry(
     to call an unbounded number of times per video (one per clip/image/etc.)
     without ever double-counting, and self-healing if a row is ever added or
     corrected out of band.
+
+    ``scene``/``fingerprint`` (migration 139, D5 chunk A1) are additive,
+    optional, and NULL for every call site that doesn't pass them — every
+    existing caller (clips, images, voice, thumbnail, sound) is byte-
+    identical after this change. Only the frame_qa stage
+    (backend/frame_arbiter_budget.py) sets them today: scene backs the
+    per-scene $0.25 arbiter cap, fingerprint tags a row to the learning-
+    ratchet's repeat-failure key (owned by A2, not built here).
     """
     try:
         insert_status = await execute(
             """INSERT INTO generation_ledger
-               (tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               (tenant_id, video_id, stage, model, units, unit_cost, actual_cost,
+                kie_task_id, scene, fingerprint)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                ON CONFLICT (video_id, stage, kie_task_id) WHERE kie_task_id IS NOT NULL
                DO NOTHING""",
             tenant_id, video_id, stage, model, units, unit_cost, actual_cost, kie_task_id,
+            scene, fingerprint,
         )
         # asyncpg's execute() returns a command-status string like
         # "INSERT 0 1" (one row landed) or "INSERT 0 0" (ON CONFLICT DO
