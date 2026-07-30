@@ -56,6 +56,44 @@ Two architectural findings that matter more than any single law:
   $0.80 spent, **$0.20 left**, earmarked for the ONE real board that proves the fixed
   planner. Frame-level spend on scene 1 stays FROZEN (D3-66 strike 2).
 
+## RYAN'S PLAN FOR THE NEXT RUN (his instruction, 2026-07-30)
+"Start fresh in both a fresh session and a fresh video, and let's make sure to
+finish the rest of the builds before the next run."
+
+So the order is: FINISH THE BUILDS FIRST, then run a fresh video end to end.
+
+Do NOT split video 686b4651. Re-deriving scenes runs `DELETE FROM scripts WHERE
+video_id = ...` (user_script.py:188/382), which wipes every scene's boards,
+directives and prompts and orphans the $1.85 of already-drawn assets. That video is
+the law-discovery artifact - leave it. The next run is a NEW video created from the
+corrected eight-scene script, which is also the real customer path: script ->
+right-sized scenes -> boards under the laws.
+
+### The build backlog to finish BEFORE that run
+1. **BOARD LAWS FOLLOW-UP A - missing repair stamps.** L11, L12, L15, L16, L18, L19
+   and L17/L22 have a PROMPT leg but no per-shot stamp, so they evaporate on the
+   first single-shot redraw (the exact failure class that cost $0.20 on 07-29).
+   L17/L22 may need a group-arrangement field on the per-shot artifact - the missing
+   signal is itself the finding.
+2. **STORY LAWS INTO THE SCRIPT GENERATOR (S1-S5).** Same three-leg contract:
+   prompt, gate (S1 does a scene's location differ from the previous with no transit
+   sentence? S3 does a scene span more than one location? S5 does every scene name a
+   location?), repair. **S3 is the highest-value single item in this whole backlog** -
+   it is why scene 1 was oversized, and with it in place no one ever needs to split a
+   scene again.
+3. **BOARD LAWS FOLLOW-UP B - the film-level boundary pass (L23-L26).** Needs a PLAN
+   before a chunk: where it lives above the scene, what it reads (all scene texts in
+   order), what it writes (per boundary: relationship + OUT shot + IN shot + what
+   carries), how each scene prompt receives its INCOMING/OUTGOING blocks. The build
+   already renders those blocks when supplied; nothing produces them. Worked example:
+   tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt.
+4. Then the fresh-video run, judged against BOARD-LAWS.md and STORY-LAWS.md at every
+   stage - script first, boards second, nothing paid until each stage passes.
+
+Deferred behind those: D5 arbiter A6-A9 + A3b-2, parity chunks D3-55/56/57, D3-54
+docked co-pilot hydration, D3-58 env guard, D3-60 deploy-tooling fix, D3-61 chat shot
+resolver.
+
 ## Next actions, in order
 1. Judge the `feat/board-laws` report honestly - which laws got all three legs, which
    got a prompt only, which need the film-level pass. Merge what is sound.
