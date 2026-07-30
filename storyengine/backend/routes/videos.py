@@ -1600,6 +1600,22 @@ async def update_scene_text(
     if not result or "UPDATE 0" in result:
         raise HTTPException(404, "Scene not found")
 
+    # D7-1: keep videos.script in sync — it is not just the display/export
+    # copy, it is the ONLY thing routes/characters.py `_extract_cast` reads
+    # when a video has no Story Bible yet (`_get_video` selects
+    # `videos.script`, `_extract_cast` reads `video.get("script")`). Before
+    # this fix, a scene edit here updated `scripts.scene_text` only — a cast
+    # regenerated right after would still be built from the scene text as it
+    # was BEFORE the edit. rewrite_scene_text (below in this file) already
+    # performs this exact sync after its own scene_text write; mirror it
+    # verbatim rather than inventing a second mechanism.
+    sync_rows = await fetch_all(
+        "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+        "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
+    await execute(
+        "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id, "\n\n".join(r["scene_text"] for r in sync_rows))
+
     # D6-3b: an edit that carries the OLD location forward (or adopts a new
     # one) can still put THIS scene's text out of step with S3 — e.g. the
     # location column didn't change but the rewritten prose now describes a
