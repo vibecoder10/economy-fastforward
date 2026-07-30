@@ -879,6 +879,29 @@ def load_existing(outdir):
     return moments or None
 
 
+def _locks_text(row: dict) -> str:
+    """D9-2 (migration 151): join a character row's face_body_lock +
+    wardrobe_lock into ONE verbatim clause, skipping whichever is empty/NULL
+    (a partial extraction — only one of the two parsed — still contributes
+    what it has, never blocked on the other being present). "" when neither
+    is populated. Shared by load_character_bible and redraw_asset_image so
+    both composers apply the identical precedence rule from one place."""
+    return "; ".join(p for p in (
+        (row.get("face_body_lock") or "").strip(),
+        (row.get("wardrobe_lock") or "").strip(),
+    ) if p)
+
+
+def _identity_tag_or_locks(row: dict) -> str:
+    """D6-1/D9-2 shared precedence: a creator-authored identity_tag (migration
+    142) always wins when set — a deliberate manual correction outranks an
+    automated extraction. Otherwise fall back to the D9-2 face_body_lock +
+    wardrobe_lock pair (migration 151), extracted from the approved portrait
+    pixels at cast-approval time. "" when the row has neither."""
+    tag = (row.get("identity_tag") or "").strip()
+    return tag if tag else _locks_text(row)
+
+
 async def load_character_bible(vid, tenant):
     """Build a BINDING visual bible from the locked cast so the writer uses the SAME character
     appearance in every shot. The cast-sheet image alone does not lock the writer's words — the
@@ -891,15 +914,34 @@ async def load_character_bible(vid, tenant):
     which _character_identity_line was previously truncating to 60 chars as
     a stand-in for a real tag (an arbitrary mid-thought cut, not an authored
     fact). NULL identity_tag falls back to description, byte-identical to
-    before this column existed."""
+    before this column existed.
+
+    D9-2 (migration 151, Custom Film CharacterLock harvest): when a creator
+    has NOT authored an identity_tag, face_body_lock + wardrobe_lock (when
+    populated) win over the free-prose description — they're extracted at
+    cast-approval time from the ACTUAL approved portrait pixels (routes.
+    characters.approve_cast), the same "canonical beats prose" precedence
+    identity_tag/material_map established, just automated instead of
+    creator-typed. A creator-set identity_tag still wins over both: it's a
+    deliberate manual correction, and must be able to override an automated
+    extraction the same way it already overrides description. This `costume`
+    field is what BOTH consumers in this codebase read verbatim — this
+    module's own _character_identity_line (board-sheet CHARACTER lines) and
+    storyboard.bot._format_story_bible_for_beat / storyboard.coverage.py's
+    per-shot draw prompt (final coverage pictures) — so fixing it here is
+    the single place that reaches every prompt without touching either of
+    those (out of scope this chunk). NULL locks => byte-identical to before
+    this migration."""
     rows = await fetch_all(
-        "SELECT name, identity_tag, description FROM video_characters WHERE video_id=$1 "
-        "AND tenant_id=$2 AND (identity_tag IS NOT NULL OR description IS NOT NULL) "
+        "SELECT name, identity_tag, description, face_body_lock, wardrobe_lock "
+        "FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
+        "AND (identity_tag IS NOT NULL OR description IS NOT NULL "
+        "OR face_body_lock IS NOT NULL OR wardrobe_lock IS NOT NULL) "
         "ORDER BY sort", vid, tenant)
     chars = []
     for r in rows:
-        tag = (r.get("identity_tag") or "").strip()
-        costume = tag if tag else (r.get("description") or "")
+        tag_or_locks = _identity_tag_or_locks(r)
+        costume = tag_or_locks if tag_or_locks else (r.get("description") or "")
         chars.append({"id": r["name"], "costume": costume, "scenes_present": []})
     return {"characters": chars} if chars else None
 
@@ -3154,7 +3196,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     kie_key = await _require_tenant_kie_key(tenant_id)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     crows = await fetch_all(
-        "SELECT name, identity_tag, reference_url FROM video_characters WHERE video_id=$1 "
+        "SELECT name, identity_tag, reference_url, face_body_lock, wardrobe_lock "
+        "FROM video_characters WHERE video_id=$1 "
         "AND tenant_id=$2 AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
     cast_refs = [r["reference_url"] for r in crows]
     # D6-1 (L6 — IDENTITY ONCE) REPAIR LEG: the SAME canonical short tag the
@@ -3165,9 +3208,16 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # creator's later correction to identity_tag heals every future redraw
     # of an old shot, not just new ones. "" when no character has a
     # canonical tag — no claim, byte-identical to before this migration.
+    #
+    # D9-2 (migration 151) REPAIR LEG: same fresh-re-derivation pattern —
+    # when a character has no identity_tag, fall back to its face_body_lock
+    # + wardrobe_lock (also re-read fresh, also extracted from the approved
+    # pixels, via the SAME _identity_tag_or_locks precedence helper
+    # load_character_bible uses), so a redraw benefits from D9-2's lock
+    # harvest exactly like a first draw does. identity_tag still wins when a
+    # creator set one — same precedence rule as the bible composer above.
     cast_identity_note = ""
-    _tags = [f"{r['name']} ({(r.get('identity_tag') or '').strip()})"
-             for r in crows if (r.get("identity_tag") or "").strip()]
+    _tags = [f"{r['name']} ({_identity_tag_or_locks(r)})" for r in crows if _identity_tag_or_locks(r)]
     if _tags:
         cast_identity_note = " CHARACTER — stated once, drawn identically: " + "; ".join(_tags) + "."
 

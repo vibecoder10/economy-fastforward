@@ -146,6 +146,69 @@ def _parse_json(val):
         return None
 
 
+# ---------------------------------------------------------------------------
+# D9-2 (migration 151, Custom Film CharacterLock harvest): the SAME vision
+# call approve_cast already ran to rewrite `description` from the approved
+# portrait pixels (see this module's docstring history — the pixel-accurate-
+# description fix), extended to also emit three narrower, more BINDING
+# facts, mirroring Custom Film's CharacterLock (custom_film_director.py:
+# 147-161): face_body_lock (immutable facial/body facts), wardrobe_lock (the
+# exact outfit), forbidden_drift (specific ways a redraw could visibly
+# drift). ONE call, ONE paid vision request per character — never two.
+# ---------------------------------------------------------------------------
+
+_CHARACTER_LOCK_LABELS = ("DESCRIPTION", "FACE_BODY_LOCK", "WARDROBE_LOCK", "FORBIDDEN_DRIFT")
+
+_CHARACTER_LOCK_VISION_PROMPT = (
+    "Look at this portrait of {name} and answer in EXACTLY this labeled format, one label "
+    "per line (a value may wrap onto more than one line):\n\n"
+    "DESCRIPTION: 40-60 words describing EXACTLY how this character looks so an image "
+    "generator can redraw the SAME character — hair (style + color), face/age, and every "
+    "clothing item WITH ITS COLOR. No preamble.\n"
+    "FACE_BODY_LOCK: one sentence of immutable facial/body facts that must NEVER change "
+    "across redraws — exact hair color + style, skin tone, build, and any distinguishing "
+    "marks (scars, freckles, eye color if visible).\n"
+    "WARDROBE_LOCK: one sentence stating the EXACT outfit visible — every garment, its "
+    "color, and any accessories — precise enough that a different generation run would "
+    "redraw the identical outfit.\n"
+    "FORBIDDEN_DRIFT: 3-5 short, specific ways THIS exact character could visibly drift "
+    "across redraws, separated by semicolons (e.g. \"hair changes color; jacket loses its "
+    "collar; loses the scar\") — base these on what's actually distinctive in THIS portrait, "
+    "not generic advice.\n\n"
+    "Every field states plain facts about what is visible in the image — no camera "
+    "direction, no story context."
+)
+
+# Matches "LABEL: value..." at the start of a line, capturing the value up to
+# the next known label (or end of text) so a value that wraps onto multiple
+# lines is captured whole. re.DOTALL lets '.' cross those line breaks.
+_CHARACTER_LOCK_RE = re.compile(
+    r"(?:^|\n)\s*(" + "|".join(_CHARACTER_LOCK_LABELS) + r")\s*:\s*(.*?)"
+    r"(?=(?:\n\s*(?:" + "|".join(_CHARACTER_LOCK_LABELS) + r")\s*:)|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_character_lock_reply(text: str) -> dict:
+    """Best-effort parse of the labeled vision reply above into
+    {DESCRIPTION, FACE_BODY_LOCK, WARDROBE_LOCK, FORBIDDEN_DRIFT} — any
+    subset may be missing (a label the model skipped, or a reply that
+    ignored the format entirely) and that's never an error here: the caller
+    decides what a missing key means (approve_cast falls back to the raw
+    reply as the description, and leaves lock columns untouched rather than
+    nulling out a prior good extraction). Never raises."""
+    out = {}
+    try:
+        for m in _CHARACTER_LOCK_RE.finditer(text or ""):
+            key = m.group(1).upper()
+            val = m.group(2).strip()
+            if val:
+                out[key] = val
+    except Exception:  # noqa: BLE001 — parsing must never break approval
+        return {}
+    return out
+
+
 async def _extract_cast(video: dict, api_key: str) -> list[dict]:
     """Cast list for this video: Story Bible characters when present,
     otherwise Claude reads the script. Returns [{name, description}]."""
@@ -804,27 +867,59 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
                             if fid else ch.get("reference_url")
                         )
                         try:
-                            desc = await vision_call(
-                                f"Describe EXACTLY how this character looks so an image generator can redraw the SAME character: "
-                                f"hair (style + color), face/age, and every clothing item WITH ITS COLOR. "
-                                f"40-60 words, no preamble. The character's name is {ch['name']}.",
+                            reply = await vision_call(
+                                _CHARACTER_LOCK_VISION_PROMPT.format(name=ch['name']),
                                 [img_url],
                                 kie_key=creds["key"] if creds["provider"] == "kie" else None,
                                 anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
-                                tier="fast", max_tokens=300,
+                                tier="fast", max_tokens=500,
                             )
                             # Never let a refusal / non-answer overwrite the
                             # script-based description (vision_call already guards
                             # this; belt-and-suspenders so a regression can't
                             # reintroduce garbage anchors).
-                            if desc and len(desc) > 20 and not _looks_like_refusal(desc):
-                                ch["description"] = desc.strip()[:1000]
-                                await execute(
-                                    "UPDATE video_characters SET description = $1, updated_at = now() "
-                                    "WHERE id = $2 AND tenant_id = $3",
-                                    ch["description"], ch["id"], tenant_id,
-                                )
-                            elif desc:
+                            if reply and len(reply) > 20 and not _looks_like_refusal(reply):
+                                parsed = _parse_character_lock_reply(reply)
+                                # No DESCRIPTION label at all (model ignored the
+                                # labeled format) => treat the whole reply as the
+                                # description, byte-identical to the pre-D9-2
+                                # prompt's behavior.
+                                desc = (parsed.get("DESCRIPTION") or (reply if not parsed else "")).strip()[:1000]
+                                sets, params = [], []
+                                if desc and len(desc) > 20:
+                                    ch["description"] = desc
+                                    params.append(desc); sets.append(f"description = ${len(params)}")
+                                # D9-2 lock fields: only SET a column that parsed
+                                # this pass — a label the model skipped this time
+                                # leaves whatever was already stored (NULL on a
+                                # first approval, or a prior good extraction on a
+                                # re-approval) rather than nulling it out.
+                                face_lock = (parsed.get("FACE_BODY_LOCK") or "").strip()[:1000]
+                                if face_lock:
+                                    params.append(face_lock); sets.append(f"face_body_lock = ${len(params)}")
+                                wardrobe_lock = (parsed.get("WARDROBE_LOCK") or "").strip()[:1000]
+                                if wardrobe_lock:
+                                    params.append(wardrobe_lock); sets.append(f"wardrobe_lock = ${len(params)}")
+                                drift = (parsed.get("FORBIDDEN_DRIFT") or "").strip()[:1000]
+                                if drift:
+                                    params.append(drift); sets.append(f"forbidden_drift = ${len(params)}")
+                                if sets:
+                                    params += [ch["id"], tenant_id]
+                                    await execute(
+                                        f"UPDATE video_characters SET {', '.join(sets)}, updated_at = now() "
+                                        f"WHERE id = ${len(params) - 1} AND tenant_id = ${len(params)}",
+                                        *params,
+                                    )
+                                if not (face_lock and wardrobe_lock and drift):
+                                    # Parse failure/partial: never fails approval,
+                                    # just a warning — the missing column(s) stay
+                                    # NULL (or keep their prior value).
+                                    logger.warning(
+                                        "[characters] D9-2 lock extraction partial for %s "
+                                        "(face_body_lock=%s wardrobe_lock=%s forbidden_drift=%s)",
+                                        ch["name"], bool(face_lock), bool(wardrobe_lock), bool(drift),
+                                    )
+                            elif reply:
                                 logger.warning("[characters] kept original description for %s "
                                                "(vision reply looked invalid)", ch["name"])
                         except Exception as e:
