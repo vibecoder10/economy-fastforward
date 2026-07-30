@@ -1420,3 +1420,41 @@ Not a deferred item in the "will verify later" sense — a permanent admission.
 Documented in `STORY-LAWS.md`'s S2 status entry and `backend/story_laws.py`'s
 module docstring. Nothing to verify because nothing was built; listed here
 only so a future reader doesn't mistake the silence for an oversight.
+
+### 5. D6-1c: the REAL pictures path (`run_coverage`) now prefers canonical
+`video_environments.material_map` over the planner's `[MATERIAL | ...]`
+prose (L20) — proven only with mocked frames, never a real paid draw
+Everything logical was proven for free: `skills/video-pipeline/tests/
+test_board_laws.py::test_run_coverage_material_map_canonical_wins_over_
+planner_prose` shows the canonical string reaching every shot's
+`description` field and the planner's own prose text absent once a
+canonical `material_map` exists (a real stash-proof — reverting just the
+precedence line makes this test fail on `AssertionError`, not an import
+error). `test_run_coverage_material_map_null_canonical_unchanged` proves
+byte-identical fallback behavior when `canonical_envs=None` (today's only
+production case — all 38 `video_environments` rows have `material_map`
+NULL). NOT PROVEN, and can't be without paid spend: that GPT Image 2
+actually RENDERS the canonical material text differently than it would
+have rendered the old planner prose — i.e. that the string landing in the
+prompt changes the PIXELS, not just the prompt text. This chunk's cost cap
+was zero spend.
+
+RECIPE for the first live proof (needs Ryan's go — real money):
+  1. Pick a test video with an approved environment that has a genuinely
+     mixed-material set (part glass, part solid) and NO `material_map` row
+     yet (true of every video today).
+  2. `se db "UPDATE video_environments SET material_map='<some deliberately
+     DIFFERENT boundary than what the planner would improvise, e.g. an
+     unusual material like frosted resin or exposed brick> WHERE id='<env
+     id>'"` — a free write, no generation triggered.
+  3. Run coverage for one scene in that environment (paid — quote cost to
+     Ryan first, this is exactly the real per-shot picture draw this
+     chunk's whole brief was about, ~$0.02-0.05/frame depending on model).
+  4. Pull the stored `assets.image_prompt` for the drawn frames (`se db
+     "SELECT image_prompt FROM assets WHERE video_id='<vid>' AND scene=<n>
+     LIMIT 1"`) and confirm it contains the canonical text you set in step
+     2, not the planner's own [MATERIAL|] line (compare against `scripts.
+     coverage_directive` for that scene, same row).
+  5. Eyeball the drawn frame: does the material boundary in the picture
+     match the canonical text rather than whatever the planner's directive
+     said? This is the one step no test (mocked or not) can stand in for.

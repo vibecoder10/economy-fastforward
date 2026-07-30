@@ -715,6 +715,54 @@ def parse_material_map(directive_text: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+def _norm_env_name(s: str) -> str:
+    """Lowercase and collapse punctuation/dashes to single spaces — mirrors
+    coverage_to_app._norm_env_text so a video_environments.name row matches
+    a directive's LOCSET header regardless of case/dash differences."""
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def canonical_material_line(canonical_envs: list | None, location_sets: dict,
+                            matched_env: dict | None) -> str:
+    """D6-1c (L20 — MATERIAL MAP, PICTURES path): the SAME canonical-wins-
+    over-prose precedence coverage_to_app._canonical_material_line already
+    gives the $0.05 sheet PREVIEW, mirrored here so run_coverage's REAL
+    per-shot draw prompts read video_environments.material_map (migration
+    142) too — never only the planner LLM's own [MATERIAL | ...] line.
+
+    Returns "" (never invents) when no canonical material_map exists
+    anywhere relevant, so run_coverage's existing parse_material_map(...)
+    fallback fires unchanged. NULL-safe by construction: every
+    video_environments row in production today has material_map NULL
+    (confirmed live, 38 rows / 0 populated), so this returns "" for all of
+    them and behavior is byte-identical to before this function existed.
+
+    Multi-location scene (location_sets non-empty): one verbatim clause per
+    LOCSET name with a matching approved environment carrying a
+    material_map — same KNOWN GAP as the preview's twin (a location with no
+    canonical entry is simply omitted, never mixed with an LLM clause for
+    the same block).
+
+    Single-location scene: matched_env's material_map, or "" if none."""
+    def _find(name: str) -> str:
+        norm = _norm_env_name(name)
+        for e in (canonical_envs or []):
+            if _norm_env_name(e.get("name") or "") == norm:
+                return (e.get("material_map") or "").strip()
+        return ""
+
+    if location_sets:
+        parts = []
+        for loc in location_sets:
+            mm = _find(loc)
+            if mm:
+                parts.append(f"{loc.upper()}: {mm}")
+        return " ".join(parts)
+    if matched_env:
+        return (matched_env.get("material_map") or "").strip()
+    return ""
+
+
 def _split_moment_location(raw_summary: str) -> tuple:
     """Strip an optional 'LOCATION: <name> | ' prefix off a [MOMENT n | ...]
     bracket's captured text. Returns (location_or_None, remaining_summary).
@@ -789,6 +837,38 @@ def check_prop_manifest_consistency(props: list | None, set_line: str | None) ->
                   f"manifest) is not mentioned in this scene's own [SET | ...] line — "
                   f"worth a human glance, not a hard failure", flush=True)
     return warnings
+
+
+def check_material_map_consistency(canonical_material: str, directive_text: str) -> int:
+    """D6-1c (L20) drift ALARM — same discipline as check_prop_manifest_
+    consistency above: NOT a gate, never blocks or rewrites the draw, just
+    logs loudly. A canonical-vs-emitted comparison is technically canonical
+    on one side, but the OTHER side here is still the planner's own free
+    prose ([MATERIAL | ...]), and per the standing ruling a prose-versus-
+    prose (or prose-adjacent) comparison must WARN, never block — this
+    path draws REAL paid pictures, so a false positive here would block a
+    paying customer's build for a wording difference, not a real defect.
+
+    Returns 1 (and logs) when BOTH a canonical material_map and the
+    planner's own [MATERIAL | ...] line exist for this scene and they
+    disagree (normalized substring check, cheap and deterministic — no
+    LLM judgment call). Returns 0 when either side is empty (nothing to
+    compare) or they agree; 0 for every video today since no
+    video_environments.material_map row is populated yet (NULL-safe)."""
+    if not canonical_material:
+        return 0
+    planner_line = parse_material_map(directive_text)
+    if not planner_line:
+        return 0
+    norm_canonical = _norm_env_name(canonical_material)
+    norm_planner = _norm_env_name(planner_line)
+    if norm_canonical and norm_canonical not in norm_planner and norm_planner not in norm_canonical:
+        print(f"  ⚠️ material-map drift check: the canonical map ('{canonical_material}') "
+              f"disagrees with the planner's own [MATERIAL | ...] line ('{planner_line}') — "
+              f"the canonical version wins the draw prompt; worth a human glance, not a "
+              f"hard failure", flush=True)
+        return 1
+    return 0
 
 
 def panels_per_sheet_for(directive_text: str) -> int:
@@ -3157,6 +3237,7 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                        board_urls=None, board_panel_total=None, model_override=None,
                        render_style=None, video_model_id=None, camera_mode=None,
                        props=None, progress_callback=None,
+                       canonical_envs=None, matched_env=None,
                        allow_auto_cast_generation=True) -> dict:
     """Build coverage for one scene/beat: directive -> parse -> matched frames per moment.
     A locked cast (cast_url) wins. Legacy callers auto-build a cast sheet from the
@@ -3194,7 +3275,17 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     pipeline (before floors/variety existed, or before they ran in the sheet
     path too) — anchoring to their panel numbers would pin frames to the WRONG
     approved panel, so anchoring is skipped for the scene instead (composed
-    unanchored — honest degradation, not silent wrong-panel composition)."""
+    unanchored — honest degradation, not silent wrong-panel composition).
+
+    canonical_envs/matched_env (D6-1c, L20): the SAME approved-environment
+    list and single scene-matched env dict coverage_to_app.generate_
+    coverage_for_video already fetches via _approved_envs/_match_scene_env
+    for props= above — reused (never re-queried; this module has no DB
+    handle) so the MATERIAL MAP LOCK below can prefer video_environments.
+    material_map over the planner's own [MATERIAL | ...] line, same
+    precedence as the sheet PREVIEW path. Both None (every caller before
+    this chunk, and the CLI's main()) is unchanged behavior — the fallback
+    to parse_material_map(directive_text) fires exactly as it does today."""
     profile = profile or load_profile({})
     os.makedirs(outdir, exist_ok=True)
     if allow_auto_cast_generation:
@@ -3369,13 +3460,31 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # once on [MATERIAL | ...] (rule 9), stamped into every shot the same
     # way the set-dressing lock is — so a single-shot redraw can't quietly
     # re-invent the set as all-glass or all-solid.
-    material_line = parse_material_map(directive_text)
+    #
+    # D6-1c: the CODE-RENDERED, canonical video_environments.material_map
+    # (via canonical_envs/matched_env, threaded in from coverage_to_app's
+    # SAME _approved_envs/_match_scene_env the PREVIEW path already uses)
+    # WINS over the planner LLM's own [MATERIAL | ...] line — this real
+    # per-shot draw prompt used to read ONLY the LLM's prose, silently
+    # diverging from the $0.05 preview whenever a creator had authored a
+    # canonical map. "" (never invents) when no canonical entry exists,
+    # so parse_material_map(directive_text) fires exactly as it always has
+    # — NULL-safe: every video_environments row in production today has
+    # material_map NULL, so this branch is a no-op in practice until a row
+    # is populated.
+    _canonical_material = canonical_material_line(canonical_envs, location_sets, matched_env)
+    material_line = _canonical_material or (parse_material_map(directive_text) or "")
     if material_line:
         tail = f"Material map, fixed for this whole set: {material_line}."
         for m in moments:
             for shot in [m["master"], *(m.get("angles") or [])]:
                 shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
         print("  🧱 material-map lock applied to every shot", flush=True)
+    # D6-1c drift ALARM (warning-only, never blocks — see the function's own
+    # docstring for why a canonical-vs-prose disagreement here still WARNs
+    # rather than gates: a false positive would block a paying customer's
+    # real draw over a wording difference).
+    check_material_map_consistency(_canonical_material, directive_text)
 
     # SCREEN-DIRECTION LOCK (rule 5d): stamp the axis contract into every
     # shot's image prompt too — each frame is generated independently, so the
