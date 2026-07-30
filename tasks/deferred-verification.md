@@ -176,3 +176,88 @@ remotion.py`, `test_youtube_oauth_diagnostics.py`), byte-identical sorted FAILED
 applied. What is NOT verified: the migration actually running against the real Supabase
 Postgres instance, and a real browser/UI walk of a script edit flagging a real video's cast card
 "stale" (there is no UI for this yet — D7-4, per the chunk spec, is UI-out-of-scope for D7-2).
+
+---
+
+## D8-3b arbiter findings persistence (branch `d8-3b-findings-persist`) — apply migration 146 BEFORE D8-2's live run
+
+**Built and tested in a worktree only — migration 146 was NOT applied to prod this session**
+(no prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as
+migration 145 above (`backend/main.py`'s startup hook applies every not-yet-applied file under
+`backend/migrations/*.sql`, tracked in `_migrations`, a per-file failure only logs a warning and
+does not fail boot) — so the normal `se deploy` for this branch applies migration 146
+automatically, but landing it must happen BEFORE D8-2's first live arbiter run (parked on Ryan's
+deploy window) or that run's per-instance findings are lost the same way D8-3 found them lost
+before this chunk.
+
+```bash
+# 1. Lock the deploy window first (storyengine/CLAUDE.md's VPS coordination rule), then deploy
+#    this branch normally: push main, then scripts/se.sh deploy <session-name> [--with-frontend]
+#    — BEFORE letting D8-2's live run fire.
+
+# 2. Confirm the migration actually ran:
+se logs backend 200 | grep "146_arbiter_findings"
+# Expect: "Migration applied: 146_arbiter_findings.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '146_arbiter_findings.sql'"
+# Expect exactly 1 row. If missing, check `se logs backend` around boot time for
+# "Migration 146_arbiter_findings.sql failed: ..." and fix forward — never hand-apply the raw
+# SQL over `se db --write` without first finding out WHY the auto-apply failed.
+
+# 3. Verify the table + both indexes exist:
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'arbiter_findings' ORDER BY ordinal_position"
+# Expect all 17 columns: id, tenant_id, video_id, scene, station, reference, label, image_url,
+# classification, failure_class, rule_id, fingerprint_key, rubric_level,
+# decisive_prompt_fragment, description, new_vs_previous, cost, created_at (18 incl. id).
+se db "SELECT indexname FROM pg_indexes WHERE tablename = 'arbiter_findings'"
+# Expect arbiter_findings_pkey, arbiter_findings_tenant_created_idx, arbiter_findings_video_scene_idx.
+
+# 4. AFTER D8-2's first live run fires (the actual point of this chunk): confirm rows exist and
+#    match what the board station judged:
+se db "SELECT station, reference, classification, failure_class, cost, created_at \
+  FROM arbiter_findings ORDER BY created_at DESC LIMIT 20"
+# Expect one row per panel judged in that run, station='board' (judge_scene_batch/judge_frame
+# are not wired to any hook yet, only judge_board_sheet is), classification one of
+# MODEL_DEFECT/AUTHORING_DEFECT/TASTE_QUESTION/OK.
+
+# 5. Confirm GET /api/review/findings returns those same rows under `instances`:
+TOKEN=$(grep NEXT_PUBLIC_DEV_TOKEN storyengine/frontend/.env.local | cut -d= -f2)
+curl -s https://<prod-api-host>/api/review/findings -H "Authorization: Bearer $TOKEN" \
+  | python3 -m json.tool | grep -A3 '"instances"' | head -20
+# Expect a non-empty `instances` array shaped per backend/models.py's ArbiterFindingInstance.
+
+# 6. Walk the Findings tab in the browser (webapp-testing / se-smoke skill): /review -> Findings
+#    tab -> confirm a "Judged frames & panels" section renders below the existing fingerprint/
+#    spend sections, with a classification badge, station/reference, description, and (when the
+#    judge call attached one) an image thumbnail per row.
+```
+
+**What IS verified (code-level + a full local test suite pass, not live prod):**
+`storyengine/backend/tests/functional/test_d8_3b_findings_persist.py` (14 tests) covers
+`arbiter_findings.record_finding_instances`'s field-mapping (board `panel`->`reference`/`label`
+vs frame `image_index`->`reference`/`shot_type`->`label`, per-finding cost winning over call-level
+cost, skipped/unrecognized-classification entries never persisted, one bad row never blocking the
+rest of a batch) and `frame_arbiter_hook.run_after_storyboard_sheet`'s wiring (a write fires with
+the right tenant/video/scene/station/cost/image_url after BOTH the first judgment and a
+successful post-repair rejudge; a raised exception from `write_findings_fn` never propagates out
+of the hook and never skips a later sheet's own judge/repair pass). `test_d8_3_review_findings.py`
+was extended for the endpoint's third query (per-instance rows, scoped to tenant_id + the
+`_FINDING_INSTANCES_LIMIT` cap). Three real stash-proofs were run (patch-file technique, never
+`git stash`, per tasks/lessons.md's fleet rule): (a) neutering `_finding_cost` to always return
+`call_cost` broke the frame-station cost assertion with a real `AssertionError` (999.0 == 0.019
+mismatch); (b) removing the `try/except` around the hook's write call let a simulated
+`RuntimeError` propagate all the way out of `run_after_storyboard_sheet`, failing the test with
+that real exception; (c) neutering `get_findings` to always return `instances=[]` broke the
+endpoint shape test with a real `AssertionError` (`0 == 1`) — all three reverted immediately
+after confirming. The full backend suite (`./venv/bin/python -m pytest tests/ -q`, main checkout's
+venv binary against worktree code) passes 3867/3896 stashed-technique baseline vs applied — the
+same pre-existing 29 failures (`test_custom_film_remotion.py`, `test_youtube_oauth_diagnostics.py`),
+sorted FAILED sets byte-identical (diffed, empty output, exit 0). Frontend: `npx tsc --noEmit`
+clean, `npm run build` passes (34/34 static pages) once `frontend/node_modules` and
+`frontend/.env.local` are present in the worktree — neither is git-tracked, so a fresh worktree
+needs `npm install` (or a symlink to an existing checkout's `node_modules`) and a copy of
+`.env.local` (or `scripts/se.sh devtoken`) before running the frontend checks; this was done
+locally for verification and removed afterward, not committed. What is NOT verified: the
+migration actually running against the real Supabase Postgres instance, any real per-instance row
+from a live judge call (D8-2's first live run hasn't happened yet — that is the entire point this
+chunk exists to protect), and a real browser walk of the Findings tab's new "Judged frames &
+panels" section against live data.

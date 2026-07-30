@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getPendingReview, approveAsset, rejectAsset, advanceVideo, approveStoryboard, rejectStoryboard,
-  getArbiterFindings, type ReviewItem, type ArbiterFinding,
+  getArbiterFindings, type ReviewItem, type ArbiterFinding, type ArbiterFindingInstance,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -31,6 +31,8 @@ function classificationClasses(classification: string): string {
       return "bg-[var(--warning)]/20 text-[var(--warning)]";
     case "TASTE_QUESTION":
       return "bg-[var(--accent)]/20 text-[var(--accent)]";
+    case "OK":
+      return "bg-[var(--success)]/20 text-[var(--success)]";
     default:
       return "bg-white/10 text-[var(--text-secondary)]";
   }
@@ -44,6 +46,8 @@ function classificationLabel(classification: string): string {
       return "Authoring defect";
     case "TASTE_QUESTION":
       return "Taste question";
+    case "OK":
+      return "Clean";
     default:
       return classification;
   }
@@ -122,6 +126,51 @@ function TasteDecisionCard({ finding }: { finding: ArbiterFinding }) {
   );
 }
 
+// D8 chunk 3b: one `arbiter_findings` row — a single judged frame/panel
+// INSTANCE (migration 146), not a class-level fingerprint. This is the
+// detail layer that sits under FindingRow's own class-level summary above
+// — same card idiom (classificationClasses/Label, rounded-xl border card),
+// widened with the per-instance fields FindingRow never had: an image
+// thumbnail when the judge call attached one, the station/reference the
+// judge actually looked at, and which video/scene it came from.
+function InstanceRow({ instance }: { instance: ArbiterFindingInstance }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", classificationClasses(instance.classification))}>
+            {classificationLabel(instance.classification)}
+          </span>
+          <span className="font-mono text-[11px] text-[var(--text-secondary)]">
+            {instance.station} &middot; {instance.reference}
+          </span>
+        </div>
+        {instance.cost != null && (
+          <span className="whitespace-nowrap text-[11px] text-[var(--text-secondary)]">
+            ${instance.cost.toFixed(4)}
+          </span>
+        )}
+      </div>
+      {instance.image_url && (
+        <div className="mt-2 overflow-hidden rounded-lg">
+          <img src={instance.image_url} alt="" className="max-h-40 w-full object-cover" />
+        </div>
+      )}
+      <p className="mt-2 text-sm">{instance.description || instance.failure_class || "No description"}</p>
+      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+        {instance.video_title || "Untitled"}
+        {instance.scene != null ? ` · Scene ${instance.scene}` : ""}
+        {instance.label ? ` · ${instance.label}` : ""}
+      </p>
+      {instance.created_at && (
+        <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
+          {new Date(instance.created_at).toLocaleString()}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function ReviewPage() {
   const [activeTab, setActiveTab] = useState<ReviewTab>("scripts");
   const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(null);
@@ -185,10 +234,16 @@ export default function ReviewPage() {
   // plain findings list, and never auto-acted — see TasteDecisionCard above).
   const arbiterFindings = findingsData?.findings ?? [];
   const arbiterSpend = findingsData?.spend ?? [];
+  // D8 chunk 3b: per-instance rows (migration 146) — the actual judged
+  // frame/panel history the two class-level lists above summarize. Kept as
+  // its own list rather than merged into arbiterFindings: the two have
+  // different shapes (ArbiterFinding vs ArbiterFindingInstance) and
+  // different identity (one row per CLASS vs one row per JUDGMENT).
+  const findingInstances = findingsData?.instances ?? [];
   const tasteQuestions = arbiterFindings.filter((f) => f.classification === "TASTE_QUESTION");
   const otherFindings = arbiterFindings.filter((f) => f.classification !== "TASTE_QUESTION");
-  const findingsTrulyEmpty = arbiterFindings.length === 0 && arbiterSpend.length === 0;
-  const findingsRanClean = arbiterFindings.length === 0 && arbiterSpend.length > 0;
+  const findingsTrulyEmpty = arbiterFindings.length === 0 && arbiterSpend.length === 0 && findingInstances.length === 0;
+  const findingsRanClean = arbiterFindings.length === 0 && (arbiterSpend.length > 0 || findingInstances.length > 0);
 
   // Active tab's own loading/error state — the findings tab reads from a
   // different query than every other tab, so the shared Loading/Error/Empty
@@ -515,6 +570,20 @@ export default function ReviewPage() {
               </p>
               {otherFindings.map((f) => (
                 <FindingRow key={f.id} finding={f} />
+              ))}
+            </div>
+          )}
+
+          {/* D8 chunk 3b: per-instance judgment history — the actual judged
+              frames/panels the class-level summaries above are built from.
+              Most-recent-first (server-capped, see routes/review.py). */}
+          {findingInstances.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Judged frames &amp; panels
+              </p>
+              {findingInstances.map((instance) => (
+                <InstanceRow key={instance.id} instance={instance} />
               ))}
             </div>
           )}

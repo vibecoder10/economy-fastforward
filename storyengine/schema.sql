@@ -4283,3 +4283,41 @@ CREATE INDEX IF NOT EXISTS arbiter_fingerprints_tenant_frozen_idx
 ALTER TABLE arbiter_fingerprints ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON arbiter_fingerprints FROM anon, authenticated;
 -- D5_A2_ARBITER_FINGERPRINTS_END
+
+-- D8_3B_ARBITER_FINDINGS_START
+-- migrations/146_arbiter_findings.sql — the per-INSTANCE finding table
+-- (image reference, classification, description) that D8-3 found missing:
+-- frame_arbiter.py's judge calls return one finding dict per frame/panel,
+-- but only arbiter_fingerprints (a CLASS-level record above) and
+-- generation_ledger's frame_qa rows (spend) were ever persisted. See that
+-- migration's header for the full field-mapping rationale.
+CREATE TABLE IF NOT EXISTS arbiter_findings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+  scene INTEGER,
+  station TEXT NOT NULL CHECK (station IN ('frame', 'scene_batch', 'board')),
+  reference TEXT NOT NULL CHECK (length(reference) > 0),
+  label TEXT,
+  image_url TEXT,
+  classification TEXT NOT NULL CHECK (classification IN ('MODEL_DEFECT', 'AUTHORING_DEFECT', 'TASTE_QUESTION', 'OK')),
+  failure_class TEXT,
+  rule_id TEXT,
+  fingerprint_key TEXT,
+  rubric_level TEXT,
+  decisive_prompt_fragment TEXT,
+  description TEXT,
+  new_vs_previous TEXT,
+  cost NUMERIC,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS arbiter_findings_tenant_created_idx
+  ON arbiter_findings (tenant_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS arbiter_findings_video_scene_idx
+  ON arbiter_findings (video_id, scene);
+
+ALTER TABLE arbiter_findings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON arbiter_findings FROM anon, authenticated;
+-- D8_3B_ARBITER_FINDINGS_END

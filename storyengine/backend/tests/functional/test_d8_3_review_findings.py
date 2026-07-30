@@ -1,20 +1,27 @@
 """Tests for D8-3 (chunk A7, storyengine/FRAME-ARBITER-PLAN.md): the Review
 feed's Findings tab backend endpoint, GET /api/review/findings.
 
+Updated by D8-3b (chunk 3b): the endpoint now ALSO reads the per-instance
+`arbiter_findings` table (migration 146) — the gap D8-3 itself documented
+in get_findings' own docstring ("no per-instance findings table to query
+yet"). This file's fake_fetch_all dispatcher now handles a THIRD query
+branch; the two original branches (fingerprints, ledger spend) are
+unchanged.
+
 Same stub pattern as test_c15b_show_and_approve_scene.py: stub `database`
 before importing routes.review (its `from database import fetch_all,
 fetch_one, execute` binds those names as module-level attributes on
 routes.review itself — tests monkeypatch them there directly, no live DB,
 no network).
 
-Proves the endpoint reads the two REAL, persisted tables (A2's
-arbiter_fingerprints + A1's generation_ledger frame_qa-stage rows — see
-routes/review.py's get_findings docstring for why there is no third,
-per-instance findings table yet), scopes both to tenant_id, and shapes the
-rows exactly per backend/models.py's ArbiterFinding/ArbiterSpend field names
-— a field-name mismatch here is exactly the "StoryEngine wiring failure"
-this project's own CLAUDE.md calls out by name (frontend/src/lib/api.ts's
-ArbiterFinding/ArbiterSpend types are copied verbatim from these models).
+Proves the endpoint reads the three REAL, persisted tables (A2's
+arbiter_fingerprints, A1's generation_ledger frame_qa-stage rows, D8-3b's
+arbiter_findings per-instance rows), scopes all three to tenant_id, and
+shapes the rows exactly per backend/models.py's ArbiterFinding/ArbiterSpend/
+ArbiterFindingInstance field names — a field-name mismatch here is exactly
+the "StoryEngine wiring failure" this project's own CLAUDE.md calls out by
+name (frontend/src/lib/api.ts's types are copied verbatim from these
+models).
 
 Each test asserts `hasattr(review, "get_findings")` first so a stash of this
 chunk's implementation fails LOUDLY with a real AssertionError (not a bare
@@ -81,11 +88,37 @@ def _spend_row(**over):
     return base
 
 
+def _instance_row(**over):
+    base = {
+        "id": "inst-1",
+        "video_id": "video-1",
+        "video_title": "Test Video",
+        "scene": 4,
+        "station": "board",
+        "reference": "panel 1",
+        "label": "M1 WS",
+        "image_url": "https://x/sheet-1.png",
+        "classification": "MODEL_DEFECT",
+        "failure_class": "set_bleed",
+        "rule_id": None,
+        "fingerprint_key": "set_bleed",
+        "rubric_level": "hard_gate",
+        "decisive_prompt_fragment": None,
+        "description": "wrong location drawn",
+        "new_vs_previous": "FIRST_PANEL",
+        "cost": 0.02,
+        "created_at": datetime(2026, 7, 30, tzinfo=timezone.utc),
+    }
+    base.update(over)
+    return base
+
+
 def test_findings_endpoint_shapes_fingerprints_and_ledger_spend(monkeypatch):
-    """The two real tables (A2 fingerprints, A1 ledger) both get read,
-    scoped to tenant_id, and shaped into the exact ArbiterFinding/ArbiterSpend
-    field names — a mismatch here would silently break the frontend, exactly
-    the StoryEngine wiring failure this project's CLAUDE.md warns about."""
+    """The three real tables (A2 fingerprints, A1 ledger, D8-3b per-instance
+    arbiter_findings) all get read, scoped to tenant_id, and shaped into the
+    exact ArbiterFinding/ArbiterSpend/ArbiterFindingInstance field names — a
+    mismatch here would silently break the frontend, exactly the
+    StoryEngine wiring failure this project's CLAUDE.md warns about."""
     assert hasattr(review, "get_findings"), "D8-3: GET /api/review/findings must exist"
 
     calls = []
@@ -99,13 +132,16 @@ def test_findings_endpoint_shapes_fingerprints_and_ledger_spend(monkeypatch):
             assert args == (TENANT,), "ledger query must scope to tenant_id"
             assert "stage = 'frame_qa'" in query, "must filter to the frame_qa stage only"
             return [_spend_row()]
+        if "arbiter_findings" in query:
+            assert args == (TENANT, 200), "per-instance query must scope to tenant_id + the limit"
+            return [_instance_row()]
         raise AssertionError(f"unexpected query: {query}")
 
     monkeypatch.setattr(review, "fetch_all", fake_fetch_all)
 
     result = asyncio.run(review.get_findings(tenant_id=TENANT))
 
-    assert len(calls) == 2
+    assert len(calls) == 3
 
     assert len(result.findings) == 1
     f = result.findings[0]
@@ -129,11 +165,32 @@ def test_findings_endpoint_shapes_fingerprints_and_ledger_spend(monkeypatch):
     assert s.total_cost == 0.15
     assert s.last_judged_at == "2026-07-30T00:00:00+00:00"
 
+    assert len(result.instances) == 1
+    i = result.instances[0]
+    assert i.id == "inst-1"
+    assert i.video_id == "video-1"
+    assert i.video_title == "Test Video"
+    assert i.scene == 4
+    assert i.station == "board"
+    assert i.reference == "panel 1"
+    assert i.label == "M1 WS"
+    assert i.image_url == "https://x/sheet-1.png"
+    assert i.classification == "MODEL_DEFECT"
+    assert i.failure_class == "set_bleed"
+    assert i.rule_id is None
+    assert i.fingerprint_key == "set_bleed"
+    assert i.rubric_level == "hard_gate"
+    assert i.description == "wrong location drawn"
+    assert i.new_vs_previous == "FIRST_PANEL"
+    assert i.cost == 0.02
+    assert i.created_at == "2026-07-30T00:00:00+00:00"
+
 
 def test_findings_endpoint_empty_when_nothing_judged_yet(monkeypatch):
-    """No fingerprints, no ledger rows (today's real prod state — D8-2's
-    first live run hasn't happened yet) -> empty lists, not an error. This is
-    the exact shape the frontend's EmptyState branch is built against."""
+    """No fingerprints, no ledger rows, no per-instance rows (today's real
+    prod state — D8-2's first live run hasn't happened yet) -> empty lists,
+    not an error. This is the exact shape the frontend's EmptyState branch
+    is built against."""
     assert hasattr(review, "get_findings"), "D8-3: GET /api/review/findings must exist"
 
     async def fake_fetch_all(query, *args):
@@ -144,11 +201,13 @@ def test_findings_endpoint_empty_when_nothing_judged_yet(monkeypatch):
     result = asyncio.run(review.get_findings(tenant_id=TENANT))
     assert result.findings == []
     assert result.spend == []
+    assert result.instances == []
 
 
-def test_findings_endpoint_scopes_both_queries_to_tenant(monkeypatch):
-    """A different tenant's fingerprint/ledger rows must never leak in —
-    both queries are parameterized on tenant_id, never string-interpolated."""
+def test_findings_endpoint_scopes_all_queries_to_tenant(monkeypatch):
+    """A different tenant's fingerprint/ledger/instance rows must never leak
+    in — all three queries are parameterized on tenant_id, never
+    string-interpolated."""
     assert hasattr(review, "get_findings"), "D8-3: GET /api/review/findings must exist"
 
     seen_args = []
@@ -160,4 +219,4 @@ def test_findings_endpoint_scopes_both_queries_to_tenant(monkeypatch):
     monkeypatch.setattr(review, "fetch_all", fake_fetch_all)
 
     asyncio.run(review.get_findings(tenant_id="tenant-other"))
-    assert seen_args == [("tenant-other",), ("tenant-other",)]
+    assert seen_args == [("tenant-other",), ("tenant-other",), ("tenant-other", 200)]
