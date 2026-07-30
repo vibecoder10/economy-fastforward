@@ -1556,3 +1556,107 @@ spend on top):
   8. Only after this judge-only (and, on a later explicit go, judge+repair)
      pass is reviewed clean should A9 (FRAME-ARBITER-PLAN.md) even be
      considered for widening the flag beyond this one scene.
+
+## D6-6c/d/e — deterministic bridge, L28 style-lock wording, LOCSET material matching (2026-07-30)
+
+Three surgical fixes coming out of the D6-6a $0 dry-run gate's conditional pass
+(`tasks/evidence/d6-6a-dryrun/README.md`). All three proven at unit level, zero
+spend, no DB, no VPS. Full recipe below is the live $0 dry-run re-run this
+worktree is NOT authorized to execute (deploys are held).
+
+### 1. D6-6c (deterministic BRIDGE exemption) — never re-run live against
+   video 8d90df90
+PROOF LEVEL REACHED IN SANDBOX: `enforce_shot_budget`'s new structural signals
+(a per-moment LOCATION change, and S1 transit language in a moment's own
+one-line summary — both gated on `location_sets`, rule 8) proven with hand-built
+fixture moments mirroring the REAL evidence transcript byte-for-byte (the exit
+moment tagged "Pod" — same as its predecessor — with no "(BRIDGE)" tag at all);
+stash-proof confirmed (neutered signal -> AssertionError, restored -> pass).
+NOT PROVEN: a real coverage-planner LLM call against video 8d90df90 scene 1,
+run 3 times, now keeps the corridor-exit beat on 3 of 3 calls instead of 1 of 3.
+RECIPE (deploy window only):
+  1. `se db` read scene 1's current `scripts.scene_text` for video
+     8d90df90-be0f-4328-b9d3-20f6bb5b71a6 (tenant ee93e6d1) — confirm it still
+     narrates the exit ("...climbs out into the corridor").
+  2. Call `generate_coverage_for_video` (or the `storyboards`/`images` MCP tool)
+     for scene 1 three separate times, forcing a fresh directive each call
+     (bypass the saved-directive skip — e.g. `force=true` or delete the row's
+     `coverage_directive` first). This IS a $0.05-per-sheet-preview or real
+     per-shot pictures spend depending on which path is exercised — quote cost
+     and get a yes first if using the real PICTURES path; the sheet PREVIEW
+     path's `plan_only` mode stays $0.
+  3. EXPECTED: all 3 runs' final shot list includes a moment whose master/
+     angle description shows Nyla actually stepping into the corridor — 3/3,
+     not 1/3 — regardless of whether that run's LLM output happens to carry
+     the literal "(BRIDGE)" tag.
+  4. Check backend logs for the `🌉 N BRIDGE moment(s) kept as ADDITIVE` line
+     on every run that needed the exemption (confirms the code path fired,
+     not just that the shot count happened to look right).
+
+### 2. D6-6d (L28 style-lock wording) — never proven against a genuine
+   allow_auto_cast_generation=False call with zero attachments
+PROOF LEVEL REACHED IN SANDBOX: `_style_block_for`'s per-shot ref check proven
+with a fake image client capturing the exact prompt text sent to the drawer
+(cast_url=None + env_url=None -> master prompt omits "attached reference
+image(s)"; angle prompt keeps it, since angle_base always carries the
+just-drawn master frame). Stash-proof confirmed.
+NOT PROVEN: a real Custom Film / section-contract build (the actual caller that
+sets `allow_auto_cast_generation=False`) reaching this code path live, with a
+video that genuinely has zero locked characters and zero matched environment,
+and the ACTUAL provider response to the reworded prompt (does GPT Image 2 draw
+something reasonable with no reference at all, given only the shot's own prose
+description — untested, this fix only proves the CLAIM is now honest, not that
+the resulting image quality is acceptable).
+RECIPE (deploy window only, real spend — quote first):
+  1. Create a NEW test video with a Custom Film / section-contract production
+     plan (whatever route sets `allow_auto_cast_generation=False` — see
+     `coverage_to_app.py`'s `section_contract` branch) and skip locking any
+     character or approving any environment.
+  2. Trigger coverage generation for one scene. EXPECTED: no crash, no
+     content-policy rejection attributable to a false reference claim; the
+     logged/captured draw prompt for the MASTER shot of the first moment
+     contains "STYLE LOCK: render this frame as a photoreal..." (the no-refs
+     wording), not "matching...the attached reference image(s)".
+  3. Visually inspect the resulting image (Visual Output Verification Rule) —
+     does it look like a coherent scene, or does the missing reference produce
+     worse identity/style drift than before? This chunk only fixes the FALSE
+     CLAIM (BOARD-LAWS L28); it does not and cannot improve image quality when
+     there is genuinely nothing to anchor on.
+
+### 3. D6-6e (LOCSET material-map matching) — never proven against a real
+   multi-location scene whose LOCSET key carries stylistic drift
+PROOF LEVEL REACHED IN SANDBOX: `_canonical_material_line`/`canonical_material_
+line`'s `_find()` (both the sheet-preview and pictures-path mirrors) proven
+with hand-built envs where a LOCSET key ("The Elite Viewing Hall") differs from
+its approved environment's name ("Elite Viewing Hall") only by a leading
+article — before the fix, that location's material silently dropped out of the
+combined MATERIAL MAP string while a plainer-named sibling ("Pod") appeared
+alone; after the fix, both appear, correctly keyed. Stash-proof confirmed on
+both mirrors.
+IMPORTANT CAVEAT, stated honestly: reconstructing video 8d90df90 scene 4's
+ACTUAL directive text against the CURRENT main branch (which already includes
+commit bd384402, "D6-6b: a scene's own declared location beats a nested-frame
+mention", landed BEFORE this worktree started) did NOT reproduce the original
+evidence symptom — `_match_scene_env` already resolves that scene to "Elite
+Viewing Hall" correctly, and `_canonical_material_line`'s SINGLE-location
+branch (which is what actually fires for that specific single-location scene)
+already returns the Hall's material correctly. The evidence file most likely
+captured a run against code that predated D6-6b, committed to git later than
+D6-6b landed. The bug this chunk (D6-6e) fixes is REAL and independently
+reproducible (see the test), but is a DIFFERENT code path (the MULTI-location
+LOCSET `_find()` helper, exercised only when a scene's coverage plan uses
+`[LOCSET|...]` blocks — e.g. video 8d90df90 scene 1's Pod/Corridor escape
+scene) than the one the original evidence transcript literally shows. Both are
+real; only the second was still open in this code.
+RECIPE (deploy window only, real spend for step 2 — quote first):
+  1. `se db "SELECT name, material_map FROM video_environments WHERE video_id=
+     '8d90df90-be0f-4328-b9d3-20f6bb5b71a6'"` — confirm whether any row has a
+     leading-article-style name mismatch against how the coverage planner's
+     own [LOCSET|...] key names it (read the saved `scripts.coverage_directive`
+     for scene 1, a genuinely multi-location scene, and compare its LOCSET
+     key text to `video_environments.name` verbatim).
+  2. If `video_environments.material_map` is populated for Pod/Corridor (or
+     once it is, per BOARD-LAWS.md's "every canonical column is NULL today"
+     status), regenerate scene 1's sheet preview and pictures-path prompts;
+     EXPECTED: the MATERIAL MAP block names BOTH "POD:" and "CORRIDOR:"
+     clauses (previously, a LOCSET key stylistic mismatch could drop one).

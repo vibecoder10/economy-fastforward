@@ -201,6 +201,42 @@ def test_canonical_material_line_name_matching_is_normalized():
     assert "wood counters" in result
 
 
+def test_canonical_material_line_locset_key_with_leading_article_still_matches():
+    """D6-6e: a LOCSET key phrased with a leading article or extra prose
+    ("The Elite Viewing Hall") must still resolve to its own approved
+    environment's material_map — exact-equality-after-normalization is not
+    enough. This is the real live failure (video 8d90df90 scene 4): the
+    Hall's LOCSET key carried the SAME stylistic drift D6-6b already found
+    in this video's [SET|] header, so the Hall's material silently dropped
+    out of the combined string while the plainer-named "Pod" sibling
+    matched exactly and appeared alone — reproducing "pulled in the Pod's
+    material instead of the Hall's" even with the correct environment rows
+    on file. Two distinct environments prove neither's material leaks into
+    or replaces the other's."""
+    envs = [
+        {"name": "Pod", "material_map": "POD MATERIAL: clear glass front, solid white rear"},
+        {"name": "Elite Viewing Hall", "material_map": "HALL MATERIAL: solid ornamental walls"},
+    ]
+    location_sets = {
+        "The Elite Viewing Hall": "black ornamental walls with gold accents",
+        "Pod": "the sealed glass bubble-pod",
+    }
+    result = _canonical_material_line(envs, location_sets, None)
+    assert "HALL MATERIAL" in result, f"Hall's material silently dropped: {result!r}"
+    assert "POD MATERIAL" in result, f"Pod's material silently dropped: {result!r}"
+
+
+def test_canonical_material_line_locset_key_with_no_matching_env_still_finds_nothing():
+    """Control: a LOCSET name that genuinely names NO approved environment
+    (not merely a stylistic variant of one) must still return "" for that
+    location — the tolerant matching above must not become a fuzzy-match-
+    anything free-for-all."""
+    envs = [{"name": "Pod", "material_map": "POD MATERIAL"}]
+    location_sets = {"Some Unrelated Room": "text"}
+    result = _canonical_material_line(envs, location_sets, None)
+    assert result == ""
+
+
 def test_plan_sheet_prompts_material_block_uses_canonical_text_when_passed():
     """Composer-level proof: whatever the caller resolves as material_line
     (canonical or LLM-fallback) is inserted VERBATIM into the MATERIAL MAP

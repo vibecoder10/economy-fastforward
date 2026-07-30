@@ -509,6 +509,26 @@ def test_canonical_material_line_empty_when_no_canonical_row():
     assert canonical_material_line(None, {"Pod": "..."}, None) == ""
 
 
+def test_canonical_material_line_locset_key_with_leading_article_still_matches():
+    """D6-6e (PICTURES path — mirrors coverage_to_app._canonical_material_
+    line's identical fix, kept in sync so the two never diverge): a LOCSET
+    key phrased with a leading article ("The Elite Viewing Hall") must
+    still resolve to its own approved environment's material_map. Two
+    distinct environments prove neither's material leaks into or replaces
+    the other's."""
+    envs = [
+        {"name": "Pod", "material_map": "POD MATERIAL: clear glass front, solid white rear"},
+        {"name": "Elite Viewing Hall", "material_map": "HALL MATERIAL: solid ornamental walls"},
+    ]
+    location_sets = {
+        "The Elite Viewing Hall": "black ornamental walls with gold accents",
+        "Pod": "the sealed glass bubble-pod",
+    }
+    result = canonical_material_line(envs, location_sets, None)
+    assert "HALL MATERIAL" in result, f"Hall's material silently dropped: {result!r}"
+    assert "POD MATERIAL" in result, f"Pod's material silently dropped: {result!r}"
+
+
 def test_check_material_map_consistency_warns_only_never_raises_on_disagreement():
     """D6-1c gate decision: a canonical/prose disagreement WARNS (returns 1,
     logs) and never raises or blocks — per the standing ruling, a real
