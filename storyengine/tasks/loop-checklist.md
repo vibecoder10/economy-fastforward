@@ -1074,3 +1074,90 @@ Notes / lessons: (append as we learn)
 - [ ] THE DAY'S FINAL AND MOST CLARIFYING FINDING (Ryan: "the bubble is not put in there either its a weird tube"). Read from the emitted prompt: the warren set says "Towering CYLINDRICAL glass pods stacked vertically along metal framework" while Nyla's own pod set says "SPHERICAL pod with curved glass dome ceiling" - the world contradicts itself inside one prompt, and the screen therefore shows tubes. Grep for the canonical architecture agreed tonight (solid matte white rear shell / clear glass front / structural ribs, L20): ZERO occurrences. It lives only in the hand-written prompts and BOARD-LAWS.md; nothing carries it into the machine. SO THE VERDICT ON THE WHOLE BUILD SHARPENS: the law FORM landed well - per-location SET blocks with real cross-contamination prohibitions ("appear ONLY in X panels; never in Y"), stated headcounts, the caption rule, no duplicate panels, consistent character design - but the law CONTENT depends on canonical data that either does not exist or is not wired: the cast references (L28), the style string (L29), and the set/material map (L20). CONSEQUENCE FOR THE NEXT PHASE: the work is NOT more laws. It is giving the laws their data - a single canonical per-video definition of cast, style and set that the composer inserts VERBATIM instead of letting each scene's planner paraphrase it from stale source records. That is one build and it subsumes L20/L28/L29 plus the paraphrase problem behind L12/L13/L14.
 - [ ] THE ARCHITECTURE ANSWER (Ryan, 2026-07-30): "why cant this be deterministic and calculated, not invented and hallucinated... we know which laws we want the prompt to follow and it just ignores things and does its own thing." He is right and the design is backwards. Written up as storyengine/BOARD-PLANNER-ARCHITECTURE.md. Core: today the planner LLM WRITES the finished prompt while being told 29 laws in prose, so it paraphrases and keeps only what it finds convenient - which is exactly the proof run's failure pattern (code-written and gated laws survived; prompt-only laws were dropped). FIX: the LLM emits a VALIDATED STRUCTURED PLAN (per moment: order, location, register, action summary, speaker/line, flags for location-change / discovery / duration) and a DETERMINISTIC RENDERER builds the prompt from canonical data + a coverage catalogue. Then most laws stop being instructions and become properties of the code path: set blocks and material map inserted verbatim (L3/L20), one style string (L29), cast tags plus ACTUALLY ATTACHED references or no claim at all (L6/L28), camera kit SELECTED from a catalogue keyed by register and location count rather than invented (L1/L4/L13/L14/L18/L19), per-panel camera facts LOOKED UP as properties of the chosen setup (L5/L16), panel allocation by rule (L9/L21), reverse-angle arrangement computed by flipping the order (L22), boundary blocks rendered from the transition plan (L23-L26), constraints slot rendered complete (L2/L27). Bonus: gates dismissed as "semantic, not checkable" become checkable because they inspect a structured plan instead of prose. Honest limits recorded in the doc: the IMAGE model still hallucinates (it drew tubes where the text said sphere - determinism in the prompt is not determinism in pixels, the board gate catches the rest), a rigid catalogue risks sameness (model chooses among valid options per register), and true judgement calls stay with the model or Ryan. Sequence: canonical per-video record first (already the filed headline build), then the schema + planner switch behind a flag, then the renderer, then move the gates, then prove on one scene against the 9/9 hand-written sheet.
 - [ ] THE ARCHITECTURE ANSWER (Ryan, 2026-07-30): "why cant this be deterministic and calculated, not invented and hallucinated... we know which laws we want the prompt to follow and it just ignores things and does its own thing." He is right and the design is backwards. Written up as storyengine/BOARD-PLANNER-ARCHITECTURE.md. Core: today the planner LLM WRITES the finished prompt while being told 29 laws in prose, so it paraphrases and keeps only what it finds convenient - exactly the proof run's failure pattern (code-written and gated laws survived; prompt-only laws were dropped). FIX: the LLM emits a VALIDATED STRUCTURED PLAN (per moment: order, location, register, action summary, speaker/line, flags for location-change / discovery / duration) and a DETERMINISTIC RENDERER builds the prompt from canonical data plus a coverage catalogue. Then most laws stop being instructions and become properties of the code path: set blocks and material map inserted verbatim (L3/L20), one style string (L29), cast tags with ACTUALLY ATTACHED references or no claim at all (L6/L28), camera kit SELECTED from a catalogue keyed by register and location count rather than invented (L1/L4/L13/L14/L18/L19), per-panel camera facts LOOKED UP as properties of the chosen setup (L5/L16), panel allocation by rule (L9/L21), reverse-angle arrangement computed by flipping the order (L22), boundary blocks rendered from the transition plan (L23-L26), constraints slot rendered complete (L2/L27). Bonus: gates dismissed as "semantic, not deterministically checkable" become checkable because they inspect a structured plan instead of prose. Honest limits in the doc: the IMAGE model still hallucinates (it drew tubes where the text said sphere - determinism in the prompt is not determinism in pixels; the board gate catches the rest), a rigid catalogue risks sameness (model chooses among valid options per register), and true judgement calls stay with the model or Ryan. Sequence: canonical per-video record first (already the filed headline build), then the schema plus planner switch behind a flag, then the renderer, then move the gates, then prove on one scene against the 9/9 hand-written sheet.
+
+## PHASE D6 - BOARD PLANNER DETERMINISM (opened 2026-07-29, maestro)
+
+Ryan's instruction: finish the builds first, then run a fresh video end to end.
+Source docs: BOARD-PLANNER-ARCHITECTURE.md (the design), BOARD-LAWS.md L0-L29,
+STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
+
+### Definition of Complete (graded against this, not the checkbox count)
+1. One per-video canonical record holds cast (with real reference asset ids), style,
+   and a set/material map per location - and the composer inserts those strings
+   VERBATIM. No emitted prompt declares style twice, claims an unattached reference,
+   or re-describes the world. (Subsumes L20, L28, L29.)
+2. Every prompt-only law gets a real leg - moved into deterministic assembly
+   (preferred) or given a per-shot repair stamp: L11, L12, L15, L16, L17/L22, L18,
+   L19. A single-shot redraw cannot revert them.
+3. S3 reaches the script generator on all three legs (prompt + deterministic gate +
+   repair), then S1, S5, and honest admissions for S2/S4. Nobody hand-splits a scene
+   again.
+4. The film-level boundary pass (L23-L26) has a written plan. PLAN ONLY, no build
+   this phase.
+5. Proven by ONE real board (max $0.20 of Ryan's authorised $1) on a NEW video
+   created from the corrected eight-scene script, judged against BOARD-LAWS.md and
+   STORY-LAWS.md. Video 686b4651 stays untouched.
+
+### ASSUMPTIONS (made by the orchestrator, not asked - correct these if wrong)
+- A1. Canonical inputs ships WITH the composer's verbatim slots, not as a data record
+  alone. Data the planner is free to paraphrase is not canonical - that is exactly how
+  the 2026-07-30 proof run failed.
+- A2. The full structured-plan schema and renderer (BOARD-PLANNER-ARCHITECTURE.md
+  steps 2-3) is the NEXT phase, not this one. This phase does step 1 plus the
+  highest-value slices, so the phase ends with a proof board rather than a half-built
+  renderer.
+- A3. feat/board-laws is merged into main (verified: 0 commits ahead of main). The
+  HANDOFF line calling it unmerged is STALE. The "judge the builder's report" action
+  is already answered by the PARTIAL proof-run verdict - dropped.
+
+### Chunks
+- [ ] D6-0A (S) [SWEEP] Board planner / composer / stamp inventory. Read-only Explore.
+  Map the board prompt path end to end, the planner system prompt, what is already
+  code-written vs prose, the existing SET/AXIS/STAGING/SEQUENCE stamp mechanism, the
+  per-shot artifact schema, where canonical per-video data would live, and the highest
+  free migration number. DISPATCHED.
+- [ ] D6-0B (S) [SWEEP] Script generator prompt / gate / repair inventory. Read-only
+  Explore. Map the generate AND submit paths, the scene-splitting logic, the script
+  system prompt, whether quality_rules genuinely has a script scope consumed at
+  runtime, existing script gates, the scene record schema (is there a location field?),
+  and the repair leg. Answers: is S3 enforceable on today's schema? DISPATCHED.
+- [ ] D6-1 (S) [D][B][V] CANONICAL INPUTS + composer verbatim slots. One per-video
+  record for cast (with reference asset ids), style, and the set/material map per
+  location, inserted VERBATIM by the composer. Migration 141 (reserved). Subsumes L20,
+  L28, L29 and the paraphrase problem behind L12/L13/L14. Depends on D6-0A. Worktree.
+- [ ] D6-2 (S) [B][V] Repair stamps re-scoped around deterministic assembly. L11, L12,
+  L15, L16, L18, L19 and L17/L22 have a PROMPT leg but no per-shot stamp, so they
+  evaporate on the first single-shot redraw (the failure class that cost $0.20 on
+  07-29). PREFER moving a law into deterministic assembly over adding prose. L17/L22
+  may need a group-arrangement field on the per-shot artifact - the missing signal is
+  itself the finding. Depends on D6-1.
+- [ ] D6-3 (S) [D][B][V] S3 into the script generator, all three legs. One scene is one
+  location and one continuous beat. GATE: does a scene span more than one location?
+  Highest-value single item in the backlog - it is why scene 1 was oversized. Must reach
+  the SUBMIT path too, not only the generate path. Migration 142 (reserved). Depends on
+  D6-0B. Worktree. PARALLEL with D6-1.
+- [ ] D6-4 (S) [B][V] S1 + S5 + honest S2/S4 admissions. S1 gate: does a scene's
+  location differ from the previous with no transit sentence? S5 gate: does every scene
+  name a location? S2/S4 are judgement - admit in-commit that no deterministic gate is
+  feasible rather than pretending one exists. Depends on D6-3.
+- [ ] D6-5 (S) [doc] Film-level boundary pass PLAN (L23-L26). Delivers
+  BOUNDARY-PASS-PLAN.md. Acceptance target: the plan must be capable of producing
+  tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Migration 143 (reserved) if it
+  proposes storage. PLAN ONLY. No dependency - PARALLEL with everything. DISPATCHED.
+- [ ] D6-6 [DECISION - MONEY] Fresh video from the corrected eight-scene script, then
+  ONE proof board judged against BOARD-LAWS.md and STORY-LAWS.md. Max $0.20 (Ryan's
+  authorised $1 has $0.80 spent). Script judged FIRST, boards second, nothing paid until
+  each stage passes. Depends on D6-2 and D6-4. Needs Ryan's go before any spend.
+
+### HARD CONSTRAINTS (all earned, all cost money to learn)
+- Do NOT split or re-derive video 686b4651. Re-deriving scenes runs
+  `DELETE FROM scripts WHERE video_id = ...` (user_script.py:188/382), wiping every
+  scene's boards, directives and prompts and orphaning $1.85 of drawn assets. It is the
+  law-discovery artifact - leave it. The next run is a NEW video.
+- Frame-level spend on scene 1 is FROZEN (D3-66 strike 2).
+- `se deploy` REQUIRES the session name BEFORE flags (D3-60 open): a bare flag binds to
+  WHO and the frontend build silently skips while the log still prints the flag. Verify
+  BUILD_ID mtime or grep a literal in the deployed chunks.
+- Migration numbers reserved to avoid a collision between parallel lanes: D6-1 takes
+  141, D6-3 takes 142, D6-5 takes 143 if needed.
+- Parallel EDIT lanes get worktree isolation.
