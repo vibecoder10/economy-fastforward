@@ -158,7 +158,15 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
   const units = rosterDashboard?.units ?? [];
   const total = rosterDashboard?.total ?? 0;
   const verifiedCount = units.filter((u) => u.reference?.status === "verified").length;
-  const allVerified = total > 0 && verifiedCount === total;
+  // Same never-built rule as StaticDocuStageRail's roster gate (2026-07-30):
+  // a cancelled programme (retryable === false) can never have a photo, so it
+  // must satisfy the roster rather than hold the summary at "fix the missing
+  // photos" forever. Keep both computations in step - the panel summary and
+  // the stage tile above it must never contradict each other.
+  const neverBuiltCount = units.filter(
+    (u) => u.reference?.status !== "verified" && u.reference?.retryable === false,
+  ).length;
+  const allVerified = total > 0 && verifiedCount + neverBuiltCount >= total;
 
   if (total === 0) {
     return (
@@ -202,6 +210,7 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 style={{ color: allVerified ? "var(--green)" : "var(--gold)" }}
               >
                 {verifiedCount}/{total} verified
+                {neverBuiltCount > 0 ? ` + ${neverBuiltCount} never built` : ""}
                 {allVerified ? " — roster is clear to proceed." : " — fix the missing photos below."}
               </p>
             )}

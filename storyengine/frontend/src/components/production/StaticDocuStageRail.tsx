@@ -56,12 +56,26 @@ export function computeStaticDocuStages(
 
   const total = rosterDashboard?.total ?? 0;
   const verified = (rosterDashboard?.units ?? []).filter((u) => u.reference?.status === "verified").length;
+  // never-built (2026-07-30): a cancelled programme with no completed hardware
+  // (reason_code "never_built", surfaced as retryable === false) can NEVER
+  // have a verified photo — C5 skips it before any lookup, by design. Counting
+  // it as "still needs a photo" made the roster gate impossible for any roster
+  // containing one (the live case: CVA-01 froze the carrier video at 22/23
+  // forever). Satisfied = verified OR never-built; only retryable misses block.
+  const neverBuilt = (rosterDashboard?.units ?? []).filter(
+    (u) => u.reference?.status !== "verified" && u.reference?.retryable === false,
+  ).length;
+  const stillMissing = total - verified - neverBuilt;
+  const rosterDoneDetail =
+    neverBuilt > 0
+      ? `${verified}/${total} verified + ${neverBuilt} never built (no photo can exist) — roster complete.`
+      : `${verified}/${total} machine(s) have a verified reference photo.`;
   const roster: StageInfo =
     total === 0
       ? { status: "not_started", detail: "No roster established yet — run Research." }
-      : verified === total
-        ? { status: "done", detail: `${verified}/${total} machine(s) have a verified reference photo.` }
-        : { status: "blocked", detail: `${verified}/${total} verified — ${total - verified} machine(s) still need a photo.` };
+      : stillMissing <= 0
+        ? { status: "done", detail: rosterDoneDetail }
+        : { status: "blocked", detail: `${verified}/${total} verified — ${stillMissing} machine(s) still need a photo.` };
 
   const hasResearchPayload = Boolean(video.research_payload && Object.keys(video.research_payload).length > 0);
   let research: StageInfo;

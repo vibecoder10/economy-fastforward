@@ -2661,7 +2661,12 @@ def _visual_identity_warnings(
     generic_patterns = (
         r"\b(?:image|picture|photo|shot)\s+of\s+(?:the\s+)?(?:machine|aircraft|bomber|unit)\b",
         r"\b(?:hero\s+image|hero\s+shot|visual(?:ly)?\s+distinct|make\s+it\s+look\s+realistic)\b",
-        r"\b(?:recognizable|unmistakable|distinctive)\b(?![^.]{0,80}\b(?:wing|wings|engine|engines|nose|tail|fuselage|cockpit|canopy|turret|gun|propeller|landing gear|pod|pods|bay|silhouette)\b)",
+        # The lookahead's feature list mirrors visible_feature_pattern below —
+        # same cross-domain extension (2026-07-30), same reason: "unmistakable"
+        # next to "flight deck" or "twin funnels" is concrete, not generic.
+        r"\b(?:recognizable|unmistakable|distinctive)\b(?![^.]{0,80}\b(?:wing|wings|engine|engines|nose|tail|fuselage|cockpit|canopy|turret|gun|propeller|landing gear|pod|pods|bay|silhouette|"
+        r"deck|decks|hull|bow|stern|island|mast|masts|funnel|funnels|superstructure|catapult|hangar|"
+        r"rotor|rotors|track|tracks|barrel|chassis|glacis)\b)",
     )
     if any(_re.search(pattern, lower) for pattern in generic_patterns):
         warnings.append("visual_identity is generic; name concrete visible features that identify the locked machine")
@@ -2673,9 +2678,22 @@ def _visual_identity_warnings(
     if any(_re.search(pattern, lower) for pattern in production_patterns):
         warnings.append("visual_identity must describe visible machine features only, not camera/editing/text directions")
 
+    # Cross-domain (2026-07-30): this list was aircraft-only, which made every
+    # honest ship card fail "must include concrete visible machine features" —
+    # a Majestic-class carrier has no wings or fuselage to name. DVsU covers
+    # ships, helicopters, armor and ground vehicles too, so the vocabulary
+    # carries each domain's visible anatomy. Additive: every previously
+    # passing description still passes.
     visible_feature_pattern = (
         r"\b(?:wing|wings|engine|engines|nose|tail|fuselage|cockpit|canopy|turret|gun|guns|propeller|propellers|"
-        r"landing gear|pod|pods|bay|swept|delta|straight|silhouette|profile|intake|intakes|exhaust|boom|booms)\b"
+        r"landing gear|pod|pods|bay|swept|delta|straight|silhouette|profile|intake|intakes|exhaust|boom|booms|"
+        # ship / carrier
+        r"deck|decks|hull|bow|stern|island|mast|masts|funnel|funnels|superstructure|bridge|keel|"
+        r"catapult|catapults|palisades|derrick|derricks|crane|cranes|hangar|ramp|"
+        # helicopter
+        r"rotor|rotors|tailboom|skids|"
+        # armor / ground vehicle
+        r"track|tracks|barrel|chassis|cab|wheels|armor|armour|glacis|hatch|hatches)\b"
     )
     if not _re.search(visible_feature_pattern, lower):
         warnings.append("visual_identity must include concrete visible machine features")
