@@ -98,6 +98,12 @@ from storyboard.coverage import (  # noqa: E402
     # (never re-guessed) so _coverage_shape's pure-dialogue headroom always
     # matches what the floor validator will actually go looking for.
     _REACTION_TURNS_PER_SHOT, _INSERT_SHOTS_PER_ONE, _REESTABLISH_SHOTS_PER_ONE,
+    # D6-2 (L16/L22, migration 143): the SAME setup-id extraction and
+    # reverse-pair parser run_coverage's build-time repair legs use —
+    # imported (never re-guessed) so redraw_asset_image's fresh
+    # re-derivation can never silently diverge from what was computed at
+    # build time.
+    _setup_id, _setup_base_id, parse_reverse_setup_pairs,
 )
 
 
@@ -639,9 +645,9 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
                 "location_id, camera_movement, image_model, routed_model, routing_reason, "
-                "duration_seconds) "
+                "duration_seconds, shot_location, group_arrangement) "
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',"
-                "$15,$16,$17,$18,$19,$20,$21)",
+                "$15,$16,$17,$18,$19,$20,$21,$22,$23)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 # D3-62: image_prompt used to be hard-sliced to 1000 chars here —
                 # a copy-paste of the short-bio [:1000] convention used elsewhere
@@ -671,6 +677,13 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 # block, falling back to word-count when it's NULL — legacy
                 # rows and non-coverage assets are unaffected).
                 fr.get("duration_seconds"),
+                # D6-2 (migration 143): the per-shot location/computed group
+                # arrangement (coverage.py's run_coverage persist + L17/L22
+                # repair-leg blocks, threaded through generate_coverage_
+                # frames' frame dicts). None for the overwhelming majority
+                # of shots (no group/location signal) — unchanged from
+                # before this migration.
+                fr.get("shot_location"), fr.get("group_arrangement"),
                 # model_used (C13) stays NULL here — no INSERT column for it — until
                 # clip generation records which model actually ran this shot.
             )
@@ -2827,7 +2840,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
 
     a = await fetch_one(
         "SELECT a.id, a.scene, a.image_index, a.image_prompt, a.hero_shot, "
-        "a.generation_method, "
+        "a.generation_method, a.group_arrangement, "
         "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
         "v.image_style_override, v.visual_style "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
@@ -2879,7 +2892,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # background and visibly drifted from its still-original neighbors (seen
     # live on cd5d2883's scene-1 redraws). Same matcher as the batch path;
     # fail-soft, a redraw without an env match just draws like before.
-    env_refs, env_note = [], ""
+    env_refs, env_note, srow = [], "", None
     try:
         srow = await fetch_one(
             "SELECT coverage_directive, scene_text FROM scripts "
@@ -2915,6 +2928,52 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
                 env_note += f" Material map, fixed for this whole set: {material_map}."
     except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this
         _p(f"  (no location lock for this redraw: {str(env_err)[:80]})")
+
+    # D6-2 (L16 + L22, migration 143) REPAIR LEG: FRESH re-derivation at
+    # redraw time — the D6-1-preferred pattern (fresh beats baked: a later
+    # fix to parse_reverse_setup_pairs/compute_reverse_arrangement heals an
+    # OLD shot's next redraw without regenerating the scene). Reconstructs
+    # THIS shot's own SETUP id from its stored image_prompt (the same
+    # "(SETUP X)" tag the drawer wrote at build time — coverage.py's
+    # _setup_id), then re-parses THIS SCENE's own coverage_directive (the
+    # same immutable per-scene record the build-time lock read) for the
+    # reverse-setup pairing and, if this shot IS itself a reverse partner,
+    # re-derives the same computed anti-carryover tail apply_reverse_
+    # background_lock would have stamped at build time. Reuses `srow` (the
+    # SAME scripts row the env-lock block above fetched — never a second
+    # query) so this repair works whether or not an approved environment
+    # matched. A blank/legacy directive, or a shot with no SETUP tag,
+    # repairs nothing — fail-soft, exactly like every other redraw
+    # amendment here.
+    l16_l22_note = ""
+    try:
+        this_sid = _setup_id({"description": prompt})
+        if this_sid:
+            directive = (srow or {}).get("coverage_directive") or ""
+            reverse_pairs = parse_reverse_setup_pairs(parse_setups_line(directive))
+            partner = (reverse_pairs.get(this_sid)
+                       or reverse_pairs.get(_setup_base_id(this_sid))) if reverse_pairs else None
+            # Never double-stamp: the build-time repair leg (apply_reverse_
+            # background_lock) may already have baked this exact reminder in.
+            if partner and f"matched reverse of SETUP {partner}" not in prompt:
+                l16_l22_note += (
+                    f" Reverse-angle background lock (computed, re-derived at redraw): this "
+                    f"camera SETUP {this_sid} is the matched reverse of SETUP {partner}. "
+                    f"Whatever sits behind the subject in SETUP {partner} must NOT reappear "
+                    f"behind them here — state what genuinely sits behind the subject from "
+                    f"THIS camera position; a front light source there is now BEHIND THIS "
+                    f"camera instead.")
+        # assets.group_arrangement (migration 143) IS the canonical per-shot
+        # signal — re-attach it if the stored prompt doesn't already carry
+        # it verbatim (it usually does, from the build-time stamp; this
+        # only matters if the column were ever corrected after the fact,
+        # the exact "corrected canonical record heals old shots" pattern
+        # D6-1 established for identity_tag/material_map).
+        garr = (a.get("group_arrangement") or "").strip()
+        if garr and garr not in prompt:
+            l16_l22_note += f" Group arrangement (canonical): {garr}."
+    except Exception as l16_err:  # noqa: BLE001 — the redraw itself must never die on this
+        _p(f"  (no reverse-angle/arrangement repair for this redraw: {str(l16_err)[:80]})")
 
     # MOMENT-MASTER ANCHOR (D3-65): the fix for "the redraw repair path draws
     # the wrong picture, systematically". generate_coverage_frames NEVER draws
@@ -2973,7 +3032,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # style_prefix + composition + _SAME_SUBJECT + style_block + env_note.
     url, model_used = await generate_scene_image_for_model(
         ic, model_override,
-        style_prefix + cast_identity_note + prompt + master_note + _style_block + env_note,
+        style_prefix + cast_identity_note + prompt + master_note + _style_block + env_note
+        + l16_l22_note,
         reference_urls=cast_refs + master_refs + env_refs,
         aspect_ratio=a["aspect"], task_id_out=task_id_box)
     if not url:
