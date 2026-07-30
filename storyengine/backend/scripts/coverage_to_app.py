@@ -1727,8 +1727,17 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         loc_lines = []
         for name, text in location_sets.items():
             others = [n for n in location_sets if n != name]
+            # Guarantee the cross-contamination prohibition even when the
+            # planner forgot it (defense in depth, same reasoning as every
+            # other REPAIR-leg stamp in this file) — but SKIP auto-appending
+            # a SECOND one when the planner's own LOCSET text already reads
+            # as a prohibition sentence, so a compliant planner's output
+            # isn't followed by a near-duplicate sentence saying the same
+            # thing twice.
+            already_stated = bool(re.search(r"\bonly\b.*\bpanels?\b", text, re.IGNORECASE))
             prohibition = (f" These props appear ONLY in {name} panels; never in "
-                           f"{' or '.join(others)} panels." if others else "")
+                           f"{' or '.join(others)} panels."
+                           if others and not already_stated else "")
             loc_lines.append(f"{name.upper()} SET — applies ONLY to panels marked "
                              f"{name.upper()}: {_neutralize_risky_props(text)}.{prohibition}")
         set_block = "\n" + "\n".join(loc_lines) + "\n"
