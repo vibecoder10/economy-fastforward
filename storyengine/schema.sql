@@ -1295,6 +1295,17 @@ CREATE TABLE video_characters (
   status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'stale')),
   source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
   sort INT DEFAULT 0,
+
+  -- D9-2 (migration 151, Custom Film CharacterLock harvest): extracted from
+  -- the approved portrait pixels at cast-approval time (approve_cast's
+  -- existing vision pass, extended prompt). NULL until populated; read
+  -- VERBATIM into board/final-picture CHARACTER blocks ahead of
+  -- description's prose, but never ahead of a creator-set identity_tag.
+  -- forbidden_drift is stored only -- not yet consumed anywhere (D9-4).
+  face_body_lock TEXT,
+  wardrobe_lock TEXT,
+  forbidden_drift TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
