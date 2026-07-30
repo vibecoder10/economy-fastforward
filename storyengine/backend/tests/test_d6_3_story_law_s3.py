@@ -597,11 +597,10 @@ def test_update_scene_text_preserves_existing_location_when_no_new_header(monkey
     import routes.videos as rv
     from models import SceneTextUpdate
 
-    captured = {}
+    calls = []
 
     async def fake_execute(query, *args):
-        captured["query"] = query
-        captured["args"] = args
+        calls.append((query, args))
         return "UPDATE 1"
 
     async def fake_fetch_all(query, *args):
@@ -615,20 +614,28 @@ def test_update_scene_text_preserves_existing_location_when_no_new_header(monkey
         tenant_id="tenant-1",
     ))
 
-    assert "COALESCE" in captured["query"]
+    # D7-1 added a second execute() call (the videos.script sync) — pick out
+    # the scripts.scene_text write specifically rather than assuming it's
+    # the only (or last) call.
+    scene_write = next(query_args for query_args in calls if "COALESCE" in query_args[0])
+    assert "COALESCE" in scene_write[0]
     # args: (stored_text, video_id, scene, tenant_id, new_location)
-    assert captured["args"][4] is None, "no new header -> COALESCE keeps the existing column untouched"
+    assert scene_write[1][4] is None, "no new header -> COALESCE keeps the existing column untouched"
     assert result["story_law_s3_warnings"] == []
+    # D7-1: the sync write must ALSO have happened — videos.script kept
+    # current with the edit, not just scripts.scene_text.
+    sync_write = next(query_args for query_args in calls if "UPDATE videos SET script" in query_args[0])
+    assert "Just an edited paragraph, no header." in sync_write[1][2]
 
 
 def test_update_scene_text_adopts_fresh_header_and_strips_it(monkeypatch):
     import routes.videos as rv
     from models import SceneTextUpdate
 
-    captured = {}
+    calls = []
 
     async def fake_execute(query, *args):
-        captured["args"] = args
+        calls.append((query, args))
         return "UPDATE 1"
 
     async def fake_fetch_all(query, *args):
@@ -642,8 +649,12 @@ def test_update_scene_text_adopts_fresh_header_and_strips_it(monkeypatch):
         tenant_id="tenant-1",
     ))
 
-    assert captured["args"][0] == "She chops onions."
-    assert captured["args"][4] == "the kitchen"
+    # D7-1 added a second execute() call (the videos.script sync) — pick out
+    # the scripts.scene_text write specifically rather than assuming it's
+    # the only call.
+    scene_write = next(query_args for query_args in calls if "COALESCE" in query_args[0])
+    assert scene_write[1][0] == "She chops onions."
+    assert scene_write[1][4] == "the kitchen"
 
 
 def test_update_scene_text_re_check_surfaces_reintroduced_violation_as_warning(monkeypatch):
