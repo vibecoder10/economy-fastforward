@@ -836,11 +836,23 @@ def _anton_source_slot_hints(text: str) -> set[str]:
             r"\b(?:project|program|contract|mission|specification)\b",
             r"\b(?:designed|developed|intended)\s+to\b",
             r"\basked\s+(?:for|to|whether)\b",
+            # Procurement-origin signals (2026-07-30, ship/vehicle domains):
+            # naval histories state the need as an acquisition act — a hull
+            # ordered, purchased, or requisitioned to fill a gap.
+            r"\b(?:ordered|purchased?|requisitioned|laid down)\b",
         ),
         "engineering_decision": (
             r"\b(?:design|decision|built|developed|configured|equipped|mounted|carried|powered)\b",
             r"\b(?:wing|wingspan|fuselage|engine|engines|payload|range|speed|horsepower|propulsion)\b",
             r"\b(?:model|prototype|airframe|structure|configuration|feature|features)\b",
+            # Ship/vehicle anatomy and shipyard verbs (2026-07-30): the list
+            # above is aircraft vocabulary, so excerpts describing a flight
+            # deck, hangar, island or a conversion/fitting-out never hinted
+            # this beat and honest naval packages failed the coverage gate
+            # (live case: HMS Eagle's "middle deck, as fitted for the
+            # aircraft carrier Eagle").
+            r"\b(?:deck|decks|hull|hangar|catapult|island|funnel|boiler|turbine|"
+            r"armou?r|knots|conver(?:ted|sion)|fitted|refitted|rebuilt|turret|tracks)\b",
         ),
         "tradeoff": (
             r"\btrade[- ]?off\b",

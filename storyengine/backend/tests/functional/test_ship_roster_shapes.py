@@ -679,3 +679,28 @@ def test_machine_documentary_hold_roster_gates_on_roster_size_bounds():
     # Same function enforces a 3-40 item bound regardless of machine shape.
     too_few = _ship_video(roster=SHIP_ROSTER_ENTRIES[:2])
     assert pe._machine_documentary_hold_roster(too_few) == []
+
+
+# --- 2026-07-30: Anton slot hints must speak ship (found by the research
+# simulator - HMS Eagle's package failed beat coverage because the hint
+# vocabulary was aircraft-only) -------------------------------------------
+
+def test_slot_hints_ship_engineering_vocabulary():
+    hints = pe._anton_source_slot_hints(
+        "the middle deck, as fitted for the aircraft carrier Eagle (1918)."
+    )
+    assert "engineering_decision" in hints
+
+
+def test_slot_hints_procurement_origin_vocabulary():
+    hints = pe._anton_source_slot_hints(
+        "After purchase build was continued and she was launched as EAGLE on 8th June 1918."
+    )
+    assert "original_problem" in hints
+
+
+def test_slot_hints_aircraft_vocabulary_unchanged():
+    hints = pe._anton_source_slot_hints(
+        "The design mounted eight engines under swept wings for intercontinental range."
+    )
+    assert "engineering_decision" in hints
