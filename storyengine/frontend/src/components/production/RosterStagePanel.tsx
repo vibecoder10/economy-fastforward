@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, XCircle, ImageIcon, RefreshCw, Loader2, Link2 } from "lucide-react";
+import { CheckCircle2, XCircle, ImageIcon, RefreshCw, Loader2, Link2, Ban, Info } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { ActionButton } from "@/components/ui/ActionButton";
 import { useToast } from "@/components/ui/toast";
@@ -203,6 +203,14 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {units.map((u) => {
           const verified = u.reference?.status === "verified";
+          // C8: a "missing" card used to look identical whether the machine
+          // just hasn't been reached yet, will never have a photo, or was
+          // genuinely checked and failed. never_built (retryable === false)
+          // is the one state where retrying can never help — everything
+          // else (no_candidates / fetch_failed / vision_rejected / error)
+          // is worth another Re-check or a manually pasted photo.
+          const neverBuilt = u.reference?.retryable === false;
+          const missReason = u.reference?.reason_detail;
           return (
             <GlassCard key={u.machine} className="p-4 flex flex-col gap-3">
               <div
@@ -243,6 +251,16 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                   >
                     <Loader2 size={11} className="animate-spin" /> checking…
                   </span>
+                ) : neverBuilt ? (
+                  // C8: distinct from "missing" — no amount of retrying will
+                  // ever produce a photo for this machine (e.g. a cancelled
+                  // program that never left the drawing board).
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                    style={{ color: "var(--text-tertiary)", border: "1px solid var(--text-tertiary)" }}
+                  >
+                    <Ban size={11} /> never built
+                  </span>
                 ) : (
                   <span
                     className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
@@ -253,7 +271,22 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 )}
               </div>
 
-              {!verified && showRunning && !manualOverride[u.machine] && (
+              {/* C8: WHY this machine is missing — absent for a unit that
+                  simply hasn't been swept yet, shown once a reason has
+                  actually been recorded. Held back during a live sweep so
+                  a card mid-retry doesn't flash a stale reason from the
+                  attempt before it. */}
+              {!verified && !showRunning && missReason && (
+                <p
+                  className="text-[11px] leading-snug flex items-start gap-1.5"
+                  style={{ color: neverBuilt ? "var(--text-tertiary)" : "var(--gold)" }}
+                >
+                  <Info size={12} className="shrink-0 mt-0.5" />
+                  <span>{missReason}</span>
+                </p>
+              )}
+
+              {!verified && !neverBuilt && showRunning && !manualOverride[u.machine] && (
                 <button
                   onClick={() => setManualOverride((prev) => ({ ...prev, [u.machine]: true }))}
                   className="text-[11px] text-left underline underline-offset-2 opacity-70 hover:opacity-100"
@@ -263,7 +296,11 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
                 </button>
               )}
 
-              {!verified && (!showRunning || manualOverride[u.machine]) && (
+              {/* neverBuilt gets NO paste-a-URL/retry affordance at all —
+                  presenting the same "try again" form as a genuinely
+                  retryable miss would tell the operator retrying might
+                  work when it structurally cannot. */}
+              {!verified && !neverBuilt && (!showRunning || manualOverride[u.machine]) && (
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
                     <Link2 size={12} style={{ color: "var(--text-tertiary)" }} className="shrink-0" />

@@ -1078,10 +1078,25 @@ export type RosterDashboard = {
     suggested_action?: { verb: string; excerpt_id?: string; kind?: string; field?: string; focus?: string; reason?: string } | null;
     preview?: { passed: boolean; word_count?: number } | null;
     // C3: roster-time reference-photo prefetch status (static_reference_cache,
-    // read live — no new table). "verified" carries the self-hosted URL and
-    // its Wikimedia source; "missing" means generation will fail-closed for
-    // this machine unless the reference is seeded or prefetch reruns.
-    reference?: { status: "verified" | "missing"; hosted_url?: string; source_url?: string };
+    // read live). "verified" carries the self-hosted URL and its Wikimedia
+    // source; "missing" means generation will fail-closed for this machine
+    // unless the reference is seeded or prefetch reruns.
+    // C8: a "missing" unit additionally carries WHY, read from
+    // static_reference_misses — reason_code is one of no_candidates /
+    // fetch_failed / vision_rejected / error / never_built (the last one
+    // reserved for a later chunk, not produced yet); reason_detail is a
+    // ready-to-show sentence. `retryable` is false only for never_built —
+    // every other reason is worth another Re-check or a manual photo.
+    // All three are absent for a machine that has simply never been swept
+    // yet (no miss row written at all), same as before this chunk.
+    reference?: {
+      status: "verified" | "missing";
+      hosted_url?: string;
+      source_url?: string;
+      reason_code?: string;
+      reason_detail?: string;
+      retryable?: boolean;
+    };
   }>;
 };
 

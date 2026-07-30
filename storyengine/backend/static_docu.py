@@ -910,6 +910,100 @@ async def _ensure_ref_cache_schema() -> None:
             verified_at TIMESTAMPTZ DEFAULT now(),
             PRIMARY KEY (tenant_id, machine_key)
         )""")
+    # C8 (2026-07-29): WHY a machine missed, scoped per-VIDEO rather than
+    # per (tenant, machine_key) like static_reference_cache above — the same
+    # machine can miss for one video (a bad alias, a transient fetch error)
+    # and verify cleanly for another, or on a later re-check of the same
+    # video once an alias/prompt fix lands. A row here is a "still open"
+    # marker, not history: it is deleted the instant the machine clears
+    # (see _clear_reference_miss), so its mere presence already means
+    # "unresolved as of checked_at" without needing a status column.
+    # Defensive CREATE, same reasoning as static_reference_cache above — this
+    # is additive/read-mostly and not worth blocking on a migration deploy.
+    await execute(
+        """CREATE TABLE IF NOT EXISTS static_reference_misses (
+            tenant_id UUID NOT NULL,
+            video_id UUID NOT NULL,
+            machine_key TEXT NOT NULL,
+            machine TEXT,
+            reason_code TEXT NOT NULL,
+            reason_detail TEXT,
+            checked_at TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (tenant_id, video_id, machine_key)
+        )""")
+
+
+# Reason vocabulary for static_reference_misses.reason_code (C8). Three of
+# these map to the three genuinely different failure modes named in the
+# 2026-07-27 incident write-up; a 4th ("error") covers an exception raised
+# mid-lookup (network blip, etc) so no miss is EVER left unexplained. A 5th
+# ("never_built", not produced by any code path yet) is reserved for a
+# later chunk (C5) that will classify machines no photo can ever exist for
+# — recording the vocabulary now means C5 only has to start WRITING that
+# value, not invent a new column/table.
+REASON_NO_CANDIDATES = "no_candidates"      # search found nothing to check
+REASON_FETCH_FAILED = "fetch_failed"        # candidates found, none could be hosted
+REASON_VISION_REJECTED = "vision_rejected"  # hosted candidate(s), vision confirmed none
+REASON_ERROR = "error"                      # exception mid-lookup
+REASON_NEVER_BUILT = "never_built"          # reserved for C5, unused today
+
+_MISS_REASON_LABELS = {
+    REASON_NO_CANDIDATES: "No candidate photo could be found for this machine — "
+                           "the search returned nothing to check. Worth retrying "
+                           "once aliases or search terms improve.",
+    REASON_FETCH_FAILED: "A candidate photo was found but couldn't be downloaded "
+                          "or hosted — likely a dead link or a blocked host. "
+                          "Worth retrying.",
+    REASON_VISION_REJECTED: "A candidate photo was found and hosted, but it didn't "
+                             "look like this specific machine to the vision check. "
+                             "Worth retrying with a different photo, or pasting one "
+                             "yourself.",
+    REASON_ERROR: "Something went wrong while checking this machine (a network or "
+                  "lookup error). Worth retrying.",
+    REASON_NEVER_BUILT: "This machine was never actually built — no photo can ever "
+                        "exist for it.",
+}
+
+
+async def _record_reference_miss(tenant_id: str, video_id: str, machine: str,
+                                  reason_code: str, detail: Optional[str] = None) -> None:
+    """Persist (or refresh) why ONE roster machine missed on THIS video.
+    Best-effort: a failure here must never surface to the sweep — recording
+    the reason is diagnostic sugar, not a gate."""
+    try:
+        await _ensure_ref_cache_schema()
+        mkey = _machine_key(machine)
+        await execute(
+            """INSERT INTO static_reference_misses
+                   (tenant_id, video_id, machine_key, machine, reason_code,
+                    reason_detail, checked_at)
+               VALUES ($1,$2,$3,$4,$5,$6,now())
+               ON CONFLICT (tenant_id, video_id, machine_key)
+               DO UPDATE SET machine=$4, reason_code=$5, reason_detail=$6,
+                             checked_at=now()""",
+            tenant_id, video_id, mkey, machine[:200], reason_code,
+            detail or _MISS_REASON_LABELS.get(reason_code, ""))
+    except Exception:  # noqa: BLE001 — diagnostic only, never fails the sweep
+        _logger.warning(
+            "[prefetch-roster-ref] could not persist miss reason for "
+            "video=%s machine=%r", video_id, machine, exc_info=True)
+
+
+async def _clear_reference_miss(tenant_id: str, video_id: str, machine: str) -> None:
+    """A machine that just verified (prefetch, re-check, or manual seed) can
+    no longer be an open miss for this video — delete the row so the panel
+    stops showing a stale reason for a machine that's fixed. No-op if there
+    was never a miss row (DELETE of a missing key is cheap and harmless)."""
+    try:
+        mkey = _machine_key(machine)
+        await execute(
+            "DELETE FROM static_reference_misses "
+            "WHERE tenant_id=$1 AND video_id=$2 AND machine_key=$3",
+            tenant_id, video_id, mkey)
+    except Exception:  # noqa: BLE001 — diagnostic only
+        _logger.debug(
+            "[prefetch-roster-ref] could not clear miss reason for "
+            "video=%s machine=%r", video_id, machine, exc_info=True)
 
 
 def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
@@ -2078,13 +2172,26 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
     passes them through here so _gather_reference_candidates and
     _vision_confirms can use them for lookup and identification the same
     way _one_scene's live per-scene path already does. Defaults to None
-    (the pre-alias behavior) so any other caller is unaffected."""
+    (the pre-alias behavior) so any other caller is unaffected.
+
+    C8 (2026-07-29): a False return used to be a bare absence — three
+    genuinely different problems (no candidate found at all, a candidate
+    found but never hosted, a candidate hosted but vision-rejected) looked
+    identical to every caller and to the human staring at the roster panel.
+    This now classifies which of those happened and persists it via
+    _record_reference_miss (see static_reference_misses) before returning
+    False, and clears any prior miss the instant a machine verifies."""
     candidates = await _gather_reference_candidates(machine, aliases, machine)
     mkey = _machine_key(machine)
+    if not candidates:
+        await _record_reference_miss(tenant_id, video_id, machine, REASON_NO_CANDIDATES)
+        return False
+    hosted_any = False
     for idx, (cand, trusted) in enumerate(candidates):
         hosted = await _host_reference(cand, video_id, tenant_id, f"roster{roster_index:02d}_{idx}")
         if not hosted:
             continue
+        hosted_any = True
         if await _vision_confirms(tenant_id, hosted, machine, aliases, trusted_source=trusted):
             await execute(
                 """INSERT INTO static_reference_cache
@@ -2094,7 +2201,11 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                    DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
                                  verified_at=now()""",
                 tenant_id, mkey, machine[:200], hosted, cand)
+            await _clear_reference_miss(tenant_id, video_id, machine)
             return True
+    await _record_reference_miss(
+        tenant_id, video_id, machine,
+        REASON_VISION_REJECTED if hosted_any else REASON_FETCH_FAILED)
     return False
 
 
@@ -2137,6 +2248,10 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
            DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
                          verified_at=now()""",
         tenant_id, mkey, machine[:200], hosted, url)
+    # C8: a manually-seeded photo resolves this video's open miss (if any)
+    # exactly like an automated prefetch success does — same clear helper,
+    # so the panel stops attributing a reason to a machine that's now fine.
+    await _clear_reference_miss(tenant_id, video_id, machine)
     return {"status": "verified", "hosted_url": hosted, "source_url": url}
 
 
@@ -2186,6 +2301,11 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
                 "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, mkey)
             if cached:
                 verified += 1
+                # C8: this machine already carries a tenant-global verified
+                # reference (perhaps seeded/prefetched via a different
+                # video) — any stale miss reason recorded against THIS
+                # video no longer applies.
+                await _clear_reference_miss(tenant_id, video_id, machine)
                 continue
             if await _prefetch_one_machine(tenant_id, video_id, machine, i, aliases=aliases):
                 verified += 1
@@ -2200,6 +2320,11 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
             _logger.warning(
                 "[prefetch-roster-ref] video=%s machine=%r prefetch failed",
                 video_id, machine, exc_info=True)
+            # C8: _prefetch_one_machine records its OWN reason for a clean
+            # miss, but an exception can escape it (or the cache-lookup
+            # above) before that ever happens — record one here too so no
+            # miss is ever silently unexplained.
+            await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
 
     _logger.info(
         "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d",
@@ -2208,17 +2333,192 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
             "verified": verified, "missed": missed}
 
 
+# --- C12: durable registration so a restart mid-sweep is recoverable ------
+#
+# Problem (found by a 2026-07-29 audit): dispatch_roster_prefetch below used
+# to call a bare asyncio.create_task(prefetch_roster_references(...)) with
+# NO row in the background_tasks table. The repo's own reapers —
+# routes/pipeline.py's recover_stale_tasks (API startup) and
+# reap_stale_running_tasks (periodic timer) — operate purely by SQL over
+# background_tasks and are task-type-agnostic: they cannot see, retry, or
+# even know about a task that never wrote a row there. A restart or
+# redeploy mid-sweep silently dropped the fetch with zero record — a
+# 23-machine sweep takes ~10 minutes, and deploys are more frequent than
+# that. This reproduced the exact 2026-07-27 incident (roster saved, photos
+# never arrive, a human has to notice) via a deploy race instead of the
+# gate-ordering bug C1+C2 already fixed.
+#
+# Fix: register the sweep under its own task_type ('roster_prefetch') in
+# background_tasks before running it, and close the row out on completion —
+# the same table/columns/lifecycle main.py's custom_film_runtime/
+# custom_film_director outbox rows already use (see main.py's
+# _dispatch_pending_custom_film_runtime/_director), just with no arq job_id
+# since this task type has no worker.py handler — it always runs in-process
+# via asyncio.create_task, on both the original dispatch and a resume.
+#
+# Deliberately NOT reusing routes/pipeline.py's _db_persist_task/
+# _set_task_status: those key their "already running?" check off
+# (tenant_id, video_id) ALONE, no task_type filter, and drive the
+# in-memory _running_tasks dict that both _is_task_active's "main" lane
+# exclusivity gate and the roster-recheck endpoint's live task-status
+# polling (commit f615772a) depend on. Writing into that same slot from
+# here — fired from deep inside run_research/accept_submitted_research, not
+# a request handler — would race whatever status those flows are ALSO
+# reporting for this exact video_id (e.g. clobbering "research complete"
+# with "sweeping references", or vice versa) and could wedge the main-lane
+# busy gate. A dedicated task_type + a direct INSERT/UPDATE against
+# background_tasks sidesteps that: visible to the task-type-agnostic
+# reapers (all durability needs), invisible to the in-memory main-lane gate
+# and the recheck endpoint's polling (so f615772a's UX is untouched).
+#
+# Recovery needs no bespoke bookkeeping: recover_stale_tasks() already flips
+# any 'running' row to 'failed' with error_message='Server restarted — task
+# interrupted' at every API startup, task-type-agnostic. This module's
+# resume_interrupted_roster_prefetches() (called from main.py's lifespan,
+# mirroring _dispatch_pending_custom_film_runtime) scans for exactly that
+# marker under task_type='roster_prefetch' and re-dispatches — cheaply and
+# safely, because prefetch_roster_references already skips any machine
+# already in static_reference_cache, so a resumed sweep only redoes the
+# machines still outstanding when the restart hit.
+
+_ROSTER_PREFETCH_TASK_TYPE = "roster_prefetch"
+_ROSTER_PREFETCH_RESTART_MESSAGE = "Server restarted — task interrupted"
+_ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS = 5
+
+
+async def _run_tracked_roster_prefetch(video_id: str, tenant_id: str, *, attempt: int = 1) -> None:
+    """Runs prefetch_roster_references wrapped in a background_tasks row
+    (task_type='roster_prefetch') so an interrupted sweep is detectable and
+    resumable — see the C12 note above. This is the ONE coroutine
+    dispatch_roster_prefetch and resume_interrupted_roster_prefetches both
+    schedule via asyncio.create_task; never raises out of itself since it
+    always runs detached (an escaped exception here would only ever surface
+    as an "exception was never retrieved" log line, never to a caller)."""
+    task_id = None
+    try:
+        row = await fetch_one(
+            """INSERT INTO background_tasks
+                   (tenant_id, video_id, task_type, status, message, started_at, attempt)
+               VALUES ($1, $2, $3, 'running', $4, now(), $5)
+               RETURNING id""",
+            tenant_id, video_id, _ROSTER_PREFETCH_TASK_TYPE,
+            "Sweeping roster reference photos", attempt,
+        )
+        task_id = row.get("id") if row else None
+    except Exception:  # noqa: BLE001 — registration failure must not block the sweep
+        _logger.warning(
+            "[prefetch-roster-ref] could not register background_tasks row "
+            "for video=%s (sweep still runs, just undurably this time)",
+            video_id, exc_info=True)
+
+    result_status, message = "completed", None
+    try:
+        result = await prefetch_roster_references(video_id, tenant_id)
+        result_status = result.get("status") or "completed"
+        if result_status == "completed":
+            message = f"{result.get('verified', 0)} verified, {result.get('missed', 0)} missed"
+        elif result_status == "skipped":
+            message = result.get("message") or "Nothing to prefetch for this video"
+        else:  # prefetch_roster_references' own "failed" (e.g. video not found)
+            message = result.get("error") or "Roster prefetch failed"
+    except Exception as exc:  # noqa: BLE001 — never let the tracking wrapper blow up
+        result_status = "failed"
+        message = str(exc)
+        _logger.warning(
+            "[prefetch-roster-ref] tracked sweep failed for video=%s",
+            video_id, exc_info=True)
+
+    if task_id:
+        # background_tasks.status CHECK only allows pending/running/
+        # completed/failed/cancelled — "skipped" collapses into
+        # "completed" (it did finish, just with nothing to do), same
+        # normalization routes/pipeline.py's _set_task_status applies.
+        db_status = "failed" if result_status == "failed" else "completed"
+        try:
+            await execute(
+                """UPDATE background_tasks
+                       SET status=$1, message=$2, completed_at=now()
+                   WHERE id=$3""",
+                db_status, message, task_id,
+            )
+        except Exception:  # noqa: BLE001 — best-effort close-out
+            _logger.debug(
+                "[prefetch-roster-ref] could not close out background_tasks "
+                "row for video=%s", video_id, exc_info=True)
+
+
+async def resume_interrupted_roster_prefetches() -> int:
+    """Called once at API startup (see main.py's lifespan, right after
+    routes.pipeline.recover_stale_tasks flips every stale 'running' row to
+    'failed') — finds roster-prefetch rows THIS SAME startup pass just
+    interrupted and re-dispatches them. prefetch_roster_references is
+    naturally idempotent (skips any machine already cached), so replaying
+    the whole roster is cheap, not a full re-sweep — no per-machine resume
+    bookkeeping needed, exactly per the C12 design note.
+
+    Scoped to rows completed in the last 10 minutes (same window main.py's
+    custom_film stale-task recovery uses) so a long-dead row from a much
+    earlier crash isn't silently resurrected on every future restart.
+    Capped at _ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS so a roster that keeps
+    genuinely failing (not just being interrupted) stops auto-retrying
+    instead of looping across restarts forever. Never raises — startup must
+    never block on this. Returns the number of sweeps resumed."""
+    resumed = 0
+    try:
+        rows = await fetch_all(
+            """SELECT tenant_id, video_id, COALESCE(attempt, 1) AS attempt
+               FROM background_tasks
+               WHERE task_type = $1 AND status = 'failed'
+                 AND error_message = $2
+                 AND completed_at >= now() - interval '10 minutes'""",
+            _ROSTER_PREFETCH_TASK_TYPE, _ROSTER_PREFETCH_RESTART_MESSAGE,
+        )
+    except Exception:  # noqa: BLE001 — startup must never block on this scan
+        _logger.warning(
+            "[prefetch-roster-ref] resume scan failed (non-blocking)", exc_info=True)
+        return 0
+
+    import asyncio
+    for row in rows or []:
+        attempt = int(row.get("attempt") or 1)
+        video_id = str(row.get("video_id") or "")
+        tenant_id = str(row.get("tenant_id") or "")
+        if not video_id or not tenant_id:
+            continue
+        if attempt >= _ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS:
+            _logger.warning(
+                "[prefetch-roster-ref] not resuming video=%s — already at "
+                "%d resume attempts", video_id, attempt)
+            continue
+        try:
+            asyncio.create_task(
+                _run_tracked_roster_prefetch(video_id, tenant_id, attempt=attempt + 1))
+            resumed += 1
+            _logger.info(
+                "[prefetch-roster-ref] resumed interrupted sweep for "
+                "video=%s (attempt %d)", video_id, attempt + 1)
+        except Exception:  # noqa: BLE001 — one video's resume must never block others
+            _logger.warning(
+                "[prefetch-roster-ref] could not resume sweep for video=%s",
+                video_id, exc_info=True)
+    return resumed
+
+
 def dispatch_roster_prefetch(video: Optional[dict], video_id: str, tenant_id: str) -> bool:
-    """Fire-and-forget hook: schedule prefetch_roster_references as a
-    background task the instant research lands for a static-docu video.
-    Called from BOTH research-completion seams — the paid `research` verb
+    """Fire-and-forget hook: schedule a durable, trackable reference-photo
+    sweep the instant research lands for a static-docu video. Called from
+    BOTH research-completion seams — the paid `research` verb
     (pipeline_executor.PipelineExecutor.run_research) and the free
     `submit_research` MCP ingest (research_ingest.accept_submitted_research)
     — right before their own success return, so a single line at each call
     site is all either seam needs.
 
-    Uses the repo's existing fire-and-forget pattern (asyncio.create_task —
-    see autopilot_launch.py, routes/queue.py, main.py's startup tasks) rather
+    Schedules _run_tracked_roster_prefetch (C12), not bare
+    prefetch_roster_references, so the sweep registers a background_tasks
+    row the repo's existing reapers/startup-recovery can see (see that
+    function's docstring for the full durability design). Uses the repo's
+    existing fire-and-forget pattern (asyncio.create_task — see
+    autopilot_launch.py, routes/queue.py, main.py's startup tasks) rather
     than FastAPI's BackgroundTasks, since neither call site is guaranteed to
     be inside a request handler that owns a BackgroundTasks instance.
 
@@ -2230,7 +2530,7 @@ def dispatch_roster_prefetch(video: Optional[dict], video_id: str, tenant_id: st
         return False
     try:
         import asyncio
-        asyncio.create_task(prefetch_roster_references(video_id, tenant_id))
+        asyncio.create_task(_run_tracked_roster_prefetch(video_id, tenant_id))
         return True
     except Exception:  # noqa: BLE001 — a dispatch failure must never fail research
         _logger.warning(

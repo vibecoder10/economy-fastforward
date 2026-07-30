@@ -9367,6 +9367,23 @@ class PipelineExecutor:
             }
         except Exception as exc:  # noqa: BLE001
             _logger.warning("[orchestrator] dashboard reference read unavailable: %s", str(exc)[:150])
+        # C8: WHY a still-missing machine missed, read per-video from
+        # static_reference_misses (static_docu._record_reference_miss /
+        # _clear_reference_miss). Same degrade-gracefully pattern as the
+        # cache read above — a table that doesn't exist yet (tenant has
+        # never run a prefetch) just means every machine shows "missing"
+        # with no reason, not a broken dashboard.
+        miss_by_key: dict[str, dict] = {}
+        try:
+            miss_rows = await fetch_all(
+                "SELECT machine_key, reason_code, reason_detail FROM static_reference_misses "
+                "WHERE tenant_id = $1 AND video_id = $2", self.tenant_id, video_id,
+            )
+            miss_by_key = {
+                row.get("machine_key"): row for row in (miss_rows or []) if isinstance(row, dict)
+            }
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[orchestrator] dashboard miss-reason read unavailable: %s", str(exc)[:150])
         units: list[dict] = []
         ready_count = 0
         for machine in roster:
@@ -9387,14 +9404,25 @@ class PipelineExecutor:
                     suggestion = {k: plan[0].get(k) for k in ("verb", "excerpt_id", "kind", "field", "focus", "reason") if plan[0].get(k)}
             preview = previews.get(code) if isinstance(previews.get(code), dict) else None
             ref_row = ref_cache_by_key.get(_static_machine_key(machine))
-            reference = (
-                {
+            if ref_row:
+                reference = {
                     "status": "verified",
                     "hosted_url": ref_row.get("hosted_url"),
                     "source_url": ref_row.get("source_url"),
                 }
-                if ref_row else {"status": "missing"}
-            )
+            else:
+                miss_row = miss_by_key.get(_static_machine_key(machine))
+                reference = {"status": "missing"}
+                if miss_row:
+                    # never_built (reserved for C5, not produced yet) is the
+                    # one code that means "stop offering to retry" — every
+                    # other code is a worth-another-try miss. Surfaced as a
+                    # separate boolean rather than making the frontend know
+                    # the reason vocabulary, so C5 slotting in the real
+                    # never_built detection later needs no frontend change.
+                    reference["reason_code"] = miss_row.get("reason_code")
+                    reference["reason_detail"] = miss_row.get("reason_detail")
+                    reference["retryable"] = miss_row.get("reason_code") != "never_built"
             units.append({
                 "machine": machine,
                 "state": state,
