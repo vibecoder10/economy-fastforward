@@ -3,13 +3,124 @@ import { Spinner } from "@/components/ui/spinner";
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getPendingReview, approveAsset, rejectAsset, advanceVideo, approveStoryboard, rejectStoryboard, type ReviewItem } from "@/lib/api";
+import {
+  getPendingReview, approveAsset, rejectAsset, advanceVideo, approveStoryboard, rejectStoryboard,
+  getArbiterFindings, type ReviewItem, type ArbiterFinding,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorCard } from "@/components/ui/ErrorCard";
-import { FileText, Image, Palette, LayoutGrid, ChevronRight, Check, X } from "lucide-react";
+import {
+  FileText, Image, Palette, LayoutGrid, ChevronRight, Check, X,
+  ShieldAlert, Snowflake, HelpCircle, ChevronDown,
+} from "lucide-react";
 
-type ReviewTab = "scripts" | "storyboards" | "thumbnails" | "images";
+type ReviewTab = "scripts" | "storyboards" | "thumbnails" | "images" | "findings";
+type PendingKey = "scripts" | "storyboards" | "thumbnails" | "images";
+
+// Frame Arbiter findings tab (D5 chunk A7, storyengine/FRAME-ARBITER-PLAN.md).
+// Classification -> badge classes, following THIS file's own idiom (Tailwind
+// arbitrary-value CSS-var classes, e.g. the storyboard approve/reject buttons
+// below use bg-[var(--success)]/20) rather than a different badge component
+// from elsewhere in the app.
+function classificationClasses(classification: string): string {
+  switch (classification) {
+    case "MODEL_DEFECT":
+      return "bg-[var(--error)]/20 text-[var(--error)]";
+    case "AUTHORING_DEFECT":
+      return "bg-[var(--warning)]/20 text-[var(--warning)]";
+    case "TASTE_QUESTION":
+      return "bg-[var(--accent)]/20 text-[var(--accent)]";
+    default:
+      return "bg-white/10 text-[var(--text-secondary)]";
+  }
+}
+
+function classificationLabel(classification: string): string {
+  switch (classification) {
+    case "MODEL_DEFECT":
+      return "Model defect";
+    case "AUTHORING_DEFECT":
+      return "Authoring defect";
+    case "TASTE_QUESTION":
+      return "Taste question";
+    default:
+      return classification;
+  }
+}
+
+// A plain findings row — MODEL_DEFECT / AUTHORING_DEFECT. No frame image or
+// free-text reason is shown because none is persisted anywhere yet (see
+// backend/routes/review.py's get_findings docstring): arbiter_fingerprints
+// (D5/A2) is a CLASS-level record (rule_id/failure_class + stage), not a
+// per-frame instance. What's shown below is everything that IS real.
+function FindingRow({ finding }: { finding: ArbiterFinding }) {
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", classificationClasses(finding.classification))}>
+            {classificationLabel(finding.classification)}
+          </span>
+          {finding.frozen && (
+            <span className="flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
+              <Snowflake size={11} /> Frozen
+            </span>
+          )}
+        </div>
+        <span className="text-[11px] text-[var(--text-secondary)]">{finding.violation_count}&times;</span>
+      </div>
+      <p className="mt-2 text-sm font-medium">{finding.failure_class}</p>
+      {finding.rule_id && (
+        <p className="mt-0.5 text-xs text-[var(--text-secondary)]">Rule: {finding.rule_id}</p>
+      )}
+      <p className="mt-1 font-mono text-[11px] text-[var(--text-secondary)]">
+        {finding.fingerprint_key} &middot; {finding.stage}
+      </p>
+      {finding.last_seen_at && (
+        <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
+          Last seen {new Date(finding.last_seen_at).toLocaleString()}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// TASTE_QUESTION decision card. DoC #6 (FRAME-ARBITER-PLAN.md): "TASTE_QUESTION
+// cards require a manual tap and are never auto-acted." Tapping only toggles
+// local expand/collapse state below — there is no mutation, no fetch, no
+// approve/dismiss call wired here at all, so it is structurally incapable of
+// auto-acting. Turning a decision into a real ruling is a later chunk (A8,
+// upsert_quality_rule wire-up), not this tab.
+function TasteDecisionCard({ finding }: { finding: ArbiterFinding }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="rounded-xl border border-[var(--accent)]/40 bg-[var(--accent)]/10 p-4">
+      <button
+        onClick={() => setExpanded((e) => !e)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <HelpCircle size={16} className="text-[var(--accent)]" />
+          <p className="text-sm font-medium">{finding.failure_class}</p>
+        </div>
+        <ChevronDown size={16} className={cn("text-[var(--text-secondary)] transition-transform", expanded && "rotate-180")} />
+      </button>
+      <p className="mt-1 text-xs text-[var(--text-secondary)]">
+        Directorial call needed — the arbiter flagged this as a preference question, not a defect. Seen {finding.violation_count}&times;.
+      </p>
+      {expanded && (
+        <div className="mt-3 space-y-1 border-t border-[var(--accent)]/20 pt-3 text-xs text-[var(--text-secondary)]">
+          <p>Fingerprint: <span className="font-mono">{finding.fingerprint_key}</span></p>
+          <p>Stage: {finding.stage}</p>
+          {finding.rule_id && <p>Rule: {finding.rule_id}</p>}
+          {finding.last_seen_at && <p>Last seen: {new Date(finding.last_seen_at).toLocaleString()}</p>}
+          <p className="pt-1">No action fires from this card — a ruling (a later chunk) is what turns this into a prompt/gate/repair fix.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ReviewPage() {
   const [activeTab, setActiveTab] = useState<ReviewTab>("scripts");
@@ -21,6 +132,11 @@ export default function ReviewPage() {
   const { data, isLoading, error: reviewError } = useQuery({
     queryKey: ["pending-review"],
     queryFn: getPendingReview,
+  });
+
+  const { data: findingsData, isLoading: findingsLoading, error: findingsError } = useQuery({
+    queryKey: ["arbiter-findings"],
+    queryFn: getArbiterFindings,
   });
 
   const approveMutation = useMutation({
@@ -53,14 +169,33 @@ export default function ReviewPage() {
     { key: "storyboards", label: "Storyboards", icon: LayoutGrid, count: data?.storyboards.length ?? 0 },
     { key: "thumbnails", label: "Thumbnails", icon: Palette, count: data?.thumbnails.length ?? 0 },
     { key: "images", label: "Images", icon: Image, count: data?.images.length ?? 0 },
+    { key: "findings", label: "Findings", icon: ShieldAlert, count: findingsData?.findings.length ?? 0 },
   ];
 
   const totalPending = tabs.reduce((sum, t) => sum + t.count, 0);
-  const currentItems = data?.[activeTab] ?? [];
+  const currentItems = activeTab === "findings" ? [] : (data?.[activeTab as PendingKey] ?? []);
 
   // Image batch review mode
   const imageItems = data?.images ?? [];
   const currentImage = imageItems[imageReviewIndex];
+
+  // Frame Arbiter findings tab (D5 chunk A7) — two independent lists off a
+  // separate query/endpoint, see getArbiterFindings. TASTE_QUESTION findings
+  // are split out into their own decision-card section (never mixed into the
+  // plain findings list, and never auto-acted — see TasteDecisionCard above).
+  const arbiterFindings = findingsData?.findings ?? [];
+  const arbiterSpend = findingsData?.spend ?? [];
+  const tasteQuestions = arbiterFindings.filter((f) => f.classification === "TASTE_QUESTION");
+  const otherFindings = arbiterFindings.filter((f) => f.classification !== "TASTE_QUESTION");
+  const findingsTrulyEmpty = arbiterFindings.length === 0 && arbiterSpend.length === 0;
+  const findingsRanClean = arbiterFindings.length === 0 && arbiterSpend.length > 0;
+
+  // Active tab's own loading/error state — the findings tab reads from a
+  // different query than every other tab, so the shared Loading/Error/Empty
+  // blocks below need to watch the right one.
+  const activeIsLoading = activeTab === "findings" ? findingsLoading : isLoading;
+  const activeError = activeTab === "findings" ? findingsError : reviewError;
+  const activeIsEmpty = activeTab === "findings" ? findingsTrulyEmpty : currentItems.length === 0;
 
   return (
     <div className="space-y-4">
@@ -108,22 +243,32 @@ export default function ReviewPage() {
       </div>
 
       {/* Loading */}
-      {isLoading && (
+      {activeIsLoading && (
         <div className="flex items-center justify-center py-16">
           <Spinner size="lg" />
         </div>
       )}
 
-      {reviewError && !isLoading && (
-        <ErrorCard message={(reviewError as Error).message} onRetry={() => window.location.reload()} />
+      {activeError && !activeIsLoading && (
+        <ErrorCard message={(activeError as Error).message} onRetry={() => window.location.reload()} />
       )}
 
       {/* Empty state */}
-      {!isLoading && currentItems.length === 0 && (
+      {!activeIsLoading && !activeError && activeIsEmpty && (
         <EmptyState
-          icon={activeTab === "scripts" ? FileText : activeTab === "storyboards" ? LayoutGrid : activeTab === "thumbnails" ? Palette : Image}
-          title={`No ${activeTab} pending review`}
-          description="Items appear here when pipeline stages complete"
+          icon={
+            activeTab === "scripts" ? FileText
+            : activeTab === "storyboards" ? LayoutGrid
+            : activeTab === "thumbnails" ? Palette
+            : activeTab === "findings" ? ShieldAlert
+            : Image
+          }
+          title={activeTab === "findings" ? "No arbiter findings yet" : `No ${activeTab} pending review`}
+          description={
+            activeTab === "findings"
+              ? "The judge has not run — findings will appear here once the frame arbiter judges a scene."
+              : "Items appear here when pipeline stages complete"
+          }
         />
       )}
 
@@ -312,6 +457,67 @@ export default function ReviewPage() {
               <Check size={16} /> Approve
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Frame Arbiter findings (D5 chunk A7) */}
+      {activeTab === "findings" && !findingsLoading && !findingsError && (
+        <div className="space-y-5">
+          {findingsRanClean && (
+            <p className="text-xs text-[var(--text-secondary)]">
+              The judge has run and found nothing wrong in the scenes below — no defects logged.
+            </p>
+          )}
+
+          {arbiterSpend.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                QA spend
+              </p>
+              {arbiterSpend.map((s) => (
+                <div
+                  key={`${s.video_id}-${s.scene ?? "all"}`}
+                  className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium">
+                      {s.video_title || "Untitled"}
+                      {s.scene != null ? ` · Scene ${s.scene}` : ""}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                      {s.qa_passes} judge pass{s.qa_passes === 1 ? "" : "es"}
+                      {s.last_judged_at ? ` · last ${new Date(s.last_judged_at).toLocaleString()}` : ""}
+                    </p>
+                  </div>
+                  <span className="text-sm font-medium text-[var(--text-secondary)]">
+                    ${s.total_cost.toFixed(4)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tasteQuestions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Needs your call
+              </p>
+              {tasteQuestions.map((f) => (
+                <TasteDecisionCard key={f.id} finding={f} />
+              ))}
+            </div>
+          )}
+
+          {otherFindings.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
+                Findings
+              </p>
+              {otherFindings.map((f) => (
+                <FindingRow key={f.id} finding={f} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

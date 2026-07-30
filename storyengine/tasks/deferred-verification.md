@@ -1660,3 +1660,59 @@ RECIPE (deploy window only, real spend for step 2 — quote first):
      status), regenerate scene 1's sheet preview and pictures-path prompts;
      EXPECTED: the MATERIAL MAP block names BOTH "POD:" and "CORRIDOR:"
      clauses (previously, a LOCSET key stylistic mismatch could drop one).
+
+## D8-3 — Review feed Findings tab (2026-07-30)
+
+Built in an isolated worktree only (`d8-3-review-feed` branch) — BUILD ONLY,
+per the brief, no deploy, no push, no live run.
+
+### 1. Findings tab shape — never sanity-checked against real arbiter data
+   (D8-2's first live run hasn't happened yet)
+PROOF LEVEL REACHED IN SANDBOX: `GET /api/review/findings`
+(`backend/routes/review.py::get_findings`) reads the two tables that ARE
+real and persisted — A2's `arbiter_fingerprints` (migration 139: one row per
+CLASS of defect, tenant-scoped, with the violation_count/frozen ratchet
+state) and A1's `generation_ledger` frame_qa-stage rows (migration 140: real
+QA-pass spend, grouped per video/scene) — proven with a fake `fetch_all`
+asserting both queries are tenant-scoped and shaping rows into the exact
+`ArbiterFinding`/`ArbiterSpend` field names (`tests/functional/
+test_d8_3_review_findings.py`, 3 tests, stash-proofed as a real
+AssertionError via an explicit `hasattr(review, "get_findings")` guard —
+see that file's own docstring). The frontend (`review/page.tsx`'s Findings
+tab) renders `TASTE_QUESTION` findings as a decision card that only ever
+toggles local expand/collapse state — no mutation, no fetch, structurally
+incapable of auto-acting.
+HONEST GAP, not an oversight of this chunk: no per-instance findings table
+exists anywhere in the codebase today. A3/A3b's judge calls
+(`frame_arbiter.judge_frame`/`judge_board_sheet`) return per-frame/per-panel
+finding dicts (image reference, description text, classification) ONLY in
+the HTTP response of the call that produced them —
+`frame_arbiter_hook.run_after_storyboard_sheet` attaches that dict to
+`run_storyboard_sheet`'s own return value, which is never persisted
+(`task_store.db_persist_task` only stores a status + a message STRING, no
+JSON payload — confirmed by reading it, not assumed). So the Findings tab
+cannot show a frame image or a free-text reason per finding — it shows
+everything that A1/A2 actually persist (class, fingerprint, freeze state,
+violation count, QA spend) and nothing more. This is a real architecture gap
+in A3/A5's design, not something this chunk was scoped to fix.
+NOT PROVEN, and cannot be without D8-2's live run: that real
+`arbiter_fingerprints`/`generation_ledger` rows actually render as expected
+in the tab, that the tenant used for the live check is the one the frontend
+session is authed as, and whether the "no per-frame image" gap above turns
+out to matter enough in practice that A8 (or a new chunk) needs to close it
+before this tab is genuinely useful to Ryan day-to-day.
+RECIPE (after D8-2's first live run — no spend, this is a read-only check):
+  1. Confirm D8-2 actually produced rows: `se db "SELECT count(*) FROM
+     arbiter_fingerprints"` and `se db "SELECT count(*) FROM
+     generation_ledger WHERE stage='frame_qa'"` — both should be >0.
+  2. Load `/review` in the browser as Ryan (`se devtoken` + local dev
+     server, or prod directly), click the "Findings" tab, and confirm real
+     rows render: at least one finding card (or, if D8-2's scene judged
+     clean, the "judge has run and found nothing wrong" spend-only state)
+     — NOT the "No arbiter findings yet — the judge has not run" empty
+     state, which would mean either D8-2 didn't run against this tenant or
+     the endpoint has a live-data bug this sandbox pass couldn't catch.
+  3. If D8-2's scene produced a TASTE_QUESTION finding, confirm its decision
+     card renders and that tapping it only expands/collapses — no network
+     request fires (check the browser's network tab) confirming "never
+     auto-acted" holds with real data, not just the mocked test.

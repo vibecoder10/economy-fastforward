@@ -422,6 +422,44 @@ class PendingReview(BaseModel):
     images: List[dict] = []
 
 
+class ArbiterFinding(BaseModel):
+    """One `arbiter_fingerprints` row (D5 chunk A2, migration 139) — a
+    CLASS of defect for this tenant (rule_id/failure_class + stage), not a
+    single frame instance. No per-frame findings table exists yet — see
+    routes/review.py's `get_findings` docstring for why this is the real,
+    persisted shape the Review feed's Findings tab is built against."""
+    id: str
+    rule_id: Optional[str] = None
+    stage: str
+    failure_class: str
+    fingerprint_key: str
+    classification: str
+    violation_count: int
+    frozen: bool
+    first_seen_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
+
+
+class ArbiterSpend(BaseModel):
+    """One video/scene's `frame_qa`-stage `generation_ledger` activity (D5
+    chunk A1, migration 140) — real judge-pass spend. NOT joinable to a
+    specific fingerprint: the board station's own ledger writes always
+    leave `fingerprint` NULL (frame_arbiter.judge_board_sheet's own
+    comment — a sheet's panels can carry different fingerprints in one
+    call, so the row-level tag is left unset)."""
+    video_id: str
+    video_title: Optional[str] = None
+    scene: Optional[int] = None
+    qa_passes: int
+    total_cost: float
+    last_judged_at: Optional[str] = None
+
+
+class ArbiterFindings(BaseModel):
+    findings: List[ArbiterFinding] = []
+    spend: List[ArbiterSpend] = []
+
+
 # --- Profile ---
 
 class ProfileRead(BaseModel):
