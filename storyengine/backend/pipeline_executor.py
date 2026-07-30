@@ -14963,7 +14963,29 @@ scenes."""
                     "message": "This static-documentary channel generates its own "
                                "verified aircraft view set, not generic storyboards."}
         from scripts.coverage_to_app import generate_storyboard_sheet_for_scene
-        return await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
+        result = await generate_storyboard_sheet_for_scene(video_id, self.tenant_id, scene=scene)
+        # D5 chunk A6 (FRAME-ARBITER-PLAN.md): flag-gated Frame Arbiter pass,
+        # scoped to exactly ONE (video_id, scene) via env config — see
+        # frame_arbiter_hook.py's own module docstring for the flag/sub-flag
+        # law. scene_is_in_scope's own check (inside run_after_storyboard_
+        # sheet) is env-only and returns instantly for every scene except
+        # the one flagged one, so this import + call costs nothing on the
+        # unflagged path (byte-identical `result` returned below). Only
+        # attempted when a scene was actually drawn (never on the bulk
+        # scene=None path, and never when the sheet draw itself failed —
+        # there is nothing fresh to judge).
+        if scene is not None and result.get("status") not in ("failed", "skipped"):
+            from frame_arbiter_hook import run_after_storyboard_sheet
+            try:
+                arbiter_result = await run_after_storyboard_sheet(self.tenant_id, video_id, scene)
+            except Exception as exc:  # noqa: BLE001 - the arbiter must never break the storyboard stage itself
+                _logger.exception(
+                    "frame_arbiter_hook failed for video=%s scene=%s: %s", video_id, scene, exc
+                )
+                arbiter_result = None
+            if arbiter_result is not None:
+                result = dict(result, frame_arbiter=arbiter_result)
+        return result
 
     async def run_coverage_stage(self, video_id: str, only_scenes: set = None) -> dict:
         """Unified image STAGE (GOAL v2 Phase 0): draw the real per-shot, multi-angle
