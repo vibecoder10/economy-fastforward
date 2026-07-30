@@ -704,3 +704,10 @@ def test_slot_hints_aircraft_vocabulary_unchanged():
         "The design mounted eight engines under swept wings for intercontinental range."
     )
     assert "engineering_decision" in hints
+
+
+def test_slot_hints_ship_loss_is_reality():
+    hints = pe._anton_source_slot_hints(
+        "HMS Courageous was sunk by U-29 south-west of Ireland on 17 September 1939."
+    )
+    assert "reality" in hints

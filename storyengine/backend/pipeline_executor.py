@@ -865,6 +865,11 @@ def _anton_source_slot_hints(text: str) -> set[str]:
             r"\b(?:served|service|assigned|used|flew|operated|converted|transport|missions?)\b",
             r"\b(?:production|produced|built|prototype|prototypes|delivered|scrapped|retired)\b",
             r"\b(?:combat|war|world war|record|lost|losses|cancelled|canceled|operational)\b",
+            # Loss-in-service verbs (2026-07-30): "sunk" was not reality
+            # vocabulary, so the sinking of a warship - the single most
+            # reality-laden fact a naval excerpt can state - hinted nothing
+            # (found by the simulator's Courageous lane).
+            r"\b(?:sunk|sank|torpedoed|mined|wrecked|foundered|capsized|shot down)\b",
         ),
     }
     for slot, patterns in slot_patterns.items():
