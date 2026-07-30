@@ -412,24 +412,42 @@ def _canonical_material_line(envs: list[dict], location_sets: dict,
 
     Multi-location scene (location_sets non-empty): one verbatim clause per
     LOCSET name that has a matching approved environment with a
-    material_map, name-matched via _norm_env_text (case/punctuation
-    insensitive, same matcher _match_scene_env already uses). A location
-    with no canonical entry is simply omitted from this string — KNOWN GAP,
-    stated honestly rather than silently: a multi-location scene where only
-    SOME locations have an authored material_map gets a canonical clause
-    for those and nothing for the rest (not a fallback to the LLM line per
-    missing location — mixing a canonical clause and an LLM clause for two
-    locations in the SAME block would itself violate 'once, from one
-    source of truth'). Closing that gap needs per-location fallback
-    plumbing through _plan_sheet_prompts' single material_block slot;
-    out of scope for this chunk.
+    material_map. A location with no canonical entry is simply omitted from
+    this string — KNOWN GAP, stated honestly rather than silently: a
+    multi-location scene where only SOME locations have an authored
+    material_map gets a canonical clause for those and nothing for the rest
+    (not a fallback to the LLM line per missing location — mixing a
+    canonical clause and an LLM clause for two locations in the SAME block
+    would itself violate 'once, from one source of truth'). Closing that
+    gap needs per-location fallback plumbing through _plan_sheet_prompts'
+    single material_block slot; out of scope for this chunk.
+
+    D6-6e fix: _find's per-LOCSET-name lookup used to require EXACT
+    normalized equality against an approved environment's name — a LOCSET
+    key the planner phrased with a leading article or extra prose (e.g.
+    "The Elite Viewing Hall", the SAME stylistic drift D6-6b already found
+    in this video's [SET|] header, but here inside a [LOCSET|] key on a
+    genuinely multi-location scene) silently failed to match "Elite Viewing
+    Hall", so that location's real material clause dropped out of the
+    combined string entirely while a plainer-named sibling location (e.g.
+    "Pod") matched exactly and appeared alone — reproducing the reported
+    "pulled in the wrong location's material" symptom even with the correct
+    approved environment on file. Fixed by matching the SAME way
+    _env_named_in_header_opening (above) already resolves a declared
+    location: the approved name must appear as a whole, space-bounded
+    phrase WITHIN the LOCSET key's normalized text, not require the two to
+    be identical — "elite viewing hall" now matches inside "the elite
+    viewing hall". A LOCSET key that names a location with NO approved
+    environment at all (whole word, not a substring hit) still correctly
+    finds nothing, unchanged.
 
     Single-location scene (location_sets empty): the scene's ONE matched
     environment's material_map, or "" if it has none or nothing matched."""
     def _find(name: str) -> str:
-        norm = _norm_env_text(name)
+        padded = f" {_norm_env_text(name)} "
         for e in envs:
-            if _norm_env_text(e.get("name") or "") == norm:
+            n = _norm_env_text(e.get("name") or "")
+            if n and f" {n} " in padded:
                 return (e.get("material_map") or "").strip()
         return ""
 

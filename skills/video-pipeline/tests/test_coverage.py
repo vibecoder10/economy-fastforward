@@ -235,6 +235,53 @@ def test_generate_coverage_frames_reports_real_image_count_progress():
     ]
 
 
+# ---- D6-6d: BOARD-LAWS L28 — never assert an input that is not attached ----
+def test_style_lock_no_refs_wording_when_nothing_attached():
+    """With no cast reference and no environment reference genuinely
+    attached (cast_url=None, env_url=None — the allow_auto_cast_
+    generation=False shape, called before any character is locked and with
+    no matched environment), the MASTER shot's prompt must NOT claim to
+    match "the attached reference image(s)" — nothing is attached for that
+    call. The ANGLE's prompt legitimately keeps the claim: it always
+    carries the just-drawn MASTER frame as a genuine attached reference
+    (angle_base always includes master_url), so the gap is master-shots-
+    only, exactly as the evidence found."""
+    moment = {
+        "moment_number": 1,
+        "master": {"shot_type": "WS", "description": "wide shot of the rider at dawn"},
+        "angles": [{"shot_type": "MCU", "description": "close on the rider's face"}],
+    }
+    ic = _FakeImageClientForFrames()
+    frames = asyncio.run(generate_coverage_frames(
+        moment, None, ic, None, env_url=None,
+        aspect="16:9", resolution="1K", model_override="z-image"))
+    assert frames is not None and len(frames) == 2
+    master_prompt, angle_prompt = [c[1] for c in ic.calls]
+    assert "attached reference image" not in master_prompt, master_prompt
+    assert "STYLE LOCK" in master_prompt, "must still hold a style-consistency instruction"
+    assert "attached reference image" in angle_prompt, angle_prompt
+
+
+def test_style_lock_claims_refs_only_when_genuinely_attached():
+    """Control: when a real cast reference IS attached (the overwhelmingly
+    common real-world call shape), behavior is unchanged from before D6-6d —
+    both master and angle prompts keep the original "attached reference
+    image(s)" wording."""
+    moment = {
+        "moment_number": 1,
+        "master": {"shot_type": "WS", "description": "wide shot of the rider at dawn"},
+        "angles": [{"shot_type": "MCU", "description": "close on the rider's face"}],
+    }
+    ic = _FakeImageClientForFrames()
+    frames = asyncio.run(generate_coverage_frames(
+        moment, "https://cast.png", ic, None,
+        aspect="16:9", resolution="1K", model_override="z-image"))
+    assert frames is not None and len(frames) == 2
+    master_prompt, angle_prompt = [c[1] for c in ic.calls]
+    assert "attached reference image" in master_prompt, master_prompt
+    assert "attached reference image" in angle_prompt, angle_prompt
+
+
 def test_generate_coverage_frames_propagates_routed_model_and_routing_reason():
     """C12 (checklist §1.2): plan_camera_moves() stamps routed_model/
     routing_reason onto the shot dict alongside camera_move; this proves
@@ -784,13 +831,17 @@ def test_bridge_contract_present_for_both_dialogue_and_silent_call_shape():
 # whose 4th moment WAS the escape.
 
 
-def _budget_moment(n: int, desc: str, angles: int = 0) -> dict:
+def _budget_moment(n: int, desc: str, angles: int = 0, location=None,
+                   summary=None) -> dict:
     """One parsed-shape moment for enforce_shot_budget: a master plus `angles`
     plain angles. desc goes on the MASTER's description, which is where rule
-    4b puts the "(BRIDGE)" tag."""
+    4b puts the "(BRIDGE)" tag. location/summary (D6-6c) default to the
+    pre-D6-6c shape (no "location" key at all, summary=f"m{n}") so every
+    existing call site of this helper is completely unaffected."""
     return {
         "moment_number": n,
-        "summary": f"m{n}",
+        "summary": summary if summary is not None else f"m{n}",
+        "location": location,
         "master": {"shot_type": "MS", "description": desc},
         "angles": [{"shot_type": "CU", "description": f"angle {i} of m{n}"}
                    for i in range(angles)],
@@ -893,6 +944,76 @@ def test_bridge_exemption_reaches_both_draw_paths():
     # and the scene-level motion detector agrees the escape is still in the plan
     from storyboard.coverage import scene_has_motion
     assert scene_has_motion(moments)
+
+
+# ---- D6-6c: bridge-ness must be DERIVABLE FROM STRUCTURE, not just the tag ----
+# Live finding (D6-6a dry run): the SAME escape scene's exit beat got the
+# "(BRIDGE)" tag on only 1 of 3 real planner calls — a text-generation coin
+# flip a hard shot-budget cut should never hinge on. Two structural signals
+# (both gated on location_sets — rule 8's multi-location LOCSET blocks) now
+# OR in alongside the tag, so the moment survives even when the LLM never
+# writes it.
+
+
+def test_bridge_deterministic_without_the_llm_tag():
+    """The exact live failure mode, reproduced without any "(BRIDGE)" tag at
+    all: a genuine multi-location scene (location_sets has Pod + Corridor)
+    whose exit moment's own LOCATION tag matches its predecessor's ("Pod" —
+    mirroring the REAL evidence transcript, where the LLM tagged the exit
+    moment "Pod", the same as the moment before it), so ONLY the transit-
+    language signal (the moment's one-line summary — "out into the
+    corridor" — matching S1 transit vocabulary), not the location-diff
+    signal, can be doing the work here."""
+    location_sets = {"Pod": "the sealed glass pod", "Corridor": "the metal catwalk"}
+    moments = [
+        _budget_moment(1, "(SETUP A) Nyla wakes in her pod.", location="Pod", summary="Nyla wakes"),
+        _budget_moment(2, "(SETUP B) She whispers to herself.", location="Pod", summary="she whispers"),
+        _budget_moment(3, "(SETUP C) She presses the hatch release.", location="Pod", summary="the release"),
+        _budget_moment(4, "(SETUP F) Nyla climbs out into the corridor.", location="Pod",
+                       summary="out into the corridor"),
+    ]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None, location_sets=location_sets)
+    descs = [m["master"]["description"] for m in out]
+    assert len(out) == 4, f"untagged transit moment was trimmed away: {descs}"
+    assert "(BRIDGE)" not in descs[-1], "this moment must survive with NO tag at all"
+    assert "corridor" in descs[-1]
+
+
+def test_bridge_location_change_signal_without_tag_or_transit_words():
+    """The OTHER new structural signal, isolated: a multi-location scene
+    whose exit moment's own LOCATION tag genuinely differs from its
+    predecessor's ("Corridor" vs "Pod") survives even with neither a
+    "(BRIDGE)" tag nor any transit-sounding vocabulary in its summary or
+    description."""
+    location_sets = {"Pod": "the sealed glass pod", "Corridor": "the metal catwalk"}
+    moments = [
+        _budget_moment(1, "(SETUP A) beat one.", location="Pod", summary="beat one"),
+        _budget_moment(2, "(SETUP B) beat two.", location="Pod", summary="beat two"),
+        _budget_moment(3, "(SETUP C) beat three.", location="Pod", summary="beat three"),
+        _budget_moment(4, "(SETUP F) Nyla stands there.", location="Corridor", summary="she stands there"),
+    ]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None, location_sets=location_sets)
+    assert len(out) == 4, [m["master"]["description"] for m in out]
+    assert out[-1]["location"] == "Corridor"
+
+
+def test_transit_language_never_exempts_a_single_location_scene():
+    """Both new signals are gated on location_sets (rule 8) — a
+    single-location scene (location_sets=None, the default and every call
+    site before D6-6c) must trim an untagged tail moment exactly as before,
+    even when its summary happens to use transit-sounding words. Otherwise
+    an ordinary scene where someone merely "leaves the room" would earn an
+    unbounded free exemption — the amnesty test_non_bridge_overshoot_
+    still_trims_exactly_as_before already guards against for the tag."""
+    moments = [
+        _budget_moment(1, "(SETUP A) beat one", summary="beat one"),
+        _budget_moment(2, "(SETUP B) beat two", summary="beat two"),
+        _budget_moment(3, "(SETUP C) beat three", summary="beat three"),
+        _budget_moment(4, "(SETUP D) she leaves through the door.", summary="leaves through the door"),
+    ]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None)  # location_sets defaults to None
+    assert len(out) == 3, [m["master"]["description"] for m in out]
+    assert [m["moment_number"] for m in out] == [1, 2, 3]
 
 
 def test_rule5_dialogue_order_unchanged_by_bridge_restructure():

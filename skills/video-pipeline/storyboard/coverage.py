@@ -743,11 +743,23 @@ def canonical_material_line(canonical_envs: list | None, location_sets: dict,
     canonical entry is simply omitted, never mixed with an LLM clause for
     the same block).
 
+    D6-6e fix (mirrors coverage_to_app._canonical_material_line's identical
+    fix — kept in sync so the two never diverge): _find used to require
+    EXACT normalized equality between a LOCSET key and an approved
+    environment's name, so a key phrased with a leading article or extra
+    prose ("The Elite Viewing Hall") silently failed to match "Elite
+    Viewing Hall" and that location's material dropped out while a
+    plainer-named sibling ("Pod") matched and appeared alone. Now matches
+    the same way _match_scene_env-adjacent header matching does elsewhere:
+    the approved name must appear as a whole, space-bounded phrase WITHIN
+    the LOCSET key's normalized text, not be identical to it.
+
     Single-location scene: matched_env's material_map, or "" if none."""
     def _find(name: str) -> str:
-        norm = _norm_env_name(name)
+        padded = f" {_norm_env_name(name)} "
         for e in (canonical_envs or []):
-            if _norm_env_name(e.get("name") or "") == norm:
+            n = _norm_env_name(e.get("name") or "")
+            if n and f" {n} " in padded:
                 return (e.get("material_map") or "").strip()
         return ""
 
@@ -1030,6 +1042,46 @@ _STYLE_LOCK = (
     "MUST be equally photoreal and realistic — never switch to 2D illustration, painting, cartoon "
     "or anime, and never change the art style or rendering between frames."
     + _STYLE_LOCK_HYGIENE)
+
+# D6-6d (BOARD-LAWS.md L28 — NEVER ASSERT AN INPUT THAT IS NOT ATTACHED):
+# _STYLE_LOCK's "match... the attached reference image(s)" is FALSE on the
+# one call shape where it used to fire with nothing genuinely attached —
+# allow_auto_cast_generation=False (the approval-bound Custom Film path)
+# called before any character is locked and with no matched environment,
+# so `base` (cast_refs + env_url) is empty for a MASTER shot (angles always
+# carry at least the just-drawn master frame as a real attached image, so
+# this gap is master-shots-only in practice — see generate_coverage_frames'
+# has_refs check below, computed per-shot from the ACTUAL refs list handed
+# to that shot's _gen() call, never guessed). Mirrors _sheet_header's
+# has_cast_refs=False fallback (storyengine/backend/scripts/
+# coverage_to_app.py) in spirit: when nothing is genuinely attached, point
+# the drawer at THIS SHOT'S OWN description instead of a claimed image, and
+# keep only the style-CONSISTENCY promise (never switch art style/medium
+# between frames) — a promise that needs no reference image to be true.
+_STYLE_LOCK_NO_REFS = (
+    " STYLE LOCK: render this frame as a photoreal, live-action-style cinematic film still, "
+    "exactly as described above — never 2D illustration, painting, cartoon or anime. Hold this "
+    "EXACT same rendering quality and style across every frame of this film; never switch art "
+    "style or medium between frames."
+    + _STYLE_LOCK_HYGIENE)
+
+
+def _style_block_for(style_prefix: str, refs: list) -> str:
+    """The STYLE LOCK text for one specific frame's draw call (D6-6d). A
+    stated channel style (style_prefix truthy) already leads the prompt and
+    outranks any reference's own style, so the hygiene-only block applies
+    unchanged — this branch is untouched by this fix. Without a stated
+    style, the classic match-the-refs STYLE LOCK applies ONLY when `refs`
+    (the ACTUAL list about to be passed to this shot's _gen() call) holds
+    at least one genuinely attached image (any(refs), not bool(refs) — a
+    caller can hand a list containing a lone None, e.g. cast_url=None
+    normalized to [None], which must count as NOTHING attached); otherwise
+    the no-refs wording fires so the prompt never claims an input that
+    isn't in the call."""
+    if style_prefix:
+        return _STYLE_LOCK_HYGIENE
+    return _STYLE_LOCK if any(refs) else _STYLE_LOCK_NO_REFS
+
 
 # STATED-STYLE MODE (Ryan, 2026-07-21 late: "as long as we draw the quality
 # scene images like the ones we just did" — with the boards deliberately left
@@ -2689,11 +2741,20 @@ def plan_moments_deterministic(directive_text: str, max_moments: int, angles_max
     path only" wall apply_prop_manifest documents) and keep the generic
     fallback subject — this changes an INSERT desc's WORDING only, never
     its shot count or position, so board-panel numbering stays unaffected
-    either way."""
+    either way.
+
+    location_sets (D6-6c) is derived from this SAME directive_text (rule 8's
+    [LOCSET|...] blocks) and threaded into enforce_shot_budget so the
+    deterministic bridge signals fire for BOTH callers of this one pipeline
+    identically — never re-derived per caller, so the sheet preview and the
+    real pictures draw can't silently disagree on which moment is the
+    bridge."""
     moments = parse_coverage(directive_text or "")
     if not moments:
         return None
-    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames)
+    location_sets = parse_location_sets(directive_text or "")
+    moments = enforce_shot_budget(moments, max_moments, angles_max, max_frames=max_frames,
+                                  location_sets=location_sets)
     n_floors = enforce_reaction_insert_floors(
         moments, set_line=parse_set_dressing(directive_text or ""), max_frames=max_frames,
         # C9: the kit line drives REACTION placement (the facing family's CU
@@ -3069,19 +3130,22 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         return "", []
 
     # Stated channel style leads every frame and outranks wrong-style refs;
-    # without one, the classic match-the-refs STYLE LOCK applies unchanged.
+    # without one, the classic match-the-refs STYLE LOCK applies ONLY when
+    # this specific shot's refs list actually has something in it (D6-6d —
+    # _style_block_for computed per-shot, below, from the REAL refs list
+    # handed to that shot's _gen() call, never from `base` alone).
     style_prefix = _stated_style_prefix(profile)
-    style_block = _STYLE_LOCK_HYGIENE if style_prefix else _STYLE_LOCK
 
     m = moment["master"]
     master_url, master_model = None, None
     try:
         s_anchor, s_ref = await _setup_ref(m)
         m_anchor, m_ref = _board(m, board_is_last=not s_ref)
+        master_refs = base + m_ref + s_ref
         master_prompt = (style_prefix
                          + build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
-                         + style_block + m_anchor + s_anchor)
-        master_url, master_model = await _gen(master_prompt, base + m_ref + s_ref)  # master first — angles anchor on it
+                         + _style_block_for(style_prefix, master_refs) + m_anchor + s_anchor)
+        master_url, master_model = await _gen(master_prompt, master_refs)  # master first — angles anchor on it
     finally:
         _resolve_owned(m, master_url)
         if not master_url:
@@ -3114,10 +3178,11 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         try:
             s_anchor, s_ref = await _setup_ref(a)
             a_anchor, a_ref = _board(a, board_is_last=not s_ref)
+            angle_refs = angle_base + a_ref + s_ref
             ap = (style_prefix
                   + build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
-                  + _SAME_SUBJECT + style_block + a_anchor + s_anchor)
-            url, model_used = await _gen(ap, angle_base + a_ref + s_ref)
+                  + _SAME_SUBJECT + _style_block_for(style_prefix, angle_refs) + a_anchor + s_anchor)
+            url, model_used = await _gen(ap, angle_refs)
         finally:
             _resolve_owned(a, url)
         return {"role": "angle", "shot_type": a["shot_type"], "description": a["description"],
@@ -3199,23 +3264,85 @@ async def resolve_cast_url(cast_url, image_client, *, cast_prompt=None, story_bi
 # moment.
 _MAX_EXEMPT_BRIDGES = 2
 
+# D6-6c: a structural, moment-summary-scoped mirror of story_laws.py's S1
+# _TRANSIT_HINTS_RE/_has_transit_language (storyengine/backend/story_laws.py —
+# a DIFFERENT package root than this file, so this is a deliberate,
+# documented duplication rather than a cross-root import, the same reasoning
+# canonical_material_line already uses to mirror coverage_to_app's
+# _canonical_material_line). Deliberately checked against the moment's own
+# ONE-LINE `summary` (the planner's "[MOMENT n | one-line description of
+# what happens]" text) and NEVER against a shot's verbose `description` —
+# a shot's description repeats scene-wide camera-kit boilerplate ("lens on
+# the catwalk side...") on EVERY shot in the scene regardless of which
+# moment it belongs to (L7: establishing shots legitimately frame a hatch/
+# corridor before it's used), so matching against it would false-positive
+# on ordinary establishing shots. The one-line summary is the planner's own
+# short account of what HAPPENS in that moment — the same register as S1's
+# "write the actual beat: the door, the threshold, the exit, the travel,
+# the arrival" — so a real transit beat's summary reliably uses this
+# vocabulary while an unrelated summary ("she whispers to herself") does not.
+_TRANSIT_HINTS_RE = re.compile(
+    r"\b("
+    r"door|doorway|hatch|threshold|corridor|hallway|hall|stairs?|stairwell|"
+    r"elevator|lift|window|gate|entrance|exit|"
+    r"walks?\s+(?:to|into|toward|through|out)|"
+    r"steps?\s+(?:into|through|out|toward|inside|off)|"
+    r"enters?|exits?|arrives?|departs?|"
+    r"heads?\s+(?:to|toward|for|out)|"
+    r"leaves?|climbs?|crosses?\s+(?:into|through)|"
+    r"runs?\s+(?:to|into|toward|down|through)"
+    r")\b",
+    re.IGNORECASE,
+)
 
-def _is_bridge_moment(m) -> bool:
-    """True when this moment carries rule 4b's "(BRIDGE)" tag — the extra
-    transition moment that shows HOW the characters got from one location to
-    the next. Rule 4b puts the tag on the MASTER, but a slip that tags an
-    angle instead still describes a location change, so this reads the same
-    master-plus-angles span scene_has_motion does (via the same _shot_tag
-    reader) — the moment-level detector and the scene-level one can never
-    disagree about which moments are bridges."""
+
+def _is_bridge_moment(m, location_sets: dict | None = None, prev_location: str | None = None) -> bool:
+    """True when this moment IS rule 4b's bridge — the extra transition
+    moment that shows HOW the characters got from one location to the
+    next — whether or not the LLM planner remembered to write the literal
+    "(BRIDGE)" tag on it (D6-6c). The tag alone is a text-generation choice
+    the planner applies inconsistently call to call — found live: the SAME
+    scene's exit beat got the tag on only 1 of 3 real planner calls — so a
+    hard budget cut should never hinge on that coin flip alone. This ORs
+    the tag with two structural signals derived from the parsed plan
+    itself, never from a fresh LLM judgment call:
+
+      1. (unchanged) the MASTER or an ANGLE carries the literal "(BRIDGE)"
+         tag. Rule 4b puts it on the MASTER, but a slip that tags an angle
+         instead still describes a location change, so this reads the same
+         master-plus-angles span scene_has_motion does (via the same
+         _shot_tag reader).
+      2. (new) a location change within the parsed plan: this moment's own
+         declared LOCATION (rule 8's per-moment "LOCATION: <name> |" tag)
+         differs from the previous KEPT moment's location.
+      3. (new) the S1 transit sentence, restated at moment scope: this
+         moment's one-line summary uses transit language (a door/hatch/
+         corridor/threshold, or a verb of arriving/leaving/climbing/
+         crossing — _TRANSIT_HINTS_RE).
+
+    Signals 2 and 3 are BOTH gated on location_sets carrying 2+ LOCSET
+    blocks (rule 8) — the planner's OWN structural assertion that this
+    scene genuinely spans more than one location. Neither fires on an
+    ordinary single-location scene, so a plain conversation whose summary
+    happens to mention a door in passing is untouched. location_sets=None
+    (every call site before D6-6c, and every legacy/single-location plan)
+    disables both new signals entirely, leaving ONLY the original tag
+    check — byte-identical to this function's pre-D6-6c behavior until a
+    caller opts in by passing a real location_sets."""
     for shot in [m.get("master") or {}, *(m.get("angles") or [])]:
         if _shot_tag(shot) == "BRIDGE":
+            return True
+    if location_sets and len(location_sets) >= 2:
+        location = m.get("location")
+        if location and prev_location and location.lower() != prev_location.lower():
+            return True
+        if _TRANSIT_HINTS_RE.search(m.get("summary") or ""):
             return True
     return False
 
 
 def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
-                        max_frames: int = None) -> list:
+                        max_frames: int = None, location_sets: dict | None = None) -> list:
     """HARD shot budget (D1): the directive prompt ASKS for at most max_moments
     and angles_max angles, but the planner is an LLM and overshoots (observed
     live: 17 moments / 35 frames against a 12/0 budget). Enforce in code BEFORE
@@ -3232,6 +3359,16 @@ def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
     was free: found live on a 3-moment "escape" scene whose 4th moment WAS the
     escape, so the scene never showed the character get out. The cap now counts
     narrated moments only, so the two legs of the contract agree.
+
+    Bridge-ness no longer depends ONLY on the LLM planner remembering to write
+    the literal "(BRIDGE)" tag (D6-6c) — see _is_bridge_moment's docstring for
+    the two additional structural signals (a per-moment location change, and
+    S1 transit language in the moment's own summary), both gated on
+    location_sets (rule 8's multi-location LOCSET blocks, from
+    parse_location_sets(directive_text)) so an ordinary single-location scene
+    is completely unaffected. location_sets=None (every call site before
+    D6-6c) disables the new signals entirely and leaves this function
+    byte-identical to its pre-D6-6c self.
 
     A bridge stays exempt only while it still sits BETWEEN two kept moments
     (rule 4b's own definition: inserted "BETWEEN the last narrated moment at
@@ -3256,16 +3393,19 @@ def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
     narrated = 0        # moments that have consumed a cap slot
     bridges_exempt = 0
     prev_kept = True    # a bridge at index 0 has no earlier moment to bridge FROM
+    prev_location = None  # location of the last KEPT moment (D6-6c signal 2)
     for m in moments:
-        if (_is_bridge_moment(m) and prev_kept
+        if (_is_bridge_moment(m, location_sets, prev_location) and prev_kept
                 and bridges_exempt < _MAX_EXEMPT_BRIDGES):
             kept.append(m)
             bridges_exempt += 1
+            prev_location = m.get("location") or prev_location
             continue
         if narrated < max_moments:
             kept.append(m)
             narrated += 1
             prev_kept = True
+            prev_location = m.get("location") or prev_location
         else:
             prev_kept = False
     if len(kept) < len(moments):
