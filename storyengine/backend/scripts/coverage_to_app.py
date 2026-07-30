@@ -924,7 +924,16 @@ async def scene_aware_bible(vid, tenant, scene_rows, claude=None, model=None):
     1-character-per-scene lock (a scene that genuinely has two keeps both). Uses the
     locked video_characters if present, else extracts the cast from the script. This
     ADAPTS machinery that already exists (the formatter + presence filter): it was
-    only ever handed empty scenes_present, so every character leaked into every scene."""
+    only ever handed empty scenes_present, so every character leaked into every scene.
+
+    D10-3a: also attaches `narrative` (and `relationships`, when present) straight off
+    videos.story_bible when this video's bible is StoryEngine-native (D10-2ab,
+    backend/story_bible_native.py) — the coverage/board planner had ZERO per-video
+    tone/genre signal before this (LAW 3, above in this file, wires only a
+    CHANNEL-wide tone hint into the motion writer, a different function entirely). A
+    legacy/absent/unparseable story_bible attaches neither key, so every video's bible
+    from before today is unchanged — see _board_rules_text_with_narrative below for
+    where these two keys actually reach the planner prompt."""
     bible = await load_character_bible(vid, tenant)
     if not bible and claude is not None:
         full = "\n\n".join((s.get("scene_text") or "") for s in scene_rows)
@@ -944,7 +953,17 @@ async def scene_aware_bible(vid, tenant, scene_rows, claude=None, model=None):
     locs = await _scene_locations(vid, tenant)
     if locs:
         bible["locations"] = locs
-    return bible if (bible.get("characters") or bible.get("locations")) else None
+    # D10-3a: a SEPARATE read of the same story_bible column (never routed through
+    # _scene_locations' story-bible fallback above, which only fires when this video
+    # has no approved video_environments rows) — narrative signal must reach the
+    # planner regardless of whether the video has approved environments.
+    narrative, relationships = await _story_bible_narrative_context(vid, tenant)
+    if narrative:
+        bible["narrative"] = narrative
+    if relationships:
+        bible["relationships"] = relationships
+    return bible if (bible.get("characters") or bible.get("locations")
+                     or bible.get("narrative")) else None
 
 
 async def _scene_locations(vid, tenant) -> list:
@@ -984,6 +1003,112 @@ async def _story_bible_locations(vid, tenant) -> list:
             out.append({"id": loc.get("id", "location"), "description": loc.get("description"),
                         "lighting": loc.get("lighting", ""), "type": loc.get("type", "")})
     return out
+
+
+async def _story_bible_narrative_context(vid, tenant) -> tuple[dict, list]:
+    """D10-3a: the video's StoryEngine-native story_bible `narrative` section
+    (D10-2ab, backend/story_bible_native.py — genre/tone/themes/conflict/stakes/
+    time_period/world_rules) plus its `relationships` list (character-pair dynamics),
+    read straight off videos.story_bible. A SEPARATE fetch from _story_bible_locations
+    above (same column) because that one only runs when this video has no approved
+    video_environments rows — this signal must reach scene_aware_bible's caller
+    regardless of environment state.
+
+    Returns ({}, []) when the column is NULL, unparseable JSON, or predates D10-2ab
+    (every video's bible before today) — scene_aware_bible then attaches neither key
+    to the bible dict, so the planner prompt _board_rules_text_with_narrative builds
+    below is BYTE-IDENTICAL to before this feature existed."""
+    row = await fetch_one("SELECT story_bible FROM videos WHERE id=$1 AND tenant_id=$2", vid, tenant)
+    sb = (row or {}).get("story_bible")
+    if isinstance(sb, str):
+        try:
+            sb = json.loads(sb)
+        except Exception:  # noqa: BLE001
+            return {}, []
+    if not isinstance(sb, dict):
+        return {}, []
+    narrative = sb.get("narrative")
+    narrative = narrative if isinstance(narrative, dict) else {}
+    relationships = sb.get("relationships")
+    relationships = relationships if isinstance(relationships, list) else []
+    return narrative, relationships
+
+
+def _narrative_context_block(bible: Optional[dict]) -> str:
+    """D10-3a: render the bible's `narrative` (and `relationships`) section — attached
+    by scene_aware_bible above, straight off videos.story_bible — as one clearly
+    delimited <narrative> block for the coverage/board planner prompt.
+
+    "" when `bible` is absent or carries no non-empty `narrative` dict (every video's
+    bible today, and any bible whose story_bible predates D10-2ab or has an empty
+    {} narrative section) — the caller (_board_rules_text_with_narrative) then
+    composes an empty addition, so the assembled planner prompt is BYTE-IDENTICAL to
+    before this feature existed.
+
+    Narrative fields are whole-video facts (genre/tone/themes/...), not per-scene —
+    unlike visual_arc/scene_blocks (_format_story_bible_for_beat, storyboard/bot.py),
+    this block is never filtered by beat_scenes; the same block applies to every
+    scene of the video. relationships lines are appended ONLY when the narrative
+    block itself is non-empty (relationships alone, with no narrative facts, is not
+    a shape the D10-2ab generator produces — it always writes both sections
+    together)."""
+    narrative = (bible or {}).get("narrative")
+    if not isinstance(narrative, dict):
+        narrative = {}
+    lines = []
+    if narrative.get("genre"):
+        lines.append(f"Genre: {narrative['genre']}")
+    if narrative.get("tone"):
+        lines.append(f"Tone: {narrative['tone']}")
+    themes = [str(t) for t in (narrative.get("themes") or []) if t]
+    if themes:
+        lines.append(f"Themes: {', '.join(themes)}")
+    if narrative.get("conflict"):
+        lines.append(f"Conflict: {narrative['conflict']}")
+    if narrative.get("stakes"):
+        lines.append(f"Stakes: {narrative['stakes']}")
+    if narrative.get("time_period"):
+        lines.append(f"Time period: {narrative['time_period']}")
+    world_rules = [str(w) for w in (narrative.get("world_rules") or []) if w]
+    if world_rules:
+        lines.append(f"World rules: {'; '.join(world_rules)}")
+    if not lines:
+        return ""
+    block = "<narrative>\n" + "\n".join(lines) + "\n</narrative>"
+    rel_lines = []
+    for r in ((bible or {}).get("relationships") or []):
+        if not isinstance(r, dict):
+            continue
+        chars = r.get("characters") or []
+        dynamic = (r.get("dynamic") or "").strip()
+        if len(chars) == 2 and dynamic:
+            rel_lines.append(f"{chars[0]} & {chars[1]}: {dynamic}")
+    if rel_lines:
+        block += "\n<relationships>\n" + "\n".join(rel_lines) + "\n</relationships>"
+    return block
+
+
+def _board_rules_text_with_narrative(board_rules_text: str, bible: Optional[dict]) -> str:
+    """D10-3a: the final board_rules_text passed to generate_coverage_directive at
+    both of its coverage_to_app.py call sites (generate_storyboard_sheet_for_scene
+    and generate_coverage_for_video's directive-planning fallback, below) — the
+    narrative block (if any) FIRST, since scene-setting story context belongs before
+    the procedural quality-rule list that follows it, then whatever board-scoped
+    quality_rules text this call already composed.
+
+    generate_coverage_directive's own docstring calls board_rules_text "pre-composed
+    ... text ... this module stays DB-free and takes the already-fetched text as
+    plain data, same pattern as `profile`/`story_bible`" — this is that same
+    caller-composed free-text hook, the only one that reaches the planner's system
+    prompt (storyboard/coverage.py::_coverage_system_prompt) without editing
+    storyboard/coverage.py itself (out of scope for this chunk).
+
+    "" + "" => "" — when neither a narrative block nor board-scoped quality rules
+    exist (every video's bible today), the composed text is empty and
+    generate_coverage_directive's <board_quality_rules> block is omitted entirely,
+    exactly as it is today."""
+    parts = [p for p in (_narrative_context_block(bible), (board_rules_text or "").strip()) if p]
+    return "\n\n".join(parts)
 
 
 def compose_grid(paths, cols=4):
@@ -2599,7 +2724,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 s["scene_text"] or "", title, profile, bible, [sc], [],
                 max_moments=_mm, angles_min=_amin, angles_max=_amax,
                 anthropic_client=claude, model=claude_model,
-                board_rules_text=board_rules_text)
+                # D10-3a: narrative block first (if this video's bible carries one),
+                # then this call's own board-scoped quality rules — see
+                # _board_rules_text_with_narrative's docstring for why this is the
+                # one hook available without editing storyboard/coverage.py.
+                board_rules_text=_board_rules_text_with_narrative(board_rules_text, bible))
         # C7 fix (a): parse -> budget -> floors -> variety, the SAME deterministic
         # pipeline (and order) run_coverage() runs on this exact directive_text at
         # picture-draw time — the sheet preview built below from `moments` and the
@@ -4487,6 +4616,23 @@ async def generate_coverage_for_video(
                 _p(f"Scene {sc}: script changed since the storyboard — re-planning…")
         if directive is None:
             _p(f"Scene {sc}: planning + drawing coverage ({model_override or 'GPT Image 2'})…")
+            # D10-3a: this scene has no saved plan to reuse (the sheet-preview step
+            # was skipped for it), so run_coverage below would plan its OWN directive
+            # internally — but run_coverage has no board_rules_text parameter at all,
+            # so a narrative block passed only via `bible` would never reach that
+            # internal call. When this video's bible carries narrative signal, plan
+            # HERE instead, through the same generate_coverage_directive call site 1
+            # (generate_storyboard_sheet_for_scene) already uses, so the two call
+            # sites stay consistent. Absent narrative: _narrative_board_text is "",
+            # directive stays None, and run_coverage plans exactly as it does today
+            # — byte-identical.
+            _narrative_board_text = _board_rules_text_with_narrative("", bible)
+            if _narrative_board_text:
+                directive = await generate_coverage_directive(
+                    s["scene_text"] or "", title, profile, bible, [sc], [],
+                    max_moments=_mm, angles_min=_amin, angles_max=_amax,
+                    anthropic_client=claude, model=claude_model,
+                    board_rules_text=_narrative_board_text)
         env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
         if env:
             _p(f"Scene {sc}: locked to {env['name']}")

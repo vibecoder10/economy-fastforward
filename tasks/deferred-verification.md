@@ -616,3 +616,99 @@ parser unit test — that's what step 4 above is for); real `assets.transition_k
 whether the D12-2 render-layer consumption of `transition_kind` (explicitly out of scope for this
 chunk — data + warn checks only) will want the stored value in a different shape than "as
 authored, lowercased" once that chunk is built.
+
+---
+
+## D10-3a: coverage/board planner learns per-video narrative signal (branch `d10-3a-planner-narrative`) — eyeball a real native-bible board plan on next deploy window
+
+**What changed:** `scripts/coverage_to_app.py`'s `scene_aware_bible()` now attaches `narrative`
+(and `relationships`, if present) straight off `videos.story_bible` — a NEW, unconditional read
+(`_story_bible_narrative_context`), separate from `_scene_locations`' story-bible fallback which
+only fires when a video has no approved `video_environments` rows. The final `bible if (...) else
+None` gate was widened to include `narrative`, so a video whose ONLY signal is narrative (no
+locked characters, no environments) no longer collapses to `None`. A new pure formatter,
+`_narrative_context_block`, renders that into a delimited `<narrative>...</narrative>` block
+(genre/tone/themes/conflict/stakes/time_period/world_rules, plus one `<relationships>` line per
+character pair when present); `_board_rules_text_with_narrative` composes it ahead of whatever
+board-scoped `quality_rules` text a call already has. Both `scene_aware_bible()` call sites
+(`generate_storyboard_sheet_for_scene` and `generate_coverage_for_video`) route their
+`board_rules_text` argument to `generate_coverage_directive` through this helper — the ONE
+free-text hook that reaches `storyboard/coverage.py`'s planner system prompt without editing that
+file (out of scope for this chunk; BOARD LAWS coverage.py stays untouched). Call site 2 needed one
+extra branch: when a scene has no saved plan (`directive is None`), `run_coverage`'s OWN internal
+`generate_coverage_directive` call has no `board_rules_text` parameter at all, so for a
+narrative-bearing bible the directive is now precomputed directly (same call shape as site 1)
+before falling into `run_coverage`; for every bible without narrative, that branch never fires and
+`directive_text` stays `None` exactly as before this chunk.
+
+**What IS verified (code-level + a full local test suite pass, no real LLM call, $0):**
+`storyengine/backend/tests/functional/test_d10_3a_planner_narrative.py` (37 tests) covers:
+`_narrative_context_block` (empty/None/absent-key/empty-dict bible all render "", full narrative
+renders every field, partial narrative omits absent fields, relationships render one line each and
+are dropped when malformed or when narrative itself is empty); `_board_rules_text_with_narrative`
+(narrative-first-then-rules composition, "" + "" => ""); `_story_bible_narrative_context` (NULL
+column, missing row, legacy pre-D10-2ab dict, unparseable JSON string, non-object JSON, dict vs.
+JSON-string column shapes, wrong-typed narrative/relationships); `scene_aware_bible()` end to end
+(legacy video carries no `narrative`/`relationships` keys at all, a native video attaches both, a
+narrative-only video — no characters, no environments — no longer returns `None`, a truly empty
+video still returns `None`, an unparseable `story_bible` JSON string degrades to legacy behavior
+without crashing). **THE key byte-identical proof** renders `storyboard.coverage`'s REAL
+`_coverage_system_prompt`/`_coverage_user_prompt` (no mocks, no LLM call — both are pure string
+builders, imported directly, `storyboard/coverage.py` itself untouched) against a legacy bible
+fixture with and without this chunk's wrapper and asserts the two prompts are byte-identical,
+across four bible/board-rules-text combinations (both absent, board-rules-only, legacy
+characters+locations, and a bible carrying an explicit-but-empty `narrative: {}` section — the
+degenerate-generation case). A companion test proves the `<narrative>` block, when present, sits
+between `</channel_style>` and `<rules>` in that SAME real system prompt (the exact slot
+`board_rules_block` already occupies today) and that narrative sorts ahead of quality-rule text
+when both exist. Wiring proofs at both real call sites (`generate_coverage_for_video`,
+`generate_storyboard_sheet_for_scene`, DB/Claude/ImageClient all mocked, the site-1 test exploits
+`plan_moments_deterministic("")` returning `None` so the mocked empty directive short-circuits
+before any image-drawing code runs — a genuinely $0 test) confirm: a native bible makes
+`generate_coverage_directive` get called with `<narrative>`/`Genre: heist thriller` inside
+`board_rules_text`; a legacy bible at call site 2 never calls `generate_coverage_directive` at all
+(directive stays `None`, `run_coverage` plans internally exactly as it did before this chunk —
+control-flow-level byte-identical, not just prompt-text-level); a legacy bible at call site 1
+passes `board_rules_text=""` through unchanged. Real stash-proof (patch-file technique, never `git
+stash`, per `tasks/lessons.md`'s fleet rule): `git diff` of `coverage_to_app.py` saved to a patch,
+`git apply -R` reverted the tree to byte-identical pre-chunk state (`git status --porcelain` empty
+except the new test file), and separately the new test file fails at COLLECTION
+(`ImportError: cannot import name '_story_bible_narrative_context'`) on the reverted tree — the
+loudest possible "before" signal. Full backend suite (`./venv/bin/python -m pytest tests/ -q`,
+main checkout's venv binary against worktree code) run on both trees with the new test file
+excluded for a fair comparison: 29 failed / 3930 passed (both reverted and applied), sorted
+FAILED-test-name sets byte-identical (diffed, empty output) — the same pre-existing 29 failures
+(`test_custom_film_remotion.py`, `test_youtube_oauth_diagnostics.py`) as every other recent
+D-series chunk. With the new test file included, applied: 29 failed / 3967 passed / 4 skipped.
+
+**What is NOT verified — deploy-window check owed:**
+
+### 1. A real board plan on a native-bible video, eyeballed via the $0(ish) dry-run path
+
+No video in prod has a StoryEngine-native `story_bible` yet — D10-2ab (the generator that writes
+`narrative`/`relationships`) landed the same day as this chunk and its own deferred-verification
+entry above still owes a real generation. This chunk's `<narrative>` block has therefore never
+been seen inside a REAL Claude-planner prompt, only in synthetic fixtures. Once D10-2ab's real
+generation has run on a test video (owed by that chunk's own deploy-window check) and
+`videos.story_bible` carries a non-empty `narrative` section, plan that video's board with
+`plan_only=True` (`generate_storyboard_sheet_for_scene(..., plan_only=True)` — the D3-59 dry-run
+path: plans and returns the shot list, persists nothing, draws no images) and confirm:
+- The `<narrative>` block actually appears in the assembled system prompt sent to Claude (add a
+  temporary print of `board_rules_text`, or inspect via a debugger/log — this repo has no existing
+  "show me the raw prompt" endpoint for this call).
+- The plan Claude returns actually reads as tonally/genre-consistent with the injected block (e.g.
+  a "heist thriller, tense" narrative should visibly influence shot framing/pacing choices, not
+  just sit inertly in the prompt) — a real qualitative read, not something a parser test can prove.
+- `relationships` lines (when the bible has 2+ characters) don't crowd out or contradict the
+  existing `VISUAL BIBLE` character block already in the same user prompt.
+
+**Recipe:** after D10-2ab's real generation check has run and produced a native bible, `se db
+"SELECT story_bible->'narrative' FROM videos WHERE id = '<video_id>'"` to confirm the column is
+populated, then call the storyboard-planning entry point (`POST
+/api/pipeline/{video_id}/scenes/{scene}/storyboard` or the equivalent chat/action verb) with
+`plan_only=True` for one scene. **Cost: one Claude Sonnet call, ~$0.01-0.05** (per
+`docs/cost-awareness.md`'s "Claude API (Sonnet)" line — `plan_only=True` draws zero images, so
+this is the LLM-call-only cost, not the ~$0.05/board sheet-preview cost) — quote this and get a
+yes before running it live.
+
+---
