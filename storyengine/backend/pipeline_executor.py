@@ -1126,15 +1126,31 @@ def _source_tier_for_url(url: str, title: str = "") -> dict[str, Any]:
         "prattwhitney.com", "geaerospace.com", "defense.gov", "af.mil",
         "army.mil", "navy.mil", "marines.mil", "usafa.edu", "nasa.gov",
         "archives.gov", "congress.gov",
+        # Non-US official/military (2026-07-30): the endswith(".gov")/".mil"
+        # rule silently missed every Commonwealth institution — awm.gov.au
+        # ends ".gov.au", royalnavy.mod.uk ends ".mod.uk" — so a Royal Navy
+        # documentary's most authoritative sources were graded Tier 3
+        # reference. mod.uk covers the whole UK Ministry of Defence estate;
+        # navy.lk is the Sri Lanka Navy (HMS Hermes' wreck custodian).
+        "mod.uk", "navy.lk",
     )
-    if host_l.endswith(".gov") or host_l.endswith(".mil") or any(
-        host_l == item or host_l.endswith(f".{item}") for item in primary_hosts
+    # ".gov."/".govt."/".mil." as an inner TLD component catches gov.uk /
+    # gov.au / govt.nz / mil.nz etc. without whitelisting every country.
+    if (
+        host_l.endswith(".gov") or host_l.endswith(".mil")
+        or ".gov." in f"{host_l}." or ".govt." in f"{host_l}." or ".mil." in f"{host_l}."
+        or any(host_l == item or host_l.endswith(f".{item}") for item in primary_hosts)
     ):
         return {"tier": 1, "label": "Tier 1 primary/official"}
     authoritative_hosts = (
         "si.edu", "airandspace.si.edu", "nationalww2museum.org", "iwm.org.uk",
         "imperialwarmuseums.org.uk", "rafmuseum.org.uk", "aerospace.org",
         "historynet.com", "aviation-history.com",
+        # Naval museums (2026-07-30, same domain-bias fix as primary_hosts):
+        # Royal Museums Greenwich and the National Museum of the Royal Navy
+        # carry no "museum" substring in their hostnames, so the fallback
+        # heuristic below never caught them.
+        "rmg.co.uk", "nmrn.org.uk",
     )
     if any(host_l == item or host_l.endswith(f".{item}") for item in authoritative_hosts):
         return {"tier": 2, "label": "Tier 2 museum/authoritative secondary"}
