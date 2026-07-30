@@ -34,6 +34,7 @@ they extend rather than replace.
 - **People are specified, not assumed** — L6, L12, L17, L22
 - **Action is legal** — L4
 - **Panel discipline** — L2, L21
+- **Scene boundaries: the cut between sheets** — L23, L24, L25, L26
 - **Laws that belong to the script** — S1-S5, in `STORY-LAWS.md`
 
 ---
@@ -215,6 +216,59 @@ four, because the seating order had only ever been given from the front-on side.
 
 **L2 — ONE ACTION PER PANEL.** One action. Never mirror or flip a panel. No readable
 text in panel artwork except the panel-number label.
+
+---
+
+## Scene boundaries — the cut between two sheets
+
+**L23 — TRANSITIONS ARE PLANNED ABOVE THE SCENE.** A boundary between two scenes
+cannot be authored inside either of them. A scene-scoped planner sees one scene and
+therefore cannot make a cut. Before boarding, a film-level pass walks every
+boundary and records four things: the relationship type, the OUT shot that ends the
+earlier scene, the IN shot that opens the later one, and what carries across
+(subject, shape, direction, light, or a frame-within-the-frame). Each scene's board
+prompt then receives two blocks it did not choose for itself:
+
+    INCOMING — the previous scene ended on: <exact description of that final panel>.
+    Your FIRST panel relates to it by <relationship>, specifically: <instruction>.
+
+    OUTGOING — your FINAL panel must be: <exact description>, because the next
+    scene opens by <relationship>.
+
+Without those blocks each sheet begins and ends wherever it likes, and the film
+stutters at every seam even when every scene is internally perfect.
+
+**L24 — THE LEGAL BOUNDARY RELATIONSHIPS.** A cut between scenes is one of these,
+chosen deliberately, never left to chance. Each has a requirement:
+- **MATCH** — the two shots share a shape, composition or subject, so meaning
+  transfers across the cut. Requirement: state the shared element and hold the
+  framing close enough that a viewer sees it as the same shape.
+- **NESTED HANDOFF** — the image ending one scene becomes an image inside a screen,
+  mirror or window opening the next. Requirement: the nested version must repeat the
+  original framing exactly (see L11), then the next panel reveals its new context.
+- **CONTINUATION** — the same subject continues one action across the cut, usually
+  through a location change. Requirement: the action and its screen direction
+  continue unbroken (see L25).
+- **SIGHTLINE BRIDGE** — one scene ends on someone looking; the next opens on what
+  they are looking at, or moves the camera to where they were looking from.
+  Requirement: the look must be readable in the OUT shot.
+- **CONTRAST** — the cut works by opposition: intimate to vast, dark to bright,
+  empty to crowded, still to moving. Requirement: name the axis of opposition and
+  make it large; a small contrast reads as an accident.
+- **ELLIPSIS** — same place, later. Requirement: something visible must have changed
+  to mark elapsed time — light, a prop's state, an absence.
+
+**L25 — DIRECTION AND EYELINE CARRY ACROSS THE CUT.** Screen direction does not
+reset at a scene boundary. A subject exiting frame-right enters the next scene from
+frame-left to continue travelling the same way; an eyeline pointing frame-right is
+answered by a subject at frame-right. A direction that reverses without an on-screen
+turn reads as the character changing their mind. If a reversal is intended, the
+turn itself must be a panel — usually the OUT shot.
+
+**L26 — NO ACCIDENTAL NEAR-REPEAT AT A BOUNDARY.** Two shots that are similar but
+not identical across a cut read as a stutter. At a boundary, either match
+deliberately and exactly, or change decisively — shot size, angle, or location. The
+one thing a seam cannot survive is *almost* the same picture.
 
 ---
 
