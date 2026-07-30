@@ -74,10 +74,24 @@ def test_parses_no_bracket_and_multiword_shot_types():
     assert [a["shot_type"] for a in moments[0]["angles"]] == ["MCU", "INSERT ECU"]
 
 
-def test_drops_moment_with_no_angles():
-    # A lone master with no angles is not coverage — it must be dropped.
+def test_keeps_moment_with_no_angles():
+    # A lone master with no angles is KEPT, angles simply empty.
+    #
+    # This test used to assert the opposite (parse_coverage(...) == [], "a
+    # lone master is not coverage — it must be dropped") and had been failing
+    # for a long time: still red at D3-53c, D3-62/63 and the D6 close-out,
+    # i.e. it predates the D6-6a/D6-6b work entirely. The test was the stale
+    # side, not the code. Dropping a master silently deletes a story beat,
+    # and the master is also the lip-sync unit a spoken line lands on
+    # (enforce_shot_budget's own rule: "masters are never sacrificed for an
+    # angle" — it strips ANGLES to meet a frame ceiling and never masters).
+    # A plan that legitimately gives one beat a single shot must survive.
+    # Flipped 2026-07-30 to pin the behavior the pipeline actually relies on.
     only_master = "[MOMENT 1 | x]\n- MASTER [WS]: just a master, no angles here.\n"
-    assert parse_coverage(only_master) == []
+    moments = parse_coverage(only_master)
+    assert len(moments) == 1
+    assert moments[0]["master"]["shot_type"] == "WS"
+    assert moments[0]["angles"] == []
 
 
 class _Profile:
