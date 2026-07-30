@@ -62,8 +62,19 @@ _COVERAGE_CONCURRENCY = int(os.getenv("COVERAGE_CONCURRENCY", "5"))
 # Directive — per moment, a master + matched angles of the same instant
 # =============================================================================
 
-def _coverage_system_prompt(profile, max_moments: int, angles_min: int, angles_max: int) -> str:
+def _coverage_system_prompt(profile, max_moments: int, angles_min: int, angles_max: int,
+                            board_rules_text: str = "") -> str:
     cg = profile.color_grade
+    # quality_rules board/image scope (BOARD-LAWS.md "Runtime-editable rules"):
+    # a tenant's own active board-scoped quality_rules rows, pre-composed by
+    # the caller (quality_rules.compose_rules_text over quality_rules.
+    # active_board_rules — a DB read that belongs in the backend layer, not
+    # here). "" (every caller today, and any tenant with no board-scoped
+    # rules configured) omits the block — byte-identical to before this
+    # feature existed.
+    board_rules_block = (
+        f"\n<board_quality_rules>\n{board_rules_text.strip()}\n</board_quality_rules>\n"
+        if (board_rules_text or "").strip() else "")
     # SETUP-KIT SCALING (C2 item 1): rule 5e used to hard-code "3-5 setups"
     # regardless of scene length, so a 40-shot dialogue scene got the same
     # tiny kit as a 6-shot one and read as 2 setups ping-ponging for pages.
@@ -97,7 +108,7 @@ Visual style: {profile.visual_style_directive}
 Color grade: {cg.primary_palette}; {cg.contrast}; {cg.time_of_day_default}
 Lens: {profile.lens_profile.focal_range}
 </channel_style>
-
+{board_rules_block}
 <rules>
 1) NO INVENTED PEOPLE — only characters named in the VISUAL BIBLE may appear. Never add a guest, \
 extra, sibling, neighbour or crowd member, and never invent a name. If a moment names no one, \
@@ -246,6 +257,149 @@ whisks, spatulas or wooden utensils only, and no shot depicts cutting, chopping 
 NEVER stage violence, threat, injury, or an aggressive gesture (no fist raised at someone, no \
 grabbing, no cornering). If the narration implies any of these, show the moment BEFORE or \
 AFTER it, or an emotional reaction to it — never the act or the object itself.
+8) MULTIPLE LOCATIONS — SCOPE EACH SET, FORBID CROSS-CONTAMINATION (BOARD-LAWS.md L3). Most \
+scenes hold one location, and the single [SET | ...] line covers them — skip this rule entirely. \
+But when THIS scene's narration moves the story between two or more distinct locations (rule \
+4b's BRIDGE moments), the single-location contract is not enough and is a PROVEN failure: a lock \
+that reads "identical in every shot of THIS SCENE" gets applied to every panel regardless of \
+location, so a corridor shot renders with bedroom furniture. Instead, for a multi-location scene: \
+do NOT write a plain [SET | ...] line; write ONE [LOCSET | <Location Name> | <text>] line PER \
+LOCATION instead — same content contract as [SET | ...] (fixed dressing, key surfaces, what a \
+character touches or uses), scoped to that ONE location and applying ONLY to panels tagged with \
+it. Tag EVERY [MOMENT n | ...] header with which location it's in, "LOCATION: <name> |" FIRST \
+inside the bracket, before the one-line description — e.g. "[MOMENT 5 | LOCATION: Corridor | \
+Nyla runs down the tunnel]". State explicitly, in each [LOCSET | ...] line, that its props never \
+appear in a different location's panels — e.g. "These props appear ONLY in Pod panels; never in \
+a Corridor panel." Cross-contamination must be forbidden explicitly, never left to implication. \
+Anything a character touches, uses, or passes through (a door, a hatch, a switch) belongs to \
+exactly ONE location's [LOCSET | ...] line, authored as a PERMANENT feature and made VISIBLE in \
+that location's own establishing wide before any panel uses it (L7) — never introduced only in \
+the panel that needs it. State its scale relative to the character and how it meets the surface \
+the character arrives on (L8), and repeat both facts in every establishing wide of that location.
+9) THE SET'S MATERIAL MAP, ONCE (L20). When the scene's primary set is PART TRANSPARENT and PART \
+SOLID (glass panes plus a solid shell, a window wall plus interior walls, and the like), state \
+which surfaces are solid and which are transparent, and where the boundary between them runs — \
+ONCE, on a [MATERIAL | ...] line, never re-invented per moment. Ambiguity here is what let one \
+version of a scene draw the set fully opaque and the correction draw it fully transparent, both \
+wrong. If a later moment needs a property the set lacks (contrast, a mounting point, a surface \
+for something to be flush-mounted in), find it inside the already-stated material map — never \
+silently redefine the set to get it. Omit the [MATERIAL | ...] line for a uniformly one-material set.
+10) MOTION IS LEGAL — THE PLANTED-ACTOR CONVENTION IS SCOPED TO ONE LOCATION, NOT THE SCENE (L4). \
+Rule 5e's "actors are planted and never move" applies WITHIN one camera setup's staging (a \
+conversation, one location) — it is NOT a rule that characters must stay in one place for the \
+WHOLE scene. When a moment involves a character moving, crossing, exiting, or changing location \
+(a BRIDGE moment, rule 4b), that moment's setup must be MOTION-CAPABLE: describe a move directly \
+— "exits frame-right and camera holds", "runs toward the lens", "travels alongside her down the \
+corridor", "camera pans to hold her as she crosses" — never freeze a moving beat into the same \
+static planted-body language a seated conversation uses. A scene that is entirely action (a \
+chase, an escape, a crossing) may have every setup be motion-capable; a scene that is entirely a \
+planted conversation keeps rule 5e's convention throughout; most scenes mix both and must say so \
+per setup.
+11) FOUR CAMERA FACTS, EVERY PANEL, ALL SCREEN-RELATIVE (L5). Beyond the setup letter, every \
+MASTER and ANGLE line must make FOUR facts unambiguous, stated or directly inferable from the \
+sentence: (a) which side of any barrier (glass, a doorway, a screen) the lens is on, when the \
+scene has one; (b) the camera's height (bed height, eye height, low tilted up, standing height); \
+(c) what fraction of the frame the subject occupies (a tenth of the frame, fills the middle \
+third, fills the lower two-thirds); (d) FACE VISIBILITY AS AN EXPLICIT TERM — one of: to-lens, \
+three-quarter, profile, or from-behind. A close shot whose whole purpose is an expression must \
+use "to-lens" or "three-quarter", never leave visibility to be inferred from body direction alone \
+(rule 5g's face-readability requirement is fact (d)'s minimum bar on an expression beat, not a \
+separate rule).
+12) A REPEATED SETUP NAMES WHAT IT PROGRESSES FROM (L9). When a setup letter repeats (the SAME \
+camera returns to cover a later beat of the same staging), its description must name the SAME \
+frame side, or the SAME surface, that the earlier panel with that letter established — "THAT SAME \
+frame-RIGHT pane she touched in panel 3", "still on the frame-LEFT side of the bed". An \
+unqualified repeat ("pressed to the glass" with no side named) reads as the subject teleporting to \
+a different spot on the set, not as continuous coverage.
+13) A MOVING BODY IS TIED TO A VISIBLE LINE (L10). Any panel where the subject travels (runs, \
+walks, drives) must tie their direction of travel to a visible line INSIDE THAT SAME PANEL — name \
+a vanishing point or a converging structural line (a corridor's walls, a road's edges, a \
+hallway's ceiling line) and state that the subject travels ALONG it, past a named shoulder or \
+side. A drive direction and a vanishing point stated as two separate, unlinked facts render as \
+unrelated — the body's turn floats free of the space it's supposedly moving through.
+14) A SCREEN, MONITOR, WINDOW OR MIRROR IS A SECOND FRAME (L11). When the set includes one \
+(declared as a permanent feature on the [SET|]/[LOCSET|] line), specify its CONTENT in every \
+single panel where it's visible — what's actually showing, not just that it's on. Repeat the same \
+content description (or a stated escalation — wider one instant, the same feed later) so the \
+audience never watches the nested image drift between panels that show it.
+15) BACKGROUND PEOPLE ARE PART OF THE SET (L12). If a panel shows a crowd, sleepers, extras, or \
+any group behind the hero, state their appearance (at minimum: clothing tone, posture, state — \
+asleep, still, generic) so the hero's contrast is AUTHORED, not left to luck. State population in \
+DEPTH too when the container repeats in depth (stacked pods, rows, cells): only the FRONT layer \
+reads clearly; anything behind that front layer falls into shadow, unreadable — and never let two \
+figures render inside a single container meant for one.
+16) A SHIFT OF ATTENTION NAMES WHAT'S FIXED AND WHAT MOVES (L15). When a character's attention \
+turns toward another character or object without a full re-stage, state explicitly what stays \
+FIXED (chair, hips, feet, the direction the wide already established) and what MOVES (head, \
+shoulders, gaze) — plus the prohibition: "chairs and knees unchanged, only the head and shoulders \
+turn." An unanchored phrase like "turns three-quarter toward him" reads as a full re-staging, not \
+a glance, and can rotate an entire room that was never meant to move.
+17) A REVERSE ANGLE CHANGES WHAT'S BEHIND THE SUBJECT (L16). On the [SETUPS | ...] line, state \
+what sits BEHIND the subject for each named camera position — never carry one setup's background \
+into its reverse. If a setup places the camera BETWEEN the subject and a light source or screen, \
+that source is BEHIND CAMERA in that setup: it shows only as light falling on the face, never as \
+an object visible behind them. Naming a screen as simultaneously in front of camera (lighting the \
+subject) and behind the subject (visible in frame) is a geometric impossibility — pick one per \
+setup, never both.
+18) LOCK THE HEADCOUNT, AND STATE THE ARRANGEMENT FROM EACH CAMERA (L17, L22). Any panel showing \
+a group states the count AS A NUMBER — "exactly five elites, never four and never six" — never \
+left to be implied by a list of names. A number alone is not enough: fold WHO sits or stands \
+WHERE, as seen from THIS camera position specifically, into the same flowing sentence — for \
+example "five elites fill the row, Priya nearest camera at the frame-left end, then Marcus, then \
+the three others receding toward frame-right" — and remember a reverse angle reads that order \
+BACKWARDS, so restate the order for the reverse rather than assuming it carries over. Write this \
+as ordinary descriptive prose (see rule 23) — NEVER as a labelled heading like "ARRANGEMENT: ..." \
+inside the panel's own sentence. A count stated once from the front and never restated for the \
+opposing angle is exactly how a figure quietly drops from a reverse wide.
+19) A DISCOVERY OBJECT IS PLANTED WITHOUT BEING ANNOUNCED (L18). When a beat is built around a \
+character finding or noticing something already present in the set (a hidden detail, a planted \
+object), that object must be genuinely visible in the panels BEFORE it's noticed — but NOT \
+emphasised: no extra light, no glow, no centred composition, no enlarging, no indicator marking it \
+out, in any panel before the notice beat. It stays the exact same size and position from the \
+panel where it's introduced through the panel where it's finally noticed — the SHOT SIZE changes \
+as the coverage moves in, the OBJECT never does.
+20) A DIEGETIC CAMERA POV IS ITS OWN SETUP, MARKED NEUTRAL (L19). When a character looks into a \
+lens, mirror, screen, or camera that exists INSIDE the story, give it its own SETUP entry that \
+occupies that object's exact position (e.g. mounted in the ceiling, behind the mirror's glass) and \
+mark it NEUTRAL on the [SETUPS|] line — it legally breaks the axis. In that setup's panels, the \
+character's eyes go DIRECTLY into camera with NO three-quarter softening — no flinch, no \
+glance-away. Apply L16: the object's own housing (the lens's own casing, the mirror's frame) is \
+never visible from inside itself. Give the shot the device's own optical signature (a faint barrel \
+distortion for a security lens, a mirror's flat plane) so it reads as that device's view, not a \
+stylistic flourish.
+21) A STILL PANEL CANNOT SHOW DURATION (L21). If a beat's content is "time passes and nothing \
+changes," NO panel can carry it — never write two panels with the same setup and the same staging \
+as an intentional identical repeat to suggest a stretch of time. The hold belongs to the \
+MOTION/EDIT layer (a longer clip on one still), not to the board. Where the narration calls for a \
+stillness-holding beat, spend the panel on an ESCALATION instead: the SAME subject, but CLOSER or \
+WIDER than the panel before it, so the sheet gains new information rather than repeating the same one.
+22) SCENE BOUNDARIES ARE ASSIGNED, NOT CHOSEN, WHEN GIVEN (L23-L26). If this prompt includes \
+INCOMING and/or OUTGOING blocks below the narration, your FIRST panel (when INCOMING is present) \
+and/or LAST panel (when OUTGOING is present) of the WHOLE scene are NOT free choices — a \
+film-level boundary pass assigned them, because a cut is a relationship between two scenes that no \
+single scene's planner can see on its own. When INCOMING is present, your scene's very first \
+MASTER must satisfy the stated relationship to the previous scene's ending panel (matching shape/ \
+subject for MATCH, continuing the action and screen direction for CONTINUATION, opening on what \
+was looked at for a SIGHTLINE BRIDGE, and so on per L24's six relationships) — follow its \
+"specifically: ..." instruction exactly. When OUTGOING is present, plan your scene's content so \
+its FINAL panel can BE the stated description — build toward it, don't fight it. Never let your \
+scene's first or last panel drift from an assigned INCOMING/OUTGOING block; the scene plans only \
+its MIDDLE. Absent either block (most scenes, until a film-level boundary pass exists — see the \
+STATUS note at the end of BOARD-LAWS.md), plan the first and last panels exactly as before this \
+rule existed.
+23) INSTRUCTIONS ARE NOT CAPTIONS — EVERY PANEL BRIEF IS ORDINARY PROSE (L27). Text written to \
+INSTRUCT the drawer can be RENDERED by it, as text. NEVER phrase a MASTER or ANGLE line's \
+description as a labelled directive — no all-caps heading, no "WORD WORD WORD: ..." colon-led \
+block, no bracketed note — anywhere inside the sentence itself. A small caption strip is drawn \
+under every panel from its number and shot type ONLY; any labelled block written into a panel's \
+own description gets absorbed into that strip and BAKED ONTO THE ARTWORK verbatim — proven live: \
+an arrangement fact written as "ARRANGEMENT AS SEEN FROM THIS CAMERA (REVERSED): ..." printed \
+itself onto the panel exactly as typed. State every fact this rule set asks for (camera facts, \
+arrangement, fixed-vs-moves, material, headcount) as ONE flowing descriptive sentence about what \
+is physically in the frame — never as a heading, a directive, or a note bolted onto the front of \
+the sentence. The only bracketed/parenthetical tags a panel description may carry are the \
+existing structural ones this scene's format already defines — "(SETUP X)", "(REACTION)", \
+"(INSERT)", "(BRIDGE)" — never a new one invented to hold a fact that belongs in prose.
 </rules>
 
 <output_format>
@@ -257,6 +411,17 @@ it) PLUS where each character stands and which way they face, e.g. "wooden islan
 of eggs, loose potatoes and onions on a cutting board; counters clear; no books, papers or \
 laptop. Ryan stands at the LEFT end of the island facing Vanessa; Vanessa at the RIGHT end \
 facing Ryan"]
+
+MULTI-LOCATION SCENES ONLY (rule 8) — skip this entirely for a one-location scene: instead of the \
+single [SET | ...] line above, write ONE [LOCSET | <Location Name> | <text>] line per location, \
+same content contract, each ending with an explicit cross-contamination prohibition (e.g. "These \
+props appear ONLY in Pod panels; never in a Corridor panel."). Then tag every [MOMENT n | ...] \
+header below with "LOCATION: <name> | " immediately after "MOMENT n |" and before the one-line \
+description.
+
+MIXED-MATERIAL SETS ONLY (rule 9) — skip for a uniform-material set:
+[MATERIAL | which surfaces of the set are solid and which are transparent, and where the \
+boundary between them runs, stated once]
 
 Second line — the SET geography resolved into SCREEN coordinates, the scene's contract (rule 5d):
 [AXIS | <name> frame-LEFT looking frame-RIGHT; <name> frame-RIGHT looking frame-LEFT; key \
@@ -342,7 +507,47 @@ def _scene_turns(beat_text: str):
     return out
 
 
-def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts) -> str:
+def format_boundary_blocks(incoming: dict | None = None, outgoing: dict | None = None) -> str:
+    """L23-L26 (BOARD-LAWS.md 'scene boundaries'): render the INCOMING/OUTGOING
+    text a film-level boundary pass would hand a scene's planner, in the exact
+    shape BOARD-LAWS.md's L23 specifies and rule 22 of _coverage_system_prompt
+    tells the planner to obey. NOT the boundary pass itself — that film-level
+    pass (walking every scene-to-scene seam, picking one of L24's six
+    relationships, and writing the OUT/IN description for each) is out of
+    scope for this chunk (see storyengine/tasks/deferred-verification.md for
+    the recommended follow-up chunk). This is only the RENDERING half: given
+    already-decided boundary facts, place them correctly in the prompt this
+    scene's planner reads.
+
+    incoming: {"description": "<what the previous scene's final panel showed>",
+               "relationship": "<MATCH|NESTED HANDOFF|CONTINUATION|SIGHTLINE
+               BRIDGE|CONTRAST|ELLIPSIS>", "instruction": "<what THIS scene's
+               first panel must do about it>"} or None to omit.
+    outgoing: {"description": "<what THIS scene's final panel must show>",
+               "relationship": "<one of the six, from this scene's own
+               perspective — how the NEXT scene opens>"} or None to omit.
+    Returns "" when both are None/empty — byte-identical to before this
+    feature existed for every caller that never passes them (every caller
+    today)."""
+    blocks = []
+    if incoming and (incoming.get("description") or "").strip():
+        blocks.append(
+            f"INCOMING — the previous scene ended on: {incoming['description'].strip()}. "
+            f"Your FIRST panel relates to it by {(incoming.get('relationship') or '').strip() or 'the stated relationship'}, "
+            f"specifically: {(incoming.get('instruction') or '').strip() or 'satisfy that relationship in your opening panel.'}"
+        )
+    if outgoing and (outgoing.get("description") or "").strip():
+        blocks.append(
+            f"OUTGOING — your FINAL panel must be: {outgoing['description'].strip()}, "
+            f"because the next scene opens by {(outgoing.get('relationship') or '').strip() or 'the stated relationship'}."
+        )
+    if not blocks:
+        return ""
+    return "\n\n--- SCENE BOUNDARIES (rule 22 — these are ASSIGNED, not chosen) ---\n" + "\n\n".join(blocks)
+
+
+def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts,
+                          incoming: dict | None = None, outgoing: dict | None = None) -> str:
     parts = [f'Plan cinematic COVERAGE for "{video_title or "this scene"}".',
              f"\nScene narration:\n{beat_text.strip()}"]
     bible = _format_story_bible_for_beat(story_bible, beat_scenes or [])
@@ -351,6 +556,9 @@ def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, imag
     if image_prompts:
         listed = "\n".join(f"  - {p}" for p in image_prompts if p)
         parts.append(f"\n--- EXISTING SHOT IDEAS (use as the moments to cover) ---\n{listed}")
+    boundary_block = format_boundary_blocks(incoming, outgoing)
+    if boundary_block:
+        parts.append(boundary_block)
     turns = _scene_turns(beat_text)
     if turns:
         listed = "\n".join(f'T{i+1} {spk}: "{txt}"' for i, (spk, txt) in enumerate(turns))
@@ -372,16 +580,29 @@ def _coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, imag
 async def generate_coverage_directive(
     beat_text, video_title, profile, story_bible, beat_scenes, image_prompts,
     max_moments=3, angles_min=2, angles_max=4, anthropic_client=None, model=None,
+    incoming: dict | None = None, outgoing: dict | None = None, board_rules_text: str = "",
 ) -> str:
     """Run Claude to produce the coverage plan text. Returns the raw directive.
     model: pass a valid model id for a DIRECT Anthropic client (its built-in default can be
-    stale); leave None to use the client's own default (e.g. the Kie-routed market model)."""
+    stale); leave None to use the client's own default (e.g. the Kie-routed market model).
+
+    incoming/outgoing (L23-L26): optional scene-boundary facts from a film-level boundary
+    pass — see format_boundary_blocks. None (the default, every caller today) omits the
+    SCENE BOUNDARIES block entirely, byte-identical to before this feature existed.
+
+    board_rules_text (quality_rules board/image scope): pre-composed active board-scoped
+    quality-rule text (quality_rules.compose_rules_text over quality_rules.active_board_rules
+    — a backend-layer DB read; this module stays DB-free and takes the already-fetched text
+    as plain data, same pattern as `profile`/`story_bible`). "" (the default) omits the
+    <board_quality_rules> block entirely."""
     if anthropic_client is None:
         from shared.clients.anthropic_client import AnthropicClient
         anthropic_client = AnthropicClient()
     kwargs = dict(
-        prompt=_coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts),
-        system_prompt=_coverage_system_prompt(profile, max_moments, angles_min, angles_max),
+        prompt=_coverage_user_prompt(beat_text, video_title, story_bible, beat_scenes, image_prompts,
+                                     incoming=incoming, outgoing=outgoing),
+        system_prompt=_coverage_system_prompt(profile, max_moments, angles_min, angles_max,
+                                              board_rules_text=board_rules_text),
         max_tokens=6000, temperature=0.7,
     )
     if model:
@@ -421,6 +642,60 @@ def parse_setups_line(directive_text: str) -> str | None:
     the 3-5 named setups covering one frozen staging. None on legacy plans."""
     m = _SETUPS_RE.search(directive_text or "")
     return m.group(1).strip() if m else None
+
+
+# =============================================================================
+# BOARD LAWS (storyengine/BOARD-LAWS.md) — multi-location + material-map
+# directive schema. Additive and byte-compatible: a single-location plan
+# keeps using the plain [SET | ...] line (_SET_RE/parse_set_dressing,
+# unchanged above); a MULTI-location plan ALSO carries one [LOCSET |
+# <name> | <text>] block per location (a deliberately different keyword
+# from [SET | ...] so the two can never collide in the same regex, and a
+# legacy single-location directive that has never seen this feature parses
+# byte-identically to before it existed — parse_location_sets returns {}).
+# =============================================================================
+_LOCSET_RE = re.compile(r"\[LOCSET\s*\|\s*([^|\]]+?)\s*\|\s*([^\]]+)\]", re.IGNORECASE)
+_MATERIAL_RE = re.compile(r"\[MATERIAL\s*\|\s*([^\]]+)\]", re.IGNORECASE)
+# A moment header may carry an optional "LOCATION: <name> |" prefix INSIDE
+# its own [MOMENT n | ...] bracket (parse_coverage strips this out of the
+# summary text and stores it as moment["location"]) — e.g. "[MOMENT 5 |
+# LOCATION: Corridor | Nyla runs down the tunnel]". No new top-level regex
+# needed; _MOMENT_RE (above) already captures the whole bracket body.
+_MOMENT_LOCATION_RE = re.compile(r"^\s*LOCATION\s*:\s*([^|]+?)\s*\|\s*(.*)$", re.IGNORECASE | re.DOTALL)
+
+
+def parse_location_sets(directive_text: str) -> dict:
+    """L3 (LOCATION SCOPING): every [LOCSET | <name> | <text>] block in the
+    plan, in the order they appear — {location_name: set_text}. Empty dict
+    for a legacy/single-location plan that carries no LOCSET blocks at all
+    (the normal case today; callers fall back to parse_set_dressing's single
+    scene-wide [SET | ...] line, unchanged). Duplicate location names keep
+    the LAST occurrence (a planner correcting itself mid-output)."""
+    out: dict = {}
+    for m in _LOCSET_RE.finditer(directive_text or ""):
+        out[m.group(1).strip()] = m.group(2).strip()
+    return out
+
+
+def parse_material_map(directive_text: str) -> str | None:
+    """L20 (MATERIAL MAP): the plan's [MATERIAL | ...] line — which surfaces
+    of the set are solid and which are transparent, and where the boundary
+    runs. None when the planner omitted it (a set with no mixed-material
+    property, or a legacy plan predating this law)."""
+    m = _MATERIAL_RE.search(directive_text or "")
+    return m.group(1).strip() if m else None
+
+
+def _split_moment_location(raw_summary: str) -> tuple:
+    """Strip an optional 'LOCATION: <name> | ' prefix off a [MOMENT n | ...]
+    bracket's captured text. Returns (location_or_None, remaining_summary).
+    A moment with no LOCATION prefix (every scene today, and every
+    single-location scene going forward) returns (None, raw_summary)
+    unchanged — byte-compatible with every plan parsed before this law."""
+    m = _MOMENT_LOCATION_RE.match(raw_summary or "")
+    if not m:
+        return None, (raw_summary or "").strip()
+    return m.group(1).strip(), m.group(2).strip()
 
 
 def apply_prop_manifest(moments: list, props: list | None) -> int:
@@ -567,8 +842,13 @@ _LINE_RE = re.compile(r'(?im)^\s*\*{0,2}\s*LINE\s*:\s*([^|"\n]+?)\s*\|\s*"([^"]+
 
 def parse_coverage(directive_text: str) -> list[dict]:
     """Parse the coverage plan into moments. Each moment: {moment_number, summary,
-    master:{shot_type,description}, angles:[...], speaker, line}. speaker/line are
-    set only for a speaking moment (the planner assigns dialogue at draw time)."""
+    location, master:{shot_type,description}, angles:[...], speaker, line}.
+    speaker/line are set only for a speaking moment (the planner assigns dialogue
+    at draw time). location (L3, rule 8) is set only for a multi-location scene
+    whose [MOMENT n | ...] header carries a "LOCATION: <name> | " prefix — None
+    for every scene parsed before this law existed, and for any single-location
+    scene going forward (byte-compatible: nothing about a legacy plan's parse
+    output changes)."""
     heads = list(_MOMENT_RE.finditer(directive_text))
     moments: list[dict] = []
     for i, h in enumerate(heads):
@@ -593,7 +873,9 @@ def parse_coverage(directive_text: str) -> list[dict]:
         # one speaker per shot) — forcing an angle there bloated frame count and
         # made the writer cram two speakers onto one shot when lines ran out.
         if master:
-            moments.append({"moment_number": int(h.group(1)), "summary": h.group(2).strip(),
+            location, summary = _split_moment_location(h.group(2))
+            moments.append({"moment_number": int(h.group(1)), "summary": summary,
+                            "location": location,
                             "master": master, "angles": angles, "speaker": speaker, "line": line})
     return moments
 
@@ -726,14 +1008,16 @@ _SETUP_TAG_RE = re.compile(r"^\s*\(SETUP\s+([A-Z0-9]+(?:-[A-Z0-9]+)?)\)", re.IGN
 # "(INSERT)"; widening it to try would risk _setup_id() silently eating the
 # wrong token. This regex searches anywhere in the description (the tag
 # rides right after the setup tag, not necessarily at position 0).
-_INLINE_TAG_RE = re.compile(r"\((REACTION|INSERT)\)", re.IGNORECASE)
+_INLINE_TAG_RE = re.compile(r"\((REACTION|INSERT|BRIDGE)\)", re.IGNORECASE)
 
 
 def _shot_tag(shot) -> str | None:
-    """"REACTION" or "INSERT" if the shot's description carries that inline
-    tag (C3 item 1), else None. A setup id is always letters/digits/hyphens
-    (see _SETUP_TAG_RE), so this can never match INSIDE a "(SETUP X)" tag —
-    the two regexes are structurally disjoint, not just separately defined."""
+    """"REACTION", "INSERT" or "BRIDGE" if the shot's description carries
+    that inline tag (C3 item 1; BRIDGE added for L3/L4 board-law motion/
+    location-change detection), else None. A setup id is always letters/
+    digits/hyphens (see _SETUP_TAG_RE), so this can never match INSIDE a
+    "(SETUP X)" tag — the two regexes are structurally disjoint, not just
+    separately defined."""
     m = _INLINE_TAG_RE.search(shot.get("description") or "")
     return m.group(1).upper() if m else None
 
@@ -763,6 +1047,25 @@ def _shot_family(shot) -> str | None:
     (C2 item 3) — B and B-CU count as the SAME family: a same-axis size
     change still reads as the camera never moving to a viewer."""
     return _setup_base_id(_setup_id(shot))
+
+
+def scene_has_motion(moments: list, location_sets: dict | None = None) -> bool:
+    """L4 (MOTION IS LEGAL): True when this scene contains at least one
+    moving/location-changing beat — a shot tagged "(BRIDGE)" (rule 4b), or a
+    genuinely multi-location scene (parse_location_sets returned 2+ named
+    locations, rule 8) even if a planner slip left a BRIDGE shot untagged.
+    Deterministic and cheap; the ONE shared detector the STAGING LOCK repair
+    tail (run_coverage, PICTURES path) and the sheet-preview composer
+    (coverage_to_app._plan_sheet_prompts) both call, so the two can never
+    silently disagree on whether a scene's camera kit language should be
+    the planted-conversation convention or the motion-capable one."""
+    if location_sets and len(location_sets) >= 2:
+        return True
+    for m in moments or []:
+        for shot in [m.get("master") or {}, *(m.get("angles") or [])]:
+            if _shot_tag(shot) == "BRIDGE":
+                return True
+    return False
 
 
 # Close shot sizes rule 5g (D3-63) treats as expression-carrying BY DEFAULT —
@@ -848,6 +1151,363 @@ def check_facing_law_compliance(moments: list[dict]) -> int:
                       f"({shot.get('shot_type')}) reads as an expression/dialogue shot but its "
                       f"description has no face-to-camera or look-back cue — worth a human "
                       f"glance, not a hard failure", flush=True)
+    return warnings
+
+
+# =============================================================================
+# BOARD LAWS GATE leg (storyengine/BOARD-LAWS.md "How a law becomes
+# behaviour") — deterministic, warning-only checks in the SAME
+# check_prop_manifest_consistency/check_facing_law_compliance pattern: never
+# block or rewrite, just count and log loudly so a human catches drift the
+# planner's own prose didn't prevent. Each function's docstring states
+# exactly what it can and cannot catch — several BOARD-LAWS.md laws (L7, L8,
+# L12, L13, L14, L15, L16, L18) are explicitly judged NOT deterministically
+# checkable with today's schema (semantic/cross-panel/vision-judge
+# territory) and have NO function here; see the coverage_to_app.py commit
+# and this chunk's report for the full per-law GATE disposition.
+# =============================================================================
+
+_GROUP_NOUN_RE = re.compile(
+    r"\b(elites?|crowd|extras?|sleepers?|onlookers?|audience|spectators?|figures|"
+    r"others|group|bystanders?|passengers?)\b", re.IGNORECASE)
+_NUMBER_TOKEN_RE = re.compile(
+    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozen)\b",
+    re.IGNORECASE)
+_ARRANGEMENT_TERM_RE = re.compile(
+    r"\b(frame-left|frame-right|left to right|right to left|nearest camera|"
+    r"nearest the camera|beyond (?:him|her|them)|end of the row|front row|back row)\b",
+    re.IGNORECASE)
+
+
+def check_headcount_stated(moments: list[dict]) -> int:
+    """L17 (LOCK THE HEADCOUNT): flags a shot whose description names a GROUP
+    (a crowd/extras/sleepers/elites/etc — _GROUP_NOUN_RE) with no NUMBER
+    token anywhere in the same description (_NUMBER_TOKEN_RE, digits or
+    number-words). Heuristic, not semantic: it can't confirm the STATED
+    count is correct, only that SOME count is stated at all — a real miscount
+    (five elites claimed, four actually drawn) is an image-level defect no
+    text gate can catch; this only catches the "count omitted entirely"
+    failure mode. Warning-only, mirrors check_prop_manifest_consistency."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _GROUP_NOUN_RE.search(desc) and not _NUMBER_TOKEN_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ headcount check (L17): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) names a group with no stated number — "
+                      "worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+def check_group_arrangement_stated(moments: list[dict]) -> int:
+    """L22 (STATE GROUP ARRANGEMENT PER CAMERA POSITION): among shots that
+    already pass check_headcount_stated (a group noun AND a number both
+    present), flags any with no positional/order term (_ARRANGEMENT_TERM_RE)
+    — a count with no stated arrangement is exactly the pattern L22's
+    provenance describes (a reverse wide instructed with an explicit "all
+    five" still rendered four, because the seating order was only ever given
+    from the front). Heuristic, warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if (_GROUP_NOUN_RE.search(desc) and _NUMBER_TOKEN_RE.search(desc)
+                    and not _ARRANGEMENT_TERM_RE.search(desc)):
+                warnings += 1
+                print(f"  ⚠️ group-arrangement check (L22): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) states a headcount but no arrangement/order "
+                      "from THIS camera — worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+_FACE_VIS_TERM_RE = re.compile(
+    r"\b(to-lens|to lens|three-quarter|profile|from-behind|from behind|square to the lens|"
+    r"face-to-camera|face to camera)\b", re.IGNORECASE)
+
+
+def check_camera_facts_present(moments: list[dict]) -> int:
+    """L5 (CAMERA FACTS PER PANEL), PARTIAL gate — only fact (d), face
+    visibility as an explicit term, is checked here; facts (a) barrier-side,
+    (b) camera height and (c) frame-fraction are free prose with no fixed
+    vocabulary to scan for (a wide variety of correct phrasings exist for
+    each), so they are NOT mechanically checkable today — say so plainly
+    rather than pretend a keyword scan covers them. Scoped to the same shots
+    _carries_facing_law already treats as expression-carrying (a speaking
+    master, a REACTION angle, or any MCU/CU/ECU not tagged INSERT) — the
+    shots L5's face-visibility fact actually matters for. Warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            if not _carries_facing_law(m, shot, shot is m["master"]):
+                continue
+            desc = shot.get("description") or ""
+            if not _FACE_VIS_TERM_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ camera-facts check (L5): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) has no explicit face-visibility term "
+                      "(to-lens/three-quarter/profile/from-behind) — worth a human glance, "
+                      "not a hard failure", flush=True)
+    return warnings
+
+
+_FRAME_SIDE_TERM_RE = re.compile(
+    r"\b(frame-left|frame-right|same pane|same side|same spot|same position|that same|"
+    r"still on|as (?:before|in panel))\b", re.IGNORECASE)
+
+
+def check_repeated_setup_frame_side(moments: list[dict]) -> int:
+    """L9 (FRAME-SIDE CONTINUITY ON REPEATED SETUPS): flags the SECOND-and-
+    later occurrence of a given setup id (exact id — a size variant like
+    "B-CU" is its own id here, deliberately NOT collapsed to its base family,
+    since L9 is about a literal camera repeat, not a same-axis punch-in)
+    whose description carries no frame-side/surface continuity term
+    (_FRAME_SIDE_TERM_RE). Scans shots in plan order across the whole scene
+    (moments are already planner-ordered). Warning-only."""
+    warnings = 0
+    seen: set = set()
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            sid = _setup_id(shot)
+            if not sid:
+                continue
+            desc = shot.get("description") or ""
+            if sid in seen and not _FRAME_SIDE_TERM_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ frame-side continuity check (L9): moment {m.get('moment_number')} "
+                      f"repeats SETUP {sid} with no frame-side/surface continuity term — "
+                      "worth a human glance, not a hard failure", flush=True)
+            seen.add(sid)
+    return warnings
+
+
+_MOTION_VERB_RE = re.compile(
+    r"\b(runs?|running|sprints?|sprinting|drives?|driving|travels?|travell?ing|"
+    r"walks? (?:away|toward)|races?|racing|dashes?|dashing)\b",
+    re.IGNORECASE)
+# Deliberately EXCLUDES "exits frame" — a camera-holds-while-subject-exits
+# setup (L4's own example phrasing) is a static camera watching a subject
+# leave, not body-vector-tied-to-a-visible-line travel; it has no vanishing
+# line to anchor to and L10 does not apply to it (see check_motion_axis_
+# anchor's docstring for the acceptance-target precedent).
+_AXIS_ANCHOR_TERM_RE = re.compile(
+    r"\b(vanishing point|vanishing line|converge[sd]?|converging|same axis|same line|"
+    r"past (?:her|his|their) (?:near|far)? ?shoulder)\b", re.IGNORECASE)
+
+
+def check_motion_axis_anchor(moments: list[dict]) -> int:
+    """L10 (BODY VECTOR TO VISIBLE AXIS): flags a shot whose description
+    reads as directional TRAVEL (_MOTION_VERB_RE — runs/drives/travels/
+    exits frame/etc) but names no visible line the travel ties to
+    (_AXIS_ANCHOR_TERM_RE — a vanishing point/line, a converging structural
+    line, "past X shoulder"). Deliberately NOT triggered by a bare
+    "(BRIDGE)" tag alone: a bridge/threshold moment (climbing through a
+    doorway, stepping onto a walkway) is not always body-vector travel in
+    L10's sense — the acceptance target's own approved threshold panel
+    (scene1_board_prompt_CORRECTED_v3.txt panel [7]) carries no vanishing-
+    line language and is correct as written; a corridor RUN a few panels
+    later is where L10 actually bites. Warning-only, heuristic (motion-verb
+    detection is prose-pattern matching, not a semantic read of the shot)."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _MOTION_VERB_RE.search(desc) and not _AXIS_ANCHOR_TERM_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ motion-axis check (L10): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) reads as a moving beat with no visible-line "
+                      "anchor for the travel direction — worth a human glance, not a hard "
+                      "failure", flush=True)
+    return warnings
+
+
+_WS_ONLY_PUNCT_RE = re.compile(r"[^a-z0-9 ]+")
+
+
+def check_no_duplicate_panels(moments: list[dict]) -> int:
+    """L21 (A BOARD CANNOT SHOW DURATION): flags a shot whose normalized
+    description (lowercased, punctuation stripped) is BYTE-IDENTICAL to an
+    earlier shot's in the same scene — the exact failure the law's
+    provenance describes (two panels deliberately specified as identical to
+    express a held moment). MUST run on the freshly-parsed descriptions,
+    same ordering constraint as check_facing_law_compliance — a lock tail
+    appended below (SET/AXIS/STAGING/...) is identical scene-wide text and
+    would swamp this check with false positives if it ran after them.
+    Exact-match only (no fuzzy/near-duplicate detection — that needs a
+    similarity threshold this chunk did not tune); a near-identical-but-not-
+    exact repeat is NOT caught here, only the literal duplicate. Warning-only."""
+    warnings = 0
+    seen: dict = {}
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            norm = _WS_ONLY_PUNCT_RE.sub(" ", (shot.get("description") or "").lower())
+            norm = " ".join(norm.split())
+            if not norm:
+                continue
+            if norm in seen:
+                warnings += 1
+                print(f"  ⚠️ duplicate-panel check (L21): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) repeats moment {seen[norm]}'s panel text "
+                      "verbatim — a still can't show duration; escalate (closer/wider) "
+                      "instead of repeating — worth a human glance, not a hard failure",
+                      flush=True)
+            else:
+                seen[norm] = m.get("moment_number")
+    return warnings
+
+
+def check_material_map_present_when_mixed(directive_text: str) -> int:
+    """L20 (DEFINE THE SET'S MATERIAL MAP ONCE): if this scene's set text
+    (the single [SET|...] line, or every [LOCSET|...] block) mentions BOTH a
+    transparent-surface term (glass/transparent/window/clear pane) AND a
+    solid-surface term (solid/opaque/wall/shell/matte) — i.e. reads as a
+    mixed-material set — but the plan carries no [MATERIAL|...] line, flags
+    it: this is exactly the ambiguity L20's provenance describes (a
+    part-glass/part-solid set redefined a different way by every scene that
+    touches it). A uniformly one-material set correctly needs no
+    [MATERIAL|...] line and is never flagged. Warning-only, heuristic (a set
+    can be legitimately mixed-material and still fully unambiguous in prose
+    without a dedicated line; this only flags the OMISSION, not real
+    ambiguity)."""
+    if parse_material_map(directive_text):
+        return 0
+    texts = list(parse_location_sets(directive_text).values())
+    single = parse_set_dressing(directive_text)
+    if single:
+        texts.append(single)
+    transparent_re = re.compile(r"\b(glass|transparent|window|clear pane)\b", re.IGNORECASE)
+    solid_re = re.compile(r"\b(solid|opaque|matte|shell)\b", re.IGNORECASE)
+    warnings = 0
+    for t in texts:
+        if transparent_re.search(t) and solid_re.search(t):
+            warnings += 1
+            print("  ⚠️ material-map check (L20): a set reads as mixed transparent/solid but "
+                  "no [MATERIAL | ...] line was found — worth a human glance, not a hard "
+                  "failure", flush=True)
+    return warnings
+
+
+def check_location_scoping(moments: list[dict], location_sets: dict) -> int:
+    """L3 (LOCATION SCOPING): for a multi-location scene, flags a panel
+    tagged with location A whose description mentions a phrase that is
+    DISTINCTIVE to a different location B — present in B's [LOCSET|...] text
+    but absent from every other location's text (a cheap, no-shared-
+    vocabulary proxy for "this prop belongs only to that other place"),
+    capped at 6 distinctive phrases per location to keep this cheap and
+    avoid noise on common words. Same "cheap deterministic direction, not
+    proof of an error" discipline as check_prop_manifest_consistency: a
+    shot CAN legitimately reference another location in passing prose
+    ("through the glass, the corridor's blue glow") without literally
+    naming a distinctive furniture phrase, so a 0 here is not proof of zero
+    cross-contamination, only of none this heuristic can see. Returns 0 for
+    a single-location scene (no [LOCSET|...] blocks) — nothing to scope.
+    Warning-only."""
+    if not location_sets or len(location_sets) < 2:
+        return 0
+
+    def _phrases(text: str) -> list[str]:
+        return [p.strip().lower() for p in re.split(r"[;,]", text or "") if len(p.strip()) > 3]
+
+    phrases_by_loc = {loc: _phrases(text) for loc, text in location_sets.items()}
+    distinctive: dict = {}
+    for loc, phrases in phrases_by_loc.items():
+        others_text = " ".join(t.lower() for l2, t in location_sets.items() if l2 != loc)
+        distinctive[loc] = [p for p in phrases if p and p not in others_text][:6]
+
+    warnings = 0
+    for m in moments:
+        loc = m.get("location")
+        if not loc:
+            continue
+        for other_loc, phrases in distinctive.items():
+            if other_loc == loc:
+                continue
+            for shot in [m["master"], *(m.get("angles") or [])]:
+                desc = (shot.get("description") or "").lower()
+                for p in phrases:
+                    if p in desc:
+                        warnings += 1
+                        print(f"  ⚠️ location-scoping check (L3): moment "
+                              f"{m.get('moment_number')} tagged '{loc}' mentions '{p}', "
+                              f"distinctive to '{other_loc}' — worth a human glance, not a "
+                              "hard failure", flush=True)
+    return warnings
+
+
+_NESTED_FRAME_NOUN_RE = re.compile(r"\b(screen|monitor|mirror|feed)\b", re.IGNORECASE)
+_CONTENT_BEARING_RE = re.compile(
+    r"\b(shows?|showing|shown|displays?|displaying|reflect(?:s|ing)?|feed of|picture of|"
+    r"holding a feed)\b", re.IGNORECASE)
+
+
+def check_nested_frame_content_specified(moments: list[dict]) -> int:
+    """L11 (NESTED FRAMES): flags a shot whose description mentions a
+    second-frame noun (screen/monitor/mirror/feed) with no content-bearing
+    language nearby (shows/displays/reflects/feed of/...) — i.e. the nested
+    frame is referenced but what's ON it is left unstated, the exact drift
+    L11 exists to stop. Heuristic and coarse (word-proximity only, not
+    "is the content genuinely consistent panel to panel" — that needs a
+    vision judge). Warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _NESTED_FRAME_NOUN_RE.search(desc) and not _CONTENT_BEARING_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ nested-frame check (L11): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) names a screen/monitor/mirror/feed with no "
+                      "stated content — worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+_POV_SETUP_TERM_RE = re.compile(r"\b(POV|lens'?s? own position|mirror's own)\b", re.IGNORECASE)
+_INTO_CAMERA_RE = re.compile(r"\binto camera\b|\bto.?lens\b|\bsquare to the lens\b", re.IGNORECASE)
+
+
+def check_pov_setup_neutral_and_into_camera(moments: list[dict]) -> int:
+    """L19 (DIEGETIC CAMERA POV): flags a shot that reads as a diegetic-
+    camera POV setup (_POV_SETUP_TERM_RE) but is missing either the NEUTRAL
+    marker or an into-camera/to-lens eyeline term. Heuristic (keyword
+    detection of "POV" is a coarse proxy for "this IS a diegetic-camera
+    setup" — a scene could use the word differently); warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if not _POV_SETUP_TERM_RE.search(desc):
+                continue
+            if "NEUTRAL" not in desc.upper() or not _INTO_CAMERA_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ diegetic-POV check (L19): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) reads as a POV setup but is missing NEUTRAL "
+                      "and/or an into-camera eyeline term — worth a human glance, not a hard "
+                      "failure", flush=True)
+    return warnings
+
+
+_CAPTION_LEAK_RE = re.compile(r"(?:\b[A-Z]{2,}\b[ ]?){3,}:")
+
+
+def check_no_caption_leaking_labels(moments: list[dict]) -> int:
+    """L27 (INSTRUCTIONS ARE NOT CAPTIONS): flags a shot description that
+    contains a labelled-directive pattern — three or more consecutive
+    ALL-CAPS words followed by a colon (e.g. "ARRANGEMENT AS SEEN FROM THIS
+    CAMERA (REVERSED): ...") — the exact live-proven failure where such text
+    printed itself verbatim onto the panel's caption strip. Deliberately
+    narrow (3+ caps words + colon) so it doesn't fire on legitimate emphasis
+    words (NEVER, ALWAYS, NEUTRAL) or the format's own "(SETUP X)"/
+    "(REACTION)"/"(INSERT)"/"(BRIDGE)" parenthetical tags, none of which are
+    colon-terminated ALL-CAPS runs. Warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _CAPTION_LEAK_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ caption-leak check (L27): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) contains an all-caps labelled directive that "
+                      "will print itself onto the caption strip — rewrite as ordinary prose — "
+                      "worth a human glance, not a hard failure", flush=True)
     return warnings
 
 
@@ -2128,6 +2788,24 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # would otherwise swamp this check with false positives).
     check_facing_law_compliance(moments)
 
+    # BOARD LAWS gate leg (storyengine/BOARD-LAWS.md) — every deterministic
+    # check built for this chunk, ALL warning-only, ALL run here on the same
+    # freshly-parsed, pre-lock-tail descriptions as the facing-law check
+    # above (for the identical reason: a lock tail's boilerplate would swamp
+    # several of these with false positives if it ran after them).
+    location_sets = parse_location_sets(directive_text)
+    check_headcount_stated(moments)
+    check_group_arrangement_stated(moments)
+    check_camera_facts_present(moments)
+    check_repeated_setup_frame_side(moments)
+    check_motion_axis_anchor(moments)
+    check_no_duplicate_panels(moments)
+    check_material_map_present_when_mixed(directive_text)
+    check_location_scoping(moments, location_sets)
+    check_nested_frame_content_specified(moments)
+    check_pov_setup_neutral_and_into_camera(moments)
+    check_no_caption_leaking_labels(moments)
+
     # SET-DRESSING LOCK: the planner declares the scene's fixed props once on the
     # [SET | ...] line; stamp it into EVERY shot's image prompt. Per-shot prompts
     # that stay silent about props let the image model invent them — observed
@@ -2141,8 +2819,37 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # told the image model to actually frame close). An INSERT shot still
     # needs the scene's location/lighting/palette continuity — just not the
     # bodies — so it gets its own shorter tail instead.
+    # L3 (LOCATION SCOPING) — a multi-location scene carries per-location
+    # [LOCSET | name | text] blocks instead of one scene-wide [SET | ...]
+    # line (rule 8). When present, each shot is stamped with ONLY its OWN
+    # moment's location text (moment["location"], set by parse_coverage's
+    # LOCATION: prefix) plus an explicit cross-contamination prohibition —
+    # never the whole scene's blanket set_line, which is the exact bug L3's
+    # provenance describes (a corridor shot drawn with bedroom furniture
+    # because the lock read "identical in every shot of this scene"). A
+    # location-tagged shot whose OWN location has no matching LOCSET block
+    # (a planner slip) falls back to the plain set_line/insert_tail path
+    # below so it never goes unstamped.
     set_line = parse_set_dressing(directive_text)
-    if set_line:
+    # location_sets already computed above (BOARD LAWS gate leg) — reused here.
+    if location_sets:
+        for m in moments:
+            loc = m.get("location")
+            loc_text = location_sets.get(loc) if loc else None
+            for shot in [m["master"], *(m.get("angles") or [])]:
+                if loc_text:
+                    other_names = [n for n in location_sets if n != loc]
+                    others = f" (never the dressing of {', '.join(other_names)})" if other_names else ""
+                    tail = (f"Set dressing, identical in every panel of this scene tagged "
+                            f"'{loc}'{others}: {loc_text}.")
+                    if _shot_tag(shot) == "INSERT":
+                        tail += " This is a detail insert — no faces visible, detail only."
+                    shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+                elif set_line:
+                    tail = f"Set dressing and character blocking, identical in every shot of this scene: {set_line}."
+                    shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+        print(f"  🪑 location-scoped set lock applied ({len(location_sets)} location(s))", flush=True)
+    elif set_line:
         tail = f"Set dressing and character blocking, identical in every shot of this scene: {set_line}."
         insert_tail = (f"Set dressing continuity with the rest of this scene (lighting, palette, "
                        f"surfaces), identical throughout: {set_line}. This is a detail insert — "
@@ -2152,6 +2859,18 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
                 this_tail = insert_tail if _shot_tag(shot) == "INSERT" else tail
                 shot["description"] = f"{shot['description'].rstrip('. ')}. {this_tail}"
         print("  🪑 set-dressing lock applied to every shot", flush=True)
+
+    # MATERIAL MAP LOCK (L20): the set's solid/transparent boundary, stated
+    # once on [MATERIAL | ...] (rule 9), stamped into every shot the same
+    # way the set-dressing lock is — so a single-shot redraw can't quietly
+    # re-invent the set as all-glass or all-solid.
+    material_line = parse_material_map(directive_text)
+    if material_line:
+        tail = f"Material map, fixed for this whole set: {material_line}."
+        for m in moments:
+            for shot in [m["master"], *(m.get("angles") or [])]:
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+        print("  🧱 material-map lock applied to every shot", flush=True)
 
     # SCREEN-DIRECTION LOCK (rule 5d): stamp the axis contract into every
     # shot's image prompt too — each frame is generated independently, so the
@@ -2170,10 +2889,32 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # STAGING LOCK (rule 5e): each frame prompt carries the whole camera kit,
     # so a shot marked (SETUP B) is drawn as that exact camera on the one
     # frozen staging — bodies can't drift closer/apart or re-stage per frame.
+    #
+    # L4 (MOTION IS LEGAL) fix: this tail used to say "the actors are PLANTED
+    # and never move" UNCONDITIONALLY, on every scene regardless of content —
+    # exactly the contradiction L4's provenance describes (a static-tableau
+    # convention applied to a scene where a character wakes, crosses a room
+    # and runs down a corridor, so the exit silently vanished). A scene with
+    # a (BRIDGE) shot (rule 4b — a moving/location-changing beat) gets the
+    # motion-capable phrasing instead; a purely planted scene is unaffected —
+    # byte-identical tail text to before this law existed.
     setups_line = parse_setups_line(directive_text)
     if setups_line:
-        tail = (f"Camera kit for this scene — the actors are PLANTED and never move; every "
-                f"shot is one of these setups viewing the same frozen staging: {setups_line}.")
+        if scene_has_motion(moments, location_sets):
+            tail = (f"Camera kit for this scene — setups covering a planted conversation hold "
+                    f"the actors still; a setup covering a moving beat (a BRIDGE, an exit, a "
+                    f"run) is MOTION-CAPABLE instead and describes the move directly (exits "
+                    f"frame-right and camera holds, travels alongside, runs toward the lens) — "
+                    f"never freeze a moving beat into planted-body staging. Every shot is one of "
+                    f"these setups: {setups_line}. When a setup letter repeats, name the same "
+                    f"frame side or surface it progresses from; never repeat an earlier panel of "
+                    f"this scene identically — escalate closer or wider instead.")
+        else:
+            tail = (f"Camera kit for this scene — the actors are PLANTED and never move; every "
+                    f"shot is one of these setups viewing the same frozen staging: {setups_line}. "
+                    f"When a setup letter repeats, name the same frame side or surface it "
+                    f"progresses from; never repeat an earlier panel of this scene identically — "
+                    f"escalate closer or wider instead.")
         for m in moments:
             m["master"]["description"] = f"{m['master']['description'].rstrip('. ')}. {tail}"
             for a in m.get("angles") or []:

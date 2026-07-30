@@ -917,7 +917,7 @@ _UPSERT_QUALITY_RULE_TOOL: dict[str, Any] = {
             "evidence": {"type": "string", "description": "Why this rule exists, optional."},
             "applies_to": {
                 "type": "object",
-                "description": "Scope, e.g. {\"all\": true} or {\"research\": true} or {\"story\": true} or {\"animated\": true} or {\"realistic\": true} or {\"channel_format\": \"...\"} or {\"dvsu_mode\": \"...\"}. Omit for {\"all\": true}.",
+                "description": "Scope, e.g. {\"all\": true} or {\"research\": true} or {\"story\": true} or {\"animated\": true} or {\"realistic\": true} or {\"channel_format\": \"...\"} or {\"dvsu_mode\": \"...\"} or {\"board\": true}. Omit for {\"all\": true}. {\"board\": true} is its OWN axis (BOARD-LAWS.md) — a rule scoped this way is read into the storyboard/coverage planner's prompt instead of the script critic's, and \"all\" does NOT also match it (it must be set explicitly).",
             },
         },
         "required": ["rule_id", "law"],
