@@ -1643,7 +1643,23 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 + ", ".join(unsupported_numbers)
             )
 
+        # G2 fix: a class-style machine name often carries its own bracketed
+        # pennant ("HMS Illustrious (D48) ... class"). _unit_code has no
+        # hyphenated designation to latch onto for these names, so it falls
+        # back to a 4-token glob that concatenates the WHOLE name into one
+        # blob code ("HMSILLUSTRIOUSD48ILLUSTRIOUS...") - "D48" alone is a
+        # substring of that blob but never equals it, so a SET membership
+        # check against {_normalized_unit_code(machine)} alone always missed
+        # it and flagged the machine's own pennant as an "unsupported
+        # designation" inside why_this_unit_deserves_a_paragraph. Reuse the
+        # same designation scan already applied to `machine` two lines above
+        # (for the numeric check) so every embedded designation token, not
+        # just the single collapsed code, is allowed.
         allowed_designations = {_normalized_unit_code(machine)}
+        allowed_designations.update(
+            _normalized_unit_code(designation)
+            for designation in re.findall(r"\b[A-Z]{1,4}-?\d+[A-Z]?\b", machine.upper())
+        )
         evidence_text = " ".join(
             f"{segment.get('claim', '')} {segment.get('source_excerpt', '')}"
             for segment in evidence_segments
@@ -2777,6 +2793,13 @@ _TIMEFRAME_EXTRA_STOPWORDS = {
     "confirmed", "date", "dates", "documented", "era", "period", "service",
     "source", "sourced", "timeframe", "verified",
 }
+# G2: free repair-pass drop-list. These are stray filler words a card-writing
+# model keeps adding to timeframe/visual_identity/why_this_unit_deserves_a_
+# paragraph that never appear in any cited excerpt (observed this week
+# hand-fixing DVsU cards; see tasks/evidence/dvsu-research-simulator/
+# STATE.md). The deterministic pre-repair pass drops them outright instead
+# of spending a paid repair round asking the model to remove them.
+_GROUNDING_STRAY_DROP_WORDS = {"seen", "ship", "plus", "toward", "towards"}
 
 
 def _all_segments_grounding_text(evidence: list[dict]) -> str:
@@ -10373,6 +10396,256 @@ class PipelineExecutor:
                 require_source_package=require_source_package,
             )
 
+        def _reanchor_card_citations_by_text(target_card: dict, package: Optional[dict]) -> int:
+            """FREE, deterministic (no model call): re-point a segment's
+            source_excerpt_id/source_url/source_title/locator to the CURRENT
+            package row whose EXACT_TEXT contains that segment's own
+            source_excerpt, when ids/locators drifted (a package rebuild
+            renumbers/drops rows and strands a previously-fine card on stale
+            identity). Ported from tasks/evidence/dvsu-research-simulator/
+            reanchor_card.py: content is never altered, only provenance
+            fields; a segment whose text no longer exists anywhere in the
+            package is left untouched (that needs a real repair, not a
+            re-label). Uses the SAME normalizer (_normalized_source_text)
+            _validate_card_against_verified_sources itself uses for its
+            excerpt-in-candidate_text match, so a re-anchor here is
+            guaranteed to satisfy the referee. Returns segments moved."""
+            if not isinstance(target_card, dict) or not isinstance(package, dict):
+                return 0
+            candidates = [
+                item for item in package.get("candidate_excerpts") or []
+                if isinstance(item, dict) and str(item.get("text") or "").strip()
+            ]
+            normed_candidates = [
+                (item, _normalized_source_text(str(item.get("text") or "")))
+                for item in candidates
+            ]
+            moved = 0
+            for segment in target_card.get("evidence_segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                want = _normalized_source_text(str(segment.get("source_excerpt") or "")).strip()
+                if not want:
+                    continue
+                row = next((item for item, text in normed_candidates if want in text), None)
+                if row is None:
+                    continue
+                new_excerpt_id = str(row.get("excerpt_id") or "").strip()
+                new_locator = str(row.get("locator") or "").strip() or str(segment.get("locator") or "").strip()
+                new_source_url = str(row.get("source_url") or "").strip()
+                current_excerpt_id = str(segment.get("source_excerpt_id") or segment.get("excerpt_id") or "").strip()
+                if (
+                    current_excerpt_id == new_excerpt_id
+                    and str(segment.get("locator") or "").strip() == new_locator
+                    and str(segment.get("source_url") or "").strip() == new_source_url
+                ):
+                    continue
+                segment["source_excerpt_id"] = new_excerpt_id
+                segment["source_url"] = new_source_url
+                segment["source_title"] = str(row.get("source_title") or "").strip()
+                segment["locator"] = new_locator
+                moved += 1
+            return moved
+
+        def _best_inflection_match(word: str, evidence_words: set) -> Optional[str]:
+            """Find the evidence word most likely to be a different inflection
+            of `word` ("spent" -> "spending"). _grounding_stem only strips
+            regular suffixes, so it never bridges pairs like this (spend/spent
+            share no suffix-stripped stem) - a shared-prefix ratio is the
+            simplest deterministic signal a human coordinator uses when
+            eyeballing this exact fix, and it stays conservative: both words
+            must be at least 4 characters and share at least 4 leading
+            characters covering most of the shorter word."""
+            if len(word) < 4:
+                return None
+            best, best_len = None, 0
+            for candidate in evidence_words:
+                if candidate == word or len(candidate) < 4:
+                    continue
+                shared = 0
+                for a, b in zip(word, candidate):
+                    if a != b:
+                        break
+                    shared += 1
+                if shared < 4:
+                    continue
+                if shared / min(len(word), len(candidate)) < 0.65:
+                    continue
+                if shared > best_len:
+                    best, best_len = candidate, shared
+            return best
+
+        def _apply_inflection_grounding_fixes(
+            field_text: str,
+            evidence_text: str,
+            machine_name: str,
+            extra_stopwords: Optional[set] = None,
+        ) -> tuple[str, int]:
+            """FREE, deterministic single-word grounding fix: for each word the
+            referee flags as ungrounded, either swap it for the excerpt's own
+            inflection of the word ("spent" -> "spending", matching the
+            hand-fixes made this week) or drop a stray filler word models keep
+            adding that never appears in any excerpt ("seen"/"ship"/"plus"/
+            "toward"/"towards"). Returns (new_text, words_fixed)."""
+            ungrounded = _ungrounded_factual_words(
+                field_text, evidence_text, machine_name, extra_stopwords=extra_stopwords
+            )
+            if not ungrounded:
+                return field_text, 0
+            evidence_words = set(re.findall(r"[a-z]+", evidence_text.lower()))
+            new_text = field_text
+            fixed = 0
+            for word in ungrounded:
+                if word in _GROUNDING_STRAY_DROP_WORDS:
+                    replaced = re.sub(rf"\s*\b{re.escape(word)}\b", "", new_text, count=1, flags=re.IGNORECASE)
+                    if replaced != new_text:
+                        new_text = replaced
+                        fixed += 1
+                    continue
+                replacement = _best_inflection_match(word, evidence_words)
+                if replacement and replacement.lower() != word.lower():
+                    replaced = re.sub(rf"\b{re.escape(word)}\b", replacement, new_text, count=1, flags=re.IGNORECASE)
+                    if replaced != new_text:
+                        new_text = replaced
+                        fixed += 1
+            return " ".join(new_text.split()), fixed
+
+        def _free_pre_repair_card(target_card: dict, machine_name: str, package: Optional[dict]) -> dict:
+            """The deterministic PRE-repair pass: pure string/dict operations,
+            no model call, runs before EACH paid repair round below and never
+            consumes one of the 2 rounds. Fixes the two failure shapes a
+            human coordinator kept hand-fixing this week on the DVsU
+            simulator (tasks/evidence/dvsu-research-simulator/STATE.md):
+            drifted citation ids/locators (re-anchor by excerpt TEXT) and
+            single-word grounding misses in timeframe/visual_identity/why
+            (inflection swap or stray-word drop). A card with only these two
+            problems can now converge with ZERO model rounds spent."""
+            if not isinstance(target_card, dict):
+                return target_card
+            _reanchor_card_citations_by_text(target_card, package)
+            grounding_text = _all_segments_grounding_text(target_card.get("evidence_segments") or [])
+            for field, stopwords in (
+                ("timeframe", _TIMEFRAME_EXTRA_STOPWORDS),
+                ("visual_identity", _VISUAL_IDENTITY_EXTRA_STOPWORDS),
+                ("why_this_unit_deserves_a_paragraph", None),
+            ):
+                field_text = str(target_card.get(field) or "")
+                if not field_text.strip():
+                    continue
+                new_text, fixed = _apply_inflection_grounding_fixes(
+                    field_text, grounding_text, machine_name, extra_stopwords=stopwords
+                )
+                if fixed:
+                    target_card[field] = new_text
+            return target_card
+
+        def _structured_repair_feedback(
+            machine_name: str,
+            target_card: dict,
+            warnings_list: list[str],
+            package: Optional[dict],
+        ) -> list[str]:
+            """Turn raw referee warning strings into NAMED, per-failure fix
+            directives for the repair prompt: which segment, which row to
+            re-cite (a hinted Tier 1-3 row for that beat), and the exact
+            contract rules the model must satisfy. Reuses the SAME
+            structural analysis the interactive Repair-button path already
+            has (_segment_surgery_plan / _promotable_slot_excerpt), which the
+            automated per-machine loop below never consulted - this is the
+            gap that made a human coordinator spell these fixes out by hand
+            this week instead of the pipeline converging on its own."""
+            directives: list[str] = []
+            if not isinstance(target_card, dict):
+                return directives
+            machine_display = _unit_display_name(machine_name) or machine_name
+            display_tokens = machine_display.split()
+            last_token = display_tokens[-1] if display_tokens else ""
+            first_four_code = _unit_code(machine_display)
+
+            surgery = _segment_surgery_plan(target_card, package, machine_name)
+            for rekind in surgery.get("rekinds") or []:
+                directives.append(
+                    f"segment {rekind.get('evidence_id')}: its cited excerpt is hinted for "
+                    f"'{rekind.get('new_kind')}', not '{rekind.get('old_kind')}' - change this segment's kind "
+                    f"to '{rekind.get('new_kind')}' (or cite a different excerpt if '{rekind.get('old_kind')}' "
+                    "is truly what it supports)."
+                )
+            for promote in surgery.get("promotes") or []:
+                item = promote.get("item") or {}
+                directives.append(
+                    f"required beat '{promote.get('kind')}': add a NEW evidence segment citing excerpt "
+                    f"{item.get('excerpt_id')} ({item.get('source_title') or item.get('source_url')}, "
+                    f"Tier {_source_tier_number(item)}) - it is hinted for this beat and is not Tier 4/caution."
+                )
+            for blocked in surgery.get("blocked") or []:
+                directives.append(
+                    f"required beat '{blocked.get('role')}' has no promotable Tier 1-3 excerpt in this "
+                    "machine's verified package - soften or omit a specific claim for this beat rather than "
+                    "inventing one."
+                )
+            already_named_slots = {p.get("kind") for p in (surgery.get("promotes") or [])}
+            missing_warning = next(
+                (w for w in warnings_list if "missing required Anton slots for" in w), ""
+            )
+            if missing_warning:
+                missing_slots = [
+                    slot.strip() for slot in missing_warning.split(":", 1)[-1].split(",") if slot.strip()
+                ]
+                for slot in missing_slots:
+                    if slot in already_named_slots:
+                        continue
+                    row = _promotable_slot_excerpt(package, target_card, slot, machine_name)
+                    if row is not None:
+                        directives.append(
+                            f"missing required beat '{slot}': add a NEW evidence segment citing excerpt "
+                            f"{row.get('excerpt_id')} ({row.get('source_title') or row.get('source_url')}, "
+                            f"Tier {_source_tier_number(row)})."
+                        )
+                    else:
+                        directives.append(
+                            f"missing required beat '{slot}': the package holds no promotable Tier 1-3 "
+                            "excerpt for it - reuse the best-fitting excerpt honestly rather than inventing one."
+                        )
+
+            for segment in target_card.get("evidence_segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                kind = str(segment.get("kind") or "").strip().lower()
+                if kind and _anton_slot_role_for_kind(kind) is None:
+                    directives.append(
+                        f"segment {segment.get('evidence_id') or '?'}: kind '{kind}' is not a valid Anton "
+                        "slot kind - kind is NEVER the bare word 'context' or 'spec'; use a full kind such as "
+                        "'identity_origin_context'/'scale_specs_context' or one of the four required beats."
+                    )
+
+            for field, label in (
+                ("timeframe", "timeframe"),
+                ("visual_identity", "visual_identity"),
+                ("why_this_unit_deserves_a_paragraph", "why_this_unit_deserves_a_paragraph"),
+            ):
+                field_warnings = [w for w in warnings_list if _warning_targets_field(w, label)]
+                if not field_warnings:
+                    continue
+                if any("must be specific to the locked machine" in w for w in field_warnings):
+                    directives.append(
+                        f"{label} must be specific to '{machine_display}': open the field with the machine's "
+                        f"first four tokens ('{first_four_code}' normalized) or include its last word "
+                        f"('{last_token}') verbatim."
+                    )
+                grounding_warning = next(
+                    (w for w in field_warnings if "not grounded in evidence segments" in w), ""
+                )
+                if grounding_warning:
+                    flagged = grounding_warning.split(":", 1)[-1].strip()
+                    directives.append(
+                        f"{label} contains word(s) not grounded in any evidence segment: {flagged}. Every "
+                        "factual word must literally appear (or its own inflection, e.g. 'spending' for "
+                        "'spent') inside a segment's claim or source_excerpt. Grounding tokenizes on "
+                        "apostrophes, so \"Attacker's\" leaves a stray token 's' that fails grounding - write "
+                        "\"HMS Attacker in her first mission\", never \"HMS Attacker's first mission\"."
+                    )
+            return directives
+
         def _full_research_validation(cards: list[dict]) -> tuple[list[dict], bool]:
             cards_by_roster_code: dict[str, dict] = {}
             for item in cards:
@@ -10698,10 +10971,27 @@ class PipelineExecutor:
             for _card_repair_round in range(2):
                 if not warnings:
                     break
+                # FREE pre-repair pass (pure string/dict ops, no model call,
+                # never consumes a paid repair round): re-anchor citations
+                # whose ids/locators drifted from a package rebuild by
+                # matching each segment's own excerpt TEXT against the
+                # current package rows, and fix single-word grounding misses
+                # by swapping in the evidence's own inflection or dropping a
+                # stray filler word. Recompute warnings before spending a
+                # model call - a card whose only problems are these two
+                # shapes converges here with zero paid rounds.
+                _free_pre_repair_card(card, machine, machine_source_package)
+                warnings = _card_warnings(
+                    machine, card, machine_source_package, require_source_package=True,
+                )
+                if not warnings:
+                    break
                 timeframe_hints = _timeframe_repair_hints(card, machine_source_package)
+                repair_directives = _structured_repair_feedback(machine, card, warnings, machine_source_package)
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
                     f"Warnings: {'; '.join(warnings)}\n"
+                    + "".join(f"NAMED FIX - {directive}\n" for directive in repair_directives)
                     + "".join(hint + "\n" for hint in timeframe_hints)
                     + f"{conversion_signal_line}"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
