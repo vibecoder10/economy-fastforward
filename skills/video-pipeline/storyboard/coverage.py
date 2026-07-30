@@ -411,6 +411,23 @@ bookkeeping for the edit, never for the frame: it lives on its OWN line, is stri
 shot ever reaches the image drawer, and must NEVER be folded into the MASTER/ANGLE sentence \
 itself — rule 23 above already forbids inventing a new bracket/tag inside a panel description, and \
 a PURPOSE row is exactly the kind of labelled fact that rule exists to keep out of the artwork.
+25) STATE HOW EVERY SHOT CUTS IN FROM WHAT CAME BEFORE, ON ITS OWN ROW (D9-6). Immediately under \
+EVERY MASTER and ANGLE line's PURPOSE row, add its own row: `TRANSITION: <kind> | <bridge, only \
+when the cut is not continuous>`. <kind> is exactly ONE of: opening, continuous, time_cut, \
+location_cut, montage, memory — pick whichever is closest, never invent a new word. "opening" is \
+only ever the scene's very first shot. "continuous" means this shot picks up the exact same \
+instant/space the previous shot ended on — no bridge needed, omit the pipe and the text entirely. \
+Every OTHER kind is a real cut, and needs a bridge clause after the pipe: one short phrase naming \
+what carries the viewer across it — the thing that stays recognizable, or the thing that explains \
+the jump, e.g. "the same hallway light fixture, now behind them" or "her hand on the same doorknob, \
+hours later". Same discipline as rule 24: its OWN row, never folded into the MASTER/ANGLE sentence.
+26) STATE WHAT EARLIER SHOT CAUSED THIS ONE TO EXIST, ON ITS OWN ROW (D9-7). Immediately under \
+EVERY MASTER and ANGLE line except the scene's very first shot, add its own row: `CAUSED_BY: \
+M<n>-MASTER` or `CAUSED_BY: M<n>-ANGLE<k>`, naming the EARLIER shot (by its moment number and \
+whether it was that moment's MASTER or its k-th ANGLE, counting from 1) whose action or revelation \
+is the reason this shot exists — never a shot that comes later, never this shot itself. The scene's \
+very first shot is the only one allowed to skip this row (nothing precedes it to be caused by). \
+Same discipline as rules 24-25: its OWN row, never folded into the MASTER/ANGLE sentence.
 </rules>
 
 <output_format>
@@ -462,11 +479,21 @@ cannot do camera geometry; give it the finished frame. Only a shot with genuinel
 may open with the set, and it must say "Empty of people" explicitly.
 PURPOSE: <kind> | <why THIS shot exists, one short clause> (rule 24 — its OWN row, right under \
 the MASTER line above, kind is one of story/action/information/emotion/spatial)
+TRANSITION: <kind> | <bridge, omit the pipe+text for "continuous"> (rule 25 — its OWN row, right \
+under the PURPOSE row, kind is one of opening/continuous/time_cut/location_cut/montage/memory)
+CAUSED_BY: M<n>-MASTER or M<n>-ANGLE<k> (rule 26 — its OWN row, right under the TRANSITION row, \
+naming the EARLIER shot whose action caused this one; omit entirely only for the scene's very \
+first shot)
 - ANGLE [shot_type]: same instant, different camera — same format: setup letter, then frame \
 placement + eyeline, then what the new framing emphasises. The axis still holds.
 PURPOSE: <kind> | <why THIS angle exists> (rule 24 — every MASTER and ANGLE gets its own row)
+TRANSITION: <kind> | <bridge, omit for "continuous"> (rule 25 — every MASTER and ANGLE gets its own row)
+CAUSED_BY: M<n>-MASTER or M<n>-ANGLE<k> (rule 26 — every MASTER and ANGLE gets its own row, except \
+the scene's very first shot)
 - ANGLE [shot_type]: ...
 PURPOSE: <kind> | ...
+TRANSITION: <kind> | ...
+CAUSED_BY: M<n>-...
 
 shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
@@ -996,6 +1023,96 @@ _LINE_RE = re.compile(r'(?im)^\s*\*{0,2}\s*LINE\s*:\s*([^|"\n]+?)\s*\|\s*"([^"]+
 _PURPOSE_LINE_RE = re.compile(
     r"\n\s*\*{0,2}\s*PURPOSE\s*\*{0,2}\s*:\s*([a-z]+)\s*\|\s*(.+?)\s*\Z", re.IGNORECASE | re.DOTALL)
 
+# D9-6 (film-studio audit harvest, second harvest chunk): a per-shot "how does
+# this cut in from what came before" tag, mirroring backend/
+# custom_film_director.py's ShotDraft.transition_from_previous (enum: opening/
+# continuous/time_cut/location_cut/montage/memory — TRANSITION_KINDS) and
+# .continuity_bridge (free prose, optional — required by Custom Film's HARD
+# gate whenever the kind isn't "continuous", custom_film_director.py:895-898).
+# Same "own row, LABEL: part1 | part2" grammar as PURPOSE — the bridge half of
+# the pipe is OPTIONAL (a "continuous" cut needs no bridge text at all, so the
+# planner may omit the pipe and everything after it). A directive with no
+# TRANSITION line (every directive before this chunk) matches nothing.
+_TRANSITION_LINE_RE = re.compile(
+    r"\n\s*\*{0,2}\s*TRANSITION\s*\*{0,2}\s*:\s*([A-Za-z_]+)\s*(?:\|\s*(.*?))?\s*\Z",
+    re.IGNORECASE | re.DOTALL)
+
+# D9-7 (film-studio audit harvest, second harvest chunk): a per-shot "which
+# EARLIER shot caused this one to exist" reference, mirroring ShotDraft.
+# caused_by (a tuple of earlier shot_keys, HARD-required for every non-first
+# shot — custom_film_director.py:280, :882-884). The flagship coverage
+# grammar has no LLM-assigned shot_key, so the reference format taught here
+# is a LABEL the planner can derive purely from context it has already
+# written by the time it reaches this row: "M<moment_number>-MASTER" or
+# "M<moment_number>-ANGLE<k>" (k = 1-based position among that moment's own
+# ANGLE lines) — never a running global shot count the planner would have to
+# track across the whole scene. Single reference only (not a tuple like
+# Custom Film's caused_by) — see check_shot_causality_present's docstring for
+# why. A directive with no CAUSED_BY line matches nothing.
+_CAUSED_BY_LINE_RE = re.compile(
+    r"\n\s*\*{0,2}\s*CAUSED\s*_?\s*BY\s*\*{0,2}\s*:\s*(.+?)\s*\Z",
+    re.IGNORECASE | re.DOTALL)
+
+
+def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
+    """Peels every trailing per-shot metadata row — D9-1's PURPOSE, D9-6's
+    TRANSITION, D9-7's CAUSED_BY — off the TAIL of a shot's raw captured text
+    (in whatever order the planner actually wrote them), before what's left
+    is treated as the final stored description.
+
+    Each row pattern anchors at \\Z (the current end of `desc`) but its
+    captured text is "everything up to \\Z", so if PURPOSE's row sits ABOVE
+    a still-present TRANSITION/CAUSED_BY row, a naive "try PURPOSE first"
+    scan would let PURPOSE's own capture swallow those later rows whole
+    (DOTALL matches across the newlines between them). To avoid that, every
+    pass tries all three patterns and commits ONLY the one whose match
+    STARTS LATEST in the current `desc` — i.e. the row that is actually
+    sitting at the true tail right now — strips just that one row, and
+    re-scans. That peels rows one at a time, tail-first, regardless of which
+    of the three the planner wrote last, making extraction robust to any
+    order and any subset of the three optional rows: all three, any two,
+    one, or (every plan before D9-1 existed) none, which is the byte-
+    compatible legacy case this function must reproduce exactly: zero rows
+    in, zero rows stripped, `desc` unchanged.
+
+    Returns (clean_description, {purpose_kind, shot_purpose, transition_kind,
+    continuity_bridge, caused_by}) — every value None if its row never
+    appeared."""
+    meta = {"purpose_kind": None, "shot_purpose": None, "transition_kind": None,
+            "continuity_bridge": None, "caused_by": None}
+    extracted: set[str] = set()
+    while True:
+        candidates = []
+        if "purpose" not in extracted:
+            pm = _PURPOSE_LINE_RE.search(desc)
+            if pm:
+                candidates.append(("purpose", pm))
+        if "transition" not in extracted:
+            tm = _TRANSITION_LINE_RE.search(desc)
+            if tm:
+                candidates.append(("transition", tm))
+        if "caused_by" not in extracted:
+            cm = _CAUSED_BY_LINE_RE.search(desc)
+            if cm:
+                candidates.append(("caused_by", cm))
+        if not candidates:
+            break
+        # The candidate starting LATEST in `desc` is the one truly sitting
+        # at the tail right now — commit only that one this pass.
+        key, match = max(candidates, key=lambda kv: kv[1].start())
+        if key == "purpose":
+            meta["purpose_kind"] = match.group(1).strip().lower()
+            meta["shot_purpose"] = match.group(2).strip()
+        elif key == "transition":
+            meta["transition_kind"] = match.group(1).strip().lower()
+            bridge = (match.group(2) or "").strip()
+            meta["continuity_bridge"] = bridge or None
+        else:
+            meta["caused_by"] = match.group(1).strip()
+        desc = desc[:match.start()].rstrip()
+        extracted.add(key)
+    return desc, meta
+
 
 def parse_coverage(directive_text: str) -> list[dict]:
     """Parse the coverage plan into moments. Each moment: {moment_number, summary,
@@ -1007,11 +1124,15 @@ def parse_coverage(directive_text: str) -> list[dict]:
     scene going forward (byte-compatible: nothing about a legacy plan's parse
     output changes).
 
-    Each shot dict also carries purpose_kind/shot_purpose (D9-1) — parsed from
-    that shot's own trailing "PURPOSE: <kind> | <text>" row (_PURPOSE_LINE_RE),
-    both None when the row is absent (every plan before this chunk, and any
-    shot the planner didn't tag going forward — WARN-only per D6 Ruling 1,
-    never a hard gate, see check_shot_purpose_present)."""
+    Each shot dict also carries purpose_kind/shot_purpose (D9-1), transition_kind/
+    continuity_bridge (D9-6), and caused_by (D9-7) — parsed from that shot's own
+    trailing metadata rows (_strip_shot_metadata_rows), all None when the
+    corresponding row is absent (every plan before D9-1 existed for the first
+    two pairs and before this chunk for the third, and any shot the planner
+    didn't tag going forward — WARN-only per D6 Ruling 1, never a hard gate,
+    see check_shot_purpose_present / check_shot_transition_present /
+    check_shot_transition_bridge_present / check_shot_causality_present /
+    check_shot_causality_valid)."""
     heads = list(_MOMENT_RE.finditer(directive_text))
     moments: list[dict] = []
     for i, h in enumerate(heads):
@@ -1026,18 +1147,13 @@ def parse_coverage(directive_text: str) -> list[dict]:
             # separator rides into the description and then into every image
             # prompt downstream. Strip separator-only trailing lines.
             desc = re.sub(r"(?:\s*\n\s*[-—*_]{3,}\s*)+$", "", m.group(3)).strip()
-            # D9-1: peel the shot's own trailing PURPOSE row (if any) off the
-            # end BEFORE it's treated as final description text — see
-            # _PURPOSE_LINE_RE's docstring above for why this must never
+            # D9-1/D9-6/D9-7: peel the shot's own trailing PURPOSE/TRANSITION/
+            # CAUSED_BY rows (if any) off the end BEFORE what's left is
+            # treated as final description text — see
+            # _strip_shot_metadata_rows' docstring for why this must never
             # reach the image draw prompt.
-            purpose_kind, shot_purpose = None, None
-            pm = _PURPOSE_LINE_RE.search(desc)
-            if pm:
-                purpose_kind = pm.group(1).strip().lower()
-                shot_purpose = pm.group(2).strip()
-                desc = desc[:pm.start()].rstrip()
-            shot = {"shot_type": m.group(2).strip().upper(), "description": desc,
-                    "purpose_kind": purpose_kind, "shot_purpose": shot_purpose}
+            desc, meta = _strip_shot_metadata_rows(desc)
+            shot = {"shot_type": m.group(2).strip().upper(), "description": desc, **meta}
             if m.group(1).upper() == "MASTER" and master is None:
                 master = shot
             else:
@@ -1870,6 +1986,160 @@ def check_shot_purpose_present(moments: list[dict]) -> int:
     return warnings
 
 
+def check_shot_transition_present(moments: list[dict]) -> int:
+    """D9-6 (film-studio audit harvest, second harvest chunk): the dormant
+    Custom Film director's ShotDraft HARD-requires transition_from_previous
+    on every shot (backend/custom_film_director.py:288-290, TRANSITION_KINDS
+    enum: opening/continuous/time_cut/location_cut/montage/memory) — the
+    flagship coverage pipeline planned shots with no cut-type signal at all.
+    Ryan's ruling on the audit: harvest that schema, same warn-only
+    discipline as check_shot_purpose_present (D6 Ruling 1 — no canonical cut
+    type to check a shot's stated kind against, only whether one was stated).
+
+    Flags any shot (master or angle) with no parsed transition_kind (the
+    coverage system prompt's per-shot "TRANSITION: <kind> | <bridge>" row,
+    rule 25, extracted by parse_coverage via _strip_shot_metadata_rows).
+    Trips on every plan from before this chunk existed and on any code-
+    synthesized filler shot — same intended signal as check_shot_purpose_
+    present, not a false positive."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            if not shot.get("transition_kind"):
+                warnings += 1
+                print(f"  ⚠️ shot-transition check (D9-6): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) carries no TRANSITION: line — no stated cut "
+                      "type for this shot — worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+def check_shot_transition_bridge_present(moments: list[dict]) -> int:
+    """D9-6 companion check: Custom Film HARD-requires a continuity_bridge on
+    any shot whose transition_from_previous isn't "continuous"
+    (custom_film_director.py:895-898 — `elif not shot.continuity_bridge:
+    raise error`). Softened to warn per the same D6 Ruling 1 discipline: a
+    non-continuous cut with no bridge clause is worth a human glance (is the
+    cut actually legible?), never a hard failure.
+
+    Only evaluates shots that HAVE a stated transition_kind — a shot with no
+    kind at all is already flagged by check_shot_transition_present above,
+    and re-flagging it here for also lacking a bridge would double-count the
+    same missing row. "opening" is ALSO exempt, same as "continuous" — in
+    Custom Film's own model an "opening" shot is structurally always the
+    scene's first (custom_film_director.py:870-874 forces continuity_bridge
+    to None there; :888-890 forbids "opening" on any non-first shot), so by
+    the time Custom Film's own :895-898 bridge check runs, "opening" can
+    never reach it. Mirroring that faithfully means "opening" never needs a
+    bridge either, not just "continuous". Flags a shot whose kind is
+    anything other than "continuous"/"opening" and whose continuity_bridge
+    is empty/absent."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            kind = shot.get("transition_kind")
+            if kind and kind not in ("continuous", "opening") and not shot.get("continuity_bridge"):
+                warnings += 1
+                print(f"  ⚠️ shot-transition-bridge check (D9-6): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) has TRANSITION: {kind} but no bridge clause — "
+                      "a non-continuous cut with nothing stated to carry the viewer across it — "
+                      "worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+def _build_shot_causality_index(moments: list[dict]) -> list[tuple[str, dict, int]]:
+    """D9-7 helper: (label, shot_dict, ordinal) for every shot in this
+    scene's draw/output order — each moment's master then its angles,
+    moments in plan order, same order _flatten_shots uses elsewhere.
+
+    `label` mirrors exactly what rule 26 teaches the planner to write in a
+    CAUSED_BY row: "M<moment_number>-MASTER" for a moment's master shot,
+    "M<moment_number>-ANGLE<k>" for its k-th (1-based) angle — both
+    derivable by the planner from context it already has by the time it
+    writes that row (the moment header, and this shot's own position among
+    that moment's angles), never a running global shot count it would have
+    to track across the whole scene. `ordinal` is this shot's 0-based
+    position in that same draw order — the ONE thing that lets
+    check_shot_causality_valid tell "earlier" from "later" without caring
+    what the label text looks like."""
+    index: list[tuple[str, dict, int]] = []
+    ordinal = 0
+    for m in moments:
+        mn = m.get("moment_number")
+        master = m.get("master")
+        if master:
+            index.append((f"M{mn}-MASTER", master, ordinal))
+            ordinal += 1
+        for k, a in enumerate(m.get("angles") or [], start=1):
+            index.append((f"M{mn}-ANGLE{k}", a, ordinal))
+            ordinal += 1
+    return index
+
+
+def check_shot_causality_present(moments: list[dict]) -> int:
+    """D9-7 (film-studio audit harvest, second harvest chunk): the dormant
+    Custom Film director's ShotDraft HARD-requires caused_by on every shot
+    except the scene's true first (backend/custom_film_director.py:280,
+    :882-884 — `if not shot.caused_by or ...: raise error`) — the flagship
+    coverage pipeline planned shots with no causal chain at all. Ryan's
+    ruling: harvest that schema, warn-only per D6 Ruling 1 (no canonical
+    "correct" cause to check a shot's stated reference against, only
+    whether one was stated).
+
+    Only a SINGLE caused_by reference is taught here (unlike Custom Film's
+    tuple of shot_keys) — the flagship coverage grammar has no LLM-assigned
+    shot_key to build a reliable multi-reference list from, and one clear
+    reference is more likely to be authored correctly than a list the
+    planner has to keep internally consistent; see rule 26.
+
+    Flags any shot except the scene's very first (ordinal 0 in
+    _build_shot_causality_index — the one shot Custom Film's own HARD gate
+    also exempts, custom_film_director.py:870-874) with no parsed caused_by."""
+    warnings = 0
+    for label, shot, ordinal in _build_shot_causality_index(moments):
+        if ordinal == 0:
+            continue  # the scene's true first shot is allowed to be uncaused
+        if not shot.get("caused_by"):
+            warnings += 1
+            print(f"  ⚠️ shot-causality check (D9-7): shot {label} carries no CAUSED_BY: line — "
+                  "no stated earlier cause for this shot — worth a human glance, not a hard "
+                  "failure", flush=True)
+    return warnings
+
+
+def check_shot_causality_valid(moments: list[dict]) -> int:
+    """D9-7 companion check: unlike a free-prose PURPOSE clause, a CAUSED_BY
+    reference is a deterministic claim — it names a SPECIFIC earlier shot by
+    label, so whether that label actually exists AND actually sits earlier
+    in the scene's draw order is mechanically checkable (mirrors Custom
+    Film's own two-part validation, custom_film_director.py:882-884: the
+    referenced shot_key must be in `seen_shot_keys`, i.e. already compiled).
+    Still warn-only per D6 Ruling 1 — even a deterministic mismatch is a
+    planner mistake worth a human glance, not grounds to block a draw.
+
+    Flags a shot whose caused_by (case-insensitively) doesn't match any
+    label in this scene, OR matches a label whose ordinal is NOT strictly
+    earlier than this shot's own (points at itself or at a later shot)."""
+    warnings = 0
+    index = _build_shot_causality_index(moments)
+    label_to_ordinal = {label.upper(): ordinal for label, _shot, ordinal in index}
+    for label, shot, ordinal in index:
+        cb = shot.get("caused_by")
+        if not cb:
+            continue
+        target = label_to_ordinal.get(cb.strip().upper())
+        if target is None:
+            warnings += 1
+            print(f"  ⚠️ shot-causality check (D9-7): shot {label}'s CAUSED_BY references "
+                  f"'{cb}', which does not match any shot in this scene — worth a human glance, "
+                  "not a hard failure", flush=True)
+        elif target >= ordinal:
+            warnings += 1
+            print(f"  ⚠️ shot-causality check (D9-7): shot {label}'s CAUSED_BY references "
+                  f"'{cb}', which is not an EARLIER shot in this scene — worth a human glance, "
+                  "not a hard failure", flush=True)
+    return warnings
+
+
 # =============================================================================
 # D6-2 REPAIR LEGS — BOARD-LAWS.md L11, L12, L15, L16, L17, L19, L22. Every
 # law here previously had a PROMPT leg (the coverage system prompt, rules
@@ -2279,6 +2549,15 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
                     # framing/action that no longer lives there.
                     a["purpose_kind"], b["purpose_kind"] = b.get("purpose_kind"), a.get("purpose_kind")
                     a["shot_purpose"], b["shot_purpose"] = b.get("shot_purpose"), a.get("shot_purpose")
+                    # D9-6/D9-7: same reasoning extends to transition_kind/
+                    # continuity_bridge/caused_by — they describe WHY and HOW
+                    # this specific piece of content cuts in and what earlier
+                    # content it follows from, not a fact about the numbered
+                    # position it happens to occupy. They move WITH the
+                    # description they were authored to explain.
+                    a["transition_kind"], b["transition_kind"] = b.get("transition_kind"), a.get("transition_kind")
+                    a["continuity_bridge"], b["continuity_bridge"] = b.get("continuity_bridge"), a.get("continuity_bridge")
+                    a["caused_by"], b["caused_by"] = b.get("caused_by"), a.get("caused_by")
                     if "setup_id" in a or "setup_id" in b:
                         a["setup_id"], b["setup_id"] = b.get("setup_id"), a.get("setup_id")
                     families[k], families[swap_with] = families[swap_with], families[k]
@@ -3270,7 +3549,16 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                # the planner didn't tag (every shot before this chunk, and
                # any floor-added filler shot going forward).
                "purpose_kind": m.get("purpose_kind"),
-               "shot_purpose": m.get("shot_purpose")}]
+               "shot_purpose": m.get("shot_purpose"),
+               # D9-6/D9-7 (migration 148): the per-shot transition/causality
+               # signals parse_coverage extracted from this shot's own
+               # "TRANSITION: ..." / "CAUSED_BY: ..." rows — threaded through
+               # here so store_scene can write them into assets.
+               # transition_kind / assets.continuity_bridge / assets.
+               # caused_by. None for a shot the planner didn't tag.
+               "transition_kind": m.get("transition_kind"),
+               "continuity_bridge": m.get("continuity_bridge"),
+               "caused_by": m.get("caused_by")}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -3295,7 +3583,11 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                 "group_arrangement": a.get("group_arrangement"),
                 # D9-1 (migration 147) — see the master frame's dict above.
                 "purpose_kind": a.get("purpose_kind"),
-                "shot_purpose": a.get("shot_purpose")} if url else None
+                "shot_purpose": a.get("shot_purpose"),
+                # D9-6/D9-7 (migration 148) — see the master frame's dict above.
+                "transition_kind": a.get("transition_kind"),
+                "continuity_bridge": a.get("continuity_bridge"),
+                "caused_by": a.get("caused_by")} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -3664,6 +3956,13 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # D9-1 (film-studio audit harvest): a shot with no stated narrative
     # purpose — same warning-only discipline as every check_* above.
     check_shot_purpose_present(moments)
+    # D9-6/D9-7 (film-studio audit harvest, second harvest chunk): a shot
+    # with no stated cut type, a non-continuous cut with no bridge, and a
+    # shot with no/invalid causal reference — same warning-only discipline.
+    check_shot_transition_present(moments)
+    check_shot_transition_bridge_present(moments)
+    check_shot_causality_present(moments)
+    check_shot_causality_valid(moments)
 
     # D6-2 (migration 143, storyengine/backend/migrations/143_per_shot_
     # location_and_arrangement.sql): persist the per-moment location — which
