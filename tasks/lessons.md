@@ -665,3 +665,6 @@ of these were paid for in wasted clicks; together they make the pane fully usabl
   `scrollIntoView()` away right after mount or a card expand — measure element
   rects in the SAME eval that scrolls, immediately before clicking, once
   animations have settled.
+
+## 2026-07-30 - git stash is ONE shared ref across all worktrees (real incident)
+Two concurrent workers ran stash-based stash-proofs in different worktrees of the same repo; the pops interleaved and each worker popped the OTHER's stash - foreign diffs landed in the wrong trees mid-test. Recovered via `git fsck --unreachable` (stash WIP commits dangle after a wrong pop). Rule: NEVER use `git stash` for stash-proof testing while parallel worktree sessions run. Use a patch file instead: `git diff > /tmp/chunk.patch && git checkout -- <files>`, run the tests, `git apply /tmp/chunk.patch`. Every worker brief that asks for a stash-proof must name this technique.
