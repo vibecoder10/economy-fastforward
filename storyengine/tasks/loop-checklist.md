@@ -1111,12 +1111,12 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   is already answered by the PARTIAL proof-run verdict - dropped.
 
 ### Chunks
-- [ ] D6-0A (S) [SWEEP] Board planner / composer / stamp inventory. Read-only Explore.
+- [x] D6-0A (S) [SWEEP] Board planner / composer / stamp inventory. Read-only Explore.
   Map the board prompt path end to end, the planner system prompt, what is already
   code-written vs prose, the existing SET/AXIS/STAGING/SEQUENCE stamp mechanism, the
   per-shot artifact schema, where canonical per-video data would live, and the highest
   free migration number. DISPATCHED.
-- [ ] D6-0B (S) [SWEEP] Script generator prompt / gate / repair inventory. Read-only
+- [x] D6-0B (S) [SWEEP] Script generator prompt / gate / repair inventory. Read-only
   Explore. Map the generate AND submit paths, the scene-splitting logic, the script
   system prompt, whether quality_rules genuinely has a script scope consumed at
   runtime, existing script gates, the scene record schema (is there a location field?),
@@ -1140,7 +1140,7 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   location differ from the previous with no transit sentence? S5 gate: does every scene
   name a location? S2/S4 are judgement - admit in-commit that no deterministic gate is
   feasible rather than pretending one exists. Depends on D6-3.
-- [ ] D6-5 (S) [doc] Film-level boundary pass PLAN (L23-L26). Delivers
+- [x] D6-5 (S) [doc] Film-level boundary pass PLAN (L23-L26). Delivers
   BOUNDARY-PASS-PLAN.md. Acceptance target: the plan must be capable of producing
   tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Migration 143 (reserved) if it
   proposes storage. PLAN ONLY. No dependency - PARALLEL with everything. DISPATCHED.
@@ -1161,3 +1161,56 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
 - Migration numbers reserved to avoid a collision between parallel lanes: D6-1 takes
   141, D6-3 takes 142, D6-5 takes 143 if needed.
 - Parallel EDIT lanes get worktree isolation.
+
+### D6 sweep findings (verified 2026-07-29, these override the HANDOFF where they disagree)
+- **Migration 141 is TAKEN** (`backend/migrations/141_static_reference_misses.sql`). The HANDOFF's
+  "141 and 142 are free" is wrong. Reserved block for this phase: **142 = D6-1**
+  (canonical inputs), **143 = D6-2** (repair stamps), **144 = D6-3** (scene location),
+  **145 = D6-5** (boundary storage, if built).
+- **L28 and L29 are LIVE BUGS in the composer, not history.** `_sheet_header` hardcodes the
+  literal `"for an animated scene"` on every sheet (`backend/scripts/coverage_to_app.py:1163`)
+  while `style_line` defaults to `"Photorealistic, cinematic film still"` (~:1708) - two
+  contradictory style claims in one prompt, which is why an animated film's board came back
+  live-action. The same header unconditionally claims "matching their appearance to the attached
+  reference images" (~:1167-1168) even when `cast_refs` is `[]`. Both reproduce on the NEXT board
+  unless D6-1 fixes them. Folded into D6-1.
+- **Style is scattered across EIGHT columns** on `videos` (`image_style_override`, `visual_style`,
+  `render_style`, `style_preset_id`, `production_style_id`, `production_style_snapshot`,
+  `thumbnail_style_override`, `production_style_version`), merged by `_resolve_style`
+  (`coverage_to_app.py:251`) with no written precedence contract. That missing contract IS the
+  L29 defect.
+- **No per-shot LOCATION column and no GROUP ARRANGEMENT column exist** on `assets` (52 cols
+  checked live). L17/L22's "missing signal" is confirmed at the schema level, so D6-2 needs a
+  data leg, not just code.
+- **`scripts` has NO location column** - verified against every migration. So S3 is NOT gateable
+  on today's schema without one. D6-3's design call: the writer emits a required `LOCATION:`
+  scene header, a parser lifts it into a new `scripts.location` column, and the gate reads the
+  column (not the prose).
+- **THREE separate scene splitters exist with no shared seam**: ACT markers
+  (`script_generator.py:40-50`), `@@@SCENE n@@@` on the modeled path
+  (`pipeline_executor.py:12089-12129`), and the submit path (`user_script.py:40-56, 89-150,
+  59-75`). A law landing on one is bypassable via the other two. The modeled path at
+  `pipeline_executor.py:12173-12181` ALREADY contains near-verbatim S3 prose that nothing ever
+  reads back - centralize it, do not duplicate it.
+- **`quality_rules` has no `script` scope and never reaches the writer.** It feeds a
+  post-generation LLM grading rubric only (`pipeline_executor.py:11860-11868`,
+  `user_script.py:321-323`). STORY-LAWS' claim that it is "already consumed by the script stage"
+  is true for grading and misleading as written. Use it as the runtime-tunable leg IN ADDITION to
+  the prompt, never instead of it.
+- **No repair leg exists on the script side at all.** `edit_scene_text`
+  (`routes/videos.py:1583-1593`) is a raw `UPDATE scripts SET scene_text=$1` carrying nothing.
+- **Video 686b4651 has SIX scenes on disk, not eight.** It becomes eight when scene 1 splits into
+  three (escape / run and dead end / return), which is why the approved TRANSITION-PLAN-example
+  has 7 boundaries. The "corrected eight-scene script" does NOT exist as data yet. Because that
+  video must never be split, the eight-scene script gets AUTHORED onto the new video in D6-6:
+  take the 6 scene texts, split scene 1's text into three by hand, submit via the free
+  `submit_script`. Costs $0 and it is the real customer path.
+- **PATH-ROOT GOTCHA that cost one bounce:** the pipeline skill lives at REPO ROOT
+  `skills/video-pipeline/`, while the composer lives at
+  `storyengine/backend/scripts/coverage_to_app.py`. Two different roots. A worker grepping only
+  `storyengine/` will wrongly conclude the board code does not exist. Put this in every future
+  board-layer brief.
+- **`format_boundary_blocks` IS on main** (`skills/video-pipeline/storyboard/coverage.py:510`,
+  tested at `skills/video-pipeline/tests/test_board_laws.py:149-165`). The L23 INCOMING/OUTGOING
+  renderer already exists and is verbatim; only the producer is missing. `feat/board-laws` is
+  fully merged (0 commits ahead) and its worktree is clean - nothing is stranded there.
