@@ -1144,10 +1144,25 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   BOUNDARY-PASS-PLAN.md. Acceptance target: the plan must be capable of producing
   tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Migration 143 (reserved) if it
   proposes storage. PLAN ONLY. No dependency - PARALLEL with everything. DISPATCHED.
-- [ ] D6-6 [DECISION - MONEY] Fresh video from the corrected eight-scene script, then
-  ONE proof board judged against BOARD-LAWS.md and STORY-LAWS.md. Max $0.20 (Ryan's
-  authorised $1 has $0.80 spent). Script judged FIRST, boards second, nothing paid until
-  each stage passes. Depends on D6-2 and D6-4. Needs Ryan's go before any spend.
+- [ ] D6-6a [GATE - $0, NO SPEND] **RYAN'S RULE, 2026-07-29: "before any image is actually generated you will
+  run the script system through the pipeline for a single storyboard and cross check the output against the rules
+  to see if it will turn out correct."** So: author the corrected EIGHT-SCENE script onto a NEW video (take
+  686b4651's six scene texts, split scene 1's text into three by hand - escape / run and dead end / return - and
+  submit via the FREE `submit_script`; never split 686b4651 itself). Then run the pipeline as far as EMITTING the
+  board prompt for ONE scene WITHOUT DRAWING, and dump the emitted prompt text. A `plan_only` dry-run path already
+  exists on prod from D3-59 - use it rather than building a new one. Then cross-check the emitted prompt line by
+  line against BOARD-LAWS.md L0-L29 and STORY-LAWS.md S1-S5 and report which laws are ACTUALLY PRESENT in the text
+  versus merely intended. This is the cheapest artifact that shows the defect: every failure that cost money on
+  2026-07-29 was readable in the prompt words before anything was drawn - the double style claim, the
+  claimed-but-unattached references, the paraphrased-away adjacency law. Judging words costs nothing.
+  HONEST LIMIT, stated up front: a clean dry run proves the PROMPT obeys the laws, NOT that the picture will.
+  BOARD-PLANNER-ARCHITECTURE.md says it plainly - determinism in the prompt is not determinism in pixels, and the
+  last proof run drew tube-shaped pods from text that said sphere. 6a passing means the words are right and the
+  only remaining risk is the drawer, which is the sole part that needs money to test.
+- [ ] D6-6b [DECISION - MONEY] ONE proof board, max $0.20 (Ryan's authorised $1 has $0.80 already spent). Runs
+  ONLY if D6-6a passes, and ONLY on Ryan's explicit go. Judged against BOARD-LAWS.md and STORY-LAWS.md. Script
+  judged first, boards second, nothing paid until each stage passes. Video 686b4651 stays untouched; frame-level
+  spend on its scene 1 remains FROZEN.
 
 ### HARD CONSTRAINTS (all earned, all cost money to learn)
 - Do NOT split or re-derive video 686b4651. Re-deriving scenes runs
