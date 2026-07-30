@@ -616,3 +616,93 @@ parser unit test — that's what step 4 above is for); real `assets.transition_k
 whether the D12-2 render-layer consumption of `transition_kind` (explicitly out of scope for this
 chunk — data + warn checks only) will want the stored value in a different shape than "as
 authored, lowercased" once that chunk is built.
+
+---
+
+## D11-1 professional shot-archetype library (branch `d11-1-archetypes`) — apply migration 149 on next deploy window; confirm ARCHETYPE rows actually show up in a real plan, and that the planner's chosen ids land in the catalog
+
+**Built and tested in a worktree only — migration 149 was NOT applied to prod this session** (no
+prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every prior
+migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file error) —
+the "deferred" part is confirming it actually landed AND that a real planner call actually emits
+well-formed `ARCHETYPE: <id>` rows using ids that are IN `storyboard.shot_archetypes.
+SHOT_ARCHETYPES` (a prompt-only change; no test in this chunk calls the real Claude API — the
+whole point of rule 27 being OPTIONAL is the planner may simply never use it, which is fine, but
+if it DOES use it, the id vocabulary needs to actually match):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+scripts/se.sh db "SELECT column_name FROM information_schema.columns WHERE table_name='assets' AND column_name='shot_archetype'"
+# Expect one row back.
+
+# 3. Generate a real scene's coverage directive (any normal chat/coverage-build flow) and read
+#    the raw directive text (scripts/coverage_to_app.py writes it, or grab it from
+#    scripts.coverage_directive on the scene row) — look for ARCHETYPE: rows under some of the
+#    MASTER/ANGLE lines. Since rule 27 says "MAY", zero rows on any given scene is NOT a failure;
+#    the interesting failure mode is an ARCHETYPE row present with an id NOT in
+#    storyboard.shot_archetypes.SHOT_ARCHETYPES (the exact thing check_shot_archetype_valid warns
+#    on — check the coverage-run logs for "⚠️ shot-archetype check (D11-1)" lines).
+
+# 4. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and confirm
+#    the column actually populates:
+scripts/se.sh db "SELECT id, shot_type, shot_archetype FROM assets WHERE video_id='<vid>' AND scene=<n> ORDER BY image_index"
+# Expect shot_archetype populated (non-NULL) for whichever shots the planner chose to tag — very
+# likely a MINORITY of shots (optional, unlike PURPOSE/TRANSITION/CAUSED_BY), NULL is expected and
+# fine for the rest.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d11_1_shot_archetype.py` (27 tests) covers catalog integrity
+(`storyboard/shot_archetypes.py`: 45 unique ids across the six required categories — establishing/
+coverage/detail/angle/composition/specialty — every required text field non-empty, every
+`pairs_well_after` reference resolves to a real catalog id, `format_archetype_menu()` renders under
+an 8000-char budget at 5799 chars/~1450 tokens actual, `get_archetype()` case/whitespace tolerant),
+`parse_coverage`'s extraction of the per-shot `ARCHETYPE: <id>` row (lowercased, tolerant of bold,
+correctly independent when stacked with PURPOSE/TRANSITION/CAUSED_BY in ANY order — same
+latest-starting-candidate mechanism D9-6/D9-7 built, now handling four row types instead of three),
+BACKWARD COMPATIBILITY against ALL THREE prior directive eras (legacy zero-metadata-row `SAMPLE`,
+D9-1-era PURPOSE-only, D9-6/D9-7-era PURPOSE+TRANSITION+CAUSED_BY — all three byte-identical on
+shot_type/description, shot_archetype simply None), the new WARN gate `check_shot_archetype_valid`
+firing ONLY on an invalid catalog id — never on an absent one, since tagging is optional (unlike
+every prior D9-1/D9-6/D9-7 "present" check), `generate_coverage_frames` threading shot_archetype
+onto its frame dicts AND proof the id never reaches the actual image-generation prompt string,
+`enforce_setup_variety`'s content-swap carrying shot_archetype along with shot_type/description/
+purpose_kind/etc (same "travels with content, not position" judgment call as D9-1/D9-6/D9-7), and
+`plan_moments_deterministic` preserving shot_archetype end to end including a floor-added filler
+shot correctly landing with none. `storyengine/backend/tests/functional/test_d11_1_shot_archetype_
+stamp.py` (3 tests, new) proves `store_scene`'s INSERT stamps `shot_archetype` from a frame dict's
+field (present as the LAST positional param, NULL-default, independently per-shot within one
+moment) — same "store_scene is the one real stamping site" reasoning as D9-1/D9-6/D9-7.
+`storyengine/backend/tests/functional/test_d9_1_shot_purpose_stamp.py` (3 assertions) and
+`test_d9_6_7_transition_causality_stamp.py` (4 assertions) were UPDATED (not left broken): this
+chunk's migration 149 appends `shot_archetype` AFTER migration 148's caused_by in the INSERT's
+column list, which shifted their hardcoded negative-index positional assertions off target by one
+— caught by running both stamp tests after this chunk's change, fixed (`params[-5]`/`params[-4]` →
+`params[-6]`/`params[-5]` for D9-1's; `params[-3]/-2/-1` → `params[-4]/-3/-2` for D9-6/D9-7's) with
+comments explaining why, re-verified passing — same discipline D9-6/D9-7 itself used when it
+shifted D9-1's stamp test the same way one migration earlier. Real stash-proof (patch-file
+technique, never `git stash`, per tasks/lessons.md's fleet rule): `git diff --cached` of the full
+chunk (9 touched/new files) saved to a patch, `git apply -R` reverted the tree to byte-identical
+pre-chunk state (confirmed via `git status --short` empty), pipeline suite (`test_board_laws.py` +
+`test_d6_2_repair_stamps.py` + `test_coverage.py` + `test_d9_1_shot_purpose.py` +
+`test_d9_6_7_transition_causality.py`) back to 190/190 passing reverted, full backend suite
+(`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against worktree code) 29
+failed / 3946 passed / 4 skipped reverted — sorted FAILED-test-name sets diffed byte-identical
+(empty diff) against this chunk's own applied-state run (29 failed / 3949 passed — the +3 delta is
+exactly this chunk's own new `test_d11_1_shot_archetype_stamp.py` tests) — then the patch
+forward-applied cleanly (`git apply`, no conflicts) to restore the chunk. `schema.sql`'s `assets`
+table updated with the new `shot_archetype` column, comment cross-referencing migration 149.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether Claude ever spontaneously reaches for the ARCHETYPE row at all given it's purely optional
+(rule 27 says "MAY", so a real planner might simply never use it — that's a legitimate outcome, not
+a bug, but it also means the catalog's real-world value is unproven until a session watches actual
+plans use it); whether the ids Claude picks, when it does tag a shot, cluster sensibly by category
+or drift toward a handful of favorites; and whether `check_shot_archetype_valid`'s WARN-only
+posture should be promoted to a hard gate once that track record exists (explicitly flagged as
+hard-eligible under Ruling 1 in the check's own docstring, but promotion is a separate, deliberate
+call, not automatic).
