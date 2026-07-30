@@ -1117,3 +1117,123 @@ RECIPE:
     whose sheet preview shows the canonical map correctly can still have its real
     drawn pictures stamped with the LLM's paraphrase instead. This is the
     concrete "where I would split it" boundary for a D6-1b follow-up.
+
+## D6-3 — STORY-LAWS S3 (2026-07-29)
+
+Everything provable read-only or by mock was proven in the D6-3 report (25 new tests in
+`backend/tests/test_d6_3_story_law_s3.py`, stash-proof, full suite at baseline). These
+four things need a live LLM call, a prod migration, or a downstream consumer that does
+not exist yet, so none of them could be verified this chunk under the zero-spend /
+no-prod-mutation constraint.
+
+### 1. Migration 144 has never actually run against any database
+PROOF LEVEL REACHED: static SQL review only (`ADD COLUMN IF NOT EXISTS`, idempotent,
+matches migration 141's shape). No local Postgres exists in this repo to apply it to
+(no conftest.py DB fixture, no DATABASE_URL in the dev environment) — confirmed by
+grepping the backend for a local DB harness before concluding this.
+NOT PROVEN: the migration actually applies cleanly to the real schema.
+RECIPE:
+  1. `se db "SELECT column_name FROM information_schema.columns WHERE table_name='scripts' AND column_name='location'"` — expect zero rows before migration 144 runs.
+  2. Apply migration 144 through the normal deploy path (never by hand).
+  3. Re-run the same query — expect one row, `location`.
+  4. `se db "SELECT scene, location FROM scripts WHERE video_id='686b4651-e495-44be-baf6-97fc6dd527e9' ORDER BY scene"` — expect all 6 rows with `location = NULL`, unchanged from before the migration (proves the NULL-safety claim against the real column, not just by grep-absence-of-consumers).
+
+### 2. Does the model actually comply with the LOCATION: header when asked for real?
+PROOF LEVEL REACHED: the prompt text is in place and reaches all three generation call
+sites (see report). No real Claude call was made — that would spend money and this
+chunk is zero-spend.
+NOT PROVEN: real generation output actually opens each scene with `LOCATION: <place>`
+at a rate high enough that the GATE rarely fires on legitimate videos, rather than
+constantly blocking generation on `needs_review`.
+RECIPE:
+  1. Generate a script on a cheap/short test video via each of the two generation paths
+     (`script` verb on a short animated/narrative video for path a; a modeled/style-
+     replicated video for path b).
+  2. `se db "SELECT scene, location, left(scene_text,80) FROM scripts WHERE video_id='<id>' ORDER BY scene"`.
+  3. EXPECTED: every row has a non-NULL `location`, and `scene_text` never contains the
+     literal string "LOCATION:" (proves the header was both supplied and stripped).
+  4. If violations are common, the GATE is doing its job (S3 is enforced) but the PROMPT
+     leg's wording may need tightening — that would be a follow-up chunk, not a D6-3 bug.
+
+### 3. static_docu is deliberately exempted from S3 — is that the right call?
+PROOF LEVEL REACHED: `_resplit_static_scenes` (pipeline_executor.py) rewrites static-docu
+scripts rows AFTER path (a)'s act-based generation already ran `create_script_record`
+(which DOES extract a location) — the resplit's raw INSERT never carries a `location`
+forward, and D6-3 deliberately did not touch it, reasoning that a static documentary's
+"scenes" are one-machine unit paragraphs (product reviews), not physical locations, so
+S3 doesn't obviously apply. This reasoning was not checked against a real static_docu
+script's actual content.
+NOT PROVEN: whether static_docu content ever legitimately needs S3 (e.g., a documentary
+that stages each machine in a different room/environment, where "location" would matter
+for the board layer's L3 after all).
+RECIPE:
+  1. Read 3-5 real static_docu scripts' scene_text (`se db "SELECT scene_text FROM
+     scripts s JOIN videos v ON v.id=s.video_id WHERE v.render_mode='static_docu' ORDER BY random() LIMIT 5"`).
+  2. If they never describe a physical setting, the exemption stands as documented.
+  3. If they DO (e.g. "In the kitchen, the blender..."), file a follow-up chunk to extend
+     the LOCATION header + gate to `_resplit_static_scenes` too.
+
+### 4. Board/render live walkthrough with a NULL-location video after S5 wires it in
+NOT APPLICABLE YET — no board or render code reads `scripts.location` as of this
+commit (verified by grep, see report's NULL-safety proof), so there is nothing to
+walk yet. This entry is a placeholder for whichever chunk wires L3 (BOARD-LAWS.md) to
+this column: at that point, re-run the "run it like a user" board/render walk on an
+existing pre-migration video (location=NULL on every scene) and confirm boards/renders
+exactly as before.
+
+## D6-3b — independent-verifier fixes (2026-07-29)
+
+An independent verifier ran the D6-3 gate live and found four real defects (false
+"checked before any DB write" claim for path (a), needs_review silently persisting as
+"completed" through the arq worker path, cross_location_text hard-blocking on legal
+prose like S1-required transit sentences, and a fourth ungated writer). All fixed on
+the same branch except item 5 below, which is filed as its own chunk.
+
+### 5. The fourth writer — `custom_film_production_runner.py`'s `_script` method — is UNGATED, filed as its own chunk
+STOPPED rather than implemented: this is the Custom Film / Director Loop generation
+path (~700-line method spanning roughly lines 3859-4560), with its own whole-arc AV
+screenplay contract, per-section continuity validation across the whole arc
+(`_validate_custom_film_av_arc`), dialogue-segment extraction, bilingual/dubbing
+language-mode branching, and placeholder/language-tag normalization passes that all
+run on `script_text` BEFORE the `INSERT INTO scripts` at line ~4535. Bolting on a
+LOCATION-header requirement safely means understanding how it interacts with EVERY
+one of those transformations (would a stripped header confuse
+`_remove_custom_film_av_empty_audible_placeholders` or
+`_canonicalize_custom_film_av_language_tags`? does "scene" here mean the same thing
+as `request.section_id`, given the whole-arc barrier operates across MULTIPLE
+sections at once?) — genuinely a separate chunk's worth of investigation, not a
+same-day addition. `scripts.location` stays NULL for every row this path writes,
+which is safe (nullable, unread column) but means S3 does not reach it.
+RECIPE for the follow-up chunk:
+  1. Read `_script` in full (`storyengine/backend/custom_film_production_runner.py`,
+     starts ~line 3859) and `_validate_custom_film_av_arc` to establish whether
+     "section" (`request.section_id`) is the right unit to attach a `location` to,
+     or whether Custom Film scenes are sub-divided further downstream.
+  2. Confirm whether the AV screenplay's dialogue-segment/language-tag/placeholder
+     passes would strip or mangle a `LOCATION:` header line if the prompt asked for
+     one — test against a real (or synthetic) AV screenplay sample before adding it
+     to the live prompt.
+  3. Only then add the PROMPT text (reuse `story_laws.SCENE_LOCATION_LAW` — do not
+     hand-roll a copy), the parser (`story_laws.extract_scene_location`) before the
+     INSERT, the `location` column on the INSERT, and the GATE
+     (`story_laws.check_scene_location_law`) at whatever point in this path mirrors
+     "before any DB write, per-section" or "after write with cleanup," matching
+     whichever write-ordering is actually true here (do not assume — verify, the
+     way D6-3b had to correct D6-3's wrong assumption for path (a)).
+
+### 6. Live end-to-end proof that a real `needs_review` script surfaces through the UI via the arq path
+PROOF LEVEL REACHED: unit-level, `worker.py`'s `_run_stage` proven directly (mocked
+`PipelineExecutor.run_script` returning `needs_review`, asserts `db_persist_task` is
+called with `status="failed"` and the violation text as `error`, not `"completed"`).
+NOT PROVEN: that a real arq-queued job (Redis up, a genuine S3-violating script) ends
+with a `background_tasks` row a real frontend poller reads as "this failed, here's
+why" rather than silently showing nothing changed.
+RECIPE:
+  1. With Redis running locally (`arq storyengine.backend.worker.WorkerSettings`),
+     enqueue a `script` job for a cheap test video where the writer's response is
+     forced/mocked to omit LOCATION headers (or use a fixture script known to
+     violate S3).
+  2. `se db "SELECT status, error_message FROM background_tasks WHERE video_id='<id>' ORDER BY created_at DESC LIMIT 1"`.
+  3. EXPECTED: `status = 'failed'`, `error_message` contains the S3 violation text
+     (not a generic exception string), and `videos.status` never advanced past
+     `ready_for_scripting`.
