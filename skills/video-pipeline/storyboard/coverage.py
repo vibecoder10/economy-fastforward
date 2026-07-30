@@ -3190,6 +3190,30 @@ async def resolve_cast_url(cast_url, image_client, *, cast_prompt=None, story_bi
     return url
 
 
+# Rule 4b PROMISES the planner a bridge moment is additive ("if a location
+# change needs one, plan one more moment than the stated cap"), so the moment
+# cap below counts NARRATED moments only. Runaway brake: a scene legitimately
+# needs one bridge per location change (two covers an A→B→C scene), and past
+# that it's a planner slip tagging everything — an exempt moment is real image
+# spend, so extra bridges go back to competing for cap slots like any other
+# moment.
+_MAX_EXEMPT_BRIDGES = 2
+
+
+def _is_bridge_moment(m) -> bool:
+    """True when this moment carries rule 4b's "(BRIDGE)" tag — the extra
+    transition moment that shows HOW the characters got from one location to
+    the next. Rule 4b puts the tag on the MASTER, but a slip that tags an
+    angle instead still describes a location change, so this reads the same
+    master-plus-angles span scene_has_motion does (via the same _shot_tag
+    reader) — the moment-level detector and the scene-level one can never
+    disagree about which moments are bridges."""
+    for shot in [m.get("master") or {}, *(m.get("angles") or [])]:
+        if _shot_tag(shot) == "BRIDGE":
+            return True
+    return False
+
+
 def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
                         max_frames: int = None) -> list:
     """HARD shot budget (D1): the directive prompt ASKS for at most max_moments
@@ -3199,16 +3223,53 @@ def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
     the cap. Dialogue lines are never lost — the caller's reconcile folds
     overflow turns onto the last speaking shot.
 
+    BRIDGE moments are EXEMPT from the moment cap (D6-6a). Rule 4b tells the
+    planner in writing that a bridge is ADDITIVE — "it does NOT count against
+    the {max_moments} cap above ... plan one more moment than the stated cap" —
+    and rule 4b's own example puts the bridge at the location change, which on
+    a scene that CLOSES on one lands past the cutoff. A blunt tail slice
+    therefore silently deleted exactly the moment the prompt had just promised
+    was free: found live on a 3-moment "escape" scene whose 4th moment WAS the
+    escape, so the scene never showed the character get out. The cap now counts
+    narrated moments only, so the two legs of the contract agree.
+
+    A bridge stays exempt only while it still sits BETWEEN two kept moments
+    (rule 4b's own definition: inserted "BETWEEN the last narrated moment at
+    the old location and the first narrated moment at the new one"). Once the
+    moment before it has been trimmed away, it leads out of a location the cut
+    never reaches — it stops being a bridge and goes back to needing a cap slot
+    like any other moment.
+
     max_frames (optional) is a TOTAL frame ceiling on top of the per-moment
     caps (Ryan's channel pacing rule, e.g. ≤40 shots for a ~2-min film):
     angles are stripped from the tail moments first — masters (the lip-sync
-    units and story beats) are never sacrificed for an angle."""
+    units and story beats) are never sacrificed for an angle. It is a hard
+    provider ceiling (the Custom Film BOM path passes max_frames == the
+    approved count) and the bridge exemption does NOT pierce it: an additive
+    bridge that pushes a scene over max_frames is still trimmed back by the
+    ceiling pass below, exactly as today."""
     planned = sum(1 + len(m.get("angles") or []) for m in moments)
     for m in moments:
         if isinstance(m.get("angles"), list) and len(m["angles"]) > angles_max:
             m["angles"] = m["angles"][:angles_max]
-    if len(moments) > max_moments:
-        moments = moments[:max_moments]
+    kept: list = []
+    narrated = 0        # moments that have consumed a cap slot
+    bridges_exempt = 0
+    prev_kept = True    # a bridge at index 0 has no earlier moment to bridge FROM
+    for m in moments:
+        if (_is_bridge_moment(m) and prev_kept
+                and bridges_exempt < _MAX_EXEMPT_BRIDGES):
+            kept.append(m)
+            bridges_exempt += 1
+            continue
+        if narrated < max_moments:
+            kept.append(m)
+            narrated += 1
+            prev_kept = True
+        else:
+            prev_kept = False
+    if len(kept) < len(moments):
+        moments = kept
         for i, m in enumerate(moments, start=1):
             m["moment_number"] = i
     if max_frames:
@@ -3225,6 +3286,12 @@ def enforce_shot_budget(moments: list, max_moments: int, angles_max: int,
         print(f"  [budget] planner wanted {planned} frames — trimmed to {budgeted} "
               f"(max {max_moments} moments, {angles_max} angles each"
               + (f", {max_frames} frames total" if max_frames else "") + ")", flush=True)
+    if bridges_exempt and len(moments) > max_moments:
+        # Say it out loud: the scene is over its stated moment cap ON PURPOSE,
+        # so a reader of the logs never mistakes an additive bridge for the
+        # budget leaking (no-silent-caps, in reverse).
+        print(f"  🌉 {bridges_exempt} BRIDGE moment(s) kept as ADDITIVE (rule 4b) — "
+              f"{len(moments)} moments against a {max_moments} narrated cap", flush=True)
     return moments
 
 

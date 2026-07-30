@@ -762,6 +762,125 @@ def test_bridge_contract_present_for_both_dialogue_and_silent_call_shape():
     # above (one system_prompt build, used for both).
 
 
+# ---- D6-6a: the BUDGET leg must honor the PROMPT leg's additive promise ----
+# Rule 4b tells the planner a bridge moment doesn't count against max_moments.
+# enforce_shot_budget used to slice the tail off anyway, so on a scene that
+# CLOSES on a location change (rule 4b's own example placement) the promised-
+# free moment was the one deleted. Found live on a 3-moment "escape" scene
+# whose 4th moment WAS the escape.
+
+
+def _budget_moment(n: int, desc: str, angles: int = 0) -> dict:
+    """One parsed-shape moment for enforce_shot_budget: a master plus `angles`
+    plain angles. desc goes on the MASTER's description, which is where rule
+    4b puts the "(BRIDGE)" tag."""
+    return {
+        "moment_number": n,
+        "summary": f"m{n}",
+        "master": {"shot_type": "MS", "description": desc},
+        "angles": [{"shot_type": "CU", "description": f"angle {i} of m{n}"}
+                   for i in range(angles)],
+    }
+
+
+def test_bridge_moment_past_the_cap_survives_the_budget():
+    """THE regression: a 4-moment escape scene against max_moments=3 whose
+    4th moment is the BRIDGE. Today's blunt moments[:3] dropped it, so the
+    scene never showed the character get out."""
+    moments = [_budget_moment(1, "(SETUP A) Nyla wakes in her pod."),
+               _budget_moment(2, "(SETUP B) She whispers to herself."),
+               _budget_moment(3, "(SETUP C) She presses the hatch release."),
+               _budget_moment(4, "(SETUP F)(BRIDGE) Nyla climbs out into the corridor.")]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None)
+    descs = [m["master"]["description"] for m in out]
+    assert len(out) == 4, f"BRIDGE moment was trimmed away: {descs}"
+    assert "(BRIDGE)" in descs[-1], descs
+    # every narrated moment survives too — the bridge is ADDITIVE, it does not
+    # buy its slot by evicting one of them
+    assert "wakes in her pod" in descs[0] and "hatch release" in descs[2], descs
+    # renumbering still runs over the kept sequence
+    assert [m["moment_number"] for m in out] == [1, 2, 3, 4]
+
+
+def test_non_bridge_overshoot_still_trims_exactly_as_before():
+    """The exemption must not become a general amnesty: an ordinary overshoot
+    with no BRIDGE tag anywhere trims to the cap and renumbers, unchanged."""
+    moments = [_budget_moment(i, f"(SETUP A) plain beat {i}") for i in range(1, 8)]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None)
+    assert len(out) == 3
+    assert [m["moment_number"] for m in out] == [1, 2, 3]
+    assert "plain beat 3" in out[-1]["master"]["description"]
+
+
+def test_bridge_exemption_does_not_pierce_the_max_frames_ceiling():
+    """max_frames is a hard provider ceiling (the Custom Film BOM path passes
+    max_frames == the approved image count). An additive bridge may exceed the
+    MOMENT cap but never the FRAME ceiling — the ceiling pass still trims it
+    back, exactly as today."""
+    moments = [_budget_moment(1, "(SETUP A) beat one"),
+               _budget_moment(2, "(SETUP B) beat two"),
+               _budget_moment(3, "(SETUP C) beat three"),
+               _budget_moment(4, "(SETUP F)(BRIDGE) out into the corridor.")]
+    out = enforce_shot_budget(moments, 3, 0, max_frames=3)
+    frames = sum(1 + len(m.get("angles") or []) for m in out)
+    assert frames == 3, f"bridge pierced the paid frame ceiling: {frames}"
+
+
+def test_bridge_exemption_caps_a_runaway_tagger():
+    """A planner that tags EVERY moment "(BRIDGE)" must not buy an unbounded
+    scene — each exempt moment is real image spend. Past _MAX_EXEMPT_BRIDGES
+    the extras compete for cap slots like any other moment."""
+    from storyboard.coverage import _MAX_EXEMPT_BRIDGES
+    moments = [_budget_moment(i, f"(SETUP A)(BRIDGE) bridge {i}") for i in range(1, 10)]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None)
+    assert len(out) == 3 + _MAX_EXEMPT_BRIDGES, len(out)
+
+
+def test_bridge_orphaned_by_the_trim_is_not_exempt():
+    """Rule 4b defines a bridge as sitting BETWEEN the last moment at the old
+    location and the first at the new one. A bridge whose predecessor was
+    already trimmed away bridges out of a location the cut never reaches, so
+    it stops being additive and needs a slot like anything else."""
+    moments = [_budget_moment(1, "(SETUP A) beat one"),
+               _budget_moment(2, "(SETUP B) beat two"),
+               _budget_moment(3, "(SETUP C) beat three"),
+               _budget_moment(4, "(SETUP D) beat four"),
+               _budget_moment(5, "(SETUP E) beat five"),
+               _budget_moment(6, "(SETUP F)(BRIDGE) orphaned bridge")]
+    out = enforce_shot_budget(moments, 3, 3, max_frames=None)
+    assert len(out) == 3, [m["master"]["description"] for m in out]
+    assert all("(BRIDGE)" not in m["master"]["description"] for m in out)
+
+
+def test_bridge_exemption_reaches_both_draw_paths():
+    """Both the $0.05 sheet PREVIEW path and the real per-shot PICTURES path
+    plan through plan_moments_deterministic -> enforce_shot_budget, so proving
+    it on the shared pipeline proves it for both doors at once (that is the
+    whole point of C7 fix (a)'s single pipeline)."""
+    directive = (
+        "[SETUPS | A: wide of the pod; C: MCU on the release; F: corridor wide]\n"
+        "[MOMENT 1 | Nyla wakes]\n"
+        "- MASTER [WS]: (SETUP A) Nyla wakes in her pod.\n"
+        "- ANGLE [MCU]: (SETUP C) MCU on her open eyes.\n"
+        "[MOMENT 2 | she whispers]\n"
+        "- MASTER [MS]: (SETUP A) She whispers to herself.\n"
+        "- ANGLE [CU]: (SETUP C) CU on her mouth.\n"
+        "[MOMENT 3 | the release]\n"
+        "- MASTER [MS]: (SETUP C) She presses the hatch release.\n"
+        "- ANGLE [ECU]: (SETUP A) ECU on the latch turning.\n"
+        "[MOMENT 4 | out into the corridor]\n"
+        "- MASTER [WS]: (SETUP F)(BRIDGE) Nyla climbs out into the corridor.\n"
+        "- ANGLE [MS]: (SETUP F) She looks back at the open hatch.\n"
+    )
+    moments = plan_moments_deterministic(directive, 3, 3, max_frames=None)
+    assert moments is not None
+    descs = [m["master"]["description"] for m in moments]
+    assert any("(BRIDGE)" in d for d in descs), descs
+    # and the scene-level motion detector agrees the escape is still in the plan
+    from storyboard.coverage import scene_has_motion
+    assert scene_has_motion(moments)
+
+
 def test_rule5_dialogue_order_unchanged_by_bridge_restructure():
     """Guard against the restructure bleeding into rule 5 (dialogue speaker
     order) — must stay byte-identical in substance."""
