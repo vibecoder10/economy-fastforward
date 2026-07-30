@@ -1579,6 +1579,68 @@ async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_i
     return {"status": "ok", "video_id": video_id}
 
 
+def _full_script_hash(text: str) -> str:
+    """Same normalize-then-sha1 shape as scripts/coverage_to_app.py's
+    _scene_text_hash (whitespace-collapsed before hashing, so a re-wrap or a
+    stray space never counts as a "real" change) — applied to the FULL
+    videos.script text rather than one scene. D7-2 (STORY-LAWS S6): this is
+    what characters_hash/environments_hash pin video_characters/
+    video_environments to, so a script rewrite can be detected later."""
+    import hashlib
+    return hashlib.sha1(" ".join((text or "").split()).encode()).hexdigest()
+
+
+async def _flag_stale_cast_and_environments(video_id: str, tenant_id: str) -> None:
+    """D7-2 (STORY-LAWS S6 — a real production video rendered characters from
+    a script that didn't yet contain them): after ANY write to videos.script,
+    compare its current hash against characters_hash/environments_hash — the
+    hash of the script text design_characters / run_environments_design_step
+    actually generated the current cast/environments FROM (stamped at
+    generation time, see routes/characters.py::design_characters and
+    routes/environments.py::run_environments_design_step). On a mismatch,
+    flag every video_characters/video_environments row for this video
+    status='stale' — NEVER delete; a wrong deletion re-triggers a real-money
+    redraw. A family with no stamp yet (characters_hash/environments_hash
+    still NULL — nothing generated, or generated before this migration) is
+    left alone: nothing to compare against, nothing to flag.
+
+    This is the ONE place the recompute-and-compare runs. Callers: this
+    module's own sync_video_script (the D7-1/D7-1b choke point already
+    shared by update_scene_text, rewrite_scene_text and chat.py's
+    _apply_prompt_draft), the Drive pull-sync path below, and the two
+    pipeline/Custom-Film inline-sync sites that write videos.script directly
+    without going through sync_video_script (pipeline_executor.py's
+    _save_machine_script_block, custom_film_production_runner.py's _script).
+
+    Advisory-only, same contract as update_scene_text's S1/S3 re-check
+    above: a failure here (unreachable DB, etc.) must never block the script
+    write that triggered it."""
+    try:
+        row = await fetch_one(
+            "SELECT script, characters_hash, environments_hash FROM videos "
+            "WHERE id = $1 AND tenant_id = $2",
+            video_id, tenant_id,
+        )
+        if not row:
+            return
+        current_hash = _full_script_hash(row.get("script") or "")
+        if row.get("characters_hash") and row["characters_hash"] != current_hash:
+            await execute(
+                "UPDATE video_characters SET status = 'stale', updated_at = now() "
+                "WHERE video_id = $1 AND tenant_id = $2 AND status != 'stale'",
+                video_id, tenant_id,
+            )
+        if row.get("environments_hash") and row["environments_hash"] != current_hash:
+            await execute(
+                "UPDATE video_environments SET status = 'stale', updated_at = now() "
+                "WHERE video_id = $1 AND tenant_id = $2 AND status != 'stale'",
+                video_id, tenant_id,
+            )
+    except Exception:  # noqa: BLE001 — advisory only, must never block the write
+        logger.warning("D7-2 staleness flag failed for video %s (advisory, ignored)",
+                       video_id, exc_info=True)
+
+
 async def sync_video_script(video_id: str, tenant_id: str) -> list:
     """Recompute videos.script from scripts.scene_text. videos.script is not
     just the display/export copy — it is the ONLY thing routes/characters.py
@@ -1593,13 +1655,18 @@ async def sync_video_script(video_id: str, tenant_id: str) -> list:
     THIRD ungated `scripts.scene_text` writer D7-1's sweep found) needed the
     same fix — three verbatim copies crossed the line into "extract it."
     Returns the fetched rows so a caller that also needs them for a
-    story-law re-check (rewrite_scene_text) doesn't have to re-query."""
+    story-law re-check (rewrite_scene_text) doesn't have to re-query.
+
+    D7-2: also the single choke point for the cast/environments staleness
+    flag (_flag_stale_cast_and_environments) — every writer that funnels
+    through here gets it for free."""
     sync_rows = await fetch_all(
         "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
         "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
     await execute(
         "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id, "\n\n".join(r["scene_text"] for r in sync_rows))
+    await _flag_stale_cast_and_environments(video_id, tenant_id)
     return sync_rows
 
 
@@ -2996,6 +3063,10 @@ async def sync_script_from_drive(
             "UPDATE videos SET script = $1, updated_at = now() WHERE id = $2 AND tenant_id = $3",
             full, video_id, tenant_id,
         )
+        # D7-2 (S6): this writes videos.script directly rather than going
+        # through sync_video_script above, so it needs its own call to the
+        # same staleness check.
+        await _flag_stale_cast_and_environments(video_id, tenant_id)
 
     # Mark this Drive version consumed (runs last so synced_at > scripts.updated_at).
     await execute(

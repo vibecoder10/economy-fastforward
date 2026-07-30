@@ -330,9 +330,19 @@ async def design_characters(
                 "AND source = 'generated' AND status = 'draft'",
                 video_id, tenant_id,
             )
+            # D7-2 (STORY-LAWS S6): stamp the hash of the script THIS cast was
+            # just extracted from (video.get("script"), the same text
+            # _extract_cast above read) — one hash per video, rewritten every
+            # time the cast is (re)designed. routes/videos.py's
+            # sync_video_script (and its two inline-sync siblings) compares
+            # against this on every future script write and flags
+            # video_characters.status = 'stale' on a mismatch, never
+            # deleting anything.
+            from routes.videos import _full_script_hash
             await execute(
-                "UPDATE videos SET characters_approved_at = NULL WHERE id = $1 AND tenant_id = $2",
-                video_id, tenant_id,
+                "UPDATE videos SET characters_approved_at = NULL, characters_hash = $3 "
+                "WHERE id = $1 AND tenant_id = $2",
+                video_id, tenant_id, _full_script_hash(video.get("script") or ""),
             )
 
             done = 0
