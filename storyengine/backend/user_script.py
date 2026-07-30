@@ -194,6 +194,14 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
         {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
         for i, s in enumerate(scenes, start=1)
     ])
+    # D6-4 (S1 GATE leg) — same WARN, NEVER BLOCK treatment. S1 has no hard
+    # leg anywhere (see story_laws.check_location_transit_law's docstring),
+    # so there's nothing new to reconcile with "creator's word is final" —
+    # it was already always going to be advisory-only.
+    s1_check = story_laws.check_location_transit_law([
+        {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
+        for i, s in enumerate(scenes, start=1)
+    ])
 
     full_script = "\n\n".join(s["text"].strip() for s in scenes)
     new_status = PipelineExecutor._skip_disabled_next(dict(video), "ready_for_voice")
@@ -210,6 +218,11 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
             "passed": False, "advisory": True,
             "violations": law_check["violations"],
             "warnings": law_check["warnings"],
+        }
+    if s1_check["warnings"]:
+        validation["story_law_s1"] = {
+            "passed": False, "advisory": True,
+            "warnings": s1_check["warnings"],
         }
     await execute(
         """UPDATE videos SET script = $1, script_source = 'user_supplied',
@@ -370,6 +383,16 @@ async def accept_external_script(
             "rule_verdicts": [],
         }
 
+    # D6-4 (S1 GATE leg) — warn-only, permanently (no hard leg exists for
+    # S1 — see story_laws.check_location_transit_law's docstring). Only
+    # computed once S3 has already passed (every scene has a location), so
+    # the cross-scene comparison is meaningful; merged into the `warnings`
+    # list below alongside S3's own cross_location_text warnings.
+    s1_check = story_laws.check_location_transit_law([
+        {"scene": s["scene"], "location": s.get("location"), "scene_text": s["text"]}
+        for s in normalized
+    ])
+
     client = None
     try:
         from kie_unified import get_text_client_for_tenant
@@ -427,7 +450,12 @@ async def accept_external_script(
     s3_warnings = [
         f"scene {w['scene']}: {w['detail']}" for w in law_check["warnings"]
     ]
-    warnings = warnings + s3_warnings
+    # D6-4: S1's unnarrated-location-change warnings, same non-blocking
+    # treatment as S3's cross_location_text warnings just above.
+    s1_warnings = [
+        f"scene {w['scene']}: {w['detail']}" for w in s1_check["warnings"]
+    ]
+    warnings = warnings + s3_warnings + s1_warnings
 
     from pipeline_executor import PipelineExecutor
     new_status = PipelineExecutor._skip_disabled_next(dict(video), "ready_for_voice")

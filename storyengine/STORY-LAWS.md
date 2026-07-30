@@ -27,6 +27,22 @@ getting out — so the board drew no exit and the film cut from inside to outsid
 with nothing between. Two scenes later the same character was back inside, again
 with no sentence for returning.*
 
+**S1's hard/warn split (D6-4 ruling — this is what actually shipped, read it
+before assuming S1 is a single check):** S1 is two questions, and Ruling 1 (a
+gate may only be HARD when what it compares is CANONICAL) puts them on opposite
+sides of the line. "Does scene N's location differ from scene N-1's?" compares
+two CANONICAL COLUMN values (`scripts.location`) — reliable, and eligible to be
+hard. But a location changing between scenes is not itself a defect; stories are
+supposed to move characters around, so nothing is ever blocked on that fact
+alone. "Was a transit actually narrated?" is inherently PROSE detection — there
+is no reliable way to recognise a narrated threshold in free text, and a real
+transit written in words the checker doesn't recognise must never be punished
+as if it were missing. Per Ruling 1 this MUST warn, always, permanently. So: the
+location-change comparison is canonical and reliably computed, but the only
+thing that check can ever report is a WARNING, never a block — see
+`backend/story_laws.py`'s `check_location_transit_law` for the implementation
+and the same ruling spelled out in code.
+
 ## S2 — A PAYOFF MUST BE PAID FOR EARLIER
 
 A theme asserted in the closing scene has to be bought by a cost the character
@@ -85,6 +101,21 @@ loses continuity.
 three generic elders in different wardrobe entirely, so the dialogue's visual
 identity did not match the words being spoken.*
 
+**S4 gets a PARTIAL, warn-only gate (D6-4) — not a full one, and it never can
+be.** `video_characters.name` IS a real canonical column, but the other side of
+the comparison is the script's free text, and matching a canonical name against
+prose is still fundamentally a prose search — a script can legitimately
+describe a character without ever using their sheet name ("a woman in gold"
+instead of "Elder Mara"). Per Ruling 1 that can only ever warn. What's built
+(`backend/story_laws.py`'s `check_cast_consistency_law`) flags two directions:
+a cast member never named anywhere in the script, and a dialogue speaker in the
+script with no matching cast entry. It does NOT and cannot decide which side is
+right — that is a human call. **This is the exact still-open case from
+HANDOFF.md: the script says "a woman in gold" and "an old man," the board cast
+three named navy-suited elders. The check will flag that mismatch. Ryan still
+owes a ruling on which one is canonical for that video — this chunk does not
+resolve it, only surfaces it.**
+
 ## S5 — A SCENE STATES WHERE IT IS
 
 Every scene names its location explicitly in its own text, even when it is the
@@ -96,6 +127,20 @@ and a guess becomes a set.
 previous scene had moved the character somewhere else entirely — the planner had
 no way to know which set to build.*
 
+**S5 was already fully implemented by D6-3 — D6-4 found this, built nothing new,
+and is only correcting the record.** S5's full text ("every scene names its
+location... even when unchanged from the scene before") is EXACTLY what a hard,
+per-scene, no-exception `location IS NOT NULL` check enforces — it never makes an
+exception for "same location as before," so it already satisfies S5's own
+"even when unchanged" clause. That check is `story_laws.check_scene_location_law`'s
+`no_location` leg, described under S3 below. All three legs already existed
+before D6-4: PROMPT (`SCENE_LOCATION_LAW` requires a header on every scene, not
+just changed ones), GATE (`no_location`, unconditional), REPAIR
+(`edit_scene_text`/`regenerate_scene_text` carry the column forward and
+re-check). No separate S5 function or test file exists, and none should be
+added — see `backend/story_laws.py`'s module docstring for the same note in
+code.
+
 ---
 
 ## How a law becomes behaviour
@@ -105,17 +150,31 @@ commit — the contract triangle this project already enforces:
 
 1. **PROMPT** — the law's text enters the script generator's system prompt, so
    scripts are written to satisfy it in the first place.
-2. **GATE** — a deterministic check that flags or rejects a script violating it
-   (S1: does a scene's location differ from the previous scene's with no transit
-   sentence? S3: does every scene declare a location — hard; does a scene's text
-   also name another scene's declared location — warn-only, never hard, because
-   that check compares prose to prose and directly conflicts with what S1
-   requires an outgoing scene's text to contain, see S3's entry above. S5: does
-   every scene name a location?). A gate may only be hard when the thing it
-   compares against is canonical (a column, not prose) — where no deterministic
-   check is feasible, or where the comparison is inherently prose-to-prose, say
-   so in the commit and make it advisory rather than pretending a hard gate
-   exists.
+2. **GATE** — a deterministic check that flags or rejects a script violating it.
+   A gate may only be HARD (blocking) when the thing it compares is CANONICAL
+   (a column, not prose); a prose-vs-prose comparison must WARN, never block.
+   Where no deterministic check is feasible at all, say so in the commit and
+   admit the gap rather than pretending a check exists. Per-law shape:
+   - **S1** (narrate every location change): does scene N's `location` column
+     differ from scene N-1's (canonical, reliably computed) — but that fact
+     alone is never a defect, so nothing is ever blocked on it. Was a transit
+     actually narrated — inherently prose, so this can only ever warn. See
+     S1's own entry above for the full split.
+   - **S2** (a payoff must be paid for earlier): NO deterministic check exists,
+     none is planned. Judgement about dramatic structure, not a fact any
+     column or reliable text pattern can verify.
+   - **S3** (one scene, one location): does every scene declare a location —
+     hard (`no_location`); does a scene's text also name another scene's
+     declared location — warn-only, never hard, because that check compares
+     prose to prose and directly conflicts with what S1 requires an outgoing
+     scene's text to contain (see S3's entry above).
+   - **S4** (script is the source of truth for cast): PARTIAL, warn-only. One
+     side (`video_characters.name`) is canonical, but matching it against the
+     script's free text is still a prose search, so this can never be hard.
+     See S4's own entry above.
+   - **S5** (a scene states where it is): already fully satisfied by S3's own
+     `no_location` check — hard, unconditional, no separate check exists or
+     should exist. See S5's own entry above.
 3. **REPAIR** — the law's text is carried into the artifact the next stage reads,
    so a regeneration or a manual edit inherits the rule instead of reverting.
 
@@ -156,17 +215,82 @@ location forward via `COALESCE(new, existing)`, and D6-3b added a post-write re-
 (warn-only, returned as `story_law_s3_warnings`) so an edit that reintroduces a
 violation is visible rather than silently undetected.
 
-Known gaps, not silently pretended away:
-- `static_docu` (product-roundup format) is exempted from the gate — see
+Known gaps, not silently pretended away (carried from D6-3, still true):
+- `static_docu` (product-roundup format) is exempted from the S3 gate — see
   `tasks/deferred-verification.md`'s D6-3 section, item 3, for why and how to re-check it.
+  S1's gate is never reached there either, for the same reason (no location concept).
 - A FOURTH writer to `scripts`, `custom_film_production_runner.py`'s `_script` method
   (~700 lines, whole-arc AV screenplay contract, dialogue segments, language/dubbing
-  modes), does not import `story_laws` at all — S3 does not reach it. Judged genuinely
-  large rather than a small addition (see D6-3b's report); flagged for its own chunk,
-  not silently left uncovered.
+  modes), does not import `story_laws` at all — S3 does not reach it, and neither does
+  S1 (D6-4 built on the exact same three paths D6-3 reached, no more, no less). Judged
+  genuinely large rather than a small addition (see D6-3b's report); flagged for its own
+  chunk (D6-3f), not silently left uncovered.
+- Migration 144 (`scripts.location`) had NOT been applied to the production database as
+  of this chunk (`se db` confirmed the column doesn't exist yet on prod — `\d scripts`
+  shows no `location` column) — expected, since S3/D6-3 has not been deployed
+  (`se deploy`) yet, and this chunk is under the same zero-deploy constraint. The
+  migration auto-applies on the next backend restart (`main.py`'s `_run_pending_
+  migrations`, best-effort at startup). Until that deploy happens, EVERY scene in
+  production has `location = NULL` implicitly (the column doesn't exist), so S3's
+  `no_location` gate — and by extension S5 — would hard-block every single script
+  generation the moment this code goes live, on videos that were never given a chance
+  to carry a location. Read as: this whole gate stack (S3, S5, and S1's canonical half)
+  is DORMANT until deploy, and deploy day needs the migration confirmed applied FIRST,
+  or every video's next script generation fails.
 
-S1, S2, S4, S5 remain **not implemented**. S5 (A SCENE STATES WHERE IT IS) has its
-groundwork laid — the `scripts.location` column and the `LOCATION:` header convention
-S3 introduced are exactly what S5 will consume — but S5's own full contract (every
-scene names its location even when unchanged from the scene before) is not yet gated.
-Scripts today can and do still violate S1, S2, S4, and S5.
+**S1 (NARRATE EVERY LOCATION CHANGE) implemented (D6-4, 2026-07-29).**
+`backend/story_laws.py`'s `check_location_transit_law` (GATE, pure, no I/O) and
+`LOCATION_TRANSIT_LAW` (PROMPT). Reaches the SAME three paths D6-3's S3 reached, no
+more: PROMPT rides alongside `SCENE_LOCATION_LAW` in `pipeline_executor.resolve_prompt`
+(ACT-based docu path) and `_run_modeled_script`'s inline prompt (modeled path), and the
+MCP `submit_script` tool description now explains S1 to a submitting agent (and no
+longer overclaims that a cross-location mention gets rejected — that line was stale,
+predating D6-3b's ruling; fixed in the same commit). GATE: cross-scene by nature (needs
+scene N-1), so it can ONLY run where the full scene list is available — the SAME
+gate call sites D6-3 already established (the docu path's post-write `_check_scene_
+location_law`, now paired with a sibling `_check_location_transit_law`; the modeled
+path's pre-write in-memory scene list; `set_user_script` and `accept_external_script`
+in user_script.py). It CANNOT run in a genuinely per-scene write path with no neighbour
+visible — none of S3's four writers actually work that way at the point the gate runs
+(the ACT-based docu writer inserts per-act, but the gate reads back the FULL video after
+the write, same as S3's own gate does), so this was not a real constraint in practice,
+only a documented one. Warn-only, permanently, on both legs (see S1's own entry above
+for the hard/warn split) — never blocks anywhere. REPAIR: `edit_scene_text` and
+`regenerate_scene_text` (routes/videos.py) re-run the check after every edit and surface
+warnings under their OWN key, `story_law_s1_warnings` (separate from S3's
+`story_law_s3_warnings` — no existing caller's behavior changes). Because an S1 warning
+concerns a PAIR of scenes, both repair legs match on either half of the pair
+(`from_scene`/`to_scene`), not just the edited scene number, or an edit to the OUTGOING
+scene of an unnarrated pair would silently show nothing.
+
+**S5 (A SCENE STATES WHERE IT IS) — found ALREADY IMPLEMENTED by D6-3 (confirmed D6-4,
+2026-07-29), nothing new built.** See S5's own entry above and `backend/story_laws.py`'s
+module docstring for the reasoning. This corrects D6-3's own status section, which
+called S5 "not implemented" while its `no_location` check already satisfied S5's full
+contract — an honest documentation gap, not a code gap.
+
+**S4 (THE SCRIPT IS THE SOURCE OF TRUTH FOR CAST) — PARTIAL, warn-only gate implemented
+(D6-4, 2026-07-29).** `backend/story_laws.py`'s `check_cast_consistency_law` (GATE only —
+see S4's own entry above for why PROMPT and REPAIR are thinner here). PROMPT: honestly
+ABSENT. There is no sensible injection point analogous to S1/S3's script-generation
+prompts — cast is extracted FROM the script (`routes/characters.py`'s `_extract_cast`)
+rather than the other way around, and video_characters doesn't exist until AFTER the
+script does, so there is nothing to tell the script-writer that would change anything.
+GATE: wired at `routes/characters.py`'s `approve_cast` — the earliest point both the
+script and the canonical `video_characters` rows exist together (script-generation time
+is too early; `video_characters` doesn't exist yet). Free read (no LLM call), best-effort,
+surfaced in the approval's own completion message, never blocks the approval. REPAIR:
+`update_character`'s PATCH endpoint re-runs the check when a character's `name` is
+edited (the only field the check compares) and returns `story_law_s4_warnings` on the
+response — cheap (two free SELECTs), never blocks the edit, skipped entirely when only
+`description`/`identity_tag` change (nothing the check compares moved). NOT wired into
+`design_characters`/`regenerate_character`/script-generation time — those either predate
+`video_characters` existing or are the same background-task shape as `approve_cast`
+already covers once cast is locked in.
+
+**S2 (A PAYOFF MUST BE PAID FOR EARLIER) — admitted, no gate, none planned.** No
+deterministic check exists in `story_laws.py` and none is planned. "Is the closing theme
+earned by an earlier cost" is a judgement about dramatic structure, not a fact any
+column or reliable text pattern can answer — a hard OR warn gate here would be security
+theatre, pretending a check exists where none is possible. This is a permanent
+admission, not a placeholder for a future chunk.
