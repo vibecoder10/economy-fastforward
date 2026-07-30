@@ -56,7 +56,7 @@ async def test_seed_reference_happy_path_hosts_verifies_and_caches(monkeypatch):
         assert tag.startswith("seed_")
         return f"https://storage.example/{tag}.jpg"
 
-    async def fake_vision_confirms(tid, image_url, mach, aliases=None, trusted_source=False):
+    async def fake_vision_confirms(tid, image_url, mach, aliases=None, trusted_source=False, facts=None, source_label=None):
         vision_calls.append((tid, image_url, mach, aliases, trusted_source))
         return True
 
@@ -107,7 +107,7 @@ async def test_seed_reference_vision_rejects_no_cache_row_written(monkeypatch):
     async def fake_host_reference(url, vid, tid, tag):
         return f"https://storage.example/{tag}.jpg"
 
-    async def fake_vision_confirms(tid, image_url, mach, aliases=None, trusted_source=False):
+    async def fake_vision_confirms(tid, image_url, mach, aliases=None, trusted_source=False, facts=None, source_label=None):
         return False  # wrong machine / not a real photo
 
     async def fake_execute(query, *args):

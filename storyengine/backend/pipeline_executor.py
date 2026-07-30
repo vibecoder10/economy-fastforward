@@ -6258,10 +6258,31 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
         if not name:
             continue
         aliases = [a for a in _unit_roster_aliases(item) if a.lower() != name.lower()]
+        # VIS-1 (2026-07-30): `facts` carries the structured entry's own
+        # role/years/status/built_count through to the vision identity check.
+        # Why: audited live on video d2e37cd6 — the alias-found candidates
+        # for 5 roster entries "verified" 4 wrong photos (Courageous in her
+        # PRE-conversion battlecruiser configuration, HMS Glory — a
+        # Colossus-class ship — cached as "Majestic class", Pretoria Castle
+        # as her post-war liner reconversion, and USS Guadalcanal — a US
+        # Navy Casablanca-class CVE — as the RN "Ruler class"). The vision
+        # prompt asked only "is this consistent with <name>?", a question a
+        # sister class or a different-era configuration of the right ship
+        # passes. The roster entry already KNOWS the role, era, and status
+        # that distinguish those; this hands that knowledge to the check
+        # instead of leaving it behind in the payload. Additive: existing
+        # consumers read name/aliases/never_built only.
+        facts = {}
+        if isinstance(item, dict):
+            for key in ("role", "years", "status", "built_count"):
+                value = str(item.get(key) or "").strip()
+                if value:
+                    facts[key] = value
         entries.append({
             "name": name,
             "aliases": aliases,
             "never_built": _roster_entry_never_built(item),
+            "facts": facts,
         })
     return entries if 3 <= len(entries) <= 40 else []
 

@@ -303,7 +303,7 @@ async def test_prefetch_happy_path_writes_cache_and_never_calls_image_client(mon
     async def fake_host_reference(url, vid, tid, tag):
         return f"https://storage.example/{tag}.jpg"
 
-    async def fake_vision_confirms(tid, image_url, machine, aliases=None, trusted_source=False):
+    async def fake_vision_confirms(tid, image_url, machine, aliases=None, trusted_source=False, facts=None, source_label=None):
         return True  # every candidate passes
 
     generate_calls = []
@@ -548,7 +548,7 @@ async def test_prefetch_finds_ship_class_misses_via_derived_aliases(monkeypatch)
     async def fake_host_reference(url, vid, tid, tag):
         return f"https://storage.example/{tag}.jpg"
 
-    async def fake_vision_confirms(tid, image_url, machine, aliases=None, trusted_source=False):
+    async def fake_vision_confirms(tid, image_url, machine, aliases=None, trusted_source=False, facts=None, source_label=None):
         return True
 
     monkeypatch.setattr(static_docu, "fetch_one", fake_fetch_one)

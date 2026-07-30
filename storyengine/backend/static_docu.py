@@ -1178,7 +1178,9 @@ async def _download_image_b64(image_url: str) -> Optional[tuple]:
 
 async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
                            aliases: Optional[list] = None,
-                           trusted_source: bool = False) -> bool:
+                           trusted_source: bool = False,
+                           facts: Optional[dict] = None,
+                           source_label: Optional[str] = None) -> bool:
     """Vision sanity check: is this image consistent with being `machine` — a
     real photograph (or full-scale rendering) of that SPECIFIC designation/
     variant, not a sketch, diagram, blueprint, scale model, or a different
@@ -1241,7 +1243,25 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     being fetchable. Confirmed live: the Kie-gateway Claude endpoint
     (api.kie.ai/claude/v1/messages) already accepts this same base64 block
     shape elsewhere (shared/clients/vision_client.py's `_claude_blocks`), so
-    both branches below share one content list."""
+    both branches below share one content list.
+
+    VIS-1 (2026-07-30): `facts` (the roster entry's own role/years/status/
+    built_count) and `source_label` (the candidate's filename/title text)
+    joined the question. Audited live on video d2e37cd6: the old
+    name-only question "verified" 4 of 5 alias-found candidates WRONG —
+    Courageous in her pre-conversion battlecruiser configuration, HMS Glory
+    (a Colossus-class ship) as "Majestic class", Pretoria Castle as her
+    post-war liner reconversion, and USS Guadalcanal (a US Navy
+    Casablanca-class CVE) as the RN "Ruler class". Pixels alone genuinely
+    cannot split sister classes (Glory vs Majestic are near-identical), but
+    the candidate's own filename usually names the unit — so the filename is
+    given to the model as text and a filename naming a unit outside this
+    entry's members/aliases is an explicit NO. Era/configuration mismatches
+    (battlecruiser-era Courageous, liner-era Pretoria Castle) ARE visible in
+    pixels once the question states the role and era, so the facts lines and
+    the conversion rule below hand the model exactly that. Both parameters
+    default to None: every pre-existing caller keeps the old (weaker)
+    question until it opts in."""
     from vault import get_secret
 
     alias_txt = ""
@@ -1254,10 +1274,45 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
         "This photo was found via general keyword search and needs "
         "independent confirmation. "
     )
+    facts_txt = ""
+    if facts:
+        fact_lines = [
+            f"- {label}: {facts[key]}"
+            for key, label in (
+                ("role", "Role"),
+                ("years", "Years/era"),
+                ("status", "Status"),
+                ("built_count", "Built"),
+            )
+            if facts.get(key)
+        ]
+        if fact_lines:
+            facts_txt = (
+                "Known facts about this machine from the locked research "
+                "roster:\n" + "\n".join(fact_lines) + "\n"
+                "The photo must be consistent with this role and era. If "
+                "this machine was a conversion, a photo of the same hull in "
+                "its PRE-conversion or later RE-converted configuration "
+                "(for example a gun-armed warship before a flight deck was "
+                "fitted, or a civilian ship after the flight deck was "
+                "removed) counts as NO. "
+            )
+    source_label_txt = ""
+    if source_label:
+        source_label_txt = (
+            f"The photo's source filename/title is: {str(source_label)[:300]}. "
+            "If that filename or title names a specific unit, ship, or "
+            "aircraft that is NOT this machine or one of its listed names "
+            "above, answer NO — a lookalike from a different class, a "
+            "sister design, or another country's forces is NOT this "
+            "machine. "
+        )
 
     prompt_text = (
         f"We believe this image shows the {machine}{alias_txt}. "
         f"{source_hint}"
+        f"{facts_txt}"
+        f"{source_label_txt}"
         "Answer on one line: first word YES or NO, then one short "
         "reason. YES only if the image is consistent with being a real "
         "photograph (or full-scale museum/factory rendering) of THIS "
@@ -2154,7 +2209,8 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
 
 async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                                 roster_index: int,
-                                aliases: Optional[list] = None) -> bool:
+                                aliases: Optional[list] = None,
+                                facts: Optional[dict] = None) -> bool:
     """Verify + self-host + cache ONE roster machine's reference photo, using
     the SAME candidate chain _one_scene uses (_gather_reference_candidates).
     Returns True once a verified candidate is cached, False if the whole
@@ -2193,7 +2249,14 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
         if not hosted:
             continue
         hosted_any = True
-        if await _vision_confirms(tenant_id, hosted, machine, aliases, trusted_source=trusted):
+        # VIS-1: the candidate URL's own filename is handed to the vision
+        # check as text — a Commons filename usually names the actual unit
+        # photographed ("HMS_Glory_...", "USS_Guadalcanal_..."), which is
+        # how a sister-class lookalike gets caught when pixels can't.
+        cand_label = str(cand).rsplit("/", 1)[-1] if cand else None
+        if await _vision_confirms(tenant_id, hosted, machine, aliases,
+                                  trusted_source=trusted, facts=facts,
+                                  source_label=cand_label):
             await execute(
                 """INSERT INTO static_reference_cache
                        (tenant_id, machine_key, machine, hosted_url, source_url)
@@ -2236,7 +2299,28 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
             "status": "rejected",
             "reason": "Couldn't fetch that URL — it may be unreachable, blocked, or too small to be a real photo.",
         }
-    if not await _vision_confirms(tenant_id, hosted, machine, None, trusted_source=False):
+    # VIS-1: an operator-pasted URL gets the same strengthened question the
+    # sweep asks — the entry's own role/era facts plus the pasted filename.
+    # A human picking the photo does not exempt it from the era/configuration
+    # check (the live wrong-photo audit included exactly the kind of
+    # right-name-wrong-era candidates a well-meaning human paste could hit).
+    facts, aliases = None, None
+    try:
+        from pipeline_executor import _machine_documentary_hold_roster_entries
+        video = await fetch_one(
+            "SELECT id, render_mode, research_payload FROM videos "
+            "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+        target_key = _machine_key(machine)
+        for entry in (_machine_documentary_hold_roster_entries(video) if video else []):
+            if _machine_key(entry["name"]) == target_key:
+                facts = entry.get("facts") or None
+                aliases = entry.get("aliases") or None
+                break
+    except Exception:  # noqa: BLE001 — enrichment must never break seeding
+        facts, aliases = None, None
+    if not await _vision_confirms(tenant_id, hosted, machine, aliases,
+                                  trusted_source=False, facts=facts,
+                                  source_label=str(url).rsplit("/", 1)[-1]):
         return {
             "status": "rejected",
             "reason": "That photo doesn't look consistent with this machine — try a clearer or more specific photo.",
@@ -2334,7 +2418,9 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
                     "skipping lookup entirely, no spend incurred",
                     video_id, machine)
                 continue
-            if await _prefetch_one_machine(tenant_id, video_id, machine, i, aliases=aliases):
+            if await _prefetch_one_machine(tenant_id, video_id, machine, i,
+                                           aliases=aliases,
+                                           facts=entry.get("facts") or None):
                 verified += 1
             else:
                 missed += 1
