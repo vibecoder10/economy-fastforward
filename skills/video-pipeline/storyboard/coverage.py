@@ -1283,8 +1283,13 @@ def check_repeated_setup_frame_side(moments: list[dict]) -> int:
 
 _MOTION_VERB_RE = re.compile(
     r"\b(runs?|running|sprints?|sprinting|drives?|driving|travels?|travell?ing|"
-    r"exits? frame|walks? (?:away|toward|frame)|races?|racing|dashes?|dashing)\b",
+    r"walks? (?:away|toward)|races?|racing|dashes?|dashing)\b",
     re.IGNORECASE)
+# Deliberately EXCLUDES "exits frame" — a camera-holds-while-subject-exits
+# setup (L4's own example phrasing) is a static camera watching a subject
+# leave, not body-vector-tied-to-a-visible-line travel; it has no vanishing
+# line to anchor to and L10 does not apply to it (see check_motion_axis_
+# anchor's docstring for the acceptance-target precedent).
 _AXIS_ANCHOR_TERM_RE = re.compile(
     r"\b(vanishing point|vanishing line|converge[sd]?|converging|same axis|same line|"
     r"past (?:her|his|their) (?:near|far)? ?shoulder)\b", re.IGNORECASE)
@@ -1292,17 +1297,22 @@ _AXIS_ANCHOR_TERM_RE = re.compile(
 
 def check_motion_axis_anchor(moments: list[dict]) -> int:
     """L10 (BODY VECTOR TO VISIBLE AXIS): flags a shot whose description
-    reads as motion (_MOTION_VERB_RE, or tagged "(BRIDGE)") but names no
-    visible line the travel ties to (_AXIS_ANCHOR_TERM_RE — a vanishing
-    point/line, a converging structural line, "past X shoulder"). Warning-
-    only, heuristic (motion-verb detection is prose-pattern matching, not a
-    semantic read of the shot)."""
+    reads as directional TRAVEL (_MOTION_VERB_RE — runs/drives/travels/
+    exits frame/etc) but names no visible line the travel ties to
+    (_AXIS_ANCHOR_TERM_RE — a vanishing point/line, a converging structural
+    line, "past X shoulder"). Deliberately NOT triggered by a bare
+    "(BRIDGE)" tag alone: a bridge/threshold moment (climbing through a
+    doorway, stepping onto a walkway) is not always body-vector travel in
+    L10's sense — the acceptance target's own approved threshold panel
+    (scene1_board_prompt_CORRECTED_v3.txt panel [7]) carries no vanishing-
+    line language and is correct as written; a corridor RUN a few panels
+    later is where L10 actually bites. Warning-only, heuristic (motion-verb
+    detection is prose-pattern matching, not a semantic read of the shot)."""
     warnings = 0
     for m in moments:
         for shot in [m["master"], *(m.get("angles") or [])]:
             desc = shot.get("description") or ""
-            is_motion = _shot_tag(shot) == "BRIDGE" or _MOTION_VERB_RE.search(desc)
-            if is_motion and not _AXIS_ANCHOR_TERM_RE.search(desc):
+            if _MOTION_VERB_RE.search(desc) and not _AXIS_ANCHOR_TERM_RE.search(desc):
                 warnings += 1
                 print(f"  ⚠️ motion-axis check (L10): moment {m.get('moment_number')} "
                       f"({shot.get('shot_type')}) reads as a moving beat with no visible-line "
