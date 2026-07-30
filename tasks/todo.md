@@ -4,6 +4,39 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ✓ DONE — 2026-07-30 — Three suspect bomber reference photos verified correct (no reseed needed)
+
+The 2026-07-30 handoff flagged three static_reference_cache rows (tenant
+561b872d, the DVsU bomber tenant) as suspect by filename. Downloaded each
+source_url and each Drive-hosted copy and judged the pixels against the live
+bomber roster (video fc73860c) entry facts. All three are CORRECT — filenames
+were misleading, images are not:
+
+- **Boeing B-47 Stratojet** (NNSA-NSO-990.jpg): the photo IS a B-47 — six
+  jets in twin-inboard/single-outboard pods, thin swept wings, fighter-style
+  bubble canopy. NNSA archive filename, right plane.
+- **Northrop Grumman B-2 Spirit** (RAF_F-35B_integration...B-2...jpg): frame 4
+  of that photo series is a full-frame B-2 (tail AF 82-1071) banking over
+  water; the F-35B is a distant speck. Right plane.
+- **Rockwell B-1 Lancer** (B-1B_air_refueling.jpg): the handoff assumed the
+  roster distinguishes B-1A vs B-1B. It does NOT — the live roster has ONE
+  B-1 entry ("Rockwell B-1 Lancer", designation B-1) whose own facts are
+  B-1B facts ("IOC 1986", "100 B-1B produced"). The photo is an operational
+  gray B-1B, so it matches the entry. Correct.
+
+Leftover found and CLEANED: cache row `rockwellb1blancer` ("Rockwell B-1B
+Lancer") was an ORPHAN — the only rosters that named that machine were 5
+draft videos deleted 2026-07-21. Byte-identical image to the live B-1 row
+(same md5), never read by anything live. Deleted 2026-07-30 with Ryan's
+explicit approval (`DELETE 1` via se db --write; live `rockwellb1lancer`
+row verified untouched after).
+
+No reseeds, no spend. All hosted Drive copies verified serving. Seed path
+confirmed correct for future fixes: `POST /roster-seed-reference/{video_id}`
+→ `static_docu.seed_reference_from_url` upserts on (tenant_id, machine_key)
+and already passes the roster entry's facts + the pasted filename as
+source_label into the VIS-1 vision check.
+
 ## ✓ DONE — 2026-07-29 — Chat Script card: live inline scene editing
 
 **Branch/worktree:** `claude/intelligent-gates-5e9e36` in
