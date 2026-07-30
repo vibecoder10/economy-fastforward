@@ -711,3 +711,10 @@ def test_slot_hints_ship_loss_is_reality():
         "HMS Courageous was sunk by U-29 south-west of Ireland on 17 September 1939."
     )
     assert "reality" in hints
+
+
+def test_slot_hints_lifecycle_verbs_are_reality():
+    hints = pe._anton_source_slot_hints(
+        "As the builds of Audacious (renamed Eagle) and Irresistible (renamed Ark Royal) were completed."
+    )
+    assert "reality" in hints

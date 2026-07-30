@@ -79,3 +79,11 @@ def test_caution_hosts_unchanged():
 def test_gov_substring_in_plain_domain_is_not_tier_1():
     # "gov" appearing inside an ordinary word must not promote the host.
     assert _tier("https://www.governorshipmodels.com/kits") == 3
+
+
+def test_gov_uk_apex_is_tier_1():
+    assert _tier("https://www.gov.uk/government/news/hms-queen-elizabeth") == 1
+
+
+def test_national_audit_office_is_tier_1():
+    assert _tier("https://www.nao.org.uk/reports/delivering-carrier-strike/") == 1

@@ -870,6 +870,12 @@ def _anton_source_slot_hints(text: str) -> set[str]:
             # reality-laden fact a naval excerpt can state - hinted nothing
             # (found by the simulator's Courageous lane).
             r"\b(?:sunk|sank|torpedoed|mined|wrecked|foundered|capsized|shot down)\b",
+            # Lifecycle verbs naval sources actually use for what-happened
+            # facts (2026-07-30, Audacious/Malta lane): "completed",
+            # "commissioned", "launched", "renamed" carried the entire
+            # cancelled-programme-finished-as-different-ship story and
+            # hinted nothing.
+            r"\b(?:completed|commissioned|recommissioned|launched|renamed|laid up|paid off)\b",
         ),
     }
     for slot, patterns in slot_patterns.items():
@@ -1150,6 +1156,10 @@ def _source_tier_for_url(url: str, title: str = "") -> dict[str, Any]:
         # reference. mod.uk covers the whole UK Ministry of Defence estate;
         # navy.lk is the Sri Lanka Navy (HMS Hermes' wreck custodian).
         "mod.uk", "navy.lk",
+        # Apex government domains escape the ".gov."-component rule below
+        # (host "gov.uk" has no leading dot to match), and the National
+        # Audit Office is an official UK body on a plain .org.uk domain.
+        "gov.uk", "nao.org.uk",
     )
     # ".gov."/".govt."/".mil." as an inner TLD component catches gov.uk /
     # gov.au / govt.nz / mil.nz etc. without whitelisting every country.
