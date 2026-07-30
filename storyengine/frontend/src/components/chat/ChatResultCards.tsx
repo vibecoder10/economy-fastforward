@@ -16,9 +16,9 @@
 // everything at once) and 7.59.43 AM (the compact "Review Anchors" card:
 // a collage + a "Characters × N / Locations × M" count line).
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronDown,
@@ -39,6 +39,10 @@ import {
   getVideoScript,
   getVideoCharacters,
   getEnvironments,
+  getVideo,
+  getPipelineTaskStatus,
+  updateSceneText,
+  type ScriptScene,
   type VideoCharacter,
   type VideoEnvironment,
   type ChatCard,
@@ -60,6 +64,180 @@ function wordCount(text: string | null): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+// --- Inline scene editing (Ryan, 2026-07-29) ---------------------------
+// The Script card was read-only — fixing a word meant leaving the chat for
+// the pipeline page. Each scene is now click-to-edit: saves on blur (⌘↩
+// saves, Esc cancels) through the SAME free write the MCP edit_scene_text
+// verb wraps (PATCH /api/videos/{id}/scenes/{scene}/text). It persists text
+// only — downstream stages (voice, storyboards) are NOT retriggered.
+function EditableSceneRow({
+  videoId,
+  scene,
+  text,
+  blockReason,
+}: {
+  videoId: string;
+  scene: number | null;
+  text: string;
+  blockReason: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Esc flags the following blur as a revert, not a save.
+  const cancelledRef = useRef(false);
+
+  const editable = blockReason === null && typeof scene === "number";
+
+  const autoSize = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    if (!editing) return;
+    const el = textareaRef.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+      autoSize(el);
+    }
+  }, [editing]);
+
+  const beginEdit = () => {
+    if (!editable) return;
+    setDraft(text);
+    setSaveState("idle");
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const save = async (next: string) => {
+    if (typeof scene !== "number") return;
+    // Empty text is DELETE semantics on this endpoint (the pipeline page's
+    // ScriptVoiceTab uses `updateSceneText(id, n, "")` as its delete-scene
+    // action). From a chat card that reads as an accident — treat it, and
+    // a no-op edit, as cancel.
+    if (next.trim().length === 0 || next === text) {
+      setDraft(text);
+      return;
+    }
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      await updateSceneText(videoId, scene, next);
+      queryClient.setQueryData<ScriptScene[]>(["videoScript", videoId], (old) =>
+        old?.map((r) => (r.scene === scene ? { ...r, scene_text: next } : r)),
+      );
+      setSaveState("saved");
+      setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 1500);
+    } catch (err) {
+      setSaveState("error");
+      setSaveError((err as Error).message || "save failed");
+      setEditing(true); // reopen with the draft intact — never eat the words
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur(); // blur handler saves
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelledRef.current = true;
+      e.currentTarget.blur();
+    }
+  };
+
+  const onBlur = () => {
+    setEditing(false);
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      setDraft(text);
+      return;
+    }
+    void save(draft);
+  };
+
+  return (
+    <div
+      className="group rounded-lg px-2.5 py-2"
+      style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--turquoise)" }}>
+          Scene {scene}
+        </p>
+        <span className="flex items-center gap-1 text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+          {saveState === "saving" && (
+            <>
+              <Loader2 size={10} className="animate-spin" /> Saving…
+            </>
+          )}
+          {saveState === "saved" && <span style={{ color: "var(--turquoise)" }}>Saved</span>}
+          {saveState === "error" && <span style={{ color: "var(--red)" }}>Not saved</span>}
+          {editable && !editing && saveState === "idle" && (
+            <PencilLine size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </span>
+      </div>
+      {editing ? (
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            autoSize(e.currentTarget);
+          }}
+          onKeyDown={onKeyDown}
+          onBlur={onBlur}
+          aria-label={`Edit scene ${scene} narration`}
+          className="w-full resize-none overflow-hidden text-xs leading-relaxed rounded-md outline-none px-2 py-1.5 -mx-0.5"
+          style={{
+            color: "var(--text-primary)",
+            background: "transparent",
+            border: "1px solid var(--turquoise)",
+          }}
+        />
+      ) : (
+        <p
+          className={`text-xs leading-relaxed whitespace-pre-wrap ${editable ? "cursor-text" : ""}`}
+          style={{ color: "var(--text-secondary)" }}
+          title={
+            editable
+              ? "Click to edit — saves when you click away (⌘↩ saves, Esc cancels)"
+              : blockReason ?? undefined
+          }
+          {...(editable
+            ? {
+                role: "button",
+                tabIndex: 0,
+                onClick: beginEdit,
+                onKeyDown: (e: React.KeyboardEvent) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    beginEdit();
+                  }
+                },
+              }
+            : {})}
+        >
+          {text}
+        </p>
+      )}
+      {saveState === "error" && saveError && (
+        <p className="text-[10px] mt-1" style={{ color: "var(--red)" }}>
+          Save failed: {saveError}. Your text is kept above — edit and click away to retry.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // --- Script result card -----------------------------------------------
 export function ScriptResultCard({ videoId }: { videoId: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -68,6 +246,25 @@ export function ScriptResultCard({ videoId }: { videoId: string }) {
     queryFn: () => getVideoScript(videoId),
     enabled: !!videoId,
   });
+  // Editing guards, fetched only once the card is open: a locked story
+  // (boards reviewed + approved — text changes would desync them) or a
+  // running build disables editing, with the reason on the row's title.
+  const { data: video } = useQuery({
+    queryKey: ["video", videoId],
+    queryFn: () => getVideo(videoId),
+    enabled: !!videoId && expanded,
+  });
+  const { data: task } = useQuery({
+    queryKey: ["pipelineTask", videoId],
+    queryFn: () => getPipelineTaskStatus(videoId),
+    enabled: !!videoId && expanded,
+    refetchInterval: 5000,
+  });
+  const editBlockReason = video?.story_locked_at
+    ? "Story is locked (boards approved) — unlock the story to edit narration."
+    : task?.status === "running"
+      ? "A build step is running — scene editing is paused until it finishes."
+      : null;
   const rows = (scenes ?? [])
     .filter((s) => (s.scene_text ?? "").trim().length > 0)
     .sort((a, b) => (a.scene ?? 0) - (b.scene ?? 0));
@@ -119,18 +316,13 @@ export function ScriptResultCard({ videoId }: { videoId: string }) {
           >
             <div className="flex flex-col gap-2.5 pr-1 pt-1">
               {rows.map((s) => (
-                <div
+                <EditableSceneRow
                   key={s.id}
-                  className="rounded-lg px-2.5 py-2"
-                  style={{ background: "var(--bg-deep)", border: "1px solid var(--border-subtle)" }}
-                >
-                  <p className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: "var(--turquoise)" }}>
-                    Scene {s.scene}
-                  </p>
-                  <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: "var(--text-secondary)" }}>
-                    {s.scene_text}
-                  </p>
-                </div>
+                  videoId={videoId}
+                  scene={s.scene}
+                  text={s.scene_text ?? ""}
+                  blockReason={editBlockReason}
+                />
               ))}
             </div>
           </motion.div>

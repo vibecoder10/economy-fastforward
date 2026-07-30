@@ -4,6 +4,27 @@
 > orchestrator + Sonnet-worker operating manual (how to run this loop). Then the LOOP
 > PROGRESS handoff below is your resume point.
 
+## ✓ DONE — 2026-07-29 — Chat Script card: live inline scene editing
+
+**Branch/worktree:** `claude/intelligent-gates-5e9e36` in
+`storyengine/.claude/worktrees/objective-diffie-c1b26a`. One file:
+`storyengine/frontend/src/components/chat/ChatResultCards.tsx` (new
+`EditableSceneRow` inside `ScriptResultCard`).
+
+Click a scene's prose in the chat page's "Script — N scenes" card to edit in
+place; saves on blur (⌘↩ saves, Esc cancels) via the existing
+`PATCH /api/videos/{id}/scenes/{scene}/text` (`updateSceneText` in api.ts —
+the same free write MCP `edit_scene_text` wraps). No regeneration triggered.
+Empty text = cancel (that endpoint treats "" as scene delete on the pipeline
+page). Editing disabled with an explanatory title when `story_locked_at` is
+set or a pipeline task is running. Verified live against prod data (video
+686b4651, scene 3): edit → Saving…/Saved → PATCH 200 → survived reload →
+reverted byte-exact; locked video f32ed182 correctly non-editable; tsc +
+production build clean. NOTE: local ports 3000/3001 were held by other
+sessions' dev servers, so verification ran on port 3002 through a
+scratchpad CORS proxy (prod backend CORS only allows localhost:3000/3001) —
+nothing tracked was changed for that.
+
 ## ⟳ HANDOFF — 2026-07-25 — M8 storyboard-driven Custom Film director loop
 
 **Branch/worktree:** `agent/custom-film-director-loop` in
