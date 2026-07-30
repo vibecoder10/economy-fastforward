@@ -604,6 +604,8 @@ def _visual_generation_lines(data: dict) -> list[tuple[str, str]]:
         lines.append(("Normal", f"Thumbnail prompt: {_shorten(video['thumbnail_prompt'], 900)}"))
     if video.get("story_bible"):
         lines.append(("Heading2", "Story Bible / Continuity Notes"))
+        for summary_line in _story_bible_narrative_summary_lines(video["story_bible"]):
+            lines.append(("Normal", summary_line))
         lines.append(("Normal", _shorten(video["story_bible"], 1800)))
 
     research_payload = video.get("research_payload") or {}
@@ -967,6 +969,47 @@ def _parse_json(value: Any, default: Any = None) -> Any:
         except json.JSONDecodeError:
             return default
     return default
+
+
+def _story_bible_narrative_summary_lines(raw_bible: Any) -> list[str]:
+    """Compact 1-2 line human-readable preview of a StoryEngine-native Story
+    Bible's ``narrative`` section (genre/tone/conflict/stakes — D10-2ab),
+    read BEFORE ``_shorten`` truncates the raw JSON blob to 1800 chars below
+    it, so the most useful narrative facts survive even when the raw section
+    gets cut off mid-JSON (checklist D10-3d).
+
+    Returns ``[]`` — leaving today's document byte-identical — whenever
+    ``raw_bible`` is a legacy bible (no ``narrative`` key at all, every
+    bible generated before D10-2ab), fails to parse as JSON, isn't a dict,
+    or its ``narrative`` section has no genre/tone/conflict/stakes content
+    (the freshly-normalized-but-empty shape ``story_bible_native.
+    normalize_story_bible`` always produces). Never raises — any
+    unexpected shape falls back to the pre-D10-3d empty-list behavior.
+    """
+    try:
+        bible = _parse_json(raw_bible)
+        if not isinstance(bible, dict):
+            return []
+        narrative = bible.get("narrative")
+        if not isinstance(narrative, dict) or not narrative:
+            return []
+        genre = str(narrative.get("genre") or "").strip()
+        tone = str(narrative.get("tone") or "").strip()
+        conflict = str(narrative.get("conflict") or "").strip()
+        stakes = str(narrative.get("stakes") or "").strip()
+        if not (genre or tone or conflict or stakes):
+            return []
+        top_line = " | ".join(
+            part for part in (f"Genre: {genre}" if genre else "", f"Tone: {tone}" if tone else "")
+            if part
+        )
+        bottom_line = " | ".join(
+            part for part in (f"Conflict: {conflict}" if conflict else "", f"Stakes: {stakes}" if stakes else "")
+            if part
+        )
+        return [line for line in (top_line, bottom_line) if line]
+    except Exception:
+        return []
 
 
 def _normalize_video_row(row: Any) -> dict:

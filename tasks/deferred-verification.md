@@ -894,3 +894,43 @@ good small follow-up chunk (persist the fallback-planned directive + hash in
 currently owns `coverage_directive_hash` semantics) — NOT bundled into D10-3a.
 
 ---
+
+## D10-3d — channel profile doc: Story Bible narrative summary (2026-07-30)
+
+**What shipped:** `backend/channel_profile_documents.py::_visual_generation_lines`
+no longer treats `videos.story_bible` as an opaque string it blindly truncates
+to 1800 chars. A new pure helper, `_story_bible_narrative_summary_lines(raw_bible)`,
+parses the bible JSON and — only when a StoryEngine-native bible (D10-2ab) is
+present with a non-empty `narrative` section (genre/tone/conflict/stakes) —
+prepends a compact 1-2 line human-readable summary before the existing
+truncated raw-JSON section. A legacy bible, an unparseable string, a non-dict
+JSON value, or a freshly-normalized-but-empty `narrative` section all fall
+through to today's exact byte-identical single-line output; the helper never
+raises (wrapped in `try/except Exception: return []`). Tests:
+`backend/tests/test_d10_3d_docs_narrative.py` (10 tests, pure-function
+coverage over `_visual_generation_lines` and the new helper directly — no DB,
+no network).
+
+**Verification:** full backend suite (main venv binary
+`storyengine/backend/venv/bin/python`, worktree code) run twice — reverted
+(HEAD's `channel_profile_documents.py`, new test file moved out) and applied
+— sorted `FAILED` test-name sets are byte-identical: 29 failures both runs,
+same names, same order (`diff` empty). Applied run: 4005 passed / 29 failed /
+4 skipped (exactly 10 more passing than reverted's 3995, matching the 10 new
+tests added). Guard-neuter proof: forcing the summary helper to `return []`
+unconditionally turned 3 of the new tests into real `AssertionError` failures
+(the ones asserting a populated bible DOES get a summary); reverting the
+neuter returned all 10 to green — proves the tests exercise real behavior,
+not import/collection errors. No other test file in the suite references
+`channel_profile_documents` — the "existing tests pass unmodified" checklist
+item is vacuously satisfied (there were none before this chunk).
+
+**Not touched, flagged for awareness:** `relationships`/`arcs` sections of
+the native bible (also new in D10-2ab) are NOT summarized here — the brief
+scoped this chunk to genre/tone/conflict/stakes only. A follow-up could add a
+one-line "N characters, M relationships tracked" note the same way, if the
+transparency-doc's audience (a customer inspecting their own channel's AI
+inputs) wants that visibility too. Not blocking; small, isolated addition
+if wanted later.
+
+---
