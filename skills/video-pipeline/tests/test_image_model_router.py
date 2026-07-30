@@ -128,13 +128,23 @@ def test_default_no_override_with_refs_calls_gpt_thumbnail_unchanged():
 
 
 def test_default_no_override_without_refs_calls_gpt_text_to_image_unchanged():
-    """No refs -> generate_scene_image_gpt(prompt, None, aspect, resolution=resolution),
-    matching the pre-existing hardcoded call exactly."""
+    """No refs -> generate_scene_image_gpt(prompt, None, aspect, resolution=resolution).
+
+    The default resolution is "1K", NOT "2K". This assertion said "2K" and had
+    been failing ever since generate_scene_image_for_model's default was
+    lowered on 2026-07-21 (Ryan: "we dont need a 2k gpt image... downgrade it
+    to 1k so its cheaper"). The old 2K default silently made per-shot redraws,
+    character 4-view sheets, image variants and storyboard sheets cost ~2x the
+    batch pictures run, which already drew at 1K explicitly.
+
+    So this test was arguing to double the image bill. Pinned to 1K on
+    2026-07-30 so it defends that cost decision instead of contradicting it.
+    A caller that genuinely needs 2K must ask for it explicitly."""
     ic = FakeImageClient({"generate_scene_image_gpt": {"url": "https://img/gpt2.png", "model": "gpt-image-2"}})
     url, model = _run(generate_scene_image_for_model(ic, "", "a prompt", aspect_ratio="16:9"))
     assert url == "https://img/gpt2.png"
     assert model == "gpt-image-2"
-    assert ic.calls == [("generate_scene_image_gpt", ("a prompt", None), {"aspect_ratio": "16:9", "resolution": "2K"})]
+    assert ic.calls == [("generate_scene_image_gpt", ("a prompt", None), {"aspect_ratio": "16:9", "resolution": "1K"})]
 
 
 def test_gpt_image_2_explicit_override_behaves_like_default():
