@@ -579,8 +579,39 @@ def _verified_source_package_for_machine(payload: dict, machine: str) -> Optiona
     return None
 
 
+_CITATION_MARKER_RE = re.compile(r"\[(?:\d+|[a-z]|note \d+|citation needed)\]", re.IGNORECASE)
+_ORPHAN_PUNCTUATION_SPACE_RE = re.compile(r"\s+([,.;:!?)])")
+_ONE_SIDED_HYPHEN_LEFT_RE = re.compile(r"(\w-)\s+(?=\w)")
+_ONE_SIDED_HYPHEN_RIGHT_RE = re.compile(r"(?<=\w)\s+(-\w)")
+
+
 def _normalized_source_text(text: str) -> str:
-    return " ".join(str(text or "").split()).lower()
+    """Tolerant fold for comparing a cited excerpt against fetched page text.
+
+    Ported verbatim (GAP 1a, 2026-07-30) from the DVsU research simulator's
+    ``_match_normalize`` (tasks/evidence/dvsu-research-simulator/build_package.py)
+    - every one of these quirks rejected a REAL excerpt this week before being
+    fixed there: a stripped inline citation marker left mid-sentence
+    ("carrier.[9] The next ship..."), smart quotes/dashes a CMS renders instead
+    of ASCII, NBSP standing in for a normal space, and the orphan space a
+    stripped inline tag (a citation superscript or link) leaves behind - either
+    before punctuation ("Treaty , Ark Royal") or on one side of a hyphen
+    ("equipped- Hellcat IIs"). Applied identically to both sides of every
+    excerpt-in-page-text comparison in this module, so the fold can only ever
+    make a genuine match MORE likely to succeed, never less."""
+    s = str(text or "")
+    s = _CITATION_MARKER_RE.sub("", s)
+    s = (
+        s.replace("‘", "'").replace("’", "'")
+         .replace("“", '"').replace("”", '"')
+         .replace("–", "-").replace("—", "-")
+         .replace(" ", " ")
+    )
+    s = " ".join(s.split()).lower()
+    s = _ORPHAN_PUNCTUATION_SPACE_RE.sub(r"\1", s)
+    s = _ONE_SIDED_HYPHEN_LEFT_RE.sub(r"\1", s)
+    s = _ONE_SIDED_HYPHEN_RIGHT_RE.sub(r"\1", s)
+    return s
 
 
 def _html_to_visible_text(raw_html: str) -> str:
@@ -805,6 +836,30 @@ def _verified_machine_source_package_ready(package: Any) -> bool:
     return len(text_excerpts) >= 6
 
 
+_DIRECT_FETCH_CAPTURE_METHODS = {"fetched_page", "tavily_raw_content"}
+# GAP 1(b), 2026-07-30: capture methods added when a live fetch AND Tavily's
+# own raw content both come back empty. Each is still a mechanically-verified
+# real fetch - just a different network path - so it must count exactly like
+# "fetched_page" everywhere a capture method is gated. Ported from the DVsU
+# research simulator's build_package.py fallback chain: a National Archives
+# Discovery record's own JSON API, or a real Wayback Machine snapshot resolved
+# through the availability API (never a claimed/fabricated archive URL).
+_FALLBACK_FETCH_CAPTURE_METHODS = {"national_archives_api"}
+_WAYBACK_CAPTURE_METHOD_PREFIX = "wayback:"
+_NATIONAL_ARCHIVES_DISCOVERY_RECORD_RE = re.compile(r"nationalarchives\.gov\.uk/details/r/(\w+)")
+
+
+def _is_approved_source_capture_method(capture_method: Any) -> bool:
+    method = str(capture_method or "").strip()
+    if not method:
+        return False
+    return (
+        method in _DIRECT_FETCH_CAPTURE_METHODS
+        or method in _FALLBACK_FETCH_CAPTURE_METHODS
+        or method.startswith(_WAYBACK_CAPTURE_METHOD_PREFIX)
+    )
+
+
 def _verified_source_candidate_traceable(item: Any) -> bool:
     """A raw excerpt can only unlock a required beat if the card can cite it later."""
     if not isinstance(item, dict):
@@ -815,7 +870,7 @@ def _verified_source_candidate_traceable(item: Any) -> bool:
     return bool(
         source_url
         and locator
-        and capture_method in {"fetched_page", "tavily_raw_content"}
+        and _is_approved_source_capture_method(capture_method)
     )
 
 
@@ -1096,7 +1151,7 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         str(item.get("source_capture_method") or "").strip()
         for item in quality_candidates
         if str(item.get("source_capture_method") or "").strip()
-        and str(item.get("source_capture_method") or "").strip() not in {"fetched_page", "tavily_raw_content"}
+        and not _is_approved_source_capture_method(item.get("source_capture_method"))
     })
     missing_capture_method_count = sum(
         1 for item in quality_candidates
@@ -1373,6 +1428,42 @@ def _verified_machine_source_queries(title: str, machine: str) -> list[str]:
         f'"{machine}" design tradeoff limitation lessons learned test report',
         f'"{machine}" pilot crew memoir oral history official inquiry unusual fact',
     ]))[:8]
+
+
+# GAP 1(c), 2026-07-30: iwm.org.uk 403s every automated fetch attempted this
+# week (curl, WebFetch - see the DVsU research simulator's
+# gather_brief_template.txt) and never yields a usable candidate excerpt, so
+# excluding it from every Tavily call stops it burning a search-result slot on
+# a page nobody can ever read. These Commonwealth/naval institutions fetch
+# cleanly and are the simulator's proven anchors for a ship-roster
+# documentary whose best official museum (IWM) is unreachable by automation.
+_BLOCKED_AUTOMATION_SOURCE_DOMAINS = ["iwm.org.uk", "www.iwm.org.uk"]
+_PREFERRED_NAVAL_SOURCE_DOMAINS = [
+    "awm.gov.au", "rmg.co.uk", "gov.uk",
+    "naval-encyclopedia.com", "naval-history.net", "uboat.net",
+]
+_NAVAL_GATHER_CONTEXT_KEYWORDS = (
+    "ship", "naval", "navy", "carrier", "cruiser", "destroyer", "frigate",
+    "submarine", "vessel", "hms", "uss", "fleet", "corvette", "battleship",
+    "minesweeper", "aircraft carrier",
+)
+
+
+def _is_naval_gather_context(title: str, machine: str) -> bool:
+    """True when this machine is plausibly a ship, so the extra domain-scoped
+    Tavily call below is worth its cost. A tank or aircraft roster gets no
+    benefit from naval-museum-only sources, so this keeps the added call
+    scoped to where it actually helps."""
+    text = f"{title or ''} {machine or ''}".lower()
+    return any(keyword in text for keyword in _NAVAL_GATHER_CONTEXT_KEYWORDS)
+
+
+def _naval_museum_domain_query(machine: str) -> str:
+    """One extra Tavily call, scoped via include_domains to the DVsU research
+    simulator's proven fetchable naval/Commonwealth anchors. Additive to
+    _verified_machine_source_queries, whose 8-query set and exact wording stay
+    unchanged and regression-locked."""
+    return f'"{machine}" history design service'
 
 
 def _validate_card_against_verified_sources(card: dict, package: Optional[dict]) -> list[str]:
@@ -7511,6 +7602,61 @@ class PipelineExecutor:
             _logger.info("[machine-source] fetch failed for %s: %s", url[:140], str(exc)[:120])
             return ""
 
+    async def _wayback_snapshot_url(self, client: Any, url: str) -> str:
+        """Resolve the newest REAL Wayback Machine snapshot of `url` via the
+        availability API. GAP 1(b), 2026-07-30: an agent CLAIMING an archive
+        capture exists is not evidence - a gather agent reported verifying an
+        excerpt against a snapshot the archive provably does not hold (the Ark
+        Royal S8 incident) - so a snapshot URL is only ever used when this API
+        actually returned it. Empty string on any failure or missing snapshot."""
+        if not url:
+            return ""
+        try:
+            response = await client.get(
+                "https://archive.org/wayback/available", params={"url": url}
+            )
+            if response.status_code >= 400:
+                return ""
+            snap = (response.json().get("archived_snapshots") or {}).get("closest") or {}
+            return str(snap.get("url") or "").strip()
+        except Exception as exc:  # noqa: BLE001 - fallback failures fall through to the next leg.
+            _logger.info("[machine-source] wayback availability lookup failed for %s: %s", url[:140], str(exc)[:120])
+            return ""
+
+    async def _fetch_source_fallback_text(self, client: Any, url: str) -> tuple[str, str]:
+        """When a live fetch AND Tavily's own raw content both come back
+        empty, try the two fallback legs ported from the DVsU research
+        simulator's build_package.py (GAP 1b, 2026-07-30), in order:
+
+        1. If the URL is a National Archives Discovery record page, its own
+           JSON API - retried a few times, because the API answers an empty
+           202 Accepted while it warms a cold record, and one empty response
+           is not evidence of absence (2 genuine Tier-1 records were wrongly
+           dropped over this in the simulator).
+        2. A REAL Wayback Machine snapshot resolved through the availability
+           API (never a claimed/fabricated archive URL).
+
+        Returns (text, capture_method_label); ("", "") when neither leg
+        produces text."""
+        match = _NATIONAL_ARCHIVES_DISCOVERY_RECORD_RE.search(url or "")
+        if match:
+            api_url = f"https://discovery.nationalarchives.gov.uk/API/records/v1/details/{match.group(1)}"
+            text = ""
+            for attempt in range(3):
+                text = await self._fetch_source_text(client, api_url)
+                if text:
+                    break
+                if attempt < 2:
+                    await asyncio.sleep(3)
+            if text:
+                return text, "national_archives_api"
+        snapshot_url = await self._wayback_snapshot_url(client, url)
+        if snapshot_url:
+            text = await self._fetch_source_text(client, snapshot_url)
+            if text:
+                return text, f"{_WAYBACK_CAPTURE_METHOD_PREFIX}{snapshot_url}"
+        return "", ""
+
     async def _gather_verified_machine_source_package(self, title: str, machine: str, payload: dict) -> dict:
         """Search the live internet, fetch pages, and save exact excerpt candidates for one machine.
 
@@ -7547,19 +7693,30 @@ class PipelineExecutor:
         errors: list[str] = []
         headers = {"User-Agent": "StoryEngine/1.0 (verified source research)"}
         async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
-            for query in queries:
+            search_passes = [(query, None) for query in queries]
+            # GAP 1(c), 2026-07-30: iwm.org.uk 403s every automated fetch (curl,
+            # WebFetch - all of it), so a search hit there can never become a
+            # usable candidate; excluding it stops it burning a source slot on
+            # every single call. For a ship/naval machine, add one extra call
+            # scoped to the DVsU research simulator's proven fetchable
+            # Commonwealth/naval anchors (gather_brief_template.txt) so the
+            # roster's best sources are not all behind IWM's bot-wall.
+            if _is_naval_gather_context(title, machine):
+                search_passes.append((_naval_museum_domain_query(machine), list(_PREFERRED_NAVAL_SOURCE_DOMAINS)))
+            for query, include_domains in search_passes:
                 try:
-                    response = await client.post(
-                        "https://api.tavily.com/search",
-                        json={
-                            "api_key": tavily_key,
-                            "query": query,
-                            "search_depth": "advanced",
-                            "include_answer": False,
-                            "include_raw_content": True,
-                            "max_results": 5,
-                        },
-                    )
+                    body = {
+                        "api_key": tavily_key,
+                        "query": query,
+                        "search_depth": "advanced",
+                        "include_answer": False,
+                        "include_raw_content": True,
+                        "max_results": 5,
+                        "exclude_domains": list(_BLOCKED_AUTOMATION_SOURCE_DOMAINS),
+                    }
+                    if include_domains:
+                        body["include_domains"] = include_domains
+                    response = await client.post("https://api.tavily.com/search", json=body)
                     if response.status_code >= 400:
                         errors.append(f"Tavily search failed for {query}: HTTP {response.status_code}")
                         continue
@@ -7595,10 +7752,8 @@ class PipelineExecutor:
                 raw_content = str(item.get("raw_content") or "")
                 source_variants: list[tuple[tuple[int, int, int, int], str, str, list[str]]] = []
                 variant_audit: list[dict] = []
-                for capture_method, source_text in (
-                    ("fetched_page", fetched_text),
-                    ("tavily_raw_content", raw_content),
-                ):
+
+                def _register_variant(capture_method: str, source_text: str, method_priority: int) -> bool:
                     variant_row = {
                         "source_capture_method": capture_method,
                         "text_chars": len(source_text or ""),
@@ -7608,19 +7763,18 @@ class PipelineExecutor:
                     if not source_text:
                         variant_row["rejected_reason"] = "empty_capture"
                         variant_audit.append(variant_row)
-                        continue
+                        return False
                     if not variant_row["mentions_machine"]:
                         variant_row["rejected_reason"] = "machine_not_found_in_capture"
                         variant_audit.append(variant_row)
-                        continue
+                        return False
                     excerpt_candidates = _sentence_candidates_from_source(source_text, machine, limit=10)
                     variant_row["excerpt_count"] = len(excerpt_candidates)
                     if not excerpt_candidates:
                         variant_row["rejected_reason"] = "no_sentence_excerpt_candidates"
                         variant_audit.append(variant_row)
-                        continue
+                        return False
                     coverage_score = _machine_source_variant_score(excerpt_candidates, machine)
-                    method_priority = 1 if capture_method == "fetched_page" else 0
                     variant_row.update({
                         "covered_slot_count": coverage_score[0],
                         "distinct_slot_excerpt_count": coverage_score[1],
@@ -7628,6 +7782,25 @@ class PipelineExecutor:
                     })
                     variant_audit.append(variant_row)
                     source_variants.append(((*coverage_score, method_priority), capture_method, source_text, excerpt_candidates))
+                    return True
+
+                for capture_method, source_text in (
+                    ("fetched_page", fetched_text),
+                    ("tavily_raw_content", raw_content),
+                ):
+                    _register_variant(capture_method, source_text, 1 if capture_method == "fetched_page" else 0)
+
+                if not source_variants:
+                    # GAP 1(b), 2026-07-30: the direct fetch AND Tavily's own raw
+                    # content both came back empty (e.g. iwm.org.uk 403ing the
+                    # request) - fall back exactly as the DVsU research
+                    # simulator's build_package.py does before giving up on this
+                    # source entirely. Lowest method_priority: a live capture is
+                    # always preferred over an archived one on a genuine tie.
+                    fallback_text, fallback_method = await self._fetch_source_fallback_text(client, url)
+                    if fallback_text and fallback_method:
+                        _register_variant(fallback_method, fallback_text, -1)
+
                 if not source_variants:
                     search_result_audit.append({
                         "url": url,

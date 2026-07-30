@@ -1093,6 +1093,426 @@ def test_source_gathering_saves_anton_slot_coverage_metadata(monkeypatch):
     assert duplicate_audit_rows
 
 
+# --- GAP 1(a): tolerant per-excerpt normalizer -----------------------------
+# Each quirk below rejected a REAL excerpt in the DVsU research simulator
+# before being fixed there (tasks/evidence/dvsu-research-simulator/
+# build_package.py::_match_normalize). Ported into _normalized_source_text,
+# the pipeline's own comparison fold, one fixture per quirk.
+
+def test_normalized_source_text_strips_citation_markers():
+    page_text = "HMS Argus entered service as an aircraft carrier.[9] The next ship followed."
+    normalized = pe._normalized_source_text(page_text)
+    assert "[9]" not in normalized
+    assert "carrier. the next ship" in normalized
+
+
+def test_normalized_source_text_strips_lettered_and_named_citation_markers():
+    assert "[a]" not in pe._normalized_source_text("Laid down in 1917.[a] Commissioned in 1918.")
+    assert "[note 3]" not in pe._normalized_source_text("Laid down in 1917.[note 3] Commissioned in 1918.")
+    assert "[citation needed]" not in pe._normalized_source_text(
+        "Laid down in 1917.[citation needed] Commissioned in 1918."
+    )
+
+
+def test_normalized_source_text_collapses_orphan_space_before_punctuation():
+    artifact = "Under the Anglo-American Mutual Aid Treaty , Ark Royal was laid down."
+    clean = "Under the Anglo-American Mutual Aid Treaty, Ark Royal was laid down."
+    assert pe._normalized_source_text(artifact) == pe._normalized_source_text(clean)
+
+
+def test_normalized_source_text_collapses_one_sided_hyphen_space():
+    # Artifact of a stripped inline link mid-compound word: the source markup
+    # "equipped-[Hellcat IIs](...)" strips down to "equipped- Hellcat".
+    artifact = "The squadron was equipped- Hellcat fighters by early 1944."
+    clean = "The squadron was equipped-Hellcat fighters by early 1944."
+    assert pe._normalized_source_text(artifact) == pe._normalized_source_text(clean)
+    # A genuinely spaced dash ("London - the capital") keeps both spaces and
+    # must NOT be collapsed into a hyphen-glued compound.
+    spaced_dash = "London - the capital - held the ceremony."
+    assert pe._normalized_source_text(spaced_dash) == "london - the capital - held the ceremony."
+
+
+def test_normalized_source_text_folds_smart_quotes_and_dashes():
+    smart = "The ship’s captain called it “a floating airfield” — nothing more."
+    ascii_version = "The ship's captain called it \"a floating airfield\" - nothing more."
+    assert pe._normalized_source_text(smart) == pe._normalized_source_text(ascii_version)
+
+
+def test_normalized_source_text_folds_nbsp():
+    nbsp_text = "HMS Argus was laid down in 1917."
+    space_text = "HMS Argus was laid down in 1917."
+    assert pe._normalized_source_text(nbsp_text) == pe._normalized_source_text(space_text)
+
+
+def test_validate_card_against_verified_sources_tolerates_citation_marker_artifact():
+    """Wiring proof, not just the isolated function: before GAP 1(a), a card
+    excerpt written cleanly would be rejected against a candidate whose
+    fetched-page text still carries a stripped citation marker mid-sentence."""
+    segments = _evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    clean_excerpt = f"Boeing XB-15 {segments[0]['source_excerpt']} It remained in frontline service."
+    artifact_excerpt = f"Boeing XB-15 {segments[0]['source_excerpt']}[9] It remained in frontline service."
+    package["candidate_excerpts"][0]["text"] = artifact_excerpt
+
+    card_segments = copy.deepcopy(segments)
+    card_segments[0]["source_excerpt"] = clean_excerpt
+    card = {"unit": "Boeing XB-15", "evidence_segments": card_segments}
+
+    warnings = pe._validate_card_against_verified_sources(card, package)
+
+    assert not any("was not found in verified fetched source text" in w for w in warnings)
+
+
+# --- GAP 1(b): National Archives / Wayback fallback chain ------------------
+
+def test_source_gathering_falls_back_to_national_archives_api_after_cold_202_retries(monkeypatch):
+    import httpx
+
+    original_url = "https://discovery.nationalarchives.gov.uk/details/r/C1234567"
+    api_url = "https://discovery.nationalarchives.gov.uk/API/records/v1/details/C1234567"
+    na_text = (
+        "Boeing XB-15 development files record the original requirement for an "
+        "experimental long-range bomber. Boeing XB-15 used four engines and a huge "
+        "wing as the engineering decision. Boeing XB-15 was underpowered and too "
+        "slow for the intended combat role. Boeing XB-15 later served as a transport."
+    )
+
+    class FakeSearchResponse:
+        status_code = 200
+
+        def json(self):
+            return {"results": [{"url": original_url, "title": "NA Discovery record", "raw_content": ""}]}
+
+    class FakeGetResponse:
+        def __init__(self, status_code, text=""):
+            self.status_code = status_code
+            self.text = text
+            self.headers = {}
+            self.content = text.encode()
+
+    api_call_count = {"n": 0}
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeSearchResponse()
+
+        async def get(self, url, *_args, **_kwargs):
+            if url == original_url:
+                return FakeGetResponse(403)
+            if url == api_url:
+                api_call_count["n"] += 1
+                if api_call_count["n"] < 3:
+                    return FakeGetResponse(200, "")
+                return FakeGetResponse(200, na_text)
+            raise AssertionError(f"unexpected GET {url}")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    async def fake_sleep(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(pe.asyncio, "sleep", fake_sleep)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert api_call_count["n"] == 3
+    assert result["search_result_audit"][0]["accepted"] is True
+    assert result["sources"][0]["source_capture_method"] == "national_archives_api"
+    assert result["candidate_excerpts"][0]["source_capture_method"] == "national_archives_api"
+    assert "Boeing XB-15" in result["candidate_excerpts"][0]["text"]
+    assert pe._verified_source_candidate_traceable(result["candidate_excerpts"][0]) is True
+
+
+def test_source_gathering_falls_back_to_real_wayback_snapshot(monkeypatch):
+    import httpx
+
+    original_url = "https://www.iwm.org.uk/collections/item/object/205211678"
+    snapshot_url = (
+        "https://web.archive.org/web/20250101000000/"
+        "https://www.iwm.org.uk/collections/item/object/205211678"
+    )
+    wayback_text = (
+        "Boeing XB-15 was designed to meet a requirement for very long range "
+        "bombing. Boeing XB-15 used a large wing and four engines as the "
+        "engineering decision. Boeing XB-15 was underpowered and too slow for "
+        "combat. Boeing XB-15 later flew cargo missions during World War II."
+    )
+
+    class FakeSearchResponse:
+        status_code = 200
+
+        def json(self):
+            return {"results": [{"url": original_url, "title": "IWM item", "raw_content": ""}]}
+
+    class FakeGetResponse:
+        def __init__(self, status_code, payload=None, text=""):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = text
+            self.headers = {}
+            self.content = text.encode()
+
+        def json(self):
+            return self._payload
+
+    availability_calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeSearchResponse()
+
+        async def get(self, url, *_args, **kwargs):
+            if url == original_url:
+                return FakeGetResponse(403)
+            if url == "https://archive.org/wayback/available":
+                availability_calls.append(kwargs.get("params"))
+                return FakeGetResponse(
+                    200,
+                    payload={"archived_snapshots": {"closest": {"url": snapshot_url, "status": "200"}}},
+                )
+            if url == snapshot_url:
+                return FakeGetResponse(200, text=wayback_text)
+            raise AssertionError(f"unexpected GET {url}")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    # The snapshot URL used is EXACTLY what the availability API returned -
+    # never a claimed/fabricated archive.org URL (the Ark Royal S8 incident).
+    assert availability_calls == [{"url": original_url}]
+    assert result["sources"][0]["source_capture_method"] == f"wayback:{snapshot_url}"
+    assert result["candidate_excerpts"][0]["source_capture_method"] == f"wayback:{snapshot_url}"
+    assert pe._verified_source_candidate_traceable(result["candidate_excerpts"][0]) is True
+    assert result["search_result_audit"][0]["accepted"] is True
+
+
+def test_source_gathering_never_fabricates_a_wayback_snapshot_when_none_exists(monkeypatch):
+    """No archived_snapshots in the availability response -> the source is
+    dropped as no_exact_text_variant, never a guessed archive.org URL."""
+    import httpx
+
+    original_url = "https://www.iwm.org.uk/collections/item/object/999"
+
+    class FakeSearchResponse:
+        status_code = 200
+
+        def json(self):
+            return {"results": [{"url": original_url, "title": "IWM item", "raw_content": ""}]}
+
+    class FakeGetResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = ""
+            self.headers = {}
+            self.content = b""
+
+        def json(self):
+            return self._payload
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeSearchResponse()
+
+        async def get(self, url, *_args, **_kwargs):
+            if url == original_url:
+                return FakeGetResponse(403)
+            if url == "https://archive.org/wayback/available":
+                return FakeGetResponse(200, payload={"archived_snapshots": {}})
+            raise AssertionError(f"unexpected GET {url}")
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert result["sources"] == []
+    assert result["search_result_audit"][0]["accepted"] is False
+    assert result["search_result_audit"][0]["rejected_reason"] == "no_exact_text_variant"
+
+
+def test_verified_source_candidate_traceable_accepts_fallback_capture_methods():
+    base = {"source_url": "https://x.test", "locator": "S1-E1"}
+    assert pe._verified_source_candidate_traceable({**base, "source_capture_method": "national_archives_api"})
+    assert pe._verified_source_candidate_traceable(
+        {**base, "source_capture_method": "wayback:https://web.archive.org/web/2020/https://x.test"}
+    )
+    assert not pe._verified_source_candidate_traceable({**base, "source_capture_method": "tavily_snippet"})
+
+
+def test_verified_machine_source_package_quality_errors_accepts_fallback_capture_methods():
+    segments = _evidence_segments()
+    package = _verified_package_for_segments("Boeing XB-15", segments)
+    package["candidate_excerpts"][0]["source_capture_method"] = "national_archives_api"
+    package["candidate_excerpts"][1]["source_capture_method"] = (
+        "wayback:https://web.archive.org/web/2020/https://x.test"
+    )
+
+    errors = pe._verified_machine_source_package_quality_errors(package, "Boeing XB-15")
+
+    assert not any("unsupported source capture method" in e for e in errors)
+
+
+# --- GAP 1(c): source steering away from the iwm.org.uk bot-wall -----------
+
+def test_naval_gather_context_detects_ship_titles_and_machines():
+    assert pe._is_naval_gather_context("Every British Aircraft Carrier Class Ever Built", "HMS Argus") is True
+    assert pe._is_naval_gather_context("Every US Navy Destroyer Ever Built", "USS Fletcher") is True
+    assert pe._is_naval_gather_context("Every US Strategic Bomber Ever Built", "Boeing XB-15") is False
+
+
+def test_gather_verified_machine_source_package_excludes_iwm_and_adds_naval_domain_query(monkeypatch):
+    import httpx
+
+    request_bodies = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"results": []}
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, json=None, **_kwargs):
+            request_bodies.append(json)
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every British Aircraft Carrier Class Ever Built", "HMS Argus", {}
+        )
+    )
+
+    assert len(request_bodies) == 9  # the original 8 queries + 1 naval-domain-scoped call
+    assert all("iwm.org.uk" in body["exclude_domains"] for body in request_bodies)
+    naval_calls = [body for body in request_bodies if body.get("include_domains")]
+    assert len(naval_calls) == 1
+    assert set(naval_calls[0]["include_domains"]) == set(pe._PREFERRED_NAVAL_SOURCE_DOMAINS)
+    assert "iwm.org.uk" not in naval_calls[0]["include_domains"]
+
+
+def test_gather_verified_machine_source_package_skips_naval_query_for_non_naval_machine(monkeypatch):
+    import httpx
+
+    request_bodies = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"results": []}
+
+    class FakeAsyncClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, _url, json=None, **_kwargs):
+            request_bodies.append(json)
+            return FakeResponse()
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    async def fake_get_secret(*_args, **_kwargs):
+        return "tvly-test"
+
+    monkeypatch.setattr(pe, "get_secret", fake_get_secret)
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    asyncio.run(
+        executor._gather_verified_machine_source_package(
+            "Every US Strategic Bomber Ever Built", "Boeing XB-15", {}
+        )
+    )
+
+    assert len(request_bodies) == 8
+    assert all("iwm.org.uk" in body["exclude_domains"] for body in request_bodies)
+    assert not any(body.get("include_domains") for body in request_bodies)
+
+
 def test_required_anton_slots_reject_tier_four_only_source_support():
     segments = _evidence_segments()
     for segment in segments:

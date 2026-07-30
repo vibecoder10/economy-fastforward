@@ -261,3 +261,66 @@ migration actually running against the real Supabase Postgres instance, any real
 from a live judge call (D8-2's first live run hasn't happened yet — that is the entire point this
 chunk exists to protect), and a real browser walk of the Findings tab's new "Judged frames &
 panels" section against live data.
+## G1 — gatherer fallbacks: normalizer, NA/Wayback chain, source steering — 2026-07-30
+
+Ported into `storyengine/backend/pipeline_executor.py::_gather_verified_machine_source_package`
+from the DVsU research simulator (`storyengine/tasks/evidence/dvsu-research-simulator/
+build_package.py`, untracked, main checkout only): (a) the tolerant `_normalized_source_text`
+fold (citation markers, smart quotes/dashes, NBSP, orphan punctuation/hyphen spaces), (b) the
+National Archives Discovery JSON API + real-Wayback-availability fallback chain (new capture
+methods `national_archives_api` and `wayback:<url>`, threaded through
+`_verified_source_candidate_traceable` and the `unsupported_capture_methods` quality gate via a
+new shared `_is_approved_source_capture_method` helper), (c) source steering — every Tavily call
+now sends `exclude_domains: ["iwm.org.uk", "www.iwm.org.uk"]`, plus one additional
+`include_domains`-scoped call to `awm.gov.au / rmg.co.uk / gov.uk / naval-encyclopedia.com /
+naval-history.net / uboat.net` when `_is_naval_gather_context(title, machine)` detects a
+ship/naval machine from the video title or machine name.
+
+Cost cap respected: every test (`storyengine/backend/tests/test_machine_documentary_hold.py`,
+15 new tests) runs fully offline against a fake `httpx.AsyncClient` — no live Tavily, National
+Archives, or Wayback calls were made this session. **What is NOT verified live:**
+
+### 1. The real National Archives Discovery API and Wayback availability API were never called live
+The retry-on-empty-202 logic and the Wayback `archived_snapshots` response shape are both typed
+from the reference simulator's own hard-won notes (`STATE.md`: "National Archives API 202s when
+cold — retry or sidecar") and from `build_package.py`'s working implementation, not from a fresh
+live call this session. Recipe to confirm against the real APIs (no API key needed, both are
+public/unauthenticated):
+```bash
+# National Archives Discovery record -> its own JSON API. Use any real record id, e.g. one
+# already gathered in the simulator's raw/ directory, or search discovery.nationalarchives.gov.uk
+# for a British WW2-era ship-file record and take the id from its /details/r/<ID> URL.
+curl -s "https://discovery.nationalarchives.gov.uk/API/records/v1/details/<ID>" | head -c 500
+# Expect: JSON (may be empty/202-shaped on a cold record — the pipeline retries 3x, 3s apart).
+
+# Wayback availability API for a real URL known to be archived.
+curl -s "http://archive.org/wayback/available?url=https://www.iwm.org.uk/collections/item/object/205211678"
+# Expect: {"archived_snapshots": {"closest": {"url": "https://web.archive.org/web/...", ...}}}
+```
+If either shape has drifted from what's coded (e.g. NA now nests the payload differently, or the
+availability API renamed a key), `_fetch_source_fallback_text`/`_wayback_snapshot_url` in
+`pipeline_executor.py` need a matching update — the fixture-based tests would keep passing
+(they pin the CODED shape) while the live path silently stopped working, so a periodic live
+recipe re-run is worth keeping.
+
+### 2. Not yet run through a real gather for a machine whose ONLY sources are behind the iwm.org.uk bot-wall
+The Definition of Complete's "a machine whose best sources sit behind a bot-wall must still yield
+a passing package" is proven at the unit/fixture level (traceable capture methods, exclude/
+include domains wired correctly) but not end-to-end against a live video. Recipe once Ryan
+authorizes a paid Tavily run: pick one of the DVsU carrier roster machines noted in
+`dvsu-research-simulator/STATE.md` as gathered mostly from IWM-adjacent pages, clear its cached
+`machine_raw_source_packages` entry, and re-run research through the pipeline's own API path —
+confirm the resulting package's sources include at least one `national_archives_api` or
+`wayback:` capture method and still passes `_verified_machine_source_package_quality_errors`.
+
+### 3. `static_docu.py`'s "reference fetching" was investigated and deliberately NOT touched
+The chunk brief named `static_docu.py`'s reference fetching alongside
+`_gather_verified_machine_source_package` as a second port target. Read in full
+(`storyengine/backend/static_docu.py:770-894`, `_host_reference` / `_gather_reference_candidates`):
+it is a Wikimedia Commons IMAGE-reference fetcher for ship-roster PHOTOS, unrelated to the
+text-excerpt research package — it never touches iwm.org.uk, awm.gov.au, rmg.co.uk,
+naval-encyclopedia.com, naval-history.net, or uboat.net, and has no citation-marker/excerpt
+normalization concern at all. Porting the three GAP-1 capabilities there would not address any
+real failure mode in that code. Flagging instead of silently dropping: if Ryan wants a
+Wayback-image fallback for `_host_reference` (e.g. when a Commons file 404s), that is a distinct,
+separately-scoped follow-up, not part of this chunk's Definition of Complete.
