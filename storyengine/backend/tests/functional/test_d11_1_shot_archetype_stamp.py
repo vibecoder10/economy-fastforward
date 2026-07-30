@@ -20,6 +20,7 @@ Run: cd storyengine/backend && ./venv/bin/python -m pytest \
 """
 import asyncio
 import os
+import re
 import sys
 import types
 from unittest.mock import AsyncMock, patch
@@ -94,8 +95,9 @@ def _frame(tmp_path, name, **overrides):
 def test_store_scene_stamps_shot_archetype(tmp_path):
     """The decisive test: a frame carrying shot_archetype (as
     generate_coverage_frames now threads it from the parsed shot dict) must
-    land in the INSERT's shot_archetype SQL parameter — the LAST positional
-    param, since D11-1 appended it after D9-6/D9-7's caused_by."""
+    land in the INSERT's shot_archetype SQL parameter (D11-1 appended it
+    after D9-6/D9-7's caused_by; D11-2 later appended lens_mm/camera_height/
+    dof after IT, so it is no longer the last param — see _param_index)."""
     frames_by_moment = [(
         "moment 1 summary",
         [_frame(tmp_path, "frame1.png", shot_archetype="establishing_wide")],
@@ -107,11 +109,14 @@ def test_store_scene_stamps_shot_archetype(tmp_path):
     params = captured[0]
     cols = _insert_columns()
     assert "shot_archetype" in cols, "sanity: column must be in the INSERT column list"
-    # params order: ...,purpose_kind,shot_purpose,transition_kind,
-    # continuity_bridge,caused_by,shot_archetype (29 positional params after
-    # the SQL string — indices 0-28 in *params; shot_archetype is the LAST
-    # one, index -1).
-    assert params[-1] == "establishing_wide"
+    # D11-2 broke this test's old hardcoded `params[-1]` — D11-2's migration
+    # 150 appended THREE more trailing columns (lens_mm, camera_height, dof)
+    # after shot_archetype, so it's no longer the last param. Name-keyed via
+    # _param_index instead of a position that shifts every time a later
+    # chunk appends another trailing column (three chunks in a row hit this
+    # — see test_d9_1_shot_purpose_stamp.py / test_d9_6_7_transition_
+    # causality_stamp.py for the same fix applied there).
+    assert params[_param_index("shot_archetype")] == "establishing_wide"
 
 
 def test_store_scene_shot_archetype_defaults_null_for_untagged_shot(tmp_path):
@@ -126,7 +131,7 @@ def test_store_scene_shot_archetype_defaults_null_for_untagged_shot(tmp_path):
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
-    assert params[-1] is None
+    assert params[_param_index("shot_archetype")] is None
 
 
 def test_store_scene_stamps_shot_archetype_independently_per_shot(tmp_path):
@@ -145,8 +150,9 @@ def test_store_scene_stamps_shot_archetype_independently_per_shot(tmp_path):
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 2
-    assert captured[0][-1] == "establishing_wide"
-    assert captured[1][-1] == "medium_close"
+    idx = _param_index("shot_archetype")
+    assert captured[0][idx] == "establishing_wide"
+    assert captured[1][idx] == "medium_close"
 
 
 def _insert_columns():
@@ -160,6 +166,50 @@ def _insert_columns():
     start = src.index("INSERT INTO assets (")
     end = src.index(")", start)
     return src[start:end]
+
+
+# The INSERT's column list grows a trailing column almost every chunk (D9-1,
+# D9-6/D9-7, D11-1, D11-2, ...), which used to break every stamp test's
+# hardcoded negative index each time one more column landed — three chunks
+# in a row hit this (D11-2's own chunk notes). Compute a column's position
+# from the SAME column-name text _insert_columns() already re-reads from
+# source, so these assertions can never drift again regardless of how many
+# more trailing columns land after this one.
+_LITERAL_COLUMNS = {"status", "generation_method"}  # SQL literals ('done'/'coverage'), not $N placeholders
+_COLUMN_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _column_names():
+    """The INSERT's column names, in order — parsed out of _insert_columns()'s
+    raw source text. The SQL string is built from several adjacent Python
+    string literals split across lines (readable source, not one giant
+    line), so splitting that raw text on "," leaves some tokens with a
+    closing-quote/newline/indentation/opening-quote artifact glued onto the
+    front (e.g. the raw text between two literals reads
+    '...caused_by, shot_archetype, lens_mm, "\\n                "camera_height, dof'
+    — the token for "camera_height" carries that leading junk). Take the
+    LAST identifier-like run in each token (_COLUMN_TOKEN_RE) rather than a
+    plain .strip(), since a plain strip only trims whitespace at the ends
+    and leaves the embedded quote/newline artifact in place."""
+    tokens = _insert_columns().split(",")
+    names = []
+    for t in tokens:
+        matches = _COLUMN_TOKEN_RE.findall(t)
+        names.append(matches[-1] if matches else t.strip())
+    return names
+
+
+def _param_index(column_name):
+    """0-based index into the *params tuple fake_execute captures, for a
+    named INSERT column — derived from _column_names() instead of a
+    hand-maintained offset. Two columns (status, generation_method) are
+    hardcoded SQL literals ('done'/'coverage'), not $N placeholders, so they
+    must be subtracted out when mapping a column's list position to its
+    params-tuple index."""
+    cols = _column_names()
+    idx = cols.index(column_name)
+    literal_count_before = sum(1 for c in cols[:idx] if c in _LITERAL_COLUMNS)
+    return idx - literal_count_before
 
 
 if __name__ == "__main__":

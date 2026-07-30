@@ -706,3 +706,154 @@ or drift toward a handful of favorites; and whether `check_shot_archetype_valid`
 posture should be promoted to a hard gate once that track record exists (explicitly flagged as
 hard-eligible under Ruling 1 in the check's own docstring, but promotion is a separate, deliberate
 call, not automatic).
+
+
+## D11-2: per-shot DP (director of photography) fields as structured data (migration 150)
+
+**What is deferred:** live proof that the coverage planner (Claude, via the coverage system
+prompt) actually writes the new OPTIONAL `DP: <lens_mm> | <camera_height> | <dof>` row (rule 28)
+on a real scene, and that `check_shot_dp_valid`'s WARN gate fires correctly against whatever
+Claude actually writes — a prompt-only change; no test in this chunk calls the real Claude API,
+mirroring exactly the deferred-verification gap D11-1 (ARCHETYPE) logged one chunk earlier. Rule
+28 being OPTIONAL means the planner may simply never use it, which is fine — but if it DOES, the
+lens_mm/camera_height/dof vocabulary needs to actually match what the checker enforces:
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+scripts/se.sh db "SELECT column_name FROM information_schema.columns WHERE table_name='assets' AND column_name IN ('lens_mm','camera_height','dof')"
+# Expect three rows back.
+
+# 3. Generate a real scene's coverage directive (any normal chat/coverage-build flow) and read
+#    the raw directive text (scripts/coverage_to_app.py writes it, or grab it from
+#    scripts.coverage_directive on the scene row) — look for DP: rows under some of the
+#    MASTER/ANGLE lines (and their PURPOSE/TRANSITION/CAUSED_BY/ARCHETYPE siblings, if present).
+#    Since rule 28 says "MAY", zero rows on any given scene is NOT a failure; the interesting
+#    failure mode is a DP row present with a camera_height/dof word NOT in
+#    storyboard.coverage.CAMERA_HEIGHT_KINDS/DOF_KINDS, or a lens value outside 10-200mm or not
+#    shaped like "<digits>mm" (the exact things check_shot_dp_valid warns on — check the
+#    coverage-run logs for "⚠️ shot-DP check (D11-2)" lines).
+
+# 4. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and confirm
+#    the columns actually populate:
+scripts/se.sh db "SELECT id, shot_type, lens_mm, camera_height, dof FROM assets WHERE video_id='<vid>' AND scene=<n> ORDER BY image_index"
+# Expect lens_mm/camera_height/dof populated (non-NULL) for whichever shots the planner chose to
+# tag — very likely a MINORITY of shots (optional, unlike PURPOSE/TRANSITION/CAUSED_BY), NULL is
+# expected and fine for the rest. A shot may carry only SOME of the three (e.g. lens_mm set,
+# camera_height/dof NULL) — that's the taught grammar working as designed, not a bug.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d11_2_shot_dp.py` (28 tests, new) covers the vocabulary
+constants (`CAMERA_HEIGHT_KINDS` = ground/low/waist/chest/eye/high/overhead, `DOF_KINDS` =
+shallow/medium/deep, `DP_LENS_MIN_MM`/`DP_LENS_MAX_MM` = 10/200), `parse_coverage`'s extraction of
+the per-shot `DP: <lens_mm> | <camera_height> | <dof>` row — each of the three pipe-separated
+slots independently optional (lens-only with no pipes at all, middle slot skipped but its pipe
+kept, only the first slot populated, etc), tolerant of bold/case, correctly independent when
+stacked with PURPOSE/TRANSITION/CAUSED_BY/ARCHETYPE in ANY order (same latest-starting-candidate
+mechanism D9-6/D9-7/D11-1 built, now handling five row types instead of four), BACKWARD
+COMPATIBILITY against ALL FOUR prior directive eras (legacy zero-metadata-row `SAMPLE`, D9-1-era
+PURPOSE-only, D9-6/D9-7-era PURPOSE+TRANSITION+CAUSED_BY, D11-1-era +ARCHETYPE — all four
+byte-identical on shot_type/description, lens_mm/camera_height/dof simply None), the new WARN gate
+`check_shot_dp_valid` firing on an out-of-range lens (parsed but outside 10-200mm), a MALFORMED
+lens value (text present but not shaped like "<digits>mm" — proven to not silently vanish to a
+false "nothing written" None), an out-of-vocabulary camera_height, an out-of-vocabulary dof, and
+all three independently on one shot (3 separate warnings, not 1 merged one) — never on an absent
+row/slot, since the whole row is optional (unlike every prior D9-1/D9-6/D9-7 "present" check),
+`generate_coverage_frames` threading lens_mm/camera_height/dof onto its frame dicts AND proof none
+of the three (nor the literal "DP" label) ever reaches the actual image-generation prompt string,
+`enforce_setup_variety`'s content-swap carrying all three DP fields along with shot_type/
+description/purpose_kind/shot_archetype/etc (same "travels with content, not position" judgment
+call as D9-1/D9-6/D9-7/D11-1), and `plan_moments_deterministic` preserving all three end to end
+including a floor-added filler shot correctly landing with none.
+`storyengine/backend/tests/functional/test_d11_2_shot_dp_stamp.py` (4 tests, new) proves
+`store_scene`'s INSERT stamps lens_mm/camera_height/dof from a frame dict's fields (NULL-default,
+independently per-shot within one moment, and a PARTIAL row — only one of the three slots stated —
+stamps that one value with the other two staying NULL rather than getting invented) — same
+"store_scene is the one real stamping site" reasoning as D9-1/D9-6/D9-7/D11-1, written name-keyed
+via `_param_index` from the start (see below) rather than a positional index that would break on
+the next chunk's trailing column.
+
+**Stamp-test fragility fix (explicitly asked for in this chunk's brief):**
+`test_d9_1_shot_purpose_stamp.py`, `test_d9_6_7_transition_causality_stamp.py`, and
+`test_d11_1_shot_archetype_stamp.py` each shipped with a HARDCODED negative-index positional
+assertion (`params[-6]`, `params[-4]`, `params[-1]`, etc) into `store_scene`'s INSERT params tuple
+— three chunks running (D9-6/D9-7, D11-1, and now D11-2) each broke a different one of these files
+by appending trailing columns after the ones the file was asserting on, requiring a manual
+index-math fix every time. This chunk converts all three (plus the new D11-2 stamp test, written
+name-keyed from the start) to compute a column's position from the INSERT's own column-name text
+(which `_insert_columns()` already re-read from source for a `"X" in cols` sanity check) via a new
+shared-shape `_column_names()` + `_param_index(name)` pair, duplicated per-file (matching the
+existing per-file duplication convention rather than introducing a new shared test-util import).
+`_column_names()` needed one wrinkle beyond a naive `.split(",")` + `.strip()`: the INSERT's SQL
+string is built from several adjacent Python string literals split across source lines (for
+readability), so the RAW SOURCE TEXT between two literals contains a stray
+`"\n<indentation>"` artifact that glues onto the front of whichever column name sits right after a
+line break (e.g. splitting on "," yields a token like `'"\n                "camera_height'`
+instead of a clean `'camera_height'`) — confirmed live by actually running the split against the
+real file before trusting it, not assumed. Fixed by taking the LAST identifier-like regex match
+(`[A-Za-z_][A-Za-z0-9_]*`) in each token rather than a plain `.strip()`, which correctly recovers
+`'camera_height'`, `'transition_kind'`, and every other affected token — verified end to end with a
+standalone script that printed the parsed column list and each computed `_param_index()` result
+against the ACTUAL current 34-column/32-param INSERT before trusting the fix in the test files
+(shot_archetype→28, lens_mm→29, camera_height→30, dof→31, all correct against the real `$29`-`$32`
+placeholders). `_param_index` also subtracts the two SQL-literal columns (`status`='done',
+`generation_method`='coverage') that occupy a column-list slot but no `$N` placeholder. This ends
+the recurring fragility going forward: a FUTURE chunk appending more trailing columns after `dof`
+cannot break any of these four files' assertions again, since they no longer encode a position,
+only a name.
+
+Real stash-proof (patch-file technique, never `git stash`): `git diff` of the full chunk (6
+touched + 3 new files) saved to a patch; the 3 new untracked files moved aside (not deletable via
+`git checkout`, since they don't exist in `HEAD`); `git checkout --` on the 6 tracked files
+reverted the tree to byte-identical pre-chunk state (confirmed via `git status --short` empty).
+Pipeline suite (`tests/` minus two PRE-EXISTING, unrelated collection errors —
+`test_sound_curation.py`/`test_ctr_12h_tracking.py` fail to import `sound_prompt_bot`/
+`performance_tracker` under system `python3` 3.9.6 regardless of this chunk, confirmed via `git
+status --short` showing zero diff on either file) ran 18 failed/546 passed reverted vs 18
+failed/574 passed applied — the +28 delta is exactly this chunk's own new
+`test_d11_2_shot_dp.py` tests — sorted FAILED-test-name sets diffed byte-identical (empty diff).
+Full backend suite (`/Users/ryanayler/economy-fastforward/storyengine/backend/venv/bin/python -m
+pytest tests/ -q`, the MAIN checkout's venv binary run against this WORKTREE's code, per this
+chunk's own instructions) ran 29 failed/3958 passed reverted vs 29 failed/3962 passed applied —
+sorted FAILED-test-name sets diffed byte-identical (empty diff); the applied run's 29 failures are
+all in `test_custom_film_remotion.py` and `test_youtube_oauth_diagnostics.py`, pre-existing and
+untouched by this chunk. The patch then forward-applied cleanly (`git apply`, no conflicts) and the
+3 new files were moved back, restoring the chunk exactly (`git status --short` confirmed identical
+to pre-revert). `schema.sql`'s `assets` table updated with the three new `lens_mm`/`camera_height`/
+`dof` columns, comments cross-referencing migration 150. `coverage_to_app.py`'s `store_scene` INSERT
+touched SURGICALLY — only the one SQL statement's column list, `VALUES` placeholder list, and
+trailing `execute()` args, per this chunk's brief warning that another worker was editing a
+different region of that same file concurrently (confirmed via `git diff --stat` showing only that
+one file's 13-line diff, no unrelated hunks).
+
+**Vocabulary decision worth a human glance:** rule 11 (FOUR CAMERA FACTS) states camera height as
+FREE PROSE with illustrative examples ("bed height, eye height, low tilted up, standing height"),
+not a fixed enum — that's WHY `check_camera_facts_present`'s own docstring calls facts (b)/(c) not
+mechanically checkable. This chunk's `camera_height` field is therefore a NEW controlled
+vocabulary, not a literal extraction of rule 11's words — it reuses rule 11's own recognizable
+single words where they exist ("eye" from "eye height", "low" from "low tilted up") and extends
+with ground/waist/chest/high/overhead to cover the same range of heights a director would actually
+call out. If a future session sees Claude's real DP rows drifting toward height phrases NOT in
+this set (e.g. writing "bed height" or "standing" literally, copying rule 11's own prose instead of
+the DP row's controlled vocabulary), that's a prompt-wording issue in rule 28, not a parser bug —
+worth tightening rule 28's phrasing rather than silently widening `CAMERA_HEIGHT_KINDS` to catch
+whatever Claude happens to write.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether Claude ever spontaneously reaches for the DP row at all given it's purely optional (rule 28
+says "MAY", so a real planner might simply never use it — that's a legitimate outcome, not a bug,
+but it also means the field's real-world value is unproven until a session watches actual plans use
+it); whether Claude, when it DOES use the row, keeps `camera_height` inside the taught vocabulary
+or drifts toward rule 11-style prose phrases instead (see the vocabulary note above); whether the
+ARCHETYPE-SYNERGY guidance in rule 28 (an archetype's typical_lens as lens_mm's default) actually
+influences what Claude writes, since `shot_archetypes.format_archetype_menu()` does not surface
+each archetype's `typical_lens` value to the planner at all (that field exists only in the Python
+catalog, read-only for this chunk) — the synergy note is pure prompt guidance the planner would
+have to already know or infer, not a value it can look up from what it's shown; and whether
+`check_shot_dp_valid`'s WARN-only posture should be promoted to a hard gate once a track record
+exists (explicitly flagged as hard-eligible under Ruling 1 in the check's own docstring for all
+three checkable facts, but promotion is a separate, deliberate call, not automatic).

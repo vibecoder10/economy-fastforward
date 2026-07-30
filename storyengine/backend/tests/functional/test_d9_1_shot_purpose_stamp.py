@@ -26,6 +26,7 @@ Run: cd storyengine/backend && ./venv/bin/python -m pytest \
 """
 import asyncio
 import os
+import re
 import sys
 import types
 from unittest.mock import AsyncMock, patch
@@ -111,20 +112,16 @@ def test_store_scene_stamps_purpose_kind_and_shot_purpose(tmp_path):
     assert len(captured) == 1
     params = captured[0]
     assert "purpose_kind" in _insert_columns(), "sanity: column must be in the INSERT column list"
-    # params order: id,tenant,vid,scene,idx,idx,summary,image_prompt,shot_type,
-    # title,aspect,url,url,is_master,assigned,location_id,camera_move,
-    # image_model,routed_model,routing_reason,duration_seconds,shot_location,
-    # group_arrangement,purpose_kind,shot_purpose,transition_kind,
-    # continuity_bridge,caused_by,shot_archetype (29 positional params after
-    # the SQL string — indices 0-28 in *params; D9-6/D9-7 (migration 148)
-    # appended THREE columns after shot_purpose, and D11-1 (migration 149)
-    # appended ONE more after caused_by, so purpose_kind/shot_purpose are now
-    # index -6/-5, not -2/-1. Updated here rather than left broken each time
-    # a trailing column lands: see test_d9_6_7_transition_causality_stamp.py
-    # for the middle three and test_d11_1_shot_archetype_stamp.py for the
-    # new last one).
-    assert params[-6] == "spatial"
-    assert params[-5] == "shows how Ryan gets from the pod to the corridor"
+    # D11-2 broke this test's old hardcoded params[-6]/[-5] a THIRD time —
+    # migration 150 appended three more trailing columns (lens_mm,
+    # camera_height, dof) after shot_archetype. Name-keyed via _param_index
+    # instead, so this can never drift again regardless of how many more
+    # trailing columns a future chunk adds (see test_d9_6_7_transition_
+    # causality_stamp.py / test_d11_1_shot_archetype_stamp.py for the same
+    # fix applied there).
+    assert params[_param_index("purpose_kind")] == "spatial"
+    assert params[_param_index("shot_purpose")] == (
+        "shows how Ryan gets from the pod to the corridor")
 
 
 def test_store_scene_purpose_fields_default_null_for_untagged_shot(tmp_path):
@@ -139,10 +136,8 @@ def test_store_scene_purpose_fields_default_null_for_untagged_shot(tmp_path):
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
-    # -6/-5 = purpose_kind/shot_purpose (see the index comment in the test
-    # above — D9-6/D9-7 and D11-1 appended four more trailing columns total).
-    assert params[-6] is None
-    assert params[-5] is None
+    assert params[_param_index("purpose_kind")] is None
+    assert params[_param_index("shot_purpose")] is None
 
 
 def test_store_scene_stamps_purpose_independently_per_shot(tmp_path):
@@ -161,9 +156,9 @@ def test_store_scene_stamps_purpose_independently_per_shot(tmp_path):
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 2
-    # -6:-4 = purpose_kind/shot_purpose (see the index comment above).
-    assert captured[0][-6:-4] == ("story", "opens the beat")
-    assert captured[1][-6:-4] == ("emotion", "shows her reaction")
+    idxs = [_param_index("purpose_kind"), _param_index("shot_purpose")]
+    assert tuple(captured[0][i] for i in idxs) == ("story", "opens the beat")
+    assert tuple(captured[1][i] for i in idxs) == ("emotion", "shows her reaction")
 
 
 def _insert_columns():
@@ -176,6 +171,45 @@ def _insert_columns():
     start = src.index("INSERT INTO assets (")
     end = src.index(")", start)
     return src[start:end]
+
+
+# The INSERT's column list grows a trailing column almost every chunk (D9-1,
+# D9-6/D9-7, D11-1, D11-2, ...), which used to break this file's hardcoded
+# negative indices every time one more column landed — three chunks in a row
+# hit this (D11-2's own chunk notes). Compute a column's position from the
+# SAME column-name text _insert_columns() already re-reads from source, so
+# these assertions can never drift again regardless of how many more
+# trailing columns land after this one.
+_LITERAL_COLUMNS = {"status", "generation_method"}  # SQL literals ('done'/'coverage'), not $N placeholders
+_COLUMN_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _column_names():
+    """The INSERT's column names, in order — parsed out of _insert_columns()'s
+    raw source text. The SQL string is built from several adjacent Python
+    string literals split across lines, so splitting that raw text on ","
+    leaves some tokens with a closing-quote/newline/indentation/opening-quote
+    artifact glued onto the front. Take the LAST identifier-like run in each
+    token (_COLUMN_TOKEN_RE) rather than a plain .strip(), since a plain
+    strip only trims whitespace at the ends and leaves that artifact in
+    place."""
+    tokens = _insert_columns().split(",")
+    names = []
+    for t in tokens:
+        matches = _COLUMN_TOKEN_RE.findall(t)
+        names.append(matches[-1] if matches else t.strip())
+    return names
+
+
+def _param_index(column_name):
+    """0-based index into the *params tuple fake_execute captures, for a
+    named INSERT column — derived from _column_names() instead of a
+    hand-maintained offset. status/generation_method are hardcoded SQL
+    literals, not $N placeholders, so they're subtracted out."""
+    cols = _column_names()
+    idx = cols.index(column_name)
+    literal_count_before = sum(1 for c in cols[:idx] if c in _LITERAL_COLUMNS)
+    return idx - literal_count_before
 
 
 if __name__ == "__main__":
