@@ -1121,7 +1121,7 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   system prompt, whether quality_rules genuinely has a script scope consumed at
   runtime, existing script gates, the scene record schema (is there a location field?),
   and the repair leg. Answers: is S3 enforceable on today's schema? DISPATCHED.
-- [ ] D6-1 (S) [D][B][V] CANONICAL INPUTS + composer verbatim slots. One per-video
+- [x] D6-1 (S) [D][B][V] CANONICAL INPUTS + composer verbatim slots. One per-video
   record for cast (with reference asset ids), style, and the set/material map per
   location, inserted VERBATIM by the composer. Migration 141 (reserved). Subsumes L20,
   L28, L29 and the paraphrase problem behind L12/L13/L14. Depends on D6-0A. Worktree.
@@ -1214,3 +1214,46 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   tested at `skills/video-pipeline/tests/test_board_laws.py:149-165`). The L23 INCOMING/OUTGOING
   renderer already exists and is verbatim; only the producer is missing. `feat/board-laws` is
   fully merged (0 commits ahead) and its worktree is clean - nothing is stranded there.
+
+### D6-1 merged 2026-07-29 (commits e68dabd1 + 9f425778). Verified by an independent reviewer.
+What landed: migration 142 (`video_characters.identity_tag`, `video_environments.material_map`, both
+nullable), a written style precedence contract in `_resolve_style`, canonical cast/style/material
+inserted VERBATIM by the sheet composer, three gates that raise before any paid call, and repair by
+FRESH RE-DERIVATION at redraw time (so a corrected canonical record heals old shots).
+The two live law violations are fixed and confirmed gone from the branch: the hardcoded
+`"for an animated scene"` literal (L29) and the unconditional attached-references claim (L28).
+Review round 2 (D6-1b) fixed three real defects the first round shipped: the L29 gate scanned the
+WHOLE prompt including planner-written panel prose, so ordinary English raised it - `"Her face is
+animated with delight"`, `"An oil painting of a ship hangs above the fireplace"`, `"watches a cartoon
+on the television screen"`, `"The CGI-rendered warning hologram flickers"` all blocked legal boards.
+Now scoped to composer-written text only, with two regression-lock tests proving a GENUINE double
+style claim still raises (the failure mode of that fix is defanging the gate).
+The L3 location check was comparing two independently LLM-worded prose strings and would fire on
+paraphrase (`"Diner Interior"` vs `"The Diner"`); now canonicalized against `video_environments` in
+three tiers, and it never hard-raises when no canonical record exists.
+LESSON FOR EVERY FUTURE BRIEF - a gate may only be HARD when the thing it compares against is
+CANONICAL. Prose-vs-prose comparison must warn, never block.
+LESSON 2 - `ImportError` at test collection with the implementation stashed is NOT a stash-proof. It
+proves the module is new, not that the behaviour changed. Demand a test that fails on an ASSERTION.
+Both builders produced the weak form on the first pass; put this in the brief next time.
+
+### New chunks from D6-1 (found, not lost)
+- [ ] D6-1c (S) [B][V] HIGH - the REAL per-shot pictures path still uses the LLM's own `[MATERIAL|]`
+  line, not the canonical `material_map`. Only the $0.05 sheet-preview path is canonical today. This
+  is the D6-1 split boundary the builder named honestly. Note the $0.05 sheet path IS what the D6-6
+  proof board uses, so the mission's proof is covered - but the real coverage pictures are not.
+  Lives in `skills/video-pipeline/storyboard/coverage.py` (`run_coverage`), REPO ROOT, not under
+  `storyengine/`.
+- [ ] D6-1d (S) [B][V] L29 STILL LIVE for preset-only videos. `style_preset_id` and
+  `production_style_id` resolve through a SEPARATE mechanism (`pipeline_executor._resolve_visual_profile_id`
+  -> `VISUAL_PROFILE` env var -> a different `load_profile`) that `_resolve_style` never touches, so a
+  preset-only video's sheet preview can disagree with its real draw on style. That is the exact L29
+  defect surviving in a second code path. Six of the eight style columns are documented as
+  out-of-scope in the precedence contract - this is the one that is a real gap, not a documented
+  non-goal.
+- [ ] D6-1e (S) [B][V] PRE-EXISTING false-success path, same shape as the one D6-1b fixed, predates
+  this phase: in `generate_storyboard_sheet_for_scene`, `"the planner returned no shots"` and a
+  missing `srow` both `continue` silently with no tracking, so the stage can report completed having
+  drawn nothing. D6-1b fixed only the path its own new exception introduced and correctly refused to
+  expand scope. A creator seeing "completed" with zero boards is a trust-and-money bug - treat as
+  HIGH.
