@@ -93,22 +93,38 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
       the existing `blocked_no_reference` fail-closed path in static_docu.py
       (law comment ~lines 91-103) rather than inventing a parallel mechanism.
       CVA-01 is the live example. BLOCKED ON: C1+C2 and C8.
-- [ ] C8 (S) [B][U][V] Record WHY a machine missed. Today a miss is a bare
-      absence, so three different problems look identical in the UI:
-      no-photo-can-exist (CVA-01), search-found-nothing (Attacker class),
-      vision-rejected-the-photo (HMS Pretoria Castle). Persist a reason on the
-      miss and surface it in the roster panel. This is the chunk that makes the
-      2026-07-27 incident self-diagnosing. BLOCKED ON: C1+C2 landing.
-- [ ] C9 (S) [B][V] BUG found by C7, not yet fixed. static_docu._designation_token
-      (~line 938) output feeds _page_matches (~907-935) with NO minimum-length
-      floor, while _commons_title_matches (~948-964) explicitly requires
-      len(tok) >= 3. A short numeric token such as "91" — derived from the
-      pennant number in "HMS Ark Royal (91)" — can substring-match an unrelated
-      Wikipedia page title (a year, another hull or squadron number) and
-      silently confer TRUSTED provenance on the wrong photo. Trusted provenance
-      skips the strict vision check, so this can put the wrong ship on screen.
-      Direct violation of the fail-closed law. Fix: apply the same >=3 floor in
-      _page_matches. HIGH PRIORITY. BLOCKED ON: C1+C2 landing.
+- [x] C9 (S) [B][V] Trust-chain hardening. DONE 2026-07-29, commit 53dd98a0.
+      Confirmed by adversarial verification before any code changed: _designation_token
+      yields "91" for "HMS Ark Royal (91)"; _page_matches had no length floor where
+      _commons_title_matches required >=3; the same unguarded check was DUPLICATED in
+      find_wikipedia_lead_images (~595-599) and ANDed with itself so it added no
+      verification; and trusted_source=True in _vision_confirms DISCARDED the model's
+      identification entirely, returning verified even on an explicit "NO, this is a
+      different machine". "No. 91 Squadron RAF" confirmed as a live colliding page.
+      FIX: new shared helper _designation_token_in_title applies a >=3 length floor AND
+      a word-boundary anchor, called from BOTH sites so they cannot drift again.
+      _vision_confirms now rejects a leading "NO" even for trusted sources, while still
+      allowing an ambiguous reply to pass (preserving the original carve-out for weak
+      models on obscure prototypes).
+      Evidence: full suite run with and without the change, sorted FAILED/ERROR lines
+      byte-identical (43 failed / 1 error both ways).
+      SIDE EFFECT, expected and accepted: machines whose designation contains no digit
+      fall back to a truncated 12-char slug that will usually fail the anchor check, so
+      they may be demoted from "trusted" more often at the find_wikipedia_lead_images
+      layer. Fail-closed is the intended behaviour.
+- [x] CACHE AUDIT (part of C9). 41 rows, not 27 — the cache is TENANT-GLOBAL, so it held
+      24 aircraft rows from 2026-07-22 plus 17 carrier rows from 2026-07-29.
+      Two rows held photos of the WRONG machine and were purged 2026-07-29 with Ryan's
+      authorization (41 -> 39):
+        "Improved Light Fleet Carriers Majestic class" -> HMS_Glory_SLV_Green_1946.jpg
+           (HMS Glory is COLOSSUS class, not Majestic)
+        "Courageous, Glorious Courageous class" -> Furious+half-sister.jpg
+           (that is HMS Furious, a half-sister, not Courageous or Glorious)
+      Three rows remain FLAGGED BUT NOT PURGED, not authorized, need a visual check:
+        Boeing B-47 Stratojet -> NNSA-NSO-990.jpg (filename carries no identifying info)
+        Northrop Grumman B-2 Spirit -> an RAF F-35B integration-training photo
+        Rockwell B-1 Lancer -> same file as the separate B-1B Lancer row
+      The carrier roster now reads 15/23 verified, down from 17, pending a re-sweep.
 - [ ] C10 (S) [B][V] The subvariant-padding QA check in _roster_validation
       (~6140-6149) is aircraft-only and a total no-op for ships — it hinges on
       a regex requiring a literal "B-"/"FB-" prefix in _unit_code output, which
@@ -121,21 +137,35 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
       ship `designation` values are sometimes full member-ship lists, making a
       shared 80-char-prefix collision plausible in a future roster. Not observed
       in the current roster. Monitor. LOW PRIORITY.
-- [ ] C12 (S) [B][V] HIGH PRIORITY. The roster prefetch is fire-and-forget with
-      NO durability. dispatch_roster_prefetch (static_docu.py ~2123-2150) calls
-      a bare asyncio.create_task. It writes no background_tasks row, so the
-      repo's own reapers — recover_stale_tasks and reap_stale_running_tasks
-      (routes/pipeline.py ~327-370) — cannot see it, retry it, or know it
-      existed. main.py's periodic loops reference nothing roster-related.
-      A restart or redeploy mid-sweep silently drops the fetch with zero record.
-      A 23-machine sweep takes ~10 minutes; deploys are more frequent than that.
-      This reproduces the 2026-07-27 failure mode (roster saved, photos never
-      arrive, human must notice) via a deploy race instead of gate ordering.
-      The C1+C2 fix moved the dispatch earlier; it did NOT make it durable.
-      Fix direction: register the sweep in background_tasks so the existing
-      reaper picks it up, or move it onto arq. Affects BOTH seams (run_research
-      and accept_submitted_research), not just one.
-      BLOCKED ON: C9 (holds static_docu.py) and C6 (holds routes/pipeline.py).
+- [x] C12+C8 (S) [B][U][V] Durable sweep + miss reasons. DONE 2026-07-29,
+      commits 4031bc02 and f53b562a.
+      C12: both dispatch seams now schedule static_docu._run_tracked_roster_prefetch,
+      which writes a background_tasks row with task_type='roster_prefetch' so the
+      EXISTING reapers can see it. main.py's lifespan calls
+      resume_interrupted_roster_prefetches() after the startup reaper, re-dispatching
+      sweeps the reaper just marked interrupted (capped at 5 attempts). Idempotent
+      because prefetch_roster_references already skips cached machines.
+      DESIGN NOTE: deliberately did NOT reuse _db_persist_task/_set_task_status — those
+      key on (tenant_id, video_id) with no task_type and drive the in-memory dict the
+      recheck endpoint polls, so writing there from run_research would have raced the
+      C6 panel progress.
+      C8: new table static_reference_misses, scoped per (tenant_id, video_id,
+      machine_key) — NOT tenant-global like static_reference_cache, because the same
+      machine can miss for one video and succeed for another. Row presence means
+      unresolved; deleted the moment the machine verifies, so no status column.
+      _prefetch_one_machine classifies into REASON_NO_CANDIDATES / REASON_VISION_REJECTED
+      / REASON_FETCH_FAILED / REASON_ERROR, with REASON_NEVER_BUILT reserved for C5.
+      roster_repair_dashboard emits reason_code / reason_detail / retryable;
+      RosterStagePanel shows the reason and suppresses the paste-a-URL form when
+      retryable is false.
+      MIGRATION REQUIRED AT DEPLOY: backend/migrations/141_static_reference_misses.sql
+      (creates the table, enables deny-all RLS, same pattern as 082/083).
+      Evidence: stash-proof clean; full suite with vs without stashed produced identical
+      sorted FAILED/ERROR lines (43 failed / 1 error), +14 passed = exactly the new tests.
+      SIMULATED, not live: no local Postgres, so the interrupt/resume demo used an
+      in-memory SQL-aware fake for background_tasks while running the real dispatch,
+      reaper and resume code. Browser check used hand-built mock data on a temporary
+      page, cleaned up afterward.
 - [ ] C13 DECISION FOR RYAN — parked, does not block the loop.
       research_ingest.accept_submitted_research reuses _roster_validation
       verbatim, so the roster gate is identical to the paid verb. But it never
@@ -164,6 +194,22 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
       check in _roster_validation be SOFT (current, set by C4) or HARD (previous
       behaviour)? Soft means a padded aircraft roster advances with a needs-review
       mark; hard means it blocks as before. Inert for ships either way.
+- [ ] C16 (S) [B] LOW PRIORITY, found by C12+C8. A manual "Re-check missing" click can now
+      run concurrently with an auto-dispatched sweep for the same video: the recheck
+      endpoint's busy-gate reads only the in-memory _running_tasks dict, which the new
+      durable dispatch deliberately never touches. Not a regression (the coupling never
+      existed), and _prefetch_one_machine is idempotent per machine, so there is no data
+      corruption risk. But two concurrent sweeps can both process the same machine before
+      either caches it, which means DUPLICATE PAID VISION CALLS. Worth a cheap guard.
+- [x] DEPLOY 1 (2026-07-29). Commits c7116ef0, f615772a, 4dbd9049, 53dd98a0 deployed to
+      prod: d5cb85cb -> 28734a6c, 37 files, migrations 149/149, backend + frontend both
+      healthy, worker code parity confirmed at 28734a6c. Frontend genuinely rebuilt
+      (full next build log present, 34/34 pages including /pipeline/[videoId]) — the
+      known silent-skip failure mode did NOT occur.
+      NOT DONE: the live authenticated screenshot of the Roster panel. The Browser pane
+      hit a login wall and correctly stopped rather than scripting past auth, per the
+      se-smoke rule. Ryan must eyeball the panel himself. Logged in deferred-verification.md.
+      STILL TO DEPLOY: 4031bc02, f53b562a, plus migration 141 and whatever C5 lands.
 
 ## Known debt (deliberately not in this loop)
 - The aircraft designation regex is reimplemented in SIX independent places:
@@ -1016,3 +1062,7 @@ Notes / lessons: (append as we learn)
 - [ ] SCENE BOUNDARY LAWS L23-L26 ADDED 2026-07-29, answering Ryan: "those scene transitions from board one to board two, how do we show those in the last image of board one and the beginning image of board two... there does need to be a continuity between those two images". ARCHITECTURAL FINDING, bigger than a prompt fix: a transition CANNOT be authored inside either scene, because the planner is scene-scoped and a cut is a relationship BETWEEN scenes. L23 requires a FILM-LEVEL boundary pass that runs BEFORE boarding and records, per boundary: relationship type, the OUT shot ending the earlier scene, the IN shot opening the later one, and what carries across; each scene's prompt then receives INCOMING and OUTGOING blocks it did not choose. Consequence for the planner build: a scene's first and last panels are NOT free choices - the boundary pass assigns them and the scene chooses only its middle. L24 catalogues the six legal relationships with their requirements (MATCH, NESTED HANDOFF, CONTINUATION, SIGHTLINE BRIDGE, CONTRAST, ELLIPSIS). L25 screen direction and eyeline carry across the cut - a reversal without an on-screen turn reads as the character changing their mind, so the turn must BE a panel. L26 no accidental near-repeat at a boundary - match exactly and deliberately, or change decisively; a seam cannot survive ALMOST the same picture. Worked example artifact for the 8-scene post-split structure: tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt (7 boundaries, each with relationship + OUT + IN + what carries). NOTE for the in-flight board-laws build lane: it was briefed on L0-L20 only; L21-L26 are additions it has not seen.
 - [x] SCENE 5 v2 PASSED 2026-07-29 - Ryan: all nine good, "seven is the same as one but it's more of like a close up on the fish eye, so that's actually pretty good, pretty sharp... eight, yep, we got all the characters... This is a pass." L21 (escalate instead of repeat) and L22 (arrangement per camera position) both confirmed working. NEW LAW L27 INSTRUCTIONS ARE NOT CAPTIONS, caught by orchestrator judging unprompted, NOT flagged by Ryan: panel 8's caption strip rendered my instruction text verbatim - "ARRANGEMENT AS SEEN FROM THIS CAMERA (REVERSED): 3 OTHER ELITES, OLD MAN, GOLD WOMAN (LEFT TO RIGHT)" - because I wrote the fact as an all-caps labelled directive inside the panel brief and the strip absorbed it. The instruction WORKED and printed itself onto the artwork. Law: never phrase a panel brief as a labelled directive (all-caps heading, colon, bracketed note); state the fact as ordinary prose describing what is in the frame, and state once in the header exactly what the caption strip may contain and that nothing else ever appears there. v3 restates panel 8's arrangement as prose and hardens the header constraint.
 - [x] FREE-TUNING PHASE COMPLETE 2026-07-29. Four scenes boarded and passed by Ryan (1 at 9/9, 2, 3 first-round, 5), 27 board laws + 5 story laws + a worked 7-boundary transition plan, all at ZERO dollars, with every prompt version preserved in tasks/evidence/d3-64-fixes/. Acceptance target for the planner remains scene1_board_prompt_CORRECTED_v3.txt. Remaining untested areas, all lower value: real crowd scale, three-plus-speaker axis, "exits frame-right camera holds" motion setups, visual metaphor (scene 6's brighter pod). THE REMAINING WORK IS THE BUILD, not more discovery.
+- [x] BOARD LAWS BUILD MERGED 2026-07-29 (5bac3ae9 + 228f4104 + 3a67cad4 + cb928f09, merge 6ed4fb76): 27 laws into the planner. PROMPT leg on every law. GATES built where deterministic (L3 heuristic, L4 code-conditional via scene_has_motion, L5 face-visibility term, L9, L10, L11 heuristic, L17+L22, L19 heuristic, L20, L21 exact-match, L27) and honestly NOT built where semantic (L6, L7, L8, L12, L13, L14, L15, L16, L18, plus L0/L1/L2's pre-existing gate gap). REPAIR stamps on L3, L4, L5, L20 with tail reminders on L9, L10, L21. REAL BUG FOUND AND FIXED: L4's "actors PLANTED and never move" was HARDCODED UNCONDITIONALLY in both the sheet preview and the real per-shot draw prompt - the live static-tableau root cause, contradicting every motion scene. quality_rules board scope landed in full (applies_to is unconstrained jsonb, so migration 105's change is comment-only documentation, no DDL): "board" added as its OWN axis deliberately not matched by "all" so script rules never leak into board prompts, resolve_board_shape() + active_board_rules() wired into generate_coverage_directive, fail-open try/except. 52 new tests incl. the acceptance test asserting the real pipeline against every law; both files stash-proofed; full backend suite 43 failed / 3645 passed identical set both sides. Paid proof deferred as DV-7. NOT DEPLOYED.
+- [ ] BOARD LAWS FOLLOW-UP A: MISSING REPAIR STAMPS. Laws with a PROMPT leg but NO repair stamp: L11 nested frames, L12 population/depth, L15 attention-vs-orientation, L16 reverse-angle backgrounds, L18 unremarked plant, L19 diegetic POV, plus L17/L22 (builder found no reliable per-shot signal for headcount - the per-shot artifact may need a group-arrangement field, which is itself the finding). By BOARD-LAWS.md's own contract these evaporate the moment a single shot is redrawn - the exact failure class that cost $0.20 on 2026-07-29 morning.
+- [ ] BOARD LAWS FOLLOW-UP B: THE FILM-LEVEL BOUNDARY PASS (L23-L26). The build renders INCOMING/OUTGOING blocks when supplied but the PASS THAT PRODUCES THEM DOES NOT EXIST - deliberately out of scope. Needs its own plan: where it lives (above the scene), what it reads (all scene texts in order), what it writes (per-boundary relationship + OUT shot + IN shot + what carries), how each scene prompt receives its two blocks. Worked example: tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Same missing level as STORY-LAWS' S1-S5.
+- [ ] INCIDENT 2026-07-29 late - CONCURRENT AGENT COLLISION IN ~/economy-fastforward. Another agent (C5: never-built roster detection, no-spend-on-doomed-machines) was working uncommitted in the SAME checkout and was mid-STASH-PROOF when a records grunt of mine ran `git stash` despite an explicit instruction not to. Consequence: its pipeline_executor.py WIP (233 lines) is no longer in the working tree - it sits in stash@{0} ("WIP on main: 08e7cf31 C5: never-built roster detection, pre-lookup") and/or its own stash@{1} ("C5 fix-2 stash-proof: pipeline_executor.py only"). Its research/agent.py and test_never_built_classification.py edits ARE still in the working tree. NOTHING IS LOST but that agent's stash-proof was disturbed mid-flight and it may error or draw a wrong conclusion. I did NOT pop, drop or touch any stash. LESSON: never run records/merge grunts against a shared checkout without first checking for a concurrent writer; when one exists, do the git work in the main loop with minimal explicit commands, or wait.

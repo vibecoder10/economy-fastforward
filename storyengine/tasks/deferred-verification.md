@@ -991,3 +991,39 @@ itself:
   spend; scope it as its own $0.05-0.20-per-video chunk, verified the same way DV-7 above
   verifies this chunk (read the produced INCOMING/OUTGOING text before judging any drawn
   pixels).
+## Static-docu roster reference-photo loop (2026-07-29)
+
+### 1. Roster panel live progress — real visual walk
+PROOF LEVEL REACHED IN SANDBOX: the panel was driven in a browser against the real
+backend and the real idle state was confirmed ("17/23 verified"). The RUNNING state
+was simulated with a browser fetch mock intercepting the roster-recheck POST and the
+task GET. No clean per-card grid screenshot was captured — the browser screenshot
+pipeline stalled — an accessibility-tree dump was substituted and did confirm all six
+missing cards flipped to the "checking..." badge.
+NOT PROVEN: the panel behaving correctly against a genuine multi-minute sweep.
+RECIPE:
+  1. Open https://storyengine.dev/pipeline/d2e37cd6-521a-43aa-a14d-ce096a783c1e
+     on the Designed vs Used channel.
+  2. Click "Re-check missing".
+  3. EXPECTED: within ~5 seconds the header shows a spinner and
+     "Re-checking machine references — N/23 verified so far", the count climbs on its
+     own without a page reload, and each still-missing card shows a turquoise
+     "checking..." badge instead of the red "missing" badge plus URL box.
+  4. EXPECTED on completion: the header settles back to "X/23 verified" on its own and
+     the "Re-check missing" button re-enables.
+  Note the sweep takes roughly 10 minutes for 23 machines.
+
+### 2. Research contract + gate severity — live path
+PROOF LEVEL REACHED IN SANDBOX: unit/function level only. The 23-ship roster shape was
+run through _roster_validation directly and confirmed to return passed=true /
+needs_review=true and to gate to next_status="ready_for_scripting".
+NOT PROVEN: the same behaviour through the live paid `research` verb or the MCP
+`submit_research` path against a real database row.
+RECIPE:
+  1. Run research on a static-docu video whose roster will exceed the runtime pacing
+     target (e.g. a 20-minute video that yields 23+ machines).
+  2. EXPECTED: the video reaches ready_for_scripting rather than stalling at
+     idea_logged, and the roster validation payload carries needs_review=true with the
+     pacing complaint in soft_warnings and hard_warnings empty.
+  3. Confirm via: se db "SELECT status, research_payload->'unit_roster_validation'
+     FROM videos WHERE id='<video id>';"
