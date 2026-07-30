@@ -1784,7 +1784,13 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
         "advances the video exactly like a platform-written script. The "
         "`script` verb tool (which spends the workspace's own Anthropic "
         "key) is the fallback — use it only when you'd rather StoryEngine's "
-        "own writer do the thinking."
+        "own writer do the thinking.\n\n"
+        "STORY LAW S3 — ONE SCENE, ONE LOCATION: give every scene a single "
+        "'location' field naming the one physical place it happens in "
+        "(e.g. \"the garage\"). A scene missing a location, or whose text "
+        "names another scene's location, is REJECTED before the quality "
+        "critic even runs — split any beat that moves somewhere new, or "
+        "into a distinct new phase of action, into its own scene instead."
     ),
     "inputSchema": {
         "type": "object",
@@ -1792,10 +1798,22 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
             "video_id": {"type": "string", "description": "Video UUID."},
             "scenes": {
                 "type": "array",
-                "description": "Ordered scenes: [{\"text\": \"...\"}, ...]. Scene numbers are assigned 1..N from this order.",
+                "description": (
+                    "Ordered scenes: [{\"text\": \"...\", \"location\": \"...\"}, ...]. "
+                    "Scene numbers are assigned 1..N from this order. `location` is "
+                    "REQUIRED (S3) — the single physical place that scene happens in; "
+                    "if omitted, a `LOCATION: <place>` line at the very start of `text` "
+                    "is parsed instead (and left in place — `text` is never rewritten)."
+                ),
                 "items": {
                     "type": "object",
-                    "properties": {"text": {"type": "string"}},
+                    "properties": {
+                        "text": {"type": "string"},
+                        "location": {
+                            "type": "string",
+                            "description": "This scene's single physical location (S3, STORY-LAWS.md).",
+                        },
+                    },
                     "required": ["text"],
                 },
             },

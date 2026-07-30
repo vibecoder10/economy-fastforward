@@ -102,5 +102,24 @@ the script stage, so a new ruling does not require a code deploy.
 
 ## Status
 
-Not implemented. No S-law currently reaches the script generator's prompt, gate or
-repair path. Scripts today can and do violate all five.
+**S3 implemented (D6-3, 2026-07-29).** `backend/story_laws.py` is the one place the S3
+text and its deterministic checks live. PROMPT: reaches the ACT-based docu path (via
+`pipeline_executor.resolve_prompt`, riding along any tenant/per-video override the same
+way standing preferences do), the modeled/style-replicated path (its own inline prompt,
+now importing the shared constant instead of a hand-rolled copy), and the MCP
+`submit_script` tool description (an external agent is told the contract, not silently
+left to guess it). GATE: hard-fail at generation for paths (a) and (b) — checked BEFORE
+any DB write, so a failing script writes nothing rather than needing a revert; WARN-only
+for `set_user_script` (creator-verbatim bypass, by design); hard-REJECT for
+`accept_external_script` (agent-submitted, already had a reject contract). REPAIR:
+`edit_scene_text` and `regenerate_scene_text` (routes/videos.py) carry the scene's
+location forward via `COALESCE(new, existing)` — an edit or regeneration can adopt a
+fresh header but can never silently blank what was already there. Known scope boundary:
+`static_docu` (product-roundup format) is exempted from the gate — see
+`tasks/deferred-verification.md`'s D6-3 section, item 3, for why and how to re-check it.
+
+S1, S2, S4, S5 remain **not implemented**. S5 (A SCENE STATES WHERE IT IS) has its
+groundwork laid — the `scripts.location` column and the `LOCATION:` header convention
+S3 introduced are exactly what S5 will consume — but S5's own full contract (every
+scene names its location even when unchanged from the scene before) is not yet gated.
+Scripts today can and do still violate S1, S2, S4, and S5.

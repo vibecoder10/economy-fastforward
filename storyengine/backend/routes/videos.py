@@ -1583,10 +1583,19 @@ async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_i
 async def update_scene_text(
     video_id: str, scene: int, body: SceneTextUpdate, tenant_id: str = Depends(get_tenant_id)
 ):
+    # D6-3 (S3 repair leg): a plain text edit must not silently revert the
+    # scene's location. If the new text happens to supply a fresh LOCATION
+    # header, adopt it (and strip it from the stored narration, same as
+    # every generation path — it must never be spoken); otherwise the edit
+    # carries NO location signal at all, so COALESCE($5, location) leaves
+    # the existing column exactly as it was rather than blanking it.
+    import story_laws
+    new_location, stored_text = story_laws.extract_scene_location(body.text)
     result = await execute(
-        "UPDATE scripts SET scene_text = $1, updated_at = now() "
+        "UPDATE scripts SET scene_text = $1, location = COALESCE($5, location), "
+        "updated_at = now() "
         "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
-        body.text, video_id, scene, tenant_id,
+        stored_text, video_id, scene, tenant_id, new_location,
     )
     if not result or "UPDATE 0" in result:
         raise HTTPException(404, "Scene not found")
@@ -2308,12 +2317,23 @@ async def rewrite_scene_text(
     if not new_text or _spoken_word_count(new_text) < 40:
         raise HTTPException(status_code=502, detail="Rewrite came back too short — try again")
 
+    # D6-3 (S3 repair leg): this rewrite is a single-scene, single-paragraph
+    # regeneration — its own contract already bans labels/markdown in the
+    # output ("No markdown, labels, bullets, or citations", machine_contract
+    # above), so it is never asked to (and must not) emit a LOCATION header.
+    # The scene's location must therefore carry forward from BEFORE the
+    # rewrite unchanged, never dropped — the same COALESCE(new, location)
+    # shape update_scene_text uses, except here new_location is always None
+    # (nothing above ever produces one), so this is simply "leave it alone",
+    # made explicit rather than an accident of the SET clause omitting it.
+    import story_laws
+    new_location, new_text = story_laws.extract_scene_location(new_text)
     # Save the paragraph; clear this scene's voice so only it re-records.
     await execute(
-        """UPDATE scripts SET scene_text = $4, voice_over_url = NULL,
-               voice_duration_seconds = NULL, voice_status = NULL
+        """UPDATE scripts SET scene_text = $4, location = COALESCE($5, location),
+               voice_over_url = NULL, voice_duration_seconds = NULL, voice_status = NULL
            WHERE video_id = $1 AND tenant_id = $2 AND scene = $3""",
-        video_id, tenant_id, scene, new_text)
+        video_id, tenant_id, scene, new_text, new_location)
     # Keep videos.script in sync (it is the display/export copy).
     scenes_rows = await fetch_all(
         "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "

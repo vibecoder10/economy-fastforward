@@ -602,20 +602,32 @@ class SupabaseAdapter:
             print(f"  Warning: No video found (id={current_vid!r}, title='{title}') — creating script without video_id")
             video = {"id": None, "tenant_id": self.tenant_id}
 
+        # D6-3 (S3 parser leg, ACT-based docu path): each act's text is one
+        # `scripts` row (the caller writes one record per act — see
+        # STORY-LAWS.md). Pull its LOCATION header into its own column and
+        # strip it from the stored text — this is platform-generated
+        # narration headed for TTS, so the header must never be spoken (same
+        # choice pipeline_executor._run_modeled_script makes for the modeled
+        # path). extract_scene_location is a no-op tuple (None, original
+        # text) when no header is present, so this is safe for every act
+        # that predates the LOCATION convention.
+        import story_laws
+        location, stored_text = story_laws.extract_scene_location(scene_text)
+
         script_id = str(uuid.uuid4())
         _execute(
-            """INSERT INTO scripts (id, tenant_id, video_id, scene, scene_text, title,
+            """INSERT INTO scripts (id, tenant_id, video_id, scene, scene_text, location, title,
                voice_id, script_status, sources, psych_angle)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (
                 script_id, video["tenant_id"] or self.tenant_id, video["id"],
-                scene_number, scene_text, title,
+                scene_number, stored_text, location, title,
                 voice_id, "Create",
                 sources if scene_number == 1 else "",  # Sources only on scene 1
                 psych_angle,
             ),
         )
-        return {"id": script_id, "scene": scene_number, "Scene text": scene_text, "Title": title}
+        return {"id": script_id, "scene": scene_number, "Scene text": stored_text, "Title": title}
 
     def update_script_record(self, record_id: str, updates: dict) -> dict:
         """Update script fields."""

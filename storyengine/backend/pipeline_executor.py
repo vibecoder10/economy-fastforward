@@ -6784,6 +6784,18 @@ def resolve_prompt(
     Empty when there are none / on a DB error, so this is a no-op for every
     tenant with no standing preferences.
 
+    D6-3 (STORY-LAWS S3): for prompt_key == "script", story_laws.
+    SCENE_LOCATION_LAW rides along the SAME way standing_preferences does —
+    appended after whichever source won, so a tenant's own custom script
+    prompt still carries the law instead of silently opting out of it. This
+    is the ONE place path (a), the ACT-based docu generator, picks up S3:
+    skills/video-pipeline/script/run.py reads `pipeline.script_system_prompt`
+    (set from this function's return value) and passes it straight through
+    as the LLM system prompt. The modeled-script path does NOT go through
+    this function (it reads video.script_system_prompt directly — see
+    pipeline_executor._run_modeled_script, which carries the same law text
+    via its own inline prompt instead).
+
     Returns the resolved prompt string, or None when there's nothing to set
     (so the bot falls back to its built-in default).
     """
@@ -6797,7 +6809,11 @@ def resolve_prompt(
     chosen = _nonblank(per_video) or _nonblank(tenant) or _nonblank(neutral)
     if chosen:
         filled = engine_templates.safe_fill(chosen, identity)
-        return filled + (getattr(identity, "standing_preferences", "") or "")
+        law = ""
+        if prompt_key == "script":
+            import story_laws
+            law = "\n\n" + story_laws.SCENE_LOCATION_LAW
+        return filled + law + (getattr(identity, "standing_preferences", "") or "")
     return None
 
 
@@ -12143,6 +12159,7 @@ class PipelineExecutor:
         current_status = video.get("status")
 
         import json as _json
+        import story_laws
         original_dna = video.get("original_dna")
         if isinstance(original_dna, str):
             try:
@@ -12174,11 +12191,7 @@ SCENE PLAN — follow these story beats in order. SPLIT any beat that moves betw
 separate scenes, one location each:
 {concept_lines}
 
-ONE LOCATION PER SCENE (important) — every scene must take place in a SINGLE physical location.
-The moment the action moves somewhere new (e.g. living room -> garage -> lakeside), START A NEW
-SCENE with a new @@@SCENE n@@@ marker. A beat that travels through several places becomes several
-scenes, one per place. NEVER let one scene span two locations — this keeps each scene's visuals
-consistent for the storyboard and the stitched video.
+{story_laws.SCENE_LOCATION_LAW}
 
 Target length: about {target_words} words total, spread across the scenes.
 
@@ -12189,14 +12202,15 @@ VOICE — write every scene in the EXACT voice, tense, vocabulary and FORMAT you
 instructions above define. If they call for character DIALOGUE, write dialogue (speaker
 turns like "Mum: ..." are fine); if narration, write narration; if both, both. Match their
 sentence length and reading level. Do NOT default to a third-person narrator unless the
-style explicitly says to — the style above wins over any default.
+style explicitly says to — the style above wins over any default. The LOCATION header is the
+ONE exception to "write only what's heard" — it is never spoken, it is stripped before voice.
 
 FORMAT — plain text, no JSON, no markdown headings. Start each scene on its own line with
 exactly this marker:
 @@@SCENE n@@@
-where n is the scene number (1, 2, 3, ...). Put that scene's spoken text on the lines right
-after its marker — exactly what is heard in that scene. Use the markers and nothing else to
-separate scenes."""
+directly followed by that scene's LOCATION header (see above) as the very next line, then
+that scene's spoken text on the lines after. Use the markers and nothing else to separate
+scenes."""
 
         style_system = video.get("script_system_prompt") or ""
         # Long free-text narration used to be returned as one big JSON blob and
@@ -12223,6 +12237,43 @@ separate scenes."""
         if len(scenes) < min_scenes:
             raise Exception("Modeled script came back with too few scenes")
 
+        # D6-3 (S3 parser leg): pull each scene's LOCATION header into its own
+        # field and strip it from the spoken text (it must never reach voice/
+        # TTS — see the prompt's own carve-out above). Platform-generated
+        # content, no verbatim concern, so stripping is safe here (contrast
+        # with the SUBMIT path in user_script.py, which never strips).
+        for scene in scenes:
+            location, stripped = story_laws.extract_scene_location(scene["text"])
+            scene["location"] = location
+            scene["text"] = stripped if location else scene["text"].strip()
+
+        # D6-3 (S3 GATE leg): hard-fail at generation, before anything is
+        # written. Defensible here — this is a fresh generation, nothing
+        # downstream has consumed it yet, and it mirrors this same path's
+        # existing quality-critic gate shape (needs_review, no auto-spend
+        # retry). Checked BEFORE the DB writes below so a failing script
+        # never reaches `scripts` or advances `videos.status` in the first
+        # place — no revert needed, unlike the critic gate that runs after
+        # this function returns.
+        law_check = story_laws.check_scene_location_law([
+            {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
+            for i, s in enumerate(scenes, start=1)
+        ])
+        if not law_check["passed"]:
+            detail = "; ".join(
+                f"scene {v['scene']}: {v['detail']}" for v in law_check["violations"]
+            )
+            await self._log_activity(
+                bot_name, video_id, "failed",
+                f"Story law S3 (one location per scene) failed: {detail}"[:900],
+            )
+            return {
+                "status": "needs_review", "video_id": video_id,
+                "violations": [v["detail"] for v in law_check["violations"]],
+                "message": ("The script needs another look — some scenes don't hold to a "
+                            "single stated location: " + detail)[:900],
+            }
+
         full_script = "\n\n".join(s["text"].strip() for s in scenes)
         await execute(
             """UPDATE videos SET script = $1, script_validation = $2, status = $3, updated_at = now()
@@ -12237,9 +12288,9 @@ separate scenes."""
         await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, self.tenant_id)
         for i, scene in enumerate(scenes, start=1):
             await execute(
-                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
-                   VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
-                self.tenant_id, video_id, i, scene["text"].strip(),
+                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, title, script_status, voice_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, 'Create', $7)""",
+                self.tenant_id, video_id, i, scene["text"].strip(), scene.get("location"),
                 # Mark — on Kie's allowed roster. The previous id was
                 # off-roster, so every TTS call burned a wasted createTask
                 # before the client's fallback (which lands on Mark anyway).
@@ -12548,6 +12599,21 @@ separate scenes."""
             save_target_script=True,
         )
 
+    async def _check_scene_location_law(self, video_id: str) -> dict:
+        """D6-3 — STORY-LAWS S3 GATE. Deterministic, pure-read: fetches this
+        video's current scripts rows and runs story_laws.check_scene_location_law
+        against them. No I/O beyond the one SELECT, no LLM call, safe to call
+        read-only against ANY video at ANY time (used exactly that way for
+        the D6-3 decisive test against video 686b4651, and safe to reuse for
+        an on-demand check from a route without side effects)."""
+        import story_laws
+        rows = await fetch_all(
+            "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
+            "AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        return story_laws.check_scene_location_law([dict(r) for r in (rows or [])])
+
     async def run_script(self, video_id: str, progress_callback=None,
                          force_rewrite: bool = False) -> dict:
         """Generate script for a video.
@@ -12655,6 +12721,15 @@ separate scenes."""
                 await self._inject_learnings_into_writer_guidance(video_id)
                 video = await self._get_video(video_id)
                 result = await self._run_modeled_script(video_id, video)
+                # D6-3 (S3 GATE): _run_modeled_script now checks the
+                # deterministic location law BEFORE writing anything, and
+                # returns needs_review without touching scripts/videos.status
+                # when it fails. Short-circuit here instead of falling into
+                # the LLM quality critic below — grading stale/unwritten
+                # content would be a wasted paid call, and the critic has
+                # nothing new to grade.
+                if isinstance(result, dict) and result.get("status") == "needs_review":
+                    return result
                 # _run_modeled_script already advanced the video's status
                 # before grading runs (it commits ready_for_voice as part of
                 # its own save), so pass hold_status: if the critic still
@@ -12813,6 +12888,31 @@ separate scenes."""
                 roster_check = await self._validate_static_script_roster(video_id)
                 if roster_check.get("complete_title") and not roster_check.get("passed"):
                     raise Exception("Script roster gate failed: " + "; ".join(roster_check.get("warnings", [])))
+            else:
+                # D6-3 — STORY-LAWS S3 GATE for the ACT-based docu path.
+                # static_docu is exempted: its "scenes" are one-machine unit
+                # paragraphs (product reviews), not narrative story beats, so
+                # a physical "location" per S3 isn't a meaningful concept
+                # there, and _resplit_static_scenes just rewrote the rows
+                # above without location awareness anyway. Status has NOT
+                # advanced yet at this point (see the quality-critic comment
+                # above), so this is a clean hard-fail-at-generation — no
+                # revert needed, nothing downstream has consumed the script.
+                law_check = await self._check_scene_location_law(video_id)
+                if not law_check.get("passed"):
+                    detail = "; ".join(
+                        f"scene {v['scene']}: {v['detail']}" for v in law_check["violations"]
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "failed",
+                        f"Story law S3 (one location per scene) failed: {detail}"[:900],
+                    )
+                    return {
+                        "status": "needs_review", "video_id": video_id,
+                        "violations": [v["detail"] for v in law_check["violations"]],
+                        "message": ("The script needs another look — some scenes don't hold to a "
+                                    "single stated location: " + detail)[:900],
+                    }
 
             # Dialogue intelligence runs unattended after EVERY script path —
             # the modeled and user-supplied paths already had this hook, but

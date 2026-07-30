@@ -1027,3 +1027,66 @@ RECIPE:
      pacing complaint in soft_warnings and hard_warnings empty.
   3. Confirm via: se db "SELECT status, research_payload->'unit_roster_validation'
      FROM videos WHERE id='<video id>';"
+
+## D6-3 — STORY-LAWS S3 (2026-07-29)
+
+Everything provable read-only or by mock was proven in the D6-3 report (25 new tests in
+`backend/tests/test_d6_3_story_law_s3.py`, stash-proof, full suite at baseline). These
+four things need a live LLM call, a prod migration, or a downstream consumer that does
+not exist yet, so none of them could be verified this chunk under the zero-spend /
+no-prod-mutation constraint.
+
+### 1. Migration 144 has never actually run against any database
+PROOF LEVEL REACHED: static SQL review only (`ADD COLUMN IF NOT EXISTS`, idempotent,
+matches migration 141's shape). No local Postgres exists in this repo to apply it to
+(no conftest.py DB fixture, no DATABASE_URL in the dev environment) — confirmed by
+grepping the backend for a local DB harness before concluding this.
+NOT PROVEN: the migration actually applies cleanly to the real schema.
+RECIPE:
+  1. `se db "SELECT column_name FROM information_schema.columns WHERE table_name='scripts' AND column_name='location'"` — expect zero rows before migration 144 runs.
+  2. Apply migration 144 through the normal deploy path (never by hand).
+  3. Re-run the same query — expect one row, `location`.
+  4. `se db "SELECT scene, location FROM scripts WHERE video_id='686b4651-e495-44be-baf6-97fc6dd527e9' ORDER BY scene"` — expect all 6 rows with `location = NULL`, unchanged from before the migration (proves the NULL-safety claim against the real column, not just by grep-absence-of-consumers).
+
+### 2. Does the model actually comply with the LOCATION: header when asked for real?
+PROOF LEVEL REACHED: the prompt text is in place and reaches all three generation call
+sites (see report). No real Claude call was made — that would spend money and this
+chunk is zero-spend.
+NOT PROVEN: real generation output actually opens each scene with `LOCATION: <place>`
+at a rate high enough that the GATE rarely fires on legitimate videos, rather than
+constantly blocking generation on `needs_review`.
+RECIPE:
+  1. Generate a script on a cheap/short test video via each of the two generation paths
+     (`script` verb on a short animated/narrative video for path a; a modeled/style-
+     replicated video for path b).
+  2. `se db "SELECT scene, location, left(scene_text,80) FROM scripts WHERE video_id='<id>' ORDER BY scene"`.
+  3. EXPECTED: every row has a non-NULL `location`, and `scene_text` never contains the
+     literal string "LOCATION:" (proves the header was both supplied and stripped).
+  4. If violations are common, the GATE is doing its job (S3 is enforced) but the PROMPT
+     leg's wording may need tightening — that would be a follow-up chunk, not a D6-3 bug.
+
+### 3. static_docu is deliberately exempted from S3 — is that the right call?
+PROOF LEVEL REACHED: `_resplit_static_scenes` (pipeline_executor.py) rewrites static-docu
+scripts rows AFTER path (a)'s act-based generation already ran `create_script_record`
+(which DOES extract a location) — the resplit's raw INSERT never carries a `location`
+forward, and D6-3 deliberately did not touch it, reasoning that a static documentary's
+"scenes" are one-machine unit paragraphs (product reviews), not physical locations, so
+S3 doesn't obviously apply. This reasoning was not checked against a real static_docu
+script's actual content.
+NOT PROVEN: whether static_docu content ever legitimately needs S3 (e.g., a documentary
+that stages each machine in a different room/environment, where "location" would matter
+for the board layer's L3 after all).
+RECIPE:
+  1. Read 3-5 real static_docu scripts' scene_text (`se db "SELECT scene_text FROM
+     scripts s JOIN videos v ON v.id=s.video_id WHERE v.render_mode='static_docu' ORDER BY random() LIMIT 5"`).
+  2. If they never describe a physical setting, the exemption stands as documented.
+  3. If they DO (e.g. "In the kitchen, the blender..."), file a follow-up chunk to extend
+     the LOCATION header + gate to `_resplit_static_scenes` too.
+
+### 4. Board/render live walkthrough with a NULL-location video after S5 wires it in
+NOT APPLICABLE YET — no board or render code reads `scripts.location` as of this
+commit (verified by grep, see report's NULL-safety proof), so there is nothing to
+walk yet. This entry is a placeholder for whichever chunk wires L3 (BOARD-LAWS.md) to
+this column: at that point, re-run the "run it like a user" board/render walk on an
+existing pre-migration video (location=NULL on every scene) and confirm boards/renders
+exactly as before.

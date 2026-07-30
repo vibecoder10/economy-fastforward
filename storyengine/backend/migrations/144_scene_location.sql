@@ -1,0 +1,19 @@
+-- 144_scene_location.sql
+-- D6-3: STORY-LAWS.md S3 (one scene is one location and one continuous beat).
+--
+-- Adds scripts.location: a short plain-text name of the scene's single
+-- physical location, extracted from a required `LOCATION: <place>` header
+-- the script-writing prompt now asks every scene to open with (see
+-- backend/story_laws.py — the ONE place that prose lives). The deterministic
+-- S3 gate (story_laws.check_scene_location_law) reads this column instead
+-- of re-parsing prose on every check, and it doubles as the input the board
+-- layer's L3 (location scoping, BOARD-LAWS.md) will consume in a later
+-- chunk (S5 groundwork) — no board code reads it yet in this chunk.
+--
+-- Nullable, no default, no backfill: every scene written before this
+-- migration keeps location = NULL forever. Nothing in the board or render
+-- path reads this column as of this migration (verified by grep — see the
+-- D6-3 report), so NULL rows are byte-for-byte unaffected; the column only
+-- starts getting populated going forward, by the parser leg landing in the
+-- same commit.
+ALTER TABLE scripts ADD COLUMN IF NOT EXISTS location TEXT;

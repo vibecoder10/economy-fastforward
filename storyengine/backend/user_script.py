@@ -172,25 +172,54 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
         raise ValueError("No usable script text")
 
     from pipeline_executor import PipelineExecutor
+    import story_laws
+
+    # D6-3 (S3 parser leg, SUBMIT/creator path) — READ-ONLY extraction: a
+    # creator's script is verbatim by design ("the creator's word is
+    # final" — see this module's docstring), so scene_text is NEVER
+    # altered here, even if it happens to start with a LOCATION: line. Only
+    # parse_scene_location's return value (the location, not the stripped
+    # text) is used. In practice a creator's own prose almost never matches
+    # the exact header format, so `location` stays NULL for most
+    # creator-supplied scenes — that's expected, not a bug.
+    for scene in scenes:
+        scene["location"] = story_laws.parse_scene_location(scene["text"])
+
+    # D6-3 (S3 GATE leg) — WARN, NEVER BLOCK. set_user_script's entire
+    # contract is "no retention grading, no factual gate... the creator's
+    # word is final" (module docstring). S3 gets the same treatment as
+    # every other quality check here: recorded for visibility, never a
+    # reason to reject a human's own words.
+    law_check = story_laws.check_scene_location_law([
+        {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
+        for i, s in enumerate(scenes, start=1)
+    ])
 
     full_script = "\n\n".join(s["text"].strip() for s in scenes)
     new_status = PipelineExecutor._skip_disabled_next(dict(video), "ready_for_voice")
+    validation = {"passed": True, "checks": [
+        {"name": "user_supplied", "passed": True,
+         "detail": "Creator-supplied script used verbatim — generation, grading, and factual gates skipped"}]}
+    if not law_check["passed"]:
+        # Advisory only — see docstring above. Never flips "passed" or blocks.
+        validation["story_law_s3"] = {
+            "passed": False, "advisory": True,
+            "violations": law_check["violations"],
+        }
     await execute(
         """UPDATE videos SET script = $1, script_source = 'user_supplied',
                script_validation = $2, status = $3, updated_at = now()
            WHERE id = $4 AND tenant_id = $5""",
         full_script,
-        json.dumps({"passed": True, "checks": [
-            {"name": "user_supplied", "passed": True,
-             "detail": "Creator-supplied script used verbatim — generation, grading, and factual gates skipped"}]}),
+        json.dumps(validation),
         new_status, video_id, tenant_id,
     )
     await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, tenant_id)
     for i, scene in enumerate(scenes, start=1):
         await execute(
-            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
-               VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
-            tenant_id, video_id, i, scene["text"].strip(),
+            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, title, script_status, voice_id)
+               VALUES ($1, $2, $3, $4, $5, $6, 'Create', $7)""",
+            tenant_id, video_id, i, scene["text"].strip(), scene.get("location"),
             video.get("video_title"), DEFAULT_VOICE_ID,
         )
 
@@ -213,10 +242,26 @@ def _normalize_external_scenes(scenes: Any) -> list[dict]:
     """Same scene SHAPE every save path in this module already enforces (see
     ``split_scenes_paragraphs``/``split_scenes_explicit`` above and
     ``PipelineExecutor._parse_modeled_scenes``): an ordered
-    ``[{"scene": n, "text": str}, ...]`` list, renumbered sequentially from 1
-    (an externally-submitted "scene" index is untrusted — never used as-is).
+    ``[{"scene": n, "text": str, "location": str|None}, ...]`` list,
+    renumbered sequentially from 1 (an externally-submitted "scene" index is
+    untrusted — never used as-is).
+
+    D6-3 (S3 parser leg): a submitting agent may pass an explicit
+    ``"location"`` field per scene — the clean, structured way to declare
+    S3's required single location without needing a LOCATION: header baked
+    into ``text`` (which would then get read aloud by TTS — this is agent-
+    submitted content, not creator-verbatim, but "not ours to silently
+    rewrite" per accept_external_script's own docstring, so we don't strip
+    a header out of ``text`` either). When ``location`` is omitted, falls
+    back to a READ-ONLY parse of a LOCATION: header from ``text`` (defense
+    in depth for an agent that used the header convention anyway) — never
+    altering ``text`` either way.
+
     Raises ValueError with a concrete, one-line reason per bad item so the
-    submitting agent gets something it can act on, not a silent empty list."""
+    submitting agent gets something it can act on, not a silent empty list.
+    """
+    import story_laws
+
     if not isinstance(scenes, list) or not scenes:
         raise ValueError("scenes must be a non-empty list")
     out: list[dict] = []
@@ -226,7 +271,11 @@ def _normalize_external_scenes(scenes: Any) -> list[dict]:
         text = str(item.get("text") or "").strip()
         if not text:
             raise ValueError(f"scene {i + 1} has no non-empty 'text'")
-        out.append({"scene": len(out) + 1, "text": text})
+        location = item.get("location")
+        location = str(location).strip() if isinstance(location, str) and location.strip() else None
+        if location is None:
+            location = story_laws.parse_scene_location(text)
+        out.append({"scene": len(out) + 1, "text": text, "location": location})
     return out
 
 
@@ -294,6 +343,27 @@ async def accept_external_script(
         raise ValueError("Video not found")
 
     normalized = _normalize_external_scenes(scenes)
+
+    # D6-3 (S3 GATE leg) — HARD REJECT, checked BEFORE the paid critic call
+    # (free + deterministic, so failing fast here is strictly cheaper).
+    # accept_external_script already has a reject contract for exactly this
+    # shape of problem ("a hard rejection with a naming of exactly what's
+    # wrong is a cheaper, more honest contract" — see docstring above), so
+    # S3 uses it rather than getting its own bespoke response shape.
+    import story_laws
+    law_check = story_laws.check_scene_location_law([
+        {"scene": s["scene"], "location": s.get("location"), "scene_text": s["text"]}
+        for s in normalized
+    ])
+    if not law_check["passed"]:
+        return {
+            "accepted": False,
+            "verdict": "story_law_s3_violation",
+            "violations": [
+                f"scene {v['scene']}: {v['detail']}" for v in law_check["violations"]
+            ],
+            "rule_verdicts": [],
+        }
 
     client = None
     try:
@@ -382,9 +452,10 @@ async def accept_external_script(
     await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, tenant_id)
     for sc in normalized:
         await execute(
-            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
-               VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
-            tenant_id, video_id, sc["scene"], sc["text"], video.get("video_title"), DEFAULT_VOICE_ID,
+            """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, title, script_status, voice_id)
+               VALUES ($1, $2, $3, $4, $5, $6, 'Create', $7)""",
+            tenant_id, video_id, sc["scene"], sc["text"], sc.get("location"),
+            video.get("video_title"), DEFAULT_VOICE_ID,
         )
 
     # Same unattended dialogue tagging every script path gets; best-effort.
