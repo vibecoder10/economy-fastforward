@@ -706,3 +706,191 @@ or drift toward a handful of favorites; and whether `check_shot_archetype_valid`
 posture should be promoted to a hard gate once that track record exists (explicitly flagged as
 hard-eligible under Ruling 1 in the check's own docstring, but promotion is a separate, deliberate
 call, not automatic).
+
+---
+
+## D10-3a: coverage/board planner learns per-video narrative signal (branch `d10-3a-planner-narrative`) — eyeball a real native-bible board plan on next deploy window
+
+**What changed:** `scripts/coverage_to_app.py`'s `scene_aware_bible()` now attaches `narrative`
+(and `relationships`, if present) straight off `videos.story_bible` — a NEW, unconditional read
+(`_story_bible_narrative_context`), separate from `_scene_locations`' story-bible fallback which
+only fires when a video has no approved `video_environments` rows. The final `bible if (...) else
+None` gate was widened to include `narrative`, so a video whose ONLY signal is narrative (no
+locked characters, no environments) no longer collapses to `None`. A new pure formatter,
+`_narrative_context_block`, renders that into a delimited `<narrative>...</narrative>` block
+(genre/tone/themes/conflict/stakes/time_period/world_rules, plus one `<relationships>` line per
+character pair when present); `_board_rules_text_with_narrative` composes it ahead of whatever
+board-scoped `quality_rules` text a call already has. Both `scene_aware_bible()` call sites
+(`generate_storyboard_sheet_for_scene` and `generate_coverage_for_video`) route their
+`board_rules_text` argument to `generate_coverage_directive` through this helper — the ONE
+free-text hook that reaches `storyboard/coverage.py`'s planner system prompt without editing that
+file (out of scope for this chunk; BOARD LAWS coverage.py stays untouched). Call site 2 needed one
+extra branch: when a scene has no saved plan (`directive is None`), `run_coverage`'s OWN internal
+`generate_coverage_directive` call has no `board_rules_text` parameter at all, so for a
+narrative-bearing bible the directive is now precomputed directly (same call shape as site 1)
+before falling into `run_coverage`; for every bible without narrative, that branch never fires and
+`directive_text` stays `None` exactly as before this chunk.
+
+**What IS verified (code-level + a full local test suite pass, no real LLM call, $0):**
+`storyengine/backend/tests/functional/test_d10_3a_planner_narrative.py` (37 tests) covers:
+`_narrative_context_block` (empty/None/absent-key/empty-dict bible all render "", full narrative
+renders every field, partial narrative omits absent fields, relationships render one line each and
+are dropped when malformed or when narrative itself is empty); `_board_rules_text_with_narrative`
+(narrative-first-then-rules composition, "" + "" => ""); `_story_bible_narrative_context` (NULL
+column, missing row, legacy pre-D10-2ab dict, unparseable JSON string, non-object JSON, dict vs.
+JSON-string column shapes, wrong-typed narrative/relationships); `scene_aware_bible()` end to end
+(legacy video carries no `narrative`/`relationships` keys at all, a native video attaches both, a
+narrative-only video — no characters, no environments — no longer returns `None`, a truly empty
+video still returns `None`, an unparseable `story_bible` JSON string degrades to legacy behavior
+without crashing). **THE key byte-identical proof** renders `storyboard.coverage`'s REAL
+`_coverage_system_prompt`/`_coverage_user_prompt` (no mocks, no LLM call — both are pure string
+builders, imported directly, `storyboard/coverage.py` itself untouched) against a legacy bible
+fixture with and without this chunk's wrapper and asserts the two prompts are byte-identical,
+across four bible/board-rules-text combinations (both absent, board-rules-only, legacy
+characters+locations, and a bible carrying an explicit-but-empty `narrative: {}` section — the
+degenerate-generation case). A companion test proves the `<narrative>` block, when present, sits
+between `</channel_style>` and `<rules>` in that SAME real system prompt (the exact slot
+`board_rules_block` already occupies today) and that narrative sorts ahead of quality-rule text
+when both exist. Wiring proofs at both real call sites (`generate_coverage_for_video`,
+`generate_storyboard_sheet_for_scene`, DB/Claude/ImageClient all mocked, the site-1 test exploits
+`plan_moments_deterministic("")` returning `None` so the mocked empty directive short-circuits
+before any image-drawing code runs — a genuinely $0 test) confirm: a native bible makes
+`generate_coverage_directive` get called with `<narrative>`/`Genre: heist thriller` inside
+`board_rules_text`; a legacy bible at call site 2 never calls `generate_coverage_directive` at all
+(directive stays `None`, `run_coverage` plans internally exactly as it did before this chunk —
+control-flow-level byte-identical, not just prompt-text-level); a legacy bible at call site 1
+passes `board_rules_text=""` through unchanged. Real stash-proof (patch-file technique, never `git
+stash`, per `tasks/lessons.md`'s fleet rule): `git diff` of `coverage_to_app.py` saved to a patch,
+`git apply -R` reverted the tree to byte-identical pre-chunk state (`git status --porcelain` empty
+except the new test file), and separately the new test file fails at COLLECTION
+(`ImportError: cannot import name '_story_bible_narrative_context'`) on the reverted tree — the
+loudest possible "before" signal. Full backend suite (`./venv/bin/python -m pytest tests/ -q`,
+main checkout's venv binary against worktree code) run on both trees with the new test file
+excluded for a fair comparison: 29 failed / 3930 passed (both reverted and applied), sorted
+FAILED-test-name sets byte-identical (diffed, empty output) — the same pre-existing 29 failures
+(`test_custom_film_remotion.py`, `test_youtube_oauth_diagnostics.py`) as every other recent
+D-series chunk. With the new test file included, applied: 29 failed / 3967 passed / 4 skipped.
+
+**What is NOT verified — deploy-window check owed:**
+
+### 1. A real board plan on a native-bible video, eyeballed via the $0(ish) dry-run path
+
+No video in prod has a StoryEngine-native `story_bible` yet — D10-2ab (the generator that writes
+`narrative`/`relationships`) landed the same day as this chunk and its own deferred-verification
+entry above still owes a real generation. This chunk's `<narrative>` block has therefore never
+been seen inside a REAL Claude-planner prompt, only in synthetic fixtures. Once D10-2ab's real
+generation has run on a test video (owed by that chunk's own deploy-window check) and
+`videos.story_bible` carries a non-empty `narrative` section, plan that video's board with
+`plan_only=True` (`generate_storyboard_sheet_for_scene(..., plan_only=True)` — the D3-59 dry-run
+path: plans and returns the shot list, persists nothing, draws no images) and confirm:
+- The `<narrative>` block actually appears in the assembled system prompt sent to Claude (add a
+  temporary print of `board_rules_text`, or inspect via a debugger/log — this repo has no existing
+  "show me the raw prompt" endpoint for this call).
+- The plan Claude returns actually reads as tonally/genre-consistent with the injected block (e.g.
+  a "heist thriller, tense" narrative should visibly influence shot framing/pacing choices, not
+  just sit inertly in the prompt) — a real qualitative read, not something a parser test can prove.
+- `relationships` lines (when the bible has 2+ characters) don't crowd out or contradict the
+  existing `VISUAL BIBLE` character block already in the same user prompt.
+
+**Recipe:** after D10-2ab's real generation check has run and produced a native bible, `se db
+"SELECT story_bible->'narrative' FROM videos WHERE id = '<video_id>'"` to confirm the column is
+populated, then call the storyboard-planning entry point (`POST
+/api/pipeline/{video_id}/scenes/{scene}/storyboard` or the equivalent chat/action verb) with
+`plan_only=True` for one scene. **Cost: one Claude Sonnet call, ~$0.01-0.05** (per
+`docs/cost-awareness.md`'s "Claude API (Sonnet)" line — `plan_only=True` draws zero images, so
+this is the LLM-call-only cost, not the ~$0.05/board sheet-preview cost) — quote this and get a
+yes before running it live.
+
+---
+
+## D10-3a addendum: call-site-2 precomputed-directive branch never persists (pre-existing gap, not a regression) — manager review finding
+
+Manager review on D10-3a asked for a traced parity check between `run_coverage`'s two ways of
+obtaining `directive_text` — planned internally (`directive_text=None`, the pre-existing path) vs.
+precomputed by `generate_coverage_for_video`'s new fallback branch (this chunk, when the bible
+carries narrative and no saved plan exists). Traced with quoted lines:
+
+**(c) Post-parse warn checks — YES, identical either way.** `storyboard/coverage.py::run_coverage`
+(`skills/video-pipeline/storyboard/coverage.py:3906-3925`):
+```python
+    if directive_text is None:
+        directive_text = await generate_coverage_directive(
+            beat_text, video_title, profile, story_bible, beat_scenes, image_prompts or [],
+            max_moments=max_moments, angles_min=angles_min, angles_max=angles_max,
+            anthropic_client=anthropic_client, model=directive_model)
+    with open(os.path.join(outdir, "directive.txt"), "w") as f:
+        f.write(directive_text)
+    ...
+    moments = plan_moments_deterministic(directive_text, max_moments, angles_max,
+                                         max_frames=max_frames, verbose=True, props=props)
+    if not moments:
+        return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
+```
+The `if directive_text is None:` check is the ONLY branch point — both the local `directive.txt`
+file write immediately below it and every check that follows (`plan_moments_deterministic`'s own
+"parse -> budget -> floors -> variety" pipeline, then `coverage.py:3927-3965`'s
+`check_facing_law_compliance`, `check_headcount_stated`, `check_shot_purpose_present`,
+`check_shot_transition_present`/`check_shot_transition_bridge_present`,
+`check_shot_causality_present`/`check_shot_causality_valid`, and the rest of the BOARD LAWS gate
+leg) run unconditionally on `directive_text`/`moments` regardless of which branch supplied it.
+Setup variety is enforced inside `plan_moments_deterministic` itself (its own docstring: "parse ->
+budget -> floors -> variety, in that exact order"), same unconditional call. Argument parity
+confirmed too: `generate_coverage_for_video`'s new precomputed call
+(`scripts/coverage_to_app.py`'s `if _narrative_board_text:` branch) passes the exact same
+`beat_text`/`video_title`/`profile`/`story_bible`/`beat_scenes`/`max_moments`/`angles_min`/
+`angles_max`/`anthropic_client`/`model` values `run_coverage`'s own internal call would have used
+— `board_rules_text` is the only argument that differs (narrative text vs. the internal call's
+implicit `""` default).
+
+**(a) Persist the directive / (b) stamp `coverage_directive_hash` — NO, identical either way (a
+PRE-EXISTING gap, not introduced by this chunk).** `run_coverage`'s own docstring
+(`storyboard/coverage.py:3849-3850`): `"Saves frames + coverage.json locally with angle/shot-type
+metadata. No DB writes (storing into Image records is Phase 2, where the animator consumes
+them)."` — confirmed by grep: zero `await execute(...)` calls anywhere in `run_coverage`.
+`generate_coverage_for_video`'s entire body (`scripts/coverage_to_app.py:4388-4729`) was swept the
+same way — zero `UPDATE scripts` / `await execute(...)` calls touching `coverage_directive` or
+`coverage_directive_hash` anywhere; the only DB write in that function is `store_scene`
+(`scripts/coverage_to_app.py:732`, `"INSERT INTO assets (...)"`), a different table entirely. So
+when this fallback branch fires (no saved plan for the scene — `directive is None` going in), the
+resulting directive is NEVER written back to `scripts.coverage_directive`/`coverage_directive_hash`
+— not by the pre-existing internal-planning path, and not by this chunk's new precomputed-directive
+path. Contrast with call site 1 (`generate_storyboard_sheet_for_scene`), which DOES persist —
+the STREAMING CONTRACT UPDATE (`scripts/coverage_to_app.py:2830-2837`):
+```python
+            if not plan_only:
+                blocks = "\n\n".join(f"--- BEAT {i} ---\n{p}" for i, p in enumerate(prompts, start=1))
+                await execute(
+                    "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
+                    "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
+                    "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
+                    "storyboard_5_url=NULL, storyboard_errors=NULL, updated_at=now() WHERE id=$5",
+                    directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
+```
+which is exactly why call site 2's designed, gated flow is to plan via call site 1 first (its own
+docstring, `generate_storyboard_sheet_for_scene:2450-2451`: "'Generate pictures' then executes THIS
+EXACT saved plan (generate_coverage_for_video reuses it via coverage_directive)") — the fallback
+this chunk touches only fires when that gate was bypassed (a scene that reached "Generate all
+pictures" without ever going through the sheet-preview step).
+
+**Consequence (unchanged by this chunk, quantified):** a scene that repeatedly hits this fallback
+(no saved plan, every "Generate all pictures" call) re-runs a fresh Claude planning call EVERY TIME
+— true before D10-3a (`run_coverage` planned internally, uncached, on every such call) and equally
+true after (this chunk's precomputed call is equally uncached). This chunk does not add a new
+re-spend; it relocates the SAME already-uncached spend so narrative can ride along on it.
+
+**Why not fixed here:** adding persistence (an `UPDATE scripts SET coverage_directive=...,
+coverage_directive_hash=...` in `generate_coverage_for_video`) would (1) be a real behavioral
+change to the D3-59 plan_only / D7 staleness-hash contract, not a narrative-injection change —
+outside this chunk's declared scope ("this chunk is coverage_to_app.py + tests only" meant the
+narrative feature, not a persistence-model change); (2) directly touch the exact machinery three
+OTHER active fleet workers on this same loop currently own (`d7-2-staleness`, `d7-3-invalidation`,
+`d7-7-external-stale` — see their own entries above and `tasks/deferred-verification.md`'s D7-2/
+D7-3 sections) — editing it here risks a merge collision or a silent contract disagreement with
+their in-flight work; (3) site 1's UPDATE also nulls `storyboard_1_url..5_url`/`storyboard_errors`/
+`storyboard_beat_count`, fields that mean nothing in call site 2's real-picture-draw context —
+porting it naively would be semantically wrong, not a copy-paste fix. Flagging instead: this is a
+good small follow-up chunk (persist the fallback-planned directive + hash in
+`generate_coverage_for_video`, scoped and tested on its own, coordinated with whichever D7 worker
+currently owns `coverage_directive_hash` semantics) — NOT bundled into D10-3a.
+
+---
