@@ -25,12 +25,9 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-
-class _Skip(Exception):
-    """Raised when DATABASE_URL is missing — test is a no-op in that env."""
-    pass
 
 
 RAW_ERROR_PATTERNS = [
@@ -56,7 +53,7 @@ RAW_ERROR_PATTERNS = [
 def _require_db_url() -> str:
     url = os.getenv("DATABASE_URL")
     if not url:
-        raise _Skip("DATABASE_URL not set — this audit runs on the VPS/CI")
+        pytest.skip("DATABASE_URL not set — this audit runs on the VPS/CI")
     return url
 
 
@@ -162,7 +159,7 @@ if __name__ == "__main__":
     ):
         try:
             fn()
-        except _Skip as e:
+        except pytest.skip.Exception as e:
             print(f"⏭️  {fn.__name__} skipped: {e}")
         except AssertionError as e:
             print(f"❌ {fn.__name__} FAILED: {e}")

@@ -11,6 +11,7 @@ Run:
 import asyncio
 import os
 import sys
+import uuid
 from contextlib import contextmanager
 from urllib.parse import parse_qs, urlparse
 
@@ -44,8 +45,8 @@ def test_youtube_connect_url_uses_expected_callback_and_readonly_scopes():
         "FRONTEND_URL": "https://storyengine.dev",
         "YOUTUBE_REDIRECT_URI": None,
     }):
-        user = AuthUser(id="user-1", email="creator@example.com", tenant_id="tenant-123")
-        result = asyncio.run(google_auth.youtube_connect(user=user))
+        tenant_id = uuid.UUID("11111111-1111-1111-1111-111111111111")
+        result = asyncio.run(google_auth.youtube_connect(tenant=tenant_id))
 
     auth_url = result["auth_url"]
     parsed = urlparse(auth_url)
@@ -58,12 +59,14 @@ def test_youtube_connect_url_uses_expected_callback_and_readonly_scopes():
     assert qs["response_type"] == ["code"]
     assert qs["access_type"] == ["offline"]
     assert qs["prompt"] == ["consent"]
-    assert qs["state"] == ["tenant-123"]
+    assert qs["state"] == [str(tenant_id)]
 
+    # Scopes deliberately include youtube.upload (commit e24c6908) — read-only
+    # channel/analytics access plus upload, not force-ssl.
     scope = qs["scope"][0]
     assert "https://www.googleapis.com/auth/youtube.readonly" in scope
     assert "https://www.googleapis.com/auth/yt-analytics.readonly" in scope
-    assert "youtube.upload" not in scope
+    assert "https://www.googleapis.com/auth/youtube.upload" in scope
     assert "youtube.force-ssl" not in scope
     print("✅ test_youtube_connect_url_uses_expected_callback_and_readonly_scopes")
 

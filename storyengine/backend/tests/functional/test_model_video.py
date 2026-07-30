@@ -216,11 +216,13 @@ def test_happy_path_persists_everything():
     flat = " | ".join(str(x) for x in ua)
     assert "macro-finance noir" in flat, "image_dna not persisted"
     assert "push-ins" in flat, "motion_dna not persisted"
-    assert "alarmed expression" in flat, "thumbnail_dna not persisted"
+    # Persistence prefers the vision-observed thumbnail style (ground truth from
+    # the real reference thumbnail) over Claude's thumbnail_dna rewrite.
+    assert "OBSERVED-STYLE" in flat, "vision-observed thumbnail style not persisted"
     assert "no text overlays" in flat, "negative prompts not folded into image DNA"
     assert "recap question" in flat, "script_dna not persisted"
     # Re-modeling resets stale generated artifacts
-    assert "script = NULL" in uq and "status = 'idea_logged'" in uq
+    assert "script = NULL" in uq and "status = 'ready_for_scripting'" in uq
     assert any(q.startswith("DELETE FROM scripts") for q, _ in executed), "stale scene rows not cleared"
     # The reference thumbnail must be SEEN through the vision helper, and the
     # observation must reach the pack prompt (vision = style fidelity)
@@ -327,7 +329,7 @@ def test_bot_blocked_extraction_uses_oembed_fallback():
 
     final = STATUSES[-1]
     assert final["status"] == "completed", STATUSES
-    assert "limited full video access" in (final["message"] or ""), final
+    assert "YouTube limited some metadata from our servers" in (final["message"] or ""), final
     assert len([q for q, a in executed if "INSERT INTO assets" in q]) == 8
     print("PASS test_bot_blocked_extraction_uses_oembed_fallback")
 

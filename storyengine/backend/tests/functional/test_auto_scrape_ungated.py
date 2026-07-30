@@ -124,17 +124,22 @@ def test_videos_per_scrape_default_preserved():
 
 def test_other_autopilot_gates_remain_intact():
     """Cycle 34 only removed the gate from _auto_scrape_competitors.
-    _auto_sync_youtube, _auto_analyze_competitor_titles,
-    _auto_extract_learnings should still gate on autopilot. If Cycle 34
-    accidentally removed one of those, this test fails.
+    _auto_analyze_competitor_titles and _auto_extract_learnings should
+    still gate on autopilot. If Cycle 34 accidentally removed one of
+    those, this test fails.
 
-    Why: the 3 remaining auto-* tasks trigger user-charged work (YT API
+    Note: _auto_sync_youtube's autopilot gate was ALSO deliberately
+    removed later (commit 5f135af3) — that removal has its own
+    authoritative lock in test_youtube_auto_sync_ungated_lock.py, so it's
+    intentionally excluded from this check.
+
+    Why: the remaining auto-* tasks trigger user-charged work (YT API
     calls, Anthropic analysis of competitor data). Ungating those would
-    blow cost caps. Only the no-cost scrape was safe to ungate.
+    blow cost caps. Only the no-cost scrape (and, separately, YouTube
+    sync) was safe to ungate.
     """
     src = _source()
     for func_name in (
-        "_auto_sync_youtube",
         "_auto_analyze_competitor_titles",
         "_auto_extract_learnings",
     ):

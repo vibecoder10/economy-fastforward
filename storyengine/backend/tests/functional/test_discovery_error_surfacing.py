@@ -148,8 +148,8 @@ def test_backend_error_messages_are_humanized():
     # The two known paths: explicit friendly string for missing API key, and
     # humanize_error for generic exceptions. Either change would indicate a
     # refactor that should be accompanied by a test update.
-    assert "No Anthropic API key configured" in text, (
-        "discovery.py no longer emits the 'No Anthropic API key configured' "
+    assert "No Claude or kie.ai API key configured. Add one in Settings → API Keys." in text, (
+        "discovery.py no longer emits the 'No Claude or kie.ai API key configured' "
         "friendly error. Did the copy change? Update the test if intentional."
     )
     assert "humanize_error" in text, (

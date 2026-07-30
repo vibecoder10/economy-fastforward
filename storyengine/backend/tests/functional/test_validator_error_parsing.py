@@ -17,7 +17,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from vault import test_api_key, _extract_upstream_error
+from vault import test_api_key as _vault_test_api_key, _extract_upstream_error
 
 
 # ---- fixtures (real response bodies captured 2026-04-19) ----
@@ -98,10 +98,10 @@ def test_extract_tolerates_nonjson_body():
 
 
 def _run_validator(name, mock_resp):
-    """Run test_api_key(name) with a mocked httpx response. Returns the
+    """Run _vault_test_api_key(name) with a mocked httpx response. Returns the
     dict result."""
     async def runner():
-        # test_api_key first calls get_secret; mock that to return a value.
+        # _vault_test_api_key first calls get_secret; mock that to return a value.
         with patch("vault.get_secret", new=AsyncMock(return_value="sk-fake-probing")), \
              patch("httpx.AsyncClient") as mock_client_cls:
             mock_client = MagicMock()
@@ -110,7 +110,7 @@ def _run_validator(name, mock_resp):
             mock_client.get = AsyncMock(return_value=mock_resp)
             mock_client.post = AsyncMock(return_value=mock_resp)
             mock_client_cls.return_value = mock_client
-            return await test_api_key(name, tenant_id="fake-tenant")
+            return await _vault_test_api_key(name, tenant_id="fake-tenant")
     return asyncio.run(runner())
 
 

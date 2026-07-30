@@ -126,7 +126,7 @@ async def test_fetch_video_details_parses_real_shape():
     call = client.calls[0]
     assert call["url"] == "https://www.googleapis.com/youtube/v3/videos"
     assert call["headers"]["Authorization"] == "Bearer fake-access-token"
-    assert call["params"]["part"] == "snippet,statistics"
+    assert call["params"]["part"] == "snippet,statistics,contentDetails,status"
     assert call["params"]["id"] == "dQw4w9WgXcQ,abc123XYZ"
     print("✅ test_fetch_video_details_parses_real_shape")
 

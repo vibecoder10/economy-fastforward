@@ -605,7 +605,10 @@ async def _run_discovery_generation(tenant_id: str, batch_id: str):
             )
         except Exception as e:
             print(f"[Discovery] Generation error: {e}")
-            _refresh_tasks[tenant_id] = {"running": False, "error": f"Idea generation failed: {e}"}
+            _refresh_tasks[tenant_id] = {
+                "running": False,
+                "error": humanize_error(e, context="Idea generation failed"),
+            }
             return
 
         # Parse Claude's response

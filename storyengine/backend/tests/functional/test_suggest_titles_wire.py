@@ -63,7 +63,9 @@ def test_frontend_api_has_suggestTitles_function():
     src = _repo_read("frontend/src/lib/api.ts")
     # The function exists and hits the correct path with POST
     m = re.search(
-        r"export\s+const\s+suggestTitles\s*=\s*\(\s*topic:\s*string\s*\)\s*=>[\s\S]{0,200}?"
+        # {0,400}: gap widened for the explanatory comment block ahead of the
+        # fetchApi call (was {0,200} before it was added).
+        r"export\s+const\s+suggestTitles\s*=\s*(?:async\s+)?\(\s*topic:\s*string\s*\)\s*=>[\s\S]{0,400}?"
         r'"/api/videos/suggest-titles"[\s\S]{0,80}?method:\s*"POST"',
         src,
     )

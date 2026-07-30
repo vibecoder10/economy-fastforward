@@ -165,15 +165,25 @@ def test_backend_produces_friendly_no_competitors_message():
     scraped yet'. The fix specifically called for a friendly message on
     that path — not the raw DB count or a stack trace."""
     text = _discovery_route().read_text()
-    # The exact copy or a close variant — allow wording drift but require
-    # the 'scrape ... first' shape.
+    # commit f2d6b43a replaced the old "scrape competitor channels first"
+    # dead-end with an inline auto-scrape: when there are 0 example channels
+    # the creator is told to add one; when the channels exist but scraping
+    # them still turns up nothing, the creator is told that too.
     assert re.search(
-        r"[Ss]crape\s+competitor\s+channels?\s+first",
+        r"No example channels yet",
         text,
     ), (
-        "Stage 6.5 regression — the friendly 'Scrape competitor channels "
-        "first.' message is no longer produced when a tenant has 0 "
-        "competitor videos. New users will see a raw DB error instead."
+        "Stage 6.5 regression — the friendly 'No example channels yet' "
+        "message is no longer produced when a tenant has 0 example "
+        "channels. New users will see a raw DB error instead."
+    )
+    assert re.search(
+        r"Couldn't read any videos",
+        text,
+    ), (
+        "Stage 6.5 regression — the friendly 'Couldn't read any videos "
+        "from your example channels' message is no longer produced when "
+        "inline auto-scrape still turns up nothing."
     )
     # AND the message must be stored where the status endpoint can read it
     assert re.search(

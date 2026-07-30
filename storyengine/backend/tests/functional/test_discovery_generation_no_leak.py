@@ -200,7 +200,7 @@ def test_curated_error_strings_preserved():
         sys.modules["vault"].get_secret = original_get_secret
 
     state = discovery_mod._refresh_tasks.get(TENANT, {})
-    assert state.get("error") == "No Anthropic API key configured", (
+    assert state.get("error") == "No Claude or kie.ai API key configured. Add one in Settings → API Keys.", (
         f"curated no-key message changed: {state.get('error')!r}"
     )
     print("✅ test_curated_error_strings_preserved")

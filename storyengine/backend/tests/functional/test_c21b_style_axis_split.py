@@ -241,8 +241,8 @@ def test_spec_to_create_request_maps_style_description_preset_unchanged():
     spec = {"title": "My Video", "visual_style": "pixar_3d", "video_length_minutes": 5}
     req = chat._spec_to_create_request(spec)
     assert req.visual_style == "pixar_3d"
-    assert req.visual_style_label == "Pixar 3D"
-    assert "Pixar-style CG" in req.image_style_override
+    assert req.visual_style_label == "3D Animated"
+    assert "3D animated cartoon CG" in req.image_style_override
     assert req.style_preset_id is None
 
 

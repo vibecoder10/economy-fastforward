@@ -520,6 +520,9 @@ def test_finish_and_creation_surfaces_tell_style_motion_voice_and_storage_truth(
     scenes = (
         frontend / "components" / "production" / "ScenesWorkspaceTab.tsx"
     ).read_text()
+    shot_card = (
+        frontend / "components" / "canvas-shared" / "ShotCard.tsx"
+    ).read_text()
     selector = (
         frontend / "components" / "production" / "ProductionStyleSelector.tsx"
     ).read_text()
@@ -534,7 +537,7 @@ def test_finish_and_creation_surfaces_tell_style_motion_voice_and_storage_truth(
     assert "These still pictures are the final visual format." in scenes
     assert "You do not" in scenes and "need to animate clips" in scenes
     assert "videoStageEnabled && sceneCards.length > 0" in scenes
-    assert "{canAnimate && (" in scenes
+    assert "{canAnimate && (" in shot_card
     assert "Finish order" in scenes
     assert "sound & voice" in scenes
     assert "Scene production progress" in scenes
