@@ -1771,7 +1771,10 @@ export interface VideoCharacter {
   name: string;
   description?: string | null;
   reference_url?: string | null;
-  status: "draft" | "approved";
+  // "stale" (D7-2, migration 145): the script changed after this reference
+  // was generated/approved — regenerating or re-approving re-stamps and
+  // heals it. Advisory only, never blocks — see D7-4.
+  status: "draft" | "approved" | "stale";
   source: "generated" | "uploaded" | "project";
   sort: number;
 }
@@ -1860,7 +1863,10 @@ export interface VideoEnvironment {
   name: string;
   description?: string | null;
   reference_url?: string | null;
-  status: "draft" | "approved";
+  // "stale" (D7-2, migration 145): the script changed after this reference
+  // was generated/approved — regenerating or re-approving re-stamps and
+  // heals it. Advisory only, never blocks — see D7-4.
+  status: "draft" | "approved" | "stale";
   source: "generated" | "uploaded" | "project";
   sort: number;
 }

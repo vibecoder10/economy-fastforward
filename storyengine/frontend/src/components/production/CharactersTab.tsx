@@ -3,6 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Check,
   CheckCircle2,
   FolderDown,
@@ -84,6 +85,10 @@ export function CharactersTab({ video, onApproved, taskWatcher }: CharactersTabP
   const characters: VideoCharacter[] = data?.characters ?? [];
   const approvedAt = data?.approved_at ?? null;
   const allHaveImages = characters.length > 0 && characters.every((c) => c.reference_url);
+  // D7-4: surface D7-2's stale flag (script edited after this portrait was
+  // generated/approved) so a spend (redraw, or re-approving over the
+  // mismatch) is a choice, not an accident.
+  const staleCharacters = characters.filter((c) => c.status === "stale");
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["video-characters", video.id] });
@@ -261,6 +266,29 @@ export function CharactersTab({ video, onApproved, taskWatcher }: CharactersTabP
         </div>
       </GlassCard>
 
+      {/* Staleness warning (D7-4): visible BEFORE any money is spent — the
+          script changed after these portraits were generated/approved
+          (D7-2 flags this on script edit). Advisory only: it never blocks
+          Redesign/Redo/Approve, it just makes the mismatch a seen choice
+          instead of a silent one. Re-approving as-is locks the mismatch in
+          without redrawing anything, which is exactly the risk this warns
+          about. */}
+      {staleCharacters.length > 0 && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+          style={{ background: "var(--orange-dim)", border: "1px solid rgba(255, 120, 73, 0.35)" }}>
+          <AlertTriangle size={16} style={{ color: "var(--orange)" }} className="shrink-0" />
+          <p className="text-sm flex-1 min-w-[12rem]" style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>
+              {staleCharacters.length === 1
+                ? `${staleCharacters[0].name}'s reference is stale.`
+                : `${staleCharacters.length} character references are stale.`}
+            </strong>{" "}
+            The script changed after {staleCharacters.length === 1 ? "it was" : "they were"} generated.
+            Regenerate the ones below before drawing storyboards, or approving now locks in the mismatch as-is.
+          </p>
+        </div>
+      )}
+
       {/* Empty state */}
       {characters.length === 0 && !taskRunning && (
         <GlassCard className="p-12 text-center">
@@ -304,15 +332,26 @@ export function CharactersTab({ video, onApproved, taskWatcher }: CharactersTabP
                   {c.name}
                 </p>
                 <span
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1"
                   style={{
-                    color: c.status === "approved" ? "var(--green)" : "var(--gold)",
-                    border: `1px solid ${c.status === "approved" ? "var(--green)" : "var(--gold)"}`,
+                    color: c.status === "stale" ? "var(--orange)" : c.status === "approved" ? "var(--green)" : "var(--gold)",
+                    border: `1px solid ${c.status === "stale" ? "var(--orange)" : c.status === "approved" ? "var(--green)" : "var(--gold)"}`,
                   }}
                 >
-                  {c.status === "approved" ? "approved" : c.source === "project" ? "from project" : "draft"}
+                  {c.status === "stale" && <AlertTriangle size={9} />}
+                  {c.status === "stale" ? "stale" : c.status === "approved" ? "approved" : c.source === "project" ? "from project" : "draft"}
                 </span>
               </div>
+
+              {c.status === "stale" && (
+                <p
+                  className="text-[11px] leading-snug rounded-md px-2 py-1.5 flex items-start gap-1.5"
+                  style={{ background: "var(--orange-dim)", color: "var(--text-secondary)" }}
+                >
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5" style={{ color: "var(--orange)" }} />
+                  Script changed after this was generated — regenerate before drawing.
+                </p>
+              )}
 
               {editingId === c.id ? (
                 <div className="space-y-2">

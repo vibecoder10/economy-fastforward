@@ -304,6 +304,19 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
   const castDrafted = (charactersData?.characters?.length ?? 0) > 0;
   const castReady = !castDrafted || !!charactersData?.approved_at;
 
+  // D7-4: the gates above only check approval, not freshness — an approved
+  // cast/environment set can still go stale (D7-2 flags video_characters
+  // .status / video_environments.status = 'stale' on a script edit) without
+  // castReady/environmentsReady ever flipping back to false. Storyboard
+  // generation would silently draw from the outdated reference. Surface it
+  // here, where the storyboard-generating actions actually live — advisory
+  // only, never blocks (mirrors the backend flag, which is warn-only too).
+  const staleCharacterNames = (charactersData?.characters ?? [])
+    .filter((c) => c.status === "stale").map((c) => c.name);
+  const staleEnvironmentNames = (environmentsData?.environments ?? [])
+    .filter((e) => e.status === "stale").map((e) => e.name);
+  const hasStaleReferences = staleCharacterNames.length > 0 || staleEnvironmentNames.length > 0;
+
   // Clip-model options: derived from the backend registry (GET /api/models,
   // queried above as `modelsData`) — never hand-copied, see
   // storyengine-wiring-fix-checklist.md §0.2.
@@ -1366,6 +1379,49 @@ export function ScenesWorkspaceTab({ video, onGoToScriptVoice, onGoToEnvironment
               <MapPin size={13} /> Design environments
             </button>
           )}
+        </div>
+      )}
+      {/* D7-4: cast/environments passed their gate (approved) but a script
+          edit since then flagged one or more as stale — the storyboard/
+          redraw actions below are still enabled (advisory, not a block,
+          matching the backend's warn-only flag), but a fresh spend from a
+          stale reference should be a seen choice, not a silent one. */}
+      {castReady && environmentsReady && hasStaleReferences && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+          style={{ background: "var(--orange-dim)", border: "1px solid rgba(255, 120, 73, 0.35)" }}>
+          <AlertTriangle size={16} style={{ color: "var(--orange)" }} className="shrink-0" />
+          <p className="text-sm flex-1 min-w-[12rem]" style={{ color: "var(--text-secondary)" }}>
+            <strong style={{ color: "var(--text-primary)" }}>
+              {[
+                staleCharacterNames.length > 0
+                  ? `${staleCharacterNames.length} character${staleCharacterNames.length === 1 ? "" : "s"}`
+                  : null,
+                staleEnvironmentNames.length > 0
+                  ? `${staleEnvironmentNames.length} environment${staleEnvironmentNames.length === 1 ? "" : "s"}`
+                  : null,
+              ].filter(Boolean).join(" and ")} out of sync with the script.
+            </strong>{" "}
+            The script changed after these references were drawn. New storyboards or picture redraws will use the
+            outdated look until you regenerate them — check the Characters and Environments tabs before spending.
+          </p>
+          <div className="flex items-center gap-2 shrink-0">
+            {staleCharacterNames.length > 0 && onGoToCharacters && (
+              <button
+                onClick={onGoToCharacters}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+                style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
+                <Sparkles size={13} /> Review cast
+              </button>
+            )}
+            {staleEnvironmentNames.length > 0 && onGoToEnvironments && (
+              <button
+                onClick={onGoToEnvironments}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
+                style={{ background: "var(--orange)", color: "var(--bg-void)" }}>
+                <MapPin size={13} /> Review environments
+              </button>
+            )}
+          </div>
         </div>
       )}
       <section
