@@ -147,6 +147,28 @@ re-check). No separate S5 function or test file exists, and none should be
 added — see `backend/story_laws.py`'s module docstring for the same note in
 code.
 
+## S6 — THE SCRIPT IS THE ORIGIN OF TRUTH, AND CHANGING IT INVALIDATES WHAT CAME BEFORE
+
+Everything downstream is derived from the script: the cast, the environments, the
+boards, the coverage, the voice. So when scene text changes, every artifact built from
+the older text is stale by construction. A pipeline that overwrites scene text without
+marking those artifacts stale does not produce a quality defect, it produces a faithful
+render of a script that no longer exists. The stale artifact must be flagged rather than
+silently kept, and it is never preserved for continuity against the script's own words.
+
+The practical rule: a scene-text write is not just a write. It is an event with
+consequences, and the consequences are the whole reason a script edit is cheap while a
+redraw is not.
+
+*Provenance: a scene whose script named a woman in gold and an old man was boarded as
+three interchangeable navy-suited elders, and the mismatch was read for days as a
+casting or drawing failure. Timestamps proved otherwise. The characters were generated
+2026-07-27 at 23:33, the boards were drawn 2026-07-29 at 07:06, and the scene text
+naming those two characters was not written until 2026-07-30 at 01:46. The cast was a
+faithful render of the script as it stood; nothing marked it stale when the script
+moved. 15 of the 28 videos holding characters have a scene edited after their cast was
+created, so this is the normal condition and not one video's accident.*
+
 ---
 
 ## How a law becomes behaviour

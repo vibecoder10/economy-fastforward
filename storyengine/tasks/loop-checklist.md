@@ -1391,3 +1391,87 @@ Consequences to carry forward:
 - Do NOT hand-edit video 686b4651 to apply this. That video is READ-ONLY - re-deriving its scenes runs
   `DELETE FROM scripts WHERE video_id = ...` and would orphan $1.85 of drawn assets. The ruling applies to the NEW
   video authored in D6-6a.
+
+## PHASE D7 - SCRIPT-ORIGIN INVALIDATION (opened 2026-07-29)
+
+Ryan, 2026-07-29: *"script is the origin of truth the rest of the video follows"* and *"I believe the script was
+altered as a fix after the characters were generated but the characters get generated from the script."*
+**HYPOTHESIS CONFIRMED by timestamps.** Now law S6 in STORY-LAWS.md.
+
+### The evidence, video 686b4651
+| Event | Timestamp |
+|---|---|
+| `scripts` rows first written (all 6 scenes) | 2026-07-27 23:19:55 |
+| `video_characters` created (Nyla, The Elites) | 2026-07-27 23:33:58 / 23:35:01 |
+| `video_environments` created | 2026-07-27 23:39:32 to 23:42:21 |
+| scene-1 `assets` (10 board rows) drawn | 2026-07-29 07:06:40 to 07:07:12 |
+| scene 1 edited (hatch-release escape beat, 746 chars) | 2026-07-29 23:46:17 |
+| **scene 2 edited - the text naming "a woman in gold" and "an old man"** | **2026-07-30 01:46:37** |
+
+So the navy-suited elders were generated from a script that DID NOT YET CONTAIN those characters. The cast was a
+faithful render of the script as it stood. The defect was read as a casting or drawing failure for days; it was
+staleness. This reframes an entire class of "quality" defects: before blaming a model, check whether the artifact
+predates the text.
+No version or history table exists on `scripts` or `video_characters` (checked `information_schema`), so `scene_text`
+is overwritten in place and `updated_at` is the only signal.
+
+### The staleness map (all verified with file:line)
+| Downstream artifact | On `update_scene_text` (videos.py:1583-1601) | On `rewrite_scene_text` (videos.py:2214-2391) |
+|---|---|---|
+| `video_characters` | silently stale | silently stale |
+| `video_environments` | silently stale | silently stale |
+| `coverage_directive` + hash | silently stale | silently stale |
+| `assets` (drawn boards/pictures) | silently stale | silently stale |
+
+**BLAST RADIUS, systemic not anecdotal:** of 40 videos with scripts, 15 of the 28 that have characters have a scene
+edited after character creation; 9 after environment creation; 17 after per-scene assets were created. Caveat from the
+investigator: this counts ANY scene edit against ANY artifact in the video, so it is an upper-bound proxy rather than
+per-scene precision.
+
+### The machinery that already exists - REUSE IT, do not build a fourth bespoke path
+- `coverage_directive_hash` is NOT dead code. `_scene_text_hash()` (`backend/scripts/coverage_to_app.py:1212`) hashes
+  whitespace-normalised `scene_text`, and it is genuinely compared at `:2441` (per-board redo gate, blocks a stale
+  redraw) and `:4293` (skip-if-done gate). It works correctly but narrowly: only inside the coverage-drawing script,
+  never invoked from either scene-edit endpoint, and it never touches characters or environments.
+- `_clear_scene_downstream` (`backend/routes/videos.py:2744-2760`) ALREADY does partial invalidation - it nulls
+  `scripts.voice_over_url` / `voice_status` and `assets.image_url` / `video_url` / `video_clip_url` - but it is only
+  called from `/script/pull-from-drive` (`:2953-2966`), and it leaves `video_characters`, `video_environments` and
+  `coverage_directive_hash` untouched.
+- **THE LESSON THE INVESTIGATOR FLAGGED: `_clear_scene_downstream` is the TEMPLATE to extend, not a pattern to
+  duplicate. A law written against only the two named edit endpoints would miss that a third, more-invalidating path
+  already exists.**
+- `_extract_cast` (`backend/routes/characters.py:149-193`) generates the cast from `videos.script` (concatenated scene
+  text) unless a `story_bible` cast exists. Ryan's premise is confirmed: characters ARE derived from the script.
+  `POST /characters/generate` (`characters.py:286`) can regenerate the cast, but it is destructive and manual, never
+  invalidation-triggered.
+
+### Chunks
+- [ ] D7-1 (S) [D][B][V] HIGH - SECOND INDEPENDENT GAP, and the cheapest real fix. `_extract_cast` reads the CACHED
+  `videos.script`, but `update_scene_text` never syncs `videos.script` (only `rewrite_scene_text` and pull-from-drive
+  do). So editing a scene does not even update the text the cast generator reads - a cast regenerated after an edit can
+  still be built from stale text. Fix the sync, then verify `_extract_cast` sees the new text. Small, self-contained,
+  and it removes a whole class of confusion. Do this first.
+- [ ] D7-2 (S) [D][B][V] Generalise the hash. Add `characters_hash` / `environments_hash` (same `_scene_text_hash`
+  style, over the full `videos.script`). On EVERY scene-text write path - both endpoints plus pull-from-drive -
+  recompute and compare, and on mismatch FLAG `video_characters.status` / `video_environments.status` (both already
+  have a `status` column, matching the existing draft/approved vocabulary) rather than deleting anything.
+  NON-DESTRUCTIVE by design: flag, never delete, because a wrong deletion costs real money in redraws.
+- [ ] D7-3 (S) [B][V] Extend `_clear_scene_downstream` to also clear `coverage_directive_hash`, and CALL IT from both
+  scene-edit endpoints instead of leaving invalidation to the drive-pull path alone. Extend the existing function; do
+  not write a fourth variant.
+- [ ] D7-4 (S) [U][V] Surface staleness where a human sees it. A flagged-stale cast or environment must be visible in
+  the UI before someone spends money redrawing from it. This is the leg that turns the flag into a saved dollar - a
+  flag nobody sees is the same as no flag. Depends on D7-2.
+- [ ] D7-5 (H) [V] Apply law S6's three legs per STORY-LAWS.md's contract triangle: PROMPT (the law text reaches the
+  relevant system prompts), GATE (the hash comparison above IS the deterministic gate - it compares canonical hashes,
+  not prose, so it MAY be hard per the standing ruling), REPAIR (the flag survives a regeneration). Confirm each leg
+  landed or admit which did not.
+
+### Standing rulings that apply to this phase
+- A gate may only be HARD when the thing it compares against is CANONICAL. Prose-versus-prose must warn, never block.
+  A hash comparison IS canonical, so D7-2's gate is allowed to be hard - unlike most of phase D6's checks.
+- Never let a failure report success. `worker.py:_run_stage` used to persist every `needs_review` as "completed";
+  if any D7 gate returns a status rather than raising, verify what the stage status actually becomes.
+- Video 686b4651 stays READ-ONLY. Do NOT re-derive it to "fix" its stale cast - that runs
+  `DELETE FROM scripts WHERE video_id = ...` and would orphan $1.85 of drawn assets. Ryan's S4 ruling (the script
+  wins) applies to the NEW video authored in D6-6a.
