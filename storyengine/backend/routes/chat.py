@@ -2966,6 +2966,18 @@ async def _apply_prompt_draft(
         draft["scene"],
         tenant_id,
     )
+    # D7-1b: keep videos.script in sync — this is the THIRD scripts.scene_text
+    # writer (after update_scene_text and rewrite_scene_text in
+    # routes/videos.py, both fixed under D7-1) and was the one ungated writer
+    # D7-1's sweep found still left videos.script stale. videos.script is the
+    # ONLY thing routes/characters.py `_extract_cast` reads when a video has
+    # no Story Bible yet, so a cast regenerated right after a chat-side
+    # script save would still be built from the pre-save text. Shares the
+    # exact same sync (sync_video_script) the other two writers use — see
+    # its docstring in routes/videos.py.
+    from routes.videos import sync_video_script
+
+    await sync_video_script(video_id, tenant_id)
     return (
         f"Done — I've updated {label}. If you've already storyboarded this scene, you may want to "
         "redo its pictures so they match."
