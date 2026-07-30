@@ -1125,13 +1125,13 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   record for cast (with reference asset ids), style, and the set/material map per
   location, inserted VERBATIM by the composer. Migration 141 (reserved). Subsumes L20,
   L28, L29 and the paraphrase problem behind L12/L13/L14. Depends on D6-0A. Worktree.
-- [ ] D6-2 (S) [B][V] Repair stamps re-scoped around deterministic assembly. L11, L12,
+- [x] D6-2 (S) [B][V] Repair stamps re-scoped around deterministic assembly. L11, L12,
   L15, L16, L18, L19 and L17/L22 have a PROMPT leg but no per-shot stamp, so they
   evaporate on the first single-shot redraw (the failure class that cost $0.20 on
   07-29). PREFER moving a law into deterministic assembly over adding prose. L17/L22
   may need a group-arrangement field on the per-shot artifact - the missing signal is
   itself the finding. Depends on D6-1.
-- [ ] D6-3 (S) [D][B][V] S3 into the script generator, all three legs. One scene is one
+- [x] D6-3 (S) [D][B][V] S3 into the script generator, all three legs. One scene is one
   location and one continuous beat. GATE: does a scene span more than one location?
   Highest-value single item in the backlog - it is why scene 1 was oversized. Must reach
   the SUBMIT path too, not only the generate path. Migration 142 (reserved). Depends on
@@ -1257,3 +1257,67 @@ Both builders produced the weak form on the first pass; put this in the brief ne
   drawn nothing. D6-1b fixed only the path its own new exception introduced and correctly refused to
   expand scope. A creator seeing "completed" with zero boards is a trust-and-money bug - treat as
   HIGH.
+
+### D6-3 + D6-2 merged 2026-07-29. Six of eight chunks done.
+D6-3 (52ecb7b2 + D6-3b): migration 144 (`scripts.location`, nullable), new module `backend/story_laws.py` as the ONE
+home for S-law text and checks, S3 reaching three of four scene-writing paths, repair leg carrying location forward.
+An independent verifier returned DO NOT MERGE on round 1; round 2 fixed all four findings.
+
+RULING 1, recorded so nobody re-tightens it: **the declared location is CANONICAL (it is a column), so the
+`no_location` check MAY be hard. The `cross_location_text` check compares PROSE TO PROSE, so it WARNS and never
+blocks - permanently.** Story law S1 REQUIRES a script to narrate every location change, so "She leaves the corridor
+behind and steps onto the bridge" is exactly what S1 demands and exactly what a strict S3 would reject. The two laws
+were in direct conflict; resolved in S1's favour, because S1 governs whether a script is filmable and S3 governs
+whether a scene is the right size. Substring collisions fixed too ("the pod bay" no longer trips on "the pod"). The
+interaction is now written into STORY-LAWS.md under S3.
+
+RULING 2, from D6-1 and applied throughout: **a gate may only be HARD when the thing it compares against is
+CANONICAL. Prose-versus-prose must warn, never block.**
+
+SYSTEMIC BUG FIXED - THE MOST VALUABLE FINDING OF THE PHASE: `worker.py:_run_stage` (the DEFAULT arq enqueue path,
+used whenever Redis is up) only special-cased `"cancelled"` and `"failed"`. Every other status, including
+`"needs_review"`, fell through to `db_persist_task(..., "completed")`. A stage that BLOCKED its work reported success
+and discarded the violation text, leaving the video stuck. **This silently defeated every quality gate in the product
+on the default path.** The same false-success shape was found independently in board chunk D6-1 the same day - two
+instances, unrelated code, one bug class. Now `needs_review` persists as `failed` WITH the violation text, because
+`background_tasks.status` has a hard CHECK constraint with no `needs_review` bucket. A false failure is recoverable;
+a false success is not. INTENDED BREADTH: this applies to EVERY stage returning `needs_review`, not only S3, so
+stages that previously reported "completed" while blocking will now report "failed" with real text. Expect that as a
+visible UI change.
+
+ALSO FIXED in D6-3: the ACT-based path's write-ordering claim was FALSE - `_write_script_records` DELETEs and INSERTs
+progressively per act, so the gate's SELECT ran after the write. The code now deletes the newly-written rows on
+violation and records the failure on `videos.script_validation`. STORY-LAWS.md had repeated the false claim verbatim
+and is corrected to state the true ordering PER PATH. A law document that lies is worse than one admitting a gap.
+
+D6-2 (dd1fc8e9), migration 143: seven of eight board laws now have all three legs.
+| Law | Route | Repair leg |
+|---|---|---|
+| L11 nested frames | baked stamp | done |
+| L12 population | baked stamp | done |
+| L15 attention/orientation | fixed reminder stamp | done |
+| L16 reverse background | **COMPUTED** + fresh redraw re-derivation | done |
+| L17 headcount | baked stamp (paired with L22) | done |
+| L18 discovery object | prose only | **ABSENT - honestly admitted** |
+| L19 diegetic POV | fixed reminder stamp | done |
+| L22 group arrangement | **COMPUTED** + fresh redraw re-derivation | done |
+L16 and L22 are genuinely calculated, not instructed, which is what BOARD-PLANNER-ARCHITECTURE.md asked for:
+`compute_reverse_arrangement()` splits the canonical clause, reverses the order and swaps `frame-left` <-> `frame-right`.
+Verified live - SETUP G (the reverse of A) produced "...order flipped): ...toward frame-left, then Old Man, then Gold
+Woman... at the frame-right end...". L18's repair leg is deliberately absent because a naive stamp would contradict
+that law's own "shot size changes" clause - admitted rather than faked. NO new HARD gates were added; every new check
+is a warning, correctly applying Ruling 2. The decisive test `test_redraw_inherits_all_seven_repaired_laws` proves a
+SINGLE-SHOT REDRAW inherits every repaired law, which is the exact failure class that cost $0.20 of real money.
+PROCESS NOTE: that builder initially edited the MAIN working tree instead of its worktree (572 uncommitted lines),
+caught it, and relocated the work capture-first / verify / then clean, leaving main clean. Put "use -C with the
+worktree path on EVERY git command and absolute worktree paths for every edit" in future briefs - creating a worktree
+is not the same as working in it.
+
+### New chunk from D6-2 (found, not lost)
+- [ ] D6-2b (S) [B][V] L16's computation is PROSE-PARSED and can silently no-op.
+  `parse_reverse_setup_pairs()` regex-matches the phrase "the matched reverse of X" out of the LLM-written
+  `[SETUPS|]` line. If the planner words it differently, the reverse-background computation silently does not happen
+  and the law quietly stops applying - it degrades to old behaviour rather than erroring, which is why it is a
+  follow-up and not a blocker. The real fix is the structured-plan schema from BOARD-PLANNER-ARCHITECTURE.md step 2,
+  where the reverse-pair relationship is a FIELD rather than a phrase. Until then, consider asserting the parse found
+  the pairs the setups block implies.
