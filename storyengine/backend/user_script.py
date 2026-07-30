@@ -200,11 +200,16 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
     validation = {"passed": True, "checks": [
         {"name": "user_supplied", "passed": True,
          "detail": "Creator-supplied script used verbatim — generation, grading, and factual gates skipped"}]}
-    if not law_check["passed"]:
-        # Advisory only — see docstring above. Never flips "passed" or blocks.
+    if not law_check["passed"] or law_check["warnings"]:
+        # D6-3b: everything here is advisory only, including no_location —
+        # see docstring above ("the creator's word is final"). Never flips
+        # "passed" or blocks, regardless of severity. cross_location_text
+        # (law_check["warnings"]) is ALSO recorded, not just no_location
+        # (law_check["violations"]) — both are informational here.
         validation["story_law_s3"] = {
             "passed": False, "advisory": True,
             "violations": law_check["violations"],
+            "warnings": law_check["warnings"],
         }
     await execute(
         """UPDATE videos SET script = $1, script_source = 'user_supplied',
@@ -416,6 +421,13 @@ async def accept_external_script(
     warnings = [
         (rv.note.strip() or rv.rule) for rv in grade.rule_verdicts if not rv.passed
     ]
+    # D6-3b: cross_location_text is advisory-only, permanently (see
+    # story_laws.check_scene_location_law's docstring) — surfaced here as a
+    # non-blocking warning, same as a WARN-severity rule failure above.
+    s3_warnings = [
+        f"scene {w['scene']}: {w['detail']}" for w in law_check["warnings"]
+    ]
+    warnings = warnings + s3_warnings
 
     from pipeline_executor import PipelineExecutor
     new_status = PipelineExecutor._skip_disabled_next(dict(video), "ready_for_voice")

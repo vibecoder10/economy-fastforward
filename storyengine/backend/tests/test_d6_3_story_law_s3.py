@@ -74,6 +74,13 @@ def test_parse_scene_location_never_touches_text():
 
 # ---------------------------------------------------------------------------
 # Pure function — check_scene_location_law (the GATE)
+#
+# D6-3b ruling (independent verifier, live-tested): the declared `location`
+# is a COLUMN — canonical — so `no_location` MAY be hard (goes in
+# `violations`, `passed=False`). `cross_location_text` compares PROSE to
+# PROSE — never canonical — so it WARNS ONLY, permanently, and NEVER affects
+# `passed`. This resolves a real conflict with S1 (NARRATE EVERY LOCATION
+# CHANGE), which requires an outgoing scene's text to name the destination.
 # ---------------------------------------------------------------------------
 
 def test_gate_passes_clean_single_location_scenes():
@@ -82,10 +89,10 @@ def test_gate_passes_clean_single_location_scenes():
         {"scene": 2, "location": "the corridor", "scene_text": "She runs down the hall."},
     ]
     result = story_laws.check_scene_location_law(scenes)
-    assert result == {"passed": True, "violations": []}
+    assert result == {"passed": True, "violations": [], "warnings": []}
 
 
-def test_gate_flags_missing_location():
+def test_gate_flags_missing_location_hard():
     scenes = [{"scene": 1, "location": None, "scene_text": "She wakes up."}]
     result = story_laws.check_scene_location_law(scenes)
     assert result["passed"] is False
@@ -93,6 +100,7 @@ def test_gate_flags_missing_location():
         "scene": 1, "reason": "no_location",
         "detail": "Scene has no LOCATION header — cannot verify it holds a single location.",
     }]
+    assert result["warnings"] == []
 
 
 def test_gate_flags_blank_string_location_same_as_missing():
@@ -100,20 +108,6 @@ def test_gate_flags_blank_string_location_same_as_missing():
     result = story_laws.check_scene_location_law(scenes)
     assert result["passed"] is False
     assert result["violations"][0]["reason"] == "no_location"
-
-
-def test_gate_flags_cross_location_text():
-    scenes = [
-        {"scene": 1, "location": "the bedroom",
-         "scene_text": "She wakes up and later climbs through the garage window."},
-        {"scene": 2, "location": "the garage", "scene_text": "Tools line the wall."},
-    ]
-    result = story_laws.check_scene_location_law(scenes)
-    assert result["passed"] is False
-    assert result["violations"] == [{
-        "scene": 1, "reason": "cross_location_text",
-        "detail": "Scene declares 'the bedroom' but its text also names the garage — another scene's location.",
-    }]
 
 
 def test_gate_all_null_locations_flags_every_scene():
@@ -141,6 +135,111 @@ def test_gate_short_location_names_not_used_for_cross_match():
     # scene 1 has a location (not flagged as no_location) and "in" is too
     # short to search for as a cross-contamination signal.
     assert result["passed"] is True
+    assert result["warnings"] == []
+
+
+# --- cross_location_text: WARN-ONLY, never blocks (still gets caught) ------
+
+def test_gate_still_catches_a_genuinely_oversized_two_location_scene_as_warning():
+    """The failure mode of the warn-only ruling is defanging the law
+    entirely. Prove it: a real two-location scene (both declared, one
+    scene's text genuinely naming the OTHER scene's place) still shows up
+    in `warnings` — detected, visible, just not blocking."""
+    scenes = [
+        {"scene": 1, "location": "the bedroom",
+         "scene_text": "She wakes up, hesitates, then climbs through the garage window and hides among the tools."},
+        {"scene": 2, "location": "the garage", "scene_text": "Tools line the wall."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True  # never blocks
+    assert result["violations"] == []
+    assert result["warnings"] == [{
+        "scene": 1, "reason": "cross_location_text",
+        "detail": (
+            "Scene declares 'the bedroom' and its text also names the garage — "
+            "another scene's location. This is advisory only: mentioning, "
+            "remembering, or narrating a move to another place is legal (and "
+            "S1 requires it for an outgoing scene) — review, don't assume a "
+            "violation."
+        ),
+    }]
+
+
+# --- the five live false-positive inputs from the independent verifier -----
+
+def test_false_positive_1_dialogue_naming_elsewhere_never_blocks():
+    scenes = [
+        {"scene": 1, "location": "the rooftop",
+         "scene_text": '"I grew up in the corridor," she says, staring at the skyline.'},
+        {"scene": 2, "location": "the corridor", "scene_text": "Pipes hiss along the ceiling."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["violations"] == []
+    assert any(w["scene"] == 1 for w in result["warnings"])  # caught, not blocked
+
+
+def test_false_positive_2_memory_naming_elsewhere_never_blocks():
+    scenes = [
+        {"scene": 1, "location": "the rooftop",
+         "scene_text": "She thinks about the surface, how far below it always felt."},
+        {"scene": 2, "location": "the surface", "scene_text": "Rain hits the concrete."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["violations"] == []
+
+
+def test_false_positive_3_looking_through_window_never_blocks():
+    """Legal per BOARD-LAWS L11 (establish through a window/POV)."""
+    scenes = [
+        {"scene": 1, "location": "the rooftop",
+         "scene_text": "Through the glass she can see the corridor below, lit and empty."},
+        {"scene": 2, "location": "the corridor", "scene_text": "Pipes hiss along the ceiling."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["violations"] == []
+
+
+def test_false_positive_4_substring_collision_pod_bay_never_flags():
+    """"the pod bay" (this scene's OWN longer location) must not trip on a
+    sibling's shorter "the pod" — the fixed matcher must not flag this at
+    all, not merely downgrade it to a warning."""
+    scenes = [
+        {"scene": 1, "location": "the pod bay", "scene_text": "Rows of pods line the bay walls."},
+        {"scene": 2, "location": "the pod", "scene_text": "She wakes inside."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["violations"] == []
+    assert result["warnings"] == [], "own longer location name must not be shadowed by a sibling's shorter prefix"
+
+
+def test_false_positive_4b_substring_collision_diner_parking_lot_never_flags():
+    scenes = [
+        {"scene": 1, "location": "Diner Parking Lot", "scene_text": "She leans on the hood of the car."},
+        {"scene": 2, "location": "Diner", "scene_text": "The bell over the door rings."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["warnings"] == []
+
+
+def test_false_positive_5_s1_s3_tension_never_blocks():
+    """The decisive case: S1 REQUIRES this exact sentence (narrate the
+    location change). It legitimately names the destination scene's
+    location. Must warn, never block — resolves the S1/S3 conflict in
+    S1's favor."""
+    scenes = [
+        {"scene": 1, "location": "the corridor",
+         "scene_text": "She leaves the corridor behind and steps onto the bridge."},
+        {"scene": 2, "location": "the bridge", "scene_text": "Wind cuts across the open span."},
+    ]
+    result = story_laws.check_scene_location_law(scenes)
+    assert result["passed"] is True
+    assert result["violations"] == []
+    assert any(w["scene"] == 1 and "bridge" in w["detail"] for w in result["warnings"])
 
 
 # ---------------------------------------------------------------------------
@@ -505,9 +604,13 @@ def test_update_scene_text_preserves_existing_location_when_no_new_header(monkey
         captured["args"] = args
         return "UPDATE 1"
 
-    monkeypatch.setattr(rv, "execute", fake_execute)
+    async def fake_fetch_all(query, *args):
+        return [{"scene": 1, "location": "the kitchen", "scene_text": "Just an edited paragraph, no header."}]
 
-    asyncio.run(rv.update_scene_text(
+    monkeypatch.setattr(rv, "execute", fake_execute)
+    monkeypatch.setattr(rv, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(rv.update_scene_text(
         "video-1", 1, SceneTextUpdate(text="Just an edited paragraph, no header."),
         tenant_id="tenant-1",
     ))
@@ -515,6 +618,7 @@ def test_update_scene_text_preserves_existing_location_when_no_new_header(monkey
     assert "COALESCE" in captured["query"]
     # args: (stored_text, video_id, scene, tenant_id, new_location)
     assert captured["args"][4] is None, "no new header -> COALESCE keeps the existing column untouched"
+    assert result["story_law_s3_warnings"] == []
 
 
 def test_update_scene_text_adopts_fresh_header_and_strips_it(monkeypatch):
@@ -527,7 +631,11 @@ def test_update_scene_text_adopts_fresh_header_and_strips_it(monkeypatch):
         captured["args"] = args
         return "UPDATE 1"
 
+    async def fake_fetch_all(query, *args):
+        return [{"scene": 1, "location": "the kitchen", "scene_text": "She chops onions."}]
+
     monkeypatch.setattr(rv, "execute", fake_execute)
+    monkeypatch.setattr(rv, "fetch_all", fake_fetch_all)
 
     asyncio.run(rv.update_scene_text(
         "video-1", 1, SceneTextUpdate(text="LOCATION: the kitchen\n\nShe chops onions."),
@@ -536,3 +644,80 @@ def test_update_scene_text_adopts_fresh_header_and_strips_it(monkeypatch):
 
     assert captured["args"][0] == "She chops onions."
     assert captured["args"][4] == "the kitchen"
+
+
+def test_update_scene_text_re_check_surfaces_reintroduced_violation_as_warning(monkeypatch):
+    """D6-3b: the repair leg must RE-CHECK after the write, not just carry
+    the column forward blindly. A scene whose location was carried forward
+    but whose NEW text now names another scene's location must surface a
+    warning (never block — the edit itself always succeeds)."""
+    import routes.videos as rv
+    from models import SceneTextUpdate
+
+    async def fake_execute(query, *args):
+        return "UPDATE 1"
+
+    async def fake_fetch_all(query, *args):
+        return [
+            {"scene": 1, "location": "the bedroom",
+             "scene_text": "She climbs through the garage window now."},
+            {"scene": 2, "location": "the garage", "scene_text": "Tools line the wall."},
+        ]
+
+    monkeypatch.setattr(rv, "execute", fake_execute)
+    monkeypatch.setattr(rv, "fetch_all", fake_fetch_all)
+
+    result = asyncio.run(rv.update_scene_text(
+        "video-1", 1, SceneTextUpdate(text="She climbs through the garage window now."),
+        tenant_id="tenant-1",
+    ))
+
+    assert result["story_law_s3_warnings"], "a reintroduced cross-location mention must be surfaced"
+    assert "garage" in result["story_law_s3_warnings"][0]
+
+
+# ---------------------------------------------------------------------------
+# worker.py arq path — needs_review must surface as non-completed
+# ---------------------------------------------------------------------------
+
+def test_arq_needs_review_persists_as_failed_with_violation_text(monkeypatch):
+    """D6-3b (systemic fix, THE big one): worker.py's _run_stage only
+    special-cased 'cancelled'/'failed' — every other status, including
+    needs_review, fell through to db_persist_task(..., 'completed', ...),
+    silently discarding the violation and leaving the video stuck with no
+    visible reason. Proves the arq path specifically (not the in-process
+    routes/pipeline.py path, which already worked)."""
+    import asyncio as _asyncio
+    import worker
+
+    persisted = []
+
+    async def fake_db_persist_task(tenant_id, video_id, task_type, status, **kwargs):
+        persisted.append((status, kwargs.get("message"), kwargs.get("error")))
+
+    class _FakeExecutor:
+        def __init__(self, _tenant_id):
+            pass
+
+        async def run_script(self, video_id, **_kwargs):
+            return {
+                "status": "needs_review",
+                "video_id": video_id,
+                "violations": ["scene 1: Scene has no LOCATION header."],
+                "message": "The script needs another look — scene 1 has no location.",
+            }
+
+    monkeypatch.setattr("task_store.db_persist_task", fake_db_persist_task)
+    monkeypatch.setattr("pipeline_executor.PipelineExecutor", _FakeExecutor)
+
+    ctx = {"job_try": 1}
+    result = _asyncio.run(worker.arq_run_script(ctx, "video-1", "tenant-1", attempt=1))
+
+    assert result["status"] == "needs_review"  # the raw result is untouched
+    # exactly one persisted call reaches a terminal state (skip the initial "running")
+    terminal_calls = [p for p in persisted if p[0] != "running"]
+    assert len(terminal_calls) == 1
+    status, message, error = terminal_calls[0]
+    assert status != "completed", "a needs_review result must NEVER persist as completed"
+    assert status == "failed"
+    assert "location" in (error or "").lower()

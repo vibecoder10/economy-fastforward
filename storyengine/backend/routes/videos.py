@@ -1599,7 +1599,32 @@ async def update_scene_text(
     )
     if not result or "UPDATE 0" in result:
         raise HTTPException(404, "Scene not found")
-    return {"status": "updated", "scene": scene}
+
+    # D6-3b: an edit that carries the OLD location forward (or adopts a new
+    # one) can still put THIS scene's text out of step with S3 — e.g. the
+    # location column didn't change but the rewritten prose now describes a
+    # different place, or a fresh header was adopted that now clashes with
+    # sibling scenes. Re-run the deterministic gate for the whole video and
+    # surface it. Warn only, never block — an edit must always be allowed to
+    # save; see story_laws.check_scene_location_law for the hard/warn split.
+    warnings: list[str] = []
+    try:
+        rows = await fetch_all(
+            "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
+            "AND tenant_id = $2 ORDER BY scene",
+            video_id, tenant_id,
+        )
+        law_check = story_laws.check_scene_location_law([dict(r) for r in (rows or [])])
+        this_scene_issues = [
+            v["detail"] for v in law_check["violations"] if v["scene"] == scene
+        ] + [
+            w["detail"] for w in law_check["warnings"] if w["scene"] == scene
+        ]
+        warnings = this_scene_issues
+    except Exception:  # noqa: BLE001 — advisory only, must never block the edit
+        pass
+
+    return {"status": "updated", "scene": scene, "story_law_s3_warnings": warnings}
 
 
 @router.patch("/{video_id}/scenes/{scene}/tone")
@@ -2336,13 +2361,28 @@ async def rewrite_scene_text(
         video_id, tenant_id, scene, new_text, new_location)
     # Keep videos.script in sync (it is the display/export copy).
     scenes_rows = await fetch_all(
-        "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+        "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
         "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
     await execute(
         "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id, "\n\n".join(r["scene_text"] for r in scenes_rows))
 
-    return {"scene": scene, "text": new_text, "word_count": _spoken_word_count(new_text)}
+    # D6-3b (S3 repair leg re-check): the rewritten paragraph could now
+    # describe a different place than the carried-forward location, or
+    # clash with a sibling scene's. Warn only, never block a regenerate.
+    s3_warnings: list[str] = []
+    try:
+        law_check = story_laws.check_scene_location_law([dict(r) for r in (scenes_rows or [])])
+        s3_warnings = [
+            v["detail"] for v in law_check["violations"] if v["scene"] == scene
+        ] + [
+            w["detail"] for w in law_check["warnings"] if w["scene"] == scene
+        ]
+    except Exception:  # noqa: BLE001 — advisory only, must never block the rewrite
+        pass
+
+    return {"scene": scene, "text": new_text, "word_count": _spoken_word_count(new_text),
+            "story_law_s3_warnings": s3_warnings}
 
 
 async def _channel_default_prompt(tenant_id, prompt_key: str, fallback: str) -> str:

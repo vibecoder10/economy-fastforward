@@ -1090,3 +1090,60 @@ walk yet. This entry is a placeholder for whichever chunk wires L3 (BOARD-LAWS.m
 this column: at that point, re-run the "run it like a user" board/render walk on an
 existing pre-migration video (location=NULL on every scene) and confirm boards/renders
 exactly as before.
+
+## D6-3b — independent-verifier fixes (2026-07-29)
+
+An independent verifier ran the D6-3 gate live and found four real defects (false
+"checked before any DB write" claim for path (a), needs_review silently persisting as
+"completed" through the arq worker path, cross_location_text hard-blocking on legal
+prose like S1-required transit sentences, and a fourth ungated writer). All fixed on
+the same branch except item 5 below, which is filed as its own chunk.
+
+### 5. The fourth writer — `custom_film_production_runner.py`'s `_script` method — is UNGATED, filed as its own chunk
+STOPPED rather than implemented: this is the Custom Film / Director Loop generation
+path (~700-line method spanning roughly lines 3859-4560), with its own whole-arc AV
+screenplay contract, per-section continuity validation across the whole arc
+(`_validate_custom_film_av_arc`), dialogue-segment extraction, bilingual/dubbing
+language-mode branching, and placeholder/language-tag normalization passes that all
+run on `script_text` BEFORE the `INSERT INTO scripts` at line ~4535. Bolting on a
+LOCATION-header requirement safely means understanding how it interacts with EVERY
+one of those transformations (would a stripped header confuse
+`_remove_custom_film_av_empty_audible_placeholders` or
+`_canonicalize_custom_film_av_language_tags`? does "scene" here mean the same thing
+as `request.section_id`, given the whole-arc barrier operates across MULTIPLE
+sections at once?) — genuinely a separate chunk's worth of investigation, not a
+same-day addition. `scripts.location` stays NULL for every row this path writes,
+which is safe (nullable, unread column) but means S3 does not reach it.
+RECIPE for the follow-up chunk:
+  1. Read `_script` in full (`storyengine/backend/custom_film_production_runner.py`,
+     starts ~line 3859) and `_validate_custom_film_av_arc` to establish whether
+     "section" (`request.section_id`) is the right unit to attach a `location` to,
+     or whether Custom Film scenes are sub-divided further downstream.
+  2. Confirm whether the AV screenplay's dialogue-segment/language-tag/placeholder
+     passes would strip or mangle a `LOCATION:` header line if the prompt asked for
+     one — test against a real (or synthetic) AV screenplay sample before adding it
+     to the live prompt.
+  3. Only then add the PROMPT text (reuse `story_laws.SCENE_LOCATION_LAW` — do not
+     hand-roll a copy), the parser (`story_laws.extract_scene_location`) before the
+     INSERT, the `location` column on the INSERT, and the GATE
+     (`story_laws.check_scene_location_law`) at whatever point in this path mirrors
+     "before any DB write, per-section" or "after write with cleanup," matching
+     whichever write-ordering is actually true here (do not assume — verify, the
+     way D6-3b had to correct D6-3's wrong assumption for path (a)).
+
+### 6. Live end-to-end proof that a real `needs_review` script surfaces through the UI via the arq path
+PROOF LEVEL REACHED: unit-level, `worker.py`'s `_run_stage` proven directly (mocked
+`PipelineExecutor.run_script` returning `needs_review`, asserts `db_persist_task` is
+called with `status="failed"` and the violation text as `error`, not `"completed"`).
+NOT PROVEN: that a real arq-queued job (Redis up, a genuine S3-violating script) ends
+with a `background_tasks` row a real frontend poller reads as "this failed, here's
+why" rather than silently showing nothing changed.
+RECIPE:
+  1. With Redis running locally (`arq storyengine.backend.worker.WorkerSettings`),
+     enqueue a `script` job for a cheap test video where the writer's response is
+     forced/mocked to omit LOCATION headers (or use a fixture script known to
+     violate S3).
+  2. `se db "SELECT status, error_message FROM background_tasks WHERE video_id='<id>' ORDER BY created_at DESC LIMIT 1"`.
+  3. EXPECTED: `status = 'failed'`, `error_message` contains the S3 violation text
+     (not a generic exception string), and `videos.status` never advanced past
+     `ready_for_scripting`.

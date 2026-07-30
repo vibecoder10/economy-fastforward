@@ -101,6 +101,46 @@ async def _run_stage(
             )
             logger.info("[%s] cancelled by user video=%s", stage, video_id)
             return result
+        if status == "needs_review":
+            # D6-3b (systemic fix, not S3-specific): a stage's own gate
+            # (quality critic, a deterministic law like STORY-LAWS S3, or
+            # any future gate reusing this same needs_review shape) flagged
+            # the output rather than accepting it. The in-process path
+            # (routes/pipeline.py's _run_pending_action -> _set_task_status)
+            # solves this by normalizing to "completed" in the DB but
+            # additively flagging needs_review=True in the in-process
+            # _running_tasks dict, which ChatCore reads to show a review
+            # banner instead of silent success. That dict is per-process —
+            # the arq worker runs in a SEPARATE process with no access to
+            # it, and background_tasks.status has a hard CHECK constraint
+            # (pending/running/completed/failed/cancelled — see migration
+            # 032 and routes/pipeline.py's _set_task_status docstring) with
+            # no needs_review bucket, so there is no way to carry the
+            # distinction through this path today. Normalizing to
+            # "completed" here would SILENTLY DISCARD the violation and
+            # leave the video stuck at its old status with no visible
+            # reason why nothing advanced — a false success. Mapping to
+            # "failed" with the violation text is the honest, general
+            # fallback: a false failure is recoverable (the message says
+            # why, and the video can be regenerated), a false success is
+            # not. Terminal — no arq retry, since the same gate would just
+            # fail again on identical input.
+            violation_text = (
+                result.get("message")
+                or "; ".join(result.get("violations") or [])
+                or f"{stage} needs review — see the video's activity log for details."
+            )
+            await db_persist_task(
+                tenant_id,
+                video_id,
+                stage,
+                "failed",
+                error=violation_text,
+                job_id=job_id,
+                attempt=attempt,
+            )
+            logger.info("[%s] needs_review video=%s: %s", stage, video_id, violation_text)
+            return result
         if status == "failed":
             error_msg = result.get("error", "Stage returned failed status")
             if _terminal_failure(error_msg):

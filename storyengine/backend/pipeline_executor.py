@@ -12273,6 +12273,17 @@ scenes."""
                 "message": ("The script needs another look — some scenes don't hold to a "
                             "single stated location: " + detail)[:900],
             }
+        if law_check["warnings"]:
+            # D6-3b: cross_location_text is advisory-only, permanently (see
+            # story_laws.check_scene_location_law's docstring — the S1/S3
+            # conflict). Logged so it's visible, never blocks.
+            warn_detail = "; ".join(
+                f"scene {w['scene']}: {w['detail']}" for w in law_check["warnings"]
+            )
+            await self._log_activity(
+                bot_name, video_id, "started",
+                f"Story law S3 advisory (cross-location text, non-blocking): {warn_detail}"[:900],
+            )
 
         full_script = "\n\n".join(s["text"].strip() for s in scenes)
         await execute(
@@ -12889,19 +12900,49 @@ scenes."""
                 if roster_check.get("complete_title") and not roster_check.get("passed"):
                     raise Exception("Script roster gate failed: " + "; ".join(roster_check.get("warnings", [])))
             else:
-                # D6-3 — STORY-LAWS S3 GATE for the ACT-based docu path.
+                # D6-3b — STORY-LAWS S3 GATE for the ACT-based docu path.
                 # static_docu is exempted: its "scenes" are one-machine unit
                 # paragraphs (product reviews), not narrative story beats, so
                 # a physical "location" per S3 isn't a meaningful concept
                 # there, and _resplit_static_scenes just rewrote the rows
-                # above without location awareness anyway. Status has NOT
-                # advanced yet at this point (see the quality-critic comment
-                # above), so this is a clean hard-fail-at-generation — no
-                # revert needed, nothing downstream has consumed the script.
+                # above without location awareness anyway.
+                #
+                # HONEST NOTE on write ordering (corrects D6-3's report,
+                # which wrongly claimed "checked before any DB write" for
+                # this path too — that claim is only true for the modeled
+                # path in _run_modeled_script). By the time run_brief_
+                # translator() returns above, skills/video-pipeline/script/
+                # brief_translator/__init__.py's _write_script_records has
+                # ALREADY deleted the old scripts rows and progressively
+                # INSERTed the new (possibly S3-violating) ones — this gate
+                # only SELECTs what is already committed. This is the SAME
+                # shape the quality-critic gate immediately above already
+                # has (it also runs after scenes are written; "status has
+                # not advanced yet" was always about videos.status, never
+                # about scripts rows) — not a new defect D6-3 introduced,
+                # but D6-3's own doc/report overclaimed it as clean. On a
+                # violation: delete the just-written (bad) scenes rows so
+                # `scripts` doesn't keep an unreviewed, un-gated draft
+                # around, and record the violation on videos.script_
+                # validation (not just the bot-activity log) so it's
+                # inspectable the same way the critic's needs_review is.
+                # videos.status still never advances either way.
                 law_check = await self._check_scene_location_law(video_id)
                 if not law_check.get("passed"):
                     detail = "; ".join(
                         f"scene {v['scene']}: {v['detail']}" for v in law_check["violations"]
+                    )
+                    await execute(
+                        "DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
+                        video_id, self.tenant_id,
+                    )
+                    import json as _json_s3
+                    await execute(
+                        "UPDATE videos SET script_validation = $1, updated_at = now() "
+                        "WHERE id = $2 AND tenant_id = $3",
+                        _json_s3.dumps({"passed": False, "checks": [
+                            {"name": "story_law_s3", "passed": False, "detail": detail[:2000]}]}),
+                        video_id, self.tenant_id,
                     )
                     await self._log_activity(
                         bot_name, video_id, "failed",
@@ -12913,6 +12954,14 @@ scenes."""
                         "message": ("The script needs another look — some scenes don't hold to a "
                                     "single stated location: " + detail)[:900],
                     }
+                if law_check.get("warnings"):
+                    warn_detail = "; ".join(
+                        f"scene {w['scene']}: {w['detail']}" for w in law_check["warnings"]
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "started",
+                        f"Story law S3 advisory (cross-location text, non-blocking): {warn_detail}"[:900],
+                    )
 
             # Dialogue intelligence runs unattended after EVERY script path —
             # the modeled and user-supplied paths already had this hook, but

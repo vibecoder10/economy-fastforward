@@ -95,6 +95,33 @@ def parse_scene_location(text: str) -> str | None:
     return extract_scene_location(text)[0]
 
 
+def _location_spans(text: str, location: str) -> list[tuple[int, int]]:
+    """All word-boundary occurrences of ``location`` inside ``text``."""
+    if len(location) < 3 or not text:
+        return []
+    pattern = r"\b" + re.escape(location) + r"\b"
+    return [m.span() for m in re.finditer(pattern, text, re.IGNORECASE)]
+
+
+def _mentions_other_location(text: str, own_spans: list[tuple[int, int]], other: str) -> bool:
+    """Does ``text`` name ``other`` (a sibling scene's location) in a way
+    that ISN'T just a substring of THIS scene's own, longer location name?
+
+    D6-3b fix: a raw word-boundary search alone still false-positives when
+    one location name is a prefix of another — "the pod" (a sibling's
+    location) inside "the pod bay" (THIS scene's own, longer, declared
+    location), or "Diner" (a sibling's location) inside "Diner Parking Lot"
+    (this scene's own). Any ``other`` match fully contained inside a span
+    where this scene's OWN location name also matched is the scene naming
+    its own place, not a foreign one — suppressed.
+    """
+    for start, end in _location_spans(text, other):
+        if any(a <= start and end <= b for a, b in own_spans):
+            continue
+        return True
+    return False
+
+
 def check_scene_location_law(scenes: list[dict]) -> dict:
     """Deterministic S3 GATE for one video's scenes. Pure function: no I/O,
     no LLM call, safe to run read-only against any video at any time.
@@ -104,29 +131,40 @@ def check_scene_location_law(scenes: list[dict]) -> dict:
     ``SELECT scene, location, scene_text FROM scripts WHERE video_id = $1
     ORDER BY scene`` row maps to.
 
-    Flags two things — both explicitly the "strong version" of the S3 gate
-    the location column makes possible:
+    Two checks, two different severities — D6-3b ruling, not a suggestion:
 
-      1. ``no_location`` — a scene with no declared location. S3 requires a
-         single stated location per scene; without one, single-location
-         compliance can't be verified at all, so absence itself is a
-         violation. This is also what flags every scene of a
-         pre-migration video (location is NULL for all of them) — an
-         honest, unavoidable consequence of a NEW column with no backfill,
-         not a false positive: those scenes genuinely never stated a
-         location.
-      2. ``cross_location_text`` — a scene whose text contains another
-         scene's declared location name as a whole phrase. A heuristic
-         (substring / word-boundary match, case-insensitive), not proof —
-         short or generic location names can false-positive, and a real
-         cross-location beat that doesn't happen to repeat the other
-         scene's exact name will false-negative. Documented as a known
-         limitation, not silently pretended to be complete.
+      1. ``no_location`` (HARD — goes in ``violations``, may block). A scene
+         with no declared location. ``location`` is a real COLUMN, not
+         prose — canonical, not a guess — so its absence is a fact a caller
+         is entitled to treat as a hard failure. This is also what flags
+         every scene of a pre-migration video (location is NULL for all of
+         them): an honest, unavoidable consequence of a NEW column with no
+         backfill, not a false positive — those scenes genuinely never
+         stated a location.
+      2. ``cross_location_text`` (WARN ONLY — goes in ``warnings``, must
+         NEVER block, permanently). A scene whose text contains another
+         scene's declared location name as a whole phrase. This compares
+         PROSE to PROSE, and prose is never canonical: a character can
+         legally mention, remember, or look out a window at another
+         location (BOARD-LAWS L11) without the scene itself spanning two
+         places, and S1 (NARRATE EVERY LOCATION CHANGE) *requires* an
+         outgoing scene's text to name the place the story is headed to —
+         "She leaves the corridor behind and steps onto the bridge" is
+         exactly what S1 demands, and it will always trip this heuristic.
+         Hard-blocking on prose-to-prose comparison would put S3 in direct
+         conflict with S1; this resolves it in S1's favor (S1 governs
+         whether the script is filmable at all, S3 governs scene size) by
+         making the check advisory. See STORY-LAWS.md's S3 entry for the
+         same ruling in the law document itself.
 
-    Returns ``{"passed": bool, "violations": [{"scene": n, "reason": str,
-    "detail": str}, ...]}``.
+    Returns ``{"passed": bool, "violations": [{"scene", "reason":
+    "no_location", "detail"}, ...], "warnings": [{"scene", "reason":
+    "cross_location_text", "detail"}, ...]}``. ``passed`` reflects
+    ``violations`` only — a video with warnings but no violations still
+    passes.
     """
     violations: list[dict] = []
+    warnings: list[dict] = []
     all_locations = {
         (s.get("location") or "").strip()
         for s in scenes
@@ -143,21 +181,22 @@ def check_scene_location_law(scenes: list[dict]) -> dict:
                 "detail": "Scene has no LOCATION header — cannot verify it holds a single location.",
             })
             continue
+        own_spans = _location_spans(text, location)
         others = all_locations - {location}
-        hits = []
-        for other in others:
-            if len(other) < 3:
-                continue  # too short/generic to match on safely
-            pattern = r"\b" + re.escape(other) + r"\b"
-            if re.search(pattern, text, re.IGNORECASE):
-                hits.append(other)
+        hits = [
+            other for other in sorted(others)
+            if _mentions_other_location(text, own_spans, other)
+        ]
         if hits:
-            violations.append({
+            warnings.append({
                 "scene": scene_num,
                 "reason": "cross_location_text",
                 "detail": (
-                    f"Scene declares '{location}' but its text also names "
-                    f"{', '.join(sorted(hits))} — another scene's location."
+                    f"Scene declares '{location}' and its text also names "
+                    f"{', '.join(hits)} — another scene's location. This is "
+                    "advisory only: mentioning, remembering, or narrating a "
+                    "move to another place is legal (and S1 requires it for "
+                    "an outgoing scene) — review, don't assume a violation."
                 ),
             })
-    return {"passed": not violations, "violations": violations}
+    return {"passed": not violations, "violations": violations, "warnings": warnings}
