@@ -1458,3 +1458,101 @@ RECIPE for the first live proof (needs Ryan's go — real money):
   5. Eyeball the drawn frame: does the material boundary in the picture
      match the canonical text rather than whatever the planner's directive
      said? This is the one step no test (mocked or not) can stand in for.
+
+### 6. D8-1 / D5 chunk A6 — Frame Arbiter (board station) flag-gated wiring:
+never run live, no vision spend, no ledger row exists yet
+Built in an isolated worktree only (`d8-1-arbiter-a6` branch) — BUILD ONLY,
+per the brief, no deploy, no push, no live run. Everything below is proven
+with mocked DI seams (`tests/functional/test_d5_a6_arbiter_hook.py`, 22
+tests, $0): the flag-off path makes zero DB/network calls and returns the
+storyboard stage's own result byte-identical (no `frame_arbiter` key added);
+the flag-on path judges every drawn board sheet for the scoped scene and
+writes a ledger row per judge call; a fingerprint that fires twice (a real
+judge, then the post-repair re-judge, per `arbiter_repair.py`'s own RULING)
+freezes and the next repair attempt is refused before budget or the reroll
+leg (no second spend); the `FRAME_ARBITER_A6_REDRAW_ENABLED` sub-flag being
+off means the real, paid `arbiter_repair._default_board_reroll` is never
+imported let alone invoked (proven by patching that exact name and asserting
+zero calls, plus the inverse test proving the same wiring DOES reach it when
+the sub-flag is on). NOT PROVEN, and cannot be without a live deploy: that
+`judge_board_sheet`'s real vision call against a REAL drawn board sheet in
+prod actually returns a parseable verdict, that a real `generation_ledger`
+row lands with `stage='frame_qa'`, and that a REAL repeat fingerprint (not a
+scripted one) actually freezes on prod's real `arbiter_fingerprints` table.
+
+Two flags added, code (not this doc) is the source of truth for the exact
+env var names and defaults — see `backend/frame_arbiter_hook.py`'s own
+module docstring:
+  - `FRAME_ARBITER_A6_ENABLED` (default off) — master switch.
+  - `FRAME_ARBITER_A6_VIDEO_ID` / `FRAME_ARBITER_A6_SCENE` — the ONE
+    (video_id, scene) pair in scope; unset = nothing runs even if the
+    master switch is on.
+  - `FRAME_ARBITER_A6_REDRAW_ENABLED` (default off) — the repair ladder's
+    paid redraw leg; independent of the master switch.
+  - `FRAME_QA_SCENE_CAP` / `FRAME_QA_VIDEO_CAP` (optional env overrides on
+    `backend/frame_arbiter_budget.py`'s existing $0.25/$0.50 caps — unset
+    keeps today's defaults).
+
+RECIPE for the first live proof (needs Ryan's go — this fires real Anthropic
+vision spend, and if the sub-flag is also turned on, real GPT Image 2 redraw
+spend on top):
+  1. Pick a video on tenant `f6839de2-368c-440d-8559-0292026179fa` that
+     already has at least one scene with a drawn storyboard board (a
+     `scripts.storyboard_1_url` populated) — do NOT use `686b4651` per
+     HANDOFF-D6-boardlaws.md's hard constraint (frozen, do not touch).
+  2. On the VPS, in `storyengine/.env` (the PARENT env file, not
+     `backend/.env` — see this repo's own CLAUDE.md hard rule), set:
+     ```
+     FRAME_ARBITER_A6_ENABLED=true
+     FRAME_ARBITER_A6_VIDEO_ID=<that video's id>
+     FRAME_ARBITER_A6_SCENE=<that scene's number>
+     ```
+     Leave `FRAME_ARBITER_A6_REDRAW_ENABLED` UNSET for the first pass
+     (judge-only, zero redraw risk) — only add it, and only after Ryan
+     reviews the first pass's findings, for a second pass that tests the
+     real repair leg.
+  3. `se restart` (env is read at process start, not live-reloaded).
+  4. Trigger the scene's board sheet redraw — the SAME entry point every
+     chat verb / button / MCP tool already converges on
+     (`actions.py ACTIONS["storyboards"]` -> `PipelineExecutor.
+     run_storyboard_sheet`): either redraw one board via the UI's per-board
+     redo action for that scene, or call the `storyboards` MCP tool /
+     `POST /api/pipeline/storyboard-images/{video_id}?scene=<N>` for that
+     video/scene. Cost: the sheet redraw itself (~$0.05/board, existing
+     GPT-Image-2 sheet price, unaffected by this chunk) PLUS the arbiter's
+     own judge call.
+  5. Expected ledger rows — `se db "SELECT stage, scene, model, actual_cost,
+     fingerprint FROM generation_ledger WHERE video_id='<video_id>' AND
+     stage='frame_qa' ORDER BY created_at"`: one row per board sheet drawn
+     for that scene, `model` = the vision model
+     (`shared.channel_profile.CLAUDE_MODELS["anthropic"]["smart"]`, read via
+     `frame_arbiter.VISION_MODEL`), `actual_cost` near the module's own
+     measured board-station rate (~$0.0273/call, `arbiter_repair.py`'s own
+     docstring quoting the graduated A3b eval — the pre-call quote checked
+     against the cap is `frame_arbiter.DEFAULT_BOARD_QUOTE = $0.03`),
+     `fingerprint` NULL (judge_board_sheet's own ledger row is call-level,
+     not per-fingerprint — see that function's own comment). If the redraw
+     sub-flag was also on and a MODEL_DEFECT fired, expect one MORE row per
+     repaired sheet with `model='gpt-image-2'`, `actual_cost=0.05`
+     (`arbiter_repair.DEFAULT_BOARD_REPAIR_QUOTE`), `fingerprint` = the
+     rule_id or failure_class that triggered it.
+  6. Expected total spend for ONE scene, judge-only pass (redraw sub-flag
+     off): number of drawn board sheets for that scene (1-5) times
+     ~$0.0273-0.03 — e.g. a 3-sheet scene lands near $0.08-0.09, comfortably
+     under the $0.25 scene cap. A judge-plus-repair pass (sub-flag on, one
+     sheet needing a redraw) adds ~$0.05 (redraw) + ~$0.03 (the mandatory
+     post-repair rejudge) for that one sheet.
+  7. Freeze-confirmation query — after a SECOND landing that reproduces the
+     SAME defect on the SAME sheet/class (e.g. redraw the same board again
+     without fixing the upstream prompt): `se db "SELECT fingerprint_key,
+     stage, failure_class, violation_count, frozen FROM arbiter_fingerprints
+     WHERE tenant_id='f6839de2-368c-440d-8559-0292026179fa' AND
+     stage='frame_qa' ORDER BY last_seen_at DESC"` — expect `violation_count
+     >= 2` and `frozen = true` for that fingerprint, and a THIRD repair
+     attempt on it should show NO new `generation_ledger` row with
+     `model='gpt-image-2'` for that scene (the freeze refused it before any
+     spend — confirm by re-running the ledger query from step 5 and seeing
+     the redraw-row count unchanged from the prior check).
+  8. Only after this judge-only (and, on a later explicit go, judge+repair)
+     pass is reviewed clean should A9 (FRAME-ARBITER-PLAN.md) even be
+     considered for widening the flag beyond this one scene.

@@ -41,25 +41,43 @@ duplicating this module's call sites.
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from database import fetch_one
 
 FRAME_QA_STAGE = "frame_qa"
 
-# TODO(tenant-config): hardcoded system-wide for A1. See module docstring —
-# wire a per-tenant override into _scene_cap/_video_cap here, don't fork the
-# call sites, when a later chunk needs it.
+# TODO(tenant-config): hardcoded system-wide for A1, now env-overridable
+# system-wide (D5 chunk A6, Ryan's ruling: "the cap value is config, not a
+# constant buried in code"). Per-TENANT config is still the TODO — see
+# module docstring — wire it into _scene_cap/_video_cap below (not the call
+# sites) when a later chunk needs it; the env override below is a system-
+# wide knob for A6's own live checkpoint, not a substitute for that.
 FRAME_QA_SCENE_CAP = 0.25
 FRAME_QA_VIDEO_CAP = 0.50
 
 
+def _env_cap_override(name: str) -> Optional[float]:
+    """Reads an env-var cap override, e.g. for a single flag-scoped live
+    checkpoint that wants a tighter number than the system default without
+    editing this file. Malformed/missing -> None (falls back to the module
+    constant) — never raises, never silently becomes 0."""
+    raw = os.getenv(name)
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
 def _scene_cap(tenant_id: str) -> float:  # noqa: ARG001 - tenant hook, unused today
-    return FRAME_QA_SCENE_CAP
+    return _env_cap_override("FRAME_QA_SCENE_CAP") or FRAME_QA_SCENE_CAP
 
 
 def _video_cap(tenant_id: str) -> float:  # noqa: ARG001 - tenant hook, unused today
-    return FRAME_QA_VIDEO_CAP
+    return _env_cap_override("FRAME_QA_VIDEO_CAP") or FRAME_QA_VIDEO_CAP
 
 
 async def _frame_qa_spend(tenant_id: str, video_id: str, scene: Optional[int] = None) -> float:
