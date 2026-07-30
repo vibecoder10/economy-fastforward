@@ -712,3 +712,95 @@ this is the LLM-call-only cost, not the ~$0.05/board sheet-preview cost) — quo
 yes before running it live.
 
 ---
+
+## D10-3a addendum: call-site-2 precomputed-directive branch never persists (pre-existing gap, not a regression) — manager review finding
+
+Manager review on D10-3a asked for a traced parity check between `run_coverage`'s two ways of
+obtaining `directive_text` — planned internally (`directive_text=None`, the pre-existing path) vs.
+precomputed by `generate_coverage_for_video`'s new fallback branch (this chunk, when the bible
+carries narrative and no saved plan exists). Traced with quoted lines:
+
+**(c) Post-parse warn checks — YES, identical either way.** `storyboard/coverage.py::run_coverage`
+(`skills/video-pipeline/storyboard/coverage.py:3906-3925`):
+```python
+    if directive_text is None:
+        directive_text = await generate_coverage_directive(
+            beat_text, video_title, profile, story_bible, beat_scenes, image_prompts or [],
+            max_moments=max_moments, angles_min=angles_min, angles_max=angles_max,
+            anthropic_client=anthropic_client, model=directive_model)
+    with open(os.path.join(outdir, "directive.txt"), "w") as f:
+        f.write(directive_text)
+    ...
+    moments = plan_moments_deterministic(directive_text, max_moments, angles_max,
+                                         max_frames=max_frames, verbose=True, props=props)
+    if not moments:
+        return {"error": "no moments parsed from directive", "directive_chars": len(directive_text)}
+```
+The `if directive_text is None:` check is the ONLY branch point — both the local `directive.txt`
+file write immediately below it and every check that follows (`plan_moments_deterministic`'s own
+"parse -> budget -> floors -> variety" pipeline, then `coverage.py:3927-3965`'s
+`check_facing_law_compliance`, `check_headcount_stated`, `check_shot_purpose_present`,
+`check_shot_transition_present`/`check_shot_transition_bridge_present`,
+`check_shot_causality_present`/`check_shot_causality_valid`, and the rest of the BOARD LAWS gate
+leg) run unconditionally on `directive_text`/`moments` regardless of which branch supplied it.
+Setup variety is enforced inside `plan_moments_deterministic` itself (its own docstring: "parse ->
+budget -> floors -> variety, in that exact order"), same unconditional call. Argument parity
+confirmed too: `generate_coverage_for_video`'s new precomputed call
+(`scripts/coverage_to_app.py`'s `if _narrative_board_text:` branch) passes the exact same
+`beat_text`/`video_title`/`profile`/`story_bible`/`beat_scenes`/`max_moments`/`angles_min`/
+`angles_max`/`anthropic_client`/`model` values `run_coverage`'s own internal call would have used
+— `board_rules_text` is the only argument that differs (narrative text vs. the internal call's
+implicit `""` default).
+
+**(a) Persist the directive / (b) stamp `coverage_directive_hash` — NO, identical either way (a
+PRE-EXISTING gap, not introduced by this chunk).** `run_coverage`'s own docstring
+(`storyboard/coverage.py:3849-3850`): `"Saves frames + coverage.json locally with angle/shot-type
+metadata. No DB writes (storing into Image records is Phase 2, where the animator consumes
+them)."` — confirmed by grep: zero `await execute(...)` calls anywhere in `run_coverage`.
+`generate_coverage_for_video`'s entire body (`scripts/coverage_to_app.py:4388-4729`) was swept the
+same way — zero `UPDATE scripts` / `await execute(...)` calls touching `coverage_directive` or
+`coverage_directive_hash` anywhere; the only DB write in that function is `store_scene`
+(`scripts/coverage_to_app.py:732`, `"INSERT INTO assets (...)"`), a different table entirely. So
+when this fallback branch fires (no saved plan for the scene — `directive is None` going in), the
+resulting directive is NEVER written back to `scripts.coverage_directive`/`coverage_directive_hash`
+— not by the pre-existing internal-planning path, and not by this chunk's new precomputed-directive
+path. Contrast with call site 1 (`generate_storyboard_sheet_for_scene`), which DOES persist —
+the STREAMING CONTRACT UPDATE (`scripts/coverage_to_app.py:2830-2837`):
+```python
+            if not plan_only:
+                blocks = "\n\n".join(f"--- BEAT {i} ---\n{p}" for i, p in enumerate(prompts, start=1))
+                await execute(
+                    "UPDATE scripts SET coverage_directive=$1, coverage_directive_hash=$2, "
+                    "storyboard_prompts=$3, storyboard_beat_count=$4, storyboard_1_url=NULL, "
+                    "storyboard_2_url=NULL, storyboard_3_url=NULL, storyboard_4_url=NULL, "
+                    "storyboard_5_url=NULL, storyboard_errors=NULL, updated_at=now() WHERE id=$5",
+                    directive, _scene_text_hash(s["scene_text"] or ""), blocks, len(prompts), srow["id"])
+```
+which is exactly why call site 2's designed, gated flow is to plan via call site 1 first (its own
+docstring, `generate_storyboard_sheet_for_scene:2450-2451`: "'Generate pictures' then executes THIS
+EXACT saved plan (generate_coverage_for_video reuses it via coverage_directive)") — the fallback
+this chunk touches only fires when that gate was bypassed (a scene that reached "Generate all
+pictures" without ever going through the sheet-preview step).
+
+**Consequence (unchanged by this chunk, quantified):** a scene that repeatedly hits this fallback
+(no saved plan, every "Generate all pictures" call) re-runs a fresh Claude planning call EVERY TIME
+— true before D10-3a (`run_coverage` planned internally, uncached, on every such call) and equally
+true after (this chunk's precomputed call is equally uncached). This chunk does not add a new
+re-spend; it relocates the SAME already-uncached spend so narrative can ride along on it.
+
+**Why not fixed here:** adding persistence (an `UPDATE scripts SET coverage_directive=...,
+coverage_directive_hash=...` in `generate_coverage_for_video`) would (1) be a real behavioral
+change to the D3-59 plan_only / D7 staleness-hash contract, not a narrative-injection change —
+outside this chunk's declared scope ("this chunk is coverage_to_app.py + tests only" meant the
+narrative feature, not a persistence-model change); (2) directly touch the exact machinery three
+OTHER active fleet workers on this same loop currently own (`d7-2-staleness`, `d7-3-invalidation`,
+`d7-7-external-stale` — see their own entries above and `tasks/deferred-verification.md`'s D7-2/
+D7-3 sections) — editing it here risks a merge collision or a silent contract disagreement with
+their in-flight work; (3) site 1's UPDATE also nulls `storyboard_1_url..5_url`/`storyboard_errors`/
+`storyboard_beat_count`, fields that mean nothing in call site 2's real-picture-draw context —
+porting it naively would be semantically wrong, not a copy-paste fix. Flagging instead: this is a
+good small follow-up chunk (persist the fallback-planned directive + hash in
+`generate_coverage_for_video`, scoped and tested on its own, coordinated with whichever D7 worker
+currently owns `coverage_directive_hash` semantics) — NOT bundled into D10-3a.
+
+---
