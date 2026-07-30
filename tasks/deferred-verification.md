@@ -261,3 +261,69 @@ migration actually running against the real Supabase Postgres instance, any real
 from a live judge call (D8-2's first live run hasn't happened yet — that is the entire point this
 chunk exists to protect), and a real browser walk of the Findings tab's new "Judged frames &
 panels" section against live data.
+
+---
+
+## D10-2ab: StoryEngine-native Story Bible generator (backend/story_bible_native.py)
+
+**What changed:** `PipelineExecutor.run_story_bible` no longer imports the legacy
+`storyboard.bot._generate_story_bible_for_storyboard` (a sys.path reach into
+`skills/video-pipeline`) or persists through the Airtable-shim
+`supabase_adapter.update_idea_fields`. It now calls a new backend-native module
+(`story_bible_native.generate_story_bible_native`, ONE extended Claude call via the same
+`self._pipeline.anthropic` bridge every other `run_*` step already uses) and persists with a
+direct, tenant-scoped `UPDATE videos SET story_bible = $1 WHERE id = $2 AND tenant_id = $3`. The
+document schema is unchanged for consumers (`characters`/`locations`/`scene_blocks`, matching the
+legacy V2 normalizer field-for-field) plus three new top-level sections (`narrative`,
+`relationships`, `arcs`) that dangling-reference-validate against the same generation's character
+ids and drop bad refs with a logged warning rather than failing generation.
+
+**What IS verified (code-level + a full local test suite pass, no real LLM call, $0):**
+`storyengine/backend/tests/test_story_bible_native.py` (22 tests, pure module — no DB, no
+PipelineExecutor) covers the ported normalizer defaults for characters/locations/scene_blocks
+(costume/description fallback, first-image-forced-wide, location lookup by id, image-count and
+consecutive-same-location warnings that never abort generation), the three new sections'
+defaults, and dangling-character-id drops for both `relationships` and `arcs` (asserted via
+`capsys`, never a raised exception). `storyengine/backend/tests/test_d10_2ab_run_story_bible.py`
+(9 tests) covers the wiring: scripts are fetched tenant-scoped by `video_id`, the persisted
+UPDATE query text and args are tenant-scoped and match the full generated document byte-for-byte
+after a JSON round trip, and every failure path (Claude raises, no script rows, missing Anthropic
+client, unparseable response, video not found) returns `status: "failed"` with zero writes to
+`videos.story_bible` and never logs `bot_activity` as `"completed"`. `tests/functional/
+test_characters.py` and `tests/functional/test_c66_production_guide.py` (the two named
+"unaffected consumer" checks) pass unmodified. Two real stash-proofs were run (patch-file
+technique, never `git stash`, per tasks/lessons.md's fleet rule): the full backend suite
+(`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against worktree code) was
+run BOTH on the reverted tree (`git checkout -- pipeline_executor.py` + the three new files moved
+out of the tree, restored via `git apply` on a saved patch afterward) and on the applied tree —
+29 failed / 3886 passed (reverted) vs 29 failed / 3908 passed (applied, +22 for the new test
+files), sorted FAILED sets byte-identical (diffed, empty output, exit 0) — the same pre-existing
+29 failures (`test_custom_film_remotion.py`, `test_youtube_oauth_diagnostics.py`) as every other
+recent D-series chunk.
+
+**What is NOT verified — deploy-window check owed:**
+
+### 1. A real Story Bible generation on a test video with a live Claude call
+
+No live LLM call was made (every test above stubs `self._pipeline.anthropic`). Before this ships
+to a real customer's build, run one real generation end to end and confirm:
+- The new `narrative`/`relationships`/`arcs` sections are actually present and sensible on a
+  REAL script (not just the hand-written fixture the tests use) — in particular, whether Claude
+  reliably keeps `relationships`/`arcs` character ids matching `characters` ids without the
+  dangling-ref dropper silently emptying them out on a real generation.
+- `scene_blocks` total image count roughly matches the requested `total_images` (a mismatch only
+  warns, never fails — worth eyeballing on a real script rather than assuming the model complies).
+- The downstream legacy consumers (`routes/characters.py`'s bible<->cast sync,
+  `scripts/coverage_to_app.py`'s `_story_bible_locations`, `channel_profile_documents.py`) render
+  correctly against a bible that now has 3 extra top-level keys they've never seen live before.
+- `run_storyboard_prompts` (still on the legacy `storyboard/run.py` path, untouched by this
+  chunk) does NOT regenerate its own bible when one from this native path is already persisted —
+  confirm `videos.story_bible` is non-empty after `run_story_bible` so its own
+  `_generate_story_bible_for_storyboard` fallback never fires.
+
+**Recipe:** pick a test video already past scripting (`ready_for_storyboards` or earlier, with
+scripted scenes), call `POST /api/pipeline/{video_id}/story-bible` (or the equivalent chat/action
+verb) once, then `se db "SELECT story_bible FROM videos WHERE id = '<video_id>'"` and eyeball the
+JSON. **Cost: one Claude Sonnet call, ~$0.02-0.05** (per docs/cost-awareness.md's "Claude API
+(Sonnet) ~$0.01-0.05/call" line — no image/video/voice spend, this step is text-only) — quote
+this and get a yes before running it live.
