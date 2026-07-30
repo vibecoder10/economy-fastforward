@@ -706,3 +706,112 @@ or drift toward a handful of favorites; and whether `check_shot_archetype_valid`
 posture should be promoted to a hard gate once that track record exists (explicitly flagged as
 hard-eligible under Ruling 1 in the check's own docstring, but promotion is a separate, deliberate
 call, not automatic).
+
+---
+
+## D9-2 character-lock harvest (branch `d9-2-character-locks`) — apply migration 151 on next deploy window; RE-APPROVE a cast so the locks actually populate (populate-or-inert trap)
+
+**Built and tested in a worktree only — migration 151 was NOT applied to prod this session**
+(no prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every
+prior migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file
+error). Unlike D9-1/D9-6/D9-7/D11-1 (which harvest a planner-LLM tag that appears the next time
+ANY scene is planned), this chunk's three columns populate ONLY at cast-APPROVAL time — every
+existing character row has NULL locks today, and stays NULL forever unless its video's cast is
+re-approved. The canonical branch in `load_character_bible`/`redraw_asset_image` never runs on a
+single real video until that happens. The deploy-window recipe below MUST include a
+re-approval step, not just a migration check:
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+se logs backend 200 | grep "151_character_locks"
+# Expect: "Migration applied: 151_character_locks.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '151_character_locks.sql'"
+# Expect exactly 1 row.
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'video_characters' \
+  AND column_name IN ('face_body_lock', 'wardrobe_lock', 'forbidden_drift')"
+# Expect 3 rows.
+
+# 4. THE POPULATE-OR-INERT TRAP: confirm today's rows are NULL (expected, not a bug)
+se db "SELECT id, name, face_body_lock, wardrobe_lock, forbidden_drift FROM video_characters \
+  WHERE video_id='8d90df90-...' " # full id from tasks/ notes
+# Expect all three NULL for every row — proves nothing yet, this is the baseline.
+
+# 5. Re-approve that video's cast (Characters tab -> "Approve cast" again; this re-runs the
+#    SAME vision pass that already exists in prod today, now with the extended prompt — no NEW
+#    paid call is introduced, this is not an extra spend beyond what approval already costs).
+#    Then re-check:
+se db "SELECT id, name, face_body_lock, wardrobe_lock, forbidden_drift FROM video_characters \
+  WHERE video_id='8d90df90-...'"
+# Expect face_body_lock/wardrobe_lock populated for characters whose portrait vision call
+# succeeded and followed the labeled format; forbidden_drift populated too (stored only, not
+# consumed yet). A character with all three still NULL after this step means the vision reply
+# didn't follow the labeled format that pass — check `se logs backend` for
+# "[characters] D9-2 lock extraction partial for <name>" (this chunk's own warning) to confirm
+# it degraded loudly rather than silently.
+
+# 6. Plan (free) or draw (paid — confirm cost with Ryan first) that video's storyboard for a
+#    scene with a locked character, and confirm the assembled CHARACTER block actually carries
+#    the lock text verbatim. The D6-1 board-laws evidence at
+#    tasks/evidence/d6-6a-dryrun/sheet-preview_scene1_*.txt shows this project already has a
+#    free way to dump the assembled sheet-prompt text for review before any paid draw — reuse
+#    that path for a scene with a re-approved character and grep the dump for the exact
+#    face_body_lock/wardrobe_lock string stored in step 5. This is the one step this chunk could
+#    not run itself (no live prod DB access from this Mac — see MEMORY.md's
+#    "Backend loads env from storyengine/.env..." note) and is the strongest remaining proof gap:
+#    every consumer of `costume`/`_identity_tag_or_locks` is unit-tested against synthetic rows,
+#    but no test here proves a REAL re-approval's extracted text survives unchanged into a REAL
+#    assembled prompt end to end.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`storyengine/backend/tests/functional/test_d9_2_character_locks.py` (24 tests) covers
+`_parse_character_lock_reply` (full labeled reply, a reply missing one or more labels, a reply
+that ignores the format entirely — parses to `{}`, never raises — multi-line values, case
+insensitivity), `approve_cast`'s background task with the vision call stubbed: the happy path
+writes all three lock columns AND `description` in exactly ONE `UPDATE` (proving the "one call,
+not two" requirement at the SQL-write level, not just prompt level), a reply with no labels falls
+back to the exact pre-D9-2 whole-reply-as-description behavior and writes zero lock columns, a
+partial reply (some labels present, some missing) writes only the fields that parsed and leaves
+the others untouched (not nulled — a deliberate choice so a transient miss on re-approval can't
+erase a prior good extraction; documented in migration 151's own comment), a raising vision call
+degrades exactly as fail-soft as the pre-existing description-refresh pass, and the no-Claude-
+creds case skips the whole vision pass (zero calls) with approval still completing.
+`scripts/coverage_to_app.py`'s consumer side: `_locks_text`/`_identity_tag_or_locks` (the two
+helpers `load_character_bible` and `redraw_asset_image` now share) tested directly for every
+precedence combination, `load_character_bible`'s SELECT proven to include the new columns, the
+KEY backward-compat case (NULL locks -> costume falls back to description/identity_tag exactly as
+before this migration, asserted byte-identical) plus the populated case (locks appear verbatim,
+description text is provably absent from the result) plus the override case (a creator-set
+identity_tag still wins over populated locks). `_character_identity_line` proven to render the
+locks verbatim once they flow through the bible, and proven byte-identical on a NULL-locks
+character. All 37 pre-existing tests in `test_characters.py` / `test_c4_prop_manifest.py` /
+`test_money_safety_character_environment_metering.py` pass unmodified. Real stash-proof (checkout-
+swap technique, never `git stash`, per tasks/lessons.md's fleet rule): after committing the chunk,
+the 3 modified files were checked out back to their pre-chunk (`HEAD~1`) content and the 2 new
+files (migration + test) moved out to the scratchpad, full backend suite
+(`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against worktree code) run
+reverted (29 failed / 3958 passed / 4 skipped), then the 3 files checked back out to `HEAD` and the
+2 new files restored (`git diff --stat HEAD` empty, confirming byte-identical restoration) and the
+suite run again applied (29 failed / 3982 passed / 4 skipped — the +24 delta is exactly this
+chunk's own new test file). Sorted `FAILED` test-name sets diffed byte-identical (empty diff)
+between reverted and applied. `schema.sql`'s `video_characters` table updated with the 3 new
+columns and a comment cross-referencing migration 151 (note: `identity_tag`/`material_map` from
+migration 142 were ALREADY missing from `schema.sql` before this chunk touched the table — a
+pre-existing drift this chunk did not introduce and left alone, same class of gap D9-1's entry
+above flagged for `assets.shot_location`/`group_arrangement`).
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether the extended vision prompt reliably produces the labeled format on a real, unseen portrait
+(prompt compliance is never provable from a parser unit test — steps 5-6 above are what that's
+for); a real re-approval's extracted face_body_lock/wardrobe_lock text surviving unchanged into a
+REAL assembled board or final-picture prompt (step 6 — the strongest remaining gap, no live DB
+access from this Mac); and whether the "identity_tag always wins over locks" precedence call
+(this chunk's own judgment, not explicitly specified by the brief) is what Ryan actually wants
+once a creator has both an authored identity_tag and freshly-extracted locks disagreeing — flagged
+for a look at the next opportunity, not re-litigated silently.
