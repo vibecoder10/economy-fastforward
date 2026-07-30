@@ -1776,3 +1776,51 @@ both pass clean.
   this plainly rather than inventing a component-test harness. `npx tsc
   --noEmit` + `npm run build` are the only automated coverage this chunk
   has.
+
+# Deferred verification — D10-3b (script critic checks the Story Bible's narrative/arcs/relationships)
+
+Backend-only chunk: `backend/script_quality.py`'s `critique_script` now
+best-effort fetches `videos.story_bible` (`_fetch_story_bible`) and, when the
+D10-2ab-native `narrative`/`relationships`/`arcs` sections are present and
+carry real content, appends a "STORY STRUCTURE TO HONOR" block to the judge's
+system prompt (`_story_structure_addendum`) asking it to flag scenes that
+contradict a character's stated arc, a payoff that ignores the stated stakes,
+or an uncaused relationship reversal — named in `failing_gates`, flowing
+through the SAME violation/edit machinery (`edit_draft_with_violations`'s
+`@@@SCENE n@@@` round trip) every other violation already uses. Legacy bibles
+(no new sections) and freshly-normalized native bibles whose new sections are
+present-but-empty both produce a byte-identical prompt to pre-D10-3b — proven
+in `tests/test_d10_3b_critique_bible.py` against the literal
+`originality._SCRIPT_JUDGE_SYSTEM` constant, not just a before/after diff.
+Scoped OFF entirely for `strict_rule_ids` callers (Custom Film's per-section
+quality pass — a different, role/purpose-grounded production style that never
+populates a Story Bible narrative/arcs/relationships), which also preserves
+that path's proven "total critic failure touches no DB at all" contract
+(`tests/functional/test_m7_4f_av_screenplay_adversarial.py::
+test_two_malformed_strict_critic_responses_fail_before_persistence`). Fail-open
+is scoped to the addendum only — a DB/JSON error there never skips the actual
+grading call. `tests/test_script_quality.py`, `tests/test_c46a_quality_critic_
+wiring.py`, `tests/test_c46d_trust_boundaries.py` all pass unmodified; full
+backend suite reverted-vs-applied FAILED sets are byte-identical (29/29, same
+names, unrelated pre-existing failures).
+
+- [ ] **Live story-structure-visible proof (real spend: one script critique
+      pass on a video that already has a D10-2ab native bible — cheap, a
+      few cents of Claude tokens, no image/video/voice spend).** Recipe: pick
+      or produce a video whose `videos.story_bible` carries non-empty
+      `narrative`/`relationships`/`arcs` (`se db "SELECT story_bible->
+      'narrative', story_bible->'arcs' FROM videos WHERE id='<id>'"` to
+      confirm), then trigger a script critique pass on it (re-running the
+      script stage, or any path that calls `_grade_and_maybe_revise_script`/
+      `_telemetry_quality_critique`) and tail the backend log for the
+      `[script_quality] critique ... verdict=...` line. Eyeball that the
+      assembled prompt actually included the "STORY STRUCTURE TO HONOR"
+      section (temporarily log `system_prompt` length or grep for the marker
+      string) and that any violation it produces reads sensibly (names a
+      real arc/relationship/stakes contradiction, not noise) before trusting
+      it in production judgment.
+  - Expected result: the story-structure section renders with the real
+    genre/conflict/stakes/arc/relationship text (not placeholders), and a
+    planted or organic contradiction in a real script surfaces as a
+    `failing_gates` entry a human would recognize as correct — same bar the
+    existing hook/causality/escalation/payoff gates are already held to.

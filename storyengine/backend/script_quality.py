@@ -45,6 +45,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 from pydantic import BaseModel, Field, field_validator
 
+from database import fetch_one  # noqa: F401 - see _fetch_story_bible (D10-3b)
 from originality import (
     _SCRIPT_JUDGE_SYSTEM,
     _build_script_judge_user_prompt,
@@ -299,6 +300,153 @@ def _apply_rule_severity(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Story-structure signal (checklist D10-3b) — the critic ALSO checks a
+# script against this video's own StoryEngine-native Story Bible
+# (story_bible_native.py, D10-2ab), when one exists and carries the three
+# NEW top-level sections it can generate: ``narrative`` (genre/tone/themes/
+# conflict/stakes/time_period/world_rules), ``relationships`` (the web of
+# character dynamics), and ``arcs`` (each character's start/end state).
+#
+# Wiring choice: fetched HERE, inside ``critique_script`` itself, keyed off
+# the ``tenant_id``/``video_id`` every caller already passes in — not
+# threaded through a new parameter on ``critique_script``/
+# ``run_critique_and_edit``. Every one of this module's four call sites
+# (``pipeline_executor._grade_and_maybe_revise_script``,
+# ``pipeline_executor._telemetry_quality_critique``,
+# ``user_script.accept_external_script``,
+# ``custom_film_production_runner``'s per-section quality pass) already has
+# a ``video`` row in hand with ``story_bible`` on it by the time it calls in
+# — but re-threading "the bible" through 4 call sites and 2 function
+# signatures for one extra JSONB column is exactly the caller-signature
+# churn the brief asks to avoid when the data is one indexed-PK read away.
+# A video with no native bible (every video today, and any Custom Film
+# section video — a different production style that never populates
+# story_bible) simply gets ``None`` back and the prompt is untouched.
+# ---------------------------------------------------------------------------
+
+async def _fetch_story_bible(tenant_id: str, video_id: str) -> Optional[dict]:
+    """Best-effort ``videos.story_bible`` read. Tolerant of the JSONB-as-text
+    shape asyncpg returns with no jsonb codec registered — the same
+    ``isinstance(sb, str)`` fallback ``scripts/coverage_to_app.py``'s
+    ``_story_bible_locations`` and ``routes/characters.py``'s ``_parse_json``
+    already use for this exact column.
+
+    Raises on ANY problem (no DB reachable, missing row, malformed JSON,
+    wrong shape) — deliberately not fail-open itself, so its caller's own
+    try/except can log once and keep the fail-open contract local to the
+    bible fetch, never letting a bible-side error escape into the critique's
+    own outer fail-open (which would skip grading entirely, not just the
+    story-structure addendum).
+    """
+    row = await fetch_one(
+        "SELECT story_bible FROM videos WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id,
+    )
+    sb = (row or {}).get("story_bible")
+    if isinstance(sb, str):
+        sb = json.loads(sb) if sb.strip() else None
+    return sb if isinstance(sb, dict) else None
+
+
+def _story_structure_addendum(bible: Mapping[str, Any]) -> str:
+    """Render ``bible``'s ``narrative``/``relationships``/``arcs`` sections
+    into a system-prompt addendum, or ``""`` when there is nothing usable.
+
+    Returns ``""`` for BOTH shapes that must leave the assembled prompt
+    byte-identical to pre-D10-3b behavior:
+      - a legacy bible (no ``narrative``/``relationships``/``arcs`` keys at
+        all — every bible generated before D10-2ab), and
+      - a freshly-normalized native bible whose new sections are all present
+        but empty (``story_bible_native.normalize_story_bible`` always adds
+        these keys, even when the model contributed nothing to them — an
+        explainer-style video with one character and no relationships, say).
+    """
+    narrative = bible.get("narrative")
+    narrative = narrative if isinstance(narrative, Mapping) else {}
+    relationships = bible.get("relationships")
+    relationships = relationships if isinstance(relationships, list) else []
+    arcs = bible.get("arcs")
+    arcs = arcs if isinstance(arcs, Mapping) else {}
+
+    narrative_lines: List[str] = []
+    for label, key in (
+        ("Genre", "genre"), ("Tone", "tone"), ("Conflict", "conflict"),
+        ("Stakes", "stakes"), ("Time period", "time_period"),
+    ):
+        val = str(narrative.get(key) or "").strip()
+        if val:
+            narrative_lines.append(f"{label}: {val}")
+    themes = [str(t).strip() for t in (narrative.get("themes") or []) if str(t).strip()]
+    if themes:
+        narrative_lines.append("Themes: " + ", ".join(themes))
+    world_rules = [str(r).strip() for r in (narrative.get("world_rules") or []) if str(r).strip()]
+    if world_rules:
+        narrative_lines.append("World rules: " + "; ".join(world_rules))
+
+    arc_lines: List[str] = []
+    for char_id, arc in arcs.items():
+        if not isinstance(arc, Mapping):
+            continue
+        start = str(arc.get("start_state") or "").strip()
+        end = str(arc.get("end_state") or "").strip()
+        if not (start or end):
+            continue
+        turns = [str(s) for s in (arc.get("turning_scenes") or [])]
+        turn_note = (
+            f" (turns at scene{'s' if len(turns) != 1 else ''} {', '.join(turns)})"
+            if turns else ""
+        )
+        arc_lines.append(
+            f'- {char_id}: starts "{start or "unspecified"}", '
+            f'ends "{end or "unspecified"}"{turn_note}'
+        )
+
+    rel_lines: List[str] = []
+    for rel in relationships:
+        if not isinstance(rel, Mapping):
+            continue
+        pair = rel.get("characters")
+        if not isinstance(pair, list) or len(pair) != 2:
+            continue
+        dynamic = str(rel.get("dynamic") or "").strip()
+        tension = str(rel.get("tension_source") or "").strip()
+        evolves = str(rel.get("evolves_to") or "").strip()
+        details = [d for d in (
+            dynamic,
+            f"tension: {tension}" if tension else "",
+            f"evolves to: {evolves}" if evolves else "",
+        ) if d]
+        line = f"- {pair[0]} <-> {pair[1]}"
+        if details:
+            line += ": " + "; ".join(details)
+        rel_lines.append(line)
+
+    if not (narrative_lines or arc_lines or rel_lines):
+        return ""
+
+    sections: List[str] = ["--- STORY STRUCTURE TO HONOR (from this video's Story Bible) ---"]
+    if narrative_lines:
+        sections.append("\n".join(narrative_lines))
+    if arc_lines:
+        sections.append("Character arcs:\n" + "\n".join(arc_lines))
+    if rel_lines:
+        sections.append("Relationships:\n" + "\n".join(rel_lines))
+    sections.append(
+        "Check the script against this structure. Flag any scene that reverses "
+        "or contradicts a character's stated arc direction, any payoff that "
+        "ignores the stated stakes or conflict, and any relationship reversal "
+        "that happens with no visible cause in the script. Name each such "
+        "contradiction — with the scene number when you can identify it — as "
+        "its own entry in \"failing_gates\", exactly like any other violation "
+        "this critic finds. Do this IN ADDITION to, never instead of, any "
+        "rule_verdicts entries you were asked to fill in elsewhere in this "
+        "prompt."
+    )
+    sections.append("--- END STORY STRUCTURE ---")
+    return "\n\n" + "\n\n".join(sections)
+
+
 async def critique_script(
     tenant_id: str,
     video_id: str,
@@ -339,7 +487,22 @@ async def critique_script(
 
     Fails OPEN: a missing client, an empty script, or any error returns a
     ``pass`` verdict so a transient model/network problem never blocks the
-    pipeline. tenant_id/video_id are used only for log correlation.
+    pipeline. tenant_id/video_id are used for log correlation AND (D10-3b)
+    to best-effort fetch this video's Story Bible (``_fetch_story_bible``) so
+    the judge can ALSO check the script against its narrative/relationships/
+    arcs, when that bible exists and carries them — see
+    ``_story_structure_addendum``. That fetch has its own inner fail-open
+    (a bible-side problem only skips the addendum, never the grading call
+    itself — see the try/except around it below). Skipped entirely when
+    ``strict_rule_ids`` is given: that contract belongs to Custom Film's
+    per-section quality pass, a role/purpose-grounded production style that
+    never populates a Story Bible narrative/arcs/relationships (a different,
+    documentary-style concept) and already carries its OWN exhaustive
+    hard-gate rules via ``rules_text``/``severity_by_rule`` — and a strict
+    caller has a proven "total critic failure must touch no DB at all"
+    contract (tests/functional/test_m7_4f_av_screenplay_adversarial.py's
+    ``test_two_malformed_strict_critic_responses_fail_before_persistence``)
+    this fetch must never put at risk.
     """
     if client is None or not str(script_payload.get("script") or "").strip():
         return CritiqueResult()
@@ -353,6 +516,29 @@ async def critique_script(
                 if exact_rule_ids
                 else _rules_addendum(text_rules)
             )
+
+        # D10-3b: story-structure signal, additive only, never for a strict
+        # caller (see docstring). Deliberately its OWN try/except, separate
+        # from this function's outer fail-open below — a bible fetch/parse
+        # problem must only skip THIS addendum, never skip the grading call
+        # itself (the outer fail-open is reserved for the actual critic call
+        # failing).
+        story_structure = ""
+        if not exact_rule_ids:
+            try:
+                bible = await _fetch_story_bible(tenant_id, video_id)
+                story_structure = _story_structure_addendum(bible) if bible else ""
+            except Exception as bible_exc:  # noqa: BLE001
+                print(
+                    f"[script_quality] story bible skipped for "
+                    f"{str(video_id)[:8]} (tenant {str(tenant_id)[:8]}) "
+                    f"class={type(bible_exc).__name__}",
+                    flush=True,
+                )
+                story_structure = ""
+        if story_structure:
+            system = system + story_structure
+
         raw = await client.generate(
             prompt=_build_script_judge_user_prompt(script_payload),
             system_prompt=system,
