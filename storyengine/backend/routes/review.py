@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from auth import get_tenant_id
-from models import PendingReview
+from models import PendingReview, ArbiterFindings
 from database import fetch_all, fetch_one, execute
 
 router = APIRouter(prefix="/api/review", tags=["review"])
@@ -123,6 +123,87 @@ async def get_pending(tenant_id: str = Depends(get_tenant_id)):
         thumbnails=thumbnail_items,
         images=image_items,
     )
+
+
+@router.get("/findings", response_model=ArbiterFindings)
+async def get_findings(tenant_id: str = Depends(get_tenant_id)):
+    """Frame Arbiter findings feed (D5 chunk A7, storyengine/FRAME-ARBITER-
+    PLAN.md). Honest about what actually persists: A3/A3b's judge calls
+    (frame_arbiter.judge_frame / judge_board_sheet) return per-frame/per-
+    panel finding dicts (image reference, description, classification)
+    ONLY in the HTTP response of the call that produced them —
+    frame_arbiter_hook.run_after_storyboard_sheet attaches that dict to
+    run_storyboard_sheet's own return value, which is never persisted
+    (task_store.db_persist_task only stores a status + a message STRING,
+    no JSON payload). So there is no per-instance "findings" table to
+    query yet — that's a real gap in A2/A3/A5's design, not an oversight
+    of this endpoint.
+
+    What IS real and persisted, and what this endpoint reports:
+      * A2's `arbiter_fingerprints` (migration 139) — one row per CLASS of
+        defect for this tenant (rule_id/failure_class + stage), carrying
+        the learning-ratchet's classification, violation_count, and
+        frozen (freeze-after-second-strike) state.
+      * A1's `generation_ledger` frame_qa-stage rows (migration 140) —
+        real QA-pass spend, grouped per video/scene. NOT joinable to a
+        specific fingerprint: judge_board_sheet's own ledger writes always
+        leave `fingerprint` NULL (a sheet's panels can carry different
+        fingerprints in one call, so the row-level tag is left unset —
+        see that function's comment).
+
+    No live rows exist on prod yet (first real run is D8-2, parked on
+    Ryan's deploy window) — see tasks/deferred-verification.md for the
+    one-step recipe to sanity-check this shape once it does.
+    """
+    fingerprints = await fetch_all(
+        """SELECT id, rule_id, stage, failure_class, fingerprint_key,
+                  classification, violation_count, frozen,
+                  first_seen_at, last_seen_at
+           FROM arbiter_fingerprints
+           WHERE tenant_id = $1
+           ORDER BY last_seen_at DESC""",
+        tenant_id,
+    )
+    finding_items = [
+        {
+            "id": str(f["id"]),
+            "rule_id": f.get("rule_id"),
+            "stage": f["stage"],
+            "failure_class": f["failure_class"],
+            "fingerprint_key": f["fingerprint_key"],
+            "classification": f["classification"],
+            "violation_count": f["violation_count"],
+            "frozen": f["frozen"],
+            "first_seen_at": f["first_seen_at"].isoformat() if f.get("first_seen_at") else None,
+            "last_seen_at": f["last_seen_at"].isoformat() if f.get("last_seen_at") else None,
+        }
+        for f in fingerprints
+    ]
+
+    spend_rows = await fetch_all(
+        """SELECT g.video_id, g.scene, v.video_title,
+                  COUNT(*) AS qa_passes, SUM(g.actual_cost) AS total_cost,
+                  MAX(g.created_at) AS last_judged_at
+           FROM generation_ledger g
+           JOIN videos v ON v.id = g.video_id
+           WHERE g.tenant_id = $1 AND g.stage = 'frame_qa'
+           GROUP BY g.video_id, g.scene, v.video_title
+           ORDER BY last_judged_at DESC""",
+        tenant_id,
+    )
+    spend_items = [
+        {
+            "video_id": str(s["video_id"]),
+            "video_title": s.get("video_title"),
+            "scene": s.get("scene"),
+            "qa_passes": s["qa_passes"],
+            "total_cost": float(s["total_cost"] or 0),
+            "last_judged_at": s["last_judged_at"].isoformat() if s.get("last_judged_at") else None,
+        }
+        for s in spend_rows
+    ]
+
+    return ArbiterFindings(findings=finding_items, spend=spend_items)
 
 
 @router.post("/storyboard/{script_id}/approve")

@@ -738,6 +738,8 @@ export const batchApproveAssets = (assetIds: string[], status: "approved" | "rej
 // Review
 export const getPendingReview = () => fetchApi<PendingReview>("/api/review/pending");
 
+export const getArbiterFindings = () => fetchApi<ArbiterFindings>("/api/review/findings");
+
 export const approveStoryboard = (scriptId: string) =>
   fetchApi<{ status: string; script_id: string }>(`/api/review/storyboard/${scriptId}/approve`, {
     method: "POST",
@@ -2366,6 +2368,41 @@ export interface ReviewItem {
   image_index?: number;
   prompt?: string;
   type: string;
+}
+
+// Frame Arbiter findings (D5 chunk A7, FRAME-ARBITER-PLAN.md). Field names
+// copied verbatim from backend/models.py's ArbiterFinding/ArbiterSpend/
+// ArbiterFindings — see backend/routes/review.py's get_findings docstring
+// for why there is no per-frame image/reason field: no per-instance
+// findings table is persisted yet, only the fingerprint (class-level) and
+// ledger (spend) tables are real.
+export type ArbiterClassification = "MODEL_DEFECT" | "AUTHORING_DEFECT" | "TASTE_QUESTION";
+
+export interface ArbiterFinding {
+  id: string;
+  rule_id: string | null;
+  stage: string;
+  failure_class: string;
+  fingerprint_key: string;
+  classification: ArbiterClassification | string;
+  violation_count: number;
+  frozen: boolean;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
+export interface ArbiterSpend {
+  video_id: string;
+  video_title: string | null;
+  scene: number | null;
+  qa_passes: number;
+  total_cost: number;
+  last_judged_at: string | null;
+}
+
+export interface ArbiterFindings {
+  findings: ArbiterFinding[];
+  spend: ArbiterSpend[];
 }
 
 // Settings Types
