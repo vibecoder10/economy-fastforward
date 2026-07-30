@@ -6751,6 +6751,37 @@ def _roster_validation(
     }
 
 
+def _live_roster_gate(video: dict, payload: dict) -> dict:
+    """The roster gate verdict, RECOMPUTED from the payload — never read back
+    out of ``research_payload['unit_roster_validation']``.
+
+    The stored copy is a point-in-time record of what the gate rules said on
+    the day research ran. It is still written (for display and history), but a
+    gate must never READ it, because doing so freezes that day's rules onto the
+    row: a video rejected by a rule that has since been loosened or removed
+    stays rejected forever, and the only way to clear it is to pay for a full
+    research re-run that regenerates the entire roster and orphans its verified
+    reference photos.
+
+    That is not hypothetical. Video d2e37cd6 ("Every British Aircraft Carrier
+    Class Ever Built") sat at idea_logged from 2026-07-27 onward on a stored
+    ``passed: false`` whose ONLY complaint was roster pacing — 23 ships against
+    a 20-minute runtime target. The C4 severity split (2026-07-29) reclassified
+    exactly that complaint from fatal to soft, so the live rules score the same
+    roster ``passed: true, needs_review: true``. The row never noticed.
+
+    Safe to call anywhere: ``_roster_validation`` is a pure function of
+    (title, payload, runtime) — no LLM, no network, no DB write. Both research
+    stage gates run pre-script, so ``script_units`` is correctly omitted here;
+    the script-time roster check passes its own units separately.
+    """
+    return _roster_validation(
+        video.get("video_title") or video.get("headline") or "",
+        payload,
+        video_length_minutes=video.get("video_length_minutes"),
+    )
+
+
 def resolve_prompt(
     per_video: Optional[str],
     tenant: Optional[str],
@@ -9763,7 +9794,10 @@ class PipelineExecutor:
             if not isinstance(payload, dict):
                 return {"status": "failed", "error": "Research payload is missing or invalid"}
 
-            roster_gate = payload.get("unit_roster_validation") or {}
+            # Recomputed, not read back off the row — see _live_roster_gate.
+            # This is the gate that was blocking per-machine research on a
+            # verdict written by rules that no longer exist.
+            roster_gate = _live_roster_gate(video, payload)
             if not roster_gate.get("passed"):
                 return {"status": "failed", "error": "Lock and approve the machine roster before running machine research"}
 
@@ -12727,14 +12761,12 @@ scenes."""
                 except Exception:
                     rp_for_gate = {}
             if isinstance(rp_for_gate, dict):
-                roster_gate = rp_for_gate.get("unit_roster_validation") or _roster_validation(
-                    video.get("video_title") or video.get("headline") or "", rp_for_gate
-                )
-                if isinstance(roster_gate, str):
-                    try:
-                        roster_gate = _json_gate.loads(roster_gate)
-                    except Exception:
-                        roster_gate = {}
+                # Recomputed, not read back off the row — see _live_roster_gate.
+                # This also fixes a quieter bug in the old fallback: it called
+                # _roster_validation WITHOUT video_length_minutes, so on the one
+                # path that did compute fresh, the pacing targets were derived
+                # from the default runtime instead of this video's own.
+                roster_gate = _live_roster_gate(video, rp_for_gate)
                 if roster_gate.get("complete_title") and not roster_gate.get("passed"):
                     msg = "Fix research roster before scripting: " + "; ".join(roster_gate.get("warnings", []))
                     await self._log_activity(bot_name, video_id, "failed", msg[:900])

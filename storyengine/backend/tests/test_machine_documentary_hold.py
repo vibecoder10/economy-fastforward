@@ -7264,16 +7264,63 @@ def test_run_research_refuses_zero_row_final_save(monkeypatch):
     assert syncs == []
 
 
+def _live_gate_passing_research_payload(roster_names):
+    """A research payload that GENUINELY passes the live roster gate.
+
+    2026-07-30: run_unit_research recomputes the roster gate from the payload
+    (_live_roster_gate) instead of trusting a stored
+    `unit_roster_validation: {"passed": True}` stub - a stored verdict froze
+    the gate rules of the day it was written onto the row (the d2e37cd6
+    incident). So a fixture standing in for "a video that legitimately
+    finished research" must now carry what real research produces: the
+    complete-title structural proof (discovery buckets, recommendation,
+    gap-hunt + edge-case matrices, and an audit with >=6 searches and >=3
+    source families). The stored verdict key is still included - as history,
+    which is all it is now.
+    """
+    return {
+        "documentary_style": "designed_vs_used",
+        "unit_roster": list(roster_names),
+        "unit_roster_validation": {"passed": True},
+        "recommended_final_roster": list(roster_names),
+        "gap_hunt_matrix": [
+            {"candidate": "Douglas XB-19", "verdict": "excluded: single prototype testbed"},
+        ],
+        "edge_case_matrix": [{"class": "naval patrol bombers", "checked": True}],
+        "machine_discovery_buckets": {
+            "core_roster": list(roster_names),
+            "built_prototypes": [],
+            "boundary_disputes": [],
+            "converted_or_special_variants": [],
+            "secret_cancelled_or_black_programs": [],
+        },
+        "roster_audit": {
+            "search_queries_used": [
+                "list of US strategic bombers",
+                "USAAF bomber designations",
+                "US heavy bombers by era",
+                "cancelled US bomber programs",
+                "US bomber prototypes",
+                "cold war US strategic bombers",
+            ],
+            "source_families_crosschecked": [
+                "Official USAF records",
+                "Aviation encyclopaedias",
+                "Manufacturer histories",
+            ],
+            "unresolved_candidates": [],
+            "confidence": "high",
+            "excluded_candidates": [],
+        },
+    }
+
+
 def test_run_unit_research_final_save_is_tenant_scoped(monkeypatch):
     import sys
     import types
 
     roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
-    payload = {
-        "documentary_style": "designed_vs_used",
-        "unit_roster": roster_names,
-        "unit_roster_validation": {"passed": True},
-    }
+    payload = _live_gate_passing_research_payload(roster_names)
     researched_payload = {
         **payload,
         "unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()} for machine in roster_names],
@@ -7332,11 +7379,7 @@ def test_run_unit_research_refuses_zero_row_final_save(monkeypatch):
     import types
 
     roster_names = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
-    payload = {
-        "documentary_style": "designed_vs_used",
-        "unit_roster": roster_names,
-        "unit_roster_validation": {"passed": True},
-    }
+    payload = _live_gate_passing_research_payload(roster_names)
     researched_payload = {
         **payload,
         "unit_research_cards": [{"unit": machine, "evidence_segments": _evidence_segments()} for machine in roster_names],
