@@ -1366,3 +1366,28 @@ Applying them means a deploy to the live VPS, which is RYAN'S CALL and must not 
 Deploy-day gotcha that still applies: `se deploy` REQUIRES the session name BEFORE any flags (D3-60 open) - a bare flag
 binds to WHO, the frontend build silently skips, and the log still prints the flag. Verify BUILD_ID mtime or grep a
 literal in the deployed chunks. A deploy-day checklist is in tasks/deferred-verification.md.
+
+### RYAN'S RULING, 2026-07-29: THE SCRIPT WINS (closes the S4 open question)
+His words: "script does win".
+
+The open case was recorded in HANDOFF.md as "the elite cast mismatch": the script names "a woman in gold" and "an old
+man", while the production board cast three interchangeable navy-suited elders in different wardrobe entirely, so the
+dialogue's visual identity did not match the words being spoken.
+
+**RULING: the SCRIPT is canonical. The board's three navy-suited elders are the DEFECT, not the reference.** The cast
+for that scene is a woman in gold and an old man, as written. Story law S4 already states the principle - "the script
+is the source of truth for cast" - and this ruling confirms it for this specific video, which S4 required a human to
+decide. No longer an open question; do not re-ask it.
+
+Consequences to carry forward:
+- Any character sheet, board or coverage picture casting three navy elders for that scene is wrong and must be
+  regenerated from the script's cast, not preserved for continuity.
+- D6-4's S4 warn-only gate (wired at `approve_cast`, warning in both directions - a cast member the script never names,
+  and a speaker with no cast entry) now has a concrete expected outcome for this video: it SHOULD warn on the navy
+  elders. That makes this a free real-world test of the S4 gate once the migrations are live.
+- When the D6-6a dry run reaches the cast block, the canonical cast identity tags must read as the woman in gold and
+  the old man. If they read as navy elders, the canonical inputs record is populated from the wrong source and that is
+  a D6-1 defect to file.
+- Do NOT hand-edit video 686b4651 to apply this. That video is READ-ONLY - re-deriving its scenes runs
+  `DELETE FROM scripts WHERE video_id = ...` and would orphan $1.85 of drawn assets. The ruling applies to the NEW
+  video authored in D6-6a.

@@ -101,6 +101,12 @@ loses continuity.
 three generic elders in different wardrobe entirely, so the dialogue's visual
 identity did not match the words being spoken.*
 
+**Ruling, 2026-07-29.** The case that produced this law was decided by Ryan in favour of the script: a scene whose
+script named a woman in gold and an old man, boarded instead as three interchangeable navy-suited elders, is a board
+defect and not a continuity reference. The script's cast is canonical and the board is regenerated to match it. Where a
+script and a character bible disagree, this is the direction the ruling sets, though the law still requires a human to
+make the call rather than silently following either side.
+
 **S4 gets a PARTIAL, warn-only gate (D6-4) — not a full one, and it never can
 be.** `video_characters.name` IS a real canonical column, but the other side of
 the comparison is the script's free text, and matching a canonical name against
