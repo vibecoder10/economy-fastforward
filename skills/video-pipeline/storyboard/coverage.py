@@ -644,6 +644,35 @@ def parse_setups_line(directive_text: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+# D6-2: L16 (A REVERSE ANGLE CHANGES THE BACKGROUND) — the [SETUPS|...]
+# line's own catalogue example already teaches the planner to write "the
+# matched reverse of B" when a setup is a matched reverse pair (rule 5e).
+# That phrase is the ONE place this relationship is genuinely authored —
+# parsing it out is a COMPUTATION, not an invention, and is exactly what
+# BOARD-PLANNER-ARCHITECTURE.md names as the target for this law
+# ("Backgrounds follow from camera position"). A setup that never uses the
+# phrase (a legacy plan, or a scene with no true reverse pair) parses to no
+# entry — honest, not a guess.
+_REVERSE_PAIR_RE = re.compile(
+    r"\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)?)\s*:\s*[^;]*?\b(?:the\s+)?matched\s+reverse\s+of\s+"
+    r"([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)?)", re.IGNORECASE)
+
+
+def parse_reverse_setup_pairs(setups_line: str | None) -> dict:
+    """{setup_id: reverse_partner_id}, populated in BOTH directions, parsed
+    from the [SETUPS|...] line's "the matched reverse of X" phrasing. Empty
+    dict when the line has no such phrase — callers (apply_reverse_
+    background_lock, apply_group_arrangement_lock) treat that as "no
+    computed pairing available for this scene" and fall back to a baked
+    reminder/repeat stamp instead of the fully computed flip."""
+    pairs: dict = {}
+    for m in _REVERSE_PAIR_RE.finditer(setups_line or ""):
+        a, b = m.group(1).upper(), m.group(2).upper()
+        pairs[a] = b
+        pairs.setdefault(b, a)
+    return pairs
+
+
 # =============================================================================
 # BOARD LAWS (storyengine/BOARD-LAWS.md) — multi-location + material-map
 # directive schema. Additive and byte-compatible: a single-location plan
@@ -1509,6 +1538,416 @@ def check_no_caption_leaking_labels(moments: list[dict]) -> int:
                       "will print itself onto the caption strip — rewrite as ordinary prose — "
                       "worth a human glance, not a hard failure", flush=True)
     return warnings
+
+
+# =============================================================================
+# D6-2 (storyengine/tasks/loop-checklist.md, PHASE D6) — NEW gates for L12,
+# L15, L18, which previously had NO deterministic check at all (see the
+# board-laws-build commit note: "honestly NOT built where semantic (L6, L7,
+# L8, L12, L13, L14, L15, L16, L18...)"). Same warning-only discipline as
+# every check_* above — LESSON from D6-1's review round: a gate may only be
+# HARD when the thing it compares against is CANONICAL data or code's own
+# generated text; every one of these compares planner PROSE against a
+# heuristic pattern, so all three stay warning-only.
+# =============================================================================
+
+_POPULATION_DESC_RE = re.compile(
+    r"\b(clothing|robes?|uniforms?|posture|asleep|stillness|generic|pale|shadow(?:s|ed)?|"
+    r"stacked|depth|front layer|unreadable|silhouettes?|hooded|cloaked)\b", re.IGNORECASE)
+
+
+def check_population_specified(moments: list[dict]) -> int:
+    """L12 (SPECIFY THE POPULATION), NEW gate: among shots that already pass
+    check_headcount_stated (a group noun AND a number both present), flags
+    any with no descriptive/appearance term (_POPULATION_DESC_RE) — a count
+    with no stated LOOK is exactly the pattern L12 exists to stop
+    (unspecified background figures rendering pale by luck; bodies stacking
+    through a transparent container until each reads as two people).
+    Heuristic, warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if (_GROUP_NOUN_RE.search(desc) and _NUMBER_TOKEN_RE.search(desc)
+                    and not _POPULATION_DESC_RE.search(desc)):
+                warnings += 1
+                print(f"  ⚠️ population check (L12): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) states a headcount but no appearance/posture "
+                      "description for the group — worth a human glance, not a hard failure",
+                      flush=True)
+    return warnings
+
+
+_ATTENTION_SHIFT_RE = re.compile(
+    r"\b(turns?\s+(?:toward|towards|to face)|glances?\s+(?:toward|towards|at)|"
+    r"shifts?\s+(?:her|his|their)?\s*attention|looks?\s+(?:over|toward|towards)|"
+    r"head\s+turns?)\b", re.IGNORECASE)
+_FIXED_ANCHOR_STATED_RE = re.compile(
+    r"\b(chairs?|hips?|feet|legs?|torso|knees?)\b[^.]{0,60}\b(fixed|unchanged|stay(?:s)?|"
+    r"planted|do(?:es)?\s*not\s+move|don'?t\s+move|never\s+move)\b", re.IGNORECASE)
+
+
+def check_attention_orientation_stated(moments: list[dict]) -> int:
+    """L15 (SEPARATE ATTENTION FROM ORIENTATION), NEW gate: flags a shot
+    that reads as a partial attention shift (_ATTENTION_SHIFT_RE — turns
+    toward/glances at/shifts attention/looks toward) with no stated FIXED
+    anchor term nearby (_FIXED_ANCHOR_STATED_RE — chair/hips/feet/knees
+    stated unchanged) — the exact drift L15's provenance describes ("turned
+    three-quarter toward him" rotating an entire room that was never meant
+    to move). Heuristic and coarse: "turns toward" can legitimately describe
+    a full re-stage too, so this only flags the OMISSION of an anchor term,
+    never a genuine contradiction. Warning-only."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _ATTENTION_SHIFT_RE.search(desc) and not _FIXED_ANCHOR_STATED_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ attention-orientation check (L15): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) reads as a partial attention shift with no "
+                      "stated FIXED anchor (chair/hips/feet) — worth a human glance, not a hard "
+                      "failure", flush=True)
+    return warnings
+
+
+_EMPHASIS_TERM_RE = re.compile(
+    r"\b(glow(?:s|ing)?|gleam(?:s|ing)?|spotlit|spot-?lit|highlighted?|luminous|"
+    r"catches?\s+the\s+light|draws?\s+the\s+eye|shimmer(?:s|ing)?)\b", re.IGNORECASE)
+_DISCOVERY_VERB_RE = re.compile(
+    r"\b(notices?|discovers?|spots?|catches?\s+sight\s+of|finally\s+sees?)\b", re.IGNORECASE)
+
+
+def check_discovery_object_unremarked(moments: list[dict]) -> int:
+    """L18 (A DISCOVERY OBJECT IS PLANTED WITHOUT BEING ANNOUNCED), NEW gate
+    — deliberately coarse and SCENE-scoped, not panel-to-panel: only runs
+    when the scene contains a discovery beat at all (_DISCOVERY_VERB_RE —
+    notices/discovers/spots/...), then flags any shot in that same scene
+    whose description carries emphasis-lighting language (_EMPHASIS_TERM_RE
+    — glow/gleam/spotlit/highlighted/draws the eye/...). This CANNOT confirm
+    the emphasis lands on the SAME object, or that it appears BEFORE the
+    notice beat specifically — today's schema has no per-shot object
+    identity or ordering-relative-to-a-named-beat to check that precisely
+    (the same honest gap check_location_scoping's docstring names for a
+    different law). It only flags the higher-level co-occurrence as worth a
+    human's eye. Warning-only. See apply_reverse_background_lock's sibling
+    functions below and this chunk's commit message for why L18 gets NO
+    repair leg (the fact it protects is one-off narrative content, not a
+    scene-wide constant that can be captured once and repeated)."""
+    warnings = 0
+    has_discovery = any(
+        _DISCOVERY_VERB_RE.search(shot.get("description") or "")
+        for m in moments for shot in [m["master"], *(m.get("angles") or [])]
+    )
+    if not has_discovery:
+        return 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _EMPHASIS_TERM_RE.search(desc):
+                warnings += 1
+                print(f"  ⚠️ discovery-object check (L18): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) uses emphasis-lighting language in a scene "
+                      "that also contains a discovery beat — confirm the planted object isn't "
+                      "given away early — worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
+# =============================================================================
+# D6-2 REPAIR LEGS — BOARD-LAWS.md L11, L12, L15, L16, L17, L19, L22. Every
+# law here previously had a PROMPT leg (the coverage system prompt, rules
+# 12/14-20 above) and, for some, a warning-only GATE — and NOTHING else, so
+# each evaporated the moment a single shot was redrawn: assets.image_prompt
+# is stamped VERBATIM from moments[i]["master"/"angles"]["description"]
+# (store_scene, coverage_to_app.py) and redraw_asset_image reuses that
+# stored prompt verbatim, so whatever text never made it into a shot's OWN
+# description at BUILD time is gone forever, redraw after redraw. These
+# functions run in the SAME place and on the SAME freshly-parsed,
+# pre-lock-tail descriptions as the check_* gates above (identical
+# reasoning: the SET/MATERIAL/AXIS/STAGING/FACING/SEQUENCE/PROP lock tails
+# appended further down in run_coverage are boilerplate that would swamp
+# these heuristics — GROUP_NOUN_RE, NESTED_FRAME_NOUN_RE etc — with false
+# matches if it ran first).
+#
+# Per BOARD-PLANNER-ARCHITECTURE.md, L16 and L22 get the STRONGER
+# treatment: a COMPUTED property (WHICH setup reverses WHICH, and the
+# seating order MECHANICALLY FLIPPED for that reverse) rather than prose
+# repeated verbatim. L11/L12/L17 get the "declare once, stamp everywhere"
+# pattern already proven by the SET-dressing lock. L15/L19 get a FIXED
+# instructional reminder stamped onto every shot the existing gate would
+# flag — the same pattern the FACING LOCK below already uses. L18 gets NO
+# repair leg — admitted honestly in check_discovery_object_unremarked's
+# docstring and this chunk's commit message.
+# =============================================================================
+
+def apply_nested_frame_content_lock(moments: list[dict]) -> int:
+    """L11 REPAIR LEG (NESTED FRAMES): the FIRST shot in scene order whose
+    description names a nested-frame noun (screen/monitor/mirror/feed) AND
+    states its content (passes check_nested_frame_content_specified's
+    positive case) becomes the CANONICAL content statement for that noun.
+    Every LATER shot naming the SAME noun with no content of its own gets
+    that canonical statement stamped on — repeating an established fact,
+    never inventing new content — so a single-shot redraw of a later panel
+    can't silently drop what's showing on the screen (L11's provenance: "the
+    content drifts from panel to panel"). A noun that's never once given
+    content anywhere in the scene stays unrepaired — nothing canonical to
+    repeat; the existing warning-only gate still flags it honestly. Returns
+    the number of shots repaired."""
+    canonical: dict[str, str] = {}
+    n = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            noun_m = _NESTED_FRAME_NOUN_RE.search(desc)
+            if not noun_m:
+                continue
+            noun = noun_m.group(1).lower()
+            if _CONTENT_BEARING_RE.search(desc):
+                canonical.setdefault(noun, desc.strip())
+            elif noun in canonical:
+                tail = (f"Nested-frame content lock: the {noun} in this panel shows the SAME "
+                        f"content established elsewhere in this scene — matching this scene's "
+                        f"own {noun} content: \"{canonical[noun][:220]}\"")
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+                n += 1
+    return n
+
+
+def _extract_arrangement_clause(desc: str) -> str | None:
+    """The FULL SENTENCE (bounded by '.' characters) containing this shot's
+    group-noun mention — the canonical form used by apply_group_arrangement_
+    lock to capture, repeat and (for L22) flip this scene's headcount+
+    arrangement fact. Deliberately captures the WHOLE sentence rather than
+    starting exactly at the noun match, because the count almost always
+    precedes the noun in English ("exactly five elites..."), which a
+    noun-anchored slice would cut off. None when no group noun is present."""
+    gm = _GROUP_NOUN_RE.search(desc or "")
+    if not gm:
+        return None
+    start = desc.rfind(".", 0, gm.start())
+    start = 0 if start == -1 else start + 1
+    end = desc.find(".", gm.end())
+    end = len(desc) if end == -1 else end
+    return desc[start:end].strip()
+
+
+_ARRANGEMENT_ORDER_SPLIT_RE = re.compile(r",?\s*then\s+|,\s+(?=[A-Za-z])", re.IGNORECASE)
+_FRAME_SIDE_SWAP = {
+    "frame-left": "frame-right", "frame-right": "frame-left",
+    "left to right": "right to left", "right to left": "left to right",
+}
+_FRAME_SIDE_SWAP_RE = re.compile("|".join(re.escape(k) for k in _FRAME_SIDE_SWAP), re.IGNORECASE)
+
+
+def compute_reverse_arrangement(arrangement_text: str) -> str | None:
+    """L22's actual COMPUTATION (BOARD-PLANNER-ARCHITECTURE.md: "computed by
+    flipping the seating order for a reverse angle instead of asking a model
+    to remember"): split the canonical arrangement sentence into its comma/
+    "then"-separated ordered clauses, REVERSE their order, and swap every
+    frame-left/frame-right (and left-to-right/right-to-left) token. This is
+    a genuine mechanical transformation — the order is inverted by code,
+    never re-guessed by a model.
+
+    Returns None when the source text doesn't parse into at least 2 ordered
+    clauses (too short/free-form to safely reverse) — an honest failure,
+    never a guess; callers fall back to a baked repeat-as-is stamp instead."""
+    if not arrangement_text:
+        return None
+    clauses = [c.strip() for c in _ARRANGEMENT_ORDER_SPLIT_RE.split(arrangement_text) if c.strip()]
+    if len(clauses) < 2:
+        return None
+    swapped = [_FRAME_SIDE_SWAP_RE.sub(lambda mm: _FRAME_SIDE_SWAP[mm.group(0).lower()], c)
+               for c in reversed(clauses)]
+    return ", then ".join(swapped)
+
+
+def apply_reverse_background_lock(moments: list[dict], reverse_pairs: dict) -> int:
+    """L16 REPAIR LEG (A REVERSE ANGLE CHANGES THE BACKGROUND) — COMPUTED,
+    not baked prose. reverse_pairs ({setup_id: reverse_partner_id}, both
+    directions — parse_reverse_setup_pairs) reads the ONE place this
+    relationship is genuinely authored: the [SETUPS|...] line's own "the
+    matched reverse of X" phrasing. WHICH setup reverses WHICH is therefore
+    a COMPUTED FACT here, never re-typed or re-guessed per shot — exactly
+    what BOARD-PLANNER-ARCHITECTURE.md names as the target for this law
+    ("Backgrounds follow from camera position (L16)"). Every shot drawn
+    from a setup with a known reverse partner (matched by its FULL compound
+    id, e.g. "B-CU", or falling back to its BASE family, e.g. "B" — a
+    size-variant shares its family's exact background/axis, so it inherits
+    the same reverse relationship) gets a FIXED, code-written anti-
+    carryover instruction. The actual background CONTENT is still the
+    planner's/drawer's job — this stamp only forbids the one failure mode
+    L16's provenance recorded: one setup's background bleeding into its
+    reverse, or a front light source rendering as a visible object behind
+    the reverse camera. Empty reverse_pairs (no "matched reverse of" phrase
+    anywhere in this scene — legacy plans, or a scene with no reverse pair)
+    repairs nothing; L16 falls back to prose-only for that scene, same as
+    before this function existed."""
+    if not reverse_pairs:
+        return 0
+    n = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            sid = _setup_id(shot)
+            if not sid:
+                continue
+            partner = reverse_pairs.get(sid) or reverse_pairs.get(_setup_base_id(sid))
+            if not partner:
+                continue
+            tail = (
+                f"Reverse-angle background lock (computed): this camera SETUP {sid} is the "
+                f"matched reverse of SETUP {partner}. Whatever sits behind the subject in "
+                f"SETUP {partner} must NOT reappear behind them here — state what genuinely "
+                f"sits behind the subject from THIS camera position. If SETUP {partner}'s light "
+                f"source or screen sat in FRONT of that camera, it is now BEHIND THIS camera "
+                f"instead: it lights the subject's face here, it is never a visible object in "
+                f"this frame.")
+            shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+            n += 1
+    return n
+
+
+def apply_group_arrangement_lock(moments: list[dict], reverse_pairs: dict) -> int:
+    """L17 + L22 REPAIR LEG (LOCK THE HEADCOUNT + STATE GROUP ARRANGEMENT
+    PER CAMERA POSITION — always paired in BOARD-LAWS.md rule 18). The
+    FIRST shot in scene order that states a group's headcount AND its
+    arrangement (passes check_group_arrangement_stated's positive case)
+    becomes this scene's CANONICAL arrangement statement, persisted onto
+    that shot's own shot["group_arrangement"]. Every LATER shot naming the
+    same kind of group with no arrangement of its own is repaired one of
+    two ways:
+
+    1. COMPUTED FLIP (preferred — L22's actual "computed" target): if the
+       shot's own camera SETUP is the reverse_pairs partner of the
+       establishing shot's setup, compute_reverse_arrangement() mechanically
+       reverses the canonical order and swaps frame-left/frame-right.
+    2. BAKED REPEAT (fallback): same-side setups, an undetermined reverse
+       relationship, or arrangement text that doesn't parse into an
+       orderable list — the canonical statement is repeated verbatim. Still
+       closes the L17 drift gap (the count survives) even when L22's flip
+       can't be computed.
+
+    Every repaired shot's computed/repeated text is ALSO written onto
+    shot["group_arrangement"] (migration 143's assets.group_arrangement
+    column, persisted by store_scene) — not just baked into the image
+    prompt. A scene where no shot ever states a canonical arrangement
+    repairs nothing; check_headcount_stated/check_group_arrangement_stated
+    still flag that honestly. Returns the number of shots repaired (the
+    establishing shot itself is not counted — it needed no repair)."""
+    canonical = None          # the establishing shot's full arrangement clause
+    canonical_setup = None    # its SETUP id, for reverse-pair lookup
+    n = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            has_group = bool(_GROUP_NOUN_RE.search(desc))
+            has_number = bool(_NUMBER_TOKEN_RE.search(desc))
+            has_arrangement = bool(_ARRANGEMENT_TERM_RE.search(desc))
+            if has_group and has_number and has_arrangement:
+                clause = _extract_arrangement_clause(desc) or desc.strip()
+                if canonical is None:
+                    canonical = clause
+                    canonical_setup = _setup_id(shot)
+                shot["group_arrangement"] = clause
+                continue
+            if not (has_group and canonical):
+                continue
+            sid = _setup_id(shot)
+            is_reverse_of_canonical = bool(
+                canonical_setup and sid and (
+                    reverse_pairs.get(sid) == canonical_setup
+                    or reverse_pairs.get(_setup_base_id(sid)) == canonical_setup
+                )
+            )
+            flipped = compute_reverse_arrangement(canonical) if is_reverse_of_canonical else None
+            if flipped:
+                tail = (f"Group arrangement lock (computed — this SETUP is the reverse of the "
+                        f"establishing shot's SETUP {canonical_setup}, order flipped): {flipped}.")
+                shot["group_arrangement"] = flipped
+            else:
+                tail = (f"Group arrangement lock: same headcount and arrangement as established "
+                        f"elsewhere in this scene — {canonical}.")
+                shot["group_arrangement"] = canonical
+            shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+            n += 1
+    return n
+
+
+def apply_population_lock(moments: list[dict]) -> int:
+    """L12 REPAIR LEG (SPECIFY THE POPULATION): the FIRST shot in scene
+    order whose description names a group AND carries population-
+    description language (_POPULATION_DESC_RE — clothing/posture/shadow/
+    depth terms) is captured as this scene's canonical population statement.
+    Every LATER shot naming a group with no descriptive language of its own
+    gets that canonical statement repeated — the same "declare once, stamp
+    everywhere" pattern as the SET-dressing lock, applied to the specific
+    fact L12 is about (what the background people look like), never a fresh
+    invention."""
+    canonical = None
+    n = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if not _GROUP_NOUN_RE.search(desc):
+                continue
+            if _POPULATION_DESC_RE.search(desc):
+                if canonical is None:
+                    canonical = desc.strip()
+            elif canonical:
+                tail = (f"Population lock: the background population's look is fixed for this "
+                        f"whole scene, matching how it was established elsewhere: "
+                        f"\"{canonical[:220]}\"")
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {tail}"
+                n += 1
+    return n
+
+
+_ATTENTION_LOCK_TAIL = (
+    "Attention-vs-orientation lock: if this is a shift of ATTENTION rather than a full "
+    "re-stage, state explicitly what stays FIXED (chair, hips, feet, the direction already "
+    "established) and what MOVES (head, shoulders, gaze) — a partial turn must never read as "
+    "the whole body and chair re-staging.")
+
+
+def apply_attention_orientation_lock(moments: list[dict]) -> int:
+    """L15 REPAIR LEG: every shot check_attention_orientation_stated's same
+    heuristic would flag gets the law's own requirement stamped onto its
+    OWN description as a fixed instructional reminder — the SAME pattern
+    the existing FACING LOCK (facing_tail, in run_coverage below) already
+    uses: a fixed, code-written sentence, not scene-specific content, so it
+    can't be paraphrased away and survives a redraw baked into
+    image_prompt."""
+    n = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if _ATTENTION_SHIFT_RE.search(desc) and not _FIXED_ANCHOR_STATED_RE.search(desc):
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {_ATTENTION_LOCK_TAIL}"
+                n += 1
+    return n
+
+
+_POV_LOCK_TAIL = (
+    "Diegetic POV lock: this is a NEUTRAL setup occupying the in-story device's own "
+    "position — the eyes go DIRECTLY into camera with no three-quarter softening, no "
+    "flinch, no glance-away, and the device's own housing (lens casing, mirror frame) is "
+    "never visible from inside itself.")
+
+
+def apply_pov_diegetic_lock(moments: list[dict]) -> int:
+    """L19 REPAIR LEG (DIEGETIC CAMERA POV): every shot the existing
+    check_pov_setup_neutral_and_into_camera gate would flag (POV setup
+    language present, NEUTRAL or into-camera term missing) gets the law's
+    own requirement stamped as a fixed reminder — same FACING-LOCK-style
+    pattern as apply_attention_orientation_lock above."""
+    n = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            desc = shot.get("description") or ""
+            if not _POV_SETUP_TERM_RE.search(desc):
+                continue
+            if "NEUTRAL" not in desc.upper() or not _INTO_CAMERA_RE.search(desc):
+                shot["description"] = f"{shot['description'].rstrip('. ')}. {_POV_LOCK_TAIL}"
+                n += 1
+    return n
 
 
 def _flatten_shots(moments: list) -> list[dict]:
@@ -2579,7 +3018,15 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                # C3 item 4: None for a speaking master (stamp_shot_durations
                # skips it on purpose — its length comes from measured speech
                # at assemble time, never this table).
-               "duration_seconds": m.get("duration_seconds")}]
+               "duration_seconds": m.get("duration_seconds"),
+               # D6-2 (migration 143): the per-shot location/arrangement
+               # signals stamped onto the shot dict by run_coverage's
+               # persist + L17/L22 repair-leg blocks — threaded through here
+               # so store_scene can write them into assets.shot_location /
+               # assets.group_arrangement. None for a shot with no group/
+               # location signal, unchanged from before this column existed.
+               "shot_location": m.get("shot_location"),
+               "group_arrangement": m.get("group_arrangement")}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -2597,7 +3044,10 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                 "camera_move": a.get("camera_move"), "routed_model": a.get("routed_model"),
                 "routing_reason": a.get("routing_reason"), "url": url,
                 "image_model": model_used,
-                "duration_seconds": a.get("duration_seconds")} if url else None
+                "duration_seconds": a.get("duration_seconds"),
+                # D6-2 (migration 143) — see the master frame's dict above.
+                "shot_location": a.get("shot_location"),
+                "group_arrangement": a.get("group_arrangement")} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -2805,6 +3255,61 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     check_nested_frame_content_specified(moments)
     check_pov_setup_neutral_and_into_camera(moments)
     check_no_caption_leaking_labels(moments)
+    # D6-2 NEW gates — L12, L15, L18 previously had no gate at all. Same
+    # warning-only discipline as every check_* above.
+    check_population_specified(moments)
+    check_attention_orientation_stated(moments)
+    check_discovery_object_unremarked(moments)
+
+    # D6-2 (migration 143, storyengine/backend/migrations/143_per_shot_
+    # location_and_arrangement.sql): persist the per-moment location — which
+    # already lives in memory (moment["location"], set by parse_coverage
+    # from the "LOCATION: <name> |" moment-header prefix) but until now was
+    # only ever baked into prose (the LOCSET set-dressing tail below), never
+    # carried on the shot dict itself so nothing downstream could persist it
+    # as data — onto every shot so generate_coverage_frames/store_scene can
+    # write it into the new assets.shot_location column. Loss-free: a
+    # single-location scene's moments carry location=None, unchanged.
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            shot["shot_location"] = m.get("location")
+
+    # D6-2 REPAIR LEGS — BOARD-LAWS.md L11/L12/L15/L16/L17/L19/L22 (see the
+    # big comment block above apply_nested_frame_content_lock for the full
+    # rationale). Run here, on the SAME freshly-parsed, pre-lock-tail
+    # descriptions as the gates just above — identical ordering reasoning.
+    _reverse_setup_pairs = parse_reverse_setup_pairs(parse_setups_line(directive_text))
+    n_reverse_bg = apply_reverse_background_lock(moments, _reverse_setup_pairs)
+    if n_reverse_bg:
+        print(f"  🔄 reverse-angle background lock applied to {n_reverse_bg} shot(s) "
+              "(L16, computed)", flush=True)
+    n_arrangement = apply_group_arrangement_lock(moments, _reverse_setup_pairs)
+    if n_arrangement:
+        print(f"  👥 group-arrangement lock applied to {n_arrangement} shot(s) (L17/L22)",
+              flush=True)
+    n_nested = apply_nested_frame_content_lock(moments)
+    if n_nested:
+        print(f"  🖥️ nested-frame content lock applied to {n_nested} shot(s) (L11)", flush=True)
+    n_population = apply_population_lock(moments)
+    if n_population:
+        print(f"  👤 population lock applied to {n_population} shot(s) (L12)", flush=True)
+    n_attention = apply_attention_orientation_lock(moments)
+    if n_attention:
+        print(f"  🎯 attention-orientation lock applied to {n_attention} shot(s) (L15)", flush=True)
+    n_pov = apply_pov_diegetic_lock(moments)
+    if n_pov:
+        print(f"  📷 diegetic-POV lock applied to {n_pov} shot(s) (L19)", flush=True)
+    # L18 (A DISCOVERY OBJECT IS PLANTED WITHOUT BEING ANNOUNCED) deliberately
+    # gets NO repair leg here — see check_discovery_object_unremarked's
+    # docstring above. The fact it protects (an object staying un-emphasized
+    # until its notice beat) is one-off narrative content specific to a
+    # single moment, not a scene-wide constant that can be captured once and
+    # repeated the way SET dressing, a population description or a headcount
+    # can — and a naive "never change" stamp would directly contradict rule
+    # 19's own instruction that shot size legitimately changes as coverage
+    # moves in ("the SHOT SIZE changes... the OBJECT never does"). PROMPT
+    # (rule 19) + GATE only; admitted honestly in this chunk's commit
+    # message rather than pretending a repair exists.
 
     # SET-DRESSING LOCK: the planner declares the scene's fixed props once on the
     # [SET | ...] line; stamp it into EVERY shot's image prompt. Per-shot prompts

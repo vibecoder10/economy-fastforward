@@ -1117,3 +1117,101 @@ RECIPE:
     whose sheet preview shows the canonical map correctly can still have its real
     drawn pictures stamped with the LLM's paraphrase instead. This is the
     concrete "where I would split it" boundary for a D6-1b follow-up.
+
+## D6-2 — repair stamps + deterministic assembly for L11/L12/L15/L16/L17/L18/L19/L22 (2026-07-30)
+
+Migration 143 (`assets.shot_location`, `assets.group_arrangement`), seven new
+`apply_*` repair-leg functions in `skills/video-pipeline/storyboard/coverage.py`
+(nested-frame content, population, group-arrangement/reverse-background —
+computed — attention-orientation, diegetic-POV), three new warning-only gates
+(L12, L15, L18), and the `redraw_asset_image` fresh-re-derivation extension for
+L16/L22 were all proven at unit/function level (23 new coverage.py tests +
+4 new redraw-level tests, zero spend, no DB) — see the D6-2 chunk report for the
+full per-law route table and the stash-proof result (a real ASSERTION failure
+with the implementation stashed, not an ImportError).
+
+### 1. Migration 143 — never applied to any real database
+PROOF LEVEL REACHED IN SANDBOX: static review only (idempotent `ALTER TABLE ...
+ADD COLUMN IF NOT EXISTS` + `COMMENT ON COLUMN`, byte-identical shape to
+migrations 115/140/142) plus a LIVE, free confirmation against prod via
+`se db "SELECT column_name FROM information_schema.columns WHERE
+table_name='assets' AND column_name IN ('shot_location','group_arrangement');"`
+— returned 0 rows, confirming neither column exists yet and migration 143 is
+genuinely free to apply. No local Postgres was available in this worktree/
+session to actually RUN the migration, and prod is off-limits per this chunk's
+zero-spend constraint.
+NOT PROVEN: the migration runs clean against the real schema (only static
+review + the negative existence check above), or that assets rows written by
+`store_scene` actually populate the two new columns end to end against a real
+insert.
+RECIPE:
+  1. `se db "SELECT column_name FROM information_schema.columns WHERE
+     table_name='assets' AND column_name IN ('shot_location','group_arrangement');"`
+     — expect 0 rows (confirmed above, re-run to catch drift before applying).
+  2. Apply `storyengine/backend/migrations/143_per_shot_location_and_arrangement.sql`
+     through this project's normal migration runner (NOT raw `se db`, which is
+     SELECT-only per this chunk's cost cap) in a real deploy.
+  3. `se db "SELECT shot_location, group_arrangement FROM assets LIMIT 5;"` —
+     expect both NULL for every existing row (the "existing videos keep working
+     with NULLs" contract), not an error.
+  4. Generate coverage frames for one NEW scene that has a genuine reverse-setup
+     pair (a `[SETUPS|...]` line containing "the matched reverse of X" — the
+     planner writes this per the existing rule 17/L16 system-prompt text, so a
+     scene with 2+ opposing camera angles on a group is likely to produce one
+     naturally; not guaranteed on any single try). EXPECTED: `se db "SELECT
+     image_index, shot_location, group_arrangement FROM assets WHERE video_id=
+     '<new video>' AND scene=<N> ORDER BY image_index;"` shows a non-NULL
+     `group_arrangement` on the establishing shot and its reverse, with the
+     reverse's text carrying flipped frame-left/frame-right tokens.
+
+### 2. A real single-shot redraw of an OLD (pre-143) row on a live video — never run
+PROOF LEVEL REACHED IN SANDBOX: the decisive test (`storyengine/backend/tests/
+functional/test_d6_2_repair_stamps.py`) proves the prompt-construction path with
+a MOCKED database row shaped exactly like a legacy asset (no reverse-background
+stamp baked in, `group_arrangement` populated only via the new column) — this is
+the strongest proof available without spend, but it is still a synthetic fixture,
+not a real row.
+NOT PROVEN: a REAL pre-143 asset row (e.g. one of the frozen 686b4651 scene-1
+rows — READ-ONLY, must never be redrawn per this chunk's hard constraint) run
+through the real `redraw_asset_image` end to end with a real ~$0.05 GPT Image 2
+call, confirming the emitted prompt visibly carries the fresh L16/L22 text and
+that the drawn picture doesn't regress on any OTHER law this chunk didn't touch.
+RECIPE (needs Ryan's go — real spend):
+  1. Pick a NEW (non-686b4651) video with an existing scene that has a
+     reverse-setup pair and at least one group shot.
+  2. Temporarily log the exact composed prompt in `redraw_asset_image` (no
+     existing log surfaces it) or capture it via a debugger/print before the
+     `generate_scene_image_for_model` call.
+  3. Call the redraw route for one non-master shot in that scene (~$0.05).
+  4. EXPECTED: the logged prompt contains "matched reverse of SETUP" (if that
+     shot's setup has a partner) and/or "Group arrangement (canonical): ..."
+     text pulled from `assets.group_arrangement`, and the drawn picture is
+     judged against BOARD-LAWS.md the normal way (per-shot purpose, axis,
+     facing).
+
+### 3. Known, documented (not silently hidden) gaps — not bugs, just unclosed
+  - **L18 (A DISCOVERY OBJECT IS PLANTED WITHOUT BEING ANNOUNCED) has NO repair
+    leg**, by design — admitted in `check_discovery_object_unremarked`'s
+    docstring and the D6-2 commit message. The fact it protects (an object
+    staying un-emphasized until its notice beat) is one-off narrative content
+    specific to a single moment, not a scene-wide constant that can be captured
+    once and repeated the way SET dressing or a headcount can; a naive stamp
+    would contradict rule 19's own "shot size legitimately changes as coverage
+    moves in" instruction. It got a NEW warning-only gate instead.
+  - **`run_coverage`'s real PICTURES path still stamps [MATERIAL|...] from the
+    planner's own LLM text, never the canonical `video_environments.material_map`
+    column** — this is D6-1c, a pre-existing, separately tracked gap this chunk
+    did not touch (it lives in the exact same function this chunk edited, but is
+    out of scope for D6-2's mandate).
+  - The L16/L22 computed flip (`compute_reverse_arrangement`) is a MECHANICAL
+    clause-reversal + frame-side swap, not a semantic rewrite — on a long or
+    grammatically unusual arrangement sentence the flipped prose can read
+    awkwardly (verified live: a 6-clause fixture produced a technically-correct
+    but clunky flipped sentence — see the D6-2 chunk report for the exact
+    output). The ORDER and SIDES are always correct; the PROSE QUALITY is not
+    guaranteed elegant. Never silently wrong, just occasionally ugly — the
+    honest tradeoff of preferring a real computation over a second LLM call.
+  - L18's new gate (`check_discovery_object_unremarked`) is SCENE-scoped, not
+    per-shot: it cannot confirm the emphasis lands on the same object or
+    appears strictly before the notice beat (no per-shot object identity exists
+    in today's schema) — it only flags the higher-level co-occurrence.
