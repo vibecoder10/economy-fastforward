@@ -145,13 +145,13 @@ def test_plan_sheet_prompts_end_to_end_omits_claim_with_no_cast_refs():
 
 # =============================================================================
 # L3 gate — every panel location must have a canonical set entry
+#
+# D6-1b (independent-verifier finding #2): superseded by
+# test_d6_1b_gate_scope_and_honest_status.py's L3 section, which is the
+# up-to-date acceptance test for the canonicalized, warning-fallback
+# version of this gate. Kept here only for the two behaviors that did NOT
+# change (exact match still passes silently, normalization still works).
 # =============================================================================
-
-def test_l3_gate_raises_when_panel_location_has_no_matching_locset():
-    moments = [{"moment_number": 1, "location": "Corridor",
-               "master": {"shot_type": "WS", "description": "test"}, "angles": []}]
-    with pytest.raises(SheetPromptContractViolation, match="L3"):
-        _plan_sheet_prompts(moments, "style", location_sets={"Pod": "pod set text"})
 
 
 def test_l3_gate_passes_when_every_location_matches():

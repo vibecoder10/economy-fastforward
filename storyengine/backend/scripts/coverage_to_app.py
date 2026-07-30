@@ -1872,7 +1872,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
                         character_line: str = "", location_sets: Optional[dict] = None,
                         material_line: str = "", motion_scene: bool = False,
                         incoming: Optional[dict] = None, outgoing: Optional[dict] = None,
-                        has_cast_refs: bool = False) -> list[str]:
+                        has_cast_refs: bool = False,
+                        canonical_envs: Optional[list] = None) -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     into BALANCED sheets of ≤panels_per_sheet via sheet_chunk_sizes (pass
@@ -1917,23 +1918,47 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         ONLY thing that decides whether _sheet_header's reference-image
         clause is written. Defaults to False (never claim unless proven),
         which is the safe direction for L28.
+      canonical_envs (L3, D6-1b): the video's approved video_environments
+        rows (same shape _approved_envs returns — needs a "name" key at
+        minimum). Used ONLY by the L3 location gate below to upgrade a
+        prose-vs-prose mismatch into a prose-vs-canonical match before
+        deciding whether to raise. Defaults to None/[] — a caller that
+        never passes it gets the D6-1 behavior unchanged (LOCSET-only
+        matching), which is still correct for legacy callers that have no
+        approved environments to check against.
 
-    D6-1 hard gates (raise SheetPromptContractViolation, never a print-and-
-    continue warning): every location a panel names must have a matching
-    LOCSET entry (L3, checked below before any prompt text is built — the
-    cheapest point to catch a planner slip that would silently drop a
-    prompt's location scoping) and every assembled chunk's text passes
-    _assert_single_style_declaration (L29) and _assert_no_unattached_claims
-    for cast refs (L28) before being appended to the returned list."""
+    D6-1b (independent-verifier fix): the L3 gate no longer HARD-RAISES on
+    a bare LOCSET-name mismatch, because both sides of that comparison
+    (a moment's `location` and a [LOCSET|name|...] key) are free prose
+    written independently by the SAME planner LLM — "Diner Interior" vs
+    "The Diner" is a paraphrase, not a real scoping gap, and a hard raise
+    on paraphrase would block real boards. The gate now checks THREE tiers
+    for each location a panel references, in order: (1) an exact-enough
+    LOCSET key match (unchanged, the common case); (2) a match against a
+    CANONICAL video_environments.name in canonical_envs (this chunk's
+    whole point — turn a prose-vs-prose comparison into a prose-vs-
+    canonical one, matched with the same _norm_env_text normalizer
+    _match_scene_env already uses); only when NEITHER matches is (3) a
+    genuine gap with nothing canonical to fall back on — and even then
+    this is a LOUD WARNING (printed), never a hard raise, because a gate is
+    only allowed to be hard when the thing it compares against is
+    canonical, and prose-vs-prose is not that. L28/L29 stay hard raises
+    below — they compare against a boolean the caller PROVED true/false,
+    not against another free-text guess."""
     if location_sets:
         _loc_keys_norm = {_norm_env_text(k) for k in location_sets}
+        _env_names_norm = {_norm_env_text(e.get("name") or "") for e in (canonical_envs or [])
+                           if e.get("name")}
         _referenced = {m.get("location") for m in moments if m.get("location")}
-        _missing = sorted(loc for loc in _referenced if _norm_env_text(loc) not in _loc_keys_norm)
-        if _missing:
-            raise SheetPromptContractViolation(
-                f"L3 (LOCATION SCOPING): panel(s) reference location(s) {_missing} with no "
-                f"matching canonical set entry among {sorted(location_sets)} — every location "
-                "a panel names must have a defined set.")
+        _unmatched_locset = sorted(loc for loc in _referenced if _norm_env_text(loc) not in _loc_keys_norm)
+        _no_canonical_either = sorted(loc for loc in _unmatched_locset
+                                      if _norm_env_text(loc) not in _env_names_norm)
+        if _no_canonical_either:
+            print(f"  ⚠️ L3 (LOCATION SCOPING): panel(s) reference location(s) "
+                  f"{_no_canonical_either} with no matching LOCSET entry among "
+                  f"{sorted(location_sets)} AND no matching canonical video_environments "
+                  "record — nothing canonical to verify against, so this is a warning, not "
+                  "a block. Consider approving an environment for this location.", flush=True)
     def _trunc(s, n):
         # Word-boundary cut with an ellipsis. A hard slice amputates mid-word
         # ("Why didn'", "cream stove at ba") and the sheet drawer renders that
@@ -2085,12 +2110,9 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
             this_boundary += f"\n{format_boundary_blocks(incoming, None).strip()}\n"
         if outgoing and ci == len(chunks):
             this_boundary += f"\n{format_boundary_blocks(None, outgoing).strip()}\n"
-        chunk_prompt = (
-            _sheet_header(ci, len(chunks), len(chunk), style_line, variant=header_variant,
-                          has_cast_refs=has_cast_refs)
-            + f"{character_block}{set_block}{material_block}{axis_block}{setups_block}{this_boundary}"
-            "Draw these panels IN ORDER:\n"
-            + listed +
+        header_text = _sheet_header(ci, len(chunks), len(chunk), style_line, variant=header_variant,
+                                    has_cast_refs=has_cast_refs)
+        constraints_text = (
             "\nCONSTRAINTS: never swap which side of the frame a character occupies; never "
             "mirror or flip a panel; one action per panel; a panel may break the "
             "screen-direction lock only if its brief says NEUTRAL; never repeat an earlier "
@@ -2098,10 +2120,35 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
             "panel brief as ordinary prose, never as a labelled heading or a \"WORD: ...\" "
             "directive line — the caption strip below each panel shows ONLY its number and "
             "shot type, and nothing else ever appears there.")
-        # D6-1 hard gates (L29/L28-cast) — see this function's docstring.
+        chunk_prompt = (
+            header_text
+            + f"{character_block}{set_block}{material_block}{axis_block}{setups_block}{this_boundary}"
+            "Draw these panels IN ORDER:\n"
+            + listed
+            + constraints_text)
+        # D6-1b hard gates (L29/L28-cast) — see this function's docstring.
         # Raise here, before the prompt is even returned to the caller, so a
         # violation can never reach the paid draw call downstream.
-        _assert_single_style_declaration(chunk_prompt, style_line)
+        #
+        # L29 SCOPE FIX (D6-1b, independent-verifier finding): the style-
+        # keyword count runs ONLY over text the composer itself writes and
+        # fully controls — the header (style_line lives here), the
+        # CHARACTER/SET/MATERIAL blocks, and the CONSTRAINTS tail.
+        # Deliberately EXCLUDES axis_block, setups_block, this_boundary, and
+        # `listed` (the panel master/angle bodies) — all free English
+        # written by the planner LLM describing what a shot actually shows:
+        # "her face is animated with delight" (ordinary usage), "the CGI
+        # warning hologram flickers" / "an oil painting hangs above the
+        # fireplace" (legal set dressing), or L11's own required nested-
+        # screen content ("watches a cartoon... animated characters" — L11
+        # MANDATES describing a screen's content, so flagging that content
+        # as a style violation would make L11 and L29 contradict each
+        # other). A genuine second style claim always lands in composer-
+        # written text, because scene content is not framing language — the
+        # composer is the only thing that writes style/medium words on
+        # purpose.
+        _style_gate_text = header_text + character_block + set_block + material_block + constraints_text
+        _assert_single_style_declaration(_style_gate_text, style_line)
         _assert_no_unattached_claims(chunk_prompt, cast_refs=has_cast_refs)
         prompts.append(chunk_prompt)
     return prompts
@@ -2349,6 +2396,19 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     done = 0
     total_shots = 0
+    # D6-1b (independent-verifier finding #3 — "a raised gate reports
+    # success with zero boards drawn"): a SheetPromptContractViolation
+    # caught below used to just `continue` — no board attempt, no
+    # storyboard_errors entry, no `done` increment, and NOTHING recorded —
+    # so a scene blocked by a real L3/L28/L29 violation silently vanished
+    # from the final message, and routes/pipeline.py's _set_task_status
+    # reads status straight off this function's return value, so the UI
+    # showed COMPLETED with zero boards drawn. Tracked here so the final
+    # return can tell the truth: ALL scenes blocked -> "failed" with the
+    # violation text; SOME blocked -> "completed" but the message says so
+    # explicitly, never a bare "Storyboard ready for N scene(s)" that
+    # quietly undercounts.
+    blocked_scenes: list[tuple] = []
     for s in targets:
         sc = s["scene"]
         srow = await fetch_one(
@@ -2420,7 +2480,11 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             # D6-1 (L28): the honest truth about whether any character
             # reference actually reaches this scene's draw call — decides
             # _sheet_header's reference-image clause, never a guess.
-            has_cast_refs=bool(cast_refs))
+            has_cast_refs=bool(cast_refs),
+            # D6-1b (L3): the video's approved environments, so the location
+            # gate can upgrade a LOCSET-name paraphrase into a canonical
+            # match instead of blocking on prose-vs-prose disagreement.
+            canonical_envs=envs)
         # Computed ONCE here and reused below (never re-derived) so sheet
         # chunking (_plan_sheet_prompts, via _sheet_kwargs), the per-board
         # panel counts and the progress messages can never diverge. _sizes is
@@ -2446,6 +2510,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                 moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
         except SheetPromptContractViolation as _contract_exc:
             _p(f"Scene {sc}: board prompt failed a hard gate — {_contract_exc}")
+            blocked_scenes.append((sc, str(_contract_exc)))
             continue
         if beat is not None and not (1 <= beat <= len(prompts)):
             return {"status": "failed",
@@ -2628,7 +2693,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                             location_sets=_sweep_location_sets,
                             material_line=_sweep_material,
                             motion_scene=scene_has_motion(moments, _sweep_location_sets),
-                            has_cast_refs=bool(cast_refs))
+                            has_cast_refs=bool(cast_refs),
+                            canonical_envs=envs)
                         try:
                             prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
                             prompts_fallback = _plan_sheet_prompts(
@@ -2693,6 +2759,34 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                f"first {_previewed} on {ok} board(s){sweep_note}")
         else:
             _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s){sweep_note}")
+    # D6-1b: honest status/message when one or more scenes were blocked by a
+    # hard gate (SheetPromptContractViolation) before any board was even
+    # attempted for them — see blocked_scenes' own comment above. Same
+    # three-way shape redraw_asset_images already uses for partial success
+    # (line ~3120: "completed" if redrawn or not failed else "failed").
+    if blocked_scenes:
+        _blocked_detail = "; ".join(f"scene {n}: {msg}" for n, msg in blocked_scenes)
+        if done == 0:
+            # ALL scenes blocked — nothing was drawn or even planned. This
+            # must not read as "completed": routes/pipeline.py's
+            # _set_task_status takes its status straight from this dict, and
+            # a "completed" here would show the creator a green checkmark
+            # over zero boards.
+            return {"status": "failed",
+                    "error": f"{len(blocked_scenes)} scene(s) blocked by a hard gate, "
+                             f"no boards drawn — {_blocked_detail}",
+                    "message": f"{len(blocked_scenes)} scene(s) blocked by a hard gate, "
+                               f"no boards drawn — {_blocked_detail}"}
+        # PARTIAL success: some scenes genuinely drew, others were blocked.
+        # Say so explicitly rather than a bare "Storyboard ready for N
+        # scene(s)" that would silently undercount without explaining why.
+        base = (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), nothing drawn. "
+               "Review the plan, then draw boards one at a time." if plan_only else
+               f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
+               "Review the sheets; 'Generate pictures' draws exactly this plan.")
+        return {"status": "completed",
+                "message": f"{base} {len(blocked_scenes)} scene(s) blocked by a hard gate and "
+                           f"got NO boards — {_blocked_detail}"}
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
