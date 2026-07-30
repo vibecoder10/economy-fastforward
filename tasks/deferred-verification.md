@@ -1662,3 +1662,164 @@ have to already know or infer, not a value it can look up from what it's shown; 
 `check_shot_dp_valid`'s WARN-only posture should be promoted to a hard gate once a track record
 exists (explicitly flagged as hard-eligible under Ruling 1 in the check's own docstring for all
 three checkable facts, but promotion is a separate, deliberate call, not automatic).
+
+
+## D9-3 environment-lock harvest (branch `d9-3-environment-locks`) — apply migration 152 on next deploy window; RE-APPROVE environments so the locks actually populate (populate-or-inert trap, same shape as D9-2)
+
+**Built and tested in a worktree only — migration 152 was NOT applied to prod this session**
+(no prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every
+prior migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file
+error). Same shape as D9-2 (migration 151, character locks): these three columns populate ONLY at
+environment-APPROVAL time — every existing environment row has NULL locks today, and stays NULL
+forever unless its video's environments are re-approved. The canonical branch in
+`_canonical_environment_locks_line`/`redraw_asset_image` never runs on a single real video until
+that happens. The deploy-window recipe below MUST include a re-approval step, not just a migration
+check — and per this chunk's own brief, it must specifically cover video
+8d90df90-be0f-4328-b9d3-20f6bb5b71a6 (tenant ee93e6d1)'s three environments (Pod, Corridor, Elite
+Viewing Hall — the same video D6-6b's material_map location-matching fix was proven against):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+se logs backend 200 | grep "152_environment_locks"
+# Expect: "Migration applied: 152_environment_locks.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '152_environment_locks.sql'"
+# Expect exactly 1 row.
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'video_environments' \
+  AND column_name IN ('architecture_lock', 'lighting_time_weather_lock', 'palette_lock')"
+# Expect 3 rows.
+
+# 4. THE POPULATE-OR-INERT TRAP: confirm today's rows are NULL (expected, not a bug)
+se db "SELECT id, name, architecture_lock, lighting_time_weather_lock, palette_lock \
+  FROM video_environments WHERE video_id='8d90df90-be0f-4328-b9d3-20f6bb5b71a6'"
+# Expect all three NULL for every row (Pod, Corridor, Elite Viewing Hall) — proves nothing yet,
+# this is the baseline.
+
+# 5. Re-approve that video's environments (Environments tab -> "Approve environments" again; this
+#    re-runs the SAME vision pass that already exists in prod today (the description-refresh
+#    call), now with the extended labeled prompt — no NEW paid call is introduced beyond what
+#    approval already costs; the prop-manifest extraction is a separate call, unaffected). Then
+#    re-check:
+se db "SELECT id, name, architecture_lock, lighting_time_weather_lock, palette_lock \
+  FROM video_environments WHERE video_id='8d90df90-be0f-4328-b9d3-20f6bb5b71a6'"
+# Expect architecture_lock/lighting_time_weather_lock/palette_lock populated for whichever
+# environments' vision call succeeded and followed the labeled format. An environment with all
+# three still NULL after this step means the vision reply didn't follow the labeled format that
+# pass — check `se logs backend` for "[environments] D9-3 lock extraction partial for <name>"
+# (this chunk's own warning) to confirm it degraded loudly rather than silently.
+
+# 6. Plan (free) or draw (paid — confirm cost with Ryan first) that video's storyboard for a scene
+#    set in a re-approved location, and confirm the assembled sheet-prompt text actually carries
+#    an "ENVIRONMENT LOCKS — fixed for this whole set: ..." block with the exact lock text stored
+#    in step 5. The D6-1 board-laws evidence at tasks/evidence/d6-6a-dryrun/sheet-preview_scene1_*
+#    .txt shows this project already has a free way to dump the assembled sheet-prompt text for
+#    review before any paid draw — reuse that path. This is the one step this chunk could not run
+#    itself (no live prod DB access from this Mac — same gap D9-2's entry logged) and is the
+#    strongest remaining proof gap: every consumer of `_env_locks_text`/
+#    `_canonical_environment_locks_line` is unit-tested against synthetic rows, but no test here
+#    proves a REAL re-approval's extracted text survives unchanged into a REAL assembled prompt
+#    end to end.
+```
+
+**Scope call, stated plainly — the FINAL COVERAGE PICTURE batch path is NOT wired to these locks
+in this chunk.** `_canonical_material_line`'s two production callers inside
+`scripts/coverage_to_app.py` (the initial board-sheet-preview plan and its sweep/escalation
+re-plan) both got an `env_locks_line` sibling this chunk, feeding a new `ENVIRONMENT LOCKS` block
+into `_plan_sheet_prompts` — that covers "board... prompts" per the brief. For "final-picture
+prompts", the ONLY final-picture composer that lives inside `coverage_to_app.py` itself is
+`redraw_asset_image`'s repair leg (the material_map REPAIR LEG's exact sibling, now also emitting
+an "Environment locks, fixed for this whole set: ..." clause). The FIRST-DRAW final-picture batch
+path (`generate_coverage_for_video`'s call to `run_coverage()`) delegates its own prompt
+composition entirely to `skills/video-pipeline/storyboard/coverage.py`, which this chunk's brief
+explicitly forbade touching (another worker's region). That module already has its own "MATERIAL
+MAP LOCK" section reading `matched_env.get("material_map")` from the SAME `canonical_envs`/
+`matched_env` dicts `_approved_envs` now also populates with `architecture_lock`/
+`lighting_time_weather_lock`/`palette_lock` — so the DATA is already flowing into that call
+(`coverage_to_app.py:4709-4735`'s `canonical_envs=envs, matched_env=env`), but nothing in
+`coverage.py` reads the three new keys yet. Wiring that in is real, valuable follow-up work for
+whichever chunk next has clearance to edit `coverage.py`'s material-lock section — flagged here
+rather than silently left unstated.
+
+**No WARN drift check was added.** The brief asked for one "mirroring `check_material_map_
+consistency`'s shape if one fits naturally; skip if it doesn't — state your call." Grepped the
+whole backend (`story_laws.py`, `routes/*.py`) for that name and for any material_map-consistency
+WARN check: none exists anywhere in this codebase today — `story_laws.py` has exactly three
+`check_*` functions (`check_scene_location_law`, `check_location_transit_law`,
+`check_cast_consistency_law`), none of which compare a canonical field's text against anything.
+D9-2 (character locks, the direct sibling chunk this one templates from) made the identical call
+one chunk earlier: `forbidden_drift` is "STORED ONLY... not yet read by any prompt or the frame
+arbiter" with no drift check either, deferred to D9-4. Skipped here for the same reason —
+inventing a drift check against a function that doesn't exist would be building new law, not
+mirroring existing law, and the brief's own phrasing ("if one fits naturally") anticipated this.
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`storyengine/backend/tests/functional/test_d9_3_environment_locks.py` (24 tests, new) covers
+`_parse_environment_lock_reply` (full labeled reply, a reply missing one or more labels, a reply
+that ignores the format entirely — parses to `{}`, never raises — multi-line values, case
+insensitivity), `approve_environments`' background task with the vision call stubbed AND the
+separate `_extract_env_props` call stubbed to fail (isolating the lock-population assertions from
+the unrelated prop-manifest call): the happy path writes all three lock columns AND `description`
+in exactly ONE `UPDATE` (proving the "one call, not two" requirement at the SQL-write level, not
+just prompt level) while confirming the description/locks vision call itself only fires ONCE, a
+reply with no labels falls back to the exact pre-D9-3 whole-reply-as-description behavior and
+writes zero lock columns, a partial reply (some labels present, some missing) writes only the
+fields that parsed and leaves the others untouched (not nulled), a raising vision call degrades
+exactly as fail-soft as the pre-existing description-refresh pass, and the no-Claude-creds case
+skips the whole vision pass (zero calls) with approval still completing. `scripts/coverage_to_app
+.py`'s consumer side: `_env_locks_text` (join-skip-empty, mirrors `_locks_text`) tested for every
+presence combination, `_canonical_environment_locks_line` (mirrors `_canonical_material_line`
+exactly) tested for the single-location case, the multi-location/LOCSET case (one clause per
+location that has locks, a location with none simply omitted, never invented), the KEY backward-
+compat case (all-NULL locks -> "", proven directly), and the no-match case. `_approved_envs`
+proven to SELECT the three new columns and carry their values through unmodified. `_plan_sheet_
+prompts` proven to stamp locks VERBATIM into their own "ENVIRONMENT LOCKS" block positioned
+immediately after "MATERIAL MAP" (matching the concatenation order in the source), AND — the key
+NULL-locks byte-identical test — a call with `env_locks_line=""` produces OUTPUT BYTE-IDENTICAL to
+a call that never passes the parameter at all (`with_default == with_explicit_empty`, asserted
+directly), proving every pre-migration-152 call site is unaffected. All pre-existing tests in
+`test_c4_prop_manifest.py`, `test_money_safety_character_environment_metering.py`, and
+`test_d9_2_character_locks.py` pass unmodified (97 passed across the targeted `-k
+"environ or material or D6_1 or d6_1"` sweep). Real stash-proof (patch-file technique, never `git
+stash`, per tasks/lessons.md's fleet rule): `git diff` of the 3 modified files saved to a patch;
+the 2 new untracked files (migration + test) moved to the scratchpad; `git checkout --` on the 3
+tracked files reverted the tree to byte-identical pre-chunk state (confirmed via `git status
+--short` empty). Full backend suite (`/Users/ryanayler/economy-fastforward/storyengine/backend/
+venv/bin/python -m pytest tests/ -q`, the MAIN checkout's venv binary run against this WORKTREE's
+code) ran 29 failed / 4033 passed / 4 skipped reverted vs 29 failed / 4057 passed / 4 skipped
+applied — the +24 delta is exactly this chunk's own new test file; sorted FAILED-test-name sets
+diffed byte-identical (empty diff, exit 0) — the applied run's 29 failures are all in
+`test_custom_film_remotion.py` and `test_youtube_oauth_diagnostics.py`, pre-existing and untouched
+by this chunk. The patch then forward-applied cleanly (`git apply`, no conflicts) and the 2 new
+files were moved back, restoring the chunk exactly (`git status --short` confirmed identical to
+pre-revert). `schema.sql`'s `video_environments` table updated with the three new columns and
+comments cross-referencing migration 152 (note, matching D9-2's own honest flag: migration 142's
+`material_map` is ALSO still missing from `schema.sql`'s `video_environments` definition — a
+pre-existing drift from before D9-3 touched the table, left alone, same class of gap D9-1's and
+D9-2's entries above both flagged).
+
+**Diff confined to the environment/material canonical-insert region, per this chunk's own
+file-boundary rule** (another worker was in `coverage.py`'s narrative/pacing region and in
+`routes/characters.py` concurrently): `git diff --stat` shows exactly 3 files touched
+(`routes/environments.py` +123/-managed, `scripts/coverage_to_app.py` +110/-managed, `schema.sql`
++13) plus 2 new files (migration, test); every hunk in `coverage_to_app.py` sits inside
+`_approved_envs`, `_canonical_material_line`'s neighborhood, `_plan_sheet_prompts`,
+`generate_storyboard_sheet_for_scene`, or `redraw_asset_image` — confirmed via `git diff -- ... |
+grep "^@@"` showing only those five functions' line ranges, nothing in the narrative/pacing region
+and nothing in `characters.py`/`script_quality.py`/`pipeline_executor.py`/`skills/video-pipeline/**`.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether the extended vision prompt reliably produces the labeled format on a real, unseen reference
+image (prompt compliance is never provable from a parser unit test — steps 5-6 above are what
+that's for); a real re-approval's extracted architecture_lock/lighting_time_weather_lock/
+palette_lock text surviving unchanged into a REAL assembled board or final-picture prompt (step 6
+— the strongest remaining gap, no live DB access from this Mac); whether `coverage.py`'s own
+MATERIAL MAP LOCK section should be extended to also read the three new keys now flowing through
+`matched_env` (a real, valuable follow-up, out of scope per this chunk's file-boundary rule — see
+the scope call above); and whether skipping a WARN drift check entirely (no analogous check exists
+to mirror) is the right permanent posture once D9-4 (or a sibling chunk) revisits `forbidden_drift`
+consumption for characters — the two decisions should probably be made together, not separately.

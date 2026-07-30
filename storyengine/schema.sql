@@ -1361,6 +1361,19 @@ CREATE TABLE video_environments (
   source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
   sort INT DEFAULT 0,
   props JSONB,  -- migration 115: canonical {name, position} prop manifest, authored once at approval
+
+  -- D9-3 (migration 152, Custom Film EnvironmentLock harvest): extracted
+  -- from the approved reference pixels at environment-approval time
+  -- (approve_environments' existing vision pass, extended prompt). NULL
+  -- until populated; read VERBATIM into board/final-picture ENVIRONMENT
+  -- LOCKS blocks ahead of description's prose. geography_lock is NOT
+  -- harvested -- the L3 LOCATION SCOPING law already covers that ground.
+  -- (Note: migration 142's material_map is ALSO missing from this table
+  -- definition -- a pre-existing drift from before this chunk, left alone.)
+  architecture_lock TEXT,
+  lighting_time_weather_lock TEXT,
+  palette_lock TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
