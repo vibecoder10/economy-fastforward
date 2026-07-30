@@ -477,3 +477,142 @@ verb) once, then `se db "SELECT story_bible FROM videos WHERE id = '<video_id>'"
 JSON. **Cost: one Claude Sonnet call, ~$0.02-0.05** (per docs/cost-awareness.md's "Claude API
 (Sonnet) ~$0.01-0.05/call" line — no image/video/voice spend, this step is text-only) — quote
 this and get a yes before running it live.
+
+---
+
+## D9-6/D9-7 transition + causality harvest (branch `d9-67-transitions`) — apply migration 148 on next deploy window; confirm TRANSITION/CAUSED_BY rows actually show up in a real plan
+
+**Built and tested in a worktree only — migration 148 was NOT applied to prod this session** (no
+prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every prior
+migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file error) —
+the "deferred" part is confirming it actually landed AND that a real planner call actually emits
+the new TRANSITION/CAUSED_BY rows (a prompt-only change; no test in this chunk calls the real
+Claude API):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+se logs backend 200 | grep "148_shot_transition_causality"
+# Expect: "Migration applied: 148_shot_transition_causality.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '148_shot_transition_causality.sql'"
+# Expect exactly 1 row.
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'assets' \
+  AND column_name IN ('transition_kind', 'continuity_bridge', 'caused_by')"
+# Expect 3 rows.
+
+# 4. Plan ONE real scene's coverage (sheet-preview planning, no spend — Scenes page ->
+#    "plan the shots" / plan_only path) and read the raw directive.txt/coverage_directive
+#    back out:
+se db "SELECT coverage_directive FROM scripts WHERE video_id='<id>' AND scene=<n>"
+# Confirm the planner ACTUALLY wrote "TRANSITION: <kind> | <bridge>" and "CAUSED_BY: M<n>-..."
+# rows under real MASTER/ANGLE lines, in ADDITION to D9-1's PURPOSE rows — this chunk only
+# proves the PARSER handles the two new tags correctly if the LLM writes them; it does not
+# prove Claude reliably follows two brand-new prompt rules (25/26) stacked on top of an
+# existing one (24) on its first live call, or that it correctly derives the M<n>-MASTER/
+# M<n>-ANGLE<k> label format for a CAUSED_BY reference without being shown a worked example
+# beyond the prompt's own template. If TRANSITION/CAUSED_BY rows are sparse/absent/malformed
+# on a real plan, the four new WARN log lines ("shot-transition check (D9-6): ...", "shot-
+# transition-bridge check (D9-6): ...", "shot-causality check (D9-7): ...") should be showing
+# up in `se logs backend` around that plan's generation — confirms the WARN gates themselves
+# are live, even if prompt compliance needs a follow-up nudge. Pay particular attention to
+# whether Claude gets the CAUSED_BY label format right (M<n>-MASTER / M<n>-ANGLE<k>) — this is
+# the one place this chunk asks the planner to do something more structured than free prose,
+# and check_shot_causality_valid's "does this label exist / is it earlier" check depends on it
+# being syntactically exact.
+
+# 5. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and
+#    confirm the columns actually populate:
+se db "SELECT scene, image_index, transition_kind, continuity_bridge, caused_by FROM assets \
+  WHERE video_id='<id>' AND scene=<n> AND generation_method='coverage' ORDER BY image_index"
+# Expect transition_kind/caused_by populated (non-NULL) for shots whose rows survived step 4's
+# plan, continuity_bridge populated only for a non-continuous/non-opening kind that stated one,
+# NULL for any shot the planner didn't tag (floor-added REACTION/INSERT shots, or a plain miss,
+# or the scene's true first shot for caused_by specifically) — NULL here is not itself a bug,
+# see step 4.
+```
+
+**Grammar decision (documented here since it drives what step 4 above needs to confirm):** TWO
+separate trailing rows, `TRANSITION: <kind> | <bridge>` (rule 25) and `CAUSED_BY: <label>` (rule
+26) — not folded into one row, and not folded into D9-1's PURPOSE row. Each is independently
+optional, independently gated by its own warn check(s), and Custom Film itself keeps
+transition_from_previous/continuity_bridge and caused_by as separate ShotDraft fields — combining
+them would conflate distinct warn conditions behind one piece of text for no reduction in grammar
+surface. CAUSED_BY carries a SINGLE reference (not a tuple like Custom Film's `caused_by`): the
+flagship grammar has no LLM-assigned `shot_key` the way ShotDraft does, so the reference format
+taught here is a label the planner can derive purely from context already on the page —
+`M<moment_number>-MASTER` / `M<moment_number>-ANGLE<k>` — never a running global shot count it
+would have to track across the whole scene; one clear reference is more likely to be authored
+correctly than a list the planner has to keep internally consistent.
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d9_6_7_transition_causality.py` (29 tests) covers `parse_
+coverage`'s extraction of the per-shot `TRANSITION: <kind> | <bridge>` row (bridge optional,
+omitted entirely for "continuous") and `CAUSED_BY: <label>` row, independently and together with
+D9-1's PURPOSE row IN ANY ORDER the planner writes them (the decisive robustness property: a
+naive "check PURPOSE first" scan let PURPOSE's own `.+?` capture swallow trailing TRANSITION/
+CAUSED_BY rows whole before the fix — `_strip_shot_metadata_rows` now picks whichever candidate
+regex match starts LATEST in the current text each pass, peeling the true tail row first
+regardless of which of the three it is), the rows never surviving into the stored `description`,
+BACKWARD COMPATIBILITY against BOTH the legacy zero-metadata-row `SAMPLE` fixture (byte-identical
+shot_type/description, all five fields None) AND a synthesized D9-1-era fixture (PURPOSE rows
+present, TRANSITION/CAUSED_BY absent — the real shape of every plan generated between D9-1
+landing and this chunk landing), the four new WARN gates (`check_shot_transition_present`,
+`check_shot_transition_bridge_present` — including the "opening" exemption alongside
+"continuous", a deliberate refinement over the task brief's literal wording to faithfully mirror
+Custom Film's own model where an opening shot structurally never carries a bridge —
+`check_shot_causality_present`, `check_shot_causality_valid` — nonexistent-reference, forward-
+reference, and self-reference all correctly flagged, a correct earlier reference correctly
+silent), `generate_coverage_frames` threading all three new fields onto its frame dicts AND proof
+the bridge/caused_by text never reaches the actual image-generation prompt string (planted marker
+strings in both fields asserted absent from the prompt `_gen_ref` receives), `enforce_setup_
+variety`'s content-swap carrying transition_kind/continuity_bridge/caused_by along with shot_type/
+description/purpose_kind/shot_purpose (documented judgment call: these three describe WHY/HOW a
+specific piece of content cuts in and what it follows from, not a fact about the position it
+occupies, so they travel with content on a swap exactly like D9-1's purpose fields do — a known
+residual: since caused_by is a positional LABEL and enforce_setup_variety only trades within the
+same/adjacent moment, a swap can in rare cases leave a shot's caused_by pointing at itself or at
+the position it just vacated; `check_shot_causality_valid` catches this post-swap as an ordinary
+warn, by design, rather than needing a special case), and `plan_moments_deterministic` (the ONE
+shared parse->budget->floors->variety pipeline both the sheet-preview and real-pictures paths
+call) preserving all fields end to end including a floor-added filler shot correctly landing with
+none. `storyengine/backend/tests/functional/test_d9_6_7_transition_causality_stamp.py` (4 tests)
+proves `store_scene`'s INSERT stamps `transition_kind`/`continuity_bridge`/`caused_by` from a
+frame dict's fields (present, NULL-default, independently per-shot within one moment, and a
+non-continuous kind WITH a bridge stamping both) — same "store_scene is the one real stamping
+site" reasoning as D9-1 (re-confirmed by re-reading coverage_to_app.py, nothing changed about
+that). `storyengine/backend/tests/functional/test_d9_1_shot_purpose_stamp.py` was UPDATED (not
+left broken): this chunk's migration 148 appends three columns AFTER migration 147's purpose_kind/
+shot_purpose in the INSERT's column list, which shifted D9-1's own hardcoded `params[-2]`/
+`params[-1]` positional assertions off target (they silently started reading continuity_bridge/
+caused_by instead, or in one case still passed by coincidence since both new-and-old values were
+None) — caught by running D9-1's stamp test after this chunk's change, fixed to `params[-5]`/
+`params[-4]` (and `[-5:-3]` for the two-shots-in-one-moment test) with a comment explaining why,
+re-verified passing. Real stash-proof (patch-file technique, never `git stash`, per tasks/
+lessons.md's fleet rule): `git diff --cached` of the full chunk (all 7 touched/new files) saved to
+a patch, `git checkout --`/`rm` reverted the tree to byte-identical pre-chunk state (confirmed via
+`git status --porcelain` empty except for the untouched worktree baseline), pipeline suite
+(`test_board_laws.py` + `test_d6_2_repair_stamps.py` + `test_coverage.py` + `test_d9_1_shot_
+purpose.py`) back to 161/161 passing reverted, full backend suite (`./venv/bin/python -m pytest
+tests/ -q`, main checkout's venv binary against worktree code) 29 failed / 3904 passed / 4 skipped
+reverted — IDENTICAL to this chunk's own pre-change baseline capture, sorted FAILED-test-name sets
+diffed byte-identical (empty diff) — then the patch forward-applied cleanly (`git apply`, no
+conflicts) to restore the chunk; broader pipeline suite sweep (`tests/` minus two files with
+pre-existing, unrelated collection errors on main) also diffed clean: same 18 failed/3 errors on
+both main and this worktree, only the passed-count delta (+29) accounted for by this chunk's own
+new tests. `schema.sql`'s `assets` table updated with the 3 new columns, comment cross-referencing
+migration 148.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether Claude reliably follows the two new prompt rules (25/26) on a real, unseen scene, including
+whether it gets the CAUSED_BY label format (`M<n>-MASTER`/`M<n>-ANGLE<k>`) syntactically right
+without more than the prompt template as an example (prompt compliance is never provable from a
+parser unit test — that's what step 4 above is for); real `assets.transition_kind`/
+`continuity_bridge`/`caused_by` values landing from an actual paid coverage-picture draw; and
+whether the D12-2 render-layer consumption of `transition_kind` (explicitly out of scope for this
+chunk — data + warn checks only) will want the stored value in a different shape than "as
+authored, lowercased" once that chunk is built.

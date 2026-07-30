@@ -779,9 +779,10 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
                 "location_id, camera_movement, image_model, routed_model, routing_reason, "
-                "duration_seconds, shot_location, group_arrangement, purpose_kind, shot_purpose) "
+                "duration_seconds, shot_location, group_arrangement, purpose_kind, shot_purpose, "
+                "transition_kind, continuity_bridge, caused_by) "
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',"
-                "$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)",
+                "$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 # D3-62: image_prompt used to be hard-sliced to 1000 chars here —
                 # a copy-paste of the short-bio [:1000] convention used elsewhere
@@ -825,6 +826,13 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 # code-synthesized floor shot), unchanged from before this
                 # migration.
                 fr.get("purpose_kind"), fr.get("shot_purpose"),
+                # D9-6/D9-7 (migration 148): the per-shot transition/causality
+                # signals (coverage.py's parse_coverage, threaded through
+                # generate_coverage_frames' frame dicts) — None for the
+                # overwhelming majority of shots (planner didn't tag this
+                # one, or it's a code-synthesized floor shot), unchanged
+                # from before this migration.
+                fr.get("transition_kind"), fr.get("continuity_bridge"), fr.get("caused_by"),
                 # model_used (C13) stays NULL here — no INSERT column for it — until
                 # clip generation records which model actually ran this shot.
             )

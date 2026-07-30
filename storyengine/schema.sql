@@ -473,6 +473,16 @@ CREATE TABLE assets (
   purpose_kind TEXT,
   shot_purpose TEXT,
 
+  -- D9-6/D9-7 (migration 148, Custom Film director ShotDraft harvest,
+  -- second harvest chunk): per-shot cut-type + causality signals parsed
+  -- from the planner's own "TRANSITION: <kind> | <bridge>" and
+  -- "CAUSED_BY: <label>" rows (storyboard.coverage.parse_coverage). NULL
+  -- for a shot the planner didn't tag or a row generated before this
+  -- migration.
+  transition_kind TEXT,
+  continuity_bridge TEXT,
+  caused_by TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
