@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Optional
 
 import httpx
@@ -258,6 +259,70 @@ async def _generate_environment(api_key: str, description: str, style_dna: str, 
         "model": (res or {}).get("model") or "gpt-image-2",
         "task_id": task_ids[-1] if task_ids else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# D9-3 (migration 152, Custom Film EnvironmentLock harvest): the SAME vision
+# call approve_environments already ran to rewrite `description` from the
+# approved reference pixels, extended to also emit three narrower, more
+# BINDING facts, mirroring Custom Film's EnvironmentLock (custom_film_
+# director.py:176-197): architecture_lock (immutable structural facts),
+# lighting_time_weather_lock (the exact light/time/weather), palette_lock
+# (the fixed color palette). ONE call, ONE paid vision request per
+# environment — never two. Mirrors routes/characters.py's D9-2 harvest
+# (_CHARACTER_LOCK_VISION_PROMPT / _parse_character_lock_reply) exactly,
+# swapping the character-facing labels for location-facing ones.
+# ---------------------------------------------------------------------------
+
+_ENVIRONMENT_LOCK_LABELS = ("DESCRIPTION", "ARCHITECTURE_LOCK", "LIGHTING_TIME_WEATHER_LOCK", "PALETTE_LOCK")
+
+_ENVIRONMENT_LOCK_VISION_PROMPT = (
+    "Look at this reference image of the location {name} and answer in EXACTLY this labeled "
+    "format, one label per line (a value may wrap onto more than one line):\n\n"
+    "DESCRIPTION: 40-60 words describing EXACTLY how this location looks so an image "
+    "generator can redraw the SAME place — architecture, props, lighting, and time of day. "
+    "No preamble.\n"
+    "ARCHITECTURE_LOCK: one sentence of immutable structural facts that must NEVER change "
+    "across redraws — walls, floors, ceiling, and any fixed structural features or layout.\n"
+    "LIGHTING_TIME_WEATHER_LOCK: one sentence stating the EXACT lighting, time of day, and "
+    "weather visible — precise enough that a different generation run would redraw the "
+    "identical light and atmosphere.\n"
+    "PALETTE_LOCK: one short phrase naming this location's fixed color palette — the "
+    "dominant and accent colors that must stay consistent across every redraw.\n\n"
+    "Every field states plain facts about what is visible in the image — no camera "
+    "direction, no story context."
+)
+
+# Matches "LABEL: value..." at the start of a line, capturing the value up to
+# the next known label (or end of text) so a value that wraps onto multiple
+# lines is captured whole. re.DOTALL lets '.' cross those line breaks. Same
+# shape as characters._CHARACTER_LOCK_RE.
+_ENVIRONMENT_LOCK_RE = re.compile(
+    r"(?:^|\n)\s*(" + "|".join(_ENVIRONMENT_LOCK_LABELS) + r")\s*:\s*(.*?)"
+    r"(?=(?:\n\s*(?:" + "|".join(_ENVIRONMENT_LOCK_LABELS) + r")\s*:)|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_environment_lock_reply(text: str) -> dict:
+    """Best-effort parse of the labeled vision reply above into
+    {DESCRIPTION, ARCHITECTURE_LOCK, LIGHTING_TIME_WEATHER_LOCK,
+    PALETTE_LOCK} — any subset may be missing (a label the model skipped, or
+    a reply that ignored the format entirely) and that's never an error
+    here: the caller decides what a missing key means (approve_environments
+    falls back to the raw reply as the description, and leaves lock columns
+    untouched rather than nulling out a prior good extraction). Never
+    raises. Mirrors characters._parse_character_lock_reply exactly."""
+    out = {}
+    try:
+        for m in _ENVIRONMENT_LOCK_RE.finditer(text or ""):
+            key = m.group(1).upper()
+            val = m.group(2).strip()
+            if val:
+                out[key] = val
+    except Exception:  # noqa: BLE001 — parsing must never break approval
+        return {}
+    return out
 
 
 async def _extract_env_props(env_name: str, description: str, img_url: str, creds: dict) -> list[dict]:
@@ -783,26 +848,58 @@ async def approve_environments(video_id: str, background_tasks: BackgroundTasks,
                             if fid else env.get("reference_url")
                         )
                         try:
-                            desc = await vision_call(
-                                "Describe this location/setting EXACTLY so an image generator can redraw the SAME place: "
-                                "architecture, props, lighting, and time of day. 40-60 words, no preamble. "
-                                f"The location's name is {env['name']}.",
+                            reply = await vision_call(
+                                _ENVIRONMENT_LOCK_VISION_PROMPT.format(name=env['name']),
                                 [img_url],
                                 kie_key=creds["key"] if creds["provider"] == "kie" else None,
                                 anthropic_key=creds["key"] if creds["provider"] == "anthropic" else None,
-                                tier="fast", max_tokens=300,
+                                tier="fast", max_tokens=500,
                             )
                             # Never let a refusal / non-answer overwrite the
                             # bible-based description (vision_call already guards
                             # this; belt-and-suspenders against a regression).
-                            if desc and len(desc) > 20 and not _looks_like_refusal(desc):
-                                env["description"] = desc.strip()[:1000]
-                                await execute(
-                                    "UPDATE video_environments SET description = $1, updated_at = now() "
-                                    "WHERE id = $2 AND tenant_id = $3",
-                                    env["description"], env["id"], tenant_id,
-                                )
-                            elif desc:
+                            if reply and len(reply) > 20 and not _looks_like_refusal(reply):
+                                parsed = _parse_environment_lock_reply(reply)
+                                # No DESCRIPTION label at all (model ignored the
+                                # labeled format) => treat the whole reply as the
+                                # description, byte-identical to the pre-D9-3
+                                # prompt's behavior.
+                                desc = (parsed.get("DESCRIPTION") or (reply if not parsed else "")).strip()[:1000]
+                                sets, params = [], []
+                                if desc and len(desc) > 20:
+                                    env["description"] = desc
+                                    params.append(desc); sets.append(f"description = ${len(params)}")
+                                # D9-3 lock fields: only SET a column that parsed
+                                # this pass — a label the model skipped this time
+                                # leaves whatever was already stored (NULL on a
+                                # first approval, or a prior good extraction on a
+                                # re-approval) rather than nulling it out.
+                                arch_lock = (parsed.get("ARCHITECTURE_LOCK") or "").strip()[:1000]
+                                if arch_lock:
+                                    params.append(arch_lock); sets.append(f"architecture_lock = ${len(params)}")
+                                light_lock = (parsed.get("LIGHTING_TIME_WEATHER_LOCK") or "").strip()[:1000]
+                                if light_lock:
+                                    params.append(light_lock); sets.append(f"lighting_time_weather_lock = ${len(params)}")
+                                pal_lock = (parsed.get("PALETTE_LOCK") or "").strip()[:500]
+                                if pal_lock:
+                                    params.append(pal_lock); sets.append(f"palette_lock = ${len(params)}")
+                                if sets:
+                                    params += [env["id"], tenant_id]
+                                    await execute(
+                                        f"UPDATE video_environments SET {', '.join(sets)}, updated_at = now() "
+                                        f"WHERE id = ${len(params) - 1} AND tenant_id = ${len(params)}",
+                                        *params,
+                                    )
+                                if not (arch_lock and light_lock and pal_lock):
+                                    # Parse failure/partial: never fails approval,
+                                    # just a warning — the missing column(s) stay
+                                    # NULL (or keep their prior value).
+                                    logger.warning(
+                                        "[environments] D9-3 lock extraction partial for %s "
+                                        "(architecture_lock=%s lighting_time_weather_lock=%s palette_lock=%s)",
+                                        env["name"], bool(arch_lock), bool(light_lock), bool(pal_lock),
+                                    )
+                            elif reply:
                                 logger.warning("[environments] kept original description for %s "
                                                "(vision reply looked invalid)", env["name"])
                         except Exception as e:

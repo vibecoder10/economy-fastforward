@@ -374,10 +374,16 @@ async def _approved_envs(vid, tenant) -> list[dict]:
     every downstream consumer's existing no-manifest fallback. `material_map`
     (D6-1, migration 142, L20) is the location's canonical solid/transparent
     boundary text — NULL means no canonical map yet, and callers fall back
-    to the planner LLM's own [MATERIAL|...] line (see _canonical_material_line)."""
+    to the planner LLM's own [MATERIAL|...] line (see _canonical_material_line).
+    `architecture_lock`/`lighting_time_weather_lock`/`palette_lock` (D9-3,
+    migration 152, Custom Film EnvironmentLock harvest) are three narrower
+    canonical facts extracted at environment-approval time — NULL means not
+    yet authored, and callers fall back to `description`'s prose (see
+    _canonical_environment_locks_line / _env_locks_text)."""
     try:
         rows = await fetch_all(
-            "SELECT name, description, reference_url, props, material_map "
+            "SELECT name, description, reference_url, props, material_map, "
+            "       architecture_lock, lighting_time_weather_lock, palette_lock "
             "FROM video_environments "
             "WHERE video_id=$1 AND tenant_id=$2 AND reference_url IS NOT NULL "
             "ORDER BY sort, created_at", vid, tenant)
@@ -460,6 +466,63 @@ def _canonical_material_line(envs: list[dict], location_sets: dict,
         return " ".join(parts)
     if matched_env:
         return (matched_env.get("material_map") or "").strip()
+    return ""
+
+
+def _env_locks_text(row: dict) -> str:
+    """D9-3 (migration 152): join an environment row's architecture_lock +
+    lighting_time_weather_lock + palette_lock into ONE verbatim clause,
+    skipping whichever is empty/NULL (a partial extraction — only some of
+    the three parsed — still contributes what it has, never blocked on the
+    others being present). "" when none are populated. Mirrors
+    _locks_text's join-skip-empty pattern for the character-side locks
+    (migration 151)."""
+    return "; ".join(p for p in (
+        (row.get("architecture_lock") or "").strip(),
+        (row.get("lighting_time_weather_lock") or "").strip(),
+        (row.get("palette_lock") or "").strip(),
+    ) if p)
+
+
+def _canonical_environment_locks_line(envs: list[dict], location_sets: dict,
+                                      matched_env: Optional[dict]) -> str:
+    """D9-3 (Custom Film EnvironmentLock harvest, migration 152): the
+    CODE-RENDERED, canonical environment-locks clause, sourced from
+    video_environments.architecture_lock / lighting_time_weather_lock /
+    palette_lock — mirrors _canonical_material_line's exact shape one
+    clause up (same multi-location loop / single-location fallback, same
+    _find matcher, same "never invents" contract). Returns "" when no
+    canonical lock text exists anywhere relevant, so every consumer's
+    existing no-lock fallback (description's free prose) is unchanged for
+    any video/environment that hasn't authored one yet — byte-compatible
+    with every video before migration 152.
+
+    Multi-location scene (location_sets non-empty): one verbatim clause per
+    LOCSET name that has a matching approved environment with locks
+    populated. A location with no canonical locks is simply omitted from
+    this string, same KNOWN GAP _canonical_material_line documents for
+    material_map.
+
+    Single-location scene (location_sets empty): the scene's ONE matched
+    environment's joined locks (_env_locks_text), or "" if it has none or
+    nothing matched."""
+    def _find(name: str) -> str:
+        padded = f" {_norm_env_text(name)} "
+        for e in envs:
+            n = _norm_env_text(e.get("name") or "")
+            if n and f" {n} " in padded:
+                return _env_locks_text(e)
+        return ""
+
+    if location_sets:
+        parts = []
+        for loc in location_sets:
+            lx = _find(loc)
+            if lx:
+                parts.append(f"{loc.upper()}: {lx}")
+        return " ".join(parts)
+    if matched_env:
+        return _env_locks_text(matched_env)
     return ""
 
 
@@ -2218,7 +2281,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
                         material_line: str = "", motion_scene: bool = False,
                         incoming: Optional[dict] = None, outgoing: Optional[dict] = None,
                         has_cast_refs: bool = False,
-                        canonical_envs: Optional[list] = None) -> list[str]:
+                        canonical_envs: Optional[list] = None,
+                        env_locks_line: str = "") -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     into BALANCED sheets of ≤panels_per_sheet via sheet_chunk_sizes (pass
@@ -2250,6 +2314,12 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         Falls back to the single set_block for any moment with no location
         tag (a planner slip) or when moments carry no location data at all.
       material_line (L20): stamped as its own MATERIAL MAP block when present.
+      env_locks_line (D9-3, migration 152): stamped as its own ENVIRONMENT
+        LOCKS block, immediately after MATERIAL MAP, when present — mirrors
+        material_line's contract exactly (canonical video_environments.
+        architecture_lock/lighting_time_weather_lock/palette_lock, joined
+        by _canonical_environment_locks_line, WINS over free-prose whenever
+        set, "" changes nothing).
       motion_scene (L4): selects motion-capable CAMERA KIT phrasing instead
         of the unconditional (and, for a scene with a moving/location-
         changing beat, WRONG) "the actors are PLANTED... and never move" —
@@ -2391,6 +2461,11 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     # MATERIAL MAP block (L20).
     material_block = (f"\nMATERIAL MAP — fixed for this whole set: {material_line.strip()}\n"
                       if (material_line or "").strip() else "")
+    # ENVIRONMENT LOCKS block (D9-3, migration 152, Custom Film
+    # EnvironmentLock harvest) — same "stamped only when a canonical clause
+    # exists" contract as MATERIAL MAP immediately above; "" changes nothing.
+    env_locks_block = (f"\nENVIRONMENT LOCKS — fixed for this whole set: {env_locks_line.strip()}\n"
+                       if (env_locks_line or "").strip() else "")
     # AXIS/SCREEN-DIRECTION lines never carry prop nouns and must never be
     # touched (explicit product rule) — axis_line is NEVER neutralized.
     axis_block = (f"\nSCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: {axis_line} "
@@ -2467,7 +2542,7 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
             "shot type, and nothing else ever appears there.")
         chunk_prompt = (
             header_text
-            + f"{character_block}{set_block}{material_block}{axis_block}{setups_block}{this_boundary}"
+            + f"{character_block}{set_block}{material_block}{env_locks_block}{axis_block}{setups_block}{this_boundary}"
             "Draw these panels IN ORDER:\n"
             + listed
             + constraints_text)
@@ -2478,7 +2553,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         # L29 SCOPE FIX (D6-1b, independent-verifier finding): the style-
         # keyword count runs ONLY over text the composer itself writes and
         # fully controls — the header (style_line lives here), the
-        # CHARACTER/SET/MATERIAL blocks, and the CONSTRAINTS tail.
+        # CHARACTER/SET/MATERIAL/ENVIRONMENT LOCKS blocks, and the CONSTRAINTS
+        # tail.
         # Deliberately EXCLUDES axis_block, setups_block, this_boundary, and
         # `listed` (the panel master/angle bodies) — all free English
         # written by the planner LLM describing what a shot actually shows:
@@ -2492,7 +2568,8 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         # written text, because scene content is not framing language — the
         # composer is the only thing that writes style/medium words on
         # purpose.
-        _style_gate_text = header_text + character_block + set_block + material_block + constraints_text
+        _style_gate_text = (header_text + character_block + set_block + material_block
+                           + env_locks_block + constraints_text)
         _assert_single_style_declaration(_style_gate_text, style_line)
         _assert_no_unattached_claims(chunk_prompt, cast_refs=has_cast_refs)
         prompts.append(chunk_prompt)
@@ -2814,6 +2891,12 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # before this migration, when no canonical entry exists yet.
         _canonical_material = _canonical_material_line(envs, location_sets, env)
         material_line = _canonical_material or (parse_material_map(directive or "") or "")
+        # D9-3 (migration 152): the canonical Custom Film EnvironmentLock
+        # harvest (architecture/lighting-time-weather/palette), WINS over
+        # nothing today (there is no planner-LLM equivalent line to fall
+        # back to, unlike material_line) — "" simply omits the block when no
+        # environment has authored one yet.
+        env_locks_line = _canonical_environment_locks_line(envs, location_sets, env)
         _sheet_kwargs = dict(
             panels_per_sheet=panels_per_sheet_for(directive or ""),
             set_line=parse_set_dressing(directive or "") or "",
@@ -2825,6 +2908,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             character_line=_character_identity_line(bible, sc),
             location_sets=location_sets,
             material_line=material_line,
+            env_locks_line=env_locks_line,
             motion_scene=scene_has_motion(moments, location_sets),
             # D6-1 (L28): the honest truth about whether any character
             # reference actually reaches this scene's draw call — decides
@@ -3033,6 +3117,9 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                         _sweep_material = (
                             _canonical_material_line(envs, _sweep_location_sets, env)
                             or (parse_material_map(directive or "") or ""))
+                        # D9-3: same reuse reasoning as _sweep_material above.
+                        _sweep_env_locks = _canonical_environment_locks_line(
+                            envs, _sweep_location_sets, env)
                         _sheet_kwargs = dict(
                             panels_per_sheet=panels_per_sheet_for(directive or ""),
                             set_line=parse_set_dressing(directive or "") or "",
@@ -3041,6 +3128,7 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                             character_line=_character_identity_line(bible, sc),
                             location_sets=_sweep_location_sets,
                             material_line=_sweep_material,
+                            env_locks_line=_sweep_env_locks,
                             motion_scene=scene_has_motion(moments, _sweep_location_sets),
                             has_cast_refs=bool(cast_refs),
                             canonical_envs=envs)
@@ -3270,6 +3358,16 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
             material_map = (env.get("material_map") or "").strip()
             if material_map:
                 env_note += f" Material map, fixed for this whole set: {material_map}."
+            # D9-3 (Custom Film EnvironmentLock harvest, migration 152)
+            # REPAIR LEG: same fresh-re-derivation pattern as the material
+            # map just above — reads video_environments.architecture_lock /
+            # lighting_time_weather_lock / palette_lock at REDRAW time, so a
+            # later-corrected canonical lock heals an old shot's next redraw
+            # instead of the redraw reverting to whatever the scene's own
+            # text implied when it was first drawn.
+            env_locks = _env_locks_text(env)
+            if env_locks:
+                env_note += f" Environment locks, fixed for this whole set: {env_locks}."
     except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this
         _p(f"  (no location lock for this redraw: {str(env_err)[:80]})")
 
