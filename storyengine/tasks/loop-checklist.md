@@ -1253,7 +1253,7 @@ proves the module is new, not that the behaviour changed. Demand a test that fai
 Both builders produced the weak form on the first pass; put this in the brief next time.
 
 ### New chunks from D6-1 (found, not lost)
-- [ ] D6-1c (S) [B][V] HIGH - the REAL per-shot pictures path still uses the LLM's own `[MATERIAL|]`
+- [x] D6-1c (S) [B][V] HIGH - the REAL per-shot pictures path still uses the LLM's own `[MATERIAL|]`
   line, not the canonical `material_map`. Only the $0.05 sheet-preview path is canonical today. This
   is the D6-1 split boundary the builder named honestly. Note the $0.05 sheet path IS what the D6-6
   proof board uses, so the mission's proof is covered - but the real coverage pictures are not.
@@ -1475,3 +1475,34 @@ per-scene precision.
 - Video 686b4651 stays READ-ONLY. Do NOT re-derive it to "fix" its stale cast - that runs
   `DELETE FROM scripts WHERE video_id = ...` and would orphan $1.85 of drawn assets. Ryan's S4 ruling (the script
   wins) applies to the NEW video authored in D6-6a.
+
+### D6-1c merged 2026-07-29 (7c760a24). The proof-run blocker is closed.
+`run_coverage` (`skills/video-pipeline/storyboard/coverage.py`, REPO ROOT) now prefers canonical
+`video_environments.material_map` over the planner's `[MATERIAL|]` prose, with prose as the fallback only when no
+canonical row exists. It takes no DB handle, so the builder reused the `envs` / `env` that
+`generate_coverage_for_video` already fetches for `props=` and threaded them in as `canonical_envs` / `matched_env` -
+no new connection.
+SIBLING AUDIT, a useful negative result: `identity_tag` (L6) and the resolved style string (L29) were ALREADY
+canonical on BOTH paths - `load_character_bible` already prefers `identity_tag`, and the preview path (:2226) and the
+real pictures path (:4226) call the identical `_resolve_style`. So the canonical inversion was material_map ONLY,
+narrower than feared. The separate `style_preset_id` divergence remains open as D6-1d.
+Gate: WARN-only `check_material_map_consistency`, mirroring the existing `check_prop_manifest_consistency` drift
+alarm. It never touches stage status, so the `_run_stage` needs_review-to-completed trap does not apply.
+Evidence: canonical strings landed in every shot description with planner prose absent everywhere; the NULL case
+reproduces the prior string byte-for-byte; stash-proof was a real AssertionError produced by reverting ONLY the
+precedence line while leaving the helpers importable, which is the correct technique. D6 suites 69/69 (was 63, +6);
+full-suite failure sets byte-identical.
+
+### THE TRAP FOR D6-6a - READ BEFORE RUNNING THE DRY RUN
+D6-1c is CORRECT BUT INERT. Every `video_environments.material_map` is NULL in production (38 rows, 0 populated), and
+every `video_characters.identity_tag` is NULL too (69 rows, 0 populated). So the canonical branch never executes today
+and the code falls through to the planner-prose fallback - identical to pre-change behaviour.
+**Consequence: if D6-6a authors a new video and runs the dry run WITHOUT populating `material_map` and `identity_tag`
+first, it will exercise the FALLBACK path and prove nothing whatsoever about the canonical path.** It would report a
+compliant-looking prompt built from LLM prose, which is precisely the false pass this phase exists to prevent.
+So D6-6a MUST, in this order: (1) author the eight-scene script onto the NEW video, (2) POPULATE the canonical records
+- cast identity tags per Ryan's S4 ruling that the script wins, so a woman in gold and an old man, NOT navy elders,
+plus the per-location material map (the pod's canonical architecture is written in HANDOFF.md's gotchas), (3) THEN run
+the plan_only dry run, (4) cross-check the emitted prompt against BOARD-LAWS L0-L29 and STORY-LAWS S1-S6, inspecting
+BOTH the sheet-preview path and the real pictures path, not just the preview.
+Populating those records is free. Skipping it makes the whole gate theatre.

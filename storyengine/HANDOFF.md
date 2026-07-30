@@ -67,13 +67,12 @@ stage, so expect stages that used to report "completed" while blocking to now re
 text.
 
 ## NEXT ACTIONS, in order
-1. **D6-1c FIRST - it blocks the proof run.** The real per-shot pictures path
-   (`skills/video-pipeline/storyboard/coverage.py:3372`, `run_coverage`) still reads the planner's own
-   `[MATERIAL|]` line instead of canonical `video_environments.material_map`. Only the throwaway $0.05
-   sheet preview is canonical (`coverage_to_app.py:2480`), and the redraw repair path is already correct
-   (`:2926`) and is the template. **If D6-6a inspects only the preview it will report COMPLIANT while the
-   pictures we actually pay for still diverge - a false pass is worse than no gate.** A worker was
-   dispatched on this; check for branch `fix/d6-1c-canonical-pictures`.
+1. **D6-1c is DONE** (merged `7c760a24`). The real pictures path now prefers canonical
+   `video_environments.material_map` over the planner's `[MATERIAL|]` prose. The sibling audit found
+   `identity_tag` and the style string were ALREADY canonical on both paths, so the inversion was
+   material_map only. **BUT IT IS INERT: every `material_map` and every `identity_tag` is NULL in
+   production (38 and 69 rows, 0 populated each), so the canonical branch never runs today.** This is
+   the trap for the next step - see the warning inside item 2.
 2. **D6-6a - RYAN'S RULE, a $0 gate before any spend.** His words: *"before any image is actually
    generated you will run the script system through the pipeline for a single storyboard and cross check
    the output against the rules to see if it will turn out correct."* Author the corrected EIGHT-scene
