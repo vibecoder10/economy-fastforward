@@ -6015,11 +6015,103 @@ def _unit_roster_aliases(item: Any) -> list[str]:
     return aliases
 
 
+# --- C5: never-built roster classification (2026-07-29) --------------------
+#
+# Some roster entries are cancelled programs or paper projects that were
+# NEVER PHYSICALLY COMPLETED — no photograph can ever exist because no
+# hardware was ever built (the live example: "CVA-01 class", the British
+# carrier programme cancelled in 1966 before being laid down). Today those
+# entries sit in the exact same "missing, paste a URL" bucket as a machine
+# that just needs another search attempt or a better alias — misleading,
+# because no amount of retrying will ever find CVA-01 a photo.
+#
+# CONSERVATIVE BY DESIGN: a false "never built" verdict is much worse than a
+# missed one. It permanently tells the operator and the UI no photo can
+# exist, suppressing the retry affordance for a machine whose photo is
+# genuinely findable. So this only fires on one exact, narrow signal and
+# refuses everything else — including anything that merely *contains*
+# "cancelled".
+#
+# THE TRAP: the roster vocabulary distinguishes a pure paper cancellation
+# ("cancelled" — nothing was ever built) from a cancelled PROGRAMME whose
+# hardware was actually completed ("cancelled-built", "built-prototype" —
+# the Avro Arrow / North American XB-70 / TSR-2 shape: the programme died,
+# but real prototypes were built and photographed). Treating "contains
+# cancelled" as decisive would misclassify every one of those. The rule
+# below requires the BARE, EXACT word "cancelled" and nothing else.
+_BUILT_COUNT_POSITIVE_RE = re.compile(
+    r"\b[1-9]\d*\s*(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|"
+    r"examples?|airframes?)\b"
+    r"|\b(?:built|converted|completed|delivered|produced|constructed|"
+    r"laid down|flown)\b",
+    re.IGNORECASE,
+)
+
+
+def _roster_entry_never_built(item: Any) -> bool:
+    """Conservative, structured-data-only detector: can this roster entry
+    NEVER have a real photograph because it was cancelled before any
+    physical unit existed?
+
+    DECISIVE SIGNAL: `status`, trimmed and lowercased, is the bare word
+    "cancelled" and nothing else — not "cancelled-built", not
+    "cancelled-prototype", not any other composite that merely contains
+    "cancelled" as a substring. Every other status value seen in the roster
+    vocabulary ("production", "converted", "prototype", "built-prototype",
+    "cancelled-built", "special-purpose", "secret-or-black-program",
+    "edge-case", "disputed", "variant") — and a missing/empty status — is
+    deliberately refused. Under-detection is the correct failure mode.
+
+    CORROBORATING CHECK: `built_count`, if present, must not itself assert
+    a physical build. A `built_count` string naming a positive unit count
+    (e.g. "2 ships converted from battlecruisers") or a build-completion
+    verb ("built", "converted", "completed", "delivered", "produced",
+    "constructed", "laid down", "flown") CONTRADICTS a bare "cancelled"
+    status, so the classification is refused even though status alone
+    looked decisive — a data inconsistency is a reason to abstain, not a
+    reason to guess (see _roster_status_built_count_contradicts, which
+    surfaces this same contradiction as a soft repair warning instead of
+    staying silent). An EMPTY or MISSING built_count is NOT treated as a
+    contradiction: the real production CVA-01 entry carries no built_count
+    field at all, and requiring one would silently under-detect the one
+    entry this rule exists to catch.
+
+    Only ever meaningful on a structured roster dict; a bare display-name
+    string (older roster shape, or a fixture with no status field) always
+    returns False here — there is nothing to classify from.
+    """
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    if status != "cancelled":
+        return False
+    built_count = str(item.get("built_count") or "").strip()
+    if built_count and _BUILT_COUNT_POSITIVE_RE.search(built_count):
+        return False
+    return True
+
+
+def _roster_status_built_count_contradicts(item: Any) -> bool:
+    """True exactly when a roster item's status is the bare word "cancelled"
+    but its built_count asserts real hardware was completed — the one case
+    _roster_entry_never_built refuses to classify because the two fields
+    disagree. Kept as its own function (rather than inlining the negation
+    in _roster_validation) so the contradiction condition can never quietly
+    drift out of sync with the classifier it mirrors."""
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    if status != "cancelled":
+        return False
+    built_count = str(item.get("built_count") or "").strip()
+    return bool(built_count) and bool(_BUILT_COUNT_POSITIVE_RE.search(built_count))
+
+
 def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
     """Same gate as _machine_documentary_hold_roster (same 3-40 bound, same
     static-docu machine-marker requirement), but returns each roster item as
-    {"name": <UNCHANGED display name>, "aliases": [...]} instead of throwing
-    the structured entry away.
+    {"name": <UNCHANGED display name>, "aliases": [...], "never_built": bool}
+    instead of throwing the structured entry away.
 
     This is an ADDITIVE parallel accessor, not a replacement:
     _machine_documentary_hold_roster has many other callers
@@ -6028,11 +6120,18 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
     shape and on the display name being byte-identical to what's cached in
     static_reference_cache (_machine_key hashes that exact string — there
     are live cached rows keyed on today's names). Only the roster reference-
-    photo prefetch (static_docu.prefetch_roster_references) needs aliases,
-    so only it calls this.
+    photo prefetch (static_docu.prefetch_roster_references) needs aliases or
+    never_built, so only it calls this.
 
     Aliases equal to the display name (case-insensitive) are dropped as
     redundant.
+
+    C5 (2026-07-29): `never_built` (see _roster_entry_never_built) lets
+    static_docu.prefetch_roster_references skip the ENTIRE doomed Wikimedia
+    + paid vision lookup chain for a machine that structurally can never
+    have a photograph, recording REASON_NEVER_BUILT directly instead of
+    exhausting a real search first. Additive: existing consumers of this
+    function that only read name/aliases are unaffected.
     """
     roster = _static_docu_locked_unit_roster(video)
     if roster is None:
@@ -6043,7 +6142,11 @@ def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
         if not name:
             continue
         aliases = [a for a in _unit_roster_aliases(item) if a.lower() != name.lower()]
-        entries.append({"name": name, "aliases": aliases})
+        entries.append({
+            "name": name,
+            "aliases": aliases,
+            "never_built": _roster_entry_never_built(item),
+        })
     return entries if 3 <= len(entries) <= 40 else []
 
 
@@ -6194,6 +6297,35 @@ def _roster_validation(
     is_review_ready = "review_ready" in lower
     contract_norm = contract.strip().lower()
     is_incomplete = contract_norm.startswith("incomplete") and not is_review_ready
+
+    # C5 contract-triangle repair warning (2026-07-29): flag a roster item
+    # whose `status` and `built_count` contradict each other for the
+    # never-built classifier (_roster_entry_never_built, this same module).
+    # A bare "cancelled" status paired with a built_count that itself
+    # asserts real hardware (a positive unit count, or a build-completion
+    # verb) means the researcher used the vocabulary inconsistently — the
+    # classifier already refuses to act on it (conservative-by-design), but
+    # a human should still see it and correct the status to
+    # "cancelled-built" or "built-prototype" for the next research pass.
+    # Applies to every static-docu roster regardless of title shape — this
+    # is a data-integrity check, not a pacing/count nitpick.
+    status_contradictions: list[str] = []
+    for item in roster_raw or []:
+        if _roster_status_built_count_contradicts(item):
+            display = _unit_display_name(item) or str((item or {}).get("name") or "").strip()
+            if display:
+                status_contradictions.append(display)
+    if status_contradictions:
+        shown = status_contradictions[:8]
+        more = len(status_contradictions) - len(shown)
+        _warn(
+            "status is 'cancelled' (never built) but built_count asserts real hardware for: "
+            + ", ".join(shown)
+            + (f" (+{more} more)" if more > 0 else "")
+            + ". Use 'cancelled-built' or 'built-prototype' when a cancelled programme's "
+            "hardware was actually completed — bare 'cancelled' means nothing was ever built.",
+            hard=False,
+        )
 
     if complete_title and not roster:
         _warn("This title promises a complete roster, but research_payload.unit_roster is missing.", hard=True)

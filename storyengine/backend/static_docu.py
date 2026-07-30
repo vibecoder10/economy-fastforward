@@ -937,15 +937,16 @@ async def _ensure_ref_cache_schema() -> None:
 # these map to the three genuinely different failure modes named in the
 # 2026-07-27 incident write-up; a 4th ("error") covers an exception raised
 # mid-lookup (network blip, etc) so no miss is EVER left unexplained. A 5th
-# ("never_built", not produced by any code path yet) is reserved for a
-# later chunk (C5) that will classify machines no photo can ever exist for
-# — recording the vocabulary now means C5 only has to start WRITING that
-# value, not invent a new column/table.
+# ("never_built") is produced by prefetch_roster_references (C5,
+# 2026-07-29) for a roster entry pipeline_executor._roster_entry_never_built
+# classifies as structurally unable to ever have a photograph (a cancelled
+# programme with no physical unit ever completed) — recorded BEFORE any
+# lookup is attempted, so it is the one reason that costs zero real spend.
 REASON_NO_CANDIDATES = "no_candidates"      # search found nothing to check
 REASON_FETCH_FAILED = "fetch_failed"        # candidates found, none could be hosted
 REASON_VISION_REJECTED = "vision_rejected"  # hosted candidate(s), vision confirmed none
 REASON_ERROR = "error"                      # exception mid-lookup
-REASON_NEVER_BUILT = "never_built"          # reserved for C5, unused today
+REASON_NEVER_BUILT = "never_built"          # C5: classified pre-lookup, no spend incurred
 
 _MISS_REASON_LABELS = {
     REASON_NO_CANDIDATES: "No candidate photo could be found for this machine — "
@@ -2271,7 +2272,17 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
     is caught and logged here — it can never abort the sweep for the rest
     of the roster. Never raises; every outcome is reported in the return
     dict for the caller (or a future roster-dashboard reference-status read)
-    to inspect."""
+    to inspect.
+
+    C5 (2026-07-29): an entry pipeline_executor classifies as `never_built`
+    (see _roster_entry_never_built — a cancelled programme with no physical
+    unit ever completed, e.g. "CVA-01 class") is never handed to
+    _prefetch_one_machine at all. There is nothing a Wikimedia search or a
+    paid vision check could ever find for it, so classification happens
+    BEFORE any lookup is attempted: REASON_NEVER_BUILT is recorded directly
+    and the machine is skipped, which also means this is the ONE miss
+    reason that costs zero real spend to produce — every other reason is
+    discovered only after the full candidate-gather + vision chain runs."""
     # Lazy import: static_docu <-> pipeline_executor is a two-way relationship
     # (pipeline_executor already imports static_docu lazily, e.g. at its own
     # generate_static_images_for_video call site) — importing at module top
@@ -2290,7 +2301,7 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
 
     await _ensure_ref_cache_schema()
 
-    verified, missed = 0, 0
+    verified, missed, never_built = 0, 0, 0
     for i, entry in enumerate(entries):
         machine = entry["name"]
         aliases = entry.get("aliases") or []
@@ -2306,6 +2317,22 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
                 # video) — any stale miss reason recorded against THIS
                 # video no longer applies.
                 await _clear_reference_miss(tenant_id, video_id, machine)
+                continue
+            if entry.get("never_built"):
+                # C5: structurally can never have a photograph — skip the
+                # ENTIRE candidate-gather + host + vision chain (real
+                # Wikimedia lookups and a paid vision call per candidate)
+                # rather than let it run and fail. Checked AFTER the cache
+                # lookup above so a manually-seeded/prefetched-elsewhere
+                # photo (proof the classification was wrong for this
+                # tenant) always wins over the classifier.
+                never_built += 1
+                await _record_reference_miss(tenant_id, video_id, machine, REASON_NEVER_BUILT)
+                _logger.info(
+                    "[prefetch-roster-ref] video=%s machine=%r classified "
+                    "never-built (cancelled, no unit ever completed) — "
+                    "skipping lookup entirely, no spend incurred",
+                    video_id, machine)
                 continue
             if await _prefetch_one_machine(tenant_id, video_id, machine, i, aliases=aliases):
                 verified += 1
@@ -2327,10 +2354,10 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
             await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
 
     _logger.info(
-        "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d",
-        video_id, len(entries), verified, missed)
+        "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d never_built=%d",
+        video_id, len(entries), verified, missed, never_built)
     return {"status": "completed", "roster_count": len(entries),
-            "verified": verified, "missed": missed}
+            "verified": verified, "missed": missed, "never_built": never_built}
 
 
 # --- C12: durable registration so a restart mid-sweep is recoverable ------
