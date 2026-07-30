@@ -1445,7 +1445,7 @@ _PREFERRED_NAVAL_SOURCE_DOMAINS = [
 _NAVAL_GATHER_CONTEXT_KEYWORDS = (
     "ship", "naval", "navy", "carrier", "cruiser", "destroyer", "frigate",
     "submarine", "vessel", "hms", "uss", "fleet", "corvette", "battleship",
-    "minesweeper", "aircraft carrier",
+    "battleships", "warship", "warships", "minesweeper", "aircraft carrier",
 )
 
 
@@ -1455,7 +1455,7 @@ def _is_naval_gather_context(title: str, machine: str) -> bool:
     benefit from naval-museum-only sources, so this keeps the added call
     scoped to where it actually helps."""
     text = f"{title or ''} {machine or ''}".lower()
-    return any(keyword in text for keyword in _NAVAL_GATHER_CONTEXT_KEYWORDS)
+    return any(re.search(rf'\b{re.escape(keyword)}\b', text) for keyword in _NAVAL_GATHER_CONTEXT_KEYWORDS)
 
 
 def _naval_museum_domain_query(machine: str) -> str:
