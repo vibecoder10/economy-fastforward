@@ -112,11 +112,14 @@ def test_store_scene_stamps_transition_kind_continuity_bridge_and_caused_by(tmp_
     assert "transition_kind" in cols and "continuity_bridge" in cols and "caused_by" in cols, \
         "sanity: all three columns must be in the INSERT column list"
     # params order: ...,purpose_kind,shot_purpose,transition_kind,
-    # continuity_bridge,caused_by (28 positional params after the SQL
-    # string — indices 0-27 in *params, the new three are the LAST three).
-    assert params[-3] == "time_cut"
-    assert params[-2] == "the same harness buckle, now sun-bleached"
-    assert params[-1] == "M1-MASTER"
+    # continuity_bridge,caused_by,shot_archetype (29 positional params after
+    # the SQL string — indices 0-28 in *params; D11-1 (migration 149)
+    # appended shot_archetype AFTER caused_by, so these three are no longer
+    # the last three — they're now -4/-3/-2, not -3/-2/-1. See
+    # test_d11_1_shot_archetype_stamp.py for the new last one).
+    assert params[-4] == "time_cut"
+    assert params[-3] == "the same harness buckle, now sun-bleached"
+    assert params[-2] == "M1-MASTER"
 
 
 def test_store_scene_transition_and_causality_fields_default_null_for_untagged_shot(tmp_path):
@@ -131,9 +134,11 @@ def test_store_scene_transition_and_causality_fields_default_null_for_untagged_s
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
+    # -4/-3/-2 (see the index comment in the decisive test above — D11-1
+    # appended shot_archetype after these three).
+    assert params[-4] is None
     assert params[-3] is None
     assert params[-2] is None
-    assert params[-1] is None
 
 
 def test_store_scene_stamps_transition_and_causality_independently_per_shot(tmp_path):
@@ -152,8 +157,8 @@ def test_store_scene_stamps_transition_and_causality_independently_per_shot(tmp_
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 2
-    assert captured[0][-3:] == ("opening", None, None)
-    assert captured[1][-3:] == ("continuous", None, "M1-MASTER")
+    assert captured[0][-4:-1] == ("opening", None, None)
+    assert captured[1][-4:-1] == ("continuous", None, "M1-MASTER")
 
 
 def test_store_scene_stamps_continuity_bridge_only_when_stated(tmp_path):
@@ -171,9 +176,9 @@ def test_store_scene_stamps_continuity_bridge_only_when_stated(tmp_path):
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
-    assert params[-3] == "montage"
-    assert params[-2] == "the same drumbeat under every cut"
-    assert params[-1] == "M0-ANGLE2"
+    assert params[-4] == "montage"
+    assert params[-3] == "the same drumbeat under every cut"
+    assert params[-2] == "M0-ANGLE2"
 
 
 def _insert_columns():

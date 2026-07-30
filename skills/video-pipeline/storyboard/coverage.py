@@ -46,6 +46,7 @@ from storyboard.bot import (  # noqa: E402  reuse, don't reinvent
     build_image_prompt_from_keyframe,
     render_prop_manifest,
 )
+from storyboard.shot_archetypes import format_archetype_menu, get_archetype  # noqa: E402
 from shared.channel_profile import load_profile  # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 
@@ -75,6 +76,11 @@ def _coverage_system_prompt(profile, max_moments: int, angles_min: int, angles_m
     board_rules_block = (
         f"\n<board_quality_rules>\n{board_rules_text.strip()}\n</board_quality_rules>\n"
         if (board_rules_text or "").strip() else "")
+    # D11-1: the professional shot-archetype library (storyboard/
+    # shot_archetypes.py) — a richer, OPTIONAL descriptor than the bare
+    # shot_type letter code, injected the same way board_rules_block is:
+    # its own labeled block, referenced by rule 27 below.
+    archetype_library_block = f"\n<shot_archetype_library>\n{format_archetype_menu()}\n</shot_archetype_library>\n"
     # SETUP-KIT SCALING (C2 item 1): rule 5e used to hard-code "3-5 setups"
     # regardless of scene length, so a 40-shot dialogue scene got the same
     # tiny kit as a 6-shot one and read as 2 setups ping-ponging for pages.
@@ -108,7 +114,7 @@ Visual style: {profile.visual_style_directive}
 Color grade: {cg.primary_palette}; {cg.contrast}; {cg.time_of_day_default}
 Lens: {profile.lens_profile.focal_range}
 </channel_style>
-{board_rules_block}
+{board_rules_block}{archetype_library_block}
 <rules>
 1) NO INVENTED PEOPLE — only characters named in the VISUAL BIBLE may appear. Never add a guest, \
 extra, sibling, neighbour or crowd member, and never invent a name. If a moment names no one, \
@@ -428,6 +434,17 @@ whether it was that moment's MASTER or its k-th ANGLE, counting from 1) whose ac
 is the reason this shot exists — never a shot that comes later, never this shot itself. The scene's \
 very first shot is the only one allowed to skip this row (nothing precedes it to be caused by). \
 Same discipline as rules 24-25: its OWN row, never folded into the MASTER/ANGLE sentence.
+27) YOU MAY NAME THIS SHOT'S PROFESSIONAL ARCHETYPE, ON ITS OWN ROW (D11-1). The \
+<shot_archetype_library> block above lists the working vocabulary of professional static shot \
+archetypes (establishing, coverage, detail, angle, composition, specialty) — a richer descriptor \
+than the bare shot_type letter code, naming not just how tight the frame is but WHICH kind of shot \
+this is and why a director would reach for it. Immediately under EVERY MASTER and ANGLE line's \
+CAUSED_BY row (or its TRANSITION/PURPOSE row when CAUSED_BY is absent — the scene's very first \
+shot), you MAY add its own row: `ARCHETYPE: <id>`, naming the ONE archetype id from the library \
+above that best matches this shot. This is OPTIONAL, not required — never invent an id that isn't \
+in the library, and simply omit the row when nothing fits cleanly; an absent ARCHETYPE row is not \
+an error. Same discipline as rules 24-26: its OWN row, never folded into the MASTER/ANGLE sentence \
+— rule 23 already forbids inventing a new bracket/tag inside a panel description.
 </rules>
 
 <output_format>
@@ -484,16 +501,20 @@ under the PURPOSE row, kind is one of opening/continuous/time_cut/location_cut/m
 CAUSED_BY: M<n>-MASTER or M<n>-ANGLE<k> (rule 26 — its OWN row, right under the TRANSITION row, \
 naming the EARLIER shot whose action caused this one; omit entirely only for the scene's very \
 first shot)
+ARCHETYPE: <id> (rule 27 — OPTIONAL, its OWN row, right under the CAUSED_BY row; omit entirely \
+when no id in <shot_archetype_library> fits cleanly)
 - ANGLE [shot_type]: same instant, different camera — same format: setup letter, then frame \
 placement + eyeline, then what the new framing emphasises. The axis still holds.
 PURPOSE: <kind> | <why THIS angle exists> (rule 24 — every MASTER and ANGLE gets its own row)
 TRANSITION: <kind> | <bridge, omit for "continuous"> (rule 25 — every MASTER and ANGLE gets its own row)
 CAUSED_BY: M<n>-MASTER or M<n>-ANGLE<k> (rule 26 — every MASTER and ANGLE gets its own row, except \
 the scene's very first shot)
+ARCHETYPE: <id> (rule 27 — OPTIONAL, every MASTER and ANGLE may carry one)
 - ANGLE [shot_type]: ...
 PURPOSE: <kind> | ...
 TRANSITION: <kind> | ...
 CAUSED_BY: M<n>-...
+ARCHETYPE: <id> (optional)
 
 shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
@@ -1053,33 +1074,51 @@ _CAUSED_BY_LINE_RE = re.compile(
     r"\n\s*\*{0,2}\s*CAUSED\s*_?\s*BY\s*\*{0,2}\s*:\s*(.+?)\s*\Z",
     re.IGNORECASE | re.DOTALL)
 
+# D11-1 (film-studio audit follow-on, professional shot-archetype library): a
+# per-shot OPTIONAL reference into storyboard.shot_archetypes.SHOT_ARCHETYPES
+# — a richer descriptor than the bare shot_type letter code, naming WHICH
+# professional archetype (establishing/coverage/detail/angle/composition/
+# specialty) this shot most resembles. Same "own row" grammar as CAUSED_BY —
+# a single id, no pipe — but unlike every prior row this one is OPTIONAL for
+# the planner to write AT ALL (rule 27: "you MAY"), not just optional in its
+# second half. Extracted here purely as text; validity against the catalog
+# is checked separately (check_shot_archetype_valid, warn-only, D6 Ruling 1
+# — no canonical vocabulary is hard-enforced against free LLM prose, but an
+# ARCHETYPE id IS a deterministic claim like CAUSED_BY's label, so it can be
+# checked for catalog membership even while staying warn-only for rollout).
+# A directive with no ARCHETYPE line (every directive before this chunk)
+# matches nothing.
+_ARCHETYPE_LINE_RE = re.compile(
+    r"\n\s*\*{0,2}\s*ARCHETYPE\s*\*{0,2}\s*:\s*(.+?)\s*\Z",
+    re.IGNORECASE | re.DOTALL)
+
 
 def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
     """Peels every trailing per-shot metadata row — D9-1's PURPOSE, D9-6's
-    TRANSITION, D9-7's CAUSED_BY — off the TAIL of a shot's raw captured text
-    (in whatever order the planner actually wrote them), before what's left
-    is treated as the final stored description.
+    TRANSITION, D9-7's CAUSED_BY, D11-1's ARCHETYPE — off the TAIL of a
+    shot's raw captured text (in whatever order the planner actually wrote
+    them), before what's left is treated as the final stored description.
 
     Each row pattern anchors at \\Z (the current end of `desc`) but its
     captured text is "everything up to \\Z", so if PURPOSE's row sits ABOVE
-    a still-present TRANSITION/CAUSED_BY row, a naive "try PURPOSE first"
-    scan would let PURPOSE's own capture swallow those later rows whole
-    (DOTALL matches across the newlines between them). To avoid that, every
-    pass tries all three patterns and commits ONLY the one whose match
+    a still-present TRANSITION/CAUSED_BY/ARCHETYPE row, a naive "try PURPOSE
+    first" scan would let PURPOSE's own capture swallow those later rows
+    whole (DOTALL matches across the newlines between them). To avoid that,
+    every pass tries all four patterns and commits ONLY the one whose match
     STARTS LATEST in the current `desc` — i.e. the row that is actually
     sitting at the true tail right now — strips just that one row, and
     re-scans. That peels rows one at a time, tail-first, regardless of which
-    of the three the planner wrote last, making extraction robust to any
-    order and any subset of the three optional rows: all three, any two,
-    one, or (every plan before D9-1 existed) none, which is the byte-
+    of the four the planner wrote last, making extraction robust to any
+    order and any subset of the four optional rows: all four, any three,
+    two, one, or (every plan before D9-1 existed) none, which is the byte-
     compatible legacy case this function must reproduce exactly: zero rows
     in, zero rows stripped, `desc` unchanged.
 
     Returns (clean_description, {purpose_kind, shot_purpose, transition_kind,
-    continuity_bridge, caused_by}) — every value None if its row never
-    appeared."""
+    continuity_bridge, caused_by, shot_archetype}) — every value None if its
+    row never appeared."""
     meta = {"purpose_kind": None, "shot_purpose": None, "transition_kind": None,
-            "continuity_bridge": None, "caused_by": None}
+            "continuity_bridge": None, "caused_by": None, "shot_archetype": None}
     extracted: set[str] = set()
     while True:
         candidates = []
@@ -1095,6 +1134,10 @@ def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
             cm = _CAUSED_BY_LINE_RE.search(desc)
             if cm:
                 candidates.append(("caused_by", cm))
+        if "archetype" not in extracted:
+            am = _ARCHETYPE_LINE_RE.search(desc)
+            if am:
+                candidates.append(("archetype", am))
         if not candidates:
             break
         # The candidate starting LATEST in `desc` is the one truly sitting
@@ -1107,8 +1150,10 @@ def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
             meta["transition_kind"] = match.group(1).strip().lower()
             bridge = (match.group(2) or "").strip()
             meta["continuity_bridge"] = bridge or None
-        else:
+        elif key == "caused_by":
             meta["caused_by"] = match.group(1).strip()
+        else:
+            meta["shot_archetype"] = match.group(1).strip().lower()
         desc = desc[:match.start()].rstrip()
         extracted.add(key)
     return desc, meta
@@ -1125,14 +1170,16 @@ def parse_coverage(directive_text: str) -> list[dict]:
     output changes).
 
     Each shot dict also carries purpose_kind/shot_purpose (D9-1), transition_kind/
-    continuity_bridge (D9-6), and caused_by (D9-7) — parsed from that shot's own
-    trailing metadata rows (_strip_shot_metadata_rows), all None when the
-    corresponding row is absent (every plan before D9-1 existed for the first
-    two pairs and before this chunk for the third, and any shot the planner
-    didn't tag going forward — WARN-only per D6 Ruling 1, never a hard gate,
-    see check_shot_purpose_present / check_shot_transition_present /
-    check_shot_transition_bridge_present / check_shot_causality_present /
-    check_shot_causality_valid)."""
+    continuity_bridge (D9-6), caused_by (D9-7), and shot_archetype (D11-1) —
+    parsed from that shot's own trailing metadata rows
+    (_strip_shot_metadata_rows), all None when the corresponding row is
+    absent (every plan before D9-1 existed for the first two pairs, before
+    D9-6/D9-7 for the next two, and before this chunk for shot_archetype,
+    plus any shot the planner didn't tag going forward — WARN-only per D6
+    Ruling 1, never a hard gate, see check_shot_purpose_present /
+    check_shot_transition_present / check_shot_transition_bridge_present /
+    check_shot_causality_present / check_shot_causality_valid /
+    check_shot_archetype_valid)."""
     heads = list(_MOMENT_RE.finditer(directive_text))
     moments: list[dict] = []
     for i, h in enumerate(heads):
@@ -2140,6 +2187,49 @@ def check_shot_causality_valid(moments: list[dict]) -> int:
     return warnings
 
 
+def check_shot_archetype_valid(moments: list[dict]) -> int:
+    """D11-1 (film-studio audit follow-on, professional shot-archetype
+    library): unlike PURPOSE's free prose, an ARCHETYPE row is a
+    deterministic claim — it names a SPECIFIC id that either exists in
+    storyboard.shot_archetypes.SHOT_ARCHETYPES or doesn't, mirroring exactly
+    how check_shot_causality_valid checks CAUSED_BY's label against this
+    scene's own shot index. The catalog here is a fixed, global constant
+    (not scene-scoped like CAUSED_BY's labels), so the check is even simpler:
+    a straight membership test via shot_archetypes.get_archetype.
+
+    Still WARN-only per the standing D6 Ruling 1 discipline — even though
+    catalog membership is 100% mechanically decidable (unlike a free-prose
+    PURPOSE clause, which is why THAT stays warn-only for a different
+    reason), Ryan's ruling on this harvest chunk keeps it warn-only for
+    ROLLOUT: the ARCHETYPE row is brand new and OPTIONAL (rule 27 — the
+    planner "MAY" tag a shot, never "must"), so there is no track record yet
+    proving real plans actually comply when they DO tag a shot. This check
+    is explicitly HARD-ELIGIBLE under Ruling 1 the moment that track record
+    exists (a canonical catalog to compare against is exactly what Ruling 1
+    requires for a hard gate) — promoting it needs a separate, deliberate
+    ruling once live plans show the id vocabulary is being used correctly,
+    not a silent escalation buried in this chunk.
+
+    Only evaluates shots that HAVE a stated shot_archetype — an untagged
+    shot is not an error (the row is optional), so absence is never flagged
+    here, only an invalid VALUE is. Flags a shot whose shot_archetype
+    (already lowercased at parse time by _strip_shot_metadata_rows) doesn't
+    match any id in the catalog."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            archetype_id = shot.get("shot_archetype")
+            if not archetype_id:
+                continue
+            if get_archetype(archetype_id) is None:
+                warnings += 1
+                print(f"  ⚠️ shot-archetype check (D11-1): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) has ARCHETYPE: {archetype_id}, which is not in "
+                      "the shot archetype catalog — worth a human glance, not a hard failure",
+                      flush=True)
+    return warnings
+
+
 # =============================================================================
 # D6-2 REPAIR LEGS — BOARD-LAWS.md L11, L12, L15, L16, L17, L19, L22. Every
 # law here previously had a PROMPT leg (the coverage system prompt, rules
@@ -2558,6 +2648,12 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
                     a["transition_kind"], b["transition_kind"] = b.get("transition_kind"), a.get("transition_kind")
                     a["continuity_bridge"], b["continuity_bridge"] = b.get("continuity_bridge"), a.get("continuity_bridge")
                     a["caused_by"], b["caused_by"] = b.get("caused_by"), a.get("caused_by")
+                    # D11-1: shot_archetype is the same kind of content-
+                    # describing fact as purpose/transition/caused_by above —
+                    # it names WHAT KIND of shot this content is, not a fact
+                    # about the position it occupies, so it moves WITH the
+                    # description too.
+                    a["shot_archetype"], b["shot_archetype"] = b.get("shot_archetype"), a.get("shot_archetype")
                     if "setup_id" in a or "setup_id" in b:
                         a["setup_id"], b["setup_id"] = b.get("setup_id"), a.get("setup_id")
                     families[k], families[swap_with] = families[swap_with], families[k]
@@ -3558,7 +3654,14 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                # caused_by. None for a shot the planner didn't tag.
                "transition_kind": m.get("transition_kind"),
                "continuity_bridge": m.get("continuity_bridge"),
-               "caused_by": m.get("caused_by")}]
+               "caused_by": m.get("caused_by"),
+               # D11-1 (migration 149): the OPTIONAL per-shot professional
+               # shot-archetype id parse_coverage extracted from this shot's
+               # own "ARCHETYPE: <id>" row — threaded through here so
+               # store_scene can write it into assets.shot_archetype. None
+               # for the overwhelming majority of shots (row omitted, or a
+               # row generated before this migration).
+               "shot_archetype": m.get("shot_archetype")}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -3587,7 +3690,9 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                 # D9-6/D9-7 (migration 148) — see the master frame's dict above.
                 "transition_kind": a.get("transition_kind"),
                 "continuity_bridge": a.get("continuity_bridge"),
-                "caused_by": a.get("caused_by")} if url else None
+                "caused_by": a.get("caused_by"),
+                # D11-1 (migration 149) — see the master frame's dict above.
+                "shot_archetype": a.get("shot_archetype")} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -3963,6 +4068,10 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     check_shot_transition_bridge_present(moments)
     check_shot_causality_present(moments)
     check_shot_causality_valid(moments)
+    # D11-1 (film-studio audit follow-on): a shot tagged with an ARCHETYPE id
+    # that isn't in the catalog — same warning-only discipline; absence is
+    # never flagged since the row is optional (rule 27).
+    check_shot_archetype_valid(moments)
 
     # D6-2 (migration 143, storyengine/backend/migrations/143_per_shot_
     # location_and_arrangement.sql): persist the per-moment location — which

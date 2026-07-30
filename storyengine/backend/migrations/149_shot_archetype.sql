@@ -1,0 +1,52 @@
+-- Migration 149 (D11-1): the professional shot-archetype library — a
+-- follow-on to the film-studio audit's camera-MOVEMENT harvest
+-- (image_prompts/engine/camera_moves.py, a 37-entry metadata catalog) that
+-- found the flagship coverage pipeline's STATIC shot vocabulary still a bare
+-- unannotated string (storyboard/coverage.py's `SHOT_TYPES = "ELS, WS, MS,
+-- MCU, CU, ECU, OTS, INSERT"`). storyboard/shot_archetypes.py adds a richer,
+-- 45-entry catalog (establishing/coverage/detail/angle/composition/specialty)
+-- describing WHICH professional archetype a shot resembles, not just how
+-- tight the frame is.
+--
+-- Unlike D9-1/D9-6/D9-7's PURPOSE/TRANSITION/CAUSED_BY rows, tagging a shot
+-- with an ARCHETYPE id is OPTIONAL for the planner to write at all (coverage
+-- system prompt rule 27: "you MAY" — never "must"). Enforcement is WARN-only
+-- (storyboard.coverage.check_shot_archetype_valid) per the standing D6
+-- Ruling 1 — even though catalog membership IS a canonical, deterministic
+-- check (unlike a free-prose PURPOSE clause), Ryan's ruling keeps this
+-- warn-only for ROLLOUT: the row is brand new, so there's no track record
+-- yet proving real plans use the id vocabulary correctly. Hard-eligible
+-- under Ruling 1 once that track record exists — a separate, deliberate
+-- promotion, not automatic.
+--
+-- One column, nullable, additive — same "repair-stamp" precedent as
+-- migration 147's assets.purpose_kind / assets.shot_purpose and migration
+-- 148's assets.transition_kind / assets.continuity_bridge / assets.caused_by:
+--
+-- assets.shot_archetype TEXT — a single id from storyboard.shot_archetypes.
+-- SHOT_ARCHETYPES (e.g. "close", "over_the_shoulder"... — see that module
+-- for the full 45-id catalog), parsed from the planner's own per-shot
+-- "ARCHETYPE: <id>" row (storyboard.coverage.parse_coverage's
+-- _ARCHETYPE_LINE_RE, via _strip_shot_metadata_rows) — stored AS AUTHORED,
+-- lowercased, with no CHECK constraint against the catalog (same reasoning
+-- as migrations 147/148 skipping one: no canonical enum persisted in the DB
+-- itself to check it against — the Python-side catalog is the source of
+-- truth, and check_shot_archetype_valid does that comparison at read/parse
+-- time, not the database). NULL for the overwhelming majority of shots: the
+-- row is optional, so every shot generated before this migration AND any
+-- shot the planner simply chose not to tag going forward.
+--
+-- Read-only from this migration's point of view — no backfill, existing
+-- videos/assets keep working exactly as before with NULL; store_scene
+-- (coverage_to_app.py) writes it going forward, from generate_coverage_
+-- frames' frame dicts, which thread it straight from coverage.py's parsed
+-- shot dicts (parse_coverage sets it directly via _strip_shot_metadata_rows,
+-- same per-shot-at-parse-time shape as purpose_kind/transition_kind/
+-- caused_by — no extra per-shot copy loop needed).
+--
+-- Idempotent.
+
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS shot_archetype TEXT;
+
+COMMENT ON COLUMN assets.shot_archetype IS
+  'D11-1 (professional shot-archetype library, film-studio audit follow-on): this shot''s closest professional archetype id from storyboard.shot_archetypes.SHOT_ARCHETYPES, parsed from the planner''s own OPTIONAL per-shot "ARCHETYPE: <id>" row (storyboard.coverage.parse_coverage) — NULL for the overwhelming majority of shots (row omitted, since tagging is optional, or a row generated before this migration)';

@@ -483,6 +483,14 @@ CREATE TABLE assets (
   continuity_bridge TEXT,
   caused_by TEXT,
 
+  -- D11-1 (migration 149, professional shot-archetype library): OPTIONAL
+  -- per-shot archetype id from storyboard.shot_archetypes.SHOT_ARCHETYPES,
+  -- parsed from the planner's own "ARCHETYPE: <id>" row
+  -- (storyboard.coverage.parse_coverage). NULL for the overwhelming
+  -- majority of shots (row omitted — tagging is optional — or generated
+  -- before this migration).
+  shot_archetype TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

@@ -115,14 +115,16 @@ def test_store_scene_stamps_purpose_kind_and_shot_purpose(tmp_path):
     # title,aspect,url,url,is_master,assigned,location_id,camera_move,
     # image_model,routed_model,routing_reason,duration_seconds,shot_location,
     # group_arrangement,purpose_kind,shot_purpose,transition_kind,
-    # continuity_bridge,caused_by (28 positional params after the SQL string
-    # — indices 0-27 in *params; D9-6/D9-7 (migration 148) appended THREE
-    # more columns after shot_purpose, so purpose_kind/shot_purpose are no
-    # longer the last two — they're now index -5/-4, not -2/-1. Updated
-    # here rather than left broken: see test_d9_6_7_transition_causality_
-    # stamp.py for the new trailing three).
-    assert params[-5] == "spatial"
-    assert params[-4] == "shows how Ryan gets from the pod to the corridor"
+    # continuity_bridge,caused_by,shot_archetype (29 positional params after
+    # the SQL string — indices 0-28 in *params; D9-6/D9-7 (migration 148)
+    # appended THREE columns after shot_purpose, and D11-1 (migration 149)
+    # appended ONE more after caused_by, so purpose_kind/shot_purpose are now
+    # index -6/-5, not -2/-1. Updated here rather than left broken each time
+    # a trailing column lands: see test_d9_6_7_transition_causality_stamp.py
+    # for the middle three and test_d11_1_shot_archetype_stamp.py for the
+    # new last one).
+    assert params[-6] == "spatial"
+    assert params[-5] == "shows how Ryan gets from the pod to the corridor"
 
 
 def test_store_scene_purpose_fields_default_null_for_untagged_shot(tmp_path):
@@ -137,10 +139,10 @@ def test_store_scene_purpose_fields_default_null_for_untagged_shot(tmp_path):
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
-    # -5/-4 = purpose_kind/shot_purpose (see the index comment in the test
-    # above — D9-6/D9-7 appended three more trailing columns).
+    # -6/-5 = purpose_kind/shot_purpose (see the index comment in the test
+    # above — D9-6/D9-7 and D11-1 appended four more trailing columns total).
+    assert params[-6] is None
     assert params[-5] is None
-    assert params[-4] is None
 
 
 def test_store_scene_stamps_purpose_independently_per_shot(tmp_path):
@@ -159,9 +161,9 @@ def test_store_scene_stamps_purpose_independently_per_shot(tmp_path):
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 2
-    # -5:-3 = purpose_kind/shot_purpose (see the index comment above).
-    assert captured[0][-5:-3] == ("story", "opens the beat")
-    assert captured[1][-5:-3] == ("emotion", "shows her reaction")
+    # -6:-4 = purpose_kind/shot_purpose (see the index comment above).
+    assert captured[0][-6:-4] == ("story", "opens the beat")
+    assert captured[1][-6:-4] == ("emotion", "shows her reaction")
 
 
 def _insert_columns():
