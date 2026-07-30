@@ -446,6 +446,12 @@ def _set_task_status(
         "error": resolved_error,
         "needs_review": needs_review,
         "lane": _task_lane.get(),
+        # UX-2 (2026-07-30): additive — carried through to GET /task/{id} so
+        # a consumer (RosterStagePanel.tsx) can key off a structured
+        # task_type instead of string-matching `message`. Absent/None for
+        # every pre-existing caller that doesn't pass task_type (defaults to
+        # "pipeline" below), so this changes nothing for them.
+        "task_type": task_type,
         "started_at": (previous or {}).get("started_at", _time.time()),
     }
 
@@ -568,9 +574,16 @@ async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict
     if task:
         return task
 
-    # Check background_tasks table for queue-dispatched jobs
+    # Check background_tasks table for queue-dispatched jobs. This is also
+    # how the AUTOMATIC roster-reference sweep (static_docu.py's
+    # _run_tracked_roster_prefetch, task_type='roster_prefetch') surfaces
+    # here: it only ever writes a background_tasks row, never an in-memory
+    # dict entry (deliberately, per that module's own C12 note), so this DB
+    # fallback is the ONLY path that makes an auto sweep visible to this
+    # endpoint at all. task_type is carried through (UX-2) so a consumer can
+    # key off a structured field instead of parsing `message`.
     row = await fetch_one(
-        "SELECT status, message, error_message FROM background_tasks "
+        "SELECT status, message, error_message, task_type FROM background_tasks "
         "WHERE video_id = $1 AND tenant_id = $2 AND status IN ('pending', 'running') "
         "ORDER BY created_at DESC LIMIT 1",
         video_id, tenant_id,
@@ -580,6 +593,7 @@ async def _get_task_status_async(video_id: str, tenant_id: str) -> Optional[dict
             "status": row["status"],
             "message": row.get("message"),
             "error": row.get("error_message"),
+            "task_type": row.get("task_type"),
         }
     return None
 
@@ -1243,7 +1257,15 @@ async def recheck_roster_references(
     if await _is_task_active(video_id, tenant_id):
         raise HTTPException(status_code=409, detail="Task already running")
 
-    _set_task_status(video_id, "running", "Re-checking machine references", tenant_id=tenant_id)
+    # UX-2 (2026-07-30): task_type="roster_prefetch" (same value the
+    # AUTOMATIC sweep's background_tasks row carries — static_docu.py's
+    # _ROSTER_PREFETCH_TASK_TYPE) so RosterStagePanel.tsx can detect "a
+    # roster sweep is running" off a structured field no matter which path
+    # started it, instead of only ever matching this call's own message
+    # text. Purely a display/history label — _is_task_active's busy gate
+    # keys off `lane`, never task_type, so this cannot affect it.
+    _set_task_status(video_id, "running", "Re-checking machine references",
+                      tenant_id=tenant_id, task_type="roster_prefetch")
 
     async def _run():
         progress_task = None
@@ -1270,7 +1292,7 @@ async def recheck_roster_references(
                         _set_task_status(
                             video_id, "running",
                             f"Re-checking machine references — {verified_now}/{total} verified so far",
-                            tenant_id=tenant_id,
+                            tenant_id=tenant_id, task_type="roster_prefetch",
                         )
                 except asyncio.CancelledError:
                     pass
@@ -1285,9 +1307,10 @@ async def recheck_roster_references(
                 msg = f"{result.get('verified', 0)} verified, {result.get('missed', 0)} still missing"
             else:
                 msg = result.get("error") or result.get("message") or "Re-check finished"
-            _set_task_status(video_id, result.get("status", "completed"), msg, tenant_id=tenant_id)
+            _set_task_status(video_id, result.get("status", "completed"), msg,
+                              tenant_id=tenant_id, task_type="roster_prefetch")
         except Exception as e:
-            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
+            _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id, task_type="roster_prefetch")
         finally:
             if progress_task:
                 progress_task.cancel()
@@ -3025,6 +3048,11 @@ async def get_task_status(
         # _set_task_status's docstring for why), this is the one place a
         # caller can tell the difference from an ordinary clean completion.
         "needs_review": task.get("needs_review", False),
+        # UX-2 (2026-07-30): additive structured signal — e.g. "roster_prefetch"
+        # for both the manual "Re-check missing" run and the automatic
+        # research-completion sweep, so a consumer (RosterStagePanel.tsx) can
+        # detect "a roster sweep is running" without parsing `message` text.
+        "task_type": task.get("task_type"),
     }
 
 

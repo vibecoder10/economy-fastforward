@@ -2413,6 +2413,70 @@ _ROSTER_PREFETCH_RESTART_MESSAGE = "Server restarted — task interrupted"
 _ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS = 5
 
 
+# --- UX-2 (2026-07-30): live progress for the AUTOMATIC sweep -----------------
+#
+# Bug (fresh-eyes audit, post-4031bc02): the manual "Re-check missing" button
+# (routes/pipeline.py's recheck_roster_references, UX-1) republishes an honest
+# "N/Y verified so far" onto its task-status message every ~5s, so
+# RosterStagePanel.tsx can show a climbing count + spinner instead of a
+# frozen panel. dispatch_roster_prefetch's AUTOMATIC sweep — the one fired
+# from run_research/accept_submitted_research, i.e. the path that actually
+# matters — never wrote anything past its one static opening message
+# ("Sweeping roster reference photos"), so a user watching an auto sweep saw
+# exactly the frozen "missing + paste a URL" panel for the full ~10-minute
+# sweep that the original incident was about.
+#
+# Fix: give _run_tracked_roster_prefetch the SAME kind of progress side-car,
+# updating the SAME background_tasks row it already owns (by task_id) —
+# never through _set_task_status/_db_persist_task, for the exact reason the
+# C12 note above forbids reusing those from here (main-lane clobbering risk).
+# A direct, task_id-scoped UPDATE has none of that risk: it only ever touches
+# the one row this sweep itself inserted.
+async def _report_tracked_prefetch_progress(video_id: str, tenant_id: str, task_id: str) -> None:
+    """Best-effort progress side-car for _run_tracked_roster_prefetch. Every
+    ~5s, counts how many of this video's roster machines are already in
+    static_reference_cache and republishes "Sweeping machine references —
+    N/Y verified so far" onto the background_tasks row `task_id` — the same
+    "reference"-carrying phrasing recheck_roster_references' own side-car
+    uses (routes/pipeline.py, UX-1), so the frontend's substring fallback
+    (RosterStagePanel.tsx's bridgeIsRosterSweep) still matches even without
+    the structured task_type field. Cancelled by the caller once the sweep
+    itself finishes. Never allowed to affect the sweep: every failure mode
+    here is swallowed, exactly like recheck's own side-car."""
+    import asyncio
+    try:
+        from pipeline_executor import _machine_documentary_hold_roster
+
+        video = await fetch_one(
+            "SELECT id, render_mode, research_payload FROM videos "
+            "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
+        roster = _machine_documentary_hold_roster(video) if video else []
+        mkeys = [_machine_key(m) for m in (roster or [])]
+        total = len(mkeys)
+        if not total:
+            return
+        while True:
+            await asyncio.sleep(5)
+            rows = await fetch_all(
+                "SELECT machine_key FROM static_reference_cache "
+                "WHERE tenant_id = $1 AND machine_key = ANY($2)",
+                tenant_id, mkeys,
+            )
+            verified_now = len(rows or [])
+            await execute(
+                """UPDATE background_tasks SET message=$1
+                   WHERE id=$2 AND status='running'""",
+                f"Sweeping machine references — {verified_now}/{total} verified so far",
+                task_id,
+            )
+    except asyncio.CancelledError:
+        pass
+    except Exception:  # noqa: BLE001 — a progress-reporting bug must never affect the sweep
+        _logger.debug(
+            "[prefetch-roster-ref] progress side-car stopped early for video=%s",
+            video_id, exc_info=True)
+
+
 async def _run_tracked_roster_prefetch(video_id: str, tenant_id: str, *, attempt: int = 1) -> None:
     """Runs prefetch_roster_references wrapped in a background_tasks row
     (task_type='roster_prefetch') so an interrupted sweep is detectable and
@@ -2421,6 +2485,7 @@ async def _run_tracked_roster_prefetch(video_id: str, tenant_id: str, *, attempt
     schedule via asyncio.create_task; never raises out of itself since it
     always runs detached (an escaped exception here would only ever surface
     as an "exception was never retrieved" log line, never to a caller)."""
+    import asyncio
     task_id = None
     try:
         row = await fetch_one(
@@ -2438,6 +2503,16 @@ async def _run_tracked_roster_prefetch(video_id: str, tenant_id: str, *, attempt
             "for video=%s (sweep still runs, just undurably this time)",
             video_id, exc_info=True)
 
+    # UX-2: mirrors recheck_roster_references' own progress side-car, just
+    # updating THIS row directly instead of going through _set_task_status.
+    progress_task = None
+    if task_id:
+        try:
+            progress_task = asyncio.create_task(
+                _report_tracked_prefetch_progress(video_id, tenant_id, task_id))
+        except RuntimeError:
+            progress_task = None
+
     result_status, message = "completed", None
     try:
         result = await prefetch_roster_references(video_id, tenant_id)
@@ -2454,6 +2529,9 @@ async def _run_tracked_roster_prefetch(video_id: str, tenant_id: str, *, attempt
         _logger.warning(
             "[prefetch-roster-ref] tracked sweep failed for video=%s",
             video_id, exc_info=True)
+    finally:
+        if progress_task:
+            progress_task.cancel()
 
     if task_id:
         # background_tasks.status CHECK only allows pending/running/

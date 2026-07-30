@@ -121,6 +121,12 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
   // — an agent's OWN claim is released the moment the run ends, so there is
   // nothing meaningful to show once the task is done anyway).
   const [viaAgent, setViaAgent] = useState<string | null>(null);
+  // UX-2 (2026-07-30): structured task_type ("roster_prefetch" for both the
+  // manual roster re-check and the automatic post-research sweep) — mirrors
+  // message/viaAgent's lifecycle (set while active, cleared once the task
+  // isn't running/pending) so a consumer can key off it instead of parsing
+  // `message` text.
+  const [taskType, setTaskType] = useState<string | null>(null);
   const wasRunningRef = useRef(false);
   // Bumped by markStarted so a poll response that was ALREADY in flight when
   // new work started can't be misread as "the new work finished" (which would
@@ -146,6 +152,7 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
           setRunning(true);
           setMessage(task.message ?? null);
           setViaAgent(task.via_agent ?? null);
+          setTaskType(task.task_type ?? null);
           onProgressRef.current?.(task.message ?? null);
         } else {
           if (wasRunningRef.current) {
@@ -156,6 +163,7 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
           setRunning(false);
           setMessage(null);
           setViaAgent(null);
+          setTaskType(null);
         }
       } catch {
         // Network blip — keep watching
@@ -176,9 +184,12 @@ export function useTaskWatcher({ videoId, interval = 3000, onComplete, onFailed,
     // stale agent name from a previous run rather than showing it briefly
     // for a run this browser tab itself just started.
     setViaAgent(null);
+    // Optimistic arm doesn't know task_type yet either — clear any stale
+    // value from a previous run for the same reason viaAgent is cleared.
+    setTaskType(null);
   }, []);
 
-  return { running, message, viaAgent, markStarted };
+  return { running, message, viaAgent, taskType, markStarted };
 }
 
 export interface TaskWatcherHandlers {
@@ -204,6 +215,13 @@ export interface TaskWatcherBridge {
    * `running` already uses), not threaded through useSharedTaskWatcher's
    * return value. */
   viaAgent: string | null;
+  /** UX-2 (2026-07-30): structured task_type of the currently-running task
+   * (e.g. "roster_prefetch"), null when idle or unset — same
+   * always-available-off-the-bridge pattern as `running`/`viaAgent`, so a
+   * consumer (RosterStagePanel.tsx) can detect "a roster sweep is running"
+   * without parsing `message` text, whether the sweep was started manually
+   * or dispatched automatically after research. */
+  taskType: string | null;
   markStarted: () => void;
   /** Register handlers against the one shared poll stream; returns the
    * unsubscribe fn. A consumer only hears about completions/failures while

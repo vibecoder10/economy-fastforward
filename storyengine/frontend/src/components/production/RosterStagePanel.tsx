@@ -74,13 +74,37 @@ export function RosterStagePanel({ videoId, rosterDashboard, isLoading, onRefres
 
   // The bridge's own `running` is always-on for this video's single task
   // slot (see use-task-poller.ts), so it already reflects a sweep kicked off
-  // before this panel mounted — a page reload or revisit mid-sweep, or a
-  // recheck started elsewhere. Matched on the message text this task type
-  // alone writes ("Re-checking machine references[...]") so an unrelated
-  // task (e.g. script generation) occupying the slot doesn't get mistaken
-  // for a roster sweep.
+  // before this panel mounted — a page reload or revisit mid-sweep, a
+  // recheck started elsewhere, OR (UX-2, 2026-07-30 — the bug a fresh-eyes
+  // audit found in f615772a) the AUTOMATIC sweep dispatch_roster_prefetch
+  // fires the instant research completes. That auto sweep never runs in
+  // this video's main task-status lane at all — it only ever writes a
+  // background_tasks row (static_docu.py's _run_tracked_roster_prefetch,
+  // task_type='roster_prefetch'), which routes/pipeline.py's
+  // GET /task/{video_id} surfaces via its DB fallback — so before this
+  // fix, `taskWatcher.message` during an auto sweep was whatever that row's
+  // message happened to be, and the ONLY thing that ever contained the
+  // literal substring "machine reference" was the manual recheck path
+  // (routes/pipeline.py's recheck_roster_references). The panel showed no
+  // spinner and every missing card sat on the frozen "missing + paste a
+  // URL" form for the whole ~10-minute auto sweep — exactly the original
+  // incident, just reached via the path that matters (automatic, not
+  // manual).
+  //
+  // Fix: task_type is now a structured field on the SAME task-status
+  // response (both the manual recheck and the automatic sweep tag their
+  // background_tasks row/entry "roster_prefetch" — see routes/pipeline.py's
+  // recheck_roster_references and static_docu.py's
+  // _ROSTER_PREFETCH_TASK_TYPE), so this checks that first. The substring
+  // check is kept as a defensive fallback only (e.g. an older cached
+  // response, or some future code path that writes a "machine reference"
+  // message without also setting task_type) — task_type is the primary,
+  // authoritative signal because it can't accidentally match unrelated
+  // pipeline text the way a human-readable message can.
   const bridgeIsRosterSweep =
-    taskWatcher.running && (taskWatcher.message || "").toLowerCase().includes("machine reference");
+    taskWatcher.running &&
+    (taskWatcher.taskType === "roster_prefetch" ||
+      (taskWatcher.message || "").toLowerCase().includes("machine reference"));
 
   useEffect(() => {
     if (bridgeIsRosterSweep && !taskRunning) {

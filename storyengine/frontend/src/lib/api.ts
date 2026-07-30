@@ -2421,6 +2421,13 @@ export interface TaskStatus {
   // this is a flag, not a new status value). Absent/false means an ordinary
   // clean completion, unchanged from before this field existed.
   needs_review?: boolean;
+  // UX-2 (2026-07-30): additive structured signal — e.g. "roster_prefetch"
+  // for both the manual roster "Re-check" run and the automatic
+  // research-completion sweep (backend/static_docu.py's
+  // _ROSTER_PREFETCH_TASK_TYPE), read by RosterStagePanel.tsx instead of
+  // string-matching `message` for "is a roster sweep running". Absent for
+  // any task that predates this field or never set one.
+  task_type?: string | null;
 }
 
 export interface StyleUpdateResponse {
