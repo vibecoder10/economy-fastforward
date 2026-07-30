@@ -1579,6 +1579,30 @@ async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_i
     return {"status": "ok", "video_id": video_id}
 
 
+async def sync_video_script(video_id: str, tenant_id: str) -> list:
+    """Recompute videos.script from scripts.scene_text. videos.script is not
+    just the display/export copy — it is the ONLY thing routes/characters.py
+    `_extract_cast` reads when a video has no Story Bible yet (`_get_video`
+    selects `videos.script`, `_extract_cast` reads `video.get("script")`).
+    Call this after ANY write to scripts.scene_text, or a cast/character
+    build kicked off right after can still be built from stale text.
+
+    Extracted (D7-1b) from update_scene_text and rewrite_scene_text, which
+    each carried this exact two-statement block inline (D7-1), once
+    routes/chat.py's free-text script save (`_apply_prompt_draft`, the
+    THIRD ungated `scripts.scene_text` writer D7-1's sweep found) needed the
+    same fix — three verbatim copies crossed the line into "extract it."
+    Returns the fetched rows so a caller that also needs them for a
+    story-law re-check (rewrite_scene_text) doesn't have to re-query."""
+    sync_rows = await fetch_all(
+        "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+        "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
+    await execute(
+        "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id, "\n\n".join(r["scene_text"] for r in sync_rows))
+    return sync_rows
+
+
 @router.patch("/{video_id}/scenes/{scene}/text")
 async def update_scene_text(
     video_id: str, scene: int, body: SceneTextUpdate, tenant_id: str = Depends(get_tenant_id)
@@ -1602,19 +1626,13 @@ async def update_scene_text(
 
     # D7-1: keep videos.script in sync — it is not just the display/export
     # copy, it is the ONLY thing routes/characters.py `_extract_cast` reads
-    # when a video has no Story Bible yet (`_get_video` selects
-    # `videos.script`, `_extract_cast` reads `video.get("script")`). Before
-    # this fix, a scene edit here updated `scripts.scene_text` only — a cast
-    # regenerated right after would still be built from the scene text as it
-    # was BEFORE the edit. rewrite_scene_text (below in this file) already
-    # performs this exact sync after its own scene_text write; mirror it
-    # verbatim rather than inventing a second mechanism.
-    sync_rows = await fetch_all(
-        "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
-        "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
-    await execute(
-        "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
-        video_id, tenant_id, "\n\n".join(r["scene_text"] for r in sync_rows))
+    # when a video has no Story Bible yet. Before this fix, a scene edit
+    # here updated `scripts.scene_text` only — a cast regenerated right
+    # after would still be built from the scene text as it was BEFORE the
+    # edit. (D7-1b: extracted into sync_video_script, shared with
+    # rewrite_scene_text below and routes/chat.py's script-save path — see
+    # that function's docstring.)
+    await sync_video_script(video_id, tenant_id)
 
     # D6-3b: an edit that carries the OLD location forward (or adopts a new
     # one) can still put THIS scene's text out of step with S3 — e.g. the
@@ -2398,13 +2416,11 @@ async def rewrite_scene_text(
                voice_over_url = NULL, voice_duration_seconds = NULL, voice_status = NULL
            WHERE video_id = $1 AND tenant_id = $2 AND scene = $3""",
         video_id, tenant_id, scene, new_text, new_location)
-    # Keep videos.script in sync (it is the display/export copy).
-    scenes_rows = await fetch_all(
-        "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
-        "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
-    await execute(
-        "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
-        video_id, tenant_id, "\n\n".join(r["scene_text"] for r in scenes_rows))
+    # Keep videos.script in sync (it is the display/export copy). D7-1b:
+    # extracted into sync_video_script (shared with update_scene_text above
+    # and routes/chat.py's script-save path) — it also returns the rows so
+    # the S3/S1 re-check below can reuse them instead of re-querying.
+    scenes_rows = await sync_video_script(video_id, tenant_id)
 
     # D6-3b (S3 repair leg re-check): the rewritten paragraph could now
     # describe a different place than the carried-forward location, or
