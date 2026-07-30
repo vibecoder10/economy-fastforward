@@ -6028,24 +6028,105 @@ def _unit_roster_aliases(item: Any) -> list[str]:
 # CONSERVATIVE BY DESIGN: a false "never built" verdict is much worse than a
 # missed one. It permanently tells the operator and the UI no photo can
 # exist, suppressing the retry affordance for a machine whose photo is
-# genuinely findable. So this only fires on one exact, narrow signal and
-# refuses everything else — including anything that merely *contains*
-# "cancelled".
+# genuinely findable. Under-detection is the correct failure mode throughout
+# this section.
 #
-# THE TRAP: the roster vocabulary distinguishes a pure paper cancellation
-# ("cancelled" — nothing was ever built) from a cancelled PROGRAMME whose
-# hardware was actually completed ("cancelled-built", "built-prototype" —
-# the Avro Arrow / North American XB-70 / TSR-2 shape: the programme died,
-# but real prototypes were built and photographed). Treating "contains
-# cancelled" as decisive would misclassify every one of those. The rule
-# below requires the BARE, EXACT word "cancelled" and nothing else.
+# REVISION (2026-07-29, same day, corrected against REAL prod data): the
+# first cut of this rule keyed entirely off `status` being the bare word
+# "cancelled". Pulling the actual roster for video d2e37cd6 proved that
+# wrong — the researcher tags status LOOSELY, and BOTH of these real rows
+# carry the exact same status, "cancelled-built":
+#
+#   CVA-01 class (MUST classify never-built):
+#     status="cancelled-built", built_count="0 ships built, cancelled
+#     February 1966 before construction [Friedman 1988]"
+#
+#   Audacious class / Malta class (MUST stay refused — one ship, HMS Eagle,
+#   was actually completed):
+#     status="cancelled-built", built_count="1 ship completed (Eagle R05),
+#     3 cancelled on slips (...) [Friedman 1988]"
+#
+# `status` cannot separate these — it's identical on both. `built_count` is
+# the only field that actually distinguishes a zero-hull paper cancellation
+# from a class where one hull reached completion, so built_count is now the
+# PRIMARY decisive signal, with status reduced to a coarse safety gate
+# (must at least mention "cancelled" somewhere) rather than the deciding
+# vocabulary word.
+#
+# THE TRAP (kept from the original design, still real): "cancelled-built"
+# and "built-prototype" both name a programme where at least one physical
+# unit WAS completed (the Audacious/Malta shape above; the aircraft
+# equivalent is the Avro Arrow / North American XB-70 / TSR-2 — the
+# programme died, but real prototypes were built and photographed). A
+# built_count asserting ANY positive completed count, for ANY status, must
+# always veto the classification — it dominates every other signal.
+_QUANTITY_WORD = (
+    r"(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"several|many|some|a\s+few)"
+)
+
+# VETO #1: built_count asserts a POSITIVE completed count for ANY reason —
+# a number/quantity word tied to a unit noun ("1 ship completed", "2 ships
+# converted") or tied to a completion verb ("3 built", "several flown").
+# Requires the quantity to be POSITIVE (never "0"), so "0 ships built"
+# (CVA-01's real text) does NOT trip this — only [1-9]/spelled-out/vague-
+# plural quantities do.
 _BUILT_COUNT_POSITIVE_RE = re.compile(
-    r"\b[1-9]\d*\s*(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|"
-    r"examples?|airframes?)\b"
-    r"|\b(?:built|converted|completed|delivered|produced|constructed|"
-    r"laid down|flown)\b",
+    rf"\b{_QUANTITY_WORD}\s*(?:ships?|units?|aircraft|hulls?|vehicles?|"
+    rf"prototypes?|examples?|airframes?)\b"
+    rf"|\b{_QUANTITY_WORD}\s*(?:were\s+|was\s+)?(?:built|converted|completed|"
+    rf"delivered|produced|constructed|flown)\b",
     re.IGNORECASE,
 )
+
+# VETO #2: built_count mentions a hull being LAID DOWN at all, regardless of
+# quantity or whether it was later cancelled/completed. A laid-down hull is
+# physical steel on a slipway — it may well have been photographed under
+# construction before cancellation, even though zero units were ever
+# "completed". This is deliberately MORE cautious than the completed-count
+# veto: it fires on the bare phrase, no positive-quantity requirement,
+# because under-detection (refusing to classify) is the correct failure
+# mode here too. CVA-01's real built_count text never mentions "laid
+# down" — consistent with history: CVA-01 was cancelled at the design
+# stage in 1966, before any steel was ever cut, so this veto correctly
+# stays silent for it. A hypothetical future entry like "2 hulls laid
+# down, 0 completed, program cancelled" WOULD be vetoed by this rule even
+# though its completed count is zero — that is the intended, conservative
+# behavior, not a bug.
+_BUILT_COUNT_LAID_DOWN_RE = re.compile(r"\blaid\s+down\b", re.IGNORECASE)
+
+# DECISIVE POSITIVE SIGNAL: built_count explicitly asserts ZERO units were
+# ever completed — "0 ships built", "0 built", "none completed", "never
+# built", "no ships were built". This is now the PRIMARY route to a
+# never-built verdict (see Route B below), because it is a factual count
+# claim, not a loosely-applied status label.
+_BUILT_COUNT_ZERO_RE = re.compile(
+    r"\b0\s*(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|"
+    r"examples?|airframes?)\b"
+    r"|\b0\s*(?:built|completed|delivered|produced|constructed)\b"
+    r"|\bnone\s+(?:built|completed|delivered|produced|constructed)\b"
+    r"|\bnever\s+built\b"
+    r"|\bno\s+(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|"
+    r"examples?)\s+(?:were\s+|was\s+)?(?:built|completed|delivered|"
+    r"produced|constructed)\b",
+    re.IGNORECASE,
+)
+
+
+def _roster_built_count_vetoes_never_built(built_count: str) -> bool:
+    """True when built_count text contains EITHER veto signal — a positive
+    completed count, or any mention of a hull being laid down. Either one
+    alone is enough to refuse a never-built classification; see the two
+    veto docstrings above (_BUILT_COUNT_POSITIVE_RE, _BUILT_COUNT_LAID_DOWN_RE)
+    for why each exists. Shared by both classification routes below and by
+    the repair-warning helper, so the veto condition can never drift out of
+    sync between them."""
+    if not built_count:
+        return False
+    return bool(
+        _BUILT_COUNT_POSITIVE_RE.search(built_count)
+        or _BUILT_COUNT_LAID_DOWN_RE.search(built_count)
+    )
 
 
 def _roster_entry_never_built(item: Any) -> bool:
@@ -6053,28 +6134,33 @@ def _roster_entry_never_built(item: Any) -> bool:
     NEVER have a real photograph because it was cancelled before any
     physical unit existed?
 
-    DECISIVE SIGNAL: `status`, trimmed and lowercased, is the bare word
-    "cancelled" and nothing else — not "cancelled-built", not
-    "cancelled-prototype", not any other composite that merely contains
-    "cancelled" as a substring. Every other status value seen in the roster
-    vocabulary ("production", "converted", "prototype", "built-prototype",
-    "cancelled-built", "special-purpose", "secret-or-black-program",
-    "edge-case", "disputed", "variant") — and a missing/empty status — is
-    deliberately refused. Under-detection is the correct failure mode.
+    Two independent routes to a True verdict, EITHER of which is vetoed by
+    _roster_built_count_vetoes_never_built (a positive completed count, or
+    any "laid down" mention) — the veto always dominates.
 
-    CORROBORATING CHECK: `built_count`, if present, must not itself assert
-    a physical build. A `built_count` string naming a positive unit count
-    (e.g. "2 ships converted from battlecruisers") or a build-completion
-    verb ("built", "converted", "completed", "delivered", "produced",
-    "constructed", "laid down", "flown") CONTRADICTS a bare "cancelled"
-    status, so the classification is refused even though status alone
-    looked decisive — a data inconsistency is a reason to abstain, not a
-    reason to guess (see _roster_status_built_count_contradicts, which
-    surfaces this same contradiction as a soft repair warning instead of
-    staying silent). An EMPTY or MISSING built_count is NOT treated as a
-    contradiction: the real production CVA-01 entry carries no built_count
-    field at all, and requiring one would silently under-detect the one
-    entry this rule exists to catch.
+    ROUTE A (original design, kept per explicit instruction not to remove
+    it): `status`, trimmed/lowercased, is the bare word "cancelled" and
+    nothing else. Still useful for a roster that uses the vocabulary
+    cleanly, but real prod data (see the REVISION note above this function)
+    shows the researcher does NOT reliably do that — CVA-01 itself is
+    tagged "cancelled-built", so this route alone would miss it.
+
+    ROUTE B (added after the real-data correction, now the PRIMARY route in
+    practice): `status` merely CONTAINS the substring "cancelled" (catches
+    "cancelled", "cancelled-built", "cancelled-prototype", etc — a coarse
+    safety gate, not the decisive signal) AND `built_count` explicitly
+    asserts a ZERO completed count (_BUILT_COUNT_ZERO_RE). built_count is a
+    factual count claim and is trusted over the loosely-applied status
+    word — this is exactly what separates the real CVA-01 row
+    (built_count="0 ships built...") from the real Audacious/Malta row
+    (built_count="1 ship completed (Eagle R05), 3 cancelled on slips...",
+    same status="cancelled-built" on both) which the veto refuses.
+
+    Status values with NO "cancelled" substring at all ("production",
+    "converted", "prototype", "built-prototype", "special-purpose",
+    "secret-or-black-program", "edge-case", "disputed", "variant") — and a
+    missing/empty status — never reach either route. Under-detection is
+    the correct failure mode.
 
     Only ever meaningful on a structured roster dict; a bare display-name
     string (older roster shape, or a fixture with no status field) always
@@ -6083,28 +6169,58 @@ def _roster_entry_never_built(item: Any) -> bool:
     if not isinstance(item, dict):
         return False
     status = str(item.get("status") or "").strip().lower()
-    if status != "cancelled":
-        return False
     built_count = str(item.get("built_count") or "").strip()
-    if built_count and _BUILT_COUNT_POSITIVE_RE.search(built_count):
+
+    if _roster_built_count_vetoes_never_built(built_count):
         return False
-    return True
+
+    if status == "cancelled":  # Route A
+        return True
+
+    if "cancelled" in status and _BUILT_COUNT_ZERO_RE.search(built_count):  # Route B
+        return True
+
+    return False
 
 
 def _roster_status_built_count_contradicts(item: Any) -> bool:
     """True exactly when a roster item's status is the bare word "cancelled"
-    but its built_count asserts real hardware was completed — the one case
-    _roster_entry_never_built refuses to classify because the two fields
-    disagree. Kept as its own function (rather than inlining the negation
-    in _roster_validation) so the contradiction condition can never quietly
-    drift out of sync with the classifier it mirrors."""
+    but its built_count asserts real hardware was completed or laid down —
+    the Route A case where _roster_entry_never_built refuses to classify
+    because the two fields disagree outright (status implies zero, count
+    says otherwise). Kept as its own function (rather than inlining the
+    negation in _roster_validation) so the contradiction condition can
+    never quietly drift out of sync with the classifier it mirrors."""
     if not isinstance(item, dict):
         return False
     status = str(item.get("status") or "").strip().lower()
     if status != "cancelled":
         return False
     built_count = str(item.get("built_count") or "").strip()
-    return bool(built_count) and bool(_BUILT_COUNT_POSITIVE_RE.search(built_count))
+    return _roster_built_count_vetoes_never_built(built_count)
+
+
+def _roster_status_built_wording_but_zero_completed(item: Any) -> bool:
+    """True when `status` uses "-built"/"built-" wording ("cancelled-built",
+    "built-prototype" — implying SOMETHING physical exists) but built_count
+    explicitly says ZERO units were ever completed, with no veto. This is
+    the exact mislabeling verified live in prod on 2026-07-29: the real
+    CVA-01 class row — a programme with ZERO hulls ever laid down — is
+    tagged status="cancelled-built", not bare "cancelled". The never-built
+    classifier already reads through this correctly via built_count (Route
+    B), so this is NOT a blocker — but the mislabeling itself is worth
+    flagging as a soft repair warning so a future research pass uses bare
+    "cancelled" for a true zero-hull program and reserves "-built"/"built-"
+    wording for a programme with real completed hardware."""
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    if "built" not in status:
+        return False
+    built_count = str(item.get("built_count") or "").strip()
+    if not built_count or _roster_built_count_vetoes_never_built(built_count):
+        return False
+    return bool(_BUILT_COUNT_ZERO_RE.search(built_count))
 
 
 def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
@@ -6324,6 +6440,33 @@ def _roster_validation(
             + (f" (+{more} more)" if more > 0 else "")
             + ". Use 'cancelled-built' or 'built-prototype' when a cancelled programme's "
             "hardware was actually completed — bare 'cancelled' means nothing was ever built.",
+            hard=False,
+        )
+
+    # C5 SECOND repair warning, added 2026-07-29 after real prod data proved
+    # the first one insufficient: the live CVA-01 row — a programme with
+    # ZERO hulls ever laid down — is tagged status="cancelled-built", not
+    # bare "cancelled". The never-built classifier reads through this fine
+    # (built_count is the decisive signal, see _roster_entry_never_built
+    # Route B), but the mislabeling itself is worth surfacing so a future
+    # research pass reserves "-built"/"built-" status wording for a
+    # programme that actually has completed hardware.
+    built_wording_zero_count: list[str] = []
+    for item in roster_raw or []:
+        if _roster_status_built_wording_but_zero_completed(item):
+            display = _unit_display_name(item) or str((item or {}).get("name") or "").strip()
+            if display:
+                built_wording_zero_count.append(display)
+    if built_wording_zero_count:
+        shown = built_wording_zero_count[:8]
+        more = len(built_wording_zero_count) - len(shown)
+        _warn(
+            "status uses '-built'/'built-' wording (implying real hardware exists) but "
+            "built_count says zero units were ever completed for: "
+            + ", ".join(shown)
+            + (f" (+{more} more)" if more > 0 else "")
+            + ". Use bare 'cancelled' for a programme with zero completed hardware — "
+            "reserve 'cancelled-built'/'built-prototype' for one that actually has some.",
             hard=False,
         )
 
