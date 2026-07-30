@@ -2266,7 +2266,7 @@ _GET_CHARACTERS_TOOL: dict[str, Any] = {
 
 _EDIT_CHARACTER_TOOL: dict[str, Any] = {
     "name": "edit_character",
-    "description": "Edit a character's name and/or description. Free, no cost.",
+    "description": "Edit a character's name, description and/or identity_tag. Free, no cost.",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -2274,6 +2274,15 @@ _EDIT_CHARACTER_TOOL: dict[str, Any] = {
             "char_id": {"type": "string", "description": "Character UUID (from get_characters)."},
             "name": {"type": "string", "description": "New name, optional."},
             "description": {"type": "string", "description": "New description, optional."},
+            "identity_tag": {
+                "type": "string",
+                "description": (
+                    "Short locked identity tag (2-4 words of wardrobe/build, e.g. "
+                    "'red jacket, undercut, mid-20s'), optional. Read verbatim into "
+                    "every storyboard's CHARACTER block instead of a truncated "
+                    "description."
+                ),
+            },
         },
         "required": ["video_id", "char_id"],
     },
@@ -2330,7 +2339,8 @@ async def _call_edit_character(tenant_id, arguments: dict[str, Any], caller: str
     try:
         result = await _update_character_route(
             str(video_id), str(char_id),
-            CharacterUpdate(name=arguments.get("name"), description=arguments.get("description")),
+            CharacterUpdate(name=arguments.get("name"), description=arguments.get("description"),
+                            identity_tag=arguments.get("identity_tag")),
             tenant_id=tenant_id,
         )
     except HTTPException as e:
@@ -2714,7 +2724,10 @@ _EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
         "(6-8 {name, position} objects) injected verbatim into every "
         "scene's planning and draw prompts for this location — pass the "
         "full replacement list (an empty list clears it back to no "
-        "manifest); omit to leave it untouched."
+        "manifest); omit to leave it untouched. material_map (D6-1) states "
+        "which surfaces of this location are solid vs transparent and "
+        "where the boundary runs — injected verbatim and wins over any "
+        "per-scene guess."
     ),
     "inputSchema": {
         "type": "object",
@@ -2734,6 +2747,15 @@ _EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
                     },
                     "required": ["name", "position"],
                 },
+            },
+            "material_map": {
+                "type": "string",
+                "description": (
+                    "Which surfaces of this ONE location are solid vs transparent and "
+                    "where the boundary runs, e.g. 'the outer wall is glass from floor "
+                    "to shoulder height; everything above is solid metal.' Omit to "
+                    "leave unchanged; empty string clears it back to no canonical map."
+                ),
             },
         },
         "required": ["video_id", "env_id"],
@@ -2841,6 +2863,7 @@ async def _call_edit_environment(tenant_id, arguments: dict[str, Any], caller: s
             EnvironmentUpdate(
                 name=arguments.get("name"), description=arguments.get("description"),
                 props=props_arg if props_arg is not None else None,
+                material_map=arguments.get("material_map"),
             ),
             tenant_id=tenant_id,
         )

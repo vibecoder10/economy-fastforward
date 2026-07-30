@@ -27,7 +27,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one
@@ -49,6 +49,7 @@ class CharacterRead(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    identity_tag: Optional[str] = None
     reference_url: Optional[str] = None
     status: str = "draft"
     source: str = "generated"
@@ -58,6 +59,17 @@ class CharacterRead(BaseModel):
 class CharacterUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    # D6-1 (BOARD-LAWS L6 — IDENTITY ONCE, migration 142): a short LOCKED
+    # identity tag (2-4 words), read VERBATIM into every board's CHARACTER
+    # block (coverage_to_app._character_identity_line / load_character_
+    # bible) — distinct from description, which stays long free prose for
+    # the cast-sheet portrait prompt and the writer's bible.
+    identity_tag: Optional[str] = None
+
+    @field_validator("identity_tag")
+    @classmethod
+    def _identity_tag_len(cls, v):
+        return v.strip()[:200] if v is not None else v
 
 
 class ImportCastRequest(BaseModel):
@@ -115,6 +127,7 @@ def _row_to_read(row: dict) -> CharacterRead:
         id=str(row["id"]),
         name=row.get("name") or "",
         description=row.get("description"),
+        identity_tag=row.get("identity_tag"),
         reference_url=row.get("reference_url"),
         status=row.get("status") or "draft",
         source=row.get("source") or "generated",
@@ -478,6 +491,12 @@ async def update_character(
         params.append(body.name.strip()[:120]); sets.append(f"name = ${len(params)}")
     if body.description is not None:
         params.append(body.description.strip()[:1000]); sets.append(f"description = ${len(params)}")
+    if body.identity_tag is not None:
+        # Empty string clears it back to None ("no canonical tag") — the
+        # composer's fallback path (load_character_bible) treats NULL and ""
+        # identically, so storing NULL keeps the column's meaning consistent
+        # with migration 142's "NULL == not authored yet" contract.
+        params.append(body.identity_tag or None); sets.append(f"identity_tag = ${len(params)}")
     if not sets:
         return {"status": "unchanged"}
     params += [char_id, video_id, tenant_id]
