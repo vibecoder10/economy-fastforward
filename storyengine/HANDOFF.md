@@ -74,25 +74,48 @@ the law-discovery artifact - leave it. The next run is a NEW video created from 
 corrected eight-scene script, which is also the real customer path: script ->
 right-sized scenes -> boards under the laws.
 
+### READ THIS FIRST: storyengine/BOARD-PLANNER-ARCHITECTURE.md
+It answers Ryan's closing question - "why cant this be deterministic and calculated,
+not invented and hallucinated" - and it REORDERS the backlog below. Short version:
+the planner LLM currently WRITES the finished prompt while being told 29 laws in
+prose, so it paraphrases and keeps only what it likes. That is precisely why the
+proof run's code-written and gated laws survived while the prompt-only laws were
+dropped. The fix is to have the model emit a VALIDATED STRUCTURED PLAN and let a
+DETERMINISTIC RENDERER build the prompt from canonical data plus a coverage
+catalogue - at which point most laws stop being instructions and become properties
+of the code path, and most "semantic, not checkable" gates become checkable because
+they inspect JSON instead of paragraphs. Do not start the backlog items below
+without reading it; item 1 is its prerequisite.
+
 ### The build backlog to finish BEFORE that run
-1. **BOARD LAWS FOLLOW-UP A - missing repair stamps.** L11, L12, L15, L16, L18, L19
+1. **CANONICAL INPUTS (the prerequisite for everything).** One per-video record for
+   cast (with reference asset ids), style, and the set/material map per location,
+   inserted VERBATIM by the composer. Subsumes L20, L28, L29 and the paraphrase
+   problem behind L12/L13/L14. The proof run failed on exactly these: references
+   claimed but never attached, style declared twice and contradictorily ("an animated
+   scene" AND "Photorealistic, cinematic film still" - it chose photorealism), and a
+   world described as "cylindrical" pods containing a "spherical" pod. A board with an
+   invented cast in the wrong style and a tube-shaped world fails before a single law
+   is tested.
+2. **BOARD LAWS FOLLOW-UP A - missing repair stamps**, re-scoped per the architecture
+   doc: prefer moving these laws into deterministic assembly over adding prose.** L11, L12, L15, L16, L18, L19
    and L17/L22 have a PROMPT leg but no per-shot stamp, so they evaporate on the
    first single-shot redraw (the exact failure class that cost $0.20 on 07-29).
    L17/L22 may need a group-arrangement field on the per-shot artifact - the missing
    signal is itself the finding.
-2. **STORY LAWS INTO THE SCRIPT GENERATOR (S1-S5).** Same three-leg contract:
+3. **STORY LAWS INTO THE SCRIPT GENERATOR (S1-S5).** Same three-leg contract:
    prompt, gate (S1 does a scene's location differ from the previous with no transit
    sentence? S3 does a scene span more than one location? S5 does every scene name a
    location?), repair. **S3 is the highest-value single item in this whole backlog** -
    it is why scene 1 was oversized, and with it in place no one ever needs to split a
    scene again.
-3. **BOARD LAWS FOLLOW-UP B - the film-level boundary pass (L23-L26).** Needs a PLAN
+4. **BOARD LAWS FOLLOW-UP B - the film-level boundary pass (L23-L26).** Needs a PLAN
    before a chunk: where it lives above the scene, what it reads (all scene texts in
    order), what it writes (per boundary: relationship + OUT shot + IN shot + what
    carries), how each scene prompt receives its INCOMING/OUTGOING blocks. The build
    already renders those blocks when supplied; nothing produces them. Worked example:
    tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt.
-4. Then the fresh-video run, judged against BOARD-LAWS.md and STORY-LAWS.md at every
+5. Then the fresh-video run, judged against BOARD-LAWS.md and STORY-LAWS.md at every
    stage - script first, boards second, nothing paid until each stage passes.
 
 Deferred behind those: D5 arbiter A6-A9 + A3b-2, parity chunks D3-55/56/57, D3-54
