@@ -33,7 +33,7 @@ they extend rather than replace.
 - **The set is defined before it is shot** — L3, L7, L8, L11, L20
 - **People are specified, not assumed** — L6, L12, L17, L22
 - **Action is legal** — L4
-- **Panel discipline** — L2, L21
+- **Panel discipline** — L2, L21, L27
 - **Scene boundaries: the cut between sheets** — L23, L24, L25, L26
 - **Laws that belong to the script** — S1-S5, in `STORY-LAWS.md`
 
@@ -216,6 +216,17 @@ four, because the seating order had only ever been given from the front-on side.
 
 **L2 — ONE ACTION PER PANEL.** One action. Never mirror or flip a panel. No readable
 text in panel artwork except the panel-number label.
+
+**L27 — INSTRUCTIONS ARE NOT CAPTIONS.** Text written to instruct the drawer can be
+rendered by it as text. Never phrase a panel brief as a labelled directive — an
+all-caps heading, a colon, a bracketed note — because a caption strip will absorb it
+and bake it into the sheet. State the same fact as ordinary prose describing what is
+in the frame, and state once, in the sheet header, exactly what the caption strip may
+contain and that nothing else ever appears there.
+*Provenance: an arrangement instruction written as "ARRANGEMENT AS SEEN FROM THIS
+CAMERA (REVERSED): ..." inside a panel brief was rendered verbatim into that panel's
+caption strip. The instruction worked — the headcount held — and it printed itself
+onto the artwork.*
 
 ---
 
