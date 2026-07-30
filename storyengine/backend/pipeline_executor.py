@@ -6930,6 +6930,13 @@ def resolve_prompt(
     writer needs both laws at once (S3: one location per scene; S1: narrate
     the move between scenes) or it can satisfy one by breaking the other.
 
+    D7-6 (STORY-LAWS S6): story_laws.SCRIPT_IS_SOURCE_OF_TRUTH_LAW rides
+    along right after LOCATION_TRANSIT_LAW, same call site, same reasoning —
+    the writer is told the script is canonical and that cast/environments/
+    boards built from an older draft go stale the moment these words change,
+    so it writes the full truth into the script rather than leaving it for
+    an artifact generated from older text to (incorrectly) supply.
+
     Returns the resolved prompt string, or None when there's nothing to set
     (so the bot falls back to its built-in default).
     """
@@ -6946,7 +6953,11 @@ def resolve_prompt(
         law = ""
         if prompt_key == "script":
             import story_laws
-            law = "\n\n" + story_laws.SCENE_LOCATION_LAW + "\n\n" + story_laws.LOCATION_TRANSIT_LAW
+            law = (
+                "\n\n" + story_laws.SCENE_LOCATION_LAW
+                + "\n\n" + story_laws.LOCATION_TRANSIT_LAW
+                + "\n\n" + story_laws.SCRIPT_IS_SOURCE_OF_TRUTH_LAW
+            )
         return filled + law + (getattr(identity, "standing_preferences", "") or "")
     return None
 
@@ -12331,6 +12342,8 @@ separate scenes, one location each:
 {story_laws.SCENE_LOCATION_LAW}
 
 {story_laws.LOCATION_TRANSIT_LAW}
+
+{story_laws.SCRIPT_IS_SOURCE_OF_TRUTH_LAW}
 
 Target length: about {target_words} words total, spread across the scenes.
 

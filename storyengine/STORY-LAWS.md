@@ -322,3 +322,35 @@ earned by an earlier cost" is a judgement about dramatic structure, not a fact a
 column or reliable text pattern can answer — a hard OR warn gate here would be security
 theatre, pretending a check exists where none is possible. This is a permanent
 admission, not a placeholder for a future chunk.
+
+**S6 (THE SCRIPT IS THE ORIGIN OF TRUTH, AND CHANGING IT INVALIDATES WHAT CAME
+BEFORE) — all three legs landed, 2026-07-30.** GATE + REPAIR landed first (D7-2:
+`videos.characters_hash`/`environments_hash`, migration 145 — every script write
+recomputes and compares the hash the CURRENT cast/environments were generated from,
+flagging `video_characters.status`/`video_environments.status = 'stale'` on a mismatch,
+FLAG-never-delete, wired at `routes/videos.py`'s `sync_video_script` choke point plus
+the direct-write paths that bypass it; D7-3: a scene edit also invalidates the scene's
+stored `coverage_directive_hash` and voice/image/clip pointers, not just cast/
+environments). PROMPT landed in this chunk (D7-6): `backend/story_laws.py`'s
+`SCRIPT_IS_SOURCE_OF_TRUTH_LAW` rides along the SAME two script-generation call sites
+S1/S3 already reach — `pipeline_executor.resolve_prompt` (ACT-based docu path, appended
+after `SCENE_LOCATION_LAW`/`LOCATION_TRANSIT_LAW`) and `_run_modeled_script`'s inline
+prompt (modeled path) — plus the MCP `submit_script` tool description (`routes/mcp.py`)
+and `user_script.py`'s module docstring and `accept_external_script` docstring, so a
+human or agent using the external-script acceptance surface is told the same contract.
+Unlike S1/S3, S6 has no per-scene deterministic check of its own to add to
+`story_laws.py` — "did the writer treat the script as canonical" is not a fact any
+column or reliable text pattern can verify — so PROMPT is intentionally S6's only leg
+in that module; GATE and REPAIR are instead the hash-compare/invalidation MECHANISM
+already living in `routes/videos.py` (D7-2/D7-3), not duplicated here. UI leg (D7-4,
+also landed 2026-07-30): an orange "stale" badge and explanatory line on the
+Characters/Environments tabs, plus warning banners near their Approve bar and in the
+Scenes tab (where storyboard/redraw spend actually happens), surface the GATE's flag to
+a human before money is spent on a stale cast/environment/redraw — a flag nobody sees
+is the same as no flag. Known gap, not silently pretended away: `user_script.py`'s
+`set_user_script`/`accept_external_script` write `videos.script` directly (like the
+three paths D7-2's own status note already lists) but are NOT among the paths D7-2
+gives an explicit `_flag_stale_cast_and_environments` call — an external/creator-
+submitted script that changes the story does not currently re-trigger the GATE.
+Flagged here, not fixed in this chunk (D7-6 is PROMPT-only, and both call sites belong
+to routes/videos.py's staleness mechanism, out of scope for this pass).

@@ -39,6 +39,19 @@ other two:
     the comparison (``video_characters.name``) is a real column even
     though the other side (the script) is free text. See that function's
     docstring for exactly what it can and cannot catch.
+
+D7-6 (2026-07-30) lands S6's PROMPT leg (THE SCRIPT IS THE ORIGIN OF TRUTH,
+AND CHANGING IT INVALIDATES WHAT CAME BEFORE) — ``SCRIPT_IS_SOURCE_OF_TRUTH_
+LAW`` below. S6's GATE (hash compare-and-flag: ``videos.characters_hash`` /
+``environments_hash``, migration 145) and REPAIR (invalidation on every
+scene-text write) legs already landed on main (D7-2, D7-3) in
+``routes/videos.py`` — that mechanism is deliberately NOT duplicated here;
+this module only carries the law's TEXT, same as S1/S3/S4's constants do,
+so a script-writing model is told the same contract the gate/repair legs
+already enforce mechanically. Unlike S1/S3 (which shape scene STRUCTURE),
+S6 has no per-scene deterministic check of its own to add here — "did the
+writer treat the script as canonical" is not a fact any column or text
+pattern can verify, so PROMPT is S6's only leg in this module.
 """
 
 from __future__ import annotations
@@ -537,3 +550,35 @@ def check_cast_consistency_law(scenes: list[dict], cast: list[dict]) -> dict:
                 ),
             })
     return {"warnings": warnings}
+
+
+# ---------------------------------------------------------------------------
+# S6 — THE SCRIPT IS THE ORIGIN OF TRUTH, AND CHANGING IT INVALIDATES WHAT
+# CAME BEFORE (D7-6 — PROMPT leg only; GATE/REPAIR already live in
+# routes/videos.py — see this module's docstring above)
+# ---------------------------------------------------------------------------
+
+# PROMPT leg. Injected at the SAME call sites SCENE_LOCATION_LAW/
+# LOCATION_TRANSIT_LAW already ride along at: pipeline_executor.resolve_prompt
+# (ACT-based docu path) and _run_modeled_script's inline prompt (modeled
+# path). Unlike S1/S3, which are instructions about scene STRUCTURE, S6 is an
+# instruction about what the writer treats as AUTHORITATIVE: the script text
+# itself, never a cast sheet, environment design, or board generated from an
+# earlier draft. This is the same rule the GATE (hash compare) and REPAIR
+# (stale-flagging) legs already enforce mechanically after the fact — this
+# constant is what tells the model up front, so fewer scripts trigger it.
+SCRIPT_IS_SOURCE_OF_TRUTH_LAW = (
+    "THE SCRIPT IS THE ORIGIN OF TRUTH (S6) — every downstream artifact (cast, "
+    "environments, storyboards, coverage, voice) is generated FROM this "
+    "script, never the other way around. Write the full truth directly into "
+    "the script text itself: every character who appears, anything about "
+    "how they look or what they wear that the story actually needs, and "
+    "every place the story visits. Do not leave these to be inferred later "
+    "from a character sheet, environment design, or board that already "
+    "exists — those were built from an EARLIER version of this script, and "
+    "the moment the words here change, that older artifact is stale and "
+    "will be regenerated from what you write now, not preserved on the "
+    "assumption it still matches. A script that under-describes its own "
+    "cast or world forces a later stage to guess or invent; a script that "
+    "states the full truth in its own words does not."
+)
