@@ -4360,6 +4360,16 @@ async def generate_coverage_for_video(
                 # draw prompt. None (no match, or the env has no manifest yet)
                 # is the existing behavior, unchanged.
                 props=(env or {}).get("props"),
+                # D6-1c (L20): the SAME approved-environment list and single
+                # scene-matched env this call already resolved above (envs,
+                # env) — reused, never re-queried, so run_coverage's MATERIAL
+                # MAP LOCK can prefer video_environments.material_map over
+                # the planner's own [MATERIAL|] line, same precedence the
+                # $0.05 sheet PREVIEW already gives it (_canonical_material_
+                # line, above in this file). Both fall through to "" (no
+                # canonical row) exactly as before for every video today.
+                canonical_envs=envs,
+                matched_env=env,
                 progress_callback=_p,
                 **coverage_kwargs)
         except Exception as e:  # noqa: BLE001 — one scene's crash must not stop the rest

@@ -29,6 +29,9 @@ from storyboard.coverage import (  # noqa: E402
     check_material_map_present_when_mixed, check_location_scoping,
     check_nested_frame_content_specified, check_pov_setup_neutral_and_into_camera,
     check_no_caption_leaking_labels,
+    # D6-1c (L20, PICTURES path): canonical-material precedence + its
+    # warn-only drift alarm — see their docstrings in storyboard/coverage.py
+    canonical_material_line, check_material_map_consistency,
 )
 from shared.channel_profile import load_profile  # noqa: E402
 
@@ -430,6 +433,99 @@ def test_run_coverage_material_map_lock_applied(tmp_path):
         assert "Material map" in m["master"]["description"]
 
 
+def test_run_coverage_material_map_null_canonical_unchanged(tmp_path):
+    """D6-1c NULL-safety proof: canonical_envs=None (every caller before
+    this chunk, and every production video today since video_environments.
+    material_map is NULL on all 38 live rows) draws the SAME planner-prose
+    material line as before this chunk — byte-identical, not merely
+    'contains Material map'."""
+    outdir = str(tmp_path)
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames_factory())), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and runs.", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=MULTI_LOCATION_MOTION_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+            canonical_envs=None, matched_env=None,
+        ))
+    assert not out.get("error"), out
+    desc = out["moments"][0]["master"]["description"]
+    assert "Material map, fixed for this whole set: The pod is part clear glass" in desc
+
+
+def test_run_coverage_material_map_canonical_wins_over_planner_prose(tmp_path):
+    """D6-1c decisive test (L20): with a canonical video_environments.
+    material_map present for BOTH locations in this multi-location scene,
+    the CANONICAL string reaches the real per-shot draw prompt — never the
+    planner's own [MATERIAL | ...] prose ('The pod is part clear glass...',
+    parsed by parse_material_map). Precedence is a full replace (same
+    contract as coverage_to_app._canonical_material_line's preview twin),
+    not a merge, so this also proves which one won."""
+    outdir = str(tmp_path)
+    canonical_envs = [
+        {"name": "Pod", "material_map": "CANONICAL: pod is entirely clear glass, no solid shell anywhere"},
+        {"name": "Corridor", "material_map": "CANONICAL: corridor walls are solid brushed steel, zero glass"},
+    ]
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames_factory())), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and runs.", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=MULTI_LOCATION_MOTION_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+            canonical_envs=canonical_envs, matched_env=None,
+        ))
+    assert not out.get("error"), out
+    planner_prose = "The pod is part clear glass at the front, part solid white shell"
+    pod_moment, corridor_moment = out["moments"][0], out["moments"][2]
+    pod_desc = pod_moment["master"]["description"]
+    corridor_desc = corridor_moment["master"]["description"]
+    # The canonical clauses won — both landed, per-location.
+    assert "CANONICAL: pod is entirely clear glass" in pod_desc
+    assert "CANONICAL: corridor walls are solid brushed steel" in corridor_desc
+    # The planner's own prose LOST — it must not appear anywhere once a
+    # canonical map exists (a partial win/merge would itself violate L20's
+    # "define the set's material map ONCE").
+    assert planner_prose not in pod_desc
+    assert planner_prose not in corridor_desc
+
+
+def test_canonical_material_line_single_location_matched_env():
+    """Single-location scene (no LOCSET headers): the matched environment's
+    own material_map wins, no location_sets needed."""
+    envs = [{"name": "The Elite Viewing Hall", "material_map": "all solid, no glass anywhere"}]
+    matched = envs[0]
+    assert canonical_material_line(envs, {}, matched) == "all solid, no glass anywhere"
+
+
+def test_canonical_material_line_empty_when_no_canonical_row():
+    """NULL-safety at the unit level: no matching env, or env.material_map
+    is None (every production row today) -> "" every time, the exact
+    sentinel run_coverage's `_canonical_material or (parse_material_map...)`
+    treats as 'fall back to prose'."""
+    assert canonical_material_line([], {}, None) == ""
+    assert canonical_material_line([{"name": "Pod", "material_map": None}], {}, {"name": "Pod", "material_map": None}) == ""
+    assert canonical_material_line(None, {"Pod": "..."}, None) == ""
+
+
+def test_check_material_map_consistency_warns_only_never_raises_on_disagreement():
+    """D6-1c gate decision: a canonical/prose disagreement WARNS (returns 1,
+    logs) and never raises or blocks — per the standing ruling, a real
+    paid-picture path can't hard-fail on a wording mismatch."""
+    n = check_material_map_consistency(
+        "pod is entirely clear glass", MULTI_LOCATION_MOTION_DIRECTIVE)
+    assert n == 1  # disagreement logged, not raised
+
+
+def test_check_material_map_consistency_silent_when_nothing_canonical():
+    """NULL-safety: no canonical material (the production-today case) is 0
+    warnings, not a crash — the function is a no-op until a canonical row
+    exists."""
+    assert check_material_map_consistency("", MULTI_LOCATION_MOTION_DIRECTIVE) == 0
+    assert check_material_map_consistency(None, MULTI_LOCATION_MOTION_DIRECTIVE) == 0
+
+
 def test_run_coverage_motion_capable_staging_lock_for_motion_scene(tmp_path):
     """L4 REPAIR leg fix: a scene with a (BRIDGE) shot gets the motion-
     capable CAMERA KIT tail, never the unconditional (and here, WRONG)
@@ -507,12 +603,18 @@ if __name__ == "__main__":
     test_check_no_caption_leaking_labels_flags_all_caps_directive()
     test_check_no_caption_leaking_labels_passes_ordinary_prose()
     test_check_no_caption_leaking_labels_ignores_structural_tags()
+    test_canonical_material_line_single_location_matched_env()
+    test_canonical_material_line_empty_when_no_canonical_row()
+    test_check_material_map_consistency_warns_only_never_raises_on_disagreement()
+    test_check_material_map_consistency_silent_when_nothing_canonical()
     import tempfile
     with tempfile.TemporaryDirectory() as _td:
         import pathlib
         _p = pathlib.Path(_td)
         test_run_coverage_location_scoped_set_lock_applied(_p)
         test_run_coverage_material_map_lock_applied(_p)
+        test_run_coverage_material_map_null_canonical_unchanged(_p)
+        test_run_coverage_material_map_canonical_wins_over_planner_prose(_p)
         test_run_coverage_motion_capable_staging_lock_for_motion_scene(_p)
         test_run_coverage_planted_staging_lock_unaffected_for_planted_scene(_p)
     print("ok — board laws (coverage.py) self-checks passed")
