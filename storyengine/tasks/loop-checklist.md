@@ -1136,7 +1136,7 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   Highest-value single item in the backlog - it is why scene 1 was oversized. Must reach
   the SUBMIT path too, not only the generate path. Migration 142 (reserved). Depends on
   D6-0B. Worktree. PARALLEL with D6-1.
-- [ ] D6-4 (S) [B][V] S1 + S5 + honest S2/S4 admissions. S1 gate: does a scene's
+- [x] D6-4 (S) [B][V] S1 + S5 + honest S2/S4 admissions. S1 gate: does a scene's
   location differ from the previous with no transit sentence? S5 gate: does every scene
   name a location? S2/S4 are judgement - admit in-commit that no deterministic gate is
   feasible rather than pretending one exists. Depends on D6-3.
@@ -1336,3 +1336,33 @@ is not the same as working in it.
   follow-up and not a blocker. The real fix is the structured-plan schema from BOARD-PLANNER-ARCHITECTURE.md step 2,
   where the reverse-pair relationship is a FIELD rather than a phrase. Until then, consider asserting the parse found
   the pairs the setups block implies.
+
+### D6-4 merged 2026-07-29 (7b5a04f5). All 7 build chunks of phase D6 are now done.
+| Law | Prompt | Gate | Repair |
+|---|---|---|---|
+| S1 narrate every location change | done (`LOCATION_TRANSIT_LAW`, both generation paths + MCP tool desc) | warn-only PERMANENTLY, both legs | done, own key `story_law_s1_warnings` |
+| S2 a payoff must be paid for earlier | absent - ADMITTED | absent - ADMITTED, no deterministic check possible | absent |
+| S4 the script is the source of truth for cast | absent - ADMITTED (no sane injection point; cast is derived FROM the script) | partial, warn-only, wired at `approve_cast` | done, at `update_character` name edit |
+| S5 a scene states where it is | ALREADY DONE by D6-3's `no_location` check - no duplicate built | already done (hard, because the column is canonical) | already done |
+
+S1's split, per Ruling 1: "did the location change" compares two canonical `scripts.location` values and is eligible to
+be hard, but a location change is never itself a defect so nothing blocks on it alone. "Was a transit narrated" is prose
+detection with no reliable signal in free text, so it WARNS, always.
+S4's partial gate warns in both directions (a cast member the script never names; a speaker with no cast entry). It
+SURFACES and never resolves the real open case in HANDOFF.md - the script's "woman in gold" and "old man" versus three
+named navy-suited board elders. **That ruling is still owed by Ryan.**
+The builder hunted its own false positives before reporting, as briefed, and found a real one live: "Then Nyla finds it:
+a lens..." (686b4651 scene 3) was being misread as a speaker tag. Fixed by requiring every word of a speaker tag to be
+Title Case, with a regression test. Four legal S1 transit cases produce zero warnings.
+
+### THE BLOCKER FOR D6-6a - READ BEFORE RUNNING THE DRY RUN
+**Migrations 142, 143 and 144 are NOT APPLIED TO PRODUCTION.** Confirmed via a free `se db` SELECT: `scripts` has no
+`location` column and `_migrations` contains no entry for 142-146. Consequence: **D6-1's canonical inputs, D6-2's
+per-shot location and group arrangement, and D6-3's S3 gate plus D6-4's S1/S5 pieces are ALL DORMANT on prod.** The
+code is on main; the schema is not there to back it.
+So a D6-6a dry run against prod TODAY would exercise law code whose columns do not exist, and would report laws as
+absent for the wrong reason. The dry run is only meaningful AFTER the migrations are applied.
+Applying them means a deploy to the live VPS, which is RYAN'S CALL and must not happen without his explicit go.
+Deploy-day gotcha that still applies: `se deploy` REQUIRES the session name BEFORE any flags (D3-60 open) - a bare flag
+binds to WHO, the frontend build silently skips, and the log still prints the flag. Verify BUILD_ID mtime or grep a
+literal in the deployed chunks. A deploy-day checklist is in tasks/deferred-verification.md.
