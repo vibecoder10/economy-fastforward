@@ -1,24 +1,27 @@
-"""D9-6/D9-7 (migration 148): store_scene must stamp assets.transition_kind /
-assets.continuity_bridge / assets.caused_by from the parsed coverage plan's
-frame dicts, exactly like it already does for assets.purpose_kind /
-assets.shot_purpose (migration 147, D9-1) and assets.shot_location /
-assets.group_arrangement (migration 143).
+"""D11-2 (per-shot DP fields as data, migration 150): store_scene must stamp
+assets.lens_mm / assets.camera_height / assets.dof from the parsed coverage
+plan's frame dicts, exactly like it already does for assets.shot_archetype
+(migration 149, D11-1) and the three metadata-row harvests before it.
 
 Same reasoning as test_d9_1_shot_purpose_stamp.py (read there for the full
-"why store_scene is the ONE real stamping site" argument, confirmed again by
-reading coverage_to_app.py before writing this file — nothing changed about
-that): the sheet-preview planning path never inserts an asset row at all, so
-store_scene is the one place a coverage picture ever becomes an `assets` row.
+"why store_scene is the ONE real stamping site" argument): the sheet-preview
+planning path never inserts an asset row at all, so store_scene is the one
+place a coverage picture ever becomes an `assets` row.
 
 No network, no real DB: database/storage/vault/kie_unified/actions are
-stubbed at import time (mirrors test_d3_62_image_prompt_truncation.py's
-module-stub pattern, same as D9-1's stamp test). store_scene is exercised
-directly with a captured `execute` mock so the test proves what actually
-lands in the SQL parameters, not just that the function runs without
-raising.
+stubbed at import time (same module-stub pattern as the D9-1/D9-6/D9-7/D11-1
+stamp tests). store_scene is exercised directly with a captured `execute`
+mock so the test proves what actually lands in the SQL parameters, not just
+that the function runs without raising.
+
+Unlike the three prior stamp-test files (which shipped with a hardcoded
+`params[-N]` that broke every time a later chunk appended one more trailing
+column — three chunks in a row, per this chunk's own notes), this file is
+name-keyed from the start via _param_index, so a future chunk appending
+MORE trailing columns after dof cannot break it.
 
 Run: cd storyengine/backend && ./venv/bin/python -m pytest \
-    tests/functional/test_d9_6_7_transition_causality_stamp.py -q
+    tests/functional/test_d11_2_shot_dp_stamp.py -q
 """
 import asyncio
 import os
@@ -52,7 +55,7 @@ _stub("actions", picture_price_for=lambda model_label=None: 0.05)
 
 from scripts.coverage_to_app import store_scene  # noqa: E402
 
-VIDEO_ID = "33333333-3333-3333-3333-333333333333"
+VIDEO_ID = "55555555-5555-5555-5555-555555555555"
 TENANT_ID = "tenant-1"
 
 
@@ -88,21 +91,20 @@ def _frame(tmp_path, name, **overrides):
         "shot_location": None, "group_arrangement": None,
         "purpose_kind": None, "shot_purpose": None,
         "transition_kind": None, "continuity_bridge": None, "caused_by": None,
+        "shot_archetype": None,
+        "lens_mm": None, "camera_height": None, "dof": None,
     }
     base.update(overrides)
     return base
 
 
-def test_store_scene_stamps_transition_kind_continuity_bridge_and_caused_by(tmp_path):
-    """The decisive test: a frame carrying transition_kind/continuity_bridge/
-    caused_by (as generate_coverage_frames now threads them from the parsed
-    shot dict) must land in the INSERT's corresponding SQL parameters."""
+def test_store_scene_stamps_dp_fields(tmp_path):
+    """The decisive test: a frame carrying lens_mm/camera_height/dof (as
+    generate_coverage_frames now threads them from the parsed shot dict)
+    must land in the INSERT's corresponding SQL parameters."""
     frames_by_moment = [(
         "moment 1 summary",
-        [_frame(tmp_path, "frame1.png",
-                transition_kind="time_cut",
-                continuity_bridge="the same harness buckle, now sun-bleached",
-                caused_by="M1-MASTER")],
+        [_frame(tmp_path, "frame1.png", lens_mm=35, camera_height="eye", dof="shallow")],
         None, None,
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
@@ -110,82 +112,73 @@ def test_store_scene_stamps_transition_kind_continuity_bridge_and_caused_by(tmp_
     assert len(captured) == 1
     params = captured[0]
     cols = _insert_columns()
-    assert "transition_kind" in cols and "continuity_bridge" in cols and "caused_by" in cols, \
+    assert "lens_mm" in cols and "camera_height" in cols and "dof" in cols, \
         "sanity: all three columns must be in the INSERT column list"
-    # D11-2 broke this test's old hardcoded params[-4]/[-3]/[-2] a SECOND
-    # time — migration 150 appended three more trailing columns (lens_mm,
-    # camera_height, dof) after shot_archetype. Name-keyed via _param_index
-    # instead, so this can never drift again (see test_d9_1_shot_purpose_
-    # stamp.py / test_d11_1_shot_archetype_stamp.py for the same fix).
-    assert params[_param_index("transition_kind")] == "time_cut"
-    assert params[_param_index("continuity_bridge")] == "the same harness buckle, now sun-bleached"
-    assert params[_param_index("caused_by")] == "M1-MASTER"
+    assert params[_param_index("lens_mm")] == 35
+    assert params[_param_index("camera_height")] == "eye"
+    assert params[_param_index("dof")] == "shallow"
 
 
-def test_store_scene_transition_and_causality_fields_default_null_for_untagged_shot(tmp_path):
-    """A shot the planner didn't tag (every shot before this migration, and
-    any code-synthesized floor shot going forward) must store NULL, not
-    crash and not silently invent a value."""
+def test_store_scene_dp_fields_default_null_for_untagged_shot(tmp_path):
+    """A shot the planner didn't tag DP fields onto (the overwhelming
+    majority — the row is OPTIONAL per rule 28) must store NULL, not crash
+    and not silently invent a value."""
     frames_by_moment = [(
         "moment 1 summary",
-        [_frame(tmp_path, "frame1.png")],  # all three default None
+        [_frame(tmp_path, "frame1.png")],  # lens_mm/camera_height/dof default None
         None, None,
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
-    assert params[_param_index("transition_kind")] is None
-    assert params[_param_index("continuity_bridge")] is None
-    assert params[_param_index("caused_by")] is None
+    assert params[_param_index("lens_mm")] is None
+    assert params[_param_index("camera_height")] is None
+    assert params[_param_index("dof")] is None
 
 
-def test_store_scene_stamps_transition_and_causality_independently_per_shot(tmp_path):
-    """Master and angle in the SAME moment carry DIFFERENT transition/
-    causality values — proves the stamping is per-frame, not a moment-level
-    constant leaking across shots."""
+def test_store_scene_stamps_dp_fields_independently_per_shot(tmp_path):
+    """Master and angle in the SAME moment carry DIFFERENT DP values —
+    proves the stamping is per-frame, not a moment-level constant leaking
+    across shots."""
     frames_by_moment = [(
         "moment 1 summary",
         [
             _frame(tmp_path, "frame1.png", role="master",
-                   transition_kind="opening", continuity_bridge=None, caused_by=None),
+                   lens_mm=24, camera_height="eye", dof="deep"),
             _frame(tmp_path, "frame2.png", role="angle", shot_type="MCU",
-                   transition_kind="continuous", continuity_bridge=None, caused_by="M1-MASTER"),
+                   lens_mm=85, camera_height="chest", dof="shallow"),
         ],
         None, None,
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 2
-    idxs = [_param_index("transition_kind"), _param_index("continuity_bridge"),
-            _param_index("caused_by")]
-    assert tuple(captured[0][i] for i in idxs) == ("opening", None, None)
-    assert tuple(captured[1][i] for i in idxs) == ("continuous", None, "M1-MASTER")
+    idxs = [_param_index("lens_mm"), _param_index("camera_height"), _param_index("dof")]
+    assert tuple(captured[0][i] for i in idxs) == (24, "eye", "deep")
+    assert tuple(captured[1][i] for i in idxs) == (85, "chest", "shallow")
 
 
-def test_store_scene_stamps_continuity_bridge_only_when_stated(tmp_path):
-    """A non-continuous kind WITH a bridge must stamp both — proves the
-    bridge column isn't tied to a fixed kind, just whatever text
-    parse_coverage actually extracted."""
+def test_store_scene_stamps_partial_dp_row(tmp_path):
+    """Only ONE of the three DP slots stated (rule 28: each part is
+    independently optional) — the other two must stay NULL, not get
+    invented."""
     frames_by_moment = [(
         "moment 1 summary",
-        [_frame(tmp_path, "frame1.png",
-                transition_kind="montage",
-                continuity_bridge="the same drumbeat under every cut",
-                caused_by="M0-ANGLE2")],
+        [_frame(tmp_path, "frame1.png", lens_mm=50)],  # camera_height/dof omitted
         None, None,
     )]
     n, captured = _run_store_scene(frames_by_moment, tmp_path)
     assert n == 1
     params = captured[0]
-    assert params[_param_index("transition_kind")] == "montage"
-    assert params[_param_index("continuity_bridge")] == "the same drumbeat under every cut"
-    assert params[_param_index("caused_by")] == "M0-ANGLE2"
+    assert params[_param_index("lens_mm")] == 50
+    assert params[_param_index("camera_height")] is None
+    assert params[_param_index("dof")] is None
 
 
 def _insert_columns():
     """Re-reads the actual INSERT column list out of the source so this
     test file fails loudly (not silently) if the column names ever drift
-    from what this test asserts positionally — same technique as D9-1's
-    stamp test."""
+    from what this test asserts positionally — same technique as the D9-1/
+    D9-6/D9-7/D11-1 stamp tests."""
     src_path = os.path.join(_BACKEND, "scripts", "coverage_to_app.py")
     with open(src_path) as f:
         src = f.read()
@@ -194,14 +187,11 @@ def _insert_columns():
     return src[start:end]
 
 
-# The INSERT's column list grows a trailing column almost every chunk (D9-1,
-# D9-6/D9-7, D11-1, D11-2, ...), which used to break this file's hardcoded
-# negative indices every time one more column landed — two chunks in a row
-# hit this before D11-2 (D11-1 shifted -3/-2/-1 to -4/-3/-2, and this chunk
-# shifts them again). Compute a column's position from the SAME column-name
-# text _insert_columns() already re-reads from source, so these assertions
-# can never drift again regardless of how many more trailing columns land
-# after this one.
+# See test_d11_1_shot_archetype_stamp.py's equivalent block for the full
+# rationale — this file is written name-keyed from the start rather than
+# with a positional index, so a future chunk appending more trailing
+# columns after dof cannot break it the way params[-1]/params[-N] broke the
+# three prior stamp-test files.
 _LITERAL_COLUMNS = {"status", "generation_method"}  # SQL literals ('done'/'coverage'), not $N placeholders
 _COLUMN_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -239,8 +229,8 @@ if __name__ == "__main__":
     from pathlib import Path
     with tempfile.TemporaryDirectory() as d:
         p = Path(d)
-        test_store_scene_stamps_transition_kind_continuity_bridge_and_caused_by(p)
-        test_store_scene_transition_and_causality_fields_default_null_for_untagged_shot(p)
-        test_store_scene_stamps_transition_and_causality_independently_per_shot(p)
-        test_store_scene_stamps_continuity_bridge_only_when_stated(p)
-    print("ok — D9-6/D9-7 store_scene transition/causality stamp tests passed")
+        test_store_scene_stamps_dp_fields(p)
+        test_store_scene_dp_fields_default_null_for_untagged_shot(p)
+        test_store_scene_stamps_dp_fields_independently_per_shot(p)
+        test_store_scene_stamps_partial_dp_row(p)
+    print("ok — D11-2 store_scene DP-field stamp tests passed")

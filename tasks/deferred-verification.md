@@ -1043,3 +1043,622 @@ access from this Mac); and whether the "identity_tag always wins over locks" pre
 (this chunk's own judgment, not explicitly specified by the brief) is what Ryan actually wants
 once a creator has both an authored identity_tag and freshly-extracted locks disagreeing — flagged
 for a look at the next opportunity, not re-litigated silently.
+successful post-repair rejudge; a raised exception from `write_findings_fn` never propagates out
+of the hook and never skips a later sheet's own judge/repair pass). `test_d8_3_review_findings.py`
+was extended for the endpoint's third query (per-instance rows, scoped to tenant_id + the
+`_FINDING_INSTANCES_LIMIT` cap). Three real stash-proofs were run (patch-file technique, never
+`git stash`, per tasks/lessons.md's fleet rule): (a) neutering `_finding_cost` to always return
+`call_cost` broke the frame-station cost assertion with a real `AssertionError` (999.0 == 0.019
+mismatch); (b) removing the `try/except` around the hook's write call let a simulated
+`RuntimeError` propagate all the way out of `run_after_storyboard_sheet`, failing the test with
+that real exception; (c) neutering `get_findings` to always return `instances=[]` broke the
+endpoint shape test with a real `AssertionError` (`0 == 1`) — all three reverted immediately
+after confirming. The full backend suite (`./venv/bin/python -m pytest tests/ -q`, main checkout's
+venv binary against worktree code) passes 3867/3896 stashed-technique baseline vs applied — the
+same pre-existing 29 failures (`test_custom_film_remotion.py`, `test_youtube_oauth_diagnostics.py`),
+sorted FAILED sets byte-identical (diffed, empty output, exit 0). Frontend: `npx tsc --noEmit`
+clean, `npm run build` passes (34/34 static pages) once `frontend/node_modules` and
+`frontend/.env.local` are present in the worktree — neither is git-tracked, so a fresh worktree
+needs `npm install` (or a symlink to an existing checkout's `node_modules`) and a copy of
+`.env.local` (or `scripts/se.sh devtoken`) before running the frontend checks; this was done
+locally for verification and removed afterward, not committed. What is NOT verified: the
+migration actually running against the real Supabase Postgres instance, any real per-instance row
+from a live judge call (D8-2's first live run hasn't happened yet — that is the entire point this
+chunk exists to protect), and a real browser walk of the Findings tab's new "Judged frames &
+panels" section against live data.
+## G1 — gatherer fallbacks: normalizer, NA/Wayback chain, source steering — 2026-07-30
+
+Ported into `storyengine/backend/pipeline_executor.py::_gather_verified_machine_source_package`
+from the DVsU research simulator (`storyengine/tasks/evidence/dvsu-research-simulator/
+build_package.py`, untracked, main checkout only): (a) the tolerant `_normalized_source_text`
+fold (citation markers, smart quotes/dashes, NBSP, orphan punctuation/hyphen spaces), (b) the
+National Archives Discovery JSON API + real-Wayback-availability fallback chain (new capture
+methods `national_archives_api` and `wayback:<url>`, threaded through
+`_verified_source_candidate_traceable` and the `unsupported_capture_methods` quality gate via a
+new shared `_is_approved_source_capture_method` helper), (c) source steering — every Tavily call
+now sends `exclude_domains: ["iwm.org.uk", "www.iwm.org.uk"]`, plus one additional
+`include_domains`-scoped call to `awm.gov.au / rmg.co.uk / gov.uk / naval-encyclopedia.com /
+naval-history.net / uboat.net` when `_is_naval_gather_context(title, machine)` detects a
+ship/naval machine from the video title or machine name.
+
+Cost cap respected: every test (`storyengine/backend/tests/test_machine_documentary_hold.py`,
+15 new tests) runs fully offline against a fake `httpx.AsyncClient` — no live Tavily, National
+Archives, or Wayback calls were made this session. **What is NOT verified live:**
+
+### 1. The real National Archives Discovery API and Wayback availability API were never called live
+The retry-on-empty-202 logic and the Wayback `archived_snapshots` response shape are both typed
+from the reference simulator's own hard-won notes (`STATE.md`: "National Archives API 202s when
+cold — retry or sidecar") and from `build_package.py`'s working implementation, not from a fresh
+live call this session. Recipe to confirm against the real APIs (no API key needed, both are
+public/unauthenticated):
+```bash
+# National Archives Discovery record -> its own JSON API. Use any real record id, e.g. one
+# already gathered in the simulator's raw/ directory, or search discovery.nationalarchives.gov.uk
+# for a British WW2-era ship-file record and take the id from its /details/r/<ID> URL.
+curl -s "https://discovery.nationalarchives.gov.uk/API/records/v1/details/<ID>" | head -c 500
+# Expect: JSON (may be empty/202-shaped on a cold record — the pipeline retries 3x, 3s apart).
+
+# Wayback availability API for a real URL known to be archived.
+curl -s "http://archive.org/wayback/available?url=https://www.iwm.org.uk/collections/item/object/205211678"
+# Expect: {"archived_snapshots": {"closest": {"url": "https://web.archive.org/web/...", ...}}}
+```
+If either shape has drifted from what's coded (e.g. NA now nests the payload differently, or the
+availability API renamed a key), `_fetch_source_fallback_text`/`_wayback_snapshot_url` in
+`pipeline_executor.py` need a matching update — the fixture-based tests would keep passing
+(they pin the CODED shape) while the live path silently stopped working, so a periodic live
+recipe re-run is worth keeping.
+
+### 2. Not yet run through a real gather for a machine whose ONLY sources are behind the iwm.org.uk bot-wall
+The Definition of Complete's "a machine whose best sources sit behind a bot-wall must still yield
+a passing package" is proven at the unit/fixture level (traceable capture methods, exclude/
+include domains wired correctly) but not end-to-end against a live video. Recipe once Ryan
+authorizes a paid Tavily run: pick one of the DVsU carrier roster machines noted in
+`dvsu-research-simulator/STATE.md` as gathered mostly from IWM-adjacent pages, clear its cached
+`machine_raw_source_packages` entry, and re-run research through the pipeline's own API path —
+confirm the resulting package's sources include at least one `national_archives_api` or
+`wayback:` capture method and still passes `_verified_machine_source_package_quality_errors`.
+
+### 3. `static_docu.py`'s "reference fetching" was investigated and deliberately NOT touched
+The chunk brief named `static_docu.py`'s reference fetching alongside
+`_gather_verified_machine_source_package` as a second port target. Read in full
+(`storyengine/backend/static_docu.py:770-894`, `_host_reference` / `_gather_reference_candidates`):
+it is a Wikimedia Commons IMAGE-reference fetcher for ship-roster PHOTOS, unrelated to the
+text-excerpt research package — it never touches iwm.org.uk, awm.gov.au, rmg.co.uk,
+naval-encyclopedia.com, naval-history.net, or uboat.net, and has no citation-marker/excerpt
+normalization concern at all. Porting the three GAP-1 capabilities there would not address any
+real failure mode in that code. Flagging instead of silently dropping: if Ryan wants a
+Wayback-image fallback for `_host_reference` (e.g. when a Commons file 404s), that is a distinct,
+separately-scoped follow-up, not part of this chunk's Definition of Complete.
+
+---
+
+## D9-1 shot-purpose harvest (branch `d9-1-shot-purpose`) — apply migration 147 on next deploy window; confirm the PURPOSE tag actually shows up in a real plan
+
+**Built and tested in a worktree only — migration 147 was NOT applied to prod this session**
+(no prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every
+prior migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file
+error) — the "deferred" part is confirming it actually landed AND that a real planner call
+actually emits the new PURPOSE row (a prompt-only change; no test in this chunk calls the real
+Claude API):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+se logs backend 200 | grep "147_shot_purpose"
+# Expect: "Migration applied: 147_shot_purpose.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '147_shot_purpose.sql'"
+# Expect exactly 1 row.
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'assets' \
+  AND column_name IN ('purpose_kind', 'shot_purpose')"
+# Expect 2 rows.
+
+# 4. Plan ONE real scene's coverage (sheet-preview planning, no spend — Scenes page ->
+#    "plan the shots" / plan_only path) and read the raw directive.txt/coverage_directive
+#    back out:
+se db "SELECT coverage_directive FROM scripts WHERE video_id='<id>' AND scene=<n>"
+# Confirm the planner ACTUALLY wrote "PURPOSE: <kind> | <text>" rows under real MASTER/ANGLE
+# lines — this chunk only proves the PARSER handles the tag correctly if the LLM writes it;
+# it does not prove Claude reliably follows a brand-new prompt rule on its first live call.
+# If PURPOSE rows are sparse/absent on a real plan, check_shot_purpose_present's WARN log line
+# ("shot-purpose check (D9-1): ... carries no PURPOSE: line") should be showing up in
+# `se logs backend` around that plan's generation — confirms the WARN gate itself is live,
+# even if the prompt compliance needs a follow-up nudge.
+
+# 5. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and
+#    confirm the columns actually populate:
+se db "SELECT scene, image_index, purpose_kind, shot_purpose FROM assets \
+  WHERE video_id='<id>' AND scene=<n> AND generation_method='coverage' ORDER BY image_index"
+# Expect purpose_kind/shot_purpose populated (non-NULL) for shots whose PURPOSE row survived
+# step 4's plan, NULL for any shot the planner didn't tag (floor-added REACTION/INSERT shots,
+# or a plain miss) — NULL here is not itself a bug, see step 4.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d9_1_shot_purpose.py` (11 tests) covers `parse_coverage`'s
+extraction of the per-shot `PURPOSE: <kind> | <text>` row (master and angle independently, bold
+markdown tolerated, kind lowercased), the row never surviving into the stored `description` (the
+whole reason it lives on its own line — rule 23/L27, INSTRUCTIONS ARE NOT CAPTIONS), BACKWARD
+COMPATIBILITY against `SAMPLE` — the exact pre-existing fixture `test_coverage.py` already used
+before this chunk — parsing byte-identical on `shot_type`/`description` with purpose fields simply
+`None`, the new `check_shot_purpose_present` WARN gate (silent when every shot is tagged, flags
+exactly the untagged ones, flags all 5 shots on the legacy `SAMPLE` fixture with no crash),
+`generate_coverage_frames` threading `purpose_kind`/`shot_purpose` onto its frame dicts AND proof
+the purpose text never reaches the actual image-generation prompt string (a planted marker string
+in `shot_purpose` is asserted absent from the prompt `_gen_ref` receives), `enforce_setup_variety`'s
+content-swap carrying purpose fields along with `shot_type`/`description` (so a swap never leaves
+a shot's stated purpose describing a framing that moved elsewhere), and `plan_moments_deterministic`
+(the ONE shared parse->budget->floors->variety pipeline both the sheet-preview planning path and
+the real-pictures path call) preserving purpose fields end to end including a floor-added filler
+shot correctly landing with none. `storyengine/backend/tests/functional/
+test_d9_1_shot_purpose_stamp.py` (3 tests) proves `store_scene`'s INSERT actually stamps
+`purpose_kind`/`shot_purpose` from a frame dict's fields (present, NULL-default, and independently
+per-shot within one moment) — the sheet-preview planning path never inserts an asset row at all
+("Storyboard SHEETS are a preview, not an asset row" is coverage_to_app.py's own comment, confirmed
+by reading it — nothing to stamp there), so `store_scene` is the one real stamping site and both
+paths feed it identical parsed fields via the shared `plan_moments_deterministic`. Real stash-proof
+(patch-file technique, never `git stash`, per tasks/lessons.md's fleet rule): `git diff --cached`
+of the full chunk saved to a patch, reverse-applied cleanly (`git apply -R`, working tree confirmed
+clean after), pipeline suite (`test_board_laws.py` + `test_d6_2_repair_stamps.py` + `test_coverage.py`)
+still 150/150 passing reverted (new D9-1 test files gone with the revert, no orphaned failures),
+full backend suite (`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against
+worktree code) 29 failed / 3867 passed reverted vs 29 failed / 3882 passed applied (the +15 are
+this chunk's own new tests) — sorted FAILED sets byte-identical (diffed, empty output), then the
+patch forward-applied cleanly to restore the chunk. `schema.sql`'s `assets` table updated with the
+2 new columns (with a note: `assets.shot_location`/`assets.group_arrangement` from migration 143
+were ALREADY missing from `schema.sql` before this chunk touched it — a pre-existing drift, not
+something this chunk introduced or fixed; flagged separately, not folded into this migration).
+What is NOT verified: the migration actually running against the real Supabase Postgres instance,
+whether Claude reliably follows the new PURPOSE-row prompt rule on a real, unseen scene (prompt
+compliance is never provable from a parser unit test — that's what step 4 above is for), and a
+real `assets.purpose_kind`/`shot_purpose` value landing from an actual paid coverage-picture draw.
+
+---
+
+## D10-2ab: StoryEngine-native Story Bible generator (backend/story_bible_native.py)
+
+**What changed:** `PipelineExecutor.run_story_bible` no longer imports the legacy
+`storyboard.bot._generate_story_bible_for_storyboard` (a sys.path reach into
+`skills/video-pipeline`) or persists through the Airtable-shim
+`supabase_adapter.update_idea_fields`. It now calls a new backend-native module
+(`story_bible_native.generate_story_bible_native`, ONE extended Claude call via the same
+`self._pipeline.anthropic` bridge every other `run_*` step already uses) and persists with a
+direct, tenant-scoped `UPDATE videos SET story_bible = $1 WHERE id = $2 AND tenant_id = $3`. The
+document schema is unchanged for consumers (`characters`/`locations`/`scene_blocks`, matching the
+legacy V2 normalizer field-for-field) plus three new top-level sections (`narrative`,
+`relationships`, `arcs`) that dangling-reference-validate against the same generation's character
+ids and drop bad refs with a logged warning rather than failing generation.
+
+**What IS verified (code-level + a full local test suite pass, no real LLM call, $0):**
+`storyengine/backend/tests/test_story_bible_native.py` (22 tests, pure module — no DB, no
+PipelineExecutor) covers the ported normalizer defaults for characters/locations/scene_blocks
+(costume/description fallback, first-image-forced-wide, location lookup by id, image-count and
+consecutive-same-location warnings that never abort generation), the three new sections'
+defaults, and dangling-character-id drops for both `relationships` and `arcs` (asserted via
+`capsys`, never a raised exception). `storyengine/backend/tests/test_d10_2ab_run_story_bible.py`
+(9 tests) covers the wiring: scripts are fetched tenant-scoped by `video_id`, the persisted
+UPDATE query text and args are tenant-scoped and match the full generated document byte-for-byte
+after a JSON round trip, and every failure path (Claude raises, no script rows, missing Anthropic
+client, unparseable response, video not found) returns `status: "failed"` with zero writes to
+`videos.story_bible` and never logs `bot_activity` as `"completed"`. `tests/functional/
+test_characters.py` and `tests/functional/test_c66_production_guide.py` (the two named
+"unaffected consumer" checks) pass unmodified. Two real stash-proofs were run (patch-file
+technique, never `git stash`, per tasks/lessons.md's fleet rule): the full backend suite
+(`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against worktree code) was
+run BOTH on the reverted tree (`git checkout -- pipeline_executor.py` + the three new files moved
+out of the tree, restored via `git apply` on a saved patch afterward) and on the applied tree —
+29 failed / 3886 passed (reverted) vs 29 failed / 3908 passed (applied, +22 for the new test
+files), sorted FAILED sets byte-identical (diffed, empty output, exit 0) — the same pre-existing
+29 failures (`test_custom_film_remotion.py`, `test_youtube_oauth_diagnostics.py`) as every other
+recent D-series chunk.
+
+**What is NOT verified — deploy-window check owed:**
+
+### 1. A real Story Bible generation on a test video with a live Claude call
+
+No live LLM call was made (every test above stubs `self._pipeline.anthropic`). Before this ships
+to a real customer's build, run one real generation end to end and confirm:
+- The new `narrative`/`relationships`/`arcs` sections are actually present and sensible on a
+  REAL script (not just the hand-written fixture the tests use) — in particular, whether Claude
+  reliably keeps `relationships`/`arcs` character ids matching `characters` ids without the
+  dangling-ref dropper silently emptying them out on a real generation.
+- `scene_blocks` total image count roughly matches the requested `total_images` (a mismatch only
+  warns, never fails — worth eyeballing on a real script rather than assuming the model complies).
+- The downstream legacy consumers (`routes/characters.py`'s bible<->cast sync,
+  `scripts/coverage_to_app.py`'s `_story_bible_locations`, `channel_profile_documents.py`) render
+  correctly against a bible that now has 3 extra top-level keys they've never seen live before.
+- `run_storyboard_prompts` (still on the legacy `storyboard/run.py` path, untouched by this
+  chunk) does NOT regenerate its own bible when one from this native path is already persisted —
+  confirm `videos.story_bible` is non-empty after `run_story_bible` so its own
+  `_generate_story_bible_for_storyboard` fallback never fires.
+
+**Recipe:** pick a test video already past scripting (`ready_for_storyboards` or earlier, with
+scripted scenes), call `POST /api/pipeline/{video_id}/story-bible` (or the equivalent chat/action
+verb) once, then `se db "SELECT story_bible FROM videos WHERE id = '<video_id>'"` and eyeball the
+JSON. **Cost: one Claude Sonnet call, ~$0.02-0.05** (per docs/cost-awareness.md's "Claude API
+(Sonnet) ~$0.01-0.05/call" line — no image/video/voice spend, this step is text-only) — quote
+this and get a yes before running it live.
+
+---
+
+## D9-6/D9-7 transition + causality harvest (branch `d9-67-transitions`) — apply migration 148 on next deploy window; confirm TRANSITION/CAUSED_BY rows actually show up in a real plan
+
+**Built and tested in a worktree only — migration 148 was NOT applied to prod this session** (no
+prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every prior
+migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file error) —
+the "deferred" part is confirming it actually landed AND that a real planner call actually emits
+the new TRANSITION/CAUSED_BY rows (a prompt-only change; no test in this chunk calls the real
+Claude API):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+se logs backend 200 | grep "148_shot_transition_causality"
+# Expect: "Migration applied: 148_shot_transition_causality.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '148_shot_transition_causality.sql'"
+# Expect exactly 1 row.
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'assets' \
+  AND column_name IN ('transition_kind', 'continuity_bridge', 'caused_by')"
+# Expect 3 rows.
+
+# 4. Plan ONE real scene's coverage (sheet-preview planning, no spend — Scenes page ->
+#    "plan the shots" / plan_only path) and read the raw directive.txt/coverage_directive
+#    back out:
+se db "SELECT coverage_directive FROM scripts WHERE video_id='<id>' AND scene=<n>"
+# Confirm the planner ACTUALLY wrote "TRANSITION: <kind> | <bridge>" and "CAUSED_BY: M<n>-..."
+# rows under real MASTER/ANGLE lines, in ADDITION to D9-1's PURPOSE rows — this chunk only
+# proves the PARSER handles the two new tags correctly if the LLM writes them; it does not
+# prove Claude reliably follows two brand-new prompt rules (25/26) stacked on top of an
+# existing one (24) on its first live call, or that it correctly derives the M<n>-MASTER/
+# M<n>-ANGLE<k> label format for a CAUSED_BY reference without being shown a worked example
+# beyond the prompt's own template. If TRANSITION/CAUSED_BY rows are sparse/absent/malformed
+# on a real plan, the four new WARN log lines ("shot-transition check (D9-6): ...", "shot-
+# transition-bridge check (D9-6): ...", "shot-causality check (D9-7): ...") should be showing
+# up in `se logs backend` around that plan's generation — confirms the WARN gates themselves
+# are live, even if prompt compliance needs a follow-up nudge. Pay particular attention to
+# whether Claude gets the CAUSED_BY label format right (M<n>-MASTER / M<n>-ANGLE<k>) — this is
+# the one place this chunk asks the planner to do something more structured than free prose,
+# and check_shot_causality_valid's "does this label exist / is it earlier" check depends on it
+# being syntactically exact.
+
+# 5. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and
+#    confirm the columns actually populate:
+se db "SELECT scene, image_index, transition_kind, continuity_bridge, caused_by FROM assets \
+  WHERE video_id='<id>' AND scene=<n> AND generation_method='coverage' ORDER BY image_index"
+# Expect transition_kind/caused_by populated (non-NULL) for shots whose rows survived step 4's
+# plan, continuity_bridge populated only for a non-continuous/non-opening kind that stated one,
+# NULL for any shot the planner didn't tag (floor-added REACTION/INSERT shots, or a plain miss,
+# or the scene's true first shot for caused_by specifically) — NULL here is not itself a bug,
+# see step 4.
+```
+
+**Grammar decision (documented here since it drives what step 4 above needs to confirm):** TWO
+separate trailing rows, `TRANSITION: <kind> | <bridge>` (rule 25) and `CAUSED_BY: <label>` (rule
+26) — not folded into one row, and not folded into D9-1's PURPOSE row. Each is independently
+optional, independently gated by its own warn check(s), and Custom Film itself keeps
+transition_from_previous/continuity_bridge and caused_by as separate ShotDraft fields — combining
+them would conflate distinct warn conditions behind one piece of text for no reduction in grammar
+surface. CAUSED_BY carries a SINGLE reference (not a tuple like Custom Film's `caused_by`): the
+flagship grammar has no LLM-assigned `shot_key` the way ShotDraft does, so the reference format
+taught here is a label the planner can derive purely from context already on the page —
+`M<moment_number>-MASTER` / `M<moment_number>-ANGLE<k>` — never a running global shot count it
+would have to track across the whole scene; one clear reference is more likely to be authored
+correctly than a list the planner has to keep internally consistent.
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d9_6_7_transition_causality.py` (29 tests) covers `parse_
+coverage`'s extraction of the per-shot `TRANSITION: <kind> | <bridge>` row (bridge optional,
+omitted entirely for "continuous") and `CAUSED_BY: <label>` row, independently and together with
+D9-1's PURPOSE row IN ANY ORDER the planner writes them (the decisive robustness property: a
+naive "check PURPOSE first" scan let PURPOSE's own `.+?` capture swallow trailing TRANSITION/
+CAUSED_BY rows whole before the fix — `_strip_shot_metadata_rows` now picks whichever candidate
+regex match starts LATEST in the current text each pass, peeling the true tail row first
+regardless of which of the three it is), the rows never surviving into the stored `description`,
+BACKWARD COMPATIBILITY against BOTH the legacy zero-metadata-row `SAMPLE` fixture (byte-identical
+shot_type/description, all five fields None) AND a synthesized D9-1-era fixture (PURPOSE rows
+present, TRANSITION/CAUSED_BY absent — the real shape of every plan generated between D9-1
+landing and this chunk landing), the four new WARN gates (`check_shot_transition_present`,
+`check_shot_transition_bridge_present` — including the "opening" exemption alongside
+"continuous", a deliberate refinement over the task brief's literal wording to faithfully mirror
+Custom Film's own model where an opening shot structurally never carries a bridge —
+`check_shot_causality_present`, `check_shot_causality_valid` — nonexistent-reference, forward-
+reference, and self-reference all correctly flagged, a correct earlier reference correctly
+silent), `generate_coverage_frames` threading all three new fields onto its frame dicts AND proof
+the bridge/caused_by text never reaches the actual image-generation prompt string (planted marker
+strings in both fields asserted absent from the prompt `_gen_ref` receives), `enforce_setup_
+variety`'s content-swap carrying transition_kind/continuity_bridge/caused_by along with shot_type/
+description/purpose_kind/shot_purpose (documented judgment call: these three describe WHY/HOW a
+specific piece of content cuts in and what it follows from, not a fact about the position it
+occupies, so they travel with content on a swap exactly like D9-1's purpose fields do — a known
+residual: since caused_by is a positional LABEL and enforce_setup_variety only trades within the
+same/adjacent moment, a swap can in rare cases leave a shot's caused_by pointing at itself or at
+the position it just vacated; `check_shot_causality_valid` catches this post-swap as an ordinary
+warn, by design, rather than needing a special case), and `plan_moments_deterministic` (the ONE
+shared parse->budget->floors->variety pipeline both the sheet-preview and real-pictures paths
+call) preserving all fields end to end including a floor-added filler shot correctly landing with
+none. `storyengine/backend/tests/functional/test_d9_6_7_transition_causality_stamp.py` (4 tests)
+proves `store_scene`'s INSERT stamps `transition_kind`/`continuity_bridge`/`caused_by` from a
+frame dict's fields (present, NULL-default, independently per-shot within one moment, and a
+non-continuous kind WITH a bridge stamping both) — same "store_scene is the one real stamping
+site" reasoning as D9-1 (re-confirmed by re-reading coverage_to_app.py, nothing changed about
+that). `storyengine/backend/tests/functional/test_d9_1_shot_purpose_stamp.py` was UPDATED (not
+left broken): this chunk's migration 148 appends three columns AFTER migration 147's purpose_kind/
+shot_purpose in the INSERT's column list, which shifted D9-1's own hardcoded `params[-2]`/
+`params[-1]` positional assertions off target (they silently started reading continuity_bridge/
+caused_by instead, or in one case still passed by coincidence since both new-and-old values were
+None) — caught by running D9-1's stamp test after this chunk's change, fixed to `params[-5]`/
+`params[-4]` (and `[-5:-3]` for the two-shots-in-one-moment test) with a comment explaining why,
+re-verified passing. Real stash-proof (patch-file technique, never `git stash`, per tasks/
+lessons.md's fleet rule): `git diff --cached` of the full chunk (all 7 touched/new files) saved to
+a patch, `git checkout --`/`rm` reverted the tree to byte-identical pre-chunk state (confirmed via
+`git status --porcelain` empty except for the untouched worktree baseline), pipeline suite
+(`test_board_laws.py` + `test_d6_2_repair_stamps.py` + `test_coverage.py` + `test_d9_1_shot_
+purpose.py`) back to 161/161 passing reverted, full backend suite (`./venv/bin/python -m pytest
+tests/ -q`, main checkout's venv binary against worktree code) 29 failed / 3904 passed / 4 skipped
+reverted — IDENTICAL to this chunk's own pre-change baseline capture, sorted FAILED-test-name sets
+diffed byte-identical (empty diff) — then the patch forward-applied cleanly (`git apply`, no
+conflicts) to restore the chunk; broader pipeline suite sweep (`tests/` minus two files with
+pre-existing, unrelated collection errors on main) also diffed clean: same 18 failed/3 errors on
+both main and this worktree, only the passed-count delta (+29) accounted for by this chunk's own
+new tests. `schema.sql`'s `assets` table updated with the 3 new columns, comment cross-referencing
+migration 148.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether Claude reliably follows the two new prompt rules (25/26) on a real, unseen scene, including
+whether it gets the CAUSED_BY label format (`M<n>-MASTER`/`M<n>-ANGLE<k>`) syntactically right
+without more than the prompt template as an example (prompt compliance is never provable from a
+parser unit test — that's what step 4 above is for); real `assets.transition_kind`/
+`continuity_bridge`/`caused_by` values landing from an actual paid coverage-picture draw; and
+whether the D12-2 render-layer consumption of `transition_kind` (explicitly out of scope for this
+chunk — data + warn checks only) will want the stored value in a different shape than "as
+authored, lowercased" once that chunk is built.
+
+---
+
+## D11-1 professional shot-archetype library (branch `d11-1-archetypes`) — apply migration 149 on next deploy window; confirm ARCHETYPE rows actually show up in a real plan, and that the planner's chosen ids land in the catalog
+
+**Built and tested in a worktree only — migration 149 was NOT applied to prod this session** (no
+prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every prior
+migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file error) —
+the "deferred" part is confirming it actually landed AND that a real planner call actually emits
+well-formed `ARCHETYPE: <id>` rows using ids that are IN `storyboard.shot_archetypes.
+SHOT_ARCHETYPES` (a prompt-only change; no test in this chunk calls the real Claude API — the
+whole point of rule 27 being OPTIONAL is the planner may simply never use it, which is fine, but
+if it DOES use it, the id vocabulary needs to actually match):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+scripts/se.sh db "SELECT column_name FROM information_schema.columns WHERE table_name='assets' AND column_name='shot_archetype'"
+# Expect one row back.
+
+# 3. Generate a real scene's coverage directive (any normal chat/coverage-build flow) and read
+#    the raw directive text (scripts/coverage_to_app.py writes it, or grab it from
+#    scripts.coverage_directive on the scene row) — look for ARCHETYPE: rows under some of the
+#    MASTER/ANGLE lines. Since rule 27 says "MAY", zero rows on any given scene is NOT a failure;
+#    the interesting failure mode is an ARCHETYPE row present with an id NOT in
+#    storyboard.shot_archetypes.SHOT_ARCHETYPES (the exact thing check_shot_archetype_valid warns
+#    on — check the coverage-run logs for "⚠️ shot-archetype check (D11-1)" lines).
+
+# 4. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and confirm
+#    the column actually populates:
+scripts/se.sh db "SELECT id, shot_type, shot_archetype FROM assets WHERE video_id='<vid>' AND scene=<n> ORDER BY image_index"
+# Expect shot_archetype populated (non-NULL) for whichever shots the planner chose to tag — very
+# likely a MINORITY of shots (optional, unlike PURPOSE/TRANSITION/CAUSED_BY), NULL is expected and
+# fine for the rest.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d11_1_shot_archetype.py` (27 tests) covers catalog integrity
+(`storyboard/shot_archetypes.py`: 45 unique ids across the six required categories — establishing/
+coverage/detail/angle/composition/specialty — every required text field non-empty, every
+`pairs_well_after` reference resolves to a real catalog id, `format_archetype_menu()` renders under
+an 8000-char budget at 5799 chars/~1450 tokens actual, `get_archetype()` case/whitespace tolerant),
+`parse_coverage`'s extraction of the per-shot `ARCHETYPE: <id>` row (lowercased, tolerant of bold,
+correctly independent when stacked with PURPOSE/TRANSITION/CAUSED_BY in ANY order — same
+latest-starting-candidate mechanism D9-6/D9-7 built, now handling four row types instead of three),
+BACKWARD COMPATIBILITY against ALL THREE prior directive eras (legacy zero-metadata-row `SAMPLE`,
+D9-1-era PURPOSE-only, D9-6/D9-7-era PURPOSE+TRANSITION+CAUSED_BY — all three byte-identical on
+shot_type/description, shot_archetype simply None), the new WARN gate `check_shot_archetype_valid`
+firing ONLY on an invalid catalog id — never on an absent one, since tagging is optional (unlike
+every prior D9-1/D9-6/D9-7 "present" check), `generate_coverage_frames` threading shot_archetype
+onto its frame dicts AND proof the id never reaches the actual image-generation prompt string,
+`enforce_setup_variety`'s content-swap carrying shot_archetype along with shot_type/description/
+purpose_kind/etc (same "travels with content, not position" judgment call as D9-1/D9-6/D9-7), and
+`plan_moments_deterministic` preserving shot_archetype end to end including a floor-added filler
+shot correctly landing with none. `storyengine/backend/tests/functional/test_d11_1_shot_archetype_
+stamp.py` (3 tests, new) proves `store_scene`'s INSERT stamps `shot_archetype` from a frame dict's
+field (present as the LAST positional param, NULL-default, independently per-shot within one
+moment) — same "store_scene is the one real stamping site" reasoning as D9-1/D9-6/D9-7.
+`storyengine/backend/tests/functional/test_d9_1_shot_purpose_stamp.py` (3 assertions) and
+`test_d9_6_7_transition_causality_stamp.py` (4 assertions) were UPDATED (not left broken): this
+chunk's migration 149 appends `shot_archetype` AFTER migration 148's caused_by in the INSERT's
+column list, which shifted their hardcoded negative-index positional assertions off target by one
+— caught by running both stamp tests after this chunk's change, fixed (`params[-5]`/`params[-4]` →
+`params[-6]`/`params[-5]` for D9-1's; `params[-3]/-2/-1` → `params[-4]/-3/-2` for D9-6/D9-7's) with
+comments explaining why, re-verified passing — same discipline D9-6/D9-7 itself used when it
+shifted D9-1's stamp test the same way one migration earlier. Real stash-proof (patch-file
+technique, never `git stash`, per tasks/lessons.md's fleet rule): `git diff --cached` of the full
+chunk (9 touched/new files) saved to a patch, `git apply -R` reverted the tree to byte-identical
+pre-chunk state (confirmed via `git status --short` empty), pipeline suite (`test_board_laws.py` +
+`test_d6_2_repair_stamps.py` + `test_coverage.py` + `test_d9_1_shot_purpose.py` +
+`test_d9_6_7_transition_causality.py`) back to 190/190 passing reverted, full backend suite
+(`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against worktree code) 29
+failed / 3946 passed / 4 skipped reverted — sorted FAILED-test-name sets diffed byte-identical
+(empty diff) against this chunk's own applied-state run (29 failed / 3949 passed — the +3 delta is
+exactly this chunk's own new `test_d11_1_shot_archetype_stamp.py` tests) — then the patch
+forward-applied cleanly (`git apply`, no conflicts) to restore the chunk. `schema.sql`'s `assets`
+table updated with the new `shot_archetype` column, comment cross-referencing migration 149.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether Claude ever spontaneously reaches for the ARCHETYPE row at all given it's purely optional
+(rule 27 says "MAY", so a real planner might simply never use it — that's a legitimate outcome, not
+a bug, but it also means the catalog's real-world value is unproven until a session watches actual
+plans use it); whether the ids Claude picks, when it does tag a shot, cluster sensibly by category
+or drift toward a handful of favorites; and whether `check_shot_archetype_valid`'s WARN-only
+posture should be promoted to a hard gate once that track record exists (explicitly flagged as
+hard-eligible under Ruling 1 in the check's own docstring, but promotion is a separate, deliberate
+call, not automatic).
+
+
+## D11-2: per-shot DP (director of photography) fields as structured data (migration 150)
+
+**What is deferred:** live proof that the coverage planner (Claude, via the coverage system
+prompt) actually writes the new OPTIONAL `DP: <lens_mm> | <camera_height> | <dof>` row (rule 28)
+on a real scene, and that `check_shot_dp_valid`'s WARN gate fires correctly against whatever
+Claude actually writes — a prompt-only change; no test in this chunk calls the real Claude API,
+mirroring exactly the deferred-verification gap D11-1 (ARCHETYPE) logged one chunk earlier. Rule
+28 being OPTIONAL means the planner may simply never use it, which is fine — but if it DOES, the
+lens_mm/camera_height/dof vocabulary needs to actually match what the checker enforces:
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+scripts/se.sh db "SELECT column_name FROM information_schema.columns WHERE table_name='assets' AND column_name IN ('lens_mm','camera_height','dof')"
+# Expect three rows back.
+
+# 3. Generate a real scene's coverage directive (any normal chat/coverage-build flow) and read
+#    the raw directive text (scripts/coverage_to_app.py writes it, or grab it from
+#    scripts.coverage_directive on the scene row) — look for DP: rows under some of the
+#    MASTER/ANGLE lines (and their PURPOSE/TRANSITION/CAUSED_BY/ARCHETYPE siblings, if present).
+#    Since rule 28 says "MAY", zero rows on any given scene is NOT a failure; the interesting
+#    failure mode is a DP row present with a camera_height/dof word NOT in
+#    storyboard.coverage.CAMERA_HEIGHT_KINDS/DOF_KINDS, or a lens value outside 10-200mm or not
+#    shaped like "<digits>mm" (the exact things check_shot_dp_valid warns on — check the
+#    coverage-run logs for "⚠️ shot-DP check (D11-2)" lines).
+
+# 4. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and confirm
+#    the columns actually populate:
+scripts/se.sh db "SELECT id, shot_type, lens_mm, camera_height, dof FROM assets WHERE video_id='<vid>' AND scene=<n> ORDER BY image_index"
+# Expect lens_mm/camera_height/dof populated (non-NULL) for whichever shots the planner chose to
+# tag — very likely a MINORITY of shots (optional, unlike PURPOSE/TRANSITION/CAUSED_BY), NULL is
+# expected and fine for the rest. A shot may carry only SOME of the three (e.g. lens_mm set,
+# camera_height/dof NULL) — that's the taught grammar working as designed, not a bug.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d11_2_shot_dp.py` (28 tests, new) covers the vocabulary
+constants (`CAMERA_HEIGHT_KINDS` = ground/low/waist/chest/eye/high/overhead, `DOF_KINDS` =
+shallow/medium/deep, `DP_LENS_MIN_MM`/`DP_LENS_MAX_MM` = 10/200), `parse_coverage`'s extraction of
+the per-shot `DP: <lens_mm> | <camera_height> | <dof>` row — each of the three pipe-separated
+slots independently optional (lens-only with no pipes at all, middle slot skipped but its pipe
+kept, only the first slot populated, etc), tolerant of bold/case, correctly independent when
+stacked with PURPOSE/TRANSITION/CAUSED_BY/ARCHETYPE in ANY order (same latest-starting-candidate
+mechanism D9-6/D9-7/D11-1 built, now handling five row types instead of four), BACKWARD
+COMPATIBILITY against ALL FOUR prior directive eras (legacy zero-metadata-row `SAMPLE`, D9-1-era
+PURPOSE-only, D9-6/D9-7-era PURPOSE+TRANSITION+CAUSED_BY, D11-1-era +ARCHETYPE — all four
+byte-identical on shot_type/description, lens_mm/camera_height/dof simply None), the new WARN gate
+`check_shot_dp_valid` firing on an out-of-range lens (parsed but outside 10-200mm), a MALFORMED
+lens value (text present but not shaped like "<digits>mm" — proven to not silently vanish to a
+false "nothing written" None), an out-of-vocabulary camera_height, an out-of-vocabulary dof, and
+all three independently on one shot (3 separate warnings, not 1 merged one) — never on an absent
+row/slot, since the whole row is optional (unlike every prior D9-1/D9-6/D9-7 "present" check),
+`generate_coverage_frames` threading lens_mm/camera_height/dof onto its frame dicts AND proof none
+of the three (nor the literal "DP" label) ever reaches the actual image-generation prompt string,
+`enforce_setup_variety`'s content-swap carrying all three DP fields along with shot_type/
+description/purpose_kind/shot_archetype/etc (same "travels with content, not position" judgment
+call as D9-1/D9-6/D9-7/D11-1), and `plan_moments_deterministic` preserving all three end to end
+including a floor-added filler shot correctly landing with none.
+`storyengine/backend/tests/functional/test_d11_2_shot_dp_stamp.py` (4 tests, new) proves
+`store_scene`'s INSERT stamps lens_mm/camera_height/dof from a frame dict's fields (NULL-default,
+independently per-shot within one moment, and a PARTIAL row — only one of the three slots stated —
+stamps that one value with the other two staying NULL rather than getting invented) — same
+"store_scene is the one real stamping site" reasoning as D9-1/D9-6/D9-7/D11-1, written name-keyed
+via `_param_index` from the start (see below) rather than a positional index that would break on
+the next chunk's trailing column.
+
+**Stamp-test fragility fix (explicitly asked for in this chunk's brief):**
+`test_d9_1_shot_purpose_stamp.py`, `test_d9_6_7_transition_causality_stamp.py`, and
+`test_d11_1_shot_archetype_stamp.py` each shipped with a HARDCODED negative-index positional
+assertion (`params[-6]`, `params[-4]`, `params[-1]`, etc) into `store_scene`'s INSERT params tuple
+— three chunks running (D9-6/D9-7, D11-1, and now D11-2) each broke a different one of these files
+by appending trailing columns after the ones the file was asserting on, requiring a manual
+index-math fix every time. This chunk converts all three (plus the new D11-2 stamp test, written
+name-keyed from the start) to compute a column's position from the INSERT's own column-name text
+(which `_insert_columns()` already re-read from source for a `"X" in cols` sanity check) via a new
+shared-shape `_column_names()` + `_param_index(name)` pair, duplicated per-file (matching the
+existing per-file duplication convention rather than introducing a new shared test-util import).
+`_column_names()` needed one wrinkle beyond a naive `.split(",")` + `.strip()`: the INSERT's SQL
+string is built from several adjacent Python string literals split across source lines (for
+readability), so the RAW SOURCE TEXT between two literals contains a stray
+`"\n<indentation>"` artifact that glues onto the front of whichever column name sits right after a
+line break (e.g. splitting on "," yields a token like `'"\n                "camera_height'`
+instead of a clean `'camera_height'`) — confirmed live by actually running the split against the
+real file before trusting it, not assumed. Fixed by taking the LAST identifier-like regex match
+(`[A-Za-z_][A-Za-z0-9_]*`) in each token rather than a plain `.strip()`, which correctly recovers
+`'camera_height'`, `'transition_kind'`, and every other affected token — verified end to end with a
+standalone script that printed the parsed column list and each computed `_param_index()` result
+against the ACTUAL current 34-column/32-param INSERT before trusting the fix in the test files
+(shot_archetype→28, lens_mm→29, camera_height→30, dof→31, all correct against the real `$29`-`$32`
+placeholders). `_param_index` also subtracts the two SQL-literal columns (`status`='done',
+`generation_method`='coverage') that occupy a column-list slot but no `$N` placeholder. This ends
+the recurring fragility going forward: a FUTURE chunk appending more trailing columns after `dof`
+cannot break any of these four files' assertions again, since they no longer encode a position,
+only a name.
+
+Real stash-proof (patch-file technique, never `git stash`): `git diff` of the full chunk (6
+touched + 3 new files) saved to a patch; the 3 new untracked files moved aside (not deletable via
+`git checkout`, since they don't exist in `HEAD`); `git checkout --` on the 6 tracked files
+reverted the tree to byte-identical pre-chunk state (confirmed via `git status --short` empty).
+Pipeline suite (`tests/` minus two PRE-EXISTING, unrelated collection errors —
+`test_sound_curation.py`/`test_ctr_12h_tracking.py` fail to import `sound_prompt_bot`/
+`performance_tracker` under system `python3` 3.9.6 regardless of this chunk, confirmed via `git
+status --short` showing zero diff on either file) ran 18 failed/546 passed reverted vs 18
+failed/574 passed applied — the +28 delta is exactly this chunk's own new
+`test_d11_2_shot_dp.py` tests — sorted FAILED-test-name sets diffed byte-identical (empty diff).
+Full backend suite (`/Users/ryanayler/economy-fastforward/storyengine/backend/venv/bin/python -m
+pytest tests/ -q`, the MAIN checkout's venv binary run against this WORKTREE's code, per this
+chunk's own instructions) ran 29 failed/3958 passed reverted vs 29 failed/3962 passed applied —
+sorted FAILED-test-name sets diffed byte-identical (empty diff); the applied run's 29 failures are
+all in `test_custom_film_remotion.py` and `test_youtube_oauth_diagnostics.py`, pre-existing and
+untouched by this chunk. The patch then forward-applied cleanly (`git apply`, no conflicts) and the
+3 new files were moved back, restoring the chunk exactly (`git status --short` confirmed identical
+to pre-revert). `schema.sql`'s `assets` table updated with the three new `lens_mm`/`camera_height`/
+`dof` columns, comments cross-referencing migration 150. `coverage_to_app.py`'s `store_scene` INSERT
+touched SURGICALLY — only the one SQL statement's column list, `VALUES` placeholder list, and
+trailing `execute()` args, per this chunk's brief warning that another worker was editing a
+different region of that same file concurrently (confirmed via `git diff --stat` showing only that
+one file's 13-line diff, no unrelated hunks).
+
+**Vocabulary decision worth a human glance:** rule 11 (FOUR CAMERA FACTS) states camera height as
+FREE PROSE with illustrative examples ("bed height, eye height, low tilted up, standing height"),
+not a fixed enum — that's WHY `check_camera_facts_present`'s own docstring calls facts (b)/(c) not
+mechanically checkable. This chunk's `camera_height` field is therefore a NEW controlled
+vocabulary, not a literal extraction of rule 11's words — it reuses rule 11's own recognizable
+single words where they exist ("eye" from "eye height", "low" from "low tilted up") and extends
+with ground/waist/chest/high/overhead to cover the same range of heights a director would actually
+call out. If a future session sees Claude's real DP rows drifting toward height phrases NOT in
+this set (e.g. writing "bed height" or "standing" literally, copying rule 11's own prose instead of
+the DP row's controlled vocabulary), that's a prompt-wording issue in rule 28, not a parser bug —
+worth tightening rule 28's phrasing rather than silently widening `CAMERA_HEIGHT_KINDS` to catch
+whatever Claude happens to write.
+
+What is NOT verified: the migration actually running against the real Supabase Postgres instance;
+whether Claude ever spontaneously reaches for the DP row at all given it's purely optional (rule 28
+says "MAY", so a real planner might simply never use it — that's a legitimate outcome, not a bug,
+but it also means the field's real-world value is unproven until a session watches actual plans use
+it); whether Claude, when it DOES use the row, keeps `camera_height` inside the taught vocabulary
+or drifts toward rule 11-style prose phrases instead (see the vocabulary note above); whether the
+ARCHETYPE-SYNERGY guidance in rule 28 (an archetype's typical_lens as lens_mm's default) actually
+influences what Claude writes, since `shot_archetypes.format_archetype_menu()` does not surface
+each archetype's `typical_lens` value to the planner at all (that field exists only in the Python
+catalog, read-only for this chunk) — the synergy note is pure prompt guidance the planner would
+have to already know or infer, not a value it can look up from what it's shown; and whether
+`check_shot_dp_valid`'s WARN-only posture should be promoted to a hard gate once a track record
+exists (explicitly flagged as hard-eligible under Ruling 1 in the check's own docstring for all
+three checkable facts, but promotion is a separate, deliberate call, not automatic).

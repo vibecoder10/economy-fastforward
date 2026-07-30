@@ -491,6 +491,19 @@ CREATE TABLE assets (
   -- before this migration).
   shot_archetype TEXT,
 
+  -- D11-2 (migration 150, per-shot DP fields as data): OPTIONAL structured
+  -- DP (director of photography) fields parsed from the planner's own
+  -- "DP: <lens_mm> | <camera_height> | <dof>" row
+  -- (storyboard.coverage.parse_coverage) — additional to, never a
+  -- replacement for, rule 11's own camera-facts PROSE. camera_height is one
+  -- of storyboard.coverage.CAMERA_HEIGHT_KINDS (ground/low/waist/chest/eye/
+  -- high/overhead); dof is one of storyboard.coverage.DOF_KINDS (shallow/
+  -- medium/deep). NULL for the overwhelming majority of shots (row/slot
+  -- omitted — tagging is optional — or generated before this migration).
+  lens_mm INTEGER,
+  camera_height TEXT,
+  dof TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );

@@ -445,6 +445,25 @@ above that best matches this shot. This is OPTIONAL, not required — never inve
 in the library, and simply omit the row when nothing fits cleanly; an absent ARCHETYPE row is not \
 an error. Same discipline as rules 24-26: its OWN row, never folded into the MASTER/ANGLE sentence \
 — rule 23 already forbids inventing a new bracket/tag inside a panel description.
+28) YOU MAY GIVE THIS SHOT STRUCTURED DP (DIRECTOR OF PHOTOGRAPHY) FIELDS, ON ITS OWN ROW (D11-2). \
+Rule 11 above already asks you to make the camera's height, frame-fraction and lens-adjacent facts \
+unambiguous IN PROSE, inside the MASTER/ANGLE sentence itself — that stays exactly as it is, every \
+panel, every time. This row is ADDITIONAL, OPTIONAL, structured data alongside that prose, never a \
+replacement for it: immediately under EVERY MASTER and ANGLE line's ARCHETYPE row (or its \
+CAUSED_BY/TRANSITION/PURPOSE row when ARCHETYPE is absent), you MAY add its own row: `DP: \
+<lens_mm> | <camera_height> | <dof>`. All three parts are independently optional, but their ORDER \
+is fixed — write only the parts you have and keep the pipe for any part you skip so a LATER part \
+still lands in its own slot, e.g. `DP: 35mm | eye | shallow`, `DP: 85mm | | shallow` (camera_height \
+skipped), or `DP: | low |` (lens_mm and dof skipped). <lens_mm> is a plain focal length in \
+millimeters with the literal 'mm' suffix, an integer roughly 10-200 (e.g. "35mm", "85mm", "135mm"). \
+<camera_height> is exactly ONE of: ground, low, waist, chest, eye, high, overhead. <dof> (depth of \
+field) is exactly ONE of: shallow, medium, deep. This is OPTIONAL, not required — omit the row \
+entirely when you have nothing more precise to add than rule 11's own prose already states. \
+ARCHETYPE SYNERGY: when this shot also carries an ARCHETYPE row, that archetype's own typical lens \
+(part of its catalog entry) is a sensible DEFAULT for this row's lens_mm — match it unless this \
+shot's specific staging genuinely calls for something else. Same discipline as rules 24-27: its OWN \
+row, never folded into the MASTER/ANGLE sentence — rule 23 already forbids inventing a new \
+bracket/tag inside a panel description.
 </rules>
 
 <output_format>
@@ -503,6 +522,9 @@ naming the EARLIER shot whose action caused this one; omit entirely only for the
 first shot)
 ARCHETYPE: <id> (rule 27 — OPTIONAL, its OWN row, right under the CAUSED_BY row; omit entirely \
 when no id in <shot_archetype_library> fits cleanly)
+DP: <lens_mm> | <camera_height> | <dof> (rule 28 — OPTIONAL, its OWN row, right under the \
+ARCHETYPE row; each of the three parts is independently optional but position-fixed — keep the \
+pipe for any part you skip)
 - ANGLE [shot_type]: same instant, different camera — same format: setup letter, then frame \
 placement + eyeline, then what the new framing emphasises. The axis still holds.
 PURPOSE: <kind> | <why THIS angle exists> (rule 24 — every MASTER and ANGLE gets its own row)
@@ -510,11 +532,13 @@ TRANSITION: <kind> | <bridge, omit for "continuous"> (rule 25 — every MASTER a
 CAUSED_BY: M<n>-MASTER or M<n>-ANGLE<k> (rule 26 — every MASTER and ANGLE gets its own row, except \
 the scene's very first shot)
 ARCHETYPE: <id> (rule 27 — OPTIONAL, every MASTER and ANGLE may carry one)
+DP: <lens_mm> | <camera_height> | <dof> (rule 28 — OPTIONAL, every MASTER and ANGLE may carry one)
 - ANGLE [shot_type]: ...
 PURPOSE: <kind> | ...
 TRANSITION: <kind> | ...
 CAUSED_BY: M<n>-...
 ARCHETYPE: <id> (optional)
+DP: <lens_mm> | <camera_height> | <dof> (optional)
 
 shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
@@ -1092,33 +1116,115 @@ _ARCHETYPE_LINE_RE = re.compile(
     r"\n\s*\*{0,2}\s*ARCHETYPE\s*\*{0,2}\s*:\s*(.+?)\s*\Z",
     re.IGNORECASE | re.DOTALL)
 
+# D11-2 (film-studio audit follow-on, per-shot DP-as-data): the audit that
+# harvested archetype identity (D11-1) found the remaining CAMERA vocabulary
+# — lens, camera height, depth of field — still living ONLY as prose: the
+# channel-wide LensProfile (`profile.lens_profile.focal_range`, injected once
+# into <channel_style> above) and rule 11's per-panel FOUR CAMERA FACTS, whose
+# own check_camera_facts_present docstring admits facts (b) camera height and
+# (c) frame-fraction are "free prose with no fixed vocabulary to scan for...
+# NOT mechanically checkable today". Rule 11's own prose stays exactly as
+# is — this row is ADDITIONAL, OPTIONAL, structured data, not a replacement.
+#
+# camera_height's fixed vocabulary is a NEW controlled set, not lifted
+# wholesale from rule 11 (rule 11 is deliberately free prose, so it has no
+# fixed vocabulary to "match" in the literal sense) — but it reuses rule 11's
+# own recognizable single words where they exist ("eye" <- rule 11's "eye
+# height", "low" <- rule 11's "low tilted up") and extends with the other
+# common professional heights rule 11's illustrative examples don't happen to
+# name (ground/waist/chest/high/overhead), so this row can express the same
+# RANGE of heights rule 11's prose already covers, just as one checkable word
+# instead of a sentence.
+CAMERA_HEIGHT_KINDS = ("ground", "low", "waist", "chest", "eye", "high", "overhead")
+# dof (depth of field) mirrors the "shallow depth of field" phrasing already
+# used elsewhere in this module (see _INSERT_FRAMING_CLAUSE below) plus the
+# two other common professional terms.
+DOF_KINDS = ("shallow", "medium", "deep")
+DP_LENS_MIN_MM = 10
+DP_LENS_MAX_MM = 200
+
+# Same "own row" grammar as CAUSED_BY/ARCHETYPE — captured as raw text (up to
+# \Z) and split into its three position-fixed slots by _parse_dp_row below,
+# rather than three separate optional regex groups: a DP row's slots are
+# pipe-separated and each independently optional, which a single flat regex
+# with nested optional groups would make unreadable and fragile to get right
+# (rule 28). A directive with no DP line (every directive before this chunk)
+# matches nothing.
+_DP_LINE_RE = re.compile(
+    r"\n\s*\*{0,2}\s*DP\s*\*{0,2}\s*:\s*(.+?)\s*\Z",
+    re.IGNORECASE | re.DOTALL)
+_DP_LENS_RE = re.compile(r"^(\d{1,3})\s*mm$", re.IGNORECASE)
+
+
+def _parse_dp_row(raw: str) -> tuple[int | None, str | None, str | None, str | None]:
+    """Split a DP row's raw captured text (everything after "DP:") into its
+    three position-fixed, independently-optional slots — lens_mm | \
+    camera_height | dof (rule 28) — parsing lens_mm into an int and \
+    lowercasing the other two, same "store as authored, validate separately"\
+    split as shot_archetype/check_shot_archetype_valid.
+
+    Returns (lens_mm, camera_height, dof, lens_raw). lens_mm is an int ONLY
+    when the lens slot matched the taught "<digits>mm" shape exactly (any
+    range check against DP_LENS_MIN_MM/DP_LENS_MAX_MM happens later, in
+    check_shot_dp_valid — a matched-but-out-of-range value like "5mm" still
+    becomes lens_mm=5 here, an int, so the checker can report the actual
+    number). lens_raw carries the original lens-slot text ONLY when it was
+    non-empty but did NOT parse into that shape (e.g. "fifty mm", "35" with
+    no suffix) — otherwise lens_mm would silently become None, indistinguishable
+    from "no lens value written at all". check_shot_dp_valid uses lens_raw to
+    flag that malformed-but-present case; it is never persisted (not one of
+    the three fields threaded into frame dicts/assets)."""
+    parts = [p.strip() for p in raw.split("|")]
+    parts = (parts + ["", "", ""])[:3]
+    lens_part, height_part, dof_part = parts
+    lens_mm, lens_raw = None, None
+    if lens_part:
+        lm = _DP_LENS_RE.match(lens_part)
+        if lm:
+            lens_mm = int(lm.group(1))
+        else:
+            lens_raw = lens_part
+    camera_height = height_part.lower() if height_part else None
+    dof = dof_part.lower() if dof_part else None
+    return lens_mm, camera_height, dof, lens_raw
+
 
 def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
     """Peels every trailing per-shot metadata row — D9-1's PURPOSE, D9-6's
-    TRANSITION, D9-7's CAUSED_BY, D11-1's ARCHETYPE — off the TAIL of a
-    shot's raw captured text (in whatever order the planner actually wrote
-    them), before what's left is treated as the final stored description.
+    TRANSITION, D9-7's CAUSED_BY, D11-1's ARCHETYPE, D11-2's DP — off the TAIL
+    of a shot's raw captured text (in whatever order the planner actually
+    wrote them), before what's left is treated as the final stored
+    description.
 
     Each row pattern anchors at \\Z (the current end of `desc`) but its
     captured text is "everything up to \\Z", so if PURPOSE's row sits ABOVE
-    a still-present TRANSITION/CAUSED_BY/ARCHETYPE row, a naive "try PURPOSE
-    first" scan would let PURPOSE's own capture swallow those later rows
-    whole (DOTALL matches across the newlines between them). To avoid that,
-    every pass tries all four patterns and commits ONLY the one whose match
-    STARTS LATEST in the current `desc` — i.e. the row that is actually
+    a still-present TRANSITION/CAUSED_BY/ARCHETYPE/DP row, a naive "try
+    PURPOSE first" scan would let PURPOSE's own capture swallow those later
+    rows whole (DOTALL matches across the newlines between them). To avoid
+    that, every pass tries all five patterns and commits ONLY the one whose
+    match STARTS LATEST in the current `desc` — i.e. the row that is actually
     sitting at the true tail right now — strips just that one row, and
     re-scans. That peels rows one at a time, tail-first, regardless of which
-    of the four the planner wrote last, making extraction robust to any
-    order and any subset of the four optional rows: all four, any three,
-    two, one, or (every plan before D9-1 existed) none, which is the byte-
-    compatible legacy case this function must reproduce exactly: zero rows
-    in, zero rows stripped, `desc` unchanged.
+    of the five the planner wrote last, making extraction robust to any
+    order and any subset of the five optional rows: all five, any four,
+    three, two, one, or (every plan before D9-1 existed) none, which is the
+    byte-compatible legacy case this function must reproduce exactly: zero
+    rows in, zero rows stripped, `desc` unchanged.
 
     Returns (clean_description, {purpose_kind, shot_purpose, transition_kind,
-    continuity_bridge, caused_by, shot_archetype}) — every value None if its
-    row never appeared."""
+    continuity_bridge, caused_by, shot_archetype, lens_mm, camera_height,
+    dof}) — every value None if its row (or that row's own slot) never
+    appeared."""
     meta = {"purpose_kind": None, "shot_purpose": None, "transition_kind": None,
-            "continuity_bridge": None, "caused_by": None, "shot_archetype": None}
+            "continuity_bridge": None, "caused_by": None, "shot_archetype": None,
+            "lens_mm": None, "camera_height": None, "dof": None}
+    # _dp_lens_raw is a PARSE-ONLY artifact (leading underscore, same
+    # convention as _flatten_shots' "_mi" bookkeeping key) — the original
+    # lens-slot text ONLY when it was present but malformed (see
+    # _parse_dp_row), used solely by check_shot_dp_valid to flag that case.
+    # It is never one of the three DP fields threaded into frame dicts or
+    # persisted to assets.
+    meta["_dp_lens_raw"] = None
     extracted: set[str] = set()
     while True:
         candidates = []
@@ -1138,6 +1244,10 @@ def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
             am = _ARCHETYPE_LINE_RE.search(desc)
             if am:
                 candidates.append(("archetype", am))
+        if "dp" not in extracted:
+            dm = _DP_LINE_RE.search(desc)
+            if dm:
+                candidates.append(("dp", dm))
         if not candidates:
             break
         # The candidate starting LATEST in `desc` is the one truly sitting
@@ -1152,8 +1262,14 @@ def _strip_shot_metadata_rows(desc: str) -> tuple[str, dict]:
             meta["continuity_bridge"] = bridge or None
         elif key == "caused_by":
             meta["caused_by"] = match.group(1).strip()
-        else:
+        elif key == "archetype":
             meta["shot_archetype"] = match.group(1).strip().lower()
+        else:
+            lens_mm, camera_height, dof, lens_raw = _parse_dp_row(match.group(1))
+            meta["lens_mm"] = lens_mm
+            meta["camera_height"] = camera_height
+            meta["dof"] = dof
+            meta["_dp_lens_raw"] = lens_raw
         desc = desc[:match.start()].rstrip()
         extracted.add(key)
     return desc, meta
@@ -1170,16 +1286,18 @@ def parse_coverage(directive_text: str) -> list[dict]:
     output changes).
 
     Each shot dict also carries purpose_kind/shot_purpose (D9-1), transition_kind/
-    continuity_bridge (D9-6), caused_by (D9-7), and shot_archetype (D11-1) —
-    parsed from that shot's own trailing metadata rows
-    (_strip_shot_metadata_rows), all None when the corresponding row is
-    absent (every plan before D9-1 existed for the first two pairs, before
-    D9-6/D9-7 for the next two, and before this chunk for shot_archetype,
-    plus any shot the planner didn't tag going forward — WARN-only per D6
-    Ruling 1, never a hard gate, see check_shot_purpose_present /
-    check_shot_transition_present / check_shot_transition_bridge_present /
-    check_shot_causality_present / check_shot_causality_valid /
-    check_shot_archetype_valid)."""
+    continuity_bridge (D9-6), caused_by (D9-7), shot_archetype (D11-1), and
+    lens_mm/camera_height/dof (D11-2) — parsed from that shot's own trailing
+    metadata rows (_strip_shot_metadata_rows), all None when the
+    corresponding row (or, for the DP row, that row's own slot) is absent
+    (every plan before D9-1 existed for the first two pairs, before D9-6/D9-7
+    for the next two, before D11-1 for shot_archetype, and before this chunk
+    for the three DP fields, plus any shot the planner didn't tag going
+    forward — WARN-only per D6 Ruling 1, never a hard gate, see
+    check_shot_purpose_present / check_shot_transition_present /
+    check_shot_transition_bridge_present / check_shot_causality_present /
+    check_shot_causality_valid / check_shot_archetype_valid /
+    check_shot_dp_valid)."""
     heads = list(_MOMENT_RE.finditer(directive_text))
     moments: list[dict] = []
     for i, h in enumerate(heads):
@@ -2230,6 +2348,70 @@ def check_shot_archetype_valid(moments: list[dict]) -> int:
     return warnings
 
 
+def check_shot_dp_valid(moments: list[dict]) -> int:
+    """D11-2 (film-studio audit follow-on, per-shot DP-as-data): unlike rule
+    11's own camera-height/frame-fraction prose — which check_camera_facts_
+    present's docstring admits is "free prose with no fixed vocabulary to
+    scan for... NOT mechanically checkable today" — the DP row's three slots
+    ARE each a deterministic claim once written: lens_mm is a number with a
+    checkable range, camera_height and dof are each drawn from a small fixed
+    vocabulary (CAMERA_HEIGHT_KINDS / DOF_KINDS above). This is the whole
+    point of giving DP its own structured row instead of leaving it inside
+    rule 11's prose. Mirrors check_shot_archetype_valid's "only evaluate
+    shots that HAVE a value, absence is never an error" discipline — the row
+    is entirely optional (rule 28: "you MAY").
+
+    DETERMINISTIC-ELIGIBLE, WARN-only for rollout (D6 Ruling 1, same
+    reasoning check_shot_archetype_valid's docstring gives for ARCHETYPE):
+    all three checks below ARE canonical membership/range tests, which is
+    exactly what Ruling 1 requires to be hard-eligible, but the DP row is
+    brand new and OPTIONAL with no track record yet of real plans writing it
+    correctly — promoting any of the three to a hard gate needs its own
+    deliberate ruling once that track record exists, not a silent escalation
+    here.
+
+    Flags, independently per shot, ANY of:
+      - lens_mm parsed to an int (the "<digits>mm" shape matched) but outside
+        [DP_LENS_MIN_MM, DP_LENS_MAX_MM]
+      - the lens slot had TEXT but it did NOT match that shape at all (the
+        parse-only meta["_dp_lens_raw"] artifact — see _parse_dp_row — a
+        malformed lens value that would otherwise silently vanish to None,
+        indistinguishable from "no lens value written")
+      - camera_height present but not one of CAMERA_HEIGHT_KINDS
+      - dof present but not one of DOF_KINDS
+    A shot with none of the three slots written at all is never flagged."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            lens_mm = shot.get("lens_mm")
+            lens_raw = shot.get("_dp_lens_raw")
+            camera_height = shot.get("camera_height")
+            dof = shot.get("dof")
+            if lens_mm is None and lens_raw is None and camera_height is None and dof is None:
+                continue
+            label = f"moment {m.get('moment_number')} ({shot.get('shot_type')})"
+            if lens_raw is not None:
+                warnings += 1
+                print(f"  ⚠️ shot-DP check (D11-2): {label} has DP: lens '{lens_raw}', which is "
+                      "not a valid '<10-200>mm' lens value — worth a human glance, not a hard "
+                      "failure", flush=True)
+            elif lens_mm is not None and not (DP_LENS_MIN_MM <= lens_mm <= DP_LENS_MAX_MM):
+                warnings += 1
+                print(f"  ⚠️ shot-DP check (D11-2): {label} has DP: lens {lens_mm}mm, outside "
+                      f"the {DP_LENS_MIN_MM}-{DP_LENS_MAX_MM}mm range — worth a human glance, "
+                      "not a hard failure", flush=True)
+            if camera_height is not None and camera_height not in CAMERA_HEIGHT_KINDS:
+                warnings += 1
+                print(f"  ⚠️ shot-DP check (D11-2): {label} has DP camera_height "
+                      f"'{camera_height}', which is not one of {CAMERA_HEIGHT_KINDS} — worth a "
+                      "human glance, not a hard failure", flush=True)
+            if dof is not None and dof not in DOF_KINDS:
+                warnings += 1
+                print(f"  ⚠️ shot-DP check (D11-2): {label} has DP dof '{dof}', which is not one "
+                      f"of {DOF_KINDS} — worth a human glance, not a hard failure", flush=True)
+    return warnings
+
+
 # =============================================================================
 # D6-2 REPAIR LEGS — BOARD-LAWS.md L11, L12, L15, L16, L17, L19, L22. Every
 # law here previously had a PROMPT leg (the coverage system prompt, rules
@@ -2654,6 +2836,14 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
                     # about the position it occupies, so it moves WITH the
                     # description too.
                     a["shot_archetype"], b["shot_archetype"] = b.get("shot_archetype"), a.get("shot_archetype")
+                    # D11-2: lens_mm/camera_height/dof describe HOW this
+                    # specific piece of content was meant to be shot — a DP
+                    # choice made FOR this content, not a fact about the
+                    # numbered position it occupies — so, same reasoning as
+                    # every field above, they move WITH the description too.
+                    a["lens_mm"], b["lens_mm"] = b.get("lens_mm"), a.get("lens_mm")
+                    a["camera_height"], b["camera_height"] = b.get("camera_height"), a.get("camera_height")
+                    a["dof"], b["dof"] = b.get("dof"), a.get("dof")
                     if "setup_id" in a or "setup_id" in b:
                         a["setup_id"], b["setup_id"] = b.get("setup_id"), a.get("setup_id")
                     families[k], families[swap_with] = families[swap_with], families[k]
@@ -3661,7 +3851,17 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                # store_scene can write it into assets.shot_archetype. None
                # for the overwhelming majority of shots (row omitted, or a
                # row generated before this migration).
-               "shot_archetype": m.get("shot_archetype")}]
+               "shot_archetype": m.get("shot_archetype"),
+               # D11-2 (migration 150): the OPTIONAL per-shot structured DP
+               # (director of photography) fields parse_coverage extracted
+               # from this shot's own "DP: <lens_mm> | <camera_height> |
+               # <dof>" row — threaded through here so store_scene can write
+               # them into assets.lens_mm / assets.camera_height /
+               # assets.dof. None for the overwhelming majority of shots
+               # (row omitted, or a shot generated before this migration).
+               "lens_mm": m.get("lens_mm"),
+               "camera_height": m.get("camera_height"),
+               "dof": m.get("dof")}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -3692,7 +3892,11 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                 "continuity_bridge": a.get("continuity_bridge"),
                 "caused_by": a.get("caused_by"),
                 # D11-1 (migration 149) — see the master frame's dict above.
-                "shot_archetype": a.get("shot_archetype")} if url else None
+                "shot_archetype": a.get("shot_archetype"),
+                # D11-2 (migration 150) — see the master frame's dict above.
+                "lens_mm": a.get("lens_mm"),
+                "camera_height": a.get("camera_height"),
+                "dof": a.get("dof")} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -4072,6 +4276,11 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # that isn't in the catalog — same warning-only discipline; absence is
     # never flagged since the row is optional (rule 27).
     check_shot_archetype_valid(moments)
+    # D11-2 (film-studio audit follow-on): a shot's DP row with an
+    # out-of-vocabulary camera_height/dof, a lens value outside 10-200mm, or
+    # a malformed lens value — same warning-only discipline; absence is never
+    # flagged since the row is optional (rule 28).
+    check_shot_dp_valid(moments)
 
     # D6-2 (migration 143, storyengine/backend/migrations/143_per_shot_
     # location_and_arrangement.sql): persist the per-moment location — which
