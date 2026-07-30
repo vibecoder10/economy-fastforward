@@ -4581,6 +4581,12 @@ class SharedSectionProductionSeams:
                 request.video_id,
                 dialogue_mode_update,
             )
+        # D7-2 (STORY-LAWS S6): this writes videos.script directly (Custom
+        # Film's own section-script persistence, not routes/videos.py's
+        # shared sync_video_script), so it needs its own call to the same
+        # cast/environments staleness check.
+        from routes.videos import _flag_stale_cast_and_environments
+        await _flag_stale_cast_and_environments(request.video_id, self.tenant_id)
         return {
             "scene_ids": [scene_id],
             "scene_text_hashes": [

@@ -74,6 +74,15 @@ CREATE TABLE videos (
   thesis TEXT,
   executive_hook TEXT,
   script TEXT,
+  -- D7-2 (migration 145, STORY-LAWS S6): hash of the videos.script text the
+  -- CURRENT video_characters / video_environments rows were actually
+  -- generated from (design_characters / run_environments_design_step stamp
+  -- these; sync_video_script and its inline-sync siblings recompute +
+  -- compare on every script write). One hash per family per video, not per
+  -- row — a design call always (re)writes the whole family from one script
+  -- snapshot. NULL = nothing generated yet, so nothing to compare.
+  characters_hash TEXT,
+  environments_hash TEXT,
   -- Editorial-voice pick (migration 098, checklist §2.3/C24): a profile id
   -- from shared.profiles.script (neutral_v1 default, or the opt-in
   -- power_doctrine_v1/v2), written by the New Video "Advanced" select, the
@@ -1256,7 +1265,9 @@ CREATE TABLE video_characters (
   name TEXT NOT NULL,
   description TEXT,
   reference_url TEXT,
-  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  -- 'stale' added by migration 145 (D7-2, STORY-LAWS S6): flagged when
+  -- videos.script no longer matches characters_hash — never deleted.
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'stale')),
   source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
   sort INT DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -1295,7 +1306,9 @@ CREATE TABLE video_environments (
   name TEXT NOT NULL,
   description TEXT,
   reference_url TEXT,
-  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved')),
+  -- 'stale' added by migration 145 (D7-2, STORY-LAWS S6): flagged when
+  -- videos.script no longer matches environments_hash — never deleted.
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'stale')),
   source TEXT DEFAULT 'generated' CHECK (source IN ('generated', 'uploaded', 'project')),
   sort INT DEFAULT 0,
   props JSONB,  -- migration 115: canonical {name, position} prop manifest, authored once at approval

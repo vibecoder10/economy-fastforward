@@ -101,3 +101,78 @@ selected production style is static-documentary. Not walked live this session (s
 blocker as above). Once the DB blocker is fixed: open `/pipeline` (create-video flow), pick the
 static-documentary production style, and confirm the Sound design stage checkbox is disabled
 with an explanatory tooltip/label, not just unchecked-but-clickable.
+
+---
+
+## D7-2 staleness hash (branch `d7-2-staleness-hash`) — apply migration 145 on next deploy window
+
+**Built and tested in a worktree only — migration 145 was NOT applied to prod this session**
+(no prod-migration writes allowed from a build-only chunk). NOTE: `backend/main.py`'s startup
+hook auto-applies every not-yet-applied file under `backend/migrations/*.sql` (tracked in a
+`_migrations` table) — so the normal `se deploy` for this branch (which restarts the backend
+service) applies migration 145 automatically. There is no separate manual-SQL step; the
+"deferred" part is verifying it actually landed, since a per-migration failure there only logs
+a warning and does NOT fail the boot (`except Exception as e: logger.warning(...)` inside
+`main.py::_run_pending_migrations`) — a broken migration could silently no-op forever unless
+someone checks:
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran (not just that the file shipped) —
+#    check the startup log line and the tracking table:
+se logs backend 200 | grep "145_script_staleness_hash"
+# Expect: "Migration applied: 145_script_staleness_hash.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '145_script_staleness_hash.sql'"
+# Expect exactly 1 row. If it's missing, check `se logs backend` around boot time for
+# "Migration 145_script_staleness_hash.sql failed: ..." and fix forward — do NOT hand-apply
+# the raw SQL over `se db --write` as a workaround without first finding out WHY the
+# auto-apply failed (silent partial-schema drift is worse than a slow fix).
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'videos' \
+  AND column_name IN ('characters_hash', 'environments_hash')"
+# Expect 2 rows.
+
+# 4. Verify the CHECK constraints were actually extended (not left as two constraints —
+#    the DROP/ADD pattern in the migration is idempotent, but confirm the OLD constraint
+#    name matched what migration 046/051 actually created)
+se db "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint \
+  WHERE conname IN ('video_characters_status_check', 'video_environments_status_check')"
+# Expect both definitions to read: CHECK (status = ANY (ARRAY['draft'::text, 'approved'::text, 'stale'::text]))
+# If either constraint is MISSING (name didn't match, e.g. renamed by some migration
+# between 046/051 and now that this session's grep didn't find), migration 145's ADD
+# CONSTRAINT line would have thrown and step 2's log/table check above would already have
+# surfaced the failure — so a clean "applied" record already proves the name matched.
+
+# 5. Sanity check no existing rows already sit outside (draft, approved, stale) — the
+#    migration would have refused to apply if any did, but confirm anyway:
+se db "SELECT status, count(*) FROM video_characters GROUP BY status"
+se db "SELECT status, count(*) FROM video_environments GROUP BY status"
+
+# 6. Smoke the round trip on ONE real video with an existing cast/environments:
+#    a. Note its current video_characters/video_environments status values.
+#    b. Edit one scene's text (PATCH .../scenes/{n}/text or the Director chat) enough
+#       to change the wording.
+#    c. se db "SELECT status FROM video_characters WHERE video_id='<id>'" -- expect 'stale'
+#       (unless characters_hash was NULL because this video predates the migration and
+#       nothing was ever regenerated since — that's the expected no-op case, not a bug).
+#    d. Regenerate the cast (Characters tab -> Design characters) and confirm status
+#       goes back to 'draft' (regeneration heals, per design).
+```
+
+**What IS verified (code-level + a full local test suite pass, not live prod):** all 4 writers
+(`update_scene_text`, `rewrite_scene_text`, chat's `_apply_prompt_draft`, Drive pull-sync) plus
+the 2 inline pipeline/Custom-Film script-write paths were exercised against a fake DB in
+`storyengine/backend/tests/functional/test_d7_2_staleness_hash.py` (12 tests, all passing) —
+including a stash-proof (neutering `_flag_stale_cast_and_environments` to a no-op produces 6
+real `AssertionError` failures, reverted after confirming) and a second stash-proof substituting
+a `DELETE` for the `UPDATE video_characters SET status='stale'` write (caught by the `_no_deletes`
+helper). The full backend suite (`./venv/bin/python -m pytest tests/ -q`) passes 3848/3877 both
+with and without this branch's changes — the same 29 pre-existing failures (`test_custom_film_
+remotion.py`, `test_youtube_oauth_diagnostics.py`), byte-identical sorted FAILED sets stashed vs
+applied. What is NOT verified: the migration actually running against the real Supabase
+Postgres instance, and a real browser/UI walk of a script edit flagging a real video's cast card
+"stale" (there is no UI for this yet — D7-4, per the chunk spec, is UI-out-of-scope for D7-2).

@@ -12636,6 +12636,13 @@ scenes."""
                 full_script, _json_block.dumps(validation),
             )
 
+        # D7-2 (STORY-LAWS S6): this writes videos.script directly (a
+        # machine-documentary hold, not routes/videos.py's shared
+        # sync_video_script), so it needs its own call to the same
+        # cast/environments staleness check.
+        from routes.videos import _flag_stale_cast_and_environments
+        await _flag_stale_cast_and_environments(video_id, self.tenant_id)
+
         saved_block["script_hold"] = validation["script_hold"]
         if new_status:
             saved_block["new_status"] = new_status
@@ -15182,8 +15189,15 @@ scenes."""
         # Replace prior generated drafts; keep uploaded/imported ones. Reset the approval.
         await execute("DELETE FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
                       "AND source='generated' AND status='draft'", video_id, self.tenant_id)
-        await execute("UPDATE videos SET characters_approved_at = NULL WHERE id=$1 AND tenant_id=$2",
-                      video_id, self.tenant_id)
+        # D7-2 (STORY-LAWS S6): this is a second, parallel cast-creation path
+        # (the copilot "redesign the cast" dock command) that reads the same
+        # video.get("script") _extract_cast just used — stamp it exactly
+        # like routes/characters.py::design_characters does, or a cast built
+        # via THIS path would never be eligible for staleness detection.
+        from routes.videos import _full_script_hash
+        await execute("UPDATE videos SET characters_approved_at = NULL, characters_hash = $3 "
+                      "WHERE id=$1 AND tenant_id=$2",
+                      video_id, self.tenant_id, _full_script_hash(video.get("script") or ""))
         from actions import budget_check, picture_price_for, video_summary
         from generation_ledger import record_ledger_entry
         done = 0

@@ -379,9 +379,17 @@ async def run_environments_design_step(
         "AND source = 'generated' AND status = 'draft'",
         video_id, tenant_id,
     )
+    # D7-2 (STORY-LAWS S6): stamp the hash of THIS video's current script —
+    # one hash per video, rewritten every time environments are (re)designed.
+    # routes/videos.py's sync_video_script (and its two inline-sync
+    # siblings) compares against this on every future script write and
+    # flags video_environments.status = 'stale' on a mismatch, never
+    # deleting anything.
+    from routes.videos import _full_script_hash
     await execute(
-        "UPDATE videos SET environments_approved_at = NULL WHERE id = $1 AND tenant_id = $2",
-        video_id, tenant_id,
+        "UPDATE videos SET environments_approved_at = NULL, environments_hash = $3 "
+        "WHERE id = $1 AND tenant_id = $2",
+        video_id, tenant_id, _full_script_hash(video.get("script") or ""),
     )
 
     from actions import picture_price_for
