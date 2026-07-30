@@ -1787,10 +1787,19 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
         "own writer do the thinking.\n\n"
         "STORY LAW S3 — ONE SCENE, ONE LOCATION: give every scene a single "
         "'location' field naming the one physical place it happens in "
-        "(e.g. \"the garage\"). A scene missing a location, or whose text "
-        "names another scene's location, is REJECTED before the quality "
-        "critic even runs — split any beat that moves somewhere new, or "
-        "into a distinct new phase of action, into its own scene instead."
+        "(e.g. \"the garage\"). A scene missing a location is REJECTED "
+        "before the quality critic even runs — split any beat that moves "
+        "somewhere new, or into a distinct new phase of action, into its "
+        "own scene instead. (A scene's text naming another scene's "
+        "location is fine and often required — see S1 below — so that "
+        "alone is never rejected, only flagged as an advisory warning.)\n\n"
+        "STORY LAW S1 — NARRATE EVERY LOCATION CHANGE: when consecutive "
+        "scenes have different 'location' values, actually write the move "
+        "somewhere in that pair of scenes — the door, the threshold, the "
+        "travel, the arrival. Don't just end one scene's text and start "
+        "the next scene in a different place with nothing narrated between "
+        "them; a location change with no transit narrated anywhere nearby "
+        "comes back as an advisory warning (never a rejection)."
     ),
     "inputSchema": {
         "type": "object",

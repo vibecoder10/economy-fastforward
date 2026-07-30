@@ -1608,23 +1608,46 @@ async def update_scene_text(
     # surface it. Warn only, never block — an edit must always be allowed to
     # save; see story_laws.check_scene_location_law for the hard/warn split.
     warnings: list[str] = []
+    s1_warnings: list[str] = []
     try:
         rows = await fetch_all(
             "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
             "AND tenant_id = $2 ORDER BY scene",
             video_id, tenant_id,
         )
-        law_check = story_laws.check_scene_location_law([dict(r) for r in (rows or [])])
+        row_dicts = [dict(r) for r in (rows or [])]
+        law_check = story_laws.check_scene_location_law(row_dicts)
         this_scene_issues = [
             v["detail"] for v in law_check["violations"] if v["scene"] == scene
         ] + [
             w["detail"] for w in law_check["warnings"] if w["scene"] == scene
         ]
         warnings = this_scene_issues
+
+        # D6-4 (S1 repair leg): same re-check, same warn-only treatment —
+        # an edit that changes this scene's text (or carries a changed
+        # location forward) can introduce or fix an unnarrated location
+        # change against its neighbour, so re-run S1 too. Separate response
+        # key (story_law_s1_warnings) rather than merging into S3's, so an
+        # existing caller reading story_law_s3_warnings sees no behavior
+        # change.
+        # An S1 warning concerns a PAIR of scenes (from_scene/to_scene) —
+        # surface it if the edited scene is EITHER half, not just when it
+        # equals "scene" (the destination), or an edit to the OUTGOING
+        # scene of an unnarrated pair would silently show no warning at all.
+        s1_check = story_laws.check_location_transit_law(row_dicts)
+        s1_warnings = [
+            w["detail"] for w in s1_check["warnings"]
+            if scene in (w.get("from_scene"), w.get("to_scene"))
+        ]
     except Exception:  # noqa: BLE001 — advisory only, must never block the edit
         pass
 
-    return {"status": "updated", "scene": scene, "story_law_s3_warnings": warnings}
+    return {
+        "status": "updated", "scene": scene,
+        "story_law_s3_warnings": warnings,
+        "story_law_s1_warnings": s1_warnings,
+    }
 
 
 @router.patch("/{video_id}/scenes/{scene}/tone")
@@ -2371,18 +2394,30 @@ async def rewrite_scene_text(
     # describe a different place than the carried-forward location, or
     # clash with a sibling scene's. Warn only, never block a regenerate.
     s3_warnings: list[str] = []
+    s1_warnings: list[str] = []
     try:
-        law_check = story_laws.check_scene_location_law([dict(r) for r in (scenes_rows or [])])
+        row_dicts = [dict(r) for r in (scenes_rows or [])]
+        law_check = story_laws.check_scene_location_law(row_dicts)
         s3_warnings = [
             v["detail"] for v in law_check["violations"] if v["scene"] == scene
         ] + [
             w["detail"] for w in law_check["warnings"] if w["scene"] == scene
         ]
+
+        # D6-4 (S1 repair leg re-check): same warn-only re-check as
+        # update_scene_text above. An S1 warning concerns a PAIR of scenes,
+        # so match on either from_scene or to_scene, not just "scene".
+        s1_check = story_laws.check_location_transit_law(row_dicts)
+        s1_warnings = [
+            w["detail"] for w in s1_check["warnings"]
+            if scene in (w.get("from_scene"), w.get("to_scene"))
+        ]
     except Exception:  # noqa: BLE001 — advisory only, must never block the rewrite
         pass
 
     return {"scene": scene, "text": new_text, "word_count": _spoken_word_count(new_text),
-            "story_law_s3_warnings": s3_warnings}
+            "story_law_s3_warnings": s3_warnings,
+            "story_law_s1_warnings": s1_warnings}
 
 
 async def _channel_default_prompt(tenant_id, prompt_key: str, fallback: str) -> str:

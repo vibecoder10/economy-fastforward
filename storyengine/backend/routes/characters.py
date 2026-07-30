@@ -508,7 +508,35 @@ async def update_character(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Character not found")
-    return _row_to_read(row).model_dump()
+    result = _row_to_read(row).model_dump()
+
+    # D6-4 (STORY-LAWS S4 repair leg, PARTIAL). A name edit (the field the
+    # consistency check actually compares) can introduce or fix a mismatch
+    # against the script's own text — re-run the read-only, warn-only check
+    # and surface it. Cheap (two free SELECTs, no LLM call), never blocks
+    # the edit — see story_laws.check_cast_consistency_law's docstring for
+    # why this can never be a hard gate.
+    if body.name is not None:
+        try:
+            script_rows = await fetch_all(
+                "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+                "ORDER BY scene",
+                video_id, tenant_id,
+            )
+            cast_rows = await fetch_all(
+                "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
+                video_id, tenant_id,
+            )
+            import story_laws
+            cast_check = story_laws.check_cast_consistency_law(
+                [dict(r) for r in (script_rows or [])],
+                [dict(r) for r in (cast_rows or [])],
+            )
+            result["story_law_s4_warnings"] = [w["detail"] for w in cast_check["warnings"]]
+        except Exception as e:  # noqa: BLE001 — advisory only, must never block the edit
+            logger.warning("[characters] S4 re-check failed for %s/%s: %s",
+                           video_id, char_id, str(e)[:200])
+    return result
 
 
 @router.post("/{video_id}/characters/{char_id}/upload")
@@ -714,6 +742,33 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
             )
             cast = [dict(r) for r in with_refs]
 
+            # D6-4 (STORY-LAWS S4 GATE leg, PARTIAL — see story_laws.
+            # check_cast_consistency_law's docstring for the full ruling).
+            # Warn-only, permanently: this can never block cast approval,
+            # it can only tell Ryan a mismatch exists between the cast
+            # being locked and what the script actually named. Free read
+            # (no LLM call, no spend) — cast approval is the earliest point
+            # both the script and the canonical video_characters rows
+            # exist together, so it's the right place to run this, not
+            # script-generation time (video_characters doesn't exist yet
+            # then). Best-effort: a failure here must never block a real
+            # cast approval the creator is waiting on.
+            cast_law_warnings: list[str] = []
+            try:
+                script_rows = await fetch_all(
+                    "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+                    "ORDER BY scene",
+                    video_id, tenant_id,
+                )
+                import story_laws
+                cast_check = story_laws.check_cast_consistency_law(
+                    [dict(r) for r in (script_rows or [])], cast,
+                )
+                cast_law_warnings = [w["detail"] for w in cast_check["warnings"]]
+            except Exception as e:  # noqa: BLE001 — advisory only, never blocks approval
+                logger.warning("[characters] S4 cast-consistency check failed for %s: %s",
+                               video_id, str(e)[:200])
+
             # Pixel-accurate descriptions: the portraits were GENERATED from the
             # text, but image models take liberties — when the saved text says
             # "light blue tee" and the approved portrait shows red, downstream
@@ -777,8 +832,17 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
                 "updated_at = now() WHERE id = $2 AND tenant_id = $3",
                 sheet_url or with_refs[0]["reference_url"], video_id, tenant_id,
             )
-            _set_task_status(video_id, "completed",
-                             f"Cast approved ({len(with_refs)}) — storyboards unlocked.",
+            complete_msg = f"Cast approved ({len(with_refs)}) — storyboards unlocked."
+            if cast_law_warnings:
+                # D6-4: surfaced in the completion message itself (no
+                # dedicated warnings field on _set_task_status) — visible,
+                # never blocking. Capped so one noisy video can't blow out
+                # the status message.
+                complete_msg += (
+                    " Story law S4 advisory (cast/script mismatch, non-blocking): "
+                    + "; ".join(cast_law_warnings[:4])
+                )[:900]
+            _set_task_status(video_id, "completed", complete_msg,
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         except Exception as e:
             _set_task_status(video_id, "failed",

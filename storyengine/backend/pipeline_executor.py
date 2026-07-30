@@ -6796,6 +6796,11 @@ def resolve_prompt(
     pipeline_executor._run_modeled_script, which carries the same law text
     via its own inline prompt instead).
 
+    D6-4 (STORY-LAWS S1): story_laws.LOCATION_TRANSIT_LAW rides along
+    right after SCENE_LOCATION_LAW, same reasoning, same call site — a
+    writer needs both laws at once (S3: one location per scene; S1: narrate
+    the move between scenes) or it can satisfy one by breaking the other.
+
     Returns the resolved prompt string, or None when there's nothing to set
     (so the bot falls back to its built-in default).
     """
@@ -6812,7 +6817,7 @@ def resolve_prompt(
         law = ""
         if prompt_key == "script":
             import story_laws
-            law = "\n\n" + story_laws.SCENE_LOCATION_LAW
+            law = "\n\n" + story_laws.SCENE_LOCATION_LAW + "\n\n" + story_laws.LOCATION_TRANSIT_LAW
         return filled + law + (getattr(identity, "standing_preferences", "") or "")
     return None
 
@@ -12193,6 +12198,8 @@ separate scenes, one location each:
 
 {story_laws.SCENE_LOCATION_LAW}
 
+{story_laws.LOCATION_TRANSIT_LAW}
+
 Target length: about {target_words} words total, spread across the scenes.
 
 Background material you may draw from (use only what fits the video's style and audience):
@@ -12283,6 +12290,26 @@ scenes."""
             await self._log_activity(
                 bot_name, video_id, "started",
                 f"Story law S3 advisory (cross-location text, non-blocking): {warn_detail}"[:900],
+            )
+
+        # D6-4 (S1 GATE leg): cross-scene, warn-only, permanently (see
+        # story_laws.check_location_transit_law's docstring — Ruling 1).
+        # Runs AFTER the S3 gate so it only ever sees an S3-passing scene
+        # list (every scene has a location, so the comparison is
+        # meaningful); logged exactly like the S3 advisory above, never
+        # blocks, never touched again after this — nothing downstream in
+        # this function reads it.
+        s1_check = story_laws.check_location_transit_law([
+            {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
+            for i, s in enumerate(scenes, start=1)
+        ])
+        if s1_check["warnings"]:
+            s1_warn_detail = "; ".join(
+                f"scene {w['scene']}: {w['detail']}" for w in s1_check["warnings"]
+            )
+            await self._log_activity(
+                bot_name, video_id, "started",
+                f"Story law S1 advisory (unnarrated location change, non-blocking): {s1_warn_detail}"[:900],
             )
 
         full_script = "\n\n".join(s["text"].strip() for s in scenes)
@@ -12625,6 +12652,25 @@ scenes."""
         )
         return story_laws.check_scene_location_law([dict(r) for r in (rows or [])])
 
+    async def _check_location_transit_law(self, video_id: str) -> dict:
+        """D6-4 — STORY-LAWS S1 GATE. Same read-only, pure-read shape as
+        _check_scene_location_law above (separate query, not merged with
+        it, so a caller that only wants S3 doesn't pay for S1's extra scan
+        and vice versa — both are cheap single SELECTs either way). Runs
+        story_laws.check_location_transit_law, which is warn-only,
+        permanently — see that function's docstring. Safe to call
+        read-only against ANY video at ANY time, including a pre-migration
+        video with every location NULL (returns no location_changes and no
+        warnings — see that function's docstring for why that is the
+        correct, honest answer, not a false negative)."""
+        import story_laws
+        rows = await fetch_all(
+            "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
+            "AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        return story_laws.check_location_transit_law([dict(r) for r in (rows or [])])
+
     async def run_script(self, video_id: str, progress_callback=None,
                          force_rewrite: bool = False) -> dict:
         """Generate script for a video.
@@ -12961,6 +13007,21 @@ scenes."""
                     await self._log_activity(
                         bot_name, video_id, "started",
                         f"Story law S3 advisory (cross-location text, non-blocking): {warn_detail}"[:900],
+                    )
+
+                # D6-4 (S1 GATE leg): cross-scene, warn-only, permanently —
+                # same shape as the S3 advisory just above, and only reached
+                # when the S3 gate above already passed (every scene has a
+                # location), so the comparison is meaningful. See
+                # story_laws.check_location_transit_law's docstring.
+                s1_check = await self._check_location_transit_law(video_id)
+                if s1_check.get("warnings"):
+                    s1_warn_detail = "; ".join(
+                        f"scene {w['scene']}: {w['detail']}" for w in s1_check["warnings"]
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "started",
+                        f"Story law S1 advisory (unnarrated location change, non-blocking): {s1_warn_detail}"[:900],
                     )
 
             # Dialogue intelligence runs unattended after EVERY script path —

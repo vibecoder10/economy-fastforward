@@ -1335,3 +1335,88 @@ RECIPE (needs Ryan's go — real spend):
     per-shot: it cannot confirm the emphasis lands on the same object or
     appears strictly before the notice beat (no per-shot object identity exists
     in today's schema) — it only flags the higher-level co-occurrence.
+
+## D6-4 (STORY-LAWS S1 narrate every location change, S5 resolved, S2/S4
+## admitted) — deferred verification
+
+### 1. Migration 144 (`scripts.location`) is NOT applied on the production
+database as of this chunk — confirmed live, not assumed
+`se db "SELECT column_name FROM information_schema.columns WHERE
+table_name='scripts'"` against prod returned 38 columns, no `location` among
+them, and `se db "SELECT filename FROM _migrations WHERE filename LIKE
+'14%' ORDER BY filename"` shows only `140_...` and `141_...` applied — 142-146
+are all still pending. This means D6-3's ENTIRE S3 gate (and by extension
+D6-4's S1 canonical leg and the S5 finding) is currently DORMANT on prod: the
+code path exists and is correct against a migrated schema, but has never run
+against the real column. RECIPE for the actual first live proof, needs a real
+deploy (out of scope for this zero-spend chunk):
+  1. `se deploy` (this alone triggers `main.py`'s `_run_pending_migrations` at
+     startup, which applies 142-146 including 144 — confirm this in the deploy
+     logs: `se logs | grep -i migrat`).
+  2. `se db "SELECT column_name FROM information_schema.columns WHERE
+     table_name='scripts' AND column_name='location'"` — EXPECTED: one row.
+  3. Generate ONE new short (1-2 min) video's script through the normal flow
+     (modeled or docu path) and confirm via `se db "SELECT scene, location
+     FROM scripts WHERE video_id='<new video>' ORDER BY scene"` that every row
+     has a non-NULL `location` — proves S3/S5's PROMPT+GATE actually fire
+     against a live model call, not just the pure-function tests here.
+  4. Deliberately edit that video's scene 1 text via the UI to remove any
+     transit language while changing nothing about scene 2's location, save,
+     and confirm the response carries a non-empty `story_law_s1_warnings` —
+     the first live proof of S1's GATE+REPAIR against a real request, not a
+     monkeypatched fake.
+
+### 2. `check_location_transit_law` run read-only against video `686b4651` —
+proof level reached, exact output
+This chunk's HARD CONSTRAINT forbids touching `686b4651`, so this is the
+decisive read-only proof, not a placeholder. Fetched via `se db "SELECT scene,
+scene_text FROM scripts WHERE video_id='686b4651-e495-44be-baf6-97fc6dd527e9'
+ORDER BY scene"` (the `location` column doesn't exist on prod yet — see item 1
+above — so every scene's location is treated as NULL, matching the video's own
+real pre-migration state). Feeding the 6 real rows (location=None on all) into
+`story_laws.check_location_transit_law` returns `{"location_changes": [],
+"warnings": []}` — correctly silent: with no canonical location data at all,
+S1 cannot be verified against this video, which is the honest answer, not a
+false negative (see `check_location_transit_law`'s own docstring for why this
+is by design). `check_scene_location_law` (S3/S5) against the same 6 rows
+returns 6 `no_location` violations, `passed: False` — matching D6-3's own
+report. NOT PROVEN, and cannot be without migration 144 applied: S1's
+canonical leg (comparing two real `location` column values) actually firing
+against this video's real data — that requires the column to exist, which per
+item 1 it does not yet on prod. RECIPE once migration 144 is live: manually
+backfill `686b4651`'s 6 scenes' `location` columns via a plain `UPDATE`
+(READ-ONLY constraint is about `scene_text`/regeneration, not adding a
+location label to a frozen row for testing — but get an explicit go from Ryan
+first since this chunk's brief was unambiguous about not touching this video
+at all) and re-run the same read-only check to see the canonical leg produce
+real `location_changes` entries.
+
+### 3. `check_cast_consistency_law`'s wiring into `approve_cast` — not
+integration-tested against a real request
+The route-level GATE leg is proven only by manual code reading plus the pure
+`story_laws.check_cast_consistency_law` unit tests
+(`tests/test_d6_4_story_law_s1.py`) — `approve_cast`'s own background-task
+closure (`routes/characters.py`, the `_run()` function inside the route
+handler) was judged too costly to fully monkeypatch for this chunk (it also
+does a paid vision pass this chunk must not trigger even in a mocked form
+without careful isolation). The `update_character` REPAIR leg IS integration-
+tested directly (`test_update_character_surfaces_s4_warning_on_name_edit`),
+since that endpoint is synchronous and has no paid calls. RECIPE for the
+GATE leg's first live proof, needs a real video with both a script and a cast
+member whose name doesn't appear in it:
+  1. Pick or create a test video with a script already written.
+  2. Design characters normally (`POST .../characters/generate`, ~$0.025/each
+     — needs Ryan's go, this is real spend), then rename one via the
+     characters tab to something NOT in the script text (e.g. a name the
+     writer never used).
+  3. Call `POST .../characters/approve`.
+  4. `se db` or the task-status poller: confirm the completion message
+     contains "Story law S4 advisory" naming that character — the first live
+     proof the GATE leg fires from a real HTTP request, not a synthetic
+     `check_cast_consistency_law([...], [...])` call.
+
+### 4. S2 (A PAYOFF MUST BE PAID FOR EARLIER) has no gate and none is planned
+Not a deferred item in the "will verify later" sense — a permanent admission.
+Documented in `STORY-LAWS.md`'s S2 status entry and `backend/story_laws.py`'s
+module docstring. Nothing to verify because nothing was built; listed here
+only so a future reader doesn't mistake the silence for an oversight.
