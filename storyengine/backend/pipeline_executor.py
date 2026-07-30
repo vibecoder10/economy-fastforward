@@ -122,9 +122,25 @@ def _non_target_designation_codes(text: str, machine: str) -> list[str]:
     allowed = _target_machine_designation_codes(machine)
     if not allowed:
         return []
+    # Multi-unit CLASS entry (2026-07-30): the display string names member
+    # SHIPS but at most one pennant number, so sibling units' own pennants
+    # read as foreign machines — "Centaur, Albion, Bulwark, Hermes (R12)
+    # Centaur class" allows only R12, and genuine Centaur (R06) / Bulwark
+    # (R08) excerpts were silently hidden from the card prompt. Membership
+    # cannot be derived from the glued string, so for class entries the code
+    # screen is skipped: both callers already require the excerpt to NAME
+    # the machine/member, and the card contract still bars excerpts about
+    # other machines. The strict screen remains for single-machine entries,
+    # where it protects against variant confusion (B-52 vs XB-70).
+    if "class" in (_unit_display_name(machine) or str(machine or "")).lower():
+        return []
     found = {
         _normalized_unit_code(token)
-        for token in _AIRCRAFT_DESIGNATION_RE.findall(str(text or "").upper())
+        # Scan the ORIGINAL text, not an uppercased copy: real designations
+        # are written with capitals (R06, B-52), while an all-lowercase hit
+        # is a unit of measure — "20.9 m2" is square metres, not an M2.
+        for token in _AIRCRAFT_DESIGNATION_RE.findall(str(text or ""))
+        if any(ch.isupper() for ch in token)
     }
     return sorted(code for code in found if code and code not in allowed)
 

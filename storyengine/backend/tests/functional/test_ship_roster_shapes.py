@@ -718,3 +718,31 @@ def test_slot_hints_lifecycle_verbs_are_reality():
         "As the builds of Audacious (renamed Eagle) and Irresistible (renamed Ark Royal) were completed."
     )
     assert "reality" in hints
+
+
+# --- 2026-07-30: the designation-code screen must not hide a class's own
+# member ships (found by the simulator's Centaur lane: the display string
+# carries only Hermes' R12, so Centaur's R06 and Bulwark's R08 read as
+# foreign machines and genuine excerpts were silently dropped from the
+# card prompt) --------------------------------------------------------------
+
+_CENTAUR_CLASS = "Centaur, Albion, Bulwark, Hermes (R12) Centaur class"
+
+
+def test_sibling_pennant_is_not_foreign_for_class_entry():
+    assert pe._non_target_designation_codes(
+        "HMS Centaur (R06) was the lead ship of her class.", _CENTAUR_CLASS
+    ) == []
+
+
+def test_metric_unit_is_not_a_designation_code():
+    assert pe._non_target_designation_codes(
+        "The rudder had an area of 20.9 m2 as designed.", "Boeing B-52 Stratofortress B-52"
+    ) == []
+
+
+def test_single_machine_foreign_code_still_caught():
+    codes = pe._non_target_designation_codes(
+        "Unlike the XB-70, the B-52 relied on proven engines.", "Boeing B-52 Stratofortress B-52"
+    )
+    assert "XB70" in codes
