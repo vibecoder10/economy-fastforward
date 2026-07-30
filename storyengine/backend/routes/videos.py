@@ -1701,6 +1701,21 @@ async def update_scene_text(
     # that function's docstring.)
     await sync_video_script(video_id, tenant_id)
 
+    # D7-3: this scene's own text just changed, so its stored board plan
+    # (coverage_directive) and its voice/images/clips are stale too — the
+    # Drive pull-sync path below has always cleared these on a text change;
+    # this manual edit endpoint must too, or its board plan silently keeps
+    # reusing a directive planned from the pre-edit text. Advisory only,
+    # same contract as the S1/S3 re-check right below — a failure here must
+    # never fail the edit that triggered it.
+    try:
+        await _clear_scene_downstream(video_id, scene, tenant_id)
+    except Exception:  # noqa: BLE001 — advisory only, must never block the edit
+        logger.warning(
+            "D7-3 downstream clear failed for video %s scene %s (advisory, ignored)",
+            video_id, scene, exc_info=True,
+        )
+
     # D6-3b: an edit that carries the OLD location forward (or adopts a new
     # one) can still put THIS scene's text out of step with S3 — e.g. the
     # location column didn't change but the rewritten prose now describes a
@@ -2489,6 +2504,20 @@ async def rewrite_scene_text(
     # the S3/S1 re-check below can reuse them instead of re-querying.
     scenes_rows = await sync_video_script(video_id, tenant_id)
 
+    # D7-3: the rewrite above already nulled this scene's voice inline (its
+    # own UPDATE, right above) but never touched its images/clips or its
+    # stored board plan — so a rewritten scene kept showing storyboard
+    # frames drawn from the pre-rewrite paragraph. _clear_scene_downstream
+    # covers all of it (voice is a harmless re-null); advisory only, same
+    # contract as the S1/S3 re-check right below.
+    try:
+        await _clear_scene_downstream(video_id, scene, tenant_id)
+    except Exception:  # noqa: BLE001 — advisory only, must never block the rewrite
+        logger.warning(
+            "D7-3 downstream clear failed for video %s scene %s (advisory, ignored)",
+            video_id, scene, exc_info=True,
+        )
+
     # D6-3b (S3 repair leg re-check): the rewritten paragraph could now
     # describe a different place than the carried-forward location, or
     # clash with a sibling scene's. Warn only, never block a regenerate.
@@ -2841,12 +2870,26 @@ def _parse_drive_time(s):
 
 
 async def _clear_scene_downstream(video_id: str, scene: int, tenant_id: str):
-    """A pulled text change makes that scene's voice/images/clips stale. Mirror
+    """A text change makes that scene's voice/images/clips stale, and its
+    stored board plan no longer describes what boards were drawn from. Mirror
     delete_clip's URL-nulling (proven safe) across voice + image + clip so the
-    scene visibly needs regeneration instead of silently shipping old media."""
+    scene visibly needs regeneration instead of silently shipping old media —
+    and null coverage_directive_hash alongside them (D7-3): the coverage gate
+    (scripts/coverage_to_app.py:4404-4452) only reuses a scene's saved
+    coverage_directive while that hash matches the scene's CURRENT text, so
+    clearing it forces a scoped re-plan of JUST this scene next time boards
+    run, without re-billing every other scene's plan. This never deletes a
+    row and never touches coverage_directive's TEXT itself — only the hash
+    pointer that gates its reuse — same flag/clear-never-delete contract as
+    _flag_stale_cast_and_environments.
+
+    Called from the Drive pull-sync path below AND (D7-3) from
+    update_scene_text/rewrite_scene_text, so a manual edit invalidates the
+    same things a Drive-pulled edit always has."""
     await execute(
         "UPDATE scripts SET voice_over_url = NULL, voice_status = NULL, "
-        "voice_duration_seconds = NULL, updated_at = now() "
+        "voice_duration_seconds = NULL, coverage_directive_hash = NULL, "
+        "updated_at = now() "
         "WHERE video_id = $1 AND scene = $2 AND tenant_id = $3",
         video_id, scene, tenant_id,
     )
