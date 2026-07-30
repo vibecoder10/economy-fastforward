@@ -1899,9 +1899,21 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     # existed. quality_rules is a top-level backend module (like status_map,
     # database) — imported locally so this DB-free-by-convention scripts/
     # module only pulls it in on the one path that actually needs it.
-    import quality_rules as _quality_rules
-    board_rules_text, _ = _quality_rules.compose_rules_text(
-        await _quality_rules.active_board_rules(tenant))
+    #
+    # FAIL OPEN, deliberately: this is an OPTIONAL enhancement read (a
+    # tenant with no board-scoped rules configured — every tenant today —
+    # gets "" either way), never a hard dependency of board planning. A
+    # quality_rules read hiccup (a schema issue, a transient DB error) must
+    # never block the real, paid coverage-planning call that follows —
+    # same fail-soft discipline as resolve_dvsu_overrides' per-key parsing.
+    board_rules_text = ""
+    try:
+        import quality_rules as _quality_rules
+        board_rules_text, _ = _quality_rules.compose_rules_text(
+            await _quality_rules.active_board_rules(tenant))
+    except Exception as _qr_exc:  # noqa: BLE001
+        print(f"  ⚠️ quality_rules board-scope fetch failed ({_qr_exc}) — continuing with "
+              "no board-scoped rules text", flush=True)
     crows = await fetch_all(
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
