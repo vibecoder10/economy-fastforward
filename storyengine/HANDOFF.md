@@ -1,50 +1,98 @@
-# HANDOFF - 2026-07-30 - roster reference-photo loop shipped; DvsU carrier video ready to drive
+# HANDOFF - 2026-07-30 evening - MISSION: make the standalone API pipeline bulletproof
 
-> The previous handoff (phase D6 / Board Laws - the script-staleness finding, the three rulings,
-> phase D7) was archived intact to `tasks/HANDOFF-D6-boardlaws.md`. Read it if you are picking up
-> that lane instead of this one.
+## Read this first
+Ryan's explicit request (2026-07-30, repeated and firm): **the DVsU pipeline must run
+bulletproof on StoryEngine ALONE - no MCP, no coordinator session, no simulator - using
+the workspace API keys.** Today's session proved the full research stage end-to-end and
+fixed 8 real pipeline bugs, but three capabilities that made it work still live OUTSIDE
+the engine, in coordinator-side scripts. Your job is to move them IN. No cutting corners.
 
-## State
-- **Prod: `068ce0b3` deployed, healthy.** Backend + frontend active, API healthy, no deploy lock.
-  All 8 commits from this session are LIVE (verified with `git merge-base --is-ancestor`):
-  c7116ef0, f615772a, 4dbd9049, 53dd98a0, 4031bc02, f53b562a, 08e7cf31, 47f8e3eb. They shipped
-  bundled inside the Board Laws deploy. `static_reference_misses` exists on prod with RLS enabled.
-- **Branch: main**, local == origin/main, ahead of prod. **`82fd0051` (auto-sweep progress fix) is
-  pushed but NOT deployed** - deploy it before or alongside the first UI drive, or the Roster panel
-  will still look frozen during an automatic sweep.
-  Clean apart from untracked evidence/`.bak` files.
-- **Target video:** `d2e37cd6-521a-43aa-a14d-ce096a783c1e` - "Every British Aircraft Carrier Class
-  Ever Built". Tenant **`561b872d`** (NOT ee93e6d1 - that is the owner account that appears in
-  request logs). Status `idea_logged`, 23-machine roster, 15/23 reference photos.
+## State (all verified, referee-proof)
+- Video d2e37cd6 ("Every British Aircraft Carrier Class Ever Built", tenant 561b872d):
+  status `ready_for_scripting`, roster green (22/23 photos + CVA-01 honestly never-built),
+  **all 23 research cards on the row, each passing prod's own referee** (23/23 PASS run
+  ON the VPS with prod code). Script stage is unlocked, untouched. Hard cap $20/video.
+- Prod deployed at `f75da81d`-era main (last deploy 67e8224e + handoff commit). Healthy.
+- The research simulator (subscription-Claude subagents + mechanical provenance
+  verification) is archived at **`tasks/evidence/dvsu-research-simulator/`** - its
+  STATE.md documents the whole method; build_package.py / validate_card.py /
+  reanchor_card.py / submit_research.py are the reference implementations you are
+  porting FROM.
+- Pipeline fixes already shipped today (deployed, tested - do not redo): live roster-gate
+  recompute (`_live_roster_gate`), never-built machines satisfy the roster stage, ship
+  vocab in `_visual_identity_warnings` + `_anton_source_slot_hints` (incl. sunk/completed/
+  commissioned/ordered), Commonwealth+gov.uk+NAO source tiers, class entries exempt from
+  the sibling-pennant designation screen, "20.9 m2" not a designation, auto-sweep live
+  progress + task_type. Tests: `backend/tests/functional/test_live_roster_gate.py`,
+  `test_visual_identity_cross_domain.py`, `test_source_tier_domains.py`,
+  `test_ship_roster_shapes.py` (extended).
 
-What shipped this session:
-- Photos now fetch automatically even when the roster gate rejects a roster. The fetch call used
-  to sit below the gate's early return, so a rejected roster got zero photos, indefinitely.
-- The roster gate separates real defects from pacing nitpicks. 23 ships for a 20-minute video is
-  now `needs_review`, not a dead end.
-- Search aliases plumbed into the photo lookup; additive `member_units` research field added.
-- **Trust hole closed**: a photo could be marked "verified" even when the vision model said it was
-  the wrong machine. Added a 3-char floor + word-boundary anchor to designation matching (the
-  token "91" from a pennant number was matching "No. 91 Squadron RAF").
-- Sweeps are durable - a mid-sweep deploy no longer silently kills them with no record.
-- Per-machine miss reasons + never-built detection (CVA-01 is the live case).
-- Ship-shaped regression net: `backend/tests/functional/test_ship_roster_shapes.py`.
-- Purged 2 cache rows holding photos of the wrong ship (41 -> 39 rows).
+## The mission: three gaps, in priority order
 
-## Next action (start here cold)
-**RESEARCH STAGE IS COMPLETE - drive the Script stage next.** All 23 machine research
-cards live on the video row (prod referee 23/23 PASS, status ready_for_scripting, roster
-gate green: 22/23 photos verified + CVA-01 honestly never-built). The cards were authored
-by the subscription-Claude research simulator at $0 API cost - simulator home:
-`/private/tmp/claude-501/-Users-ryanayler-economy-fastforward-storyengine/a7a8e921-5f70-4bb6-ad3b-1f30c34e21f9/scratchpad/simulator/`
-(STATE.md there has the full mechanics; cards/, packages/, raw/ hold all artifacts -
-COPY THEM SOMEWHERE DURABLE if the scratchpad gets wiped).
+### GAP 1 - the pipeline's own web gatherer has no fallbacks (highest value)
+Where: `pipeline_executor.py::_gather_verified_machine_source_package` (~line 7503,
+Tavily-based) and static_docu's reference fetching. Today the coordinator's
+`build_package.py` (in the archived simulator) did what the pipeline cannot:
+- **Per-excerpt mechanical verification** with a tolerant normalizer: strip citation
+  markers ("carrier.[9]"), collapse orphan spaces before punctuation AND one-sided
+  hyphen spaces ("equipped- Hellcat" from stripped inline tags), fold smart quotes/
+  dashes, NBSP. Every one of these each rejected REAL excerpts today before being fixed.
+- **Fallback chain when a live fetch fails**: National Archives Discovery records ->
+  their JSON API (`/API/records/v1/details/{id}`, retry on empty 202 responses);
+  any URL -> real Wayback snapshot via the availability API (never trust a claimed
+  archive URL - query the CDX/availability API yourself; an agent fabricated one today).
+- **Source steering**: iwm.org.uk 403s ALL automation (curl, WebFetch, everything) -
+  the gather prompt/source list must prefer awm.gov.au + rmg.co.uk collection object
+  pages, .gov.uk, naval-encyclopedia.com, naval-history.net, uboat.net.
+Port all three into the pipeline's gather step so a machine whose best sources sit
+behind a bot-wall still yields a passing package. Add tests with recorded fixtures.
 
-Next: open the video page (local dev, Designed vs Used channel), use the MACHINE SCRIPT
-ROSTER panel - run 1 single-machine script test first, review the paragraph, then run all
-23. Script generation uses workspace API keys (paid) OR extend the simulator to write
-script paragraphs the same evidence-grounded way. Then voice -> pictures -> render.
-**Hard cap $20/video; quote cost before every paid stage.**
+### GAP 2 - repair rounds don't converge without a coordinator
+Where: the card build/repair loop in `_run_unit_research_hold` (~9937-10440; repair
+prompt ~10386). Today's cards needed 1-3 rounds WITH precise coordinator feedback; the
+pipeline's generic repair prompt would burn its 2 rounds on the same machines. Port the
+mechanical lessons (all are string-checkable before spending a model call):
+- Deterministic PRE-repair pass (free): re-anchor citations by excerpt TEXT when ids/
+  locators drifted (reanchor_card.py logic); single-word grounding fixes are usually an
+  inflection swap to the excerpt's own word ("spent"->"spending", drop "seen"/"ship"/
+  "plus"/"toward").
+- Feed the repair prompt STRUCTURED, named fixes, not just warning strings: which
+  segment, which row to re-cite (a hinted Tier 1-3 row for that beat), the exact rules -
+  fields must contain the display name's LAST token; the specificity check passes if a
+  field OPENS with the machine's first 4 tokens; never kind "context"/"spec"; required
+  beats never on Tier-4 rows; apostrophes tokenize ("Attacker's" leaves a stray "s").
+- Known checker quirk to fix or document: `_unit_code`'s 4-token glob makes a bracketed
+  pennant like "(D48)" read as an unsupported designation inside
+  why_this_unit_deserves_a_paragraph for class-style names.
+
+### GAP 3 - machine identity is guessed from a glued display string (structural)
+The collisions are REAL on this very video: both "Lend-Lease escort carriers ... class
+(US-built)" entries -> machine_key LENDLEASEESCORTCARRIERS; both CVA-01-containing
+entries -> CVA01. `machine_research_cards` silently overwrote 2 of 23 rows (21 on the
+table; payload holds all 23 and readers fall back, so it is benign TODAY by accident).
+Fix per the parked plan: research DECLARES identity per roster entry -
+`canonical_name`, `search_aliases`, `disambiguators`, `identifier_kind`, `member_units` -
+and machine_key derives from canonical identity, never the glued string. Includes:
+migration for machine_research_cards keys, the two collision pairs on this video,
+and killing the downstream regex re-derivations (the handoff notes below list the known
+next breakages: `_BUILT_COUNT_ZERO_RE`, `_GENERIC` in static_docu, "M4"/"MB" token
+collisions for ground vehicles). This deserves its own GOAL.md planning pass with Ryan
+before implementation - scope it, show him the plan, then build.
+
+## Definition of Complete
+A fresh test video with a ship roster (clone d2e37cd6's shape or make a small 5-ship
+one) runs `run research` -> photos -> per-machine research **through the pipeline's own
+API path only** (no MCP, no coordinator, no sidecar files) and reaches
+ready_for_scripting with all cards passing the referee - proven by driving the UI like
+a user and by `se db` reads, not by code inspection. Gatherer fallback + repair-lesson
++ normalizer behavior each pinned by tests. Budget: quote any paid test run first
+(a 5-ship roster keeps it small); deploys via `se deploy` protocol.
+
+## Where everything lives
+- Reference implementations: `tasks/evidence/dvsu-research-simulator/` (STATE.md first).
+- Today's commits (all on main, deployed): 82fd0051, 564055a6, 88afae2e, 574a0b6b,
+  94ace070, bcb5f446, 023b15ec + handoff/evidence commits.
+- The carrier video continues separately: script stage is next there (see Open threads).
 
 ## Open threads
 - **Auto-sweep progress bug - FIXED but NOT DEPLOYED.** Commit `82fd0051`, pushed to origin/main,
@@ -61,7 +109,7 @@ script paragraphs the same evidence-grounded way. Then voice -> pictures -> rend
   auto sweep are ever concurrently active (the C16 gap below), the manual path's `_set_task_status`
   can UPDATE the auto sweep's own `background_tasks` row instead of inserting its own, stomping the
   auto sweep's progress message. Pre-existing and generic to every route using `_set_task_status`.
-- **"Archer class" alias collision - real risk, unfixed.** The roster entry
+- **RESOLVED for this video (cache photo verified = MV Rapana, a real MAC ship); the alias MECHANISM risk stands until GAP 3 lands.** The roster entry
   `"Archer class / Empire Mac-Ship conversions"` describes MAC ships, but slash-splitting yields the
   alias `"Archer class"`, which matches the real-but-different RN Archer-class escort carrier. The
   alias mechanism can now cache a confidently wrong ship. The token hardening does not catch it -
