@@ -455,9 +455,38 @@ class ArbiterSpend(BaseModel):
     last_judged_at: Optional[str] = None
 
 
+class ArbiterFindingInstance(BaseModel):
+    """One `arbiter_findings` row (D8 chunk 3b, migration 146) — a single
+    judged frame/panel INSTANCE, not a class-level fingerprint. Field names
+    are copied verbatim from frame_arbiter.py's own finding-dict shape (see
+    that module and migrations/146_arbiter_findings.sql's own header for the
+    full mapping) — this is the per-instance layer arbiter_fingerprints
+    (ArbiterFinding above) and generation_ledger spend (ArbiterSpend) were
+    always missing a partner for."""
+    id: str
+    video_id: str
+    video_title: Optional[str] = None
+    scene: Optional[int] = None
+    station: str
+    reference: str
+    label: Optional[str] = None
+    image_url: Optional[str] = None
+    classification: str
+    failure_class: Optional[str] = None
+    rule_id: Optional[str] = None
+    fingerprint_key: Optional[str] = None
+    rubric_level: Optional[str] = None
+    decisive_prompt_fragment: Optional[str] = None
+    description: Optional[str] = None
+    new_vs_previous: Optional[str] = None
+    cost: Optional[float] = None
+    created_at: Optional[str] = None
+
+
 class ArbiterFindings(BaseModel):
     findings: List[ArbiterFinding] = []
     spend: List[ArbiterSpend] = []
+    instances: List[ArbiterFindingInstance] = []
 
 
 # --- Profile ---

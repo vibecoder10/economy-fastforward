@@ -2376,13 +2376,17 @@ export interface ReviewItem {
   type: string;
 }
 
-// Frame Arbiter findings (D5 chunk A7, FRAME-ARBITER-PLAN.md). Field names
-// copied verbatim from backend/models.py's ArbiterFinding/ArbiterSpend/
-// ArbiterFindings — see backend/routes/review.py's get_findings docstring
-// for why there is no per-frame image/reason field: no per-instance
-// findings table is persisted yet, only the fingerprint (class-level) and
-// ledger (spend) tables are real.
+// Frame Arbiter findings (D5 chunk A7, FRAME-ARBITER-PLAN.md; per-instance
+// rows added D8 chunk 3b). Field names copied verbatim from backend/
+// models.py's ArbiterFinding/ArbiterSpend/ArbiterFindingInstance/
+// ArbiterFindings — see backend/routes/review.py's get_findings docstring.
+// ArbiterFinding (below) is a CLASS-level fingerprint, not a single
+// instance; ArbiterFindingInstance is the actual per-frame/per-panel row
+// D8-3b added (migration 146) — the two are joined by fingerprint_key but
+// are otherwise independent lists.
 export type ArbiterClassification = "MODEL_DEFECT" | "AUTHORING_DEFECT" | "TASTE_QUESTION";
+export type ArbiterFindingClassification = ArbiterClassification | "OK";
+export type ArbiterStation = "frame" | "scene_batch" | "board";
 
 export interface ArbiterFinding {
   id: string;
@@ -2406,9 +2410,36 @@ export interface ArbiterSpend {
   last_judged_at: string | null;
 }
 
+// One `arbiter_findings` row (D8 chunk 3b, migration 146) — a single judged
+// frame/panel instance. `reference` is the station-specific identity
+// ("panel 3" for the board station, "image_index 108" for frame/
+// scene_batch) — see backend/arbiter_findings.py's _reference_and_label,
+// the one place that mapping happens; never re-derive it here.
+export interface ArbiterFindingInstance {
+  id: string;
+  video_id: string;
+  video_title: string | null;
+  scene: number | null;
+  station: ArbiterStation | string;
+  reference: string;
+  label: string | null;
+  image_url: string | null;
+  classification: ArbiterFindingClassification | string;
+  failure_class: string | null;
+  rule_id: string | null;
+  fingerprint_key: string | null;
+  rubric_level: string | null;
+  decisive_prompt_fragment: string | null;
+  description: string | null;
+  new_vs_previous: string | null;
+  cost: number | null;
+  created_at: string | null;
+}
+
 export interface ArbiterFindings {
   findings: ArbiterFinding[];
   spend: ArbiterSpend[];
+  instances: ArbiterFindingInstance[];
 }
 
 // Settings Types

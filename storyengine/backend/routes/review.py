@@ -7,6 +7,15 @@ from auth import get_tenant_id
 from models import PendingReview, ArbiterFindings
 from database import fetch_all, fetch_one, execute
 
+# D8 chunk 3b: the Findings tab's own natural read bound — arbiter_findings
+# is an append-only per-instance log (one row per judged frame/panel, every
+# time a scene's board sheet lands), so an unscoped SELECT would grow
+# unbounded over the video's lifetime. Most-recent-first, capped, mirrors
+# the "recent activity feed" shape the rest of this endpoint's two other
+# lists already are (both are already naturally small: one row per CLASS of
+# defect, one row per video/scene aggregate).
+_FINDING_INSTANCES_LIMIT = 200
+
 router = APIRouter(prefix="/api/review", tags=["review"])
 
 
@@ -128,18 +137,17 @@ async def get_pending(tenant_id: str = Depends(get_tenant_id)):
 @router.get("/findings", response_model=ArbiterFindings)
 async def get_findings(tenant_id: str = Depends(get_tenant_id)):
     """Frame Arbiter findings feed (D5 chunk A7, storyengine/FRAME-ARBITER-
-    PLAN.md). Honest about what actually persists: A3/A3b's judge calls
-    (frame_arbiter.judge_frame / judge_board_sheet) return per-frame/per-
-    panel finding dicts (image reference, description, classification)
-    ONLY in the HTTP response of the call that produced them —
-    frame_arbiter_hook.run_after_storyboard_sheet attaches that dict to
-    run_storyboard_sheet's own return value, which is never persisted
-    (task_store.db_persist_task only stores a status + a message STRING,
-    no JSON payload). So there is no per-instance "findings" table to
-    query yet — that's a real gap in A2/A3/A5's design, not an oversight
-    of this endpoint.
-
-    What IS real and persisted, and what this endpoint reports:
+    PLAN.md; per-instance rows added D8 chunk 3b). A3/A3b's judge calls
+    (frame_arbiter.judge_frame / judge_scene_batch / judge_board_sheet)
+    return per-frame/per-panel finding dicts (image reference, description,
+    classification) — D8-3 found that, at the time, those only ever lived
+    in the HTTP response of the call that produced them: frame_arbiter_hook.
+    run_after_storyboard_sheet attached that dict to run_storyboard_sheet's
+    own return value, which task_store.db_persist_task never persisted (a
+    status + a message STRING only, no JSON payload). D8-3b closed that gap
+    (migrations/146_arbiter_findings.sql + frame_arbiter_hook.py's own write
+    call, see that module) — this endpoint now reports THREE real,
+    persisted things:
       * A2's `arbiter_fingerprints` (migration 139) — one row per CLASS of
         defect for this tenant (rule_id/failure_class + stage), carrying
         the learning-ratchet's classification, violation_count, and
@@ -150,10 +158,17 @@ async def get_findings(tenant_id: str = Depends(get_tenant_id)):
         leave `fingerprint` NULL (a sheet's panels can carry different
         fingerprints in one call, so the row-level tag is left unset —
         see that function's comment).
+      * D8-3b's `arbiter_findings` (migration 146) — the per-INSTANCE rows
+        themselves: one row per judged frame/panel, the actual thing the
+        two aggregates above summarize. Most-recent-first, capped at
+        _FINDING_INSTANCES_LIMIT (an append-only log with no natural upper
+        bound otherwise).
 
-    No live rows exist on prod yet (first real run is D8-2, parked on
-    Ryan's deploy window) — see tasks/deferred-verification.md for the
-    one-step recipe to sanity-check this shape once it does.
+    No live per-instance rows exist on prod yet as of this chunk (D8-2's
+    first live run is parked on Ryan's deploy window, and this chunk must
+    land BEFORE it so that run's findings are kept) — see
+    tasks/deferred-verification.md for the one-step recipe to sanity-check
+    this shape once it does.
     """
     fingerprints = await fetch_all(
         """SELECT id, rule_id, stage, failure_class, fingerprint_key,
@@ -203,7 +218,44 @@ async def get_findings(tenant_id: str = Depends(get_tenant_id)):
         for s in spend_rows
     ]
 
-    return ArbiterFindings(findings=finding_items, spend=spend_items)
+    instance_rows = await fetch_all(
+        """SELECT f.id, f.video_id, v.video_title, f.scene, f.station,
+                  f.reference, f.label, f.image_url, f.classification,
+                  f.failure_class, f.rule_id, f.fingerprint_key,
+                  f.rubric_level, f.decisive_prompt_fragment, f.description,
+                  f.new_vs_previous, f.cost, f.created_at
+           FROM arbiter_findings f
+           JOIN videos v ON v.id = f.video_id
+           WHERE f.tenant_id = $1
+           ORDER BY f.created_at DESC
+           LIMIT $2""",
+        tenant_id, _FINDING_INSTANCES_LIMIT,
+    )
+    instance_items = [
+        {
+            "id": str(r["id"]),
+            "video_id": str(r["video_id"]),
+            "video_title": r.get("video_title"),
+            "scene": r.get("scene"),
+            "station": r["station"],
+            "reference": r["reference"],
+            "label": r.get("label"),
+            "image_url": r.get("image_url"),
+            "classification": r["classification"],
+            "failure_class": r.get("failure_class"),
+            "rule_id": r.get("rule_id"),
+            "fingerprint_key": r.get("fingerprint_key"),
+            "rubric_level": r.get("rubric_level"),
+            "decisive_prompt_fragment": r.get("decisive_prompt_fragment"),
+            "description": r.get("description"),
+            "new_vs_previous": r.get("new_vs_previous"),
+            "cost": float(r["cost"]) if r.get("cost") is not None else None,
+            "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
+        }
+        for r in instance_rows
+    ]
+
+    return ArbiterFindings(findings=finding_items, spend=spend_items, instances=instance_items)
 
 
 @router.post("/storyboard/{script_id}/approve")

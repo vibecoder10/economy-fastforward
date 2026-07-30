@@ -12,6 +12,14 @@ and its repair leg is frozen (arbiter_repair.FRAME_REPAIR_ENABLED = False).
 This hook only ever calls judge_board_sheet / repair_board_finding —
 judge_scene_batch (frames) is not wired here, on purpose.
 
+D8 chunk 3b: every judge_board_sheet call this hook makes (the first
+judgment AND a post-repair rejudge) now also persists its delivered
+findings as `arbiter_findings` rows (migration 146, arbiter_findings.py's
+record_finding_instances) — see run_after_storyboard_sheet's own docstring
+for the advisory (never-fails-the-stage) contract that write runs under.
+Before this chunk, judge_board_sheet's own findings list only ever lived in
+the HTTP response of the call that produced it; nothing wrote it anywhere.
+
 Two flags, both env-configured, BOTH DEFAULT OFF:
 
   * FRAME_ARBITER_A6_ENABLED — master switch. Judging (judge_board_sheet,
@@ -60,12 +68,16 @@ that call site for the wiring).
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Awaitable, Callable, Optional
 
+from arbiter_findings import record_finding_instances
 from arbiter_repair import rejudge_board_after_repair, repair_board_finding
 from database import fetch_all
 from frame_arbiter import judge_board_sheet
+
+_logger = logging.getLogger(__name__)
 
 _TRUE = {"1", "true", "yes", "on"}
 
@@ -191,6 +203,7 @@ async def run_after_storyboard_sheet(
     judge_fn: Callable[..., Awaitable[dict]] = judge_board_sheet,
     repair_fn: Callable[..., Awaitable[dict]] = repair_board_finding,
     rejudge_fn: Callable[..., Awaitable[dict]] = rejudge_board_after_repair,
+    write_findings_fn: Callable[..., Awaitable[list]] = record_finding_instances,
 ) -> Optional[dict]:
     """A6's own hook — called by
     pipeline_executor.PipelineExecutor.run_storyboard_sheet right after a
@@ -230,6 +243,23 @@ async def run_after_storyboard_sheet(
     ...]}`` — never raises on its own account; a judge/repair call's own
     internal fail-closed behavior (skipped dicts, a refused reroll) is what
     this function surfaces, not a try/except swallow.
+
+    D8 chunk 3b: after EVERY judge_fn call (the first judgment, and again
+    after a successful repair's rejudge_fn call), the delivered findings are
+    persisted via write_findings_fn (default arbiter_findings.
+    record_finding_instances) — the per-INSTANCE row D8-3 found missing
+    (only the CLASS-level arbiter_fingerprints table and ledger spend were
+    ever persisted before this). This write is wrapped in its own
+    try/except here, mirroring the SAME "the arbiter must never break the
+    storyboard stage itself" advisory contract pipeline_executor.
+    PipelineExecutor.run_storyboard_sheet already uses around this whole
+    hook: a persistence failure is logged and swallowed, never raised, and
+    never gates or skips the freeze/budget logic that runs immediately
+    after (repair_fn's own freeze check, judge_fn's own budget check on the
+    NEXT sheet) — record_finding_instances itself already swallows
+    per-row failures, so this is a second, belt-and-suspenders layer for
+    anything that could go wrong at the call boundary itself (a bad
+    write_findings_fn override in a future caller, an import-time error).
     """
     if not scene_is_in_scope(video_id, scene):
         return None
@@ -240,10 +270,25 @@ async def run_after_storyboard_sheet(
 
     reroll = None if redraw_enabled() else _redraw_refused_reroll
 
+    async def _persist(judged_result: dict, sheet_arg: dict, beat_arg: int) -> None:
+        try:
+            await write_findings_fn(
+                tenant_id, video_id, scene, "board",
+                judged_result.get("findings", []),
+                call_cost=judged_result.get("cost"),
+                image_url=sheet_arg.get("image_url"),
+            )
+        except Exception as exc:  # noqa: BLE001 - advisory: must never fail the stage or skip freeze/budget logic
+            _logger.exception(
+                "arbiter_findings persistence failed for video=%s scene=%s beat=%s: %s",
+                video_id, scene, beat_arg, exc,
+            )
+
     results = []
     for sheet in sheets:
         beat = sheet["sheet_index"]
         judged = await judge_fn(tenant_id, video_id, scene, sheet)
+        await _persist(judged, sheet, beat)
         repair_result = None
         if not judged.get("skipped"):
             model_defects = [
@@ -259,6 +304,7 @@ async def run_after_storyboard_sheet(
                     rejudged = await rejudge_fn(
                         tenant_id, video_id, scene, sheet, judge_fn=judge_fn,
                     )
+                    await _persist(rejudged, sheet, beat)
                     repair_result = dict(repair_result, rejudge=rejudged)
         results.append({"beat": beat, "judged": judged, "repair": repair_result})
 
