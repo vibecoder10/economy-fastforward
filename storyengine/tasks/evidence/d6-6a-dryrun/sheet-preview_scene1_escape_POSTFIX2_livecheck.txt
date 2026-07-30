@@ -1,0 +1,114 @@
+POSTFIX2: an independently re-derived sheet-preview dry run for scene 1 of
+video 8d90df90-be0f-4328-b9d3-20f6bb5b71a6 (tenant ee93e6d1), called live
+during THIS session (D6-6a follow-up), against the CURRENT scene text.
+
+WHY THIS FILE EXISTS ALONGSIDE THE ORIGINAL POSTFIX SHEET1/SHEET2:
+The official plan_only=True entry point (generate_storyboard_sheet_for_scene)
+deliberately returns EARLY under plan_only (coverage_to_app.py ~line
+2668-2692) — it never persists the plan (D3-59's documented zero-DB-write
+contract) and never returns the literal prompt text either, only a short
+progress line like "plan ready — N shots on M board(s)". So the literal
+prompt text in ANY sheet-preview evidence file (including the original
+POSTFIX sheet1/sheet2) had to come from calling the same underlying,
+pure-Python prompt composer (_plan_sheet_prompts) directly — this file does
+that explicitly, with has_cast_refs read from REAL DB state
+(bool(cast_refs), fetched fresh: [] for this video, since all 4
+video_characters rows have reference_url=NULL), rather than assumed.
+
+DISCREPANCY FOUND, worth flagging plainly: the existing
+sheet-preview_scene1_escape_POSTFIX_sheet1.txt/_sheet2.txt open with "Draw
+every character consistently across every panel, MATCHING THEIR APPEARANCE
+TO THE ATTACHED REFERENCE IMAGES" — the has_cast_refs=True header variant.
+This run, with has_cast_refs correctly computed as False from the real DB
+row (cast_refs=[]), instead correctly produces "Draw every character
+consistently across every panel, EXACTLY AS STATED IN THE CHARACTER BLOCK
+ABOVE (when one is present) — never inventing or varying their look" — the
+has_cast_refs=False variant, per coverage_to_app.py's own D6-1/L28 fix
+(_sheet_header, has_cast_refs param). I could not determine from here
+whether the original POSTFIX files were generated before this specific L28
+gating fix reached whatever script produced them, or with a manually
+supplied has_cast_refs=True; either way, THIS run demonstrates the CORRECT,
+current, live behavior against real DB state: no claim of attached
+references when none exist. Zero DB writes made (scripts.storyboard_prompts
+/ coverage_directive_hash still NULL for scene 1 after this run, confirmed
+via se db); zero image/clip/voice/vision generation calls; the one real
+network call is the text-only Claude planning call
+(generate_coverage_directive), the same kind of call plan_only itself makes.
+
+ALSO CONFIRMS a real, ALREADY-SHIPPED code fix literally tagged "D6-6a" in
+the codebase (storyboard/coverage.py's enforce_shot_budget, comment: "BRIDGE
+moments are EXEMPT from the moment cap (D6-6a)"): this run's planner tagged
+the escape's payoff moment "(BRIDGE)", exempting it from the normal 3-moment
+cap and producing a 4th moment (panels 12-14 below) that actually shows
+Nyla stepping onto the catwalk. See the honest caveat in the final report
+about why my two pictures-path runs did NOT get this same exemption (the
+BRIDGE tag comes from the LLM planner call, which is not deterministic
+call-to-call) before treating this as proof the sheet path always beats the
+pictures path.
+
+cast_refs from real DB state: [] (has_cast_refs=False)
+
+_coverage_shape -> max_moments=3 angles_min=2 angles_max=3 max_frames=None
+BRIDGE moment log: "1 BRIDGE moment(s) kept as ADDITIVE (rule 4b) — 4 moments against a 3 narrated cap"
+shot_count=14
+
+===== 3 sheet(s) produced, $0 spent (no image drawn, text-only planner call only) =====
+
+===== SHEET 1 of 3 =====
+This is storyboard sheet 1 of 3: a grid of 5 panels arranged in 3 columns on a plain light grey page. Each panel is a wide 16:9 cinematic frame, never square or tall. Every panel uses the same art style, Photorealistic, cinematic film still, with matching lighting and color grading throughout. Draw every character consistently across every panel, exactly as stated in the CHARACTER block above (when one is present) — never inventing or varying their look. A small plain strip below each panel shows ONLY its panel number and shot type — NOTHING else ever appears in that strip, no matter how a panel's own brief is worded below. The panel artwork carries no lettering, signs, speech bubbles, captions, dialogue or written words of any kind — keep every panel free of readable text except the small panel-number label.
+CHARACTER — stated once, drawn identically in every panel: Nyla (a young woman with shoulder-length black shaggy hair…)
+
+POD SET — applies ONLY to panels marked POD: Nyla's sealed glass bubble-pod interior: upholstered bed frame-LEFT, rounded armchair centre-right, desk with storage far right, potted plant in the upper-left wall niche, hatch — a human-sized round door — set into the sphere's frame-LEFT curve, sill flush with the catwalk outside; cold blue-white ambient light filtering through the glass; no weapons, no sharp objects, no other characters. These props appear ONLY in Pod panels; never in a Corridor panel..
+CORRIDOR SET — applies ONLY to panels marked CORRIDOR: Underground warren catwalk: long metal walkway between towering stacks of cylindrical glass pods, each pod holding exactly one motionless sleeping figure in pale off-white sleepwear — only the front layer of pods reads clearly, pods behind fall into dark shadow; wet reflective floor plating, handrails, vertical cable runs, blue-white glow receding into darkness; no pod interior furniture visible here. These props appear ONLY in Corridor panels; never in a Pod panel..
+
+MATERIAL MAP — fixed for this whole set: POD: The pod is PART CLEAR, PART SOLID: clear glass front (the pane she touches, the warren beyond), solid matte white rear and upper-rear shell holding the bed alcove, desk recess and plant niche, meeting at pale structural ribs with a hub above centre. Never all glass, never all white. CORRIDOR: The corridor is entirely solid: wet reflective metal catwalk decking underfoot, solid metal walls and structural framework to either side, handrails and vertical cable runs fixed to those walls. The towering stacked pods that line the corridor are separate objects, each keeping its OWN clear-glass-front/solid-white-rear boundary as seen from outside; the corridor's own walls, floor and ceiling are solid metal throughout, no transparent corridor surfaces anywhere.
+
+SCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: Nyla frame-LEFT looking frame-RIGHT (toward the hatch); key light from screen-RIGHT (cold blue-white through the glass). Holds in EVERY shot unless the shot says NEUTRAL Each character stays on their own side of the frame looking their fixed direction in every panel, even when they are only a soft foreground shoulder.
+
+CAMERA KIT — setups covering a planted moment hold the actors still; a setup covering a moving beat (an exit, a run, a location change) is MOTION-CAPABLE and describes the move directly (holds while the subject exits frame, travels alongside, moves toward the lens) rather than freezing it into planted staging. The scene is covered by these repeated setups: A: WS two-shot — lens outside the pod on the catwalk side, eye height, shooting through the curved glass; Nyla occupies the left third of frame, the pod's interior receding right; B: MCU — lens inside the pod at bed height, Nyla sharp frame-LEFT looking frame-RIGHT, hatch in the background frame-LEFT; C: CU — lens inside the pod at eye height tight on Nyla's face, three-quarter to-lens, hatch soft behind her frame-LEFT; D: INSERT — lens inside the pod, no people, close on the hatch release mechanism or Nyla's hand on the glass; E: WS corridor — lens on the catwalk at eye height, Nyla emerging through the hatch frame-LEFT, the towering pod stacks receding frame-RIGHT into darkness Panels sharing a SETUP letter keep that same camera position, height and distance; only the action, expression and the moment advance.
+Draw these panels IN ORDER:
+[1] M1 · POD WS — (SETUP A) Wide shot from outside the pod through the curved glass, lens at eye height on the catwalk, Nyla (black shaggy hair, charcoal grey bodysuit) filling the left third of frame looking frame-RIGHT, her upholstered bed visible frame-LEFT behind her, the rounded armchair centre-right and potted …
+[2] M1 · POD ANGLE MCU — (SETUP B) MCU inside the pod at bed height, Nyla (black shaggy hair, charcoal grey bodysuit) sharp frame-LEFT looking frame-RIGHT, the hatch soft in the background frame-LEFT, the armchair visible centre-right behind her; she sits at the edge of the upholstered bed, both hands flat on her knees …
+[3] M1 · POD ANGLE CU — (SETUP C) CU inside the pod at eye height, Nyla's face (black shaggy hair, charcoal grey bodysuit) filling the right two-thirds of frame, face fully to-lens, the hatch a soft round shape in the frame-LEFT background; her expression is still, hollow, searching — the cold blue-white light raking …
+[4] M1 · POD ANGLE INSERT — (SETUP D) Insert inside the pod, empty of people, lens at low angle tilted up: the potted plant in the upper-left wall niche occupies the upper-left quarter of frame, its leaves catching the cold blue-white light from screen-RIGHT, the rounded glass wall curving away behind it into darkness — the …
+[5] M2 · POD MCU — (SETUP B) MCU inside the pod at eye height, Nyla (black shaggy hair, charcoal grey bodysuit) sharp frame-LEFT looking frame-RIGHT, the curved glass wall filling the right half of frame; she stands at the glass, her right palm pressed flat against the frame-RIGHT pane — that same frame-RIGHT pane …
+CONSTRAINTS: never swap which side of the frame a character occupies; never mirror or flip a panel; one action per panel; a panel may break the screen-direction lock only if its brief says NEUTRAL; never repeat an earlier panel of this sheet identically — escalate closer or wider instead; write every panel brief as ordinary prose, never as a labelled heading or a "WORD: ..." directive line — the caption strip below each panel shows ONLY its number and shot type, and nothing else ever appears there.
+
+===== SHEET 2 of 3 =====
+This is storyboard sheet 2 of 3: a grid of 5 panels arranged in 3 columns on a plain light grey page. Each panel is a wide 16:9 cinematic frame, never square or tall. Every panel uses the same art style, Photorealistic, cinematic film still, with matching lighting and color grading throughout. Draw every character consistently across every panel, exactly as stated in the CHARACTER block above (when one is present) — never inventing or varying their look. A small plain strip below each panel shows ONLY its panel number and shot type — NOTHING else ever appears in that strip, no matter how a panel's own brief is worded below. The panel artwork carries no lettering, signs, speech bubbles, captions, dialogue or written words of any kind — keep every panel free of readable text except the small panel-number label.
+CHARACTER — stated once, drawn identically in every panel: Nyla (a young woman with shoulder-length black shaggy hair…)
+
+POD SET — applies ONLY to panels marked POD: Nyla's sealed glass bubble-pod interior: upholstered bed frame-LEFT, rounded armchair centre-right, desk with storage far right, potted plant in the upper-left wall niche, hatch — a human-sized round door — set into the sphere's frame-LEFT curve, sill flush with the catwalk outside; cold blue-white ambient light filtering through the glass; no weapons, no sharp objects, no other characters. These props appear ONLY in Pod panels; never in a Corridor panel..
+CORRIDOR SET — applies ONLY to panels marked CORRIDOR: Underground warren catwalk: long metal walkway between towering stacks of cylindrical glass pods, each pod holding exactly one motionless sleeping figure in pale off-white sleepwear — only the front layer of pods reads clearly, pods behind fall into dark shadow; wet reflective floor plating, handrails, vertical cable runs, blue-white glow receding into darkness; no pod interior furniture visible here. These props appear ONLY in Corridor panels; never in a Pod panel..
+
+MATERIAL MAP — fixed for this whole set: POD: The pod is PART CLEAR, PART SOLID: clear glass front (the pane she touches, the warren beyond), solid matte white rear and upper-rear shell holding the bed alcove, desk recess and plant niche, meeting at pale structural ribs with a hub above centre. Never all glass, never all white. CORRIDOR: The corridor is entirely solid: wet reflective metal catwalk decking underfoot, solid metal walls and structural framework to either side, handrails and vertical cable runs fixed to those walls. The towering stacked pods that line the corridor are separate objects, each keeping its OWN clear-glass-front/solid-white-rear boundary as seen from outside; the corridor's own walls, floor and ceiling are solid metal throughout, no transparent corridor surfaces anywhere.
+
+SCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: Nyla frame-LEFT looking frame-RIGHT (toward the hatch); key light from screen-RIGHT (cold blue-white through the glass). Holds in EVERY shot unless the shot says NEUTRAL Each character stays on their own side of the frame looking their fixed direction in every panel, even when they are only a soft foreground shoulder.
+
+CAMERA KIT — setups covering a planted moment hold the actors still; a setup covering a moving beat (an exit, a run, a location change) is MOTION-CAPABLE and describes the move directly (holds while the subject exits frame, travels alongside, moves toward the lens) rather than freezing it into planted staging. The scene is covered by these repeated setups: A: WS two-shot — lens outside the pod on the catwalk side, eye height, shooting through the curved glass; Nyla occupies the left third of frame, the pod's interior receding right; B: MCU — lens inside the pod at bed height, Nyla sharp frame-LEFT looking frame-RIGHT, hatch in the background frame-LEFT; C: CU — lens inside the pod at eye height tight on Nyla's face, three-quarter to-lens, hatch soft behind her frame-LEFT; D: INSERT — lens inside the pod, no people, close on the hatch release mechanism or Nyla's hand on the glass; E: WS corridor — lens on the catwalk at eye height, Nyla emerging through the hatch frame-LEFT, the towering pod stacks receding frame-RIGHT into darkness Panels sharing a SETUP letter keep that same camera position, height and distance; only the action, expression and the moment advance.
+Draw these panels IN ORDER:
+[6] M2 · POD ANGLE CU — (SETUP C) CU inside the pod at eye height, Nyla's face (black shaggy hair, charcoal grey bodysuit) filling the right two-thirds of frame, face fully to-lens, the glass wall a soft luminous plane in the frame-LEFT background; her eyes are fixed on something beyond the glass, jaw set, expression …
+[7] M2 · POD ANGLE INSERT — (SETUP D) Insert inside the pod, empty of people, lens at eye height close on the frame-RIGHT glass wall: Nyla's palm pressed flat against the curved surface occupies the centre of frame, fingers spread, the cold blue-white light from screen-RIGHT silhouetting the hand against the grey warren …
+[8] M3 · POD MS — (SETUP B) MS inside the pod at eye height, Nyla (black shaggy hair, charcoal grey bodysuit) sharp frame-LEFT looking frame-RIGHT — that same frame-LEFT axis the bed established — the hatch filling the frame-LEFT background, its round release mechanism visible at shoulder height; she stands facing …
+[9] M3 · POD ANGLE CU — (SETUP C) CU inside the pod at eye height, Nyla's face (black shaggy hair, charcoal grey bodysuit) filling the right two-thirds of frame, face fully to-lens, the hatch a soft round shape in the frame-LEFT background; her expression is resolved — eyes forward, jaw firm — the moment before the press …
+[10] M3 · POD ANGLE INSERT — (SETUP D) Insert inside the pod, empty of people, lens at eye height close on the hatch release mechanism at the frame-LEFT curve of the sphere: a recessed round handle occupies the centre of frame, Nyla's fingers closing around it from the frame-RIGHT edge, the hatch seal's rubber gasket catching …
+CONSTRAINTS: never swap which side of the frame a character occupies; never mirror or flip a panel; one action per panel; a panel may break the screen-direction lock only if its brief says NEUTRAL; never repeat an earlier panel of this sheet identically — escalate closer or wider instead; write every panel brief as ordinary prose, never as a labelled heading or a "WORD: ..." directive line — the caption strip below each panel shows ONLY its number and shot type, and nothing else ever appears there.
+
+===== SHEET 3 of 3 =====
+This is storyboard sheet 3 of 3: a grid of 4 panels arranged in 3 columns on a plain light grey page. Each panel is a wide 16:9 cinematic frame, never square or tall. Every panel uses the same art style, Photorealistic, cinematic film still, with matching lighting and color grading throughout. Draw every character consistently across every panel, exactly as stated in the CHARACTER block above (when one is present) — never inventing or varying their look. A small plain strip below each panel shows ONLY its panel number and shot type — NOTHING else ever appears in that strip, no matter how a panel's own brief is worded below. The panel artwork carries no lettering, signs, speech bubbles, captions, dialogue or written words of any kind — keep every panel free of readable text except the small panel-number label.
+CHARACTER — stated once, drawn identically in every panel: Nyla (a young woman with shoulder-length black shaggy hair…)
+
+POD SET — applies ONLY to panels marked POD: Nyla's sealed glass bubble-pod interior: upholstered bed frame-LEFT, rounded armchair centre-right, desk with storage far right, potted plant in the upper-left wall niche, hatch — a human-sized round door — set into the sphere's frame-LEFT curve, sill flush with the catwalk outside; cold blue-white ambient light filtering through the glass; no weapons, no sharp objects, no other characters. These props appear ONLY in Pod panels; never in a Corridor panel..
+CORRIDOR SET — applies ONLY to panels marked CORRIDOR: Underground warren catwalk: long metal walkway between towering stacks of cylindrical glass pods, each pod holding exactly one motionless sleeping figure in pale off-white sleepwear — only the front layer of pods reads clearly, pods behind fall into dark shadow; wet reflective floor plating, handrails, vertical cable runs, blue-white glow receding into darkness; no pod interior furniture visible here. These props appear ONLY in Corridor panels; never in a Pod panel..
+
+MATERIAL MAP — fixed for this whole set: POD: The pod is PART CLEAR, PART SOLID: clear glass front (the pane she touches, the warren beyond), solid matte white rear and upper-rear shell holding the bed alcove, desk recess and plant niche, meeting at pale structural ribs with a hub above centre. Never all glass, never all white. CORRIDOR: The corridor is entirely solid: wet reflective metal catwalk decking underfoot, solid metal walls and structural framework to either side, handrails and vertical cable runs fixed to those walls. The towering stacked pods that line the corridor are separate objects, each keeping its OWN clear-glass-front/solid-white-rear boundary as seen from outside; the corridor's own walls, floor and ceiling are solid metal throughout, no transparent corridor surfaces anywhere.
+
+SCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: Nyla frame-LEFT looking frame-RIGHT (toward the hatch); key light from screen-RIGHT (cold blue-white through the glass). Holds in EVERY shot unless the shot says NEUTRAL Each character stays on their own side of the frame looking their fixed direction in every panel, even when they are only a soft foreground shoulder.
+
+CAMERA KIT — setups covering a planted moment hold the actors still; a setup covering a moving beat (an exit, a run, a location change) is MOTION-CAPABLE and describes the move directly (holds while the subject exits frame, travels alongside, moves toward the lens) rather than freezing it into planted staging. The scene is covered by these repeated setups: A: WS two-shot — lens outside the pod on the catwalk side, eye height, shooting through the curved glass; Nyla occupies the left third of frame, the pod's interior receding right; B: MCU — lens inside the pod at bed height, Nyla sharp frame-LEFT looking frame-RIGHT, hatch in the background frame-LEFT; C: CU — lens inside the pod at eye height tight on Nyla's face, three-quarter to-lens, hatch soft behind her frame-LEFT; D: INSERT — lens inside the pod, no people, close on the hatch release mechanism or Nyla's hand on the glass; E: WS corridor — lens on the catwalk at eye height, Nyla emerging through the hatch frame-LEFT, the towering pod stacks receding frame-RIGHT into darkness Panels sharing a SETUP letter keep that same camera position, height and distance; only the action, expression and the moment advance.
+Draw these panels IN ORDER:
+[11] M3 · POD ANGLE INSERT — (SETUP C)(INSERT) Extreme close-up, tight detail shot, shallow depth of field, no faces visible — the speaking character's hands and the nearest prop, punctuating the beat.
+[12] M4 · POD WS — (SETUP A) (BRIDGE) Wide shot from outside the pod through the now-open hatch, lens at eye height on the catwalk, Nyla (black shaggy hair, charcoal grey bodysuit) filling the left third of frame, body turning frame-LEFT toward the open hatch, head turned back over her right shoulder so her face is …
+[13] M4 · POD ANGLE MCU — (SETUP B) MCU inside the pod at eye height, Nyla (black shaggy hair, charcoal grey bodysuit) sharp frame-LEFT looking frame-RIGHT, the open hatch filling the frame-LEFT background, the catwalk beyond it a sliver of blue-white corridor light; she swings her legs through the hatch sill, body angled …
+[14] M4 · POD ANGLE WS — (SETUP E) Wide shot on the catwalk at eye height, Nyla (black shaggy hair, charcoal grey bodysuit) emerging through the open round hatch frame-LEFT, her body travelling frame-RIGHT along the corridor's converging handrails — the catwalk's parallel rails forming a vanishing point deep into the …
+CONSTRAINTS: never swap which side of the frame a character occupies; never mirror or flip a panel; one action per panel; a panel may break the screen-direction lock only if its brief says NEUTRAL; never repeat an earlier panel of this sheet identically — escalate closer or wider instead; write every panel brief as ordinary prose, never as a labelled heading or a "WORD: ..." directive line — the caption strip below each panel shows ONLY its number and shot type, and nothing else ever appears there.
