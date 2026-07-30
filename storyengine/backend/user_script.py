@@ -23,9 +23,20 @@ saved through either door in this module becomes the video's canonical
 generated FROM it, never the reverse — so a cast/environment/board already
 built from an OLDER script version is expected to go stale the moment this
 text lands, not to silently keep matching content the new script no longer
-contains. (The mechanical side of that contract — the hash compare and the
-stale-flagging — lives in routes/videos.py's sync_video_script chain, D7-2/
-D7-3; this is the same rule stated for a human reader of this module.)
+contains. D7-7: both doors write ``videos.script`` directly rather than
+through routes/videos.py's shared ``sync_video_script`` (which rebuilds it
+FROM ``scripts.scene_text`` — these writers go the other direction, writing
+scene rows and ``videos.script`` from the incoming text), so each carries
+its own explicit call to the same ``_flag_stale_cast_and_environments``
+compare-and-flag helper that chain shares — the same pattern D7-2 already
+wired into the two other direct writers (pipeline_executor's
+``_save_machine_script_block``, custom_film_production_runner's
+``_script``). Both doors here also wholesale ``DELETE``+re-``INSERT`` every
+``scripts`` row on every call, so a stale per-scene ``coverage_directive_hash``
+(D7-3's board-plan invalidation) can never survive onto the new rows — the
+old row carrying the old hash is gone, and the fresh ``INSERT`` never sets
+that column, so it starts NULL (no stored plan to reuse) on every save
+through either door. Nothing to separately clear.
 """
 
 from __future__ import annotations
@@ -250,6 +261,19 @@ async def set_user_script(tenant_id, video_id: str, text: str) -> dict:
             tenant_id, video_id, i, scene["text"].strip(), scene.get("location"),
             video.get("video_title"), DEFAULT_VOICE_ID,
         )
+
+    # D7-7 (STORY-LAWS S6): this writes videos.script directly (the
+    # creator-verbatim door, not routes/videos.py's shared
+    # sync_video_script), so it needs its own call to the same
+    # cast/environments staleness check every other direct writer already
+    # gets (D7-2's pipeline_executor._save_machine_script_block,
+    # custom_film_production_runner._script) — a cast/environment set built
+    # from an older script version must not silently keep matching content
+    # a creator's pasted-in replacement no longer contains. Advisory-only
+    # by the helper's own contract (its try/except never lets a flag
+    # failure fail this save).
+    from routes.videos import _flag_stale_cast_and_environments
+    await _flag_stale_cast_and_environments(video_id, tenant_id)
 
     # Same unattended dialogue tagging every script path gets; best-effort.
     try:
@@ -515,6 +539,20 @@ async def accept_external_script(
             tenant_id, video_id, sc["scene"], sc["text"], sc.get("location"),
             video.get("video_title"), DEFAULT_VOICE_ID,
         )
+
+    # D7-7 (STORY-LAWS S6): this writes videos.script directly (the
+    # external-submission door, not routes/videos.py's shared
+    # sync_video_script), so it needs its own call to the same
+    # cast/environments staleness check every other direct writer already
+    # gets (D7-2's pipeline_executor._save_machine_script_block,
+    # custom_film_production_runner._script) — an accepted submission is
+    # this video's new canonical script (see this function's own docstring,
+    # "STORY-LAWS S6" section above), so a cast/environment set built from
+    # a PRIOR version must not silently keep matching content this one no
+    # longer contains. Advisory-only by the helper's own contract (its
+    # try/except never lets a flag failure fail this save).
+    from routes.videos import _flag_stale_cast_and_environments
+    await _flag_stale_cast_and_environments(video_id, tenant_id)
 
     # Same unattended dialogue tagging every script path gets; best-effort.
     try:
