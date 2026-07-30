@@ -1716,3 +1716,63 @@ RECIPE (after D8-2's first live run — no spend, this is a read-only check):
      card renders and that tapping it only expands/collapses — no network
      request fires (check the browser's network tab) confirming "never
      auto-acted" holds with real data, not just the mocked test.
+
+# Deferred verification — D7-4 staleness visibility (feat/d7-4-staleness-ui)
+
+Frontend-only chunk: surfaces D7-2's `video_characters.status`/
+`video_environments.status = 'stale'` flag (set when a script edit no longer
+matches the script snapshot cast/environments were generated from) in the
+production UI, so a redraw/approve spend from a stale reference is a seen
+choice, not a silent one. No backend changes — both GET endpoints
+(`routes/characters.py::list_characters`, `routes/environments.py::
+list_environments`) already `SELECT *` and their Pydantic `CharacterRead`/
+`EnvironmentRead` models already type `status` as a plain `str`, so 'stale'
+was already flowing over the wire; only the frontend type union and the UI
+never rendered it. Changed: `frontend/src/lib/api.ts` (`VideoCharacter.status`/
+`VideoEnvironment.status` unions gain `"stale"`), `CharactersTab.tsx` and
+`EnvironmentsTab.tsx` (per-card orange "stale" badge + explanatory line, plus
+a warning banner near the Approve bar), `ScenesWorkspaceTab.tsx` (a warning
+banner near the storyboard-generating actions when any APPROVED cast/
+environment member has since gone stale — the existing `castReady`/
+`environmentsReady` gates only check `approved_at`, not freshness, so an
+approved-then-edited cast/environment set passes the gate silently without
+this addition). Advisory only, exactly like the backend flag: nothing here
+blocks Redesign/Redo/Approve/storyboard generation. `npx tsc --noEmit` and
+`npm run build` (34 routes, `NEXT_PUBLIC_API_URL` set for the prerender step)
+both pass clean.
+
+- [ ] **Live staleness-visible proof (no spend — this is a read-only UI
+      check).** Recipe: on a video with an APPROVED cast and/or environments,
+      edit the script (Scenes tab or chat) so `sync_video_script`'s
+      characters_hash/environments_hash comparison (migration 145,
+      `routes/videos.py`) trips — confirm via `se db "SELECT id, name, status
+      FROM video_characters WHERE video_id='<id>'"` (and the
+      `video_environments` sibling) that at least one row flips to `status =
+      'stale'`. Then, in the browser (`se devtoken` + local dev server, or
+      prod): open the Characters tab and confirm the edited character's card
+      shows the orange "stale" badge + "Script changed after this was
+      generated — regenerate before drawing." line, AND the approve-bar
+      warning banner names it. Repeat for Environments. Then open the Scenes
+      tab and confirm the new orange banner above the scene-progress section
+      names the same stale character/environment and offers "Review cast" /
+      "Review environments" buttons that jump to the right tab — and confirm
+      storyboard generation / redraw buttons are still clickable throughout
+      (advisory, not a block).
+  - Expected result: the stale badge, explanatory line, and both warning
+    banners appear exactly when D7-2's backend flag is set, disappear once
+    the flagged character/environment is regenerated (or the whole set is
+    re-approved — re-approving unconditionally sets every row back to
+    `status = 'approved'`, which is an existing D7-2 behavior this chunk
+    does not change, just makes visible beforehand), and never block any
+    action.
+- [ ] **Component-level test — not written, infra doesn't exist for it.**
+  `frontend/package.json` has a `test:unit` script (vitest), but
+  `vitest.config.ts` is scoped to `src/**/*.test.ts` with `environment:
+  "node"` (no jsdom, no @testing-library/react, no existing component
+  test) — added for one pure-function module (`timeline-slots.test.ts`),
+  not React component rendering. Adding jsdom + RTL to test three JSX
+  conditionals is a real infra change outside this chunk's scope (and would
+  need the "ask before installing packages" rule cleared first) — stating
+  this plainly rather than inventing a component-test harness. `npx tsc
+  --noEmit` + `npm run build` are the only automated coverage this chunk
+  has.
