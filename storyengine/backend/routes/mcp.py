@@ -917,7 +917,7 @@ _UPSERT_QUALITY_RULE_TOOL: dict[str, Any] = {
             "evidence": {"type": "string", "description": "Why this rule exists, optional."},
             "applies_to": {
                 "type": "object",
-                "description": "Scope, e.g. {\"all\": true} or {\"research\": true} or {\"story\": true} or {\"animated\": true} or {\"realistic\": true} or {\"channel_format\": \"...\"} or {\"dvsu_mode\": \"...\"}. Omit for {\"all\": true}.",
+                "description": "Scope, e.g. {\"all\": true} or {\"research\": true} or {\"story\": true} or {\"animated\": true} or {\"realistic\": true} or {\"channel_format\": \"...\"} or {\"dvsu_mode\": \"...\"} or {\"board\": true}. Omit for {\"all\": true}. {\"board\": true} is its OWN axis (BOARD-LAWS.md) — a rule scoped this way is read into the storyboard/coverage planner's prompt instead of the script critic's, and \"all\" does NOT also match it (it must be set explicitly).",
             },
         },
         "required": ["rule_id", "law"],
@@ -1784,7 +1784,22 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
         "advances the video exactly like a platform-written script. The "
         "`script` verb tool (which spends the workspace's own Anthropic "
         "key) is the fallback — use it only when you'd rather StoryEngine's "
-        "own writer do the thinking."
+        "own writer do the thinking.\n\n"
+        "STORY LAW S3 — ONE SCENE, ONE LOCATION: give every scene a single "
+        "'location' field naming the one physical place it happens in "
+        "(e.g. \"the garage\"). A scene missing a location is REJECTED "
+        "before the quality critic even runs — split any beat that moves "
+        "somewhere new, or into a distinct new phase of action, into its "
+        "own scene instead. (A scene's text naming another scene's "
+        "location is fine and often required — see S1 below — so that "
+        "alone is never rejected, only flagged as an advisory warning.)\n\n"
+        "STORY LAW S1 — NARRATE EVERY LOCATION CHANGE: when consecutive "
+        "scenes have different 'location' values, actually write the move "
+        "somewhere in that pair of scenes — the door, the threshold, the "
+        "travel, the arrival. Don't just end one scene's text and start "
+        "the next scene in a different place with nothing narrated between "
+        "them; a location change with no transit narrated anywhere nearby "
+        "comes back as an advisory warning (never a rejection)."
     ),
     "inputSchema": {
         "type": "object",
@@ -1792,10 +1807,22 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
             "video_id": {"type": "string", "description": "Video UUID."},
             "scenes": {
                 "type": "array",
-                "description": "Ordered scenes: [{\"text\": \"...\"}, ...]. Scene numbers are assigned 1..N from this order.",
+                "description": (
+                    "Ordered scenes: [{\"text\": \"...\", \"location\": \"...\"}, ...]. "
+                    "Scene numbers are assigned 1..N from this order. `location` is "
+                    "REQUIRED (S3) — the single physical place that scene happens in; "
+                    "if omitted, a `LOCATION: <place>` line at the very start of `text` "
+                    "is parsed instead (and left in place — `text` is never rewritten)."
+                ),
                 "items": {
                     "type": "object",
-                    "properties": {"text": {"type": "string"}},
+                    "properties": {
+                        "text": {"type": "string"},
+                        "location": {
+                            "type": "string",
+                            "description": "This scene's single physical location (S3, STORY-LAWS.md).",
+                        },
+                    },
                     "required": ["text"],
                 },
             },
@@ -2266,7 +2293,7 @@ _GET_CHARACTERS_TOOL: dict[str, Any] = {
 
 _EDIT_CHARACTER_TOOL: dict[str, Any] = {
     "name": "edit_character",
-    "description": "Edit a character's name and/or description. Free, no cost.",
+    "description": "Edit a character's name, description and/or identity_tag. Free, no cost.",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -2274,6 +2301,15 @@ _EDIT_CHARACTER_TOOL: dict[str, Any] = {
             "char_id": {"type": "string", "description": "Character UUID (from get_characters)."},
             "name": {"type": "string", "description": "New name, optional."},
             "description": {"type": "string", "description": "New description, optional."},
+            "identity_tag": {
+                "type": "string",
+                "description": (
+                    "Short locked identity tag (2-4 words of wardrobe/build, e.g. "
+                    "'red jacket, undercut, mid-20s'), optional. Read verbatim into "
+                    "every storyboard's CHARACTER block instead of a truncated "
+                    "description."
+                ),
+            },
         },
         "required": ["video_id", "char_id"],
     },
@@ -2330,7 +2366,8 @@ async def _call_edit_character(tenant_id, arguments: dict[str, Any], caller: str
     try:
         result = await _update_character_route(
             str(video_id), str(char_id),
-            CharacterUpdate(name=arguments.get("name"), description=arguments.get("description")),
+            CharacterUpdate(name=arguments.get("name"), description=arguments.get("description"),
+                            identity_tag=arguments.get("identity_tag")),
             tenant_id=tenant_id,
         )
     except HTTPException as e:
@@ -2714,7 +2751,10 @@ _EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
         "(6-8 {name, position} objects) injected verbatim into every "
         "scene's planning and draw prompts for this location — pass the "
         "full replacement list (an empty list clears it back to no "
-        "manifest); omit to leave it untouched."
+        "manifest); omit to leave it untouched. material_map (D6-1) states "
+        "which surfaces of this location are solid vs transparent and "
+        "where the boundary runs — injected verbatim and wins over any "
+        "per-scene guess."
     ),
     "inputSchema": {
         "type": "object",
@@ -2734,6 +2774,15 @@ _EDIT_ENVIRONMENT_TOOL: dict[str, Any] = {
                     },
                     "required": ["name", "position"],
                 },
+            },
+            "material_map": {
+                "type": "string",
+                "description": (
+                    "Which surfaces of this ONE location are solid vs transparent and "
+                    "where the boundary runs, e.g. 'the outer wall is glass from floor "
+                    "to shoulder height; everything above is solid metal.' Omit to "
+                    "leave unchanged; empty string clears it back to no canonical map."
+                ),
             },
         },
         "required": ["video_id", "env_id"],
@@ -2841,6 +2890,7 @@ async def _call_edit_environment(tenant_id, arguments: dict[str, Any], caller: s
             EnvironmentUpdate(
                 name=arguments.get("name"), description=arguments.get("description"),
                 props=props_arg if props_arg is not None else None,
+                material_map=arguments.get("material_map"),
             ),
             tenant_id=tenant_id,
         )

@@ -1221,9 +1221,19 @@ async def recheck_roster_references(
     for this video's roster. Free — prefetch_roster_references already skips
     any machine already in static_reference_cache (see its own docstring),
     so this only retries the machines still missing a verified reference;
-    it's never a re-verify-everything sweep."""
+    it's never a re-verify-everything sweep.
+
+    UX-1 (2026-07-29): the sweep is serial and slow on purpose (a Wikimedia
+    politeness throttle — 25-70s per machine, ~10min for a 23-machine roster),
+    but prefetch_roster_references itself has no progress hook and lives in
+    static_docu.py, which is off-limits for this change (a concurrent worker
+    owns it). So progress is reported from OUT HERE instead: a side-car
+    coroutine polls static_reference_cache every 5s for this roster's machine
+    keys and republishes "X/Y verified so far" onto the SAME task-status slot
+    the frontend already polls every 3s — no new endpoint, no change to the
+    fetch/verify logic itself, just an honest number climbing under it."""
     video = await fetch_one(
-        "SELECT id, render_mode FROM videos WHERE id = $1 AND tenant_id = $2",
+        "SELECT id, render_mode, research_payload FROM videos WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id,
     )
     if not video:
@@ -1236,8 +1246,40 @@ async def recheck_roster_references(
     _set_task_status(video_id, "running", "Re-checking machine references", tenant_id=tenant_id)
 
     async def _run():
+        progress_task = None
         try:
-            from static_docu import prefetch_roster_references
+            from static_docu import prefetch_roster_references, _machine_key
+            from pipeline_executor import _machine_documentary_hold_roster
+
+            roster = _machine_documentary_hold_roster(video) or []
+            mkeys = [_machine_key(m) for m in roster]
+            total = len(mkeys)
+
+            async def _report_progress():
+                # Best-effort progress side-car: never allowed to affect the
+                # sweep itself, so every failure mode here is swallowed.
+                try:
+                    while True:
+                        await asyncio.sleep(5)
+                        rows = await fetch_all(
+                            "SELECT machine_key FROM static_reference_cache "
+                            "WHERE tenant_id = $1 AND machine_key = ANY($2)",
+                            tenant_id, mkeys,
+                        )
+                        verified_now = len(rows or [])
+                        _set_task_status(
+                            video_id, "running",
+                            f"Re-checking machine references — {verified_now}/{total} verified so far",
+                            tenant_id=tenant_id,
+                        )
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    logger.debug("[roster-recheck] progress side-car stopped early", exc_info=True)
+
+            if total:
+                progress_task = asyncio.create_task(_report_progress())
+
             result = await prefetch_roster_references(video_id, tenant_id)
             if result.get("status") == "completed":
                 msg = f"{result.get('verified', 0)} verified, {result.get('missed', 0)} still missing"
@@ -1247,6 +1289,8 @@ async def recheck_roster_references(
         except Exception as e:
             _set_task_status(video_id, "failed", str(e), tenant_id=tenant_id)
         finally:
+            if progress_task:
+                progress_task.cancel()
             await asyncio.sleep(20)
             _clear_task_status(video_id, tenant_id)
 

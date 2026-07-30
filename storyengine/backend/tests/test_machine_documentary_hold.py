@@ -9477,3 +9477,307 @@ def test_beat_number_directives_name_the_mandatory_numbers():
     block = pe._beat_plan_prompt_block(beats, machine)
     assert "MANDATORY NUMBERS for sentence 4" in block
     assert "SENTENCE 5 (closer)" in block and "no numbers" in block
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-29 fix: roster reference-photo prefetch must fire even when the
+# roster/unit-research gate fails, since the roster is persisted regardless
+# of gate outcome. Real deadlock: video d2e37cd6-521a-43aa-a14d-ce096a783c1e
+# ("Every British Aircraft Carrier Class Ever Built") produced a good
+# 23-ship roster, failed the gate on one soft pacing warning, and sat with
+# ZERO reference photos for two days until a human clicked "Re-check
+# missing" — because dispatch_roster_prefetch used to sit below
+# run_research's early return for a failed gate.
+# ---------------------------------------------------------------------------
+
+def test_dispatch_fires_on_roster_gate_failure_when_roster_persisted(monkeypatch):
+    """The prefetch dispatch must fire on the GATE-FAILURE exit path too,
+    using the same `video` dict the success path always used, because the
+    roster it needs is already saved to the videos row by the time the gate
+    check runs."""
+    import sys
+    import types
+
+    import static_docu
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": object(), "airtable": object(), "research_system_prompt": None},
+    )()
+
+    video_row = {
+        "id": "video-test",
+        "video_title": "Every British Aircraft Carrier Class Ever Built",
+        "video_length_minutes": 20,
+        "status": "idea_logged",
+        "render_mode": "static_docu",
+    }
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return dict(video_row)
+
+    async def fake_load_overrides(_video):
+        return None
+
+    async def fake_fetch_one(*_args, **_kwargs):
+        return {}
+
+    roster_items = [
+        {"name": f"Ship class {i}", "designation": f"Category {i}"} for i in range(23)
+    ]
+
+    async def fake_run_research(**_kwargs):
+        return {
+            "thesis": "Source-grounded thesis",
+            "executive_hook": "Source-grounded hook",
+            "documentary_style": "designed_vs_used",
+            "unit_roster": roster_items,
+        }
+
+    # The real live warning: a genuinely good roster, rejected on a single
+    # soft pacing warning — not a data-quality problem.
+    fake_roster_check = {
+        "passed": False,
+        "complete_title": False,
+        "warnings": ["23 final items vs target around 20 for a 20-minute video"],
+        "gaps": [],
+    }
+
+    writes = []
+
+    async def fake_execute(query, *args):
+        writes.append((query, args))
+        return "UPDATE 1"
+
+    async def fake_sync(_video_id, _tenant_id):
+        return None
+
+    dispatch_calls = []
+
+    def fake_dispatch(video_arg, video_id_arg, tenant_id_arg):
+        dispatch_calls.append((video_arg, video_id_arg, tenant_id_arg))
+        return True
+
+    research_agent = types.SimpleNamespace(run_research=fake_run_research)
+    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=research_agent))
+    monkeypatch.setitem(sys.modules, "research.agent", research_agent)
+    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
+    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "_roster_validation", lambda *a, **k: fake_roster_check)
+    monkeypatch.setattr(static_docu, "dispatch_roster_prefetch", fake_dispatch)
+
+    result = asyncio.run(executor.run_research("video-test"))
+
+    assert result["status"] == "failed"
+    assert "Roster validation failed" in result["error"]
+
+    # The whole point of this test: dispatch must fire even though the gate
+    # failed, because the roster was already persisted above it.
+    assert len(dispatch_calls) == 1, "prefetch dispatch must fire on the gate-failure path"
+    dispatched_video, dispatched_video_id, dispatched_tenant_id = dispatch_calls[0]
+    assert dispatched_video_id == "video-test"
+    assert dispatched_tenant_id == "tenant-test"
+    assert dispatched_video.get("render_mode") == "static_docu"
+
+    # And the roster really was saved — "persisted regardless of gate
+    # outcome" has to be true, not assumed.
+    research_saves = [
+        (query, args) for query, args in writes
+        if "UPDATE videos SET" in query and "research_payload = $1" in query
+    ]
+    assert research_saves
+    saved_payload = json.loads(research_saves[0][1][0])
+    assert saved_payload["unit_roster"] == roster_items
+
+
+def test_dispatch_still_fires_on_gate_success_path(monkeypatch):
+    """Companion to the failure-path test above: the relocated dispatch call
+    must not have been accidentally dropped from the SUCCESS path either."""
+    import sys
+    import types
+
+    import static_docu
+
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+    executor.__dict__["_pipeline"] = type(
+        "FakePipeline", (),
+        {"anthropic": object(), "airtable": object(), "research_system_prompt": None},
+    )()
+
+    video_row = {
+        "id": "video-test",
+        "video_title": "Focused DVsU proof",
+        "video_length_minutes": 10,
+        "status": "idea_logged",
+        "render_mode": "static_docu",
+    }
+
+    async def fake_init():
+        return None
+
+    async def fake_get_video(_video_id):
+        return dict(video_row)
+
+    async def fake_load_overrides(_video):
+        return None
+
+    async def fake_fetch_one(*_args, **_kwargs):
+        return {}
+
+    async def fake_run_research(**_kwargs):
+        return {
+            "thesis": "Source-grounded thesis",
+            "executive_hook": "Source-grounded hook",
+        }
+
+    fake_roster_check = {"passed": True, "complete_title": False, "warnings": [], "gaps": []}
+
+    async def fake_execute(query, *args):
+        return "UPDATE 1"
+
+    async def fake_sync(_video_id, _tenant_id):
+        return None
+
+    dispatch_calls = []
+
+    def fake_dispatch(video_arg, video_id_arg, tenant_id_arg):
+        dispatch_calls.append((video_arg, video_id_arg, tenant_id_arg))
+        return True
+
+    research_agent = types.SimpleNamespace(run_research=fake_run_research)
+    monkeypatch.setitem(sys.modules, "research", types.SimpleNamespace(agent=research_agent))
+    monkeypatch.setitem(sys.modules, "research.agent", research_agent)
+    monkeypatch.setitem(sys.modules, "drive_workspace", types.SimpleNamespace(sync_video_workspace_fail_soft=fake_sync))
+    monkeypatch.setattr(executor, "_ensure_initialized", fake_init)
+    monkeypatch.setattr(executor, "_get_video", fake_get_video)
+    monkeypatch.setattr(executor, "_load_prompt_overrides", fake_load_overrides)
+    monkeypatch.setattr(pe, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(pe, "execute", fake_execute)
+    monkeypatch.setattr(pe, "_roster_validation", lambda *a, **k: fake_roster_check)
+    monkeypatch.setattr(static_docu, "dispatch_roster_prefetch", fake_dispatch)
+
+    result = asyncio.run(executor.run_research("video-test"))
+
+    assert result["status"] == "ready_for_scripting"
+    assert len(dispatch_calls) == 1
+    assert dispatch_calls[0][1] == "video-test" and dispatch_calls[0][2] == "tenant-test"
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-29 fix: alias derivation for ship-class roster entries so the
+# roster prefetch (static_docu._prefetch_one_machine) can search a real
+# member-ship / class name instead of only the glued display string that
+# _unit_display_name produces for the persisted roster and
+# static_reference_cache key. Display names are UNCHANGED — only an
+# ADDITIVE parallel accessor is introduced.
+# ---------------------------------------------------------------------------
+
+def test_unit_roster_aliases_splits_slash_and_comma_compounds():
+    # Real misses from "Every British Aircraft Carrier Class Ever Built"
+    # (2026-07-27): designation holds a category/member-ship list, not a
+    # real designation, so the glued display name is unsearchable.
+    attacker = {"name": "Attacker class (US-built)", "designation": "Lend-Lease escort carriers"}
+    aliases = pe._unit_roster_aliases(attacker)
+    assert "Attacker class (US-built)" in aliases
+    assert "Lend-Lease escort carriers" in aliases
+
+    ruler = {"name": "Ruler class (US-built)", "designation": "Lend-Lease escort carriers"}
+    assert "Ruler class (US-built)" in pe._unit_roster_aliases(ruler)
+
+    audacious = {"name": "Audacious class / Malta class", "designation": "CVA-01 predecessors"}
+    aud_aliases = pe._unit_roster_aliases(audacious)
+    assert "Audacious class" in aud_aliases
+    assert "Malta class" in aud_aliases
+    assert "CVA-01 predecessors" in aud_aliases
+
+    archer = {"name": "Archer class / Empire Mac-Ship conversions", "designation": "CAM ships and MAC ships"}
+    archer_aliases = pe._unit_roster_aliases(archer)
+    assert "Archer class" in archer_aliases
+    assert "Empire Mac-Ship conversions" in archer_aliases
+    assert "CAM ships and MAC ships" in archer_aliases
+
+    # Comma-split member ships (a real designation this time, not a category).
+    courageous = {"name": "Courageous class", "designation": "Courageous, Glorious"}
+    courageous_aliases = pe._unit_roster_aliases(courageous)
+    assert "Courageous" in courageous_aliases
+    assert "Glorious" in courageous_aliases
+    assert "Courageous, Glorious" in courageous_aliases
+
+
+def test_unit_roster_aliases_never_built_class_has_no_useful_alias():
+    """CVA-01 class (never built) is an expected miss — no photo exists.
+    Aliases still derive cleanly (no crash, no bogus match), they just
+    don't manufacture a searchable name where none exists."""
+    never_built = {"name": "Queen Elizabeth class (1960s design)", "designation": "CVA-01 class"}
+    aliases = pe._unit_roster_aliases(never_built)
+    assert "Queen Elizabeth class (1960s design)" in aliases
+    assert "CVA-01 class" in aliases
+
+
+def test_machine_documentary_hold_roster_entries_keeps_name_unchanged_and_adds_aliases():
+    """The display name _machine_key hashes into the static_reference_cache
+    primary key must be BYTE-IDENTICAL between the old flat-string accessor
+    and the new name+aliases accessor — orphaning the 27 live cached rows
+    (and the roster-dashboard UI keyed on those names) is exactly the
+    failure mode the task guards against."""
+    roster_items = [
+        {"name": "Attacker class (US-built)", "designation": "Lend-Lease escort carriers"},
+        {"name": "Ruler class (US-built)", "designation": "Lend-Lease escort carriers"},
+        {"name": "Audacious class / Malta class", "designation": "CVA-01 predecessors"},
+        {"name": "Archer class / Empire Mac-Ship conversions", "designation": "CAM ships and MAC ships"},
+    ]
+    video = {
+        "render_mode": "static_docu",
+        "research_payload": {
+            "documentary_style": "designed_vs_used",
+            "unit_roster": roster_items,
+        },
+    }
+
+    flat_names = pe._machine_documentary_hold_roster(video)
+    entries = pe._machine_documentary_hold_roster_entries(video)
+
+    # Same names, same order — the cache key derivation can't drift.
+    assert [e["name"] for e in entries] == flat_names
+
+    by_name = {e["name"]: e["aliases"] for e in entries}
+    attacker_name = "Lend-Lease escort carriers Attacker class (US-built)"
+    assert attacker_name in by_name
+    assert "Attacker class (US-built)" in by_name[attacker_name]
+    assert "Lend-Lease escort carriers" in by_name[attacker_name]
+
+    ruler_name = "Lend-Lease escort carriers Ruler class (US-built)"
+    assert "Ruler class (US-built)" in by_name[ruler_name]
+
+    audacious_name = "CVA-01 predecessors Audacious class / Malta class"
+    assert "Audacious class" in by_name[audacious_name]
+    assert "Malta class" in by_name[audacious_name]
+
+    archer_name = "CAM ships and MAC ships Archer class / Empire Mac-Ship conversions"
+    assert "Archer class" in by_name[archer_name]
+    assert "Empire Mac-Ship conversions" in by_name[archer_name]
+
+
+def test_machine_documentary_hold_roster_entries_gates_same_as_flat_accessor():
+    """Non-static-docu, missing marker, and out-of-bounds roster sizes must
+    all be rejected identically by both accessors (shared gate helper)."""
+    not_static = {"render_mode": "coverage", "research_payload": {"unit_roster": ["A", "B", "C"]}}
+    assert pe._machine_documentary_hold_roster(not_static) == []
+    assert pe._machine_documentary_hold_roster_entries(not_static) == []
+
+    too_short = {
+        "render_mode": "static_docu",
+        "research_payload": {"documentary_style": "designed_vs_used", "unit_roster": ["A", "B"]},
+    }
+    assert pe._machine_documentary_hold_roster(too_short) == []
+    assert pe._machine_documentary_hold_roster_entries(too_short) == []

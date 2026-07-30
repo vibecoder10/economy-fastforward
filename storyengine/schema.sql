@@ -1595,6 +1595,33 @@ ALTER TABLE static_reference_cache ENABLE ROW LEVEL SECURITY;
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
 
 -- ---------------------------------------------------------------------------
+-- STATIC_REFERENCE_MISSES (C8, 2026-07-29 — static_docu.py's
+-- _ensure_ref_cache_schema, in-process CREATE TABLE IF NOT EXISTS, tracked
+-- via migrations/141_static_reference_misses.sql)
+-- WHY one roster machine missed its reference photo (no_candidates /
+-- fetch_failed / vision_rejected / error / never_built), scoped per VIDEO
+-- (not tenant-global like static_reference_cache above) since the same
+-- machine can miss for one video and succeed for another. A row is deleted
+-- the instant the machine verifies — presence alone means "still open".
+-- Real tenant_id column — RLS closed in the SAME migration this time
+-- (141), same deny-all pattern 083 proved safe for static_reference_cache.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS static_reference_misses (
+  tenant_id UUID NOT NULL,
+  video_id UUID NOT NULL,
+  machine_key TEXT NOT NULL,
+  machine TEXT,
+  reason_code TEXT NOT NULL,
+  reason_detail TEXT,
+  checked_at TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (tenant_id, video_id, machine_key)
+);
+
+ALTER TABLE static_reference_misses ENABLE ROW LEVEL SECURITY;
+-- No policies (deny-all to anon/authenticated/PostgREST); backend bypasses
+-- via table ownership + BYPASSRLS (see migration 083 for the proof).
+
+-- ---------------------------------------------------------------------------
 -- CHANNEL_VIDEO_RETENTION (migration 080_video_retention.sql)
 -- Opt-in per-channel cap for complete StoryEngine video records.
 -- ---------------------------------------------------------------------------

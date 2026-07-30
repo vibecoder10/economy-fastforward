@@ -952,6 +952,19 @@ async def lifespan(app: FastAPI):
     await _recover_stale_tasks_to_queue(app)
     await _dispatch_pending_custom_film_runtime(app)
     await _dispatch_pending_custom_film_director(app)
+    # C12: a roster reference-photo sweep (static_docu.dispatch_roster_prefetch)
+    # interrupted mid-flight by this exact restart was just flipped to
+    # 'failed' by _recover_stale_tasks_to_queue's call to recover_stale_tasks()
+    # above (task-type-agnostic). Auto-resume it — cheap and idempotent since
+    # prefetch_roster_references skips any machine already cached.
+    try:
+        from static_docu import resume_interrupted_roster_prefetches
+
+        resumed = await resume_interrupted_roster_prefetches()
+        if resumed:
+            logger.info("Resumed %d interrupted roster reference-photo sweep(s)", resumed)
+    except Exception as e:
+        logger.warning("Roster prefetch resume error (non-blocking): %s", e)
 
     # Start background tasks (only run for tenants with autopilot enabled)
     extraction_task = asyncio.create_task(_auto_extract_learnings())

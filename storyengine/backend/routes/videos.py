@@ -1583,14 +1583,71 @@ async def reject_suggestion(video_id: str, tenant_id: str = Depends(get_tenant_i
 async def update_scene_text(
     video_id: str, scene: int, body: SceneTextUpdate, tenant_id: str = Depends(get_tenant_id)
 ):
+    # D6-3 (S3 repair leg): a plain text edit must not silently revert the
+    # scene's location. If the new text happens to supply a fresh LOCATION
+    # header, adopt it (and strip it from the stored narration, same as
+    # every generation path — it must never be spoken); otherwise the edit
+    # carries NO location signal at all, so COALESCE($5, location) leaves
+    # the existing column exactly as it was rather than blanking it.
+    import story_laws
+    new_location, stored_text = story_laws.extract_scene_location(body.text)
     result = await execute(
-        "UPDATE scripts SET scene_text = $1, updated_at = now() "
+        "UPDATE scripts SET scene_text = $1, location = COALESCE($5, location), "
+        "updated_at = now() "
         "WHERE video_id = $2 AND scene = $3 AND tenant_id = $4",
-        body.text, video_id, scene, tenant_id,
+        stored_text, video_id, scene, tenant_id, new_location,
     )
     if not result or "UPDATE 0" in result:
         raise HTTPException(404, "Scene not found")
-    return {"status": "updated", "scene": scene}
+
+    # D6-3b: an edit that carries the OLD location forward (or adopts a new
+    # one) can still put THIS scene's text out of step with S3 — e.g. the
+    # location column didn't change but the rewritten prose now describes a
+    # different place, or a fresh header was adopted that now clashes with
+    # sibling scenes. Re-run the deterministic gate for the whole video and
+    # surface it. Warn only, never block — an edit must always be allowed to
+    # save; see story_laws.check_scene_location_law for the hard/warn split.
+    warnings: list[str] = []
+    s1_warnings: list[str] = []
+    try:
+        rows = await fetch_all(
+            "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
+            "AND tenant_id = $2 ORDER BY scene",
+            video_id, tenant_id,
+        )
+        row_dicts = [dict(r) for r in (rows or [])]
+        law_check = story_laws.check_scene_location_law(row_dicts)
+        this_scene_issues = [
+            v["detail"] for v in law_check["violations"] if v["scene"] == scene
+        ] + [
+            w["detail"] for w in law_check["warnings"] if w["scene"] == scene
+        ]
+        warnings = this_scene_issues
+
+        # D6-4 (S1 repair leg): same re-check, same warn-only treatment —
+        # an edit that changes this scene's text (or carries a changed
+        # location forward) can introduce or fix an unnarrated location
+        # change against its neighbour, so re-run S1 too. Separate response
+        # key (story_law_s1_warnings) rather than merging into S3's, so an
+        # existing caller reading story_law_s3_warnings sees no behavior
+        # change.
+        # An S1 warning concerns a PAIR of scenes (from_scene/to_scene) —
+        # surface it if the edited scene is EITHER half, not just when it
+        # equals "scene" (the destination), or an edit to the OUTGOING
+        # scene of an unnarrated pair would silently show no warning at all.
+        s1_check = story_laws.check_location_transit_law(row_dicts)
+        s1_warnings = [
+            w["detail"] for w in s1_check["warnings"]
+            if scene in (w.get("from_scene"), w.get("to_scene"))
+        ]
+    except Exception:  # noqa: BLE001 — advisory only, must never block the edit
+        pass
+
+    return {
+        "status": "updated", "scene": scene,
+        "story_law_s3_warnings": warnings,
+        "story_law_s1_warnings": s1_warnings,
+    }
 
 
 @router.patch("/{video_id}/scenes/{scene}/tone")
@@ -2308,21 +2365,59 @@ async def rewrite_scene_text(
     if not new_text or _spoken_word_count(new_text) < 40:
         raise HTTPException(status_code=502, detail="Rewrite came back too short — try again")
 
+    # D6-3 (S3 repair leg): this rewrite is a single-scene, single-paragraph
+    # regeneration — its own contract already bans labels/markdown in the
+    # output ("No markdown, labels, bullets, or citations", machine_contract
+    # above), so it is never asked to (and must not) emit a LOCATION header.
+    # The scene's location must therefore carry forward from BEFORE the
+    # rewrite unchanged, never dropped — the same COALESCE(new, location)
+    # shape update_scene_text uses, except here new_location is always None
+    # (nothing above ever produces one), so this is simply "leave it alone",
+    # made explicit rather than an accident of the SET clause omitting it.
+    import story_laws
+    new_location, new_text = story_laws.extract_scene_location(new_text)
     # Save the paragraph; clear this scene's voice so only it re-records.
     await execute(
-        """UPDATE scripts SET scene_text = $4, voice_over_url = NULL,
-               voice_duration_seconds = NULL, voice_status = NULL
+        """UPDATE scripts SET scene_text = $4, location = COALESCE($5, location),
+               voice_over_url = NULL, voice_duration_seconds = NULL, voice_status = NULL
            WHERE video_id = $1 AND tenant_id = $2 AND scene = $3""",
-        video_id, tenant_id, scene, new_text)
+        video_id, tenant_id, scene, new_text, new_location)
     # Keep videos.script in sync (it is the display/export copy).
     scenes_rows = await fetch_all(
-        "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+        "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
         "AND scene_text IS NOT NULL ORDER BY scene", video_id, tenant_id)
     await execute(
         "UPDATE videos SET script = $3, updated_at = now() WHERE id = $1 AND tenant_id = $2",
         video_id, tenant_id, "\n\n".join(r["scene_text"] for r in scenes_rows))
 
-    return {"scene": scene, "text": new_text, "word_count": _spoken_word_count(new_text)}
+    # D6-3b (S3 repair leg re-check): the rewritten paragraph could now
+    # describe a different place than the carried-forward location, or
+    # clash with a sibling scene's. Warn only, never block a regenerate.
+    s3_warnings: list[str] = []
+    s1_warnings: list[str] = []
+    try:
+        row_dicts = [dict(r) for r in (scenes_rows or [])]
+        law_check = story_laws.check_scene_location_law(row_dicts)
+        s3_warnings = [
+            v["detail"] for v in law_check["violations"] if v["scene"] == scene
+        ] + [
+            w["detail"] for w in law_check["warnings"] if w["scene"] == scene
+        ]
+
+        # D6-4 (S1 repair leg re-check): same warn-only re-check as
+        # update_scene_text above. An S1 warning concerns a PAIR of scenes,
+        # so match on either from_scene or to_scene, not just "scene".
+        s1_check = story_laws.check_location_transit_law(row_dicts)
+        s1_warnings = [
+            w["detail"] for w in s1_check["warnings"]
+            if scene in (w.get("from_scene"), w.get("to_scene"))
+        ]
+    except Exception:  # noqa: BLE001 — advisory only, must never block the rewrite
+        pass
+
+    return {"scene": scene, "text": new_text, "word_count": _spoken_word_count(new_text),
+            "story_law_s3_warnings": s3_warnings,
+            "story_law_s1_warnings": s1_warnings}
 
 
 async def _channel_default_prompt(tenant_id, prompt_key: str, fallback: str) -> str:

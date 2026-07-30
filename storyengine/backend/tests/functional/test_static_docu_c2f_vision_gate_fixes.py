@@ -208,12 +208,38 @@ async def test_vision_confirms_rejects_person_reply_untrusted(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_trusted_candidate_accepted_despite_misidentification(monkeypatch):
-    """A trusted candidate (own-article provenance) whose model reply
-    misidentifies the machine ("this is a B-17") but contains no hard-reject
-    keyword must be ACCEPTED — provenance outranks a wrong guess."""
+async def test_trusted_candidate_rejected_on_explicit_no(monkeypatch):
+    """SUPERSEDED by chunk C36 (2026-07-29): this test used to assert a
+    trusted candidate was ACCEPTED despite the model replying "NO, this
+    looks like a B-17 Flying Fortress to me" — provenance discarded the
+    model's explicit negative identification entirely. That is exactly the
+    hole C36 closed: verified live, a misrouted trusted candidate (a WWII
+    RAF squadron's aircraft photo hosted for a Royal Navy carrier via a
+    reused 2-digit pennant-number token collision) got a model reply of "NO,
+    this is a Supermarine Spitfire fighter aircraft, not a ship" — no
+    _WRONG_CONTENT_KEYWORDS hit, so the old code silently passed it. An
+    explicit leading NO must now ALWAYS reject, trusted or not — see
+    test_static_docu_c36_designation_token_hardening.py for the full C36
+    coverage."""
     _install_vision_fakes(monkeypatch, [
         _anthropic_body("NO, this looks like a B-17 Flying Fortress to me"),
+    ])
+    result = await static_docu._vision_confirms(
+        "tenant-1", "https://example.com/xb15.jpg", "Boeing XB-15",
+        trusted_source=True)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_trusted_candidate_accepted_on_ambiguous_non_committal_reply(monkeypatch):
+    """C36: provenance still excuses a weak model's failure to POSITIVELY
+    name an obscure machine — a reply that does NOT open with an explicit NO
+    (ambiguous/uncertain, no hard-reject keyword) must still be accepted for
+    a trusted candidate. This preserves the ORIGINAL intent behind trusting
+    provenance (see the XB-15/B-21 haiku-tier misidentification note above)
+    without the C36 hole of ignoring an actual "NO, wrong machine" answer."""
+    _install_vision_fakes(monkeypatch, [
+        _anthropic_body("Hard to tell from this angle, but it could be it"),
     ])
     result = await static_docu._vision_confirms(
         "tenant-1", "https://example.com/xb15.jpg", "Boeing XB-15",

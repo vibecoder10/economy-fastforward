@@ -57,6 +57,16 @@
 --                           rule sets ahead of a discrete format-id registry
 --                           (channel_format.py's FORMAT_FIELDS today are
 --                           free text, not an enum).
+--   "board": true         -- board-laws build lane (storyengine/BOARD-LAWS.md):
+--                           the board/image-planning stage's scope, resolved
+--                           by quality_rules.resolve_board_shape(), NOT by
+--                           resolve_video_shape(). Deliberately its own axis
+--                           from every key above (those describe VIDEO SHAPE
+--                           for the script critic) — "all": true does NOT
+--                           match this scope, so an existing script rule
+--                           never leaks into board prompts by accident. No
+--                           schema change: applies_to stays unconstrained
+--                           jsonb, this is just a new recognized value.
 --
 -- A hybrid research+narrative video (e.g. DvsU: render_mode='static_docu'
 -- AND research ran) matches BOTH "research" and "story" rules — the union

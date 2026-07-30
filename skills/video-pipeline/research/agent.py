@@ -623,7 +623,10 @@ battlecruiser, fast battleship, dreadnought. Tanks/vehicles: prototype,
 production, conversion, assault gun/tank-destroyer boundary, captured conversion,
 secret program. Cross-check against official/service history, manufacturer or
 program history, museum/encyclopedia lists, designation/index lists, and
-credible specialist references.
+credible specialist references. For a ship/vehicle class row, list the
+individual named hull(s)/units the class covers in `member_units`, not glued
+into `designation` — each member name must be independently searchable on its
+own.
 
 Before finalizing the roster, run an explicit adversarial gap-hunt pass. Assume
 your first roster missed machines. Search for omissions by designation sequence,
@@ -774,6 +777,14 @@ Rules:
 - `unit_roster` must be the recommended final documentary roster: one section per
   audience-facing machine/program, not every subvariant unless the subvariant is
   itself the machine viewers expect to see.
+- Keep `designation` short and directly searchable (a real code, hull number, or
+  tail number) or leave it empty — never a category description or a list of a
+  class's individual named members. When one roster row covers a class/family
+  with several individually-named units (a ship class's named ships, a family of
+  named variants, etc.), put those individual names in `member_units` instead.
+  A glued designation like "Courageous, Glorious" or "Lend-Lease escort
+  carriers" produces an unsearchable machine name downstream and photo lookups
+  for it will fail.
 - Also return `machine_discovery_buckets` as an audit trail for the candidates
   actually researched while locking the target roster; it is not a mandate to
   enumerate every possible machine outside the video scope.
@@ -807,11 +818,12 @@ Respond ONLY as raw JSON in this format:
   "unit_roster": [
     {{
       "name": "Exact machine/program name for the RECOMMENDED final documentary roster",
-      "designation": "Short code/designation/hull number/class if applicable",
+      "designation": "Short code/designation/hull number if applicable. Keep this SHORT and directly searchable (a tail number, hull number, or program code) or leave it empty. Never put a list of a class's individual named members here — that goes in member_units below.",
+      "member_units": "OPTIONAL. Only for a class/family/program row that covers several individually-named units (e.g. a ship class, a squadron of named aircraft, a missile family with named variants): a list of the individual member names, e.g. [\"Courageous\", \"Glorious\"] for a class named Courageous. Omit entirely (or leave empty) for a single named machine/program — do not add an empty list just to satisfy the schema.",
       "role": "Why it belongs under the title boundary",
-      "status": "production/built-prototype/cancelled-built/converted/special-purpose/secret-or-black-program/edge-case",
+      "status": "One of: production, built-prototype, cancelled-built, cancelled, converted, special-purpose, secret-or-black-program, edge-case. Do NOT default to 'cancelled-built' for every cancelled programme out of habit — pick between 'cancelled' and 'cancelled-built' based ONLY on what built_count will say, never on how far design/planning got. Use the bare word 'cancelled' when built_count will state ZERO units were EVER completed — no hull laid down, no prototype built or flown, nothing physical, even if the programme reached an advanced design or 'construction planned' stage before being cancelled (a design that never became metal is still zero). Use 'cancelled-built' or 'built-prototype' ONLY when built_count will name at least one unit actually completed, laid down, or flown before cancellation (the Avro Arrow / North American XB-70 / TSR-2 shape: prototypes were built and flown before the programme died; or a ship class where some hulls were finished and others cancelled on the slip). WRONG, do not do this: status='cancelled-built' paired with built_count='0 ships built' — that pairing is self-contradictory; if the true count is zero, the status must be bare 'cancelled', full stop. A downstream check trusts bare 'cancelled' as proof no photograph can ever exist for this row and permanently stops searching for one — mislabeling a true zero-built programme as 'cancelled-built' hides that fact from the check and leaves it endlessly retrying a search that can never succeed.",
       "bucket": "core_roster/built_prototypes/converted_or_special_variants/secret_cancelled_or_black_programs/boundary_disputes",
-      "built_count": "Exact count or best verified range, with source tag",
+      "built_count": "Exact count or best verified range, with source tag. State the completed-unit count explicitly and numerically: '0 ships built' for a genuine zero-hull cancellation, or e.g. '1 ship completed (name), N more cancelled on slips' when only part of a class was finished. Treat this field, not status, as the one a downstream check trusts to tell a true zero-built cancellation apart from a cancelled programme that still has photographable hardware — write it as if it is the decisive field, because it is.",
       "years": "first flight/service/planned/commissioned years if verified, with source tag",
       "source": "Strongest source tag"
     }}

@@ -1,0 +1,90 @@
+TRANSITION PLAN — worked example, the eight-scene structure of the bubble-pod film
+
+This is what a film-level boundary pass produces, and what L23 requires before any
+sheet is boarded. It is an EXAMPLE of the artifact, not a law; the laws are L23-L26
+in BOARD-LAWS.md. Scene numbering follows Ryan's split ruling: the original opening
+scene becomes three (escape / run and dead end / return).
+
+SCENES
+  1a  The escape          — pod interior, then out through the hatch
+  1b  The run             — the warren corridor, ending at its dead end
+  1c  The return          — back along the corridor, back inside, hatch shut
+  2   The audience        — the elite viewing hall, watching and laughing
+  3   The discovery       — pod interior, finds the lens, looks into it
+  4   The performance     — pod interior, performs to the lens
+  5   The reaction        — the hall, the elites lean forward
+  6   The close           — the screen holds her smile, one pod burns brighter
+
+---
+
+BOUNDARY 1a → 1b        RELATIONSHIP: CONTINUATION
+  OUT (last panel of 1a): from the corridor at chest height, she climbs through the
+    open hatch and plants one foot on the catwalk, body already turning frame-RIGHT.
+  IN (first panel of 1b): low on the wet catwalk, she is already running, entering
+    from frame-LEFT and driving frame-RIGHT down the tunnel.
+  CARRIES: the subject and her screen direction. She exits frame-right, so she
+    enters from frame-left and keeps travelling the same way (L25).
+
+BOUNDARY 1b → 1c        RELATIONSHIP: CONTINUATION, with the reversal on screen
+  OUT (last panel of 1b): the corridor's dead end fills the frame — more pods, no
+    door, no stair. She has stopped, and IN THIS PANEL she turns: shoulders coming
+    round, face coming to three-quarter, her drive direction breaking.
+  IN (first panel of 1c): she walks frame-LEFT back down the same corridor, small,
+    the vanishing point now behind her.
+  CARRIES: the subject. The direction reverses, so the turn itself is the OUT shot
+    rather than an unexplained flip (L25).
+
+BOUNDARY 1c → 2         RELATIONSHIP: NESTED HANDOFF + CONTRAST
+  OUT (last panel of 1c): from outside, the sphere sealed again among thousands of
+    identical glowing pods, she small inside it, the hatch closed.
+  IN (first panel of 2): that same grid of pods, framed identically — then revealed
+    as the feed on a building-sized screen.
+  CARRIES: the image itself, repeated exactly (L11), then its context. The contrast
+    is scale: one sealed room becomes wallpaper on someone else's wall.
+
+BOUNDARY 2 → 3          RELATIONSHIP: SIGHTLINE BRIDGE
+  OUT (last panel of 2): from the screen's own position, looking back at the row of
+    elites laughing — the camera is standing where the pods are.
+  IN (first panel of 3): her pod interior, the ceiling in frame, the lens present
+    but unremarked (L18).
+  CARRIES: the camera's position becomes her position. We were looking at them from
+    where she lives; now we are in the room with her, and the thing they were
+    watching through is in the frame.
+
+BOUNDARY 3 → 4          RELATIONSHIP: MATCH
+  OUT (last panel of 3): the lens POV, looking straight down, her face tilted up and
+    square to the lens, eyes into camera, not moving.
+  IN (first panel of 4): the identical lens POV, the identical framing — and she has
+    begun to move: standing straighter, smoothing her hair, starting to play to it.
+  CARRIES: the exact frame. Same shot, new intention — the cut is the change of
+    behaviour, not the change of picture. Note this is a deliberate exact match,
+    which L26 permits, and NOT the near-repeat it forbids.
+
+BOUNDARY 4 → 5          RELATIONSHIP: NESTED HANDOFF
+  OUT (last panel of 4): the lens POV, her performing directly into it.
+  IN (first panel of 5): that exact view, alone, filling the frame — then the pull
+    out revealing it as the hall's screen with five elites beneath it.
+  CARRIES: the frame, repeated exactly, then its context. (Boarded and approved.)
+
+BOUNDARY 5 → 6          RELATIONSHIP: CONTRAST
+  OUT (last panel of 5): tight on one elite's face, awake and interested for the
+    first time in years.
+  IN (first panel of 6): the screen holding her smile, huge, filling everything.
+  CARRIES: the axis of opposition is scale and power — the smallest possible frame
+    of the watchers, cut against the largest possible frame of the watched.
+
+---
+
+WHAT THIS ARTIFACT IS FOR
+
+Every OUT description above becomes the OUTGOING block in one scene's board prompt,
+and every IN description becomes the INCOMING block of the next. That is the only
+way a sheet can know how to begin and end, because the planner sees one scene at a
+time.
+
+Two consequences worth noting:
+1. A scene's first and last panels are NOT free choices. They are assigned by the
+   boundary pass. The scene chooses its middle.
+2. Two adjacent scenes can require the SAME frame (boundaries 3-4 and 4-5 both do).
+   That is legal and deliberate; what is illegal is two frames that are almost the
+   same (L26).

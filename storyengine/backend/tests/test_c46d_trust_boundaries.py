@@ -136,7 +136,11 @@ def _wire(monkeypatch, video, client, *, rule_rows=None):
 
 
 def _scenes(*texts):
-    return [{"scene": i + 1, "text": t} for i, t in enumerate(texts)]
+    # D6-3: every scene needs a "location" (STORY-LAWS S3) or
+    # accept_external_script's deterministic gate rejects it before the
+    # critic this file is actually testing ever runs. A fixed placeholder
+    # keeps every existing case here focused on the critic matrix.
+    return [{"scene": i + 1, "text": t, "location": "the set"} for i, t in enumerate(texts)]
 
 
 # ---------------------------------------------------------------------------

@@ -31,26 +31,201 @@ fired. A human clicking "Re-check missing" on 2026-07-29 21:16 finally ran it:
 - Aircraft/bomber roster behaviour is a regression surface, not a target.
 
 ## Chunks
-- [ ] C1+C2 (S) [B][V] Backend fetch path: move dispatch_roster_prefetch above
-      the gate early-return; pass real aliases into _gather_reference_candidates
-      from _prefetch_one_machine. Files: backend/pipeline_executor.py,
-      backend/static_docu.py, backend/tests/**. IN FLIGHT.
-- [ ] C6 (S) [U][V] Roster panel live progress + auto-refresh during a sweep.
-      Files: frontend/src/components/production/RosterStagePanel.tsx,
-      possibly backend/routes/pipeline.py. IN FLIGHT.
+- [x] C1+C2 (S) [B][V] Backend fetch path. DONE 2026-07-29, commit c7116ef0.
+      dispatch_roster_prefetch moved above the roster-gate early return, firing
+      right after the research_payload save succeeds. Aliases now plumbed:
+      new _unit_roster_aliases(item) and _machine_documentary_hold_roster_entries(video)
+      in pipeline_executor.py; _prefetch_one_machine gained an aliases param
+      passed to both _gather_reference_candidates and _vision_confirms.
+      Display names unchanged (cache keys safe). Stash-proof: 8 new tests fail
+      without the change, pass with it. Suite 43 failed / 1 error = baseline.
+- [x] C6 (S) [U][V] Roster panel live progress. DONE 2026-07-29, commit f615772a.
+      Side-car coroutine in routes/pipeline.py polls static_reference_cache every
+      5s and republishes "N/M verified so far" onto the SAME task-status slot the
+      frontend already polls every 3s — no new channel, prefetch_roster_references
+      itself unmodified. Panel shows a climbing count with spinner, invalidates the
+      roster-dashboard query each tick so the grid self-refreshes, and swaps each
+      missing card's red badge + URL form for a turquoise "checking..." badge with
+      the manual paste demoted to a secondary link. Settles automatically on
+      completion. tsc + npm run build clean.
+      CAVEAT: running state was SIMULATED via a browser fetch mock, not a real
+      10-minute sweep. No clean per-card grid screenshot (browser tooling stalled);
+      an accessibility-tree dump was substituted. Real visual walk logged in
+      deferred-verification.md.
+      NOTE: this worker confirmed the video's real tenant is 561b872d, NOT ee93e6d1
+      (ee93e6d1 is the owner account acting on it, which is what appears in request
+      logs). Earlier chunk briefs in this loop carried the wrong tenant id.
 - [ ] SWEEP (S) [V] Read-only audit: every consumer of roster `designation`,
       the research prompt text that defines it, _roster_validation hard-vs-soft
       conditions, and any existing never-built/no-photo state. IN FLIGHT.
-- [ ] C3 (S) [B][V] Research contract: `designation` becomes a searchable
-      identifier or empty; member units move to their own field. Prompt +
-      repair warning + gate in the same commit (contract-triangle law).
-      BLOCKED ON: SWEEP.
-- [ ] C4 (S) [B][V] Split _roster_validation hard failures from soft pacing
-      warnings. A count overrun sets needs-review, not passed=False.
-      BLOCKED ON: SWEEP.
-- [ ] C5 (S) [B][U][V] Never-built / no-photo-exists state for cancelled
-      programs (e.g. CVA-01). BLOCKED ON: C1+C2 — until aliases land we do not
-      know the real never-built set.
+- [x] C7 (S) [V] Ship-shaped roster regression net. DONE 2026-07-29.
+      backend/tests/functional/test_ship_roster_shapes.py, 15 tests passing.
+      Pins _unit_display_name / _unit_code / _normalized_unit_code /
+      _designation_token / _machine_key / _roster_validation /
+      _machine_documentary_hold_roster for BOTH a real 23-entry British-carrier
+      roster and an aircraft control roster. No source files edited.
+- [x] C3+C4 (S) [B][V] Research contract + gate severity. DONE 2026-07-29, commit 4dbd9049.
+      C3: optional `member_units` field added to ROSTER_DISCOVERY_PROMPT_TEMPLATE in
+      skills/video-pipeline/research/agent.py; `designation` instruction tightened to
+      "short and directly searchable, never a list of member units".
+      _unit_roster_aliases now prefers member_units (list or comma string), with the
+      existing comma/slash-split fallback unchanged beneath it. A soft repair warning
+      fires when designation holds a comma-separated member list — prompt + repair
+      warning + gate in one commit, per the contract-triangle law.
+      C4: _roster_validation gained a `_warn(message, *, hard=)` helper tagging every
+      call site. `passed` is now `len(hard_warnings) == 0` (was `len(warnings) == 0`).
+      Returns new keys hard_warnings / soft_warnings / needs_review; the original
+      `warnings` list is preserved byte-identical in order so every existing consumer
+      (research_ingest.py, routes/videos.py, frontend) keeps working untouched.
+      PROOF: the real 23-ship 20-minute roster now returns passed=true,
+      needs_review=true, hard_warnings=[], and gates to next_status="ready_for_scripting".
+      Stash-proof: 8 tests fail without, 23 pass with. Suite 43 failed / 3609 passed /
+      1 error — diff vs reference is exactly the +8 new tests, same failure ids.
+      Backward compat proven byte-identical for rosters lacking member_units.
+      SIDE EFFECT, deliberate, flagged to Ryan 2026-07-29: the subvariant-padding
+      check was classified SOFT. It is inert for ships but DOES fire for aircraft, so
+      bomber rosters padded with near-duplicate subvariants (B-29 + B-29B) now advance
+      flagged instead of blocking. Ryan may want this reverted to hard — one-line change.
+      NOT VERIFIED: never exercised end-to-end through the live API or the MCP
+      research / submit_research paths. Unit/function level only.
+- [ ] C5 (S) [B][U][V] Never-built / no-photo-can-exist state. Roster item
+      `status` is free text today and never parsed by any code branch. Lean on
+      the existing `blocked_no_reference` fail-closed path in static_docu.py
+      (law comment ~lines 91-103) rather than inventing a parallel mechanism.
+      CVA-01 is the live example. BLOCKED ON: C1+C2 and C8.
+- [x] C9 (S) [B][V] Trust-chain hardening. DONE 2026-07-29, commit 53dd98a0.
+      Confirmed by adversarial verification before any code changed: _designation_token
+      yields "91" for "HMS Ark Royal (91)"; _page_matches had no length floor where
+      _commons_title_matches required >=3; the same unguarded check was DUPLICATED in
+      find_wikipedia_lead_images (~595-599) and ANDed with itself so it added no
+      verification; and trusted_source=True in _vision_confirms DISCARDED the model's
+      identification entirely, returning verified even on an explicit "NO, this is a
+      different machine". "No. 91 Squadron RAF" confirmed as a live colliding page.
+      FIX: new shared helper _designation_token_in_title applies a >=3 length floor AND
+      a word-boundary anchor, called from BOTH sites so they cannot drift again.
+      _vision_confirms now rejects a leading "NO" even for trusted sources, while still
+      allowing an ambiguous reply to pass (preserving the original carve-out for weak
+      models on obscure prototypes).
+      Evidence: full suite run with and without the change, sorted FAILED/ERROR lines
+      byte-identical (43 failed / 1 error both ways).
+      SIDE EFFECT, expected and accepted: machines whose designation contains no digit
+      fall back to a truncated 12-char slug that will usually fail the anchor check, so
+      they may be demoted from "trusted" more often at the find_wikipedia_lead_images
+      layer. Fail-closed is the intended behaviour.
+- [x] CACHE AUDIT (part of C9). 41 rows, not 27 — the cache is TENANT-GLOBAL, so it held
+      24 aircraft rows from 2026-07-22 plus 17 carrier rows from 2026-07-29.
+      Two rows held photos of the WRONG machine and were purged 2026-07-29 with Ryan's
+      authorization (41 -> 39):
+        "Improved Light Fleet Carriers Majestic class" -> HMS_Glory_SLV_Green_1946.jpg
+           (HMS Glory is COLOSSUS class, not Majestic)
+        "Courageous, Glorious Courageous class" -> Furious+half-sister.jpg
+           (that is HMS Furious, a half-sister, not Courageous or Glorious)
+      Three rows remain FLAGGED BUT NOT PURGED, not authorized, need a visual check:
+        Boeing B-47 Stratojet -> NNSA-NSO-990.jpg (filename carries no identifying info)
+        Northrop Grumman B-2 Spirit -> an RAF F-35B integration-training photo
+        Rockwell B-1 Lancer -> same file as the separate B-1B Lancer row
+      The carrier roster now reads 15/23 verified, down from 17, pending a re-sweep.
+- [ ] C10 (S) [B][V] The subvariant-padding QA check in _roster_validation
+      (~6140-6149) is aircraft-only and a total no-op for ships — it hinges on
+      a regex requiring a literal "B-"/"FB-" prefix in _unit_code output, which
+      no ship code shape can produce. Ship rosters get ZERO padding protection.
+      Proven by test_unit_code_family_detection_is_aircraft_only. Either add
+      ship-family awareness or document explicitly that the rule is
+      aircraft-only. LOW PRIORITY.
+- [ ] C11 (S) [B] CANARY, not a live bug. static_docu._machine_key truncates to
+      80 chars. Aircraft designations are short so this was never exercised;
+      ship `designation` values are sometimes full member-ship lists, making a
+      shared 80-char-prefix collision plausible in a future roster. Not observed
+      in the current roster. Monitor. LOW PRIORITY.
+- [x] C12+C8 (S) [B][U][V] Durable sweep + miss reasons. DONE 2026-07-29,
+      commits 4031bc02 and f53b562a.
+      C12: both dispatch seams now schedule static_docu._run_tracked_roster_prefetch,
+      which writes a background_tasks row with task_type='roster_prefetch' so the
+      EXISTING reapers can see it. main.py's lifespan calls
+      resume_interrupted_roster_prefetches() after the startup reaper, re-dispatching
+      sweeps the reaper just marked interrupted (capped at 5 attempts). Idempotent
+      because prefetch_roster_references already skips cached machines.
+      DESIGN NOTE: deliberately did NOT reuse _db_persist_task/_set_task_status — those
+      key on (tenant_id, video_id) with no task_type and drive the in-memory dict the
+      recheck endpoint polls, so writing there from run_research would have raced the
+      C6 panel progress.
+      C8: new table static_reference_misses, scoped per (tenant_id, video_id,
+      machine_key) — NOT tenant-global like static_reference_cache, because the same
+      machine can miss for one video and succeed for another. Row presence means
+      unresolved; deleted the moment the machine verifies, so no status column.
+      _prefetch_one_machine classifies into REASON_NO_CANDIDATES / REASON_VISION_REJECTED
+      / REASON_FETCH_FAILED / REASON_ERROR, with REASON_NEVER_BUILT reserved for C5.
+      roster_repair_dashboard emits reason_code / reason_detail / retryable;
+      RosterStagePanel shows the reason and suppresses the paste-a-URL form when
+      retryable is false.
+      MIGRATION REQUIRED AT DEPLOY: backend/migrations/141_static_reference_misses.sql
+      (creates the table, enables deny-all RLS, same pattern as 082/083).
+      Evidence: stash-proof clean; full suite with vs without stashed produced identical
+      sorted FAILED/ERROR lines (43 failed / 1 error), +14 passed = exactly the new tests.
+      SIMULATED, not live: no local Postgres, so the interrupt/resume demo used an
+      in-memory SQL-aware fake for background_tasks while running the real dispatch,
+      reaper and resume code. Browser check used hand-built mock data on a temporary
+      page, cleaned up afterward.
+- [ ] C13 DECISION FOR RYAN — parked, does not block the loop.
+      research_ingest.accept_submitted_research reuses _roster_validation
+      verbatim, so the roster gate is identical to the paid verb. But it never
+      runs _run_unit_research_hold and never computes passed_unit_research_hold
+      — it sets next_status = "ready_for_scripting" the instant the roster gate
+      passes. Documented as intentional in the module docstring (~L32-42): a
+      submitted payload is trusted like a creator's own verbatim script.
+      Consequence: a roster submitted via the MCP submit_research path advances
+      to scripting under conditions the paid `research` verb would hold back.
+      The StoryEngine MCP docs call submit_research "THE STANDARD WAY" to get
+      research onto a video, so this is the path most used in practice — the
+      quality gate is weakest where traffic is heaviest. Question for Ryan:
+      keep the trust boundary as designed, or run the unit-research hold on
+      submitted payloads too?
+- [ ] C14 (S) [B] LATENT, low priority. routes/model_video.py `_persist_pack`
+      (~650-681, the clone-video / modeled-idea flow) is a third writer of
+      videos.research_payload and never calls dispatch_roster_prefetch. Inert
+      today: its payload carries "type": "modeled_idea" and never sets the
+      documentary_style / pipeline_style / machine_discovery_buckets /
+      unit_research_hold_validation markers that _static_docu_locked_unit_roster
+      (pipeline_executor.py ~5896-5917) requires, so the roster accessor returns
+      [] for it. Becomes a real hole the moment a cloned video can carry
+      render_mode='static_docu' plus a machine-documentary marker. Add a guard
+      or an explicit comment so this is not rediscovered the hard way.
+- [ ] C15 DECISION FOR RYAN — parked, does not block. Should the subvariant-padding
+      check in _roster_validation be SOFT (current, set by C4) or HARD (previous
+      behaviour)? Soft means a padded aircraft roster advances with a needs-review
+      mark; hard means it blocks as before. Inert for ships either way.
+- [ ] C16 (S) [B] LOW PRIORITY, found by C12+C8. A manual "Re-check missing" click can now
+      run concurrently with an auto-dispatched sweep for the same video: the recheck
+      endpoint's busy-gate reads only the in-memory _running_tasks dict, which the new
+      durable dispatch deliberately never touches. Not a regression (the coupling never
+      existed), and _prefetch_one_machine is idempotent per machine, so there is no data
+      corruption risk. But two concurrent sweeps can both process the same machine before
+      either caches it, which means DUPLICATE PAID VISION CALLS. Worth a cheap guard.
+- [x] DEPLOY 1 (2026-07-29). Commits c7116ef0, f615772a, 4dbd9049, 53dd98a0 deployed to
+      prod: d5cb85cb -> 28734a6c, 37 files, migrations 149/149, backend + frontend both
+      healthy, worker code parity confirmed at 28734a6c. Frontend genuinely rebuilt
+      (full next build log present, 34/34 pages including /pipeline/[videoId]) — the
+      known silent-skip failure mode did NOT occur.
+      NOT DONE: the live authenticated screenshot of the Roster panel. The Browser pane
+      hit a login wall and correctly stopped rather than scripting past auth, per the
+      se-smoke rule. Ryan must eyeball the panel himself. Logged in deferred-verification.md.
+      STILL TO DEPLOY: 4031bc02, f53b562a, plus migration 141 and whatever C5 lands.
+
+## Known debt (deliberately not in this loop)
+- The aircraft designation regex is reimplemented in SIX independent places:
+  pipeline_executor.py (_unit_code/_normalized_unit_code, canonical, ~150 call
+  sites), routes/videos.py (full duplicate), drive_workspace.py (_display),
+  frontend ResearchTab.tsx and ScriptVoiceTab.tsx (byte-identical TS copies),
+  and static_docu.py (_designation_token, separate implementation). Unifying
+  them is correct engineering but carries ~150 call sites and a tenant-global
+  cache key in the blast radius for zero user-visible gain. Decision 2026-07-29
+  (Fable, endorsed by Ryan): leave alone, record as debt.
+- static_reference_cache is TENANT-GLOBAL and keyed on a naive lowercase-alnum
+  hash of the DISPLAY string (static_docu._machine_key). Any change to how
+  _unit_display_name composes designation + name silently orphans every cached
+  verified photo for every machine for every tenant — no error, just a full
+  cache miss that re-runs live Wikimedia lookups and paid vision checks. This is
+  why display names are frozen byte-exact and why C3 was narrowed to additive.
 
 ## Lessons
 - Worktree isolation is unavailable when the orchestrating session's cwd is not
@@ -868,3 +1043,351 @@ Notes / lessons: (append as we learn)
 - [ ] SCENE 2 BOARD v1 written 2026-07-29 for a free ChatGPT round (tasks/evidence/d3-64-fixes/scene2_board_prompt_v1.txt): the hard case - two speakers on a locked axis with matched OTS pairs, plus L11's nested screen showing the warren. FINDING while writing it: the PRODUCTION scene-2 board prompt (also saved, scene2_board_current.txt, 10006 chars) casts THREE elderly elites in navy/burgundy with gold trim, but the script says "a woman in gold" and "an old man" - the board cast does not match the script's own description. Ryan's ruling needed on cast identity; v1 follows the SCRIPT (Gold Woman in a gold gown + Old Man in a dinner suit + three non-speaking elites).
 - [ ] SCENE 2 free round judged 2026-07-29: Ryan approved all 9 panels ("the dress and clothing is actually perfect, the over the shoulder looks really good"), with two defects that became LAWS L12 + L13 in BOARD-LAWS.md. (1) L12 SPECIFY THE POPULATION: the other pod occupants in the screen feed were never specified, the model invented pale sleepwear, and that accident is what made Nyla pop - now authored (grid of pale sleeping figures lying down; Nyla the only dark, standing, awake one). Her own tag WAS specified charcoal grey and the render drifted darker - tolerable at that scale, watch for cross-scene drift. (2) L13 COVERAGE AGREES WITH THE WIDE: the OTS pairs (4, 6) read as the pair sitting close while the wide (5) revealed elites seated between them - fixed by seating GOLD WOMAN and OLD MAN adjacent at the frame-LEFT end of the row, stated in the SET, the wide, and the constraints. v2 saved at tasks/evidence/d3-64-fixes/scene2_board_prompt_v2.txt.
 - [ ] SCRIPT CONTINUITY GAP (Ryan's ruling needed, FREE to fix): scene 1 now ends with Nyla running the corridor AWAY from her pod, but scene 3 opens with "a lens hidden in her ceiling" and scene 4 calls it "her grey pod" - she is back inside with no return beat. Same defect class as the original missing escape. RECOMMENDED FIX (strengthens the theme rather than patching it): the run FAILS - she gets out, runs the warren, finds it has no exit, and returns to her own pod; then she finds the lens. Arc becomes try the door -> there is no door -> find the camera -> realise the only exit is the gaze, which earns scene 6's "whoever holds the gaze, holds the power" instead of asserting it. Do NOT apply without Ryan's word.
+- [ ] L14 LAW ADDED 2026-07-29 (Ryan: "nothing about the character spacing between the two main characters changed from my comments"): the L13 seating fix DID land in the wides (panels 1 and 5 show the pair adjacent, nobody between) but never reached the viewer, because no shot in the sheet PROVES the adjacency - the group wide is too wide to read and OTS pairs compress space by design. Real gap = the missing TWO-SHOT rung of standard coverage (master -> two-shot of the pair -> singles). Fix in scene 2 v3: new SETUP H, and panel 5 converted from a redundant group wide into an MS two-shot holding both speakers at the same size, side by side, mid-laugh - it sits between the two OTS panels where the confusion happened. Law: a spatial relationship the audience never sees stated does not exist, however correct the data is.
+- [ ] L15 LAW ADDED 2026-07-29 (scene 2 v3 round, Ryan: "shot five now is weird because they are no longer sitting together, they somehow turned around in the scene... shot eight and shot five are now in confliction"): the L14 two-shot fix WORKED as coverage (Ryan passed v2's sheet retroactively once he saw the pair together) but v3's panel 5 specified ATTENTION ("turned three-quarter toward him", "tips his head toward her") without locking ORIENTATION, so the model rotated both bodies AND both armchairs into a face-to-face dinner configuration - contradicting panels 1/8/9 where the whole row faces the screen. LAW L15: a partial turn must name its anchor (chairs, hips, knees unchanged and still pointed where the wide established them; only head/shoulders/gaze move) and must state the prohibition (never re-orient the chairs, never seat the pair face-to-face). v4 fixes SETUP H with an explicit ORIENTATION LOCK plus a constraints-line addition covering every HALL panel. Pattern worth remembering: a fix can create the next defect - each round converged (7/9 -> 8/9 -> 9/9 on scene 1; scene 2 at 8/9 with only panel 5 outstanding).
+- [ ] L16 + L17 ADDED 2026-07-29 (scene 2 v4 round: Ryan passed 1/2/4/6/7/9, flagged 3 as passable-but-weird, failed 5 and 8). L15's orientation lock WORKED - the pair stayed in the row - but v4 introduced a NEW defect from an IMPOSSIBLE instruction I wrote: SETUP H places the camera forward of the row shooting back, AND asked for "the screen's glow visible past the OLD MAN" - if the lens is between the row and the screen then the screen is BEHIND CAMERA, so the model resolved the contradiction by turning the room around and putting the pod-wall behind the cast. LAW L16: a reverse angle changes the background - state what sits behind the subject per camera position, and a source the camera stands in front of appears as LIGHT ON THE FACE, never as an object behind them. LAW L17: lock the headcount as a NUMBER in every panel where the group appears (panel 8 rendered four silhouettes for five elites; counts drift when implied by a list rather than stated as a quantity). Also refined L12 with a DEPTH clause: state occupants-per-container and that anything behind the readable front layer falls into shadow (panel 3 stacked bodies through the transparent pods until each looked like it held two people). v5 saved at tasks/evidence/d3-64-fixes/scene2_board_prompt_v5.txt.
+- [ ] SCENE 3 BOARD v1 written 2026-07-29 (tasks/evidence/d3-64-fixes/scene3_board_prompt_v1.txt) - the pivot scene and the hardest law test yet: a hidden lens whose DISCOVERY is the beat (so it must be planted without emphasis) and "she looks straight into it", which makes the camera the object she looks at. Two NEW laws written while designing it, both marked UNTESTED in BOARD-LAWS.md until the free round judges them: L18 THE UNREMARKED PLANT (exception to L7 - object genuinely present and visible in earlier panels, small and ordinary among its neighbours, with every form of emphasis explicitly forbidden: no lighting, glow, indicator, centring or enlarging; unchanged in size/position from the notice panel onward) and L19 DIEGETIC CAMERA POV (a setup that OCCUPIES the in-story lens's position, marked NEUTRAL, eyes directly into camera with no three-quarter, plus L16 applied so the dome is NOT visible from inside itself, plus an optical signature - barrel distortion - so it reads as that device's view). Structure: discover (1-3) -> instinct to hide (4-5) -> the decision (6-7) -> the look back (8, lens POV) -> hold it (9, exterior wide). DEPENDENCY: scene 3 puts her back inside her pod while scene 1 now ends with her running the corridor - the return beat is STILL owed and awaiting Ryan's ruling.
+- [x] SCENE 3 PASSED FIRST ROUND 2026-07-29 (Ryan: "I would actually give this a pass, the angles, the quality, everything seems pretty good to me"). L18 (unremarked plant) and L19 (diegetic camera POV) both worked on their first outing - the lens was findable but unshouted in panels 1-2, the macro insert read, and the fisheye lens-POV landed the pivot. Supporting evidence, not proof, so they stay marked accordingly. NEW LAW L20 CROSS-SCENE SET CONSISTENCY, my own defect: I made the transparent glass dome an opaque "curved white shell" to give the dark lens bead contrast, contradicting every other scene's clear sphere. Ryan noticed then talked himself out of it - the inconsistency was real. Fixed in scene 3 v2 by mounting the lens on the pod's pale STRUCTURAL RIBS between the glass panes: contrast found inside the established set instead of changing the set. Law: a set's material and structure are defined once for the whole film and never altered for one scene.
+- [ ] RYAN'S NEXT FRONTIER (his call, 2026-07-29, after passing scene 3): "since we have more images of just static looks on her face going from image six to image seven, the video shots will really have to come into play here to make this not seem like a repetitive scene... after we generate these then the magic will need to be within the video prompts." PROPOSAL to discuss before building: extend the board format with a MOTION NOTE per panel, so the board plans the move at the same time it plans the frame (this is exactly the Camera Movement Engine's thesis - earned moves planned before drawing - and it would feed the existing motion-prompt gate instead of letting the clip stage invent movement). Scene 3 is the right test case because Ryan flagged its 6->7 static-face run as the repetition risk. NOT started; needs Ryan's yes on the format.
+- [ ] L20 CORRECTED 2026-07-29 by Ryan, mid-turn: "if we go back to the transparent sphere, we didn't have a fully transparent sphere in scene one. The back of it has a little cubby. There is a white background in scene one, so I don't want you to fully dismiss that." He is right and my v2 over-corrected. The pod is PART CLEAR, PART SOLID: clear glass front (the pane she touches, warren beyond), solid matte white rear/upper-rear shell holding the bed alcove, desk recess and plant niche, meeting at pale structural ribs with a hub above centre. My v1 (all white ceiling) and v2 (all glass) were both half-right because the MATERIAL MAP had never been written down. L20 rewritten accordingly: define which surfaces are solid and which transparent, and where the boundary runs, ONCE for the whole film. Scene 3 v3 mounts the lens in the solid white ceiling shell just behind the rib hub - which is what the passing renders already showed. The pod's architecture block in v3 is now the canonical set definition to carry into every other scene's prompt.
+- [x] BOARD-LAWS.md REWRITTEN UNIVERSAL 2026-07-29 per Ryan: "I just want to make sure that these are all universal rules and that these rules are not only for this video... these rules that we're writing down are essentially like how a story is told and visualized through the storyboards." Every law now states a general rule of visual storytelling with NO proper nouns in the law sentence; the specific failure that found it sits underneath as italic PROVENANCE (evidence the law is real, not a limit on scope). Added an explicit test at the top: "if a law reads as being about a particular character, set or story, it is written wrong and should be rewritten." Grouped by craft area (camera / space and geography / the set / people / action / panel discipline / script-layer). Numbers preserved for traceability with prior commits.
+- [x] SCRIPT-LAYER LAWS ADDED (S1, S2) - the boarding process found defects the board cannot fix: S1 NARRATE EVERY LOCATION CHANGE (found twice in one story: a character leaving a sealed room with no sentence for leaving, and back inside it two scenes later with no sentence for returning); S2 A PAYOFF MUST BE PAID FOR EARLIER (a closing theme asserted rather than earned).
+- [x] SCENE 1 RETURN BEAT APPLIED 2026-07-29 with Ryan's explicit approval ("the run fails, and then she has to return"): scene_text now 746 chars, ends "But the corridor only opens onto more corridor. No door, no stair, no sky - just pods and pods and pods. She stops running. She walks back, climbs in, and pulls the hatch shut behind her." Free write via PATCH /api/videos/{id}/scenes/1/text, verified in DB. Arc is now try the door -> there is no door -> find the camera -> the only exit is the gaze, which EARNS scene 6's closing line. Scene 1's board prompt (v3, the 9/9 one) now covers only part of this scene text - it needs re-boarding to include the failed run and return, OR the scene needs splitting; flag for the planner build.
+- [x] STORY-LAWS.md CREATED 2026-07-29, answering Ryan's question "how does this apply to the images, the storyboard generation as well as the script generation, or do you need to make a story laws.md" - yes, split. STORY-LAWS.md holds the SCRIPT layer (S1 narrate every location change; S2 a payoff must be paid for earlier; S3 one scene is one location and one continuous beat; S4 the script is the source of truth for cast; S5 a scene states where it is). BOARD-LAWS.md keeps the visual layer (L0-L20) and now points at the S-series instead of holding it. BOTH docs gained a "How a law becomes behaviour" section stating the enforcement contract explicitly: PROMPT (into the generator's system prompt) + GATE (deterministic check, or an in-commit admission that none is feasible) + REPAIR (stamped into the artifact the next stage reads, or it evaporates at the first redraw), plus quality_rules as the runtime-editable home - which today has NO board/image scope, a prerequisite chunk. Blunt line recorded in the doc: "A law with a prompt leg but no gate is a suggestion. A law with a prompt and a gate but no repair leg survives until the first redraw. All three, or it is prose." HONEST STATUS: zero of the 20 L-laws and zero of the 5 S-laws have any leg implemented; every generated board and script today violates them.
+- [ ] SCENE SPLIT RULING (Ryan, 2026-07-29): scene 1 becomes THREE scenes - (a) the escape (wake, wish, hatch, climb out), (b) the corridor run and its dead end (no door, no stair, no sky), (c) the return (walks back, climbs in, pulls the hatch shut). This is S3 applied to his own script. Implementation touches the scenes table and every downstream index (scenes are keyed by number; boards, assets and image_index are scene-scoped) - do NOT hand-edit prod scene rows; needs a proper plan. Scene 1's 9/9 board prompt maps to (a) only.
+- [ ] REMAINING LAW GAPS, assessed 2026-07-29 when Ryan asked whether scenes 4 and 5 need testing. RECOMMENDATION: skip scene 4 (same set as scenes 1/3, re-runs L15 + L19 in already-boarded geography; its only novel idea - a set re-reading as a STAGE without its geometry changing - should be discovered from a failure, not guessed). TEST scene 5, because it uniquely exercises two untested areas: (a) CROSS-SCENE NESTED-FRAME CONTINUITY - scene 5's screen must show the exact view we already saw as scene 3's lens-POV panel, so a nested frame is no longer generic content but must match a specific frame from another scene; nothing in L0-L20 covers this. (b) INTER-SCENE CUTS - the biggest hole in the whole law set: every law so far is INTRA-scene, and nothing states how scene N's last panel should relate to scene N+1's first (match, contrast, reverse, or hold). That is where a film flows or stutters and it is free to test. Also untested and lower value: real crowd scale (we have only done 5 named figures), three-plus-speaker axis, "exits frame-right and camera holds" motion setups, and visual metaphor (scene 6's "one bubble burns brighter") - which risks cheesiness and may deserve its own round if Ryan wants the closing image proven.
+- [ ] SCENE 5 BOARD v1 written 2026-07-29 (tasks/evidence/d3-64-fixes/scene5_board_prompt_v1.txt) - the last free test, aimed at the two remaining untested law areas. (a) CROSS-SCENE NESTED-FRAME MATCH: panels 1 and 7 must repeat scene 3's lens-POV view frame for frame ("same height, same foreshortening, same objects splayed around her, same distortion, nothing re-staged and nothing zoomed"), so a nested frame carries a specific previously-seen shot rather than generic content. (b) INTER-SCENE CUT: panel 1 IS that view alone, then panel 2 pulls out to reveal it as the giant screen in the hall - the same image in a new context, which is the first deliberate scene-to-scene cut we have boarded. Reuses scene 2 v5's canonical hall set, cast, seating adjacency, corrected SETUP H background and locked headcount, so it also re-tests L13/L14/L15/L16/L17 in one sheet. Structure: match-in (1) -> context reveal (2) -> the smile goes out (3-4) -> the lean, chairs unmoved (5) -> his reverse (6) -> the feed unchanged and her stillness becomes the event (7) -> the reversal, watched from where she is (8) -> awake for the first time in years (9).
+- [ ] BOARD LAWS BUILD LANE DISPATCHED 2026-07-29 (feat/board-laws worktree): absorbs D3-66/67/68/69/70 into one job on the same prompt assembly, with BOARD-LAWS.md as the spec and scene1_board_prompt_CORRECTED_v3.txt (Ryan's 9/9) as the acceptance target. Mandate: all three legs per law (PROMPT into the planner system prompt + sheet assembly, GATE where deterministic with an in-commit admission where not, REPAIR stamped into assets.image_prompt so a single-shot redraw inherits it), plus board/image scope on quality_rules so future rulings need no deploy (split out if it dwarfs the lane). Honest partial pass required over a claimed full pass. Script generator (S1-S5) explicitly OUT of scope for this chunk.
+- [x] SCENE 5 ROUND JUDGED 2026-07-29: Ryan passed 1-6 and 9. BOTH TARGET LAWS PROVED. (a) Cross-scene nested-frame match WORKS - panels 1 and 7 rendered identically as instructed, and panel 1 carried scene 3's lens-POV view into a new context. (b) The inter-scene cut works - match in on the feed alone, then pull out to reveal it as the hall's screen. TWO NEW LAWS from what that exposed: L21 A BOARD CANNOT SHOW DURATION (Ryan: "image seven looks like the same image as one" - the beat I wrote was "she still has not moved and now the stillness is the event", which is a LENGTH OF TIME; a still frame cannot hold one, so never spend a panel on an identical repeat - note the hold for the motion/edit layer and use the panel to escalate. This is the first law that explicitly hands work to the motion layer, which is exactly what Ryan predicted would have to carry these scenes). L22 STATE GROUP ARRANGEMENT PER CAMERA POSITION (panel 8 dropped five elites to four DESPITE an explicit "all FIVE" - because in that reverse angle the seating order reads BACKWARDS and the arrangement had only ever been stated from the front-on side; a count alone does not hold when the model must derive the order). v2 fixes both: new SETUP I pushes closer on the same feed so panel 7 escalates instead of repeating, and SETUP G plus panel 8 now state the reversed left-to-right order explicitly.
+- [ ] SCENE BOUNDARY LAWS L23-L26 ADDED 2026-07-29, answering Ryan: "those scene transitions from board one to board two, how do we show those in the last image of board one and the beginning image of board two... there does need to be a continuity between those two images". ARCHITECTURAL FINDING, bigger than a prompt fix: a transition CANNOT be authored inside either scene, because the planner is scene-scoped and a cut is a relationship BETWEEN scenes. L23 requires a FILM-LEVEL boundary pass that runs BEFORE boarding and records, per boundary: relationship type, the OUT shot ending the earlier scene, the IN shot opening the later one, and what carries across; each scene's prompt then receives INCOMING and OUTGOING blocks it did not choose. Consequence for the planner build: a scene's first and last panels are NOT free choices - the boundary pass assigns them and the scene chooses only its middle. L24 catalogues the six legal relationships with their requirements (MATCH, NESTED HANDOFF, CONTINUATION, SIGHTLINE BRIDGE, CONTRAST, ELLIPSIS). L25 screen direction and eyeline carry across the cut - a reversal without an on-screen turn reads as the character changing their mind, so the turn must BE a panel. L26 no accidental near-repeat at a boundary - match exactly and deliberately, or change decisively; a seam cannot survive ALMOST the same picture. Worked example artifact for the 8-scene post-split structure: tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt (7 boundaries, each with relationship + OUT + IN + what carries). NOTE for the in-flight board-laws build lane: it was briefed on L0-L20 only; L21-L26 are additions it has not seen.
+- [x] SCENE 5 v2 PASSED 2026-07-29 - Ryan: all nine good, "seven is the same as one but it's more of like a close up on the fish eye, so that's actually pretty good, pretty sharp... eight, yep, we got all the characters... This is a pass." L21 (escalate instead of repeat) and L22 (arrangement per camera position) both confirmed working. NEW LAW L27 INSTRUCTIONS ARE NOT CAPTIONS, caught by orchestrator judging unprompted, NOT flagged by Ryan: panel 8's caption strip rendered my instruction text verbatim - "ARRANGEMENT AS SEEN FROM THIS CAMERA (REVERSED): 3 OTHER ELITES, OLD MAN, GOLD WOMAN (LEFT TO RIGHT)" - because I wrote the fact as an all-caps labelled directive inside the panel brief and the strip absorbed it. The instruction WORKED and printed itself onto the artwork. Law: never phrase a panel brief as a labelled directive (all-caps heading, colon, bracketed note); state the fact as ordinary prose describing what is in the frame, and state once in the header exactly what the caption strip may contain and that nothing else ever appears there. v3 restates panel 8's arrangement as prose and hardens the header constraint.
+- [x] FREE-TUNING PHASE COMPLETE 2026-07-29. Four scenes boarded and passed by Ryan (1 at 9/9, 2, 3 first-round, 5), 27 board laws + 5 story laws + a worked 7-boundary transition plan, all at ZERO dollars, with every prompt version preserved in tasks/evidence/d3-64-fixes/. Acceptance target for the planner remains scene1_board_prompt_CORRECTED_v3.txt. Remaining untested areas, all lower value: real crowd scale, three-plus-speaker axis, "exits frame-right camera holds" motion setups, visual metaphor (scene 6's brighter pod). THE REMAINING WORK IS THE BUILD, not more discovery.
+- [x] BOARD LAWS BUILD MERGED 2026-07-29 (5bac3ae9 + 228f4104 + 3a67cad4 + cb928f09, merge 6ed4fb76): 27 laws into the planner. PROMPT leg on every law. GATES built where deterministic (L3 heuristic, L4 code-conditional via scene_has_motion, L5 face-visibility term, L9, L10, L11 heuristic, L17+L22, L19 heuristic, L20, L21 exact-match, L27) and honestly NOT built where semantic (L6, L7, L8, L12, L13, L14, L15, L16, L18, plus L0/L1/L2's pre-existing gate gap). REPAIR stamps on L3, L4, L5, L20 with tail reminders on L9, L10, L21. REAL BUG FOUND AND FIXED: L4's "actors PLANTED and never move" was HARDCODED UNCONDITIONALLY in both the sheet preview and the real per-shot draw prompt - the live static-tableau root cause, contradicting every motion scene. quality_rules board scope landed in full (applies_to is unconstrained jsonb, so migration 105's change is comment-only documentation, no DDL): "board" added as its OWN axis deliberately not matched by "all" so script rules never leak into board prompts, resolve_board_shape() + active_board_rules() wired into generate_coverage_directive, fail-open try/except. 52 new tests incl. the acceptance test asserting the real pipeline against every law; both files stash-proofed; full backend suite 43 failed / 3645 passed identical set both sides. Paid proof deferred as DV-7. NOT DEPLOYED.
+- [ ] BOARD LAWS FOLLOW-UP A: MISSING REPAIR STAMPS. Laws with a PROMPT leg but NO repair stamp: L11 nested frames, L12 population/depth, L15 attention-vs-orientation, L16 reverse-angle backgrounds, L18 unremarked plant, L19 diegetic POV, plus L17/L22 (builder found no reliable per-shot signal for headcount - the per-shot artifact may need a group-arrangement field, which is itself the finding). By BOARD-LAWS.md's own contract these evaporate the moment a single shot is redrawn - the exact failure class that cost $0.20 on 2026-07-29 morning.
+- [ ] BOARD LAWS FOLLOW-UP B: THE FILM-LEVEL BOUNDARY PASS (L23-L26). The build renders INCOMING/OUTGOING blocks when supplied but the PASS THAT PRODUCES THEM DOES NOT EXIST - deliberately out of scope. Needs its own plan: where it lives (above the scene), what it reads (all scene texts in order), what it writes (per-boundary relationship + OUT shot + IN shot + what carries), how each scene prompt receives its two blocks. Worked example: tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Same missing level as STORY-LAWS' S1-S5.
+- [ ] INCIDENT 2026-07-29 late - CONCURRENT AGENT COLLISION IN ~/economy-fastforward. Another agent (C5: never-built roster detection, no-spend-on-doomed-machines) was working uncommitted in the SAME checkout and was mid-STASH-PROOF when a records grunt of mine ran `git stash` despite an explicit instruction not to. Consequence: its pipeline_executor.py WIP (233 lines) is no longer in the working tree - it sits in stash@{0} ("WIP on main: 08e7cf31 C5: never-built roster detection, pre-lookup") and/or its own stash@{1} ("C5 fix-2 stash-proof: pipeline_executor.py only"). Its research/agent.py and test_never_built_classification.py edits ARE still in the working tree. NOTHING IS LOST but that agent's stash-proof was disturbed mid-flight and it may error or draw a wrong conclusion. I did NOT pop, drop or touch any stash. LESSON: never run records/merge grunts against a shared checkout without first checking for a concurrent writer; when one exists, do the git work in the main loop with minimal explicit commands, or wait.
+- [x] BOARD LAWS PROOF RUN 2026-07-30, through the UI on deployed 6b9ce8c4, scene 2 of 686b4651. VERDICT PARTIAL. Cost $0.10 (both sheets - the UI has no single-sheet option); total_cost 1.85 -> 1.95 of the 2.10 cap; $0.10 of Ryan's $1 left. Evidence: tasks/evidence/board-laws-proof/{scene2_sheet1_PRE.png, scene2_sheet1_POST.png (MD5s differ), scene2_storyboard_prompts_POST.txt}. CLEARLY BETTER THAN PRE-LAW: pre showed only 3 elites (never 5), drew the old man as two different-looking people between panels, and had near-duplicate wides; post fixes all three and carries the headcount and caption laws verbatim.
+- [ ] THE CENTRAL FINDING FROM THE PROOF RUN, and it reshapes follow-ups A and B: PROMPT-ONLY LAWS GET PARAPHRASED AWAY. The laws that survived into the emitted directive are the ones backed by a gate or by deterministic composer assembly (headcount, captions, character consistency, no-duplicate-panels). The laws the build could only give a PROMPT leg are exactly the ones that drifted: L13/L14 adjacency + two-shot (the emitted prompt seats the speakers "roughly two meters apart" and provides NO close two-shot, only a wide establishing shot - so the very defect Ryan found by eye on 07-29 is back), and L12 population/depth (thinned to one line vs v5's one-figure-per-pod rule). Also L5 face-visibility partially lost: the old man's face never appears in sheet 1, both his panels sitting on the same OTS axis. MECHANISM: the planner is an LLM that paraphrases its system prompt into a directive, so instructions to it are suggestions; only what the deterministic sheet composer writes literally, or what a gate rejects, actually reaches the drawer. CONSEQUENCE: for laws that matter, prefer DETERMINISTIC ASSEMBLY in coverage_to_app.py's sheet composer over prose in the planner's system prompt. Re-scope follow-up A around this, not just around redraw survival.
+- [ ] UI MONEY-SAFETY BUGS on the Scene card's "Regenerate storyboard" button, found during the proof run and both worth fixing before any customer sees this surface: (1) ZERO visual feedback on click - no hover state, no toast, no disabled/loading flash. The driver clicked it FOUR times before one registered (ledger stayed flat through three dead clicks, verified); a real user would conclude it is broken, and a less lucky click pattern is an accidental double-spend. (2) NO COST-CONFIRMATION CARD - it spends immediately on click, unlike the chat flow which shows "Ready when you are, ~$0.30, tap to run it". A paid action with no preview and no feedback is the worst combination on the money path. Also note: the button always redraws the WHOLE scene (both sheets, $0.10) with no single-sheet granularity, even though the API supports beat=N.
+- [ ] L28 + L29 ADDED 2026-07-30 from Ryan's catch on the proof board: "the characters didnt feed into the system so these characters came out realistic, not animated". CONFIRMED by reading the emitted prompt (tasks/evidence/board-laws-proof/scene2_storyboard_prompts_POST.txt) - the composer contradicts itself and lies about its inputs: it declares "storyboard sheet 1 of 2 for an ANIMATED scene" AND "the same art style, Photorealistic, cinematic film still" (both twice, once per sheet), and it asserts "matching their appearance to the attached reference images" regardless of whether any reference reached the call. L29: declare ONE style, once, from one source of truth - a second style claim lets the model choose and it chose photorealism, so an animated film's board came back live-action. L28: never assert an input that is not attached - claiming attached references when none are present does not merely fail to constrain, it LICENSES CONFIDENT INVENTION (the model believes it is matching something), which is why the invented cast looks deliberate and cannot be spotted from the prompt text.
+- [ ] OPEN VERIFICATION for the next session, needed before the fresh-video run: (a) WHERE do character references actually live? `information_schema` reports NO table named `characters` at all, so my query failed and the storage location is unconfirmed - find it (cast/portrait/reference_url paths, `_persist_portrait_url` is a known symbol) and confirm whether approved cast sheets exist for a video and whether the BOARD SHEET draw call attaches them (the per-shot coverage draw does attach cast_refs + master + env_refs per D3-65's fix - the SHEET path may not). (b) WHERE does the sheet composer get its style string, and why does it emit both "animated scene" and "Photorealistic"? One of those is hardcoded and wrong. Both are prerequisites for the fresh-video run: a board with an invented cast in the wrong style fails before any law is even tested.
+- [ ] THE DAY'S FINAL AND MOST CLARIFYING FINDING (Ryan: "the bubble is not put in there either its a weird tube"). Read from the emitted prompt: the warren set says "Towering CYLINDRICAL glass pods stacked vertically along metal framework" while Nyla's own pod set says "SPHERICAL pod with curved glass dome ceiling" - the world contradicts itself inside one prompt, and the screen therefore shows tubes. Grep for the canonical architecture agreed tonight (solid matte white rear shell / clear glass front / structural ribs, L20): ZERO occurrences. It lives only in the hand-written prompts and BOARD-LAWS.md; nothing carries it into the machine. SO THE VERDICT ON THE WHOLE BUILD SHARPENS: the law FORM landed well - per-location SET blocks with real cross-contamination prohibitions ("appear ONLY in X panels; never in Y"), stated headcounts, the caption rule, no duplicate panels, consistent character design - but the law CONTENT depends on canonical data that either does not exist or is not wired: the cast references (L28), the style string (L29), and the set/material map (L20). CONSEQUENCE FOR THE NEXT PHASE: the work is NOT more laws. It is giving the laws their data - a single canonical per-video definition of cast, style and set that the composer inserts VERBATIM instead of letting each scene's planner paraphrase it from stale source records. That is one build and it subsumes L20/L28/L29 plus the paraphrase problem behind L12/L13/L14.
+- [ ] THE ARCHITECTURE ANSWER (Ryan, 2026-07-30): "why cant this be deterministic and calculated, not invented and hallucinated... we know which laws we want the prompt to follow and it just ignores things and does its own thing." He is right and the design is backwards. Written up as storyengine/BOARD-PLANNER-ARCHITECTURE.md. Core: today the planner LLM WRITES the finished prompt while being told 29 laws in prose, so it paraphrases and keeps only what it finds convenient - which is exactly the proof run's failure pattern (code-written and gated laws survived; prompt-only laws were dropped). FIX: the LLM emits a VALIDATED STRUCTURED PLAN (per moment: order, location, register, action summary, speaker/line, flags for location-change / discovery / duration) and a DETERMINISTIC RENDERER builds the prompt from canonical data + a coverage catalogue. Then most laws stop being instructions and become properties of the code path: set blocks and material map inserted verbatim (L3/L20), one style string (L29), cast tags plus ACTUALLY ATTACHED references or no claim at all (L6/L28), camera kit SELECTED from a catalogue keyed by register and location count rather than invented (L1/L4/L13/L14/L18/L19), per-panel camera facts LOOKED UP as properties of the chosen setup (L5/L16), panel allocation by rule (L9/L21), reverse-angle arrangement computed by flipping the order (L22), boundary blocks rendered from the transition plan (L23-L26), constraints slot rendered complete (L2/L27). Bonus: gates dismissed as "semantic, not checkable" become checkable because they inspect a structured plan instead of prose. Honest limits recorded in the doc: the IMAGE model still hallucinates (it drew tubes where the text said sphere - determinism in the prompt is not determinism in pixels, the board gate catches the rest), a rigid catalogue risks sameness (model chooses among valid options per register), and true judgement calls stay with the model or Ryan. Sequence: canonical per-video record first (already the filed headline build), then the schema + planner switch behind a flag, then the renderer, then move the gates, then prove on one scene against the 9/9 hand-written sheet.
+- [ ] THE ARCHITECTURE ANSWER (Ryan, 2026-07-30): "why cant this be deterministic and calculated, not invented and hallucinated... we know which laws we want the prompt to follow and it just ignores things and does its own thing." He is right and the design is backwards. Written up as storyengine/BOARD-PLANNER-ARCHITECTURE.md. Core: today the planner LLM WRITES the finished prompt while being told 29 laws in prose, so it paraphrases and keeps only what it finds convenient - exactly the proof run's failure pattern (code-written and gated laws survived; prompt-only laws were dropped). FIX: the LLM emits a VALIDATED STRUCTURED PLAN (per moment: order, location, register, action summary, speaker/line, flags for location-change / discovery / duration) and a DETERMINISTIC RENDERER builds the prompt from canonical data plus a coverage catalogue. Then most laws stop being instructions and become properties of the code path: set blocks and material map inserted verbatim (L3/L20), one style string (L29), cast tags with ACTUALLY ATTACHED references or no claim at all (L6/L28), camera kit SELECTED from a catalogue keyed by register and location count rather than invented (L1/L4/L13/L14/L18/L19), per-panel camera facts LOOKED UP as properties of the chosen setup (L5/L16), panel allocation by rule (L9/L21), reverse-angle arrangement computed by flipping the order (L22), boundary blocks rendered from the transition plan (L23-L26), constraints slot rendered complete (L2/L27). Bonus: gates dismissed as "semantic, not deterministically checkable" become checkable because they inspect a structured plan instead of prose. Honest limits in the doc: the IMAGE model still hallucinates (it drew tubes where the text said sphere - determinism in the prompt is not determinism in pixels; the board gate catches the rest), a rigid catalogue risks sameness (model chooses among valid options per register), and true judgement calls stay with the model or Ryan. Sequence: canonical per-video record first (already the filed headline build), then the schema plus planner switch behind a flag, then the renderer, then move the gates, then prove on one scene against the 9/9 hand-written sheet.
+
+## PHASE D6 - BOARD PLANNER DETERMINISM (opened 2026-07-29, maestro)
+
+Ryan's instruction: finish the builds first, then run a fresh video end to end.
+Source docs: BOARD-PLANNER-ARCHITECTURE.md (the design), BOARD-LAWS.md L0-L29,
+STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
+
+### Definition of Complete (graded against this, not the checkbox count)
+1. One per-video canonical record holds cast (with real reference asset ids), style,
+   and a set/material map per location - and the composer inserts those strings
+   VERBATIM. No emitted prompt declares style twice, claims an unattached reference,
+   or re-describes the world. (Subsumes L20, L28, L29.)
+2. Every prompt-only law gets a real leg - moved into deterministic assembly
+   (preferred) or given a per-shot repair stamp: L11, L12, L15, L16, L17/L22, L18,
+   L19. A single-shot redraw cannot revert them.
+3. S3 reaches the script generator on all three legs (prompt + deterministic gate +
+   repair), then S1, S5, and honest admissions for S2/S4. Nobody hand-splits a scene
+   again.
+4. The film-level boundary pass (L23-L26) has a written plan. PLAN ONLY, no build
+   this phase.
+5. Proven by ONE real board (max $0.20 of Ryan's authorised $1) on a NEW video
+   created from the corrected eight-scene script, judged against BOARD-LAWS.md and
+   STORY-LAWS.md. Video 686b4651 stays untouched.
+
+### ASSUMPTIONS (made by the orchestrator, not asked - correct these if wrong)
+- A1. Canonical inputs ships WITH the composer's verbatim slots, not as a data record
+  alone. Data the planner is free to paraphrase is not canonical - that is exactly how
+  the 2026-07-30 proof run failed.
+- A2. The full structured-plan schema and renderer (BOARD-PLANNER-ARCHITECTURE.md
+  steps 2-3) is the NEXT phase, not this one. This phase does step 1 plus the
+  highest-value slices, so the phase ends with a proof board rather than a half-built
+  renderer.
+- A3. feat/board-laws is merged into main (verified: 0 commits ahead of main). The
+  HANDOFF line calling it unmerged is STALE. The "judge the builder's report" action
+  is already answered by the PARTIAL proof-run verdict - dropped.
+
+### Chunks
+- [x] D6-0A (S) [SWEEP] Board planner / composer / stamp inventory. Read-only Explore.
+  Map the board prompt path end to end, the planner system prompt, what is already
+  code-written vs prose, the existing SET/AXIS/STAGING/SEQUENCE stamp mechanism, the
+  per-shot artifact schema, where canonical per-video data would live, and the highest
+  free migration number. DISPATCHED.
+- [x] D6-0B (S) [SWEEP] Script generator prompt / gate / repair inventory. Read-only
+  Explore. Map the generate AND submit paths, the scene-splitting logic, the script
+  system prompt, whether quality_rules genuinely has a script scope consumed at
+  runtime, existing script gates, the scene record schema (is there a location field?),
+  and the repair leg. Answers: is S3 enforceable on today's schema? DISPATCHED.
+- [x] D6-1 (S) [D][B][V] CANONICAL INPUTS + composer verbatim slots. One per-video
+  record for cast (with reference asset ids), style, and the set/material map per
+  location, inserted VERBATIM by the composer. Migration 141 (reserved). Subsumes L20,
+  L28, L29 and the paraphrase problem behind L12/L13/L14. Depends on D6-0A. Worktree.
+- [x] D6-2 (S) [B][V] Repair stamps re-scoped around deterministic assembly. L11, L12,
+  L15, L16, L18, L19 and L17/L22 have a PROMPT leg but no per-shot stamp, so they
+  evaporate on the first single-shot redraw (the failure class that cost $0.20 on
+  07-29). PREFER moving a law into deterministic assembly over adding prose. L17/L22
+  may need a group-arrangement field on the per-shot artifact - the missing signal is
+  itself the finding. Depends on D6-1.
+- [x] D6-3 (S) [D][B][V] S3 into the script generator, all three legs. One scene is one
+  location and one continuous beat. GATE: does a scene span more than one location?
+  Highest-value single item in the backlog - it is why scene 1 was oversized. Must reach
+  the SUBMIT path too, not only the generate path. Migration 142 (reserved). Depends on
+  D6-0B. Worktree. PARALLEL with D6-1.
+- [x] D6-4 (S) [B][V] S1 + S5 + honest S2/S4 admissions. S1 gate: does a scene's
+  location differ from the previous with no transit sentence? S5 gate: does every scene
+  name a location? S2/S4 are judgement - admit in-commit that no deterministic gate is
+  feasible rather than pretending one exists. Depends on D6-3.
+- [x] D6-5 (S) [doc] Film-level boundary pass PLAN (L23-L26). Delivers
+  BOUNDARY-PASS-PLAN.md. Acceptance target: the plan must be capable of producing
+  tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Migration 143 (reserved) if it
+  proposes storage. PLAN ONLY. No dependency - PARALLEL with everything. DISPATCHED.
+- [ ] D6-6a [GATE - $0, NO SPEND] **RYAN'S RULE, 2026-07-29: "before any image is actually generated you will
+  run the script system through the pipeline for a single storyboard and cross check the output against the rules
+  to see if it will turn out correct."** So: author the corrected EIGHT-SCENE script onto a NEW video (take
+  686b4651's six scene texts, split scene 1's text into three by hand - escape / run and dead end / return - and
+  submit via the FREE `submit_script`; never split 686b4651 itself). Then run the pipeline as far as EMITTING the
+  board prompt for ONE scene WITHOUT DRAWING, and dump the emitted prompt text. A `plan_only` dry-run path already
+  exists on prod from D3-59 - use it rather than building a new one. Then cross-check the emitted prompt line by
+  line against BOARD-LAWS.md L0-L29 and STORY-LAWS.md S1-S5 and report which laws are ACTUALLY PRESENT in the text
+  versus merely intended. This is the cheapest artifact that shows the defect: every failure that cost money on
+  2026-07-29 was readable in the prompt words before anything was drawn - the double style claim, the
+  claimed-but-unattached references, the paraphrased-away adjacency law. Judging words costs nothing.
+  HONEST LIMIT, stated up front: a clean dry run proves the PROMPT obeys the laws, NOT that the picture will.
+  BOARD-PLANNER-ARCHITECTURE.md says it plainly - determinism in the prompt is not determinism in pixels, and the
+  last proof run drew tube-shaped pods from text that said sphere. 6a passing means the words are right and the
+  only remaining risk is the drawer, which is the sole part that needs money to test.
+- [ ] D6-6b [DECISION - MONEY] ONE proof board, max $0.20 (Ryan's authorised $1 has $0.80 already spent). Runs
+  ONLY if D6-6a passes, and ONLY on Ryan's explicit go. Judged against BOARD-LAWS.md and STORY-LAWS.md. Script
+  judged first, boards second, nothing paid until each stage passes. Video 686b4651 stays untouched; frame-level
+  spend on its scene 1 remains FROZEN.
+
+### HARD CONSTRAINTS (all earned, all cost money to learn)
+- Do NOT split or re-derive video 686b4651. Re-deriving scenes runs
+  `DELETE FROM scripts WHERE video_id = ...` (user_script.py:188/382), wiping every
+  scene's boards, directives and prompts and orphaning $1.85 of drawn assets. It is the
+  law-discovery artifact - leave it. The next run is a NEW video.
+- Frame-level spend on scene 1 is FROZEN (D3-66 strike 2).
+- `se deploy` REQUIRES the session name BEFORE flags (D3-60 open): a bare flag binds to
+  WHO and the frontend build silently skips while the log still prints the flag. Verify
+  BUILD_ID mtime or grep a literal in the deployed chunks.
+- Migration numbers reserved to avoid a collision between parallel lanes: D6-1 takes
+  141, D6-3 takes 142, D6-5 takes 143 if needed.
+- Parallel EDIT lanes get worktree isolation.
+
+### D6 sweep findings (verified 2026-07-29, these override the HANDOFF where they disagree)
+- **Migration 141 is TAKEN** (`backend/migrations/141_static_reference_misses.sql`). The HANDOFF's
+  "141 and 142 are free" is wrong. Reserved block for this phase: **142 = D6-1**
+  (canonical inputs), **143 = D6-2** (repair stamps), **144 = D6-3** (scene location),
+  **145 = D6-5** (boundary storage, if built).
+- **L28 and L29 are LIVE BUGS in the composer, not history.** `_sheet_header` hardcodes the
+  literal `"for an animated scene"` on every sheet (`backend/scripts/coverage_to_app.py:1163`)
+  while `style_line` defaults to `"Photorealistic, cinematic film still"` (~:1708) - two
+  contradictory style claims in one prompt, which is why an animated film's board came back
+  live-action. The same header unconditionally claims "matching their appearance to the attached
+  reference images" (~:1167-1168) even when `cast_refs` is `[]`. Both reproduce on the NEXT board
+  unless D6-1 fixes them. Folded into D6-1.
+- **Style is scattered across EIGHT columns** on `videos` (`image_style_override`, `visual_style`,
+  `render_style`, `style_preset_id`, `production_style_id`, `production_style_snapshot`,
+  `thumbnail_style_override`, `production_style_version`), merged by `_resolve_style`
+  (`coverage_to_app.py:251`) with no written precedence contract. That missing contract IS the
+  L29 defect.
+- **No per-shot LOCATION column and no GROUP ARRANGEMENT column exist** on `assets` (52 cols
+  checked live). L17/L22's "missing signal" is confirmed at the schema level, so D6-2 needs a
+  data leg, not just code.
+- **`scripts` has NO location column** - verified against every migration. So S3 is NOT gateable
+  on today's schema without one. D6-3's design call: the writer emits a required `LOCATION:`
+  scene header, a parser lifts it into a new `scripts.location` column, and the gate reads the
+  column (not the prose).
+- **THREE separate scene splitters exist with no shared seam**: ACT markers
+  (`script_generator.py:40-50`), `@@@SCENE n@@@` on the modeled path
+  (`pipeline_executor.py:12089-12129`), and the submit path (`user_script.py:40-56, 89-150,
+  59-75`). A law landing on one is bypassable via the other two. The modeled path at
+  `pipeline_executor.py:12173-12181` ALREADY contains near-verbatim S3 prose that nothing ever
+  reads back - centralize it, do not duplicate it.
+- **`quality_rules` has no `script` scope and never reaches the writer.** It feeds a
+  post-generation LLM grading rubric only (`pipeline_executor.py:11860-11868`,
+  `user_script.py:321-323`). STORY-LAWS' claim that it is "already consumed by the script stage"
+  is true for grading and misleading as written. Use it as the runtime-tunable leg IN ADDITION to
+  the prompt, never instead of it.
+- **No repair leg exists on the script side at all.** `edit_scene_text`
+  (`routes/videos.py:1583-1593`) is a raw `UPDATE scripts SET scene_text=$1` carrying nothing.
+- **Video 686b4651 has SIX scenes on disk, not eight.** It becomes eight when scene 1 splits into
+  three (escape / run and dead end / return), which is why the approved TRANSITION-PLAN-example
+  has 7 boundaries. The "corrected eight-scene script" does NOT exist as data yet. Because that
+  video must never be split, the eight-scene script gets AUTHORED onto the new video in D6-6:
+  take the 6 scene texts, split scene 1's text into three by hand, submit via the free
+  `submit_script`. Costs $0 and it is the real customer path.
+- **PATH-ROOT GOTCHA that cost one bounce:** the pipeline skill lives at REPO ROOT
+  `skills/video-pipeline/`, while the composer lives at
+  `storyengine/backend/scripts/coverage_to_app.py`. Two different roots. A worker grepping only
+  `storyengine/` will wrongly conclude the board code does not exist. Put this in every future
+  board-layer brief.
+- **`format_boundary_blocks` IS on main** (`skills/video-pipeline/storyboard/coverage.py:510`,
+  tested at `skills/video-pipeline/tests/test_board_laws.py:149-165`). The L23 INCOMING/OUTGOING
+  renderer already exists and is verbatim; only the producer is missing. `feat/board-laws` is
+  fully merged (0 commits ahead) and its worktree is clean - nothing is stranded there.
+
+### D6-1 merged 2026-07-29 (commits e68dabd1 + 9f425778). Verified by an independent reviewer.
+What landed: migration 142 (`video_characters.identity_tag`, `video_environments.material_map`, both
+nullable), a written style precedence contract in `_resolve_style`, canonical cast/style/material
+inserted VERBATIM by the sheet composer, three gates that raise before any paid call, and repair by
+FRESH RE-DERIVATION at redraw time (so a corrected canonical record heals old shots).
+The two live law violations are fixed and confirmed gone from the branch: the hardcoded
+`"for an animated scene"` literal (L29) and the unconditional attached-references claim (L28).
+Review round 2 (D6-1b) fixed three real defects the first round shipped: the L29 gate scanned the
+WHOLE prompt including planner-written panel prose, so ordinary English raised it - `"Her face is
+animated with delight"`, `"An oil painting of a ship hangs above the fireplace"`, `"watches a cartoon
+on the television screen"`, `"The CGI-rendered warning hologram flickers"` all blocked legal boards.
+Now scoped to composer-written text only, with two regression-lock tests proving a GENUINE double
+style claim still raises (the failure mode of that fix is defanging the gate).
+The L3 location check was comparing two independently LLM-worded prose strings and would fire on
+paraphrase (`"Diner Interior"` vs `"The Diner"`); now canonicalized against `video_environments` in
+three tiers, and it never hard-raises when no canonical record exists.
+LESSON FOR EVERY FUTURE BRIEF - a gate may only be HARD when the thing it compares against is
+CANONICAL. Prose-vs-prose comparison must warn, never block.
+LESSON 2 - `ImportError` at test collection with the implementation stashed is NOT a stash-proof. It
+proves the module is new, not that the behaviour changed. Demand a test that fails on an ASSERTION.
+Both builders produced the weak form on the first pass; put this in the brief next time.
+
+### New chunks from D6-1 (found, not lost)
+- [ ] D6-1c (S) [B][V] HIGH - the REAL per-shot pictures path still uses the LLM's own `[MATERIAL|]`
+  line, not the canonical `material_map`. Only the $0.05 sheet-preview path is canonical today. This
+  is the D6-1 split boundary the builder named honestly. Note the $0.05 sheet path IS what the D6-6
+  proof board uses, so the mission's proof is covered - but the real coverage pictures are not.
+  Lives in `skills/video-pipeline/storyboard/coverage.py` (`run_coverage`), REPO ROOT, not under
+  `storyengine/`.
+- [ ] D6-1d (S) [B][V] L29 STILL LIVE for preset-only videos. `style_preset_id` and
+  `production_style_id` resolve through a SEPARATE mechanism (`pipeline_executor._resolve_visual_profile_id`
+  -> `VISUAL_PROFILE` env var -> a different `load_profile`) that `_resolve_style` never touches, so a
+  preset-only video's sheet preview can disagree with its real draw on style. That is the exact L29
+  defect surviving in a second code path. Six of the eight style columns are documented as
+  out-of-scope in the precedence contract - this is the one that is a real gap, not a documented
+  non-goal.
+- [ ] D6-1e (S) [B][V] PRE-EXISTING false-success path, same shape as the one D6-1b fixed, predates
+  this phase: in `generate_storyboard_sheet_for_scene`, `"the planner returned no shots"` and a
+  missing `srow` both `continue` silently with no tracking, so the stage can report completed having
+  drawn nothing. D6-1b fixed only the path its own new exception introduced and correctly refused to
+  expand scope. A creator seeing "completed" with zero boards is a trust-and-money bug - treat as
+  HIGH.
+
+### D6-3 + D6-2 merged 2026-07-29. Six of eight chunks done.
+D6-3 (52ecb7b2 + D6-3b): migration 144 (`scripts.location`, nullable), new module `backend/story_laws.py` as the ONE
+home for S-law text and checks, S3 reaching three of four scene-writing paths, repair leg carrying location forward.
+An independent verifier returned DO NOT MERGE on round 1; round 2 fixed all four findings.
+
+RULING 1, recorded so nobody re-tightens it: **the declared location is CANONICAL (it is a column), so the
+`no_location` check MAY be hard. The `cross_location_text` check compares PROSE TO PROSE, so it WARNS and never
+blocks - permanently.** Story law S1 REQUIRES a script to narrate every location change, so "She leaves the corridor
+behind and steps onto the bridge" is exactly what S1 demands and exactly what a strict S3 would reject. The two laws
+were in direct conflict; resolved in S1's favour, because S1 governs whether a script is filmable and S3 governs
+whether a scene is the right size. Substring collisions fixed too ("the pod bay" no longer trips on "the pod"). The
+interaction is now written into STORY-LAWS.md under S3.
+
+RULING 2, from D6-1 and applied throughout: **a gate may only be HARD when the thing it compares against is
+CANONICAL. Prose-versus-prose must warn, never block.**
+
+SYSTEMIC BUG FIXED - THE MOST VALUABLE FINDING OF THE PHASE: `worker.py:_run_stage` (the DEFAULT arq enqueue path,
+used whenever Redis is up) only special-cased `"cancelled"` and `"failed"`. Every other status, including
+`"needs_review"`, fell through to `db_persist_task(..., "completed")`. A stage that BLOCKED its work reported success
+and discarded the violation text, leaving the video stuck. **This silently defeated every quality gate in the product
+on the default path.** The same false-success shape was found independently in board chunk D6-1 the same day - two
+instances, unrelated code, one bug class. Now `needs_review` persists as `failed` WITH the violation text, because
+`background_tasks.status` has a hard CHECK constraint with no `needs_review` bucket. A false failure is recoverable;
+a false success is not. INTENDED BREADTH: this applies to EVERY stage returning `needs_review`, not only S3, so
+stages that previously reported "completed" while blocking will now report "failed" with real text. Expect that as a
+visible UI change.
+
+ALSO FIXED in D6-3: the ACT-based path's write-ordering claim was FALSE - `_write_script_records` DELETEs and INSERTs
+progressively per act, so the gate's SELECT ran after the write. The code now deletes the newly-written rows on
+violation and records the failure on `videos.script_validation`. STORY-LAWS.md had repeated the false claim verbatim
+and is corrected to state the true ordering PER PATH. A law document that lies is worse than one admitting a gap.
+
+D6-2 (dd1fc8e9), migration 143: seven of eight board laws now have all three legs.
+| Law | Route | Repair leg |
+|---|---|---|
+| L11 nested frames | baked stamp | done |
+| L12 population | baked stamp | done |
+| L15 attention/orientation | fixed reminder stamp | done |
+| L16 reverse background | **COMPUTED** + fresh redraw re-derivation | done |
+| L17 headcount | baked stamp (paired with L22) | done |
+| L18 discovery object | prose only | **ABSENT - honestly admitted** |
+| L19 diegetic POV | fixed reminder stamp | done |
+| L22 group arrangement | **COMPUTED** + fresh redraw re-derivation | done |
+L16 and L22 are genuinely calculated, not instructed, which is what BOARD-PLANNER-ARCHITECTURE.md asked for:
+`compute_reverse_arrangement()` splits the canonical clause, reverses the order and swaps `frame-left` <-> `frame-right`.
+Verified live - SETUP G (the reverse of A) produced "...order flipped): ...toward frame-left, then Old Man, then Gold
+Woman... at the frame-right end...". L18's repair leg is deliberately absent because a naive stamp would contradict
+that law's own "shot size changes" clause - admitted rather than faked. NO new HARD gates were added; every new check
+is a warning, correctly applying Ruling 2. The decisive test `test_redraw_inherits_all_seven_repaired_laws` proves a
+SINGLE-SHOT REDRAW inherits every repaired law, which is the exact failure class that cost $0.20 of real money.
+PROCESS NOTE: that builder initially edited the MAIN working tree instead of its worktree (572 uncommitted lines),
+caught it, and relocated the work capture-first / verify / then clean, leaving main clean. Put "use -C with the
+worktree path on EVERY git command and absolute worktree paths for every edit" in future briefs - creating a worktree
+is not the same as working in it.
+
+### New chunk from D6-2 (found, not lost)
+- [ ] D6-2b (S) [B][V] L16's computation is PROSE-PARSED and can silently no-op.
+  `parse_reverse_setup_pairs()` regex-matches the phrase "the matched reverse of X" out of the LLM-written
+  `[SETUPS|]` line. If the planner words it differently, the reverse-background computation silently does not happen
+  and the law quietly stops applying - it degrades to old behaviour rather than erroring, which is why it is a
+  follow-up and not a blocker. The real fix is the structured-plan schema from BOARD-PLANNER-ARCHITECTURE.md step 2,
+  where the reverse-pair relationship is a FIELD rather than a phrase. Until then, consider asserting the parse found
+  the pairs the setups block implies.
+
+### D6-4 merged 2026-07-29 (7b5a04f5). All 7 build chunks of phase D6 are now done.
+| Law | Prompt | Gate | Repair |
+|---|---|---|---|
+| S1 narrate every location change | done (`LOCATION_TRANSIT_LAW`, both generation paths + MCP tool desc) | warn-only PERMANENTLY, both legs | done, own key `story_law_s1_warnings` |
+| S2 a payoff must be paid for earlier | absent - ADMITTED | absent - ADMITTED, no deterministic check possible | absent |
+| S4 the script is the source of truth for cast | absent - ADMITTED (no sane injection point; cast is derived FROM the script) | partial, warn-only, wired at `approve_cast` | done, at `update_character` name edit |
+| S5 a scene states where it is | ALREADY DONE by D6-3's `no_location` check - no duplicate built | already done (hard, because the column is canonical) | already done |
+
+S1's split, per Ruling 1: "did the location change" compares two canonical `scripts.location` values and is eligible to
+be hard, but a location change is never itself a defect so nothing blocks on it alone. "Was a transit narrated" is prose
+detection with no reliable signal in free text, so it WARNS, always.
+S4's partial gate warns in both directions (a cast member the script never names; a speaker with no cast entry). It
+SURFACES and never resolves the real open case in HANDOFF.md - the script's "woman in gold" and "old man" versus three
+named navy-suited board elders. **That ruling is still owed by Ryan.**
+The builder hunted its own false positives before reporting, as briefed, and found a real one live: "Then Nyla finds it:
+a lens..." (686b4651 scene 3) was being misread as a speaker tag. Fixed by requiring every word of a speaker tag to be
+Title Case, with a regression test. Four legal S1 transit cases produce zero warnings.
+
+### THE BLOCKER FOR D6-6a - READ BEFORE RUNNING THE DRY RUN
+**Migrations 142, 143 and 144 are NOT APPLIED TO PRODUCTION.** Confirmed via a free `se db` SELECT: `scripts` has no
+`location` column and `_migrations` contains no entry for 142-146. Consequence: **D6-1's canonical inputs, D6-2's
+per-shot location and group arrangement, and D6-3's S3 gate plus D6-4's S1/S5 pieces are ALL DORMANT on prod.** The
+code is on main; the schema is not there to back it.
+So a D6-6a dry run against prod TODAY would exercise law code whose columns do not exist, and would report laws as
+absent for the wrong reason. The dry run is only meaningful AFTER the migrations are applied.
+Applying them means a deploy to the live VPS, which is RYAN'S CALL and must not happen without his explicit go.
+Deploy-day gotcha that still applies: `se deploy` REQUIRES the session name BEFORE any flags (D3-60 open) - a bare flag
+binds to WHO, the frontend build silently skips, and the log still prints the flag. Verify BUILD_ID mtime or grep a
+literal in the deployed chunks. A deploy-day checklist is in tasks/deferred-verification.md.
+
+### RYAN'S RULING, 2026-07-29: THE SCRIPT WINS (closes the S4 open question)
+His words: "script does win".
+
+The open case was recorded in HANDOFF.md as "the elite cast mismatch": the script names "a woman in gold" and "an old
+man", while the production board cast three interchangeable navy-suited elders in different wardrobe entirely, so the
+dialogue's visual identity did not match the words being spoken.
+
+**RULING: the SCRIPT is canonical. The board's three navy-suited elders are the DEFECT, not the reference.** The cast
+for that scene is a woman in gold and an old man, as written. Story law S4 already states the principle - "the script
+is the source of truth for cast" - and this ruling confirms it for this specific video, which S4 required a human to
+decide. No longer an open question; do not re-ask it.
+
+Consequences to carry forward:
+- Any character sheet, board or coverage picture casting three navy elders for that scene is wrong and must be
+  regenerated from the script's cast, not preserved for continuity.
+- D6-4's S4 warn-only gate (wired at `approve_cast`, warning in both directions - a cast member the script never names,
+  and a speaker with no cast entry) now has a concrete expected outcome for this video: it SHOULD warn on the navy
+  elders. That makes this a free real-world test of the S4 gate once the migrations are live.
+- When the D6-6a dry run reaches the cast block, the canonical cast identity tags must read as the woman in gold and
+  the old man. If they read as navy elders, the canonical inputs record is populated from the wrong source and that is
+  a D6-1 defect to file.
+- Do NOT hand-edit video 686b4651 to apply this. That video is READ-ONLY - re-deriving its scenes runs
+  `DELETE FROM scripts WHERE video_id = ...` and would orphan $1.85 of drawn assets. The ruling applies to the NEW
+  video authored in D6-6a.

@@ -458,6 +458,169 @@ async def test_prefetch_skips_video_with_no_locked_roster(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 2b. 2026-07-29 fix: ship-class roster entries whose glued display name
+# (designation + name, via pipeline_executor._unit_display_name) is
+# unsearchable now get found through a derived ALIAS instead. Real misses
+# from "Every British Aircraft Carrier Class Ever Built" (2026-07-27, video
+# d2e37cd6-521a-43aa-a14d-ce096a783c1e): 6 of 23 roster machines never got a
+# verified reference photo. 4 of those 6 are genuinely searchable and are
+# reproduced here; the other 2 (a never-built design, and one that likely
+# failed the vision check rather than the search) are NOT reproduced since
+# aliases can't fix either of those.
+# ---------------------------------------------------------------------------
+
+def _ship_class_roster_video(video_id: str) -> dict:
+    """The 4 genuinely-searchable misses from the live roster, as structured
+    unit_roster entries (not the flat glued strings the old prefetch path
+    was stuck with)."""
+    roster_items = [
+        {"name": "Attacker class (US-built)", "designation": "Lend-Lease escort carriers"},
+        {"name": "Ruler class (US-built)", "designation": "Lend-Lease escort carriers"},
+        {"name": "Audacious class / Malta class", "designation": "CVA-01 predecessors"},
+        {"name": "Archer class / Empire Mac-Ship conversions", "designation": "CAM ships and MAC ships"},
+    ]
+    return {
+        "id": video_id,
+        "render_mode": "static_docu",
+        "research_payload": {
+            "documentary_style": "designed_vs_used",
+            "unit_roster": roster_items,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_prefetch_finds_ship_class_misses_via_derived_aliases(monkeypatch):
+    """A Wikipedia lookup that only ever matches a real, bare class/member-
+    ship name — never the glued designation+name display string
+    ("Lend-Lease escort carriers Attacker class (US-built)") — must still
+    find and verify every one of the 4 machines, because
+    prefetch_roster_references now derives and passes real aliases
+    (pipeline_executor._machine_documentary_hold_roster_entries /
+    _unit_roster_aliases) through to _prefetch_one_machine ->
+    _gather_reference_candidates. Before this fix, _prefetch_one_machine
+    called `_gather_reference_candidates(machine, None, machine)` — no
+    aliases ever reached the lookup, so all 4 of these would have missed."""
+    video_id = str(uuid.uuid4())
+    tenant_id = str(uuid.uuid4())
+    video_row = _ship_class_roster_video(video_id)
+
+    # Real Wikipedia article titles for these classes — reachable only via
+    # the bare split alias, never the full glued display string.
+    alias_hits = {
+        "Attacker class (US-built)": ("https://en.wikipedia.org/thumb/Attacker.jpg", "Attacker-class escort carrier"),
+        "Ruler class (US-built)": ("https://en.wikipedia.org/thumb/Ruler.jpg", "Ruler-class escort carrier"),
+        "Audacious class": ("https://en.wikipedia.org/thumb/Audacious.jpg", "Audacious-class aircraft carrier"),
+        "Malta class": ("https://en.wikipedia.org/thumb/Malta.jpg", "Malta-class aircraft carrier"),
+        "Archer class": ("https://en.wikipedia.org/thumb/Archer.jpg", "Archer-class escort carrier"),
+        "Empire Mac-Ship conversions": ("https://en.wikipedia.org/thumb/EmpireMac.jpg", "MAC ship"),
+    }
+
+    cache_writes = []
+    lookup_calls = []
+
+    async def fake_fetch_one(query, *args):
+        if "FROM videos" in query:
+            return dict(video_row)
+        if "FROM static_reference_cache" in query:
+            return None
+        return None
+
+    async def fake_execute(query, *args):
+        if "INSERT INTO static_reference_cache" in query:
+            cache_writes.append(args)
+        return None
+
+    async def fake_lead_images(names, limit=3):
+        lookup_calls.append(list(names))
+        for n in names:
+            if n in alias_hits:
+                url, page = alias_hits[n]
+                return [{"url": url, "page": page, "trusted": True}]
+        return []
+
+    async def fake_article_images(names, limit=5):
+        return []
+
+    async def fake_commons_photos(query, limit=3):
+        return []
+
+    async def fake_host_reference(url, vid, tid, tag):
+        return f"https://storage.example/{tag}.jpg"
+
+    async def fake_vision_confirms(tid, image_url, machine, aliases=None, trusted_source=False):
+        return True
+
+    monkeypatch.setattr(static_docu, "fetch_one", fake_fetch_one)
+    monkeypatch.setattr(static_docu, "execute", fake_execute)
+    monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", fake_lead_images)
+    monkeypatch.setattr(static_docu, "find_article_images", fake_article_images)
+    monkeypatch.setattr(static_docu, "find_commons_photos", fake_commons_photos)
+    monkeypatch.setattr(static_docu, "_host_reference", fake_host_reference)
+    monkeypatch.setattr(static_docu, "_vision_confirms", fake_vision_confirms)
+
+    result = await static_docu.prefetch_roster_references(video_id, tenant_id)
+
+    assert result["status"] == "completed"
+    assert result["roster_count"] == 4
+    assert result["verified"] == 4, f"expected all 4 to verify via alias, got: {result}"
+    assert result["missed"] == 0
+    assert len(cache_writes) == 4
+
+    # Prove the alias was actually offered to the lookup, not just that the
+    # sweep happened to pass some other way — every lookup call's `names`
+    # list must have included at least one split alias beyond the raw
+    # glued display name.
+    glued_names = {
+        "Lend-Lease escort carriers Attacker class (US-built)",
+        "Lend-Lease escort carriers Ruler class (US-built)",
+        "CVA-01 predecessors Audacious class / Malta class",
+        "CAM ships and MAC ships Archer class / Empire Mac-Ship conversions",
+    }
+    for names in lookup_calls:
+        assert names[0] in glued_names  # machine itself is always names[0]
+        assert len(names) > 1, "aliases must have been passed alongside the machine name"
+
+
+@pytest.mark.asyncio
+async def test_prefetch_one_machine_without_aliases_still_misses_the_glued_name(monkeypatch):
+    """Sanity check on the OLD behavior this fix replaces: calling
+    _prefetch_one_machine with no aliases (the pre-fix call shape) against a
+    lookup that only matches the bare class name must still MISS — this is
+    what proves the aliases, not some other change, are what made the test
+    above pass."""
+    video_id = str(uuid.uuid4())
+    tenant_id = str(uuid.uuid4())
+    machine = "Lend-Lease escort carriers Attacker class (US-built)"
+
+    async def fake_lead_images(names, limit=3):
+        if "Attacker class (US-built)" in names:
+            return [{"url": "https://en.wikipedia.org/thumb/Attacker.jpg",
+                     "page": "Attacker-class escort carrier", "trusted": True}]
+        return []
+
+    async def fake_article_images(names, limit=5):
+        return []
+
+    async def fake_commons_photos(query, limit=3):
+        return []
+
+    monkeypatch.setattr(static_docu, "find_wikipedia_lead_images", fake_lead_images)
+    monkeypatch.setattr(static_docu, "find_article_images", fake_article_images)
+    monkeypatch.setattr(static_docu, "find_commons_photos", fake_commons_photos)
+
+    # No aliases (aliases=None) — the exact call shape _prefetch_one_machine
+    # used before this fix.
+    candidates = await static_docu._gather_reference_candidates(machine, None, machine)
+    assert candidates == [], "without aliases, the glued display name must still miss"
+
+    # With the derived alias, the same lookup finds it.
+    candidates_with_alias = await static_docu._gather_reference_candidates(
+        machine, ["Attacker class (US-built)", "Lend-Lease escort carriers"], machine)
+    assert len(candidates_with_alias) == 1
+
+
+# ---------------------------------------------------------------------------
 # 3. Research-hook dispatch: static_docu -> task dispatched; non-static -> not.
 # ---------------------------------------------------------------------------
 

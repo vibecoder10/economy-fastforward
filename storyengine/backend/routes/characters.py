@@ -27,7 +27,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from auth import get_tenant_id
 from database import execute, fetch_all, fetch_one
@@ -49,6 +49,7 @@ class CharacterRead(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    identity_tag: Optional[str] = None
     reference_url: Optional[str] = None
     status: str = "draft"
     source: str = "generated"
@@ -58,6 +59,17 @@ class CharacterRead(BaseModel):
 class CharacterUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    # D6-1 (BOARD-LAWS L6 — IDENTITY ONCE, migration 142): a short LOCKED
+    # identity tag (2-4 words), read VERBATIM into every board's CHARACTER
+    # block (coverage_to_app._character_identity_line / load_character_
+    # bible) — distinct from description, which stays long free prose for
+    # the cast-sheet portrait prompt and the writer's bible.
+    identity_tag: Optional[str] = None
+
+    @field_validator("identity_tag")
+    @classmethod
+    def _identity_tag_len(cls, v):
+        return v.strip()[:200] if v is not None else v
 
 
 class ImportCastRequest(BaseModel):
@@ -115,6 +127,7 @@ def _row_to_read(row: dict) -> CharacterRead:
         id=str(row["id"]),
         name=row.get("name") or "",
         description=row.get("description"),
+        identity_tag=row.get("identity_tag"),
         reference_url=row.get("reference_url"),
         status=row.get("status") or "draft",
         source=row.get("source") or "generated",
@@ -478,6 +491,12 @@ async def update_character(
         params.append(body.name.strip()[:120]); sets.append(f"name = ${len(params)}")
     if body.description is not None:
         params.append(body.description.strip()[:1000]); sets.append(f"description = ${len(params)}")
+    if body.identity_tag is not None:
+        # Empty string clears it back to None ("no canonical tag") — the
+        # composer's fallback path (load_character_bible) treats NULL and ""
+        # identically, so storing NULL keeps the column's meaning consistent
+        # with migration 142's "NULL == not authored yet" contract.
+        params.append(body.identity_tag or None); sets.append(f"identity_tag = ${len(params)}")
     if not sets:
         return {"status": "unchanged"}
     params += [char_id, video_id, tenant_id]
@@ -489,7 +508,35 @@ async def update_character(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Character not found")
-    return _row_to_read(row).model_dump()
+    result = _row_to_read(row).model_dump()
+
+    # D6-4 (STORY-LAWS S4 repair leg, PARTIAL). A name edit (the field the
+    # consistency check actually compares) can introduce or fix a mismatch
+    # against the script's own text — re-run the read-only, warn-only check
+    # and surface it. Cheap (two free SELECTs, no LLM call), never blocks
+    # the edit — see story_laws.check_cast_consistency_law's docstring for
+    # why this can never be a hard gate.
+    if body.name is not None:
+        try:
+            script_rows = await fetch_all(
+                "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+                "ORDER BY scene",
+                video_id, tenant_id,
+            )
+            cast_rows = await fetch_all(
+                "SELECT name FROM video_characters WHERE video_id = $1 AND tenant_id = $2",
+                video_id, tenant_id,
+            )
+            import story_laws
+            cast_check = story_laws.check_cast_consistency_law(
+                [dict(r) for r in (script_rows or [])],
+                [dict(r) for r in (cast_rows or [])],
+            )
+            result["story_law_s4_warnings"] = [w["detail"] for w in cast_check["warnings"]]
+        except Exception as e:  # noqa: BLE001 — advisory only, must never block the edit
+            logger.warning("[characters] S4 re-check failed for %s/%s: %s",
+                           video_id, char_id, str(e)[:200])
+    return result
 
 
 @router.post("/{video_id}/characters/{char_id}/upload")
@@ -695,6 +742,33 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
             )
             cast = [dict(r) for r in with_refs]
 
+            # D6-4 (STORY-LAWS S4 GATE leg, PARTIAL — see story_laws.
+            # check_cast_consistency_law's docstring for the full ruling).
+            # Warn-only, permanently: this can never block cast approval,
+            # it can only tell Ryan a mismatch exists between the cast
+            # being locked and what the script actually named. Free read
+            # (no LLM call, no spend) — cast approval is the earliest point
+            # both the script and the canonical video_characters rows
+            # exist together, so it's the right place to run this, not
+            # script-generation time (video_characters doesn't exist yet
+            # then). Best-effort: a failure here must never block a real
+            # cast approval the creator is waiting on.
+            cast_law_warnings: list[str] = []
+            try:
+                script_rows = await fetch_all(
+                    "SELECT scene_text FROM scripts WHERE video_id = $1 AND tenant_id = $2 "
+                    "ORDER BY scene",
+                    video_id, tenant_id,
+                )
+                import story_laws
+                cast_check = story_laws.check_cast_consistency_law(
+                    [dict(r) for r in (script_rows or [])], cast,
+                )
+                cast_law_warnings = [w["detail"] for w in cast_check["warnings"]]
+            except Exception as e:  # noqa: BLE001 — advisory only, never blocks approval
+                logger.warning("[characters] S4 cast-consistency check failed for %s: %s",
+                               video_id, str(e)[:200])
+
             # Pixel-accurate descriptions: the portraits were GENERATED from the
             # text, but image models take liberties — when the saved text says
             # "light blue tee" and the approved portrait shows red, downstream
@@ -758,8 +832,17 @@ async def approve_cast(video_id: str, background_tasks: BackgroundTasks, tenant_
                 "updated_at = now() WHERE id = $2 AND tenant_id = $3",
                 sheet_url or with_refs[0]["reference_url"], video_id, tenant_id,
             )
-            _set_task_status(video_id, "completed",
-                             f"Cast approved ({len(with_refs)}) — storyboards unlocked.",
+            complete_msg = f"Cast approved ({len(with_refs)}) — storyboards unlocked."
+            if cast_law_warnings:
+                # D6-4: surfaced in the completion message itself (no
+                # dedicated warnings field on _set_task_status) — visible,
+                # never blocking. Capped so one noisy video can't blow out
+                # the status message.
+                complete_msg += (
+                    " Story law S4 advisory (cast/script mismatch, non-blocking): "
+                    + "; ".join(cast_law_warnings[:4])
+                )[:900]
+            _set_task_status(video_id, "completed", complete_msg,
                              tenant_id=tenant_id, task_type=TASK_TYPE)
         except Exception as e:
             _set_task_status(video_id, "failed",

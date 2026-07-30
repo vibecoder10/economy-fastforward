@@ -5877,6 +5877,46 @@ def _anton_preview_quality_audit(
     }
 
 
+def _static_docu_locked_unit_roster(video: dict) -> Optional[list]:
+    """Shared gate for the siloed static-docu machine-roster path: return the
+    RAW ``unit_roster`` list from a video's persisted research payload, or
+    None if this video isn't (yet) on the locked machine-documentary path.
+
+    Animation, narrative, dialogue, modeled, and clip-based videos remain on
+    the global whole-video writer even if a roster-shaped field appears in
+    research. No fact-sheet/LLM inference is allowed here: the roster must
+    already be an explicit persisted list.
+
+    Factored out of what used to be _machine_documentary_hold_roster's own
+    body so that function (flat display-name strings — many callers depend
+    on that exact shape) and _machine_documentary_hold_roster_entries (name +
+    aliases, added for the roster reference-photo prefetch) can never drift
+    apart on WHICH videos/rosters qualify.
+    """
+    import json as _json_mh
+
+    if not isinstance(video, dict) or (video.get("render_mode") or "") != "static_docu":
+        return None
+    payload = video.get("research_payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = _json_mh.loads(payload)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(payload, dict):
+        return None
+    marker = str(payload.get("documentary_style") or payload.get("pipeline_style") or "").strip().lower()
+    has_machine_marker = (
+        marker in {"machine_documentary", "designed_vs_used", "dvsu"}
+        or isinstance(payload.get("machine_discovery_buckets"), dict)
+        or isinstance(payload.get("unit_research_hold_validation"), dict)
+    )
+    if not has_machine_marker:
+        return None
+    roster = payload.get("unit_roster")
+    return roster if isinstance(roster, list) else None
+
+
 def _machine_documentary_hold_roster(video: dict) -> list[str]:
     """Return the locked machine roster only for the siloed static-docu path.
 
@@ -5885,32 +5925,345 @@ def _machine_documentary_hold_roster(video: dict) -> list[str]:
     No fact-sheet/LLM inference is allowed here: the roster must already be an
     explicit persisted list.
     """
-    import json as _json_mh
-
-    if not isinstance(video, dict) or (video.get("render_mode") or "") != "static_docu":
-        return []
-    payload = video.get("research_payload") or {}
-    if isinstance(payload, str):
-        try:
-            payload = _json_mh.loads(payload)
-        except (ValueError, TypeError):
-            return []
-    if not isinstance(payload, dict):
-        return []
-    marker = str(payload.get("documentary_style") or payload.get("pipeline_style") or "").strip().lower()
-    has_machine_marker = (
-        marker in {"machine_documentary", "designed_vs_used", "dvsu"}
-        or isinstance(payload.get("machine_discovery_buckets"), dict)
-        or isinstance(payload.get("unit_research_hold_validation"), dict)
-    )
-    if not has_machine_marker:
-        return []
-    roster = payload.get("unit_roster")
-    if not isinstance(roster, list):
+    roster = _static_docu_locked_unit_roster(video)
+    if roster is None:
         return []
     names = [_unit_display_name(item) for item in roster]
     names = [name for name in names if name]
     return names if 3 <= len(names) <= 40 else []
+
+
+def _unit_roster_aliases(item: Any) -> list[str]:
+    """Derive searchable aliases for one unit_roster entry, WITHOUT touching
+    its display name (see _unit_display_name / _machine_key — the display
+    name is the static_reference_cache primary key and must never change).
+
+    For an aircraft/bomber roster entry (e.g. name="Valkyrie",
+    designation="XB-70") the display name alone is already a clean, unique,
+    searchable string. But for a ship-class roster entry the researcher
+    often fills `designation` with a category/member-ship list instead of a
+    real designation (e.g. name="Attacker class (US-built)",
+    designation="Lend-Lease escort carriers"; or name="Courageous class",
+    designation="Courageous, Glorious" — the actual member ships). Gluing
+    those together the way _unit_display_name does for the SAVED string
+    ("Lend-Lease escort carriers Attacker class (US-built)") produces a
+    Wikipedia/Commons query nobody can match. Real-world proof (Every
+    British Aircraft Carrier Class Ever Built, 2026-07-27): 6 of 23 roster
+    machines had zero verified reference photo two days after research
+    completed, and several of those misses were exactly this shape.
+
+    Aliases returned here, in order:
+      - C3 (2026-07-29, additive `member_units` field): each entry in
+        `member_units` when the research schema supplied it, preferred
+        first — this is the clean, purpose-built field for a class's named
+        members, so it needs no comma/slash surgery to be searchable.
+      - the bare `name`
+      - the bare `designation`
+      - each comma-split member (handles "Courageous, Glorious")
+      - each side of a slash-compound (handles "Audacious class / Malta
+        class"), also comma-split within each side
+
+    The `member_units` step is purely additive: a roster item with no
+    `member_units` key (every roster persisted before this field existed,
+    and any future roster where the researcher left designation short/
+    empty as instructed) produces byte-identical output to before this
+    field existed — the name/designation comma/slash-split fallback below
+    is untouched.
+
+    Order-preserving, de-duplicated case-insensitively. Never includes the
+    combined display name itself (the caller already has that separately).
+    """
+    if not isinstance(item, dict):
+        return []
+    nested = item.get("unit") or item.get("machine")
+    if nested and not (item.get("name") or item.get("title") or item.get("designation") or item.get("code")):
+        return _unit_roster_aliases(nested)
+
+    aliases: list[str] = []
+    seen_lower: set = set()
+
+    def _add(raw: Any) -> None:
+        s = str(raw or "").strip()
+        key = s.lower()
+        if s and key not in seen_lower:
+            seen_lower.add(key)
+            aliases.append(s)
+
+    member_units_raw = item.get("member_units")
+    if isinstance(member_units_raw, list):
+        for unit in member_units_raw:
+            if isinstance(unit, dict):
+                _add(unit.get("name") or unit.get("title") or "")
+            else:
+                _add(unit)
+    elif isinstance(member_units_raw, str):
+        for part in member_units_raw.split(","):
+            _add(part.strip())
+
+    name = str(item.get("name") or item.get("title") or "").strip()
+    designation = str(item.get("designation") or item.get("code") or "").strip()
+    for base in (name, designation):
+        if not base:
+            continue
+        for slash_part in base.split("/"):
+            slash_part = slash_part.strip()
+            if not slash_part:
+                continue
+            _add(slash_part)
+            for comma_part in slash_part.split(","):
+                _add(comma_part.strip())
+    return aliases
+
+
+# --- C5: never-built roster classification (2026-07-29) --------------------
+#
+# Some roster entries are cancelled programs or paper projects that were
+# NEVER PHYSICALLY COMPLETED — no photograph can ever exist because no
+# hardware was ever built (the live example: "CVA-01 class", the British
+# carrier programme cancelled in 1966 before being laid down). Today those
+# entries sit in the exact same "missing, paste a URL" bucket as a machine
+# that just needs another search attempt or a better alias — misleading,
+# because no amount of retrying will ever find CVA-01 a photo.
+#
+# CONSERVATIVE BY DESIGN: a false "never built" verdict is much worse than a
+# missed one. It permanently tells the operator and the UI no photo can
+# exist, suppressing the retry affordance for a machine whose photo is
+# genuinely findable. Under-detection is the correct failure mode throughout
+# this section.
+#
+# REVISION (2026-07-29, same day, corrected against REAL prod data): the
+# first cut of this rule keyed entirely off `status` being the bare word
+# "cancelled". Pulling the actual roster for video d2e37cd6 proved that
+# wrong — the researcher tags status LOOSELY, and BOTH of these real rows
+# carry the exact same status, "cancelled-built":
+#
+#   CVA-01 class (MUST classify never-built):
+#     status="cancelled-built", built_count="0 ships built, cancelled
+#     February 1966 before construction [Friedman 1988]"
+#
+#   Audacious class / Malta class (MUST stay refused — one ship, HMS Eagle,
+#   was actually completed):
+#     status="cancelled-built", built_count="1 ship completed (Eagle R05),
+#     3 cancelled on slips (...) [Friedman 1988]"
+#
+# `status` cannot separate these — it's identical on both. `built_count` is
+# the only field that actually distinguishes a zero-hull paper cancellation
+# from a class where one hull reached completion, so built_count is now the
+# PRIMARY decisive signal, with status reduced to a coarse safety gate
+# (must at least mention "cancelled" somewhere) rather than the deciding
+# vocabulary word.
+#
+# THE TRAP (kept from the original design, still real): "cancelled-built"
+# and "built-prototype" both name a programme where at least one physical
+# unit WAS completed (the Audacious/Malta shape above; the aircraft
+# equivalent is the Avro Arrow / North American XB-70 / TSR-2 — the
+# programme died, but real prototypes were built and photographed). A
+# built_count asserting ANY positive completed count, for ANY status, must
+# always veto the classification — it dominates every other signal.
+_QUANTITY_WORD = (
+    r"(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"several|many|some|a\s+few)"
+)
+
+# VETO #1: built_count asserts a POSITIVE completed count for ANY reason —
+# a number/quantity word tied to a unit noun ("1 ship completed", "2 ships
+# converted") or tied to a completion verb ("3 built", "several flown").
+# Requires the quantity to be POSITIVE (never "0"), so "0 ships built"
+# (CVA-01's real text) does NOT trip this — only [1-9]/spelled-out/vague-
+# plural quantities do.
+_BUILT_COUNT_POSITIVE_RE = re.compile(
+    rf"\b{_QUANTITY_WORD}\s*(?:ships?|units?|aircraft|hulls?|vehicles?|"
+    rf"prototypes?|examples?|airframes?)\b"
+    rf"|\b{_QUANTITY_WORD}\s*(?:were\s+|was\s+)?(?:built|converted|completed|"
+    rf"delivered|produced|constructed|flown)\b",
+    re.IGNORECASE,
+)
+
+# VETO #2: built_count mentions a hull being LAID DOWN at all, regardless of
+# quantity or whether it was later cancelled/completed. A laid-down hull is
+# physical steel on a slipway — it may well have been photographed under
+# construction before cancellation, even though zero units were ever
+# "completed". This is deliberately MORE cautious than the completed-count
+# veto: it fires on the bare phrase, no positive-quantity requirement,
+# because under-detection (refusing to classify) is the correct failure
+# mode here too. CVA-01's real built_count text never mentions "laid
+# down" — consistent with history: CVA-01 was cancelled at the design
+# stage in 1966, before any steel was ever cut, so this veto correctly
+# stays silent for it. A hypothetical future entry like "2 hulls laid
+# down, 0 completed, program cancelled" WOULD be vetoed by this rule even
+# though its completed count is zero — that is the intended, conservative
+# behavior, not a bug.
+_BUILT_COUNT_LAID_DOWN_RE = re.compile(r"\blaid\s+down\b", re.IGNORECASE)
+
+# DECISIVE POSITIVE SIGNAL: built_count explicitly asserts ZERO units were
+# ever completed — "0 ships built", "0 built", "none completed", "never
+# built", "no ships were built". This is now the PRIMARY route to a
+# never-built verdict (see Route B below), because it is a factual count
+# claim, not a loosely-applied status label.
+_BUILT_COUNT_ZERO_RE = re.compile(
+    r"\b0\s*(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|"
+    r"examples?|airframes?)\b"
+    r"|\b0\s*(?:built|completed|delivered|produced|constructed)\b"
+    r"|\bnone\s+(?:built|completed|delivered|produced|constructed)\b"
+    r"|\bnever\s+built\b"
+    r"|\bno\s+(?:ships?|units?|aircraft|hulls?|vehicles?|prototypes?|"
+    r"examples?)\s+(?:were\s+|was\s+)?(?:built|completed|delivered|"
+    r"produced|constructed)\b",
+    re.IGNORECASE,
+)
+
+
+def _roster_built_count_vetoes_never_built(built_count: str) -> bool:
+    """True when built_count text contains EITHER veto signal — a positive
+    completed count, or any mention of a hull being laid down. Either one
+    alone is enough to refuse a never-built classification; see the two
+    veto docstrings above (_BUILT_COUNT_POSITIVE_RE, _BUILT_COUNT_LAID_DOWN_RE)
+    for why each exists. Shared by both classification routes below and by
+    the repair-warning helper, so the veto condition can never drift out of
+    sync between them."""
+    if not built_count:
+        return False
+    return bool(
+        _BUILT_COUNT_POSITIVE_RE.search(built_count)
+        or _BUILT_COUNT_LAID_DOWN_RE.search(built_count)
+    )
+
+
+def _roster_entry_never_built(item: Any) -> bool:
+    """Conservative, structured-data-only detector: can this roster entry
+    NEVER have a real photograph because it was cancelled before any
+    physical unit existed?
+
+    Two independent routes to a True verdict, EITHER of which is vetoed by
+    _roster_built_count_vetoes_never_built (a positive completed count, or
+    any "laid down" mention) — the veto always dominates.
+
+    ROUTE A (original design, kept per explicit instruction not to remove
+    it): `status`, trimmed/lowercased, is the bare word "cancelled" and
+    nothing else. Still useful for a roster that uses the vocabulary
+    cleanly, but real prod data (see the REVISION note above this function)
+    shows the researcher does NOT reliably do that — CVA-01 itself is
+    tagged "cancelled-built", so this route alone would miss it.
+
+    ROUTE B (added after the real-data correction, now the PRIMARY route in
+    practice): `status` merely CONTAINS the substring "cancelled" (catches
+    "cancelled", "cancelled-built", "cancelled-prototype", etc — a coarse
+    safety gate, not the decisive signal) AND `built_count` explicitly
+    asserts a ZERO completed count (_BUILT_COUNT_ZERO_RE). built_count is a
+    factual count claim and is trusted over the loosely-applied status
+    word — this is exactly what separates the real CVA-01 row
+    (built_count="0 ships built...") from the real Audacious/Malta row
+    (built_count="1 ship completed (Eagle R05), 3 cancelled on slips...",
+    same status="cancelled-built" on both) which the veto refuses.
+
+    Status values with NO "cancelled" substring at all ("production",
+    "converted", "prototype", "built-prototype", "special-purpose",
+    "secret-or-black-program", "edge-case", "disputed", "variant") — and a
+    missing/empty status — never reach either route. Under-detection is
+    the correct failure mode.
+
+    Only ever meaningful on a structured roster dict; a bare display-name
+    string (older roster shape, or a fixture with no status field) always
+    returns False here — there is nothing to classify from.
+    """
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    built_count = str(item.get("built_count") or "").strip()
+
+    if _roster_built_count_vetoes_never_built(built_count):
+        return False
+
+    if status == "cancelled":  # Route A
+        return True
+
+    if "cancelled" in status and _BUILT_COUNT_ZERO_RE.search(built_count):  # Route B
+        return True
+
+    return False
+
+
+def _roster_status_built_count_contradicts(item: Any) -> bool:
+    """True exactly when a roster item's status is the bare word "cancelled"
+    but its built_count asserts real hardware was completed or laid down —
+    the Route A case where _roster_entry_never_built refuses to classify
+    because the two fields disagree outright (status implies zero, count
+    says otherwise). Kept as its own function (rather than inlining the
+    negation in _roster_validation) so the contradiction condition can
+    never quietly drift out of sync with the classifier it mirrors."""
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    if status != "cancelled":
+        return False
+    built_count = str(item.get("built_count") or "").strip()
+    return _roster_built_count_vetoes_never_built(built_count)
+
+
+def _roster_status_built_wording_but_zero_completed(item: Any) -> bool:
+    """True when `status` uses "-built"/"built-" wording ("cancelled-built",
+    "built-prototype" — implying SOMETHING physical exists) but built_count
+    explicitly says ZERO units were ever completed, with no veto. This is
+    the exact mislabeling verified live in prod on 2026-07-29: the real
+    CVA-01 class row — a programme with ZERO hulls ever laid down — is
+    tagged status="cancelled-built", not bare "cancelled". The never-built
+    classifier already reads through this correctly via built_count (Route
+    B), so this is NOT a blocker — but the mislabeling itself is worth
+    flagging as a soft repair warning so a future research pass uses bare
+    "cancelled" for a true zero-hull program and reserves "-built"/"built-"
+    wording for a programme with real completed hardware."""
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip().lower()
+    if "built" not in status:
+        return False
+    built_count = str(item.get("built_count") or "").strip()
+    if not built_count or _roster_built_count_vetoes_never_built(built_count):
+        return False
+    return bool(_BUILT_COUNT_ZERO_RE.search(built_count))
+
+
+def _machine_documentary_hold_roster_entries(video: dict) -> list[dict]:
+    """Same gate as _machine_documentary_hold_roster (same 3-40 bound, same
+    static-docu machine-marker requirement), but returns each roster item as
+    {"name": <UNCHANGED display name>, "aliases": [...], "never_built": bool}
+    instead of throwing the structured entry away.
+
+    This is an ADDITIVE parallel accessor, not a replacement:
+    _machine_documentary_hold_roster has many other callers
+    (pipeline_executor.py's own run_research/run_one_machine_research/etc,
+    scripts/dvsu_machine_preflight.py) that depend on the flat list[str]
+    shape and on the display name being byte-identical to what's cached in
+    static_reference_cache (_machine_key hashes that exact string — there
+    are live cached rows keyed on today's names). Only the roster reference-
+    photo prefetch (static_docu.prefetch_roster_references) needs aliases or
+    never_built, so only it calls this.
+
+    Aliases equal to the display name (case-insensitive) are dropped as
+    redundant.
+
+    C5 (2026-07-29): `never_built` (see _roster_entry_never_built) lets
+    static_docu.prefetch_roster_references skip the ENTIRE doomed Wikimedia
+    + paid vision lookup chain for a machine that structurally can never
+    have a photograph, recording REASON_NEVER_BUILT directly instead of
+    exhausting a real search first. Additive: existing consumers of this
+    function that only read name/aliases are unaffected.
+    """
+    roster = _static_docu_locked_unit_roster(video)
+    if roster is None:
+        return []
+    entries: list[dict] = []
+    for item in roster:
+        name = _unit_display_name(item)
+        if not name:
+            continue
+        aliases = [a for a in _unit_roster_aliases(item) if a.lower() != name.lower()]
+        entries.append({
+            "name": name,
+            "aliases": aliases,
+            "never_built": _roster_entry_never_built(item),
+        })
+    return entries if 3 <= len(entries) <= 40 else []
 
 
 def _anton_inventory_title_mode(title: str) -> bool:
@@ -5995,6 +6348,25 @@ def _roster_validation(
 
     warnings: list[str] = []
     gaps: list[str] = []
+    # C4 (2026-07-29): severity tiers. `warnings` stays the full combined list
+    # (unchanged shape/order — every existing reader that just dumps
+    # `warnings` keeps working byte-for-byte). `hard_warnings` are structural/
+    # data-integrity failures that must still block a complete-title video
+    # from advancing; `soft_warnings` are pacing/count nitpicks (roster a bit
+    # short or a bit long vs the runtime target, the generic edge-case-class
+    # heuristic, the aircraft-only subvariant-padding check) that get
+    # recorded and flagged for human review but must NOT dead-end the video.
+    # This is what let video d2e37cd6's real 23-ship roster sit at 0/23
+    # verified photos for two days on one soft pacing warning alone (see
+    # loop-checklist.md "Why"). `passed` now means "no hard failures" —
+    # a soft-only roster passes and advances, marked needs_review.
+    hard_warnings: list[str] = []
+    soft_warnings: list[str] = []
+
+    def _warn(message: str, *, hard: bool) -> None:
+        warnings.append(message)
+        (hard_warnings if hard else soft_warnings).append(message)
+
     lower = f"{contract}\n{counter}".lower()
     bucket_counts = _machine_bucket_summary(payload or {})
     bucket_total = sum(bucket_counts.values())
@@ -6042,13 +6414,72 @@ def _roster_validation(
     contract_norm = contract.strip().lower()
     is_incomplete = contract_norm.startswith("incomplete") and not is_review_ready
 
+    # C5 contract-triangle repair warning (2026-07-29): flag a roster item
+    # whose `status` and `built_count` contradict each other for the
+    # never-built classifier (_roster_entry_never_built, this same module).
+    # A bare "cancelled" status paired with a built_count that itself
+    # asserts real hardware (a positive unit count, or a build-completion
+    # verb) means the researcher used the vocabulary inconsistently — the
+    # classifier already refuses to act on it (conservative-by-design), but
+    # a human should still see it and correct the status to
+    # "cancelled-built" or "built-prototype" for the next research pass.
+    # Applies to every static-docu roster regardless of title shape — this
+    # is a data-integrity check, not a pacing/count nitpick.
+    status_contradictions: list[str] = []
+    for item in roster_raw or []:
+        if _roster_status_built_count_contradicts(item):
+            display = _unit_display_name(item) or str((item or {}).get("name") or "").strip()
+            if display:
+                status_contradictions.append(display)
+    if status_contradictions:
+        shown = status_contradictions[:8]
+        more = len(status_contradictions) - len(shown)
+        _warn(
+            "status is 'cancelled' (never built) but built_count asserts real hardware for: "
+            + ", ".join(shown)
+            + (f" (+{more} more)" if more > 0 else "")
+            + ". Use 'cancelled-built' or 'built-prototype' when a cancelled programme's "
+            "hardware was actually completed — bare 'cancelled' means nothing was ever built.",
+            hard=False,
+        )
+
+    # C5 SECOND repair warning, added 2026-07-29 after real prod data proved
+    # the first one insufficient: the live CVA-01 row — a programme with
+    # ZERO hulls ever laid down — is tagged status="cancelled-built", not
+    # bare "cancelled". The never-built classifier reads through this fine
+    # (built_count is the decisive signal, see _roster_entry_never_built
+    # Route B), but the mislabeling itself is worth surfacing so a future
+    # research pass reserves "-built"/"built-" status wording for a
+    # programme that actually has completed hardware.
+    built_wording_zero_count: list[str] = []
+    for item in roster_raw or []:
+        if _roster_status_built_wording_but_zero_completed(item):
+            display = _unit_display_name(item) or str((item or {}).get("name") or "").strip()
+            if display:
+                built_wording_zero_count.append(display)
+    if built_wording_zero_count:
+        shown = built_wording_zero_count[:8]
+        more = len(built_wording_zero_count) - len(shown)
+        _warn(
+            "status uses '-built'/'built-' wording (implying real hardware exists) but "
+            "built_count says zero units were ever completed for: "
+            + ", ".join(shown)
+            + (f" (+{more} more)" if more > 0 else "")
+            + ". Use bare 'cancelled' for a programme with zero completed hardware — "
+            "reserve 'cancelled-built'/'built-prototype' for one that actually has some.",
+            hard=False,
+        )
+
     if complete_title and not roster:
-        warnings.append("This title promises a complete roster, but research_payload.unit_roster is missing.")
+        _warn("This title promises a complete roster, but research_payload.unit_roster is missing.", hard=True)
     if complete_title and len(roster) < 3:
-        warnings.append(f"Complete-roster title has only {len(roster)} roster item(s); likely incomplete.")
+        _warn(f"Complete-roster title has only {len(roster)} roster item(s); likely incomplete.", hard=True)
     if _title_is_broad_machine_roster(title) and len(roster) < 15:
-        warnings.append(
-            f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise."
+        # SOFT: a count/pacing signal, same family as the minimum/expected/
+        # candidate-universe pacing checks below — not a structural failure.
+        _warn(
+            f"Broad machine-roster title has only {len(roster)} item(s); likely a shortlist, not the full title promise.",
+            hard=False,
         )
     small_category_proof = any(term in lower for term in ("genuinely small", "small closed category", "only known", "no additional built"))
     if (
@@ -6058,11 +6489,13 @@ def _roster_validation(
         and len(roster) < pacing_targets["minimum_final_roster"]
         and not small_category_proof
     ):
-        warnings.append(
+        # SOFT: pacing/count warning — record + needs-review, do not block.
+        _warn(
             "Broad complete-roster title has fewer than "
             f"{pacing_targets['minimum_final_roster']} final items for a "
             f"{pacing_targets['video_length_minutes']:g}-minute Anton-paced video "
-            f"(expected around {pacing_targets['expected_final_roster']}) without proving the category is genuinely small."
+            f"(expected around {pacing_targets['expected_final_roster']}) without proving the category is genuinely small.",
+            hard=False,
         )
     if (
         _title_is_broad_machine_roster(title)
@@ -6071,11 +6504,13 @@ def _roster_validation(
         and len(roster) < pacing_targets["expected_final_roster"]
         and not small_category_proof
     ):
-        warnings.append(
+        # SOFT: pacing/count warning — record + needs-review, do not block.
+        _warn(
             "Broad complete-roster title is below the Anton-paced final roster target: "
             f"{len(roster)} final items vs expected around {pacing_targets['expected_final_roster']} "
             f"for a {pacing_targets['video_length_minutes']:g}-minute video. Lock enough source-backed machines to fit the runtime or "
-            "prove with sources that the category is genuinely smaller."
+            "prove with sources that the category is genuinely smaller.",
+            hard=False,
         )
     if (
         _title_is_broad_machine_roster(title)
@@ -6084,26 +6519,34 @@ def _roster_validation(
         and len(roster) > pacing_targets["candidate_universe_target"]
         and not small_category_proof
     ):
-        warnings.append(
+        # SOFT: pacing/count warning — this is the EXACT condition that
+        # stalled video d2e37cd6 ("23 final items vs target around 20") for
+        # two days. Record + needs-review, never block.
+        _warn(
             "Broad complete-roster final roster is larger than the runtime target plus reserve: "
             f"{len(roster)} final items vs target around {pacing_targets['expected_final_roster']} "
             f"for a {pacing_targets['video_length_minutes']:g}-minute video. Tighten the roster to fit the requested runtime, "
-            "or prove that the title requires the larger count."
+            "or prove that the title requires the larger count.",
+            hard=False,
         )
     if _title_is_broad_machine_roster(title):
         if bucket_total == 0:
-            warnings.append("Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.")
+            _warn(
+                "Broad machine-roster research is missing machine_discovery_buckets for core/prototypes/variants/secret programs/boundary disputes.",
+                hard=True,
+            )
         if not has_recommendation:
-            warnings.append("Broad machine-roster research is missing recommended_final_roster.")
+            _warn("Broad machine-roster research is missing recommended_final_roster.", hard=True)
         elif isinstance(recommended, list) and len(recommended) != len(roster):
-            warnings.append(
+            _warn(
                 f"recommended_final_roster count ({len(recommended)}) does not match unit_roster count ({len(roster)}); "
-                "the locked machine list is internally inconsistent."
+                "the locked machine list is internally inconsistent.",
+                hard=True,
             )
         if not has_gap_hunt:
-            warnings.append("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.")
+            _warn("Broad machine-roster research is missing gap_hunt_matrix showing the adversarial omission follow-up pass.", hard=True)
         if not has_edge_case_matrix:
-            warnings.append("Broad machine-roster research is missing edge_case_matrix showing generic omission classes checked.")
+            _warn("Broad machine-roster research is missing edge_case_matrix showing generic omission classes checked.", hard=True)
         blob_lower = _payload_blob(payload or {}).lower()
         generic_edge_classes = {
             "designation/number sequence gaps": ("designation", "sequence", "number"),
@@ -6118,7 +6561,8 @@ def _roster_validation(
             if any(needle in blob_lower for needle in needles)
         ]
         if len(covered_classes) < 4:
-            warnings.append("Broad machine-roster research did not explicitly resolve enough generic edge-case classes.")
+            # SOFT: heuristic, not a data-integrity failure.
+            _warn("Broad machine-roster research did not explicitly resolve enough generic edge-case classes.", hard=False)
             for label in generic_edge_classes:
                 if label not in covered_classes and label not in gaps:
                     gaps.append(label)
@@ -6142,10 +6586,53 @@ def _roster_validation(
             if family in codes and any(code != family for code in codes)
         ]
         if padded_families and not any(term in str(title or "").lower() for term in ("variant", "variants", "class", "classes")):
-            warnings.append(
+            # SOFT: aircraft-only heuristic (test_unit_code_family_detection_is_aircraft_only
+            # proves it is a structural no-op for ship rosters) — a nitpick, not a
+            # data-integrity failure.
+            _warn(
                 "Final roster appears padded with minor subvariants while the parent machine is already included: "
                 + ", ".join(padded_families)
-                + ". Combine minor variants under the parent unless the title asks for variants/classes or the subvariant is a distinct audience-facing program."
+                + ". Combine minor variants under the parent unless the title asks for variants/classes or the subvariant is a distinct audience-facing program.",
+                hard=False,
+            )
+
+        # C3 (2026-07-29, additive `member_units` field): contract-triangle
+        # repair-warning half. The research prompt now has an explicit place
+        # (`member_units`) for a class's individual named units, so a
+        # `designation` that's still a comma-separated member-ship/unit list
+        # (e.g. "Courageous, Glorious" or "Illustrious, Formidable, Victorious,
+        # Indomitable") with no `member_units` supplied means the researcher
+        # stuffed the list into the wrong field instead of leaving
+        # `designation` as a short searchable identifier. Flagged SOFT so
+        # every pre-existing roster in the DB (frozen, no `member_units`
+        # field ever) keeps passing/advancing exactly as before — this is
+        # visibility to steer the NEXT repair/research pass, never a new hard
+        # gate. Deliberately conservative (comma-list shape only): a
+        # designation that's merely a multi-word category phrase with no
+        # comma (e.g. "Lend-Lease escort carriers") is NOT caught here — a
+        # reliable heuristic for that shape risks false-positiving on
+        # legitimate multi-word designations, so it's left as a known
+        # follow-up rather than guessed at.
+        designation_stuffed_items: list[str] = []
+        for item in roster_raw or []:
+            if not isinstance(item, dict) or item.get("member_units"):
+                continue
+            designation_value = str(item.get("designation") or item.get("code") or "")
+            comma_parts = [p.strip() for p in designation_value.split(",") if p.strip()]
+            if len(comma_parts) >= 2:
+                display = _unit_display_name(item) or str(item.get("name") or "").strip()
+                if display:
+                    designation_stuffed_items.append(display)
+        if designation_stuffed_items:
+            shown = designation_stuffed_items[:8]
+            more = len(designation_stuffed_items) - len(shown)
+            _warn(
+                "designation holds a comma-separated member-ship/unit list instead of a short "
+                "searchable code for: " + ", ".join(shown)
+                + (f" (+{more} more)" if more > 0 else "")
+                + ". Move the individual member units into member_units and keep designation "
+                "short or empty — a glued member-list designation is not a searchable machine name.",
+                hard=False,
             )
 
         excluded_codes: dict[str, str] = {}
@@ -6156,9 +6643,10 @@ def _roster_validation(
                 excluded_codes[code] = name
         overlap = [name for name, code in zip(roster, roster_codes) if code in excluded_codes]
         if overlap:
-            warnings.append(
+            _warn(
                 "Roster is internally inconsistent: candidate appears in both unit_roster and excluded_candidates: "
-                + ", ".join(overlap)
+                + ", ".join(overlap),
+                hard=True,
             )
 
         title_lower = str(title or "").lower()
@@ -6166,12 +6654,13 @@ def _roster_validation(
             term in _payload_blob(audit_excluded).lower()
             for term in ("not operationally delivered", "not yet operational", "not operationally deployed")
         ):
-            warnings.append(
+            _warn(
                 "Ever-built title is excluding a candidate for not being operational/delivered. "
-                "For 'ever built', physical build/flight is the boundary; operational status alone is not a valid exclusion."
+                "For 'ever built', physical build/flight is the boundary; operational status alone is not a valid exclusion.",
+                hard=True,
             )
     if is_incomplete or any(term in lower for term in ("misleading", "should either be narrowed", "research expanded")):
-        warnings.append("Research payload admits the roster/title may be incomplete or narrowed.")
+        _warn("Research payload admits the roster/title may be incomplete or narrowed.", hard=True)
     if complete_title:
         queries = audit.get("search_queries_used") or []
         families = audit.get("source_families_crosschecked") or []
@@ -6183,15 +6672,15 @@ def _roster_validation(
                 confidence = level
                 break
         if not audit:
-            warnings.append("Complete-roster research is missing roster_audit proof of exhaustive search.")
+            _warn("Complete-roster research is missing roster_audit proof of exhaustive search.", hard=True)
         elif len(queries) < 6:
-            warnings.append("Complete-roster research used fewer than 6 distinct roster-discovery searches.")
+            _warn("Complete-roster research used fewer than 6 distinct roster-discovery searches.", hard=True)
         if audit and len(families) < 3:
-            warnings.append("Complete-roster research cross-checked fewer than 3 source families.")
+            _warn("Complete-roster research cross-checked fewer than 3 source families.", hard=True)
         if audit and unresolved and not (is_review_ready and has_recommendation):
-            warnings.append(f"Complete-roster research still has {len(unresolved)} unresolved candidate(s).")
+            _warn(f"Complete-roster research still has {len(unresolved)} unresolved candidate(s).", hard=True)
         if audit and confidence and confidence not in ("high", "medium"):
-            warnings.append(f"Complete-roster audit confidence is {confidence}, not high/medium.")
+            _warn(f"Complete-roster audit confidence is {confidence}, not high/medium.", hard=True)
         if isinstance(unresolved, list):
             for item in unresolved:
                 name = _unit_display_name(item)
@@ -6209,9 +6698,10 @@ def _roster_validation(
     script_extra: list[str] = []
     if script_units is not None and roster_codes:
         if len(script_units) != len(roster):
-            warnings.append(
+            _warn(
                 f"Script has {len(script_units)} paragraph(s) for {len(roster)} locked roster item(s); "
-                "static DVsU scripts must not add separate conclusion, transition, or non-machine rows."
+                "static DVsU scripts must not add separate conclusion, transition, or non-machine rows.",
+                hard=True,
             )
         script_blob = "\n".join(script_units)
         script_codes = [_unit_code(u) for u in script_units if _unit_code(u)]
@@ -6222,15 +6712,31 @@ def _roster_validation(
             if code and code not in roster_codes and code not in script_extra:
                 script_extra.append(code)
         if script_missing:
-            warnings.append(f"Script omitted {len(script_missing)} roster item(s).")
+            _warn(f"Script omitted {len(script_missing)} roster item(s).", hard=True)
         if script_extra:
-            warnings.append(f"Script added {len(script_extra)} item(s) outside the locked roster.")
+            _warn(f"Script added {len(script_extra)} item(s) outside the locked roster.", hard=True)
 
     return {
-        "passed": len(warnings) == 0,
+        # C4 (2026-07-29): `passed` now means "no HARD failures" — a
+        # soft-only roster (pacing/count nitpicks, the generic edge-case
+        # heuristic, aircraft-only subvariant padding) passes and is free to
+        # advance. Every existing caller that gates on `.get("passed")`
+        # (run_research's autonomous-repair trigger and advance-to-scripting
+        # check, run_unit_research, _validate_static_script_roster's callers,
+        # research_ingest.accept_submitted_research) gets this looser,
+        # intentional behavior for free just by reading the same key.
+        "passed": len(hard_warnings) == 0,
+        # New keys for callers that want to distinguish severity explicitly
+        # rather than infer it from `passed` alone.
+        "hard_warnings": hard_warnings,
+        "soft_warnings": soft_warnings,
+        "needs_review": len(soft_warnings) > 0,
         "complete_title": complete_title,
         "roster_count": len(roster),
         "roster": roster,
+        # Unchanged: full combined list, same order, same content as before
+        # the severity split — every existing reader that just displays or
+        # joins `warnings` keeps working byte-for-byte.
         "warnings": warnings,
         "gaps": gaps,
         "script_missing": script_missing,
@@ -6278,6 +6784,23 @@ def resolve_prompt(
     Empty when there are none / on a DB error, so this is a no-op for every
     tenant with no standing preferences.
 
+    D6-3 (STORY-LAWS S3): for prompt_key == "script", story_laws.
+    SCENE_LOCATION_LAW rides along the SAME way standing_preferences does —
+    appended after whichever source won, so a tenant's own custom script
+    prompt still carries the law instead of silently opting out of it. This
+    is the ONE place path (a), the ACT-based docu generator, picks up S3:
+    skills/video-pipeline/script/run.py reads `pipeline.script_system_prompt`
+    (set from this function's return value) and passes it straight through
+    as the LLM system prompt. The modeled-script path does NOT go through
+    this function (it reads video.script_system_prompt directly — see
+    pipeline_executor._run_modeled_script, which carries the same law text
+    via its own inline prompt instead).
+
+    D6-4 (STORY-LAWS S1): story_laws.LOCATION_TRANSIT_LAW rides along
+    right after SCENE_LOCATION_LAW, same reasoning, same call site — a
+    writer needs both laws at once (S3: one location per scene; S1: narrate
+    the move between scenes) or it can satisfy one by breaking the other.
+
     Returns the resolved prompt string, or None when there's nothing to set
     (so the bot falls back to its built-in default).
     """
@@ -6291,7 +6814,11 @@ def resolve_prompt(
     chosen = _nonblank(per_video) or _nonblank(tenant) or _nonblank(neutral)
     if chosen:
         filled = engine_templates.safe_fill(chosen, identity)
-        return filled + (getattr(identity, "standing_preferences", "") or "")
+        law = ""
+        if prompt_key == "script":
+            import story_laws
+            law = "\n\n" + story_laws.SCENE_LOCATION_LAW + "\n\n" + story_laws.LOCATION_TRANSIT_LAW
+        return filled + law + (getattr(identity, "standing_preferences", "") or "")
     return None
 
 
@@ -8030,6 +8557,16 @@ class PipelineExecutor:
                     bot_name, video_id, "running",
                     "Roster contract needs review: " + "; ".join(roster_check.get("warnings", []))[:800],
                 )
+            elif roster_check.get("needs_review"):
+                # C4: a soft-only roster (pacing/count nitpicks etc, no hard
+                # failures) still ADVANCES — but log it visibly so a human
+                # can see it flagged, instead of the old behavior where a
+                # single soft warning silently dead-ended the whole video.
+                await self._log_activity(
+                    bot_name, video_id, "running",
+                    "Roster passed with soft warnings, needs review: "
+                    + "; ".join(roster_check.get("soft_warnings", []))[:800],
+                )
 
             # Update Supabase with research payload. Never advance a complete-roster
             # title to scripting when the production roster gate still failed after
@@ -8070,6 +8607,24 @@ class PipelineExecutor:
             from drive_workspace import sync_video_workspace_fail_soft
             await sync_video_workspace_fail_soft(video_id, self.tenant_id)
 
+            # C3 fix (2026-07-29): the roster is ALREADY PERSISTED above
+            # (research_payload = $1, just written) the instant it exists,
+            # independent of whether the roster/unit-research gate below
+            # passes. Dispatching here (before the gate check, not after it)
+            # means a roster that fails the gate on a soft warning (e.g. "23
+            # items vs target ~20") still gets its reference photos fetched
+            # instead of sitting with zero photos until a human intervenes —
+            # exactly what happened live to video
+            # d2e37cd6-521a-43aa-a14d-ce096a783c1e for two days. `video`
+            # (the ORIGINAL pre-payload-update dict, not `hold_video`) is
+            # passed deliberately: dispatch_roster_prefetch only reads
+            # render_mode off it to decide whether to schedule anything at
+            # all, and render_mode never changes over a research run, so the
+            # original dict is exactly as valid a source for it as any later
+            # copy would be.
+            from static_docu import dispatch_roster_prefetch
+            dispatch_roster_prefetch(video, video_id, self.tenant_id)
+
             if not (passed_roster_gate and passed_unit_research_hold):
                 gate_error = "Roster validation failed" if not passed_roster_gate else "Unit research-hold failed"
                 await self._log_transition(video_id, current_status or "unknown", next_status, "api", error_message=gate_error)
@@ -8083,12 +8638,6 @@ class PipelineExecutor:
 
             await self._log_transition(video_id, current_status, "ready_for_scripting", "api")
             await self._log_activity(bot_name, video_id, "completed", "Research complete")
-
-            # C3: the instant a static-docu video's machine roster is locked,
-            # prefetch+verify+self-host+cache a reference photo for every
-            # roster machine — fire-and-forget, never blocks/fails research.
-            from static_docu import dispatch_roster_prefetch
-            dispatch_roster_prefetch(video, video_id, self.tenant_id)
 
             return {
                 "status": "ready_for_scripting",
@@ -9114,6 +9663,23 @@ class PipelineExecutor:
             }
         except Exception as exc:  # noqa: BLE001
             _logger.warning("[orchestrator] dashboard reference read unavailable: %s", str(exc)[:150])
+        # C8: WHY a still-missing machine missed, read per-video from
+        # static_reference_misses (static_docu._record_reference_miss /
+        # _clear_reference_miss). Same degrade-gracefully pattern as the
+        # cache read above — a table that doesn't exist yet (tenant has
+        # never run a prefetch) just means every machine shows "missing"
+        # with no reason, not a broken dashboard.
+        miss_by_key: dict[str, dict] = {}
+        try:
+            miss_rows = await fetch_all(
+                "SELECT machine_key, reason_code, reason_detail FROM static_reference_misses "
+                "WHERE tenant_id = $1 AND video_id = $2", self.tenant_id, video_id,
+            )
+            miss_by_key = {
+                row.get("machine_key"): row for row in (miss_rows or []) if isinstance(row, dict)
+            }
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning("[orchestrator] dashboard miss-reason read unavailable: %s", str(exc)[:150])
         units: list[dict] = []
         ready_count = 0
         for machine in roster:
@@ -9134,14 +9700,25 @@ class PipelineExecutor:
                     suggestion = {k: plan[0].get(k) for k in ("verb", "excerpt_id", "kind", "field", "focus", "reason") if plan[0].get(k)}
             preview = previews.get(code) if isinstance(previews.get(code), dict) else None
             ref_row = ref_cache_by_key.get(_static_machine_key(machine))
-            reference = (
-                {
+            if ref_row:
+                reference = {
                     "status": "verified",
                     "hosted_url": ref_row.get("hosted_url"),
                     "source_url": ref_row.get("source_url"),
                 }
-                if ref_row else {"status": "missing"}
-            )
+            else:
+                miss_row = miss_by_key.get(_static_machine_key(machine))
+                reference = {"status": "missing"}
+                if miss_row:
+                    # never_built (reserved for C5, not produced yet) is the
+                    # one code that means "stop offering to retry" — every
+                    # other code is a worth-another-try miss. Surfaced as a
+                    # separate boolean rather than making the frontend know
+                    # the reason vocabulary, so C5 slotting in the real
+                    # never_built detection later needs no frontend change.
+                    reference["reason_code"] = miss_row.get("reason_code")
+                    reference["reason_detail"] = miss_row.get("reason_detail")
+                    reference["retryable"] = miss_row.get("reason_code") != "never_built"
             units.append({
                 "machine": machine,
                 "state": state,
@@ -11587,6 +12164,7 @@ class PipelineExecutor:
         current_status = video.get("status")
 
         import json as _json
+        import story_laws
         original_dna = video.get("original_dna")
         if isinstance(original_dna, str):
             try:
@@ -11618,11 +12196,9 @@ SCENE PLAN — follow these story beats in order. SPLIT any beat that moves betw
 separate scenes, one location each:
 {concept_lines}
 
-ONE LOCATION PER SCENE (important) — every scene must take place in a SINGLE physical location.
-The moment the action moves somewhere new (e.g. living room -> garage -> lakeside), START A NEW
-SCENE with a new @@@SCENE n@@@ marker. A beat that travels through several places becomes several
-scenes, one per place. NEVER let one scene span two locations — this keeps each scene's visuals
-consistent for the storyboard and the stitched video.
+{story_laws.SCENE_LOCATION_LAW}
+
+{story_laws.LOCATION_TRANSIT_LAW}
 
 Target length: about {target_words} words total, spread across the scenes.
 
@@ -11633,14 +12209,15 @@ VOICE — write every scene in the EXACT voice, tense, vocabulary and FORMAT you
 instructions above define. If they call for character DIALOGUE, write dialogue (speaker
 turns like "Mum: ..." are fine); if narration, write narration; if both, both. Match their
 sentence length and reading level. Do NOT default to a third-person narrator unless the
-style explicitly says to — the style above wins over any default.
+style explicitly says to — the style above wins over any default. The LOCATION header is the
+ONE exception to "write only what's heard" — it is never spoken, it is stripped before voice.
 
 FORMAT — plain text, no JSON, no markdown headings. Start each scene on its own line with
 exactly this marker:
 @@@SCENE n@@@
-where n is the scene number (1, 2, 3, ...). Put that scene's spoken text on the lines right
-after its marker — exactly what is heard in that scene. Use the markers and nothing else to
-separate scenes."""
+directly followed by that scene's LOCATION header (see above) as the very next line, then
+that scene's spoken text on the lines after. Use the markers and nothing else to separate
+scenes."""
 
         style_system = video.get("script_system_prompt") or ""
         # Long free-text narration used to be returned as one big JSON blob and
@@ -11667,6 +12244,74 @@ separate scenes."""
         if len(scenes) < min_scenes:
             raise Exception("Modeled script came back with too few scenes")
 
+        # D6-3 (S3 parser leg): pull each scene's LOCATION header into its own
+        # field and strip it from the spoken text (it must never reach voice/
+        # TTS — see the prompt's own carve-out above). Platform-generated
+        # content, no verbatim concern, so stripping is safe here (contrast
+        # with the SUBMIT path in user_script.py, which never strips).
+        for scene in scenes:
+            location, stripped = story_laws.extract_scene_location(scene["text"])
+            scene["location"] = location
+            scene["text"] = stripped if location else scene["text"].strip()
+
+        # D6-3 (S3 GATE leg): hard-fail at generation, before anything is
+        # written. Defensible here — this is a fresh generation, nothing
+        # downstream has consumed it yet, and it mirrors this same path's
+        # existing quality-critic gate shape (needs_review, no auto-spend
+        # retry). Checked BEFORE the DB writes below so a failing script
+        # never reaches `scripts` or advances `videos.status` in the first
+        # place — no revert needed, unlike the critic gate that runs after
+        # this function returns.
+        law_check = story_laws.check_scene_location_law([
+            {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
+            for i, s in enumerate(scenes, start=1)
+        ])
+        if not law_check["passed"]:
+            detail = "; ".join(
+                f"scene {v['scene']}: {v['detail']}" for v in law_check["violations"]
+            )
+            await self._log_activity(
+                bot_name, video_id, "failed",
+                f"Story law S3 (one location per scene) failed: {detail}"[:900],
+            )
+            return {
+                "status": "needs_review", "video_id": video_id,
+                "violations": [v["detail"] for v in law_check["violations"]],
+                "message": ("The script needs another look — some scenes don't hold to a "
+                            "single stated location: " + detail)[:900],
+            }
+        if law_check["warnings"]:
+            # D6-3b: cross_location_text is advisory-only, permanently (see
+            # story_laws.check_scene_location_law's docstring — the S1/S3
+            # conflict). Logged so it's visible, never blocks.
+            warn_detail = "; ".join(
+                f"scene {w['scene']}: {w['detail']}" for w in law_check["warnings"]
+            )
+            await self._log_activity(
+                bot_name, video_id, "started",
+                f"Story law S3 advisory (cross-location text, non-blocking): {warn_detail}"[:900],
+            )
+
+        # D6-4 (S1 GATE leg): cross-scene, warn-only, permanently (see
+        # story_laws.check_location_transit_law's docstring — Ruling 1).
+        # Runs AFTER the S3 gate so it only ever sees an S3-passing scene
+        # list (every scene has a location, so the comparison is
+        # meaningful); logged exactly like the S3 advisory above, never
+        # blocks, never touched again after this — nothing downstream in
+        # this function reads it.
+        s1_check = story_laws.check_location_transit_law([
+            {"scene": i, "location": s.get("location"), "scene_text": s["text"]}
+            for i, s in enumerate(scenes, start=1)
+        ])
+        if s1_check["warnings"]:
+            s1_warn_detail = "; ".join(
+                f"scene {w['scene']}: {w['detail']}" for w in s1_check["warnings"]
+            )
+            await self._log_activity(
+                bot_name, video_id, "started",
+                f"Story law S1 advisory (unnarrated location change, non-blocking): {s1_warn_detail}"[:900],
+            )
+
         full_script = "\n\n".join(s["text"].strip() for s in scenes)
         await execute(
             """UPDATE videos SET script = $1, script_validation = $2, status = $3, updated_at = now()
@@ -11681,9 +12326,9 @@ separate scenes."""
         await execute("DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2", video_id, self.tenant_id)
         for i, scene in enumerate(scenes, start=1):
             await execute(
-                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, title, script_status, voice_id)
-                   VALUES ($1, $2, $3, $4, $5, 'Create', $6)""",
-                self.tenant_id, video_id, i, scene["text"].strip(),
+                """INSERT INTO scripts (tenant_id, video_id, scene, scene_text, location, title, script_status, voice_id)
+                   VALUES ($1, $2, $3, $4, $5, $6, 'Create', $7)""",
+                self.tenant_id, video_id, i, scene["text"].strip(), scene.get("location"),
                 # Mark — on Kie's allowed roster. The previous id was
                 # off-roster, so every TTS call burned a wasted createTask
                 # before the client's fallback (which lands on Mark anyway).
@@ -11992,6 +12637,40 @@ separate scenes."""
             save_target_script=True,
         )
 
+    async def _check_scene_location_law(self, video_id: str) -> dict:
+        """D6-3 — STORY-LAWS S3 GATE. Deterministic, pure-read: fetches this
+        video's current scripts rows and runs story_laws.check_scene_location_law
+        against them. No I/O beyond the one SELECT, no LLM call, safe to call
+        read-only against ANY video at ANY time (used exactly that way for
+        the D6-3 decisive test against video 686b4651, and safe to reuse for
+        an on-demand check from a route without side effects)."""
+        import story_laws
+        rows = await fetch_all(
+            "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
+            "AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        return story_laws.check_scene_location_law([dict(r) for r in (rows or [])])
+
+    async def _check_location_transit_law(self, video_id: str) -> dict:
+        """D6-4 — STORY-LAWS S1 GATE. Same read-only, pure-read shape as
+        _check_scene_location_law above (separate query, not merged with
+        it, so a caller that only wants S3 doesn't pay for S1's extra scan
+        and vice versa — both are cheap single SELECTs either way). Runs
+        story_laws.check_location_transit_law, which is warn-only,
+        permanently — see that function's docstring. Safe to call
+        read-only against ANY video at ANY time, including a pre-migration
+        video with every location NULL (returns no location_changes and no
+        warnings — see that function's docstring for why that is the
+        correct, honest answer, not a false negative)."""
+        import story_laws
+        rows = await fetch_all(
+            "SELECT scene, location, scene_text FROM scripts WHERE video_id = $1 "
+            "AND tenant_id = $2 ORDER BY scene",
+            video_id, self.tenant_id,
+        )
+        return story_laws.check_location_transit_law([dict(r) for r in (rows or [])])
+
     async def run_script(self, video_id: str, progress_callback=None,
                          force_rewrite: bool = False) -> dict:
         """Generate script for a video.
@@ -12099,6 +12778,15 @@ separate scenes."""
                 await self._inject_learnings_into_writer_guidance(video_id)
                 video = await self._get_video(video_id)
                 result = await self._run_modeled_script(video_id, video)
+                # D6-3 (S3 GATE): _run_modeled_script now checks the
+                # deterministic location law BEFORE writing anything, and
+                # returns needs_review without touching scripts/videos.status
+                # when it fails. Short-circuit here instead of falling into
+                # the LLM quality critic below — grading stale/unwritten
+                # content would be a wasted paid call, and the critic has
+                # nothing new to grade.
+                if isinstance(result, dict) and result.get("status") == "needs_review":
+                    return result
                 # _run_modeled_script already advanced the video's status
                 # before grading runs (it commits ready_for_voice as part of
                 # its own save), so pass hold_status: if the critic still
@@ -12257,6 +12945,84 @@ separate scenes."""
                 roster_check = await self._validate_static_script_roster(video_id)
                 if roster_check.get("complete_title") and not roster_check.get("passed"):
                     raise Exception("Script roster gate failed: " + "; ".join(roster_check.get("warnings", [])))
+            else:
+                # D6-3b — STORY-LAWS S3 GATE for the ACT-based docu path.
+                # static_docu is exempted: its "scenes" are one-machine unit
+                # paragraphs (product reviews), not narrative story beats, so
+                # a physical "location" per S3 isn't a meaningful concept
+                # there, and _resplit_static_scenes just rewrote the rows
+                # above without location awareness anyway.
+                #
+                # HONEST NOTE on write ordering (corrects D6-3's report,
+                # which wrongly claimed "checked before any DB write" for
+                # this path too — that claim is only true for the modeled
+                # path in _run_modeled_script). By the time run_brief_
+                # translator() returns above, skills/video-pipeline/script/
+                # brief_translator/__init__.py's _write_script_records has
+                # ALREADY deleted the old scripts rows and progressively
+                # INSERTed the new (possibly S3-violating) ones — this gate
+                # only SELECTs what is already committed. This is the SAME
+                # shape the quality-critic gate immediately above already
+                # has (it also runs after scenes are written; "status has
+                # not advanced yet" was always about videos.status, never
+                # about scripts rows) — not a new defect D6-3 introduced,
+                # but D6-3's own doc/report overclaimed it as clean. On a
+                # violation: delete the just-written (bad) scenes rows so
+                # `scripts` doesn't keep an unreviewed, un-gated draft
+                # around, and record the violation on videos.script_
+                # validation (not just the bot-activity log) so it's
+                # inspectable the same way the critic's needs_review is.
+                # videos.status still never advances either way.
+                law_check = await self._check_scene_location_law(video_id)
+                if not law_check.get("passed"):
+                    detail = "; ".join(
+                        f"scene {v['scene']}: {v['detail']}" for v in law_check["violations"]
+                    )
+                    await execute(
+                        "DELETE FROM scripts WHERE video_id = $1 AND tenant_id = $2",
+                        video_id, self.tenant_id,
+                    )
+                    import json as _json_s3
+                    await execute(
+                        "UPDATE videos SET script_validation = $1, updated_at = now() "
+                        "WHERE id = $2 AND tenant_id = $3",
+                        _json_s3.dumps({"passed": False, "checks": [
+                            {"name": "story_law_s3", "passed": False, "detail": detail[:2000]}]}),
+                        video_id, self.tenant_id,
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "failed",
+                        f"Story law S3 (one location per scene) failed: {detail}"[:900],
+                    )
+                    return {
+                        "status": "needs_review", "video_id": video_id,
+                        "violations": [v["detail"] for v in law_check["violations"]],
+                        "message": ("The script needs another look — some scenes don't hold to a "
+                                    "single stated location: " + detail)[:900],
+                    }
+                if law_check.get("warnings"):
+                    warn_detail = "; ".join(
+                        f"scene {w['scene']}: {w['detail']}" for w in law_check["warnings"]
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "started",
+                        f"Story law S3 advisory (cross-location text, non-blocking): {warn_detail}"[:900],
+                    )
+
+                # D6-4 (S1 GATE leg): cross-scene, warn-only, permanently —
+                # same shape as the S3 advisory just above, and only reached
+                # when the S3 gate above already passed (every scene has a
+                # location), so the comparison is meaningful. See
+                # story_laws.check_location_transit_law's docstring.
+                s1_check = await self._check_location_transit_law(video_id)
+                if s1_check.get("warnings"):
+                    s1_warn_detail = "; ".join(
+                        f"scene {w['scene']}: {w['detail']}" for w in s1_check["warnings"]
+                    )
+                    await self._log_activity(
+                        bot_name, video_id, "started",
+                        f"Story law S1 advisory (unnarrated location change, non-blocking): {s1_warn_detail}"[:900],
+                    )
 
             # Dialogue intelligence runs unattended after EVERY script path —
             # the modeled and user-supplied paths already had this hook, but

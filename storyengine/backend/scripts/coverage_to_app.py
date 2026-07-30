@@ -82,6 +82,12 @@ from storyboard.coverage import (  # noqa: E402
     parse_set_dressing, parse_axis_line, parse_setups_line, panels_per_sheet_for,
     sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
     plan_moments_deterministic,
+    # BOARD LAWS (storyengine/BOARD-LAWS.md): multi-location/material-map
+    # directive parsing (L3/L20) and the shared motion detector (L4) — the
+    # SAME functions run_coverage's own repair-leg locks call, so the sheet
+    # PREVIEW and the PICTURES draw prompt can never silently disagree on
+    # which locations exist or whether this scene reads as motion.
+    parse_location_sets, parse_material_map, scene_has_motion,
     # D3-65: the SAME "this is the master's moment, different camera" guard
     # generate_coverage_frames appends to every ANGLE prompt alongside the
     # master frame's own url as a reference — see redraw_asset_image below
@@ -92,6 +98,12 @@ from storyboard.coverage import (  # noqa: E402
     # (never re-guessed) so _coverage_shape's pure-dialogue headroom always
     # matches what the floor validator will actually go looking for.
     _REACTION_TURNS_PER_SHOT, _INSERT_SHOTS_PER_ONE, _REESTABLISH_SHOTS_PER_ONE,
+    # D6-2 (L16/L22, migration 143): the SAME setup-id extraction and
+    # reverse-pair parser run_coverage's build-time repair legs use —
+    # imported (never re-guessed) so redraw_asset_image's fresh
+    # re-derivation can never silently diverge from what was computed at
+    # build time.
+    _setup_id, _setup_base_id, parse_reverse_setup_pairs,
 )
 
 
@@ -243,7 +255,56 @@ def _enforce_stylized_media(style):
 
 
 def _resolve_style(image_style_override, visual_style):
-    """Turn a video's stored style choice into (profile, style_directive).
+    """Turn a video's stored style choice into (profile, style_directive) —
+    the ONE resolved style string every image-prompt path (director, cast
+    sheet, storyboard sheet composer) must state exactly once (BOARD-LAWS
+    L29). This function IS the precedence contract; it was unwritten before
+    D6-1, which is how the sheet composer ended up stating two contradictory
+    styles in one prompt (see _sheet_header's L29 fix).
+
+    PRECEDENCE CONTRACT (videos carries EIGHT style-related columns; this is
+    the only function in the codebase that resolves board/cast-sheet style,
+    and it consults exactly two of them, in this order):
+      1. image_style_override — wins outright when set. The creator's most
+         specific, most recent style choice.
+      2. visual_style — used only when (1) is empty. The channel/video's
+         general style pick.
+      3. Neither set => style_directive is None; every caller defaults to
+         its own neutral fallback ("Photorealistic, cinematic film still"
+         in the sheet composer, "a PHOTOREAL live-action / 3D-CG style" in
+         build_cast_prompt) — ONE default, stated ONE place per caller,
+         never a second independent guess layered on top.
+      The other SIX videos.* style columns are DELIBERATELY NOT consulted
+      here, because they answer different questions, not "what does the
+      image look like":
+        - render_style, video_model — the VIDEO/clip model + its declared
+          look for animate/routing (route_shot_model), not the image-prompt
+          style text.
+        - production_style_snapshot — pacing/density knobs (_production_
+          density_mode: how many panels, not what they look like).
+        - style_preset_id, production_style_id — preset IDs that resolve
+          through a COMPLETELY SEPARATE mechanism this function does not
+          touch: pipeline_executor._resolve_visual_profile_id reads
+          style_preset_id and sets the VISUAL_PROFILE env var, which a
+          DIFFERENT load_profile (shared.profiles.visual, not shared.
+          channel_profile's load_profile imported here) uses to pick one of
+          5 Python profile engines for the MAIN pictures pipeline. That
+          path is real but genuinely separate — verified by reading both
+          call sites (2026-07-30) rather than assumed. NOTED GAP, not fixed
+          in D6-1: a video whose creator picked a style_preset_id with no
+          image_style_override/visual_style text also set gets the sheet
+          COMPOSER's neutral photoreal default while the real PICTURES path
+          renders in the chosen preset engine — the sheet preview and the
+          real draw can disagree on style for that specific configuration.
+          Fixing it means either mirroring _resolve_visual_profile_id's
+          precedence here or unifying the two resolvers; out of this
+          chunk's scope (composer verbatim insertion), filed for a
+          follow-up rather than silently left undocumented.
+        - thumbnail_style_override — scoped to the YouTube thumbnail only,
+          a different artifact with its own audience and constraints.
+      A caller that finds itself wanting one of those six for a BOARD or
+      CAST-SHEET prompt has the wrong requirement — style-for-drawing always
+      resolves through this function and only ever prints ONE line.
 
     The picture engine locks every frame to the cast sheet's look, so the cast sheet IS the
     style. This carries the creator's pick (image_style_override / visual_style) into the
@@ -310,10 +371,14 @@ async def _approved_envs(vid, tenant) -> list[dict]:
     Empty for videos that never designed locations. `props` (C4, when
     present) is the environment's canonical prop manifest, parsed to a
     list[dict] ready for render_prop_manifest — absent/NULL stays None,
-    every downstream consumer's existing no-manifest fallback."""
+    every downstream consumer's existing no-manifest fallback. `material_map`
+    (D6-1, migration 142, L20) is the location's canonical solid/transparent
+    boundary text — NULL means no canonical map yet, and callers fall back
+    to the planner LLM's own [MATERIAL|...] line (see _canonical_material_line)."""
     try:
         rows = await fetch_all(
-            "SELECT name, description, reference_url, props FROM video_environments "
+            "SELECT name, description, reference_url, props, material_map "
+            "FROM video_environments "
             "WHERE video_id=$1 AND tenant_id=$2 AND reference_url IS NOT NULL "
             "ORDER BY sort, created_at", vid, tenant)
         out = []
@@ -332,6 +397,52 @@ def _norm_env_text(s: str) -> str:
     """Lowercase and collapse punctuation/dashes to single spaces, so
     'Home kitchen — cram session' matches 'home kitchen - cram session'."""
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+def _canonical_material_line(envs: list[dict], location_sets: dict,
+                             matched_env: Optional[dict]) -> str:
+    """D6-1 (L20 — MATERIAL MAP): the CODE-RENDERED, canonical material map,
+    sourced from video_environments.material_map (migration 142) — this
+    WINS over the planner LLM's own [MATERIAL | ...] line (storyboard.
+    coverage.parse_material_map) whenever a canonical entry exists, never a
+    paraphrase of it. Returns "" (never invents) when no canonical entry
+    exists anywhere relevant, so the caller's existing parse_material_map
+    fallback is unchanged for any video/environment that hasn't authored
+    one yet — byte-compatible with every video before this migration.
+
+    Multi-location scene (location_sets non-empty): one verbatim clause per
+    LOCSET name that has a matching approved environment with a
+    material_map, name-matched via _norm_env_text (case/punctuation
+    insensitive, same matcher _match_scene_env already uses). A location
+    with no canonical entry is simply omitted from this string — KNOWN GAP,
+    stated honestly rather than silently: a multi-location scene where only
+    SOME locations have an authored material_map gets a canonical clause
+    for those and nothing for the rest (not a fallback to the LLM line per
+    missing location — mixing a canonical clause and an LLM clause for two
+    locations in the SAME block would itself violate 'once, from one
+    source of truth'). Closing that gap needs per-location fallback
+    plumbing through _plan_sheet_prompts' single material_block slot;
+    out of scope for this chunk.
+
+    Single-location scene (location_sets empty): the scene's ONE matched
+    environment's material_map, or "" if it has none or nothing matched."""
+    def _find(name: str) -> str:
+        norm = _norm_env_text(name)
+        for e in envs:
+            if _norm_env_text(e.get("name") or "") == norm:
+                return (e.get("material_map") or "").strip()
+        return ""
+
+    if location_sets:
+        parts = []
+        for loc in location_sets:
+            mm = _find(loc)
+            if mm:
+                parts.append(f"{loc.upper()}: {mm}")
+        return " ".join(parts)
+    if matched_env:
+        return (matched_env.get("material_map") or "").strip()
+    return ""
 
 
 # The planner's own [SET | LocationName: description...] header names this
@@ -534,9 +645,9 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 "sentence_text, image_prompt, shot_type, video_title, aspect_ratio, status, "
                 "image_url, drive_image_url, hero_shot, generation_method, assigned_dialogue, "
                 "location_id, camera_movement, image_model, routed_model, routing_reason, "
-                "duration_seconds) "
+                "duration_seconds, shot_location, group_arrangement) "
                 "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'done',$12,$13,$14,'coverage',"
-                "$15,$16,$17,$18,$19,$20,$21)",
+                "$15,$16,$17,$18,$19,$20,$21,$22,$23)",
                 str(uuid.uuid4()), tenant, vid, scene, idx, idx,
                 # D3-62: image_prompt used to be hard-sliced to 1000 chars here —
                 # a copy-paste of the short-bio [:1000] convention used elsewhere
@@ -566,6 +677,13 @@ async def store_scene(vid, tenant, title, aspect, scene, frames_by_moment, locat
                 # block, falling back to word-count when it's NULL — legacy
                 # rows and non-coverage assets are unaffected).
                 fr.get("duration_seconds"),
+                # D6-2 (migration 143): the per-shot location/computed group
+                # arrangement (coverage.py's run_coverage persist + L17/L22
+                # repair-leg blocks, threaded through generate_coverage_
+                # frames' frame dicts). None for the overwhelming majority
+                # of shots (no group/location signal) — unchanged from
+                # before this migration.
+                fr.get("shot_location"), fr.get("group_arrangement"),
                 # model_used (C13) stays NULL here — no INSERT column for it — until
                 # clip generation records which model actually ran this shot.
             )
@@ -608,11 +726,25 @@ def load_existing(outdir):
 async def load_character_bible(vid, tenant):
     """Build a BINDING visual bible from the locked cast so the writer uses the SAME character
     appearance in every shot. The cast-sheet image alone does not lock the writer's words — the
-    image model paints whatever the description says, so the description must be locked too."""
+    image model paints whatever the description says, so the description must be locked too.
+
+    D6-1 (L6 — IDENTITY ONCE): prefers the canonical identity_tag (migration
+    142, video_characters.identity_tag) over description as the bible's
+    "costume" field — identity_tag is a short, AUTHORED-ONCE locked tag;
+    description is long free prose meant for the cast-sheet portrait prompt,
+    which _character_identity_line was previously truncating to 60 chars as
+    a stand-in for a real tag (an arbitrary mid-thought cut, not an authored
+    fact). NULL identity_tag falls back to description, byte-identical to
+    before this column existed."""
     rows = await fetch_all(
-        "SELECT name, description FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
-        "AND description IS NOT NULL ORDER BY sort", vid, tenant)
-    chars = [{"id": r["name"], "costume": r["description"], "scenes_present": []} for r in rows]
+        "SELECT name, identity_tag, description FROM video_characters WHERE video_id=$1 "
+        "AND tenant_id=$2 AND (identity_tag IS NOT NULL OR description IS NOT NULL) "
+        "ORDER BY sort", vid, tenant)
+    chars = []
+    for r in rows:
+        tag = (r.get("identity_tag") or "").strip()
+        costume = tag if tag else (r.get("description") or "")
+        chars.append({"id": r["name"], "costume": costume, "scenes_present": []})
     return {"characters": chars} if chars else None
 
 
@@ -1103,11 +1235,43 @@ def _expected_coverage_frame_count(directive_text: str, max_moments: int, angles
 
 
 def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_line: str,
-                   variant: str = "primary") -> str:
+                   variant: str = "primary", has_cast_refs: bool = False) -> str:
     """The fixed instruction paragraph opening one storyboard sheet prompt —
     kept SEPARATE from _plan_sheet_prompts's panel-body construction so a
     failed sheet draw can retry with a DIFFERENT header on the SAME body (see
     the fallback-header retry in generate_storyboard_sheet_for_scene).
+
+    D6-1 fixed TWO live law violations here, both found on a real proof run
+    (2026-07-30):
+
+    L29 (DECLARE ONE STYLE, ONCE) — the 'primary' variant used to open with
+    "...for an animated scene", an UNCONDITIONAL second style claim
+    completely independent of style_line (the ONE resolved style, from
+    _resolve_style's precedence contract). Whenever style_line resolved to
+    something else — e.g. the default "Photorealistic, cinematic film
+    still" — the emitted prompt asserted "animated" and "Photorealistic"
+    in the same sheet, and the model resolved the contradiction toward
+    photorealism (BOARD-LAWS.md L29's own provenance, same failure shape).
+    Fixed by deleting the standalone claim outright: style_line is already
+    stated exactly once, later in this same header ("Every panel uses the
+    same art style, {style_line}..."), and that is now the ONLY place a
+    style word appears. See _assert_single_style_declaration for the gate
+    that gave this a mechanical, not just prose, guarantee.
+
+    L28 (NEVER ASSERT AN INPUT THAT IS NOT ATTACHED) — BOTH variants used
+    to unconditionally claim "matching their appearance to the attached
+    reference images" / "Match each character's appearance to the attached
+    reference images throughout", regardless of whether any character
+    actually has video_characters.reference_url set. cast_refs is [] on
+    every unapproved-sheet call (coverage_to_app.py's cast_refs list), so
+    this fired constantly and — per L28's provenance — LICENSES confident
+    invention rather than merely failing to constrain it. has_cast_refs
+    (the caller's honest bool(cast_refs)) now gates the clause: when refs
+    are genuinely attached, the original wording holds; when they are not,
+    the sentence instead points the drawer at the CHARACTER block (L6's
+    locked identity tags, when present) as the thing to match instead of
+    a claimed image. Never both, never neither silently — see
+    _assert_no_unattached_claims for the gate.
 
     C25a-fix8 (2026-07-20): the old ALL-CAPS "Professional animation
     PRODUCTION STORYBOARD SHEET" header started 400ing on
@@ -1137,25 +1301,46 @@ def _sheet_header(chunk_index: int, total_chunks: int, panel_count: int, style_l
     minimal-caps principle as 'primary' but not independently pre-flight-
     tested to the same depth — best-effort (a 400 on this variant costs
     nothing to attempt, so it is safe to try even unproven)."""
+    # L27 (INSTRUCTIONS ARE NOT CAPTIONS): both variants below state exactly
+    # what the caption strip may contain (number + shot type) AND that
+    # nothing else ever appears there — a panel brief's own text (an
+    # arrangement note, a labelled directive) has no business in that strip
+    # and must never end up there. Proven live: an arrangement fact written
+    # as a labelled "WORD WORD: ..." heading inside a panel's own brief
+    # printed itself verbatim onto that panel's caption strip.
     if variant == "fallback":
+        ref_clause = (
+            "Match each character's appearance to the attached reference images throughout. "
+            if has_cast_refs else
+            "Draw each character exactly as stated in the CHARACTER block above (when one is "
+            "present), identically in every panel. "
+        )
         return (
             f"Storyboard sheet {chunk_index} of {total_chunks}: {panel_count} panels in a "
             "3-column grid on a light grey page, each panel a wide 16:9 frame. Style: "
-            f"{style_line}. Match each character's appearance to the attached reference "
-            "images throughout. A small strip below each panel shows only its number and "
-            "shot type. No captions, dialogue, subtitles or lettering of any kind inside "
-            "or under the panels."
+            f"{style_line}. {ref_clause}"
+            "A small strip below each panel shows ONLY its number and "
+            "shot type, and NOTHING else — no captions, dialogue, subtitles or lettering of "
+            "any kind, ever, inside or under the panels, however a panel's own brief is worded."
         )
+    ref_clause = (
+        "Draw every character consistently across every panel, matching their appearance to "
+        "the attached reference images. "
+        if has_cast_refs else
+        "Draw every character consistently across every panel, exactly as stated in the "
+        "CHARACTER block above (when one is present) — never inventing or varying their look. "
+    )
     return (
-        f"This is storyboard sheet {chunk_index} of {total_chunks} for an animated scene: a "
+        f"This is storyboard sheet {chunk_index} of {total_chunks}: a "
         f"grid of {panel_count} panels arranged in 3 columns on a plain light grey page. Each "
         "panel is a wide 16:9 cinematic frame, never square or tall. Every panel uses the "
         f"same art style, {style_line}, with matching lighting and color grading throughout. "
-        "Draw every character consistently across every panel, matching their appearance to "
-        "the attached reference images. A small plain strip below each panel shows only its "
-        "panel number and shot type. The panel artwork carries no lettering, signs, speech "
-        "bubbles, captions, dialogue or written words of any kind — keep every panel free of "
-        "readable text except the small panel-number label."
+        f"{ref_clause}"
+        "A small plain strip below each panel shows ONLY its "
+        "panel number and shot type — NOTHING else ever appears in that strip, no matter how "
+        "a panel's own brief is worded below. The panel artwork carries no lettering, signs, "
+        "speech bubbles, captions, dialogue or written words of any kind — keep every panel "
+        "free of readable text except the small panel-number label."
     )
 
 
@@ -1575,9 +1760,133 @@ def _escalate_panel_briefs(directive_text: str) -> tuple[str, list[tuple[str, st
     return "\n".join(out_lines), reworded
 
 
+def _character_identity_line(bible: Optional[dict], scene_number) -> str:
+    """L6 (IDENTITY ONCE): a short "Name (locked words)" tag per character
+    present in THIS scene, joined into one line — the sheet-preview's own
+    CHARACTER block (_plan_sheet_prompts' character_line). Filters bible['
+    characters'] to whoever's scenes_present includes this scene number (an
+    empty/missing scenes_present is treated as "present" rather than hidden
+    — the conservative default scene_aware_bible's callers already rely on
+    elsewhere). Truncates each costume/description to a short tag (rule 2's
+    own "2-4 bible words" convention) so this never grows into the long
+    wardrobe-paragraph shape rule 2 explicitly forbids. Returns "" when
+    there's no bible or no characters resolve for this scene — the caller
+    treats that as "omit the CHARACTER block", matching today's behavior."""
+    if not bible or not bible.get("characters"):
+        return ""
+
+    def _short(s, n=60):
+        s = (s or "").strip()
+        if len(s) <= n:
+            return s
+        return s[:n].rsplit(" ", 1)[0].rstrip(" ,;:.") + "…"
+
+    tags = []
+    for ch in bible["characters"]:
+        present = ch.get("scenes_present")
+        if present and scene_number not in present:
+            continue
+        name = (ch.get("id") or "").strip()
+        if not name:
+            continue
+        costume = _short(ch.get("costume") or ch.get("description") or "")
+        tags.append(f"{name} ({costume})" if costume else name)
+    return "; ".join(tags)
+
+
+# =============================================================================
+# D6-1 hard gates (BOARD-LAWS L3, L28, L29) — the "GATE" leg of the contract
+# triangle for these three laws. Unlike the check_* functions in storyboard.
+# coverage.py (warning-only, print a note and continue), these RAISE: a
+# prompt that fails one of them must never reach the paid image-generation
+# call, so the gate has to actually stop the draw, not just log it. Called
+# from _plan_sheet_prompts (L29/L28-cast/L3) and from _draw_board's entry
+# point in generate_storyboard_sheet_for_scene (L28-location, once env_block
+# is known) — see each call site's comment for why it lives there.
+# =============================================================================
+
+class SheetPromptContractViolation(Exception):
+    """Raised when an assembled board-sheet prompt violates a law that has a
+    deterministic, mechanical check (L3/L28/L29). Callers catch this PER
+    SCENE (generate_storyboard_sheet_for_scene) and fail that scene's boards
+    loudly via the progress callback — never silently, and never by sending
+    the bad prompt to a paid model anyway."""
+
+
+# L29: style-indicating words that must appear ONLY inside the one resolved
+# style_line, nowhere else in the assembled prompt. Deliberately broader
+# than a single hardcoded phrase (the fix for the specific "for an animated
+# scene" bug already removes ITS text) — this keeps catching ANY future
+# second, independently-worded style claim that names a rendering medium,
+# which is exactly the general shape L29's provenance describes ("an
+# ANIMATED scene" + "Photorealistic... film still", two different words,
+# same violation).
+_STYLE_KEYWORDS = (
+    "animated", "animation", "photoreal", "live-action", "live action",
+    "cartoon", "anime", "stylized", "claymation", "3d-cg", "3d cg", "cgi",
+    "watercolor", "pencil sketch", "oil painting",
+)
+
+
+def _assert_single_style_declaration(full_text: str, style_line: str) -> None:
+    """L29 gate. For every style keyword, the number of times it appears in
+    the WHOLE assembled prompt must equal the number of times it appears
+    inside style_line alone — any surplus means a second, independently
+    worded style claim slipped in outside the one sanctioned insertion
+    point. Reproduces the live bug exactly: header text "for an animated
+    scene" (style_line not containing "animated") scores total=1,
+    within_style=0 -> 1 > 0 -> raises. A style_line that itself legitimately
+    says e.g. "animated 2D style" scores total==within_style -> passes,
+    because it is still stated exactly once, in the right place."""
+    style_low = (style_line or "").strip().lower()
+    full_low = (full_text or "").lower()
+    for kw in _STYLE_KEYWORDS:
+        total = full_low.count(kw)
+        within_style = style_low.count(kw)
+        if total > within_style:
+            raise SheetPromptContractViolation(
+                f"L29 (DECLARE ONE STYLE, ONCE): style keyword {kw!r} appears {total} "
+                f"time(s) in the assembled prompt but only {within_style} time(s) inside "
+                f"the single resolved style declaration ({style_line!r}) — a second, "
+                "independent style claim is present.")
+
+
+# L28: phrases that claim a specific attached input. Each maps to the name
+# of the boolean the caller must pass proving that input is genuinely in
+# the call. Add a new entry here whenever a new "attached X" claim is
+# written anywhere in the sheet prompt — this is the audit point BOARD-
+# LAWS L28 asks for ("the same applies to any claimed input").
+_ATTACHED_CLAIM_PATTERNS = (
+    (re.compile(r"attached reference imag", re.IGNORECASE), "cast_refs"),
+    (re.compile(r"FINAL reference image", re.IGNORECASE), "env_ref"),
+    (re.compile(r"LAST attached reference image", re.IGNORECASE), "env_ref"),
+)
+
+
+def _assert_no_unattached_claims(full_text: str, **attached: bool) -> None:
+    """L28 gate. Raises if the text claims an input named in
+    _ATTACHED_CLAIM_PATTERNS whose corresponding `attached[...]` kwarg is
+    falsy or was never passed (missing == not attached, the safe default —
+    a caller that forgets to prove an input is attached must not get a free
+    pass). Reproduces the live bug: has_cast_refs=False text still
+    containing "matching their appearance to the attached reference
+    images" raises; the fixed conditional text (which switches to the
+    CHARACTER-block sentence when refs are absent) does not."""
+    for pattern, key in _ATTACHED_CLAIM_PATTERNS:
+        if pattern.search(full_text or "") and not attached.get(key, False):
+            raise SheetPromptContractViolation(
+                f"L28 (NEVER ASSERT AN INPUT THAT IS NOT ATTACHED): prompt claims an "
+                f"attached {key.replace('_', ' ')} but none is attached to this call.")
+
+
 def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9,
                         set_line: str = "", axis_line: str = "",
-                        setups_line: str = "", header_variant: str = "primary") -> list[str]:
+                        setups_line: str = "", header_variant: str = "primary",
+                        character_line: str = "", location_sets: Optional[dict] = None,
+                        material_line: str = "", motion_scene: bool = False,
+                        incoming: Optional[dict] = None, outgoing: Optional[dict] = None,
+                        has_cast_refs: bool = False,
+                        canonical_envs: Optional[list] = None) -> list[str]:
     """Deterministic storyboard-sheet image prompts FROM the coverage plan —
     one numbered panel per planned SHOT (masters and angles alike), chunked
     into BALANCED sheets of ≤panels_per_sheet via sheet_chunk_sizes (pass
@@ -1591,7 +1900,78 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     already resolved into screen space by the planner, dialogue in the
     caption bars, and the hard constraints in a final slot. Long per-panel
     wardrobe prose is the documented failure mode — it fights the reference
-    image — so briefs stay tight and captions carry the spoken line."""
+    image — so briefs stay tight and captions carry the spoken line.
+
+    BOARD LAWS additions (storyengine/BOARD-LAWS.md), all optional/additive —
+    every new parameter defaults to empty/False/None, so a caller that never
+    passes them (none did before this chunk) gets byte-identical output:
+      character_line (L6): a short "Name (2-4 locked words)" identity line
+        rendered ONCE as a CHARACTER block, mirroring the acceptance target's
+        shape — this sheet composer never had one before; identity used to
+        live ONLY in the attached reference image plus the directive-stage
+        LLM's own rule 2, never restated in the actual draw prompt's text.
+      location_sets (L3): {location_name: set_text} from
+        storyboard.coverage.parse_location_sets. When non-empty, REPLACES the
+        single FIXED SET block with one per-location block (each carrying an
+        explicit cross-contamination prohibition) and tags every panel whose
+        moment names a location with that location, e.g. "M5 · CORRIDOR WS".
+        Falls back to the single set_block for any moment with no location
+        tag (a planner slip) or when moments carry no location data at all.
+      material_line (L20): stamped as its own MATERIAL MAP block when present.
+      motion_scene (L4): selects motion-capable CAMERA KIT phrasing instead
+        of the unconditional (and, for a scene with a moving/location-
+        changing beat, WRONG) "the actors are PLANTED... and never move" —
+        see storyboard.coverage.scene_has_motion, the single shared detector
+        this and run_coverage's STAGING LOCK repair tail both call.
+      incoming/outgoing (L23-L26): optional scene-boundary blocks in the
+        exact shape storyboard.coverage.format_boundary_blocks renders —
+        incoming is placed on the FIRST sheet only (it constrains this
+        scene's first panel), outgoing on the LAST sheet only.
+      has_cast_refs (L28, D6-1): the caller's honest bool(cast_refs) — the
+        ONLY thing that decides whether _sheet_header's reference-image
+        clause is written. Defaults to False (never claim unless proven),
+        which is the safe direction for L28.
+      canonical_envs (L3, D6-1b): the video's approved video_environments
+        rows (same shape _approved_envs returns — needs a "name" key at
+        minimum). Used ONLY by the L3 location gate below to upgrade a
+        prose-vs-prose mismatch into a prose-vs-canonical match before
+        deciding whether to raise. Defaults to None/[] — a caller that
+        never passes it gets the D6-1 behavior unchanged (LOCSET-only
+        matching), which is still correct for legacy callers that have no
+        approved environments to check against.
+
+    D6-1b (independent-verifier fix): the L3 gate no longer HARD-RAISES on
+    a bare LOCSET-name mismatch, because both sides of that comparison
+    (a moment's `location` and a [LOCSET|name|...] key) are free prose
+    written independently by the SAME planner LLM — "Diner Interior" vs
+    "The Diner" is a paraphrase, not a real scoping gap, and a hard raise
+    on paraphrase would block real boards. The gate now checks THREE tiers
+    for each location a panel references, in order: (1) an exact-enough
+    LOCSET key match (unchanged, the common case); (2) a match against a
+    CANONICAL video_environments.name in canonical_envs (this chunk's
+    whole point — turn a prose-vs-prose comparison into a prose-vs-
+    canonical one, matched with the same _norm_env_text normalizer
+    _match_scene_env already uses); only when NEITHER matches is (3) a
+    genuine gap with nothing canonical to fall back on — and even then
+    this is a LOUD WARNING (printed), never a hard raise, because a gate is
+    only allowed to be hard when the thing it compares against is
+    canonical, and prose-vs-prose is not that. L28/L29 stay hard raises
+    below — they compare against a boolean the caller PROVED true/false,
+    not against another free-text guess."""
+    if location_sets:
+        _loc_keys_norm = {_norm_env_text(k) for k in location_sets}
+        _env_names_norm = {_norm_env_text(e.get("name") or "") for e in (canonical_envs or [])
+                           if e.get("name")}
+        _referenced = {m.get("location") for m in moments if m.get("location")}
+        _unmatched_locset = sorted(loc for loc in _referenced if _norm_env_text(loc) not in _loc_keys_norm)
+        _no_canonical_either = sorted(loc for loc in _unmatched_locset
+                                      if _norm_env_text(loc) not in _env_names_norm)
+        if _no_canonical_either:
+            print(f"  ⚠️ L3 (LOCATION SCOPING): panel(s) reference location(s) "
+                  f"{_no_canonical_either} with no matching LOCSET entry among "
+                  f"{sorted(location_sets)} AND no matching canonical video_environments "
+                  "record — nothing canonical to verify against, so this is a warning, not "
+                  "a block. Consider approving an environment for this location.", flush=True)
     def _trunc(s, n):
         # Word-boundary cut with an ellipsis. A hard slice amputates mid-word
         # ("Why didn'", "cream stove at ba") and the sheet drawer renders that
@@ -1601,9 +1981,12 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
             return s
         return s[:n].rsplit(" ", 1)[0].rstrip(" ,;:.") + " …"
 
+    location_sets = location_sets or {}
     panels: list[str] = []
     for m in moments:
         n = m.get("moment_number")
+        loc = m.get("location") if location_sets else None
+        loc_tag = f" · {loc.upper()}" if loc else ""
         # C25a-fix14 (Ryan, 2026-07-20): the verbatim spoken line is NO LONGER
         # baked into the sheet image. fix9b left one open gap — a sheet could
         # still 400 on OpenAI's content filter from CAPTION density alone (the
@@ -1619,24 +2002,63 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         # Panel-brief visual description IS builder-authored text (C25a-fix9b):
         # neutralize risky-prop density before truncating.
         master_desc = _neutralize_risky_props(master.get("description"))
-        panels.append(f"[{len(panels) + 1}] M{n} {master.get('shot_type', 'MS')} — "
+        panels.append(f"[{len(panels) + 1}] M{n}{loc_tag} {master.get('shot_type', 'MS')} — "
                       f"{_trunc(master_desc, 300)}")
         for a in (m.get("angles") or []):
             angle_desc = _neutralize_risky_props(a.get("description"))
-            panels.append(f"[{len(panels) + 1}] M{n} ANGLE {a.get('shot_type', 'CU')} — "
+            panels.append(f"[{len(panels) + 1}] M{n}{loc_tag} ANGLE {a.get('shot_type', 'CU')} — "
                           f"{_trunc(angle_desc, 300)}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
-    # SHEET PREVIEWS ONLY (2026-07-21, knife-scene evidence — see the
-    # boundary block above _neutralize_risky_props): set_line now runs
-    # through _neutralize_risky_props before it goes into FIXED SET. A risky
-    # prop staged here gets drawn into EVERY panel that shows the location,
-    # not named once — fix9b's original single-naming exemption for FIXED
-    # SET was reasoned for the PICTURES path, not this throwaway preview.
-    # The PICTURES path (run_coverage) builds its own set text separately
-    # and is NOT touched by this change.
-    set_block = (f"\nFIXED SET — identical in EVERY panel that shows the location: "
-                 f"{_neutralize_risky_props(set_line)}\n"
-                 if (set_line or "").strip() else "")
+    # CHARACTER block (L6): stated once, mirrors the acceptance target's
+    # "CHARACTER — stated once, drawn identically in every panel: ..." line.
+    # character_line is caller-supplied plain prose (a short locked identity
+    # tag per cast member) — never risky-prop-neutralized (it's wardrobe/
+    # appearance text, not a prop/gesture list, and running it through that
+    # pass would be a no-op at best and a confusing substitution at worst).
+    character_block = (f"\nCHARACTER — stated once, drawn identically in every panel: "
+                       f"{character_line.strip()}\n"
+                       if (character_line or "").strip() else "")
+    # L3 (LOCATION SCOPING): a multi-location scene gets one FIXED SET block
+    # PER LOCATION instead of the single scene-wide block below — each with
+    # an explicit cross-contamination prohibition, so this sheet-preview
+    # prompt stops reproducing the exact bug L3's provenance describes (one
+    # "identical in every shot of this scene" lock drawing a corridor panel
+    # with bedroom furniture). Falls back to the single-location set_block
+    # when location_sets is empty (every scene before this law, and every
+    # single-location scene going forward) — byte-identical in that case.
+    if location_sets:
+        loc_lines = []
+        for name, text in location_sets.items():
+            others = [n for n in location_sets if n != name]
+            # Guarantee the cross-contamination prohibition even when the
+            # planner forgot it (defense in depth, same reasoning as every
+            # other REPAIR-leg stamp in this file) — but SKIP auto-appending
+            # a SECOND one when the planner's own LOCSET text already reads
+            # as a prohibition sentence, so a compliant planner's output
+            # isn't followed by a near-duplicate sentence saying the same
+            # thing twice.
+            already_stated = bool(re.search(r"\bonly\b.*\bpanels?\b", text, re.IGNORECASE))
+            prohibition = (f" These props appear ONLY in {name} panels; never in "
+                           f"{' or '.join(others)} panels."
+                           if others and not already_stated else "")
+            loc_lines.append(f"{name.upper()} SET — applies ONLY to panels marked "
+                             f"{name.upper()}: {_neutralize_risky_props(text)}.{prohibition}")
+        set_block = "\n" + "\n".join(loc_lines) + "\n"
+    else:
+        # SHEET PREVIEWS ONLY (2026-07-21, knife-scene evidence — see the
+        # boundary block above _neutralize_risky_props): set_line now runs
+        # through _neutralize_risky_props before it goes into FIXED SET. A risky
+        # prop staged here gets drawn into EVERY panel that shows the location,
+        # not named once — fix9b's original single-naming exemption for FIXED
+        # SET was reasoned for the PICTURES path, not this throwaway preview.
+        # The PICTURES path (run_coverage) builds its own set text separately
+        # and is NOT touched by this change.
+        set_block = (f"\nFIXED SET — identical in EVERY panel that shows the location: "
+                     f"{_neutralize_risky_props(set_line)}\n"
+                     if (set_line or "").strip() else "")
+    # MATERIAL MAP block (L20).
+    material_block = (f"\nMATERIAL MAP — fixed for this whole set: {material_line.strip()}\n"
+                      if (material_line or "").strip() else "")
     # AXIS/SCREEN-DIRECTION lines never carry prop nouns and must never be
     # touched (explicit product rule) — axis_line is NEVER neutralized.
     axis_block = (f"\nSCREEN-DIRECTION LOCK — holds in EVERY panel of this sheet: {axis_line} "
@@ -1647,14 +2069,42 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     # CAMERA KIT is builder-authored text that historically re-named the same
     # risky prop set_line already named once (C25a-fix9b root cause) —
     # neutralized here, every time.
-    setups_block = (f"\nCAMERA KIT — the actors are PLANTED on the set and never move; the "
-                    f"whole scene is covered by these repeated setups: "
-                    f"{_neutralize_risky_props(setups_line)} Panels "
-                    "whose brief carries the same SETUP letter are the SAME camera position "
-                    "and the SAME frozen staging repeated EXACTLY — copy the framing, body "
-                    "positions, distance and orientation from the first panel with that "
-                    "letter; only faces, gestures and the caption change between them.\n"
-                    if (setups_line or "").strip() else "")
+    #
+    # L4 (MOTION IS LEGAL) fix: this used to say "the actors are PLANTED on
+    # the set and never move" UNCONDITIONALLY, on every scene regardless of
+    # content — a direct contradiction of a motion/location-changing scene
+    # (proven live: a static-tableau board convention applied to a scene
+    # where a character wakes, crosses a room and runs down a corridor
+    # silently dropped the exit). motion_scene (storyboard.coverage.
+    # scene_has_motion) selects motion-capable phrasing instead; a purely
+    # planted scene's text is unchanged from before this law.
+    if (setups_line or "").strip() and motion_scene:
+        setups_block = (f"\nCAMERA KIT — setups covering a planted moment hold the actors "
+                        f"still; a setup covering a moving beat (an exit, a run, a location "
+                        f"change) is MOTION-CAPABLE and describes the move directly (holds "
+                        f"while the subject exits frame, travels alongside, moves toward the "
+                        f"lens) rather than freezing it into planted staging. The scene is "
+                        f"covered by these repeated setups: {_neutralize_risky_props(setups_line)} "
+                        "Panels sharing a SETUP letter keep that same camera position, height "
+                        "and distance; only the action, expression and the moment advance.\n")
+    else:
+        setups_block = (f"\nCAMERA KIT — the actors are PLANTED on the set and never move; the "
+                        f"whole scene is covered by these repeated setups: "
+                        f"{_neutralize_risky_props(setups_line)} Panels "
+                        "whose brief carries the same SETUP letter are the SAME camera position "
+                        "and the SAME frozen staging repeated EXACTLY — copy the framing, body "
+                        "positions, distance and orientation from the first panel with that "
+                        "letter; only faces, gestures and the caption change between them.\n"
+                        if (setups_line or "").strip() else "")
+    # L23-L26 (scene boundaries): rendered by storyboard.coverage's own
+    # formatter so the wording is identical to what the directive-planning
+    # LLM prompt uses — see that function's docstring for why this chunk
+    # builds only the RENDERING half, not the film-level boundary pass
+    # itself. Placed on the FIRST sheet (incoming) / LAST sheet (outgoing)
+    # only, since those are the only sheets whose first/last panel the
+    # boundary actually constrains.
+    if incoming or outgoing:
+        from storyboard.coverage import format_boundary_blocks
     prompts = []
     # BALANCED chunking (Ryan, 2026-07-21): sizes come from sheet_chunk_sizes
     # — the shared single source of truth with the board-anchor math in
@@ -1668,14 +2118,52 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         _start += _size
     for ci, chunk in enumerate(chunks, start=1):
         listed = "\n".join(chunk)
-        prompts.append(
-            _sheet_header(ci, len(chunks), len(chunk), style_line, variant=header_variant)
-            + f"{set_block}{axis_block}{setups_block}"
-            "Draw these panels IN ORDER:\n"
-            + listed +
+        this_boundary = ""
+        if incoming and ci == 1:
+            this_boundary += f"\n{format_boundary_blocks(incoming, None).strip()}\n"
+        if outgoing and ci == len(chunks):
+            this_boundary += f"\n{format_boundary_blocks(None, outgoing).strip()}\n"
+        header_text = _sheet_header(ci, len(chunks), len(chunk), style_line, variant=header_variant,
+                                    has_cast_refs=has_cast_refs)
+        constraints_text = (
             "\nCONSTRAINTS: never swap which side of the frame a character occupies; never "
             "mirror or flip a panel; one action per panel; a panel may break the "
-            "screen-direction lock only if its brief says NEUTRAL.")
+            "screen-direction lock only if its brief says NEUTRAL; never repeat an earlier "
+            "panel of this sheet identically — escalate closer or wider instead; write every "
+            "panel brief as ordinary prose, never as a labelled heading or a \"WORD: ...\" "
+            "directive line — the caption strip below each panel shows ONLY its number and "
+            "shot type, and nothing else ever appears there.")
+        chunk_prompt = (
+            header_text
+            + f"{character_block}{set_block}{material_block}{axis_block}{setups_block}{this_boundary}"
+            "Draw these panels IN ORDER:\n"
+            + listed
+            + constraints_text)
+        # D6-1b hard gates (L29/L28-cast) — see this function's docstring.
+        # Raise here, before the prompt is even returned to the caller, so a
+        # violation can never reach the paid draw call downstream.
+        #
+        # L29 SCOPE FIX (D6-1b, independent-verifier finding): the style-
+        # keyword count runs ONLY over text the composer itself writes and
+        # fully controls — the header (style_line lives here), the
+        # CHARACTER/SET/MATERIAL blocks, and the CONSTRAINTS tail.
+        # Deliberately EXCLUDES axis_block, setups_block, this_boundary, and
+        # `listed` (the panel master/angle bodies) — all free English
+        # written by the planner LLM describing what a shot actually shows:
+        # "her face is animated with delight" (ordinary usage), "the CGI
+        # warning hologram flickers" / "an oil painting hangs above the
+        # fireplace" (legal set dressing), or L11's own required nested-
+        # screen content ("watches a cartoon... animated characters" — L11
+        # MANDATES describing a screen's content, so flagging that content
+        # as a style violation would make L11 and L29 contradict each
+        # other). A genuine second style claim always lands in composer-
+        # written text, because scene content is not framing language — the
+        # composer is the only thing that writes style/medium words on
+        # purpose.
+        _style_gate_text = header_text + character_block + set_block + material_block + constraints_text
+        _assert_single_style_declaration(_style_gate_text, style_line)
+        _assert_no_unattached_claims(chunk_prompt, cast_refs=has_cast_refs)
+        prompts.append(chunk_prompt)
     return prompts
 
 
@@ -1733,8 +2221,31 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
     kie_key = await _require_tenant_kie_key(tenant)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant)
     # Scene-aware bible so each scene's storyboard names ONLY its characters + the
-    # locked environments (per-scene character lock + the prose background lock).
+    # locked environments (per-scene character lock + the prose character lock).
     bible = await scene_aware_bible(vid, tenant, scenes, claude, claude_model)
+    # quality_rules board scope (BOARD-LAWS.md "Runtime-editable rules"):
+    # this tenant's active board-scoped rules, composed ONCE per call (not
+    # per-scene — the same text applies to every scene this call plans) and
+    # read into the planner's <board_quality_rules> prompt block below. "" for
+    # any tenant with none configured — identical to before this feature
+    # existed. quality_rules is a top-level backend module (like status_map,
+    # database) — imported locally so this DB-free-by-convention scripts/
+    # module only pulls it in on the one path that actually needs it.
+    #
+    # FAIL OPEN, deliberately: this is an OPTIONAL enhancement read (a
+    # tenant with no board-scoped rules configured — every tenant today —
+    # gets "" either way), never a hard dependency of board planning. A
+    # quality_rules read hiccup (a schema issue, a transient DB error) must
+    # never block the real, paid coverage-planning call that follows —
+    # same fail-soft discipline as resolve_dvsu_overrides' per-key parsing.
+    board_rules_text = ""
+    try:
+        import quality_rules as _quality_rules
+        board_rules_text, _ = _quality_rules.compose_rules_text(
+            await _quality_rules.active_board_rules(tenant))
+    except Exception as _qr_exc:  # noqa: BLE001
+        print(f"  ⚠️ quality_rules board-scope fetch failed ({_qr_exc}) — continuing with "
+              "no board-scoped rules text", flush=True)
     crows = await fetch_all(
         "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND reference_url IS NOT NULL ORDER BY sort", vid, tenant)
@@ -1786,6 +2297,30 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         passes (2026-07-21) so a swept board draws through the IDENTICAL
         ladder — never a second, looser retry policy just because it's a
         re-attempt."""
+        # D6-1 (L28) hard gate, defense-in-depth: _plan_sheet_prompts already
+        # validated `sp` alone for the cast-ref claim, but env_block (the
+        # "FINAL reference image" / LOCKED LOCATION claim) is concatenated
+        # AFTER that check, here, right before the actual draw call — so it
+        # gets its own check on the FULL text the model receives. env_block
+        # is only ever non-empty when env matched with a real reference_url
+        # (structurally guaranteed by _approved_envs' own WHERE clause), so
+        # this should never fire in practice; caught (not raised through) so
+        # a future regression fails THIS BOARD loudly — a classified error
+        # chip the creator can see — rather than crashing the whole batch.
+        try:
+            _assert_no_unattached_claims(sp + env_block, cast_refs=bool(cast_refs),
+                                         env_ref=bool(env_block))
+        except SheetPromptContractViolation as _contract_exc:
+            print(f"      ❌ Storyboard sheet: board {bi} failed the L28 hard gate — "
+                  f"{_contract_exc}", flush=True)
+            entry = {"code": None, "class": "unknown", "msg": str(_contract_exc)[:200],
+                     "attempts": 0, "at": datetime.now(timezone.utc).isoformat()}
+            await execute(
+                "UPDATE scripts SET storyboard_errors = "
+                "COALESCE(storyboard_errors, '{}'::jsonb) || $1::jsonb, updated_at=now() "
+                "WHERE id=$2",
+                json.dumps({str(bi): entry}), srow["id"])
+            return False, entry
         fail_box: list = []
         url, _model_used = await generate_scene_image_for_model(
             ic, SHEET_DRAW_MODEL, sp + env_block, reference_urls=sheet_refs, aspect_ratio=aspect,
@@ -1874,6 +2409,19 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     done = 0
     total_shots = 0
+    # D6-1b (independent-verifier finding #3 — "a raised gate reports
+    # success with zero boards drawn"): a SheetPromptContractViolation
+    # caught below used to just `continue` — no board attempt, no
+    # storyboard_errors entry, no `done` increment, and NOTHING recorded —
+    # so a scene blocked by a real L3/L28/L29 violation silently vanished
+    # from the final message, and routes/pipeline.py's _set_task_status
+    # reads status straight off this function's return value, so the UI
+    # showed COMPLETED with zero boards drawn. Tracked here so the final
+    # return can tell the truth: ALL scenes blocked -> "failed" with the
+    # violation text; SOME blocked -> "completed" but the message says so
+    # explicitly, never a bare "Storyboard ready for N scene(s)" that
+    # quietly undercounts.
+    blocked_scenes: list[tuple] = []
     for s in targets:
         sc = s["scene"]
         srow = await fetch_one(
@@ -1901,7 +2449,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
             directive = await generate_coverage_directive(
                 s["scene_text"] or "", title, profile, bible, [sc], [],
                 max_moments=_mm, angles_min=_amin, angles_max=_amax,
-                anthropic_client=claude, model=claude_model)
+                anthropic_client=claude, model=claude_model,
+                board_rules_text=board_rules_text)
         # C7 fix (a): parse -> budget -> floors -> variety, the SAME deterministic
         # pipeline (and order) run_coverage() runs on this exact directive_text at
         # picture-draw time — the sheet preview built below from `moments` and the
@@ -1916,11 +2465,39 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
 
+        # D6-1: env matched HERE (moved up from just before the draw loop)
+        # so the canonical per-location material map (L20) can be resolved
+        # BEFORE _sheet_kwargs is built — env_block/sheet_refs below reuse
+        # this SAME match rather than recomputing it.
+        location_sets = parse_location_sets(directive or "")
+        env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
+        # D6-1 (L20): the canonical, code-rendered material map WINS over the
+        # planner LLM's own [MATERIAL|...] line when one is authored
+        # (video_environments.material_map, migration 142) — never a
+        # paraphrase of it. Falls back to the LLM's line, byte-identical to
+        # before this migration, when no canonical entry exists yet.
+        _canonical_material = _canonical_material_line(envs, location_sets, env)
+        material_line = _canonical_material or (parse_material_map(directive or "") or "")
         _sheet_kwargs = dict(
             panels_per_sheet=panels_per_sheet_for(directive or ""),
             set_line=parse_set_dressing(directive or "") or "",
             axis_line=parse_axis_line(directive or "") or "",
-            setups_line=parse_setups_line(directive or "") or "")
+            setups_line=parse_setups_line(directive or "") or "",
+            # BOARD LAWS additions (L3/L4/L6/L20) — see _plan_sheet_prompts'
+            # own docstring for what each does; all fall back to today's
+            # behavior when the directive carries none of this law's markup.
+            character_line=_character_identity_line(bible, sc),
+            location_sets=location_sets,
+            material_line=material_line,
+            motion_scene=scene_has_motion(moments, location_sets),
+            # D6-1 (L28): the honest truth about whether any character
+            # reference actually reaches this scene's draw call — decides
+            # _sheet_header's reference-image clause, never a guess.
+            has_cast_refs=bool(cast_refs),
+            # D6-1b (L3): the video's approved environments, so the location
+            # gate can upgrade a LOCSET-name paraphrase into a canonical
+            # match instead of blocking on prose-vs-prose disagreement.
+            canonical_envs=envs)
         # Computed ONCE here and reused below (never re-derived) so sheet
         # chunking (_plan_sheet_prompts, via _sheet_kwargs), the per-board
         # panel counts and the progress messages can never diverge. _sizes is
@@ -1929,14 +2506,25 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         _cap = _sheet_kwargs["panels_per_sheet"]
         _sizes = sheet_chunk_sizes(shot_count, _cap)
         _previewed = sum(_sizes[:5])  # panels on the (at most 5) boards actually drawn
-        prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
-        # C25a-fix8: the same panels, header-swapped — held ready so a board
-        # that trips OpenAI's content filter on the primary header can retry
-        # ONCE against the identical body with a sparser fallback header (see
-        # _sheet_header's docstring). Cheap (pure string formatting, no LLM),
-        # computed once here rather than per-failure.
-        prompts_fallback = _plan_sheet_prompts(
-            moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
+        # D6-1 hard gates (L3/L28/L29): _plan_sheet_prompts raises
+        # SheetPromptContractViolation before returning any text that would
+        # violate one of these laws — caught here so ONE scene's bad plan
+        # fails loudly and skips to the next scene, instead of crashing the
+        # whole batch or (worse) silently sending a bad prompt to the paid
+        # draw call below.
+        try:
+            prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
+            # C25a-fix8: the same panels, header-swapped — held ready so a board
+            # that trips OpenAI's content filter on the primary header can retry
+            # ONCE against the identical body with a sparser fallback header (see
+            # _sheet_header's docstring). Cheap (pure string formatting, no LLM),
+            # computed once here rather than per-failure.
+            prompts_fallback = _plan_sheet_prompts(
+                moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
+        except SheetPromptContractViolation as _contract_exc:
+            _p(f"Scene {sc}: board prompt failed a hard gate — {_contract_exc}")
+            blocked_scenes.append((sc, str(_contract_exc)))
+            continue
         if beat is not None and not (1 <= beat <= len(prompts)):
             return {"status": "failed",
                     "error": f"Scene {sc} has {len(prompts)} board(s) — board {beat} doesn't exist."}
@@ -1987,7 +2575,8 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                        "nothing drawn yet")
                 continue
 
-        env = _match_scene_env((directive or "") + " " + (s["scene_text"] or ""), envs)
+        # env already matched above (moved up for the L20 canonical material
+        # resolution) — reused here, never recomputed.
         env_block = ""
         # C25a-fix7 capped sheet reference images at 2 (SHEET_REF_CAP), blaming
         # a 3rd input_urls entry for the 400s seen on video cd5d2883. C25a-fix8
@@ -2100,14 +2689,33 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                         moments = plan_moments_deterministic(
                             directive or "", _mm, _amax, max_frames=_mframes) or []
                         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
+                        # D6-1: same canonical-material precedence (L20) as the
+                        # initial plan above — env/envs are unchanged by an
+                        # escalation (only panel-brief wording is reworded), so
+                        # the same `env` match is reused, never recomputed.
+                        _sweep_location_sets = parse_location_sets(directive or "")
+                        _sweep_material = (
+                            _canonical_material_line(envs, _sweep_location_sets, env)
+                            or (parse_material_map(directive or "") or ""))
                         _sheet_kwargs = dict(
                             panels_per_sheet=panels_per_sheet_for(directive or ""),
                             set_line=parse_set_dressing(directive or "") or "",
                             axis_line=parse_axis_line(directive or "") or "",
-                            setups_line=parse_setups_line(directive or "") or "")
-                        prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
-                        prompts_fallback = _plan_sheet_prompts(
-                            moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
+                            setups_line=parse_setups_line(directive or "") or "",
+                            character_line=_character_identity_line(bible, sc),
+                            location_sets=_sweep_location_sets,
+                            material_line=_sweep_material,
+                            motion_scene=scene_has_motion(moments, _sweep_location_sets),
+                            has_cast_refs=bool(cast_refs),
+                            canonical_envs=envs)
+                        try:
+                            prompts = _plan_sheet_prompts(moments, style_dir, **_sheet_kwargs)[:5]
+                            prompts_fallback = _plan_sheet_prompts(
+                                moments, style_dir, header_variant="fallback", **_sheet_kwargs)[:5]
+                        except SheetPromptContractViolation as _contract_exc:
+                            _p(f"Scene {sc}: sweep {sweeps_run} board prompt failed a hard "
+                               f"gate — {_contract_exc}")
+                            continue
                 still_failing = []
                 for fbi in missing:
                     on_sheet = _sizes[fbi - 1]
@@ -2164,6 +2772,34 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                f"first {_previewed} on {ok} board(s){sweep_note}")
         else:
             _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s){sweep_note}")
+    # D6-1b: honest status/message when one or more scenes were blocked by a
+    # hard gate (SheetPromptContractViolation) before any board was even
+    # attempted for them — see blocked_scenes' own comment above. Same
+    # three-way shape redraw_asset_images already uses for partial success
+    # (line ~3120: "completed" if redrawn or not failed else "failed").
+    if blocked_scenes:
+        _blocked_detail = "; ".join(f"scene {n}: {msg}" for n, msg in blocked_scenes)
+        if done == 0:
+            # ALL scenes blocked — nothing was drawn or even planned. This
+            # must not read as "completed": routes/pipeline.py's
+            # _set_task_status takes its status straight from this dict, and
+            # a "completed" here would show the creator a green checkmark
+            # over zero boards.
+            return {"status": "failed",
+                    "error": f"{len(blocked_scenes)} scene(s) blocked by a hard gate, "
+                             f"no boards drawn — {_blocked_detail}",
+                    "message": f"{len(blocked_scenes)} scene(s) blocked by a hard gate, "
+                               f"no boards drawn — {_blocked_detail}"}
+        # PARTIAL success: some scenes genuinely drew, others were blocked.
+        # Say so explicitly rather than a bare "Storyboard ready for N
+        # scene(s)" that would silently undercount without explaining why.
+        base = (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), nothing drawn. "
+               "Review the plan, then draw boards one at a time." if plan_only else
+               f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
+               "Review the sheets; 'Generate pictures' draws exactly this plan.")
+        return {"status": "completed",
+                "message": f"{base} {len(blocked_scenes)} scene(s) blocked by a hard gate and "
+                           f"got NO boards — {_blocked_detail}"}
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
@@ -2204,7 +2840,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
 
     a = await fetch_one(
         "SELECT a.id, a.scene, a.image_index, a.image_prompt, a.hero_shot, "
-        "a.generation_method, "
+        "a.generation_method, a.group_arrangement, "
         "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
         "v.image_style_override, v.visual_style "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
@@ -2233,9 +2869,22 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     kie_key = await _require_tenant_kie_key(tenant_id)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     crows = await fetch_all(
-        "SELECT reference_url FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
-        "AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
+        "SELECT name, identity_tag, reference_url FROM video_characters WHERE video_id=$1 "
+        "AND tenant_id=$2 AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
     cast_refs = [r["reference_url"] for r in crows]
+    # D6-1 (L6 — IDENTITY ONCE) REPAIR LEG: the SAME canonical short tag the
+    # sheet composer's CHARACTER block uses (video_characters.identity_tag,
+    # migration 142), re-read FRESH here rather than baked into the stored
+    # image_prompt — the FRESH route (see this function's module-level
+    # comment on redraw_asset_image being the repair leg's home) so a
+    # creator's later correction to identity_tag heals every future redraw
+    # of an old shot, not just new ones. "" when no character has a
+    # canonical tag — no claim, byte-identical to before this migration.
+    cast_identity_note = ""
+    _tags = [f"{r['name']} ({(r.get('identity_tag') or '').strip()})"
+             for r in crows if (r.get("identity_tag") or "").strip()]
+    if _tags:
+        cast_identity_note = " CHARACTER — stated once, drawn identically: " + "; ".join(_tags) + "."
 
     # LOCKED LOCATION on redraws too (2026-07-21): the batch pictures run
     # conditions every frame on the scene's approved environment ref, but this
@@ -2243,7 +2892,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # background and visibly drifted from its still-original neighbors (seen
     # live on cd5d2883's scene-1 redraws). Same matcher as the batch path;
     # fail-soft, a redraw without an env match just draws like before.
-    env_refs, env_note = [], ""
+    env_refs, env_note, srow = [], "", None
     try:
         srow = await fetch_one(
             "SELECT coverage_directive, scene_text FROM scripts "
@@ -2266,8 +2915,65 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
             manifest = render_prop_manifest(env.get("props"))
             if manifest:
                 env_note += f" {manifest}"
+            # D6-1 (L20 — MATERIAL MAP) REPAIR LEG: same fresh-re-derivation
+            # pattern as the prop manifest just above — reads video_
+            # environments.material_map at REDRAW time rather than trusting
+            # anything baked into the stored image_prompt, so a corrected
+            # canonical material map heals an old shot's next redraw instead
+            # of the redraw quietly reverting to whatever the planner LLM
+            # invented for THAT scene's [MATERIAL|...] line when it was
+            # first drawn.
+            material_map = (env.get("material_map") or "").strip()
+            if material_map:
+                env_note += f" Material map, fixed for this whole set: {material_map}."
     except Exception as env_err:  # noqa: BLE001 — the redraw itself must never die on this
         _p(f"  (no location lock for this redraw: {str(env_err)[:80]})")
+
+    # D6-2 (L16 + L22, migration 143) REPAIR LEG: FRESH re-derivation at
+    # redraw time — the D6-1-preferred pattern (fresh beats baked: a later
+    # fix to parse_reverse_setup_pairs/compute_reverse_arrangement heals an
+    # OLD shot's next redraw without regenerating the scene). Reconstructs
+    # THIS shot's own SETUP id from its stored image_prompt (the same
+    # "(SETUP X)" tag the drawer wrote at build time — coverage.py's
+    # _setup_id), then re-parses THIS SCENE's own coverage_directive (the
+    # same immutable per-scene record the build-time lock read) for the
+    # reverse-setup pairing and, if this shot IS itself a reverse partner,
+    # re-derives the same computed anti-carryover tail apply_reverse_
+    # background_lock would have stamped at build time. Reuses `srow` (the
+    # SAME scripts row the env-lock block above fetched — never a second
+    # query) so this repair works whether or not an approved environment
+    # matched. A blank/legacy directive, or a shot with no SETUP tag,
+    # repairs nothing — fail-soft, exactly like every other redraw
+    # amendment here.
+    l16_l22_note = ""
+    try:
+        this_sid = _setup_id({"description": prompt})
+        if this_sid:
+            directive = (srow or {}).get("coverage_directive") or ""
+            reverse_pairs = parse_reverse_setup_pairs(parse_setups_line(directive))
+            partner = (reverse_pairs.get(this_sid)
+                       or reverse_pairs.get(_setup_base_id(this_sid))) if reverse_pairs else None
+            # Never double-stamp: the build-time repair leg (apply_reverse_
+            # background_lock) may already have baked this exact reminder in.
+            if partner and f"matched reverse of SETUP {partner}" not in prompt:
+                l16_l22_note += (
+                    f" Reverse-angle background lock (computed, re-derived at redraw): this "
+                    f"camera SETUP {this_sid} is the matched reverse of SETUP {partner}. "
+                    f"Whatever sits behind the subject in SETUP {partner} must NOT reappear "
+                    f"behind them here — state what genuinely sits behind the subject from "
+                    f"THIS camera position; a front light source there is now BEHIND THIS "
+                    f"camera instead.")
+        # assets.group_arrangement (migration 143) IS the canonical per-shot
+        # signal — re-attach it if the stored prompt doesn't already carry
+        # it verbatim (it usually does, from the build-time stamp; this
+        # only matters if the column were ever corrected after the fact,
+        # the exact "corrected canonical record heals old shots" pattern
+        # D6-1 established for identity_tag/material_map).
+        garr = (a.get("group_arrangement") or "").strip()
+        if garr and garr not in prompt:
+            l16_l22_note += f" Group arrangement (canonical): {garr}."
+    except Exception as l16_err:  # noqa: BLE001 — the redraw itself must never die on this
+        _p(f"  (no reverse-angle/arrangement repair for this redraw: {str(l16_err)[:80]})")
 
     # MOMENT-MASTER ANCHOR (D3-65): the fix for "the redraw repair path draws
     # the wrong picture, systematically". generate_coverage_frames NEVER draws
@@ -2325,7 +3031,9 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # + prompt assembly exactly: cast_refs + [master_url] + env_refs, and
     # style_prefix + composition + _SAME_SUBJECT + style_block + env_note.
     url, model_used = await generate_scene_image_for_model(
-        ic, model_override, style_prefix + prompt + master_note + _style_block + env_note,
+        ic, model_override,
+        style_prefix + cast_identity_note + prompt + master_note + _style_block + env_note
+        + l16_l22_note,
         reference_urls=cast_refs + master_refs + env_refs,
         aspect_ratio=a["aspect"], task_id_out=task_id_box)
     if not url:

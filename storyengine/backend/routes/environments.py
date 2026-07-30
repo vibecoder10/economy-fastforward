@@ -82,12 +82,19 @@ class EnvironmentRead(BaseModel):
     source: str = "generated"
     sort: int = 0
     props: Optional[list[PropItem]] = None
+    material_map: Optional[str] = None
 
 
 class EnvironmentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     props: Optional[list[PropItem]] = None
+    # D6-1 (BOARD-LAWS L20 — MATERIAL MAP, migration 142): which surfaces of
+    # THIS location are solid vs transparent and where the boundary runs,
+    # authored once, read VERBATIM by the composer
+    # (coverage_to_app._canonical_material_line) — WINS over the planner
+    # LLM's own [MATERIAL|...] line whenever set.
+    material_map: Optional[str] = None
 
     @field_validator("props")
     @classmethod
@@ -95,6 +102,11 @@ class EnvironmentUpdate(BaseModel):
         if v is not None and len(v) > MAX_PROPS:
             raise ValueError(f"at most {MAX_PROPS} props")
         return v
+
+    @field_validator("material_map")
+    @classmethod
+    def _material_map_len(cls, v):
+        return v.strip()[:1000] if v is not None else v
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +137,7 @@ def _row_to_read(row: dict) -> EnvironmentRead:
         source=row.get("source") or "generated",
         sort=row.get("sort") or 0,
         props=props if isinstance(props, list) else None,
+        material_map=row.get("material_map"),
     )
 
 
@@ -593,6 +606,11 @@ async def update_environment(
         # back to "no manifest" (every downstream consumer's fallback path).
         props_json = json.dumps([p.model_dump() for p in body.props]) if body.props else None
         params.append(props_json); sets.append(f"props = ${len(params)}")
+    if body.material_map is not None:
+        # Empty string clears it back to NULL ("no canonical map yet") — the
+        # composer's fallback (parse_material_map on the LLM's own line)
+        # treats NULL and "" identically, matching migration 142's contract.
+        params.append(body.material_map or None); sets.append(f"material_map = ${len(params)}")
     if not sets:
         return {"status": "unchanged"}
     params += [env_id, video_id, tenant_id]

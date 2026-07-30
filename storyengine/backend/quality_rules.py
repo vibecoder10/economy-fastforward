@@ -77,6 +77,30 @@ key resolves true (OR across keys, never AND):
                                      rule-table overrides (opener budget,
                                      memorable-fact source) instead of the
                                      spec-block default's.
+  "board": true                  -- BOARD-LAWS.md's board/image-planning
+                                     scope (added for the board-laws build
+                                     lane; see ``resolve_board_shape``). A
+                                     DIFFERENT axis from every key above: the
+                                     others describe VIDEO SHAPE for the
+                                     SCRIPT critic; this describes "does this
+                                     rule apply to the storyboard/coverage
+                                     PLANNER's prompt". Deliberately NOT
+                                     matched by "all" — a rule needs
+                                     {"board": true} explicitly to reach the
+                                     board planner (``storyboard.coverage.
+                                     generate_coverage_directive``'s
+                                     board_rules_text, composed by
+                                     ``active_board_rules``/
+                                     ``compose_rules_text`` and read into the
+                                     planner's ``<board_quality_rules>``
+                                     prompt block), so a tenant's existing
+                                     script-scoped rules never leak into
+                                     board prompts just because this scope
+                                     exists. No DB migration needed —
+                                     ``applies_to`` is unconstrained jsonb
+                                     (migration 105); this is a new value in
+                                     an already-open vocabulary, resolved
+                                     entirely in code.
 
 An unrecognized applies_to key is skipped and logged — never crashes, never
 matches. A rule with zero resolvable keys never matches (fails closed).
@@ -101,7 +125,18 @@ SEVERITIES = {"hard_gate", "warn", "guidance"}
 # script_source='agent_submitted' (user_script.accept_external_script, C46d).
 SOURCES = {"doc_upload", "chat", "seed", "mcp_agent"}
 
-_BOOL_SCOPE_KEYS = {"all", "research", "story", "animated", "realistic"}
+# "board" (BOARD-LAWS.md "Runtime-editable rules", the board-laws build lane):
+# the ONE stage-scope key today, alongside the video-SHAPE keys above it.
+# Deliberately its OWN axis, not folded into "all": "all" means "every video,
+# regardless of shape" WITHIN THE SCRIPT-CRITIQUE resolver (resolve_video_
+# shape, below) — a tenant's existing "all"-scoped script rules (word floors,
+# kill-phrase lists) were authored for script critique and must NOT silently
+# start showing up inside board/image planning prompts just because a new
+# resolver exists. So resolve_board_shape (below) returns ONLY {"board":
+# True} — never "all" — meaning a rule reaches the board planner ONLY when
+# it explicitly opts in with {"board": true}. See resolve_board_shape's own
+# docstring for the full reasoning.
+_BOOL_SCOPE_KEYS = {"all", "research", "story", "animated", "realistic", "board"}
 
 _SEVERITY_LABEL = {"hard_gate": "HARD-GATE", "warn": "WARN", "guidance": "GUIDANCE"}
 _SEVERITY_ORDER = {"hard_gate": 0, "warn": 1, "guidance": 2}
@@ -133,6 +168,37 @@ def resolve_video_shape(video_row: dict) -> dict:
         "animated": (video_row.get("render_style") or "") == "animated",
         "realistic": (video_row.get("render_style") or "") == "realistic",
     }
+
+
+def resolve_board_shape() -> dict:
+    """The board/image-planning stage's OWN shape (BOARD-LAWS.md's
+    "Runtime-editable rules" requirement — quality_rules had no board/image
+    scope before this). Deliberately returns ONLY {"board": True} — NOT
+    resolve_video_shape's dict, and NOT "all": True — so a rule reaches the
+    board planner ONLY when it explicitly opts in with applies_to={"board":
+    true} (optionally alongside other future board-specific facets). This is
+    an intentional, permanent asymmetry: script-side "all"-scoped rules
+    (word floors, kill-phrase lists — everything seeded/authored before this
+    scope existed) must never silently start appearing inside board-prompt
+    text just because this resolver exists alongside resolve_video_shape.
+    Takes no video_row because nothing about "is this rule board-scoped" is
+    a per-video shape fact today; a future per-format board scope would add
+    a parameter here, not change this function's contract."""
+    return {"board": True}
+
+
+async def active_board_rules(tenant_id) -> list[dict]:
+    """Convenience wrapper: this tenant's active, board-scoped quality_rules
+    rows (rule_matches against resolve_board_shape() — see its docstring for
+    why "all"-scoped script rules are deliberately excluded). Callers that
+    already have the row list in hand (e.g. a caller also fetching for
+    script critique in the same request) should call active_rules_for_video
+    with resolve_board_shape() directly instead of re-querying; this
+    wrapper exists for the common case (the board/coverage planner, which
+    has no reason to fetch script-scoped rows at all)."""
+    rules = await list_all_rules(tenant_id, active_only=True)
+    shape = resolve_board_shape()
+    return [r for r in (rules or []) if rule_matches(r.get("applies_to"), shape, rule_id=r.get("rule_id", ""))]
 
 
 def _coerce_applies_to(raw: Any) -> dict:

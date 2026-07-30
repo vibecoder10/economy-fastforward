@@ -592,12 +592,20 @@ async def find_wikipedia_lead_images(names: list, limit: int = 3) -> list[str]:
                             # PROVENANCE: an image from the article whose title
                             # matches the designation is near-certainly the
                             # right machine — by-sight naming is not required.
-                            page_tok = re.sub(r"[^a-z0-9]", "",
-                                              (p.get("title") or "").lower())
+                            # C36 fix: this used to be its own raw, unfloored
+                            # `tok in page_tok` substring test — the SAME
+                            # weakness as _page_matches, duplicated here one
+                            # call earlier, so fixing only _page_matches left
+                            # this upstream trust computation still forging
+                            # false matches (e.g. '91' matching 'No. 91
+                            # Squadron RAF'). Now routed through the one
+                            # shared, floored, boundary-anchored helper.
+                            page_title = p.get("title") or ""
                             trusted = any(
-                                t and t in page_tok
-                                for t in (_designation_token(n) for n in names if n))
-                            out.append({"url": src, "page": p.get("title") or "",
+                                _designation_token_in_title(
+                                    _designation_token(n), page_title)
+                                for n in names if n)
+                            out.append({"url": src, "page": page_title,
                                         "trusted": trusted})
                 except Exception:  # noqa: BLE001 — try the next name
                     continue
@@ -902,6 +910,101 @@ async def _ensure_ref_cache_schema() -> None:
             verified_at TIMESTAMPTZ DEFAULT now(),
             PRIMARY KEY (tenant_id, machine_key)
         )""")
+    # C8 (2026-07-29): WHY a machine missed, scoped per-VIDEO rather than
+    # per (tenant, machine_key) like static_reference_cache above — the same
+    # machine can miss for one video (a bad alias, a transient fetch error)
+    # and verify cleanly for another, or on a later re-check of the same
+    # video once an alias/prompt fix lands. A row here is a "still open"
+    # marker, not history: it is deleted the instant the machine clears
+    # (see _clear_reference_miss), so its mere presence already means
+    # "unresolved as of checked_at" without needing a status column.
+    # Defensive CREATE, same reasoning as static_reference_cache above — this
+    # is additive/read-mostly and not worth blocking on a migration deploy.
+    await execute(
+        """CREATE TABLE IF NOT EXISTS static_reference_misses (
+            tenant_id UUID NOT NULL,
+            video_id UUID NOT NULL,
+            machine_key TEXT NOT NULL,
+            machine TEXT,
+            reason_code TEXT NOT NULL,
+            reason_detail TEXT,
+            checked_at TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (tenant_id, video_id, machine_key)
+        )""")
+
+
+# Reason vocabulary for static_reference_misses.reason_code (C8). Three of
+# these map to the three genuinely different failure modes named in the
+# 2026-07-27 incident write-up; a 4th ("error") covers an exception raised
+# mid-lookup (network blip, etc) so no miss is EVER left unexplained. A 5th
+# ("never_built") is produced by prefetch_roster_references (C5,
+# 2026-07-29) for a roster entry pipeline_executor._roster_entry_never_built
+# classifies as structurally unable to ever have a photograph (a cancelled
+# programme with no physical unit ever completed) — recorded BEFORE any
+# lookup is attempted, so it is the one reason that costs zero real spend.
+REASON_NO_CANDIDATES = "no_candidates"      # search found nothing to check
+REASON_FETCH_FAILED = "fetch_failed"        # candidates found, none could be hosted
+REASON_VISION_REJECTED = "vision_rejected"  # hosted candidate(s), vision confirmed none
+REASON_ERROR = "error"                      # exception mid-lookup
+REASON_NEVER_BUILT = "never_built"          # C5: classified pre-lookup, no spend incurred
+
+_MISS_REASON_LABELS = {
+    REASON_NO_CANDIDATES: "No candidate photo could be found for this machine — "
+                           "the search returned nothing to check. Worth retrying "
+                           "once aliases or search terms improve.",
+    REASON_FETCH_FAILED: "A candidate photo was found but couldn't be downloaded "
+                          "or hosted — likely a dead link or a blocked host. "
+                          "Worth retrying.",
+    REASON_VISION_REJECTED: "A candidate photo was found and hosted, but it didn't "
+                             "look like this specific machine to the vision check. "
+                             "Worth retrying with a different photo, or pasting one "
+                             "yourself.",
+    REASON_ERROR: "Something went wrong while checking this machine (a network or "
+                  "lookup error). Worth retrying.",
+    REASON_NEVER_BUILT: "This machine was never actually built — no photo can ever "
+                        "exist for it.",
+}
+
+
+async def _record_reference_miss(tenant_id: str, video_id: str, machine: str,
+                                  reason_code: str, detail: Optional[str] = None) -> None:
+    """Persist (or refresh) why ONE roster machine missed on THIS video.
+    Best-effort: a failure here must never surface to the sweep — recording
+    the reason is diagnostic sugar, not a gate."""
+    try:
+        await _ensure_ref_cache_schema()
+        mkey = _machine_key(machine)
+        await execute(
+            """INSERT INTO static_reference_misses
+                   (tenant_id, video_id, machine_key, machine, reason_code,
+                    reason_detail, checked_at)
+               VALUES ($1,$2,$3,$4,$5,$6,now())
+               ON CONFLICT (tenant_id, video_id, machine_key)
+               DO UPDATE SET machine=$4, reason_code=$5, reason_detail=$6,
+                             checked_at=now()""",
+            tenant_id, video_id, mkey, machine[:200], reason_code,
+            detail or _MISS_REASON_LABELS.get(reason_code, ""))
+    except Exception:  # noqa: BLE001 — diagnostic only, never fails the sweep
+        _logger.warning(
+            "[prefetch-roster-ref] could not persist miss reason for "
+            "video=%s machine=%r", video_id, machine, exc_info=True)
+
+
+async def _clear_reference_miss(tenant_id: str, video_id: str, machine: str) -> None:
+    """A machine that just verified (prefetch, re-check, or manual seed) can
+    no longer be an open miss for this video — delete the row so the panel
+    stops showing a stale reason for a machine that's fixed. No-op if there
+    was never a miss row (DELETE of a missing key is cheap and harmless)."""
+    try:
+        mkey = _machine_key(machine)
+        await execute(
+            "DELETE FROM static_reference_misses "
+            "WHERE tenant_id=$1 AND video_id=$2 AND machine_key=$3",
+            tenant_id, video_id, mkey)
+    except Exception:  # noqa: BLE001 — diagnostic only
+        _logger.debug(
+            "[prefetch-roster-ref] could not clear miss reason for "
+            "video=%s machine=%r", video_id, machine, exc_info=True)
 
 
 def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
@@ -912,7 +1015,17 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     machine's article (seen live: the 'Covenanter' search returned the
     Crusader tank's lead image). If the page title doesn't share the
     machine's designation token or a significant name word, the provenance
-    guarantee is void and the candidate must pass the strict vision check."""
+    guarantee is void and the candidate must pass the strict vision check.
+
+    C36 fix: the designation-token half of this check used to be a raw,
+    unfloored substring test (`tok in compact_page`, compact_page being the
+    page title with ALL spaces stripped) — verified live to let a roster
+    machine's short digit token ("91" from "HMS Ark Royal (91)") false-match
+    the unrelated Wikipedia article "No. 91 Squadron RAF" (a WWII RAF fighter
+    squadron with its own aircraft photo), because the compacted-title
+    substring test has no length floor and no boundary. Now routed through
+    _designation_token_in_title, shared with find_wikipedia_lead_images so
+    the two checks can't drift apart again."""
     _GENERIC = {"tank", "tanks", "aircraft", "airplane", "plane", "ship",
                 "boat", "submarine", "helicopter", "carrier", "battleship",
                 "destroyer", "cruiser", "frigate", "bomber", "fighter",
@@ -923,11 +1036,10 @@ def _page_matches(machine: str, aliases: Optional[list], page: str) -> bool:
     norm_page = re.sub(r"[^a-z0-9 ]", "", (page or "").lower())
     if not norm_page:
         return False
-    compact_page = norm_page.replace(" ", "")
     page_words = set(norm_page.split())
     for name in [machine] + list(aliases or []):
         tok = _designation_token(name)
-        if tok and tok in compact_page:
+        if _designation_token_in_title(tok, page):
             return True
         for word in re.sub(r"[^a-z0-9 ]", "", (name or "").lower()).split():
             if len(word) >= 4 and word not in _GENERIC and word in page_words:
@@ -943,6 +1055,49 @@ def _designation_token(machine: str) -> str:
         if any(ch.isdigit() for ch in word):
             return re.sub(r"[^a-z0-9]", "", word.lower())
     return re.sub(r"[^a-z0-9]", "", (machine or "").lower())[:12]
+
+
+def _designation_token_in_title(tok: str, title: str) -> bool:
+    """Boundary-anchored, length-floored check: does `_designation_token`
+    output `tok` appear as a standalone alphanumeric unit inside a Wikipedia
+    ARTICLE TITLE `title`? Shared by _page_matches and
+    find_wikipedia_lead_images — the two used to each carry their own raw
+    `tok in compact_title` substring test, and letting them drift apart is
+    exactly how this bug (C36) existed twice over. Deliberately distinct from
+    _commons_title_matches (which judges Commons FILE names, a different
+    string shape — designations glued directly to serial numbers with no
+    natural boundary, e.g. 'XB-35_11-300.jpg' — so it stays a plain substring
+    test with only the length floor).
+
+    Two guards, for two different real collisions:
+
+    1. LENGTH FLOOR (>=3, matching _commons_title_matches): a 2-character
+       digit token ('91' from 'HMS Ark Royal (91)', '95' from 'HMS Hermes
+       (95)') is common enough to appear in almost any page title by chance.
+       Verified live: 'No. 91 Squadron RAF' — a real WWII RAF fighter
+       squadron article with its own aircraft photo — contains '91' as a
+       standalone word, so the roster machine 'HMS Ark Royal (91)' could
+       mark that squadron's photo as trusted.
+
+    2. WORD-BOUNDARY ANCHOR: a floor alone still isn't enough — pennant-
+       number tokens that clear it ('d48' from 'HMS Campania (D48)', 'f61'
+       from an Ark Royal-class carrier) are exactly the numbers the Royal
+       Navy has reused across different eras and ship classes, and a raw
+       substring test also lets a short token match embedded inside a longer
+       unrelated alphanumeric run once the title's spaces are stripped for
+       comparison (no boundary survives that compaction). Anchoring with
+       \\b...\\b requires the token to sit at an actual word edge in the
+       title, so it can never match as a fragment glued inside a bigger,
+       unrelated word/number run. It does NOT guarantee two different ships
+       can never share the exact same short pennant number in Wikipedia's own
+       title text — that residual ambiguity is inherent to a token-only
+       check and is left to the vision-model confirmation layer."""
+    if not tok or len(tok) < 3:
+        return False
+    norm_title = re.sub(r"[^a-z0-9 ]", "", (title or "").lower())
+    if not norm_title:
+        return False
+    return re.search(r"\b" + re.escape(tok) + r"\b", norm_title) is not None
 
 
 def _commons_title_matches(machine: str, aliases: Optional[list], title: str) -> bool:
@@ -1036,15 +1191,36 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
 
     TRUSTED candidates (provenance: the photo appears on the machine's own
     Wikipedia article, or its own filename carries the designation token —
-    see _gather_reference_candidates) do NOT need the model to confirm
-    identification at all — provenance outranks a weak model's guess (a
-    haiku-tier vision model misidentified genuine XB-15/B-21 lead-image
-    photos as "a B-17"/"a B-2" live). Hard rejections (interiors, people/
-    portraits, maps, flat/non-photo media) still apply to trusted candidates
-    — provenance only excuses not being able to name it by sight, never a
-    wrong-media or clearly-wrong-content image. UNTRUSTED candidates still
-    require an explicit YES, and the question is deliberately strict about
-    VARIANT — a modern B-52H photo must NOT pass as the prototype XB-52.
+    see _gather_reference_candidates) do NOT need the model to volunteer a
+    leading YES to confirm identification — provenance excuses a weak
+    model's failure to POSITIVELY name an obscure machine (a haiku-tier
+    vision model misidentified genuine XB-15/B-21 lead-image photos as "a
+    B-17"/"a B-2" live, yet those really were the right machine). Hard
+    rejections (interiors, people/portraits, maps, flat/non-photo media)
+    still apply to trusted candidates — provenance only excuses not being
+    able to name it by sight, never a wrong-media or clearly-wrong-content
+    image.
+
+    C36 fix: provenance is NOT allowed to override an explicit NEGATIVE
+    identification. The old rule ignored the model's YES/NO entirely for
+    trusted candidates and looked ONLY at the hard-reject keyword lists —
+    which meant a reply like "NO, this is a Supermarine Spitfire fighter
+    aircraft, not a ship" contains none of _WRONG_CONTENT_KEYWORDS and was
+    silently treated as a PASS (verified live: this is exactly how a
+    misrouted "No. 91 Squadron RAF" photo would have been hosted and cached
+    forever as "HMS Ark Royal"). A trusted candidate is now rejected when the
+    model's answer explicitly opens with NO, in addition to the existing
+    hard-reject keywords — an ambiguous or uncertain reply that doesn't
+    volunteer a leading NO can still pass (preserving the original intent:
+    provenance excuses a weak/uncertain identification), but an active "NO,
+    this is a different machine" always loses. This does NOT fully close the
+    door on a reused-designation collision the model itself fails to catch
+    (nothing at the text layer can), but it stops discarding a correct
+    negative identification the model DID give us.
+
+    UNTRUSTED candidates still require an explicit YES, and the question is
+    deliberately strict about VARIANT — a modern B-52H photo must NOT pass as
+    the prototype XB-52.
 
     FAILS CLOSED on transport failure: a request that raises or comes back
     with no usable reply text is retried ONCE, then treated as REJECTED (not
@@ -1187,7 +1363,14 @@ async def _vision_confirms(tenant_id: str, image_url: str, machine: str,
     is_flat = _has_keyword(txt, _FLAT_MEDIA_KEYWORDS)
     wrong = _has_keyword(txt, _WRONG_CONTENT_KEYWORDS)
     if trusted_source:
-        return not is_flat and not wrong
+        # C36 fix: provenance may still excuse the ABSENCE of a leading YES
+        # (a weak model failing to positively name an obscure machine), but
+        # it must never override an explicit leading NO — that's the model
+        # actively telling us this is a different machine, and discarding
+        # that signal is what let a misrouted trusted candidate ("NO, this
+        # is a Supermarine Spitfire ... not a ship") pass silently before.
+        said_no = bool(re.match(r"^\W*no\b", txt))
+        return not said_no and not is_flat and not wrong
     said_yes = bool(re.match(r"^\W*yes\b", txt))
     return said_yes and not is_flat and not wrong
 
@@ -1970,24 +2153,47 @@ async def generate_static_images_for_video(video_id: str, tenant_id: str,
 
 
 async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
-                                roster_index: int) -> bool:
+                                roster_index: int,
+                                aliases: Optional[list] = None) -> bool:
     """Verify + self-host + cache ONE roster machine's reference photo, using
     the SAME candidate chain _one_scene uses (_gather_reference_candidates).
     Returns True once a verified candidate is cached, False if the whole
     chain exhausts with nothing passing (a miss — not an exception; the
-    caller records it and moves on to the next machine). No aliases are
-    available this early (the roster is a flat list of designation strings
-    — see pipeline_executor._machine_documentary_hold_roster), so the
-    machine's own name doubles as the Commons search query, exactly like
-    _one_scene's own fallback branch does when no explicit search_query is
-    supplied."""
-    candidates = await _gather_reference_candidates(machine, None, machine)
+    caller records it and moves on to the next machine).
+
+    `aliases` (added 2026-07-29): the roster's display name is a flat string
+    (see pipeline_executor._machine_documentary_hold_roster) that, for a
+    ship-class entry, is often an unsearchable glue of a designation-shaped
+    field holding a category/member-ship list plus the class name (e.g.
+    "Lend-Lease escort carriers Attacker class (US-built)"). The CALLER
+    (static_docu.prefetch_roster_references) now derives real aliases from
+    the structured roster entry
+    (pipeline_executor._machine_documentary_hold_roster_entries) — the bare
+    name, the bare designation, and each comma/slash-split member — and
+    passes them through here so _gather_reference_candidates and
+    _vision_confirms can use them for lookup and identification the same
+    way _one_scene's live per-scene path already does. Defaults to None
+    (the pre-alias behavior) so any other caller is unaffected.
+
+    C8 (2026-07-29): a False return used to be a bare absence — three
+    genuinely different problems (no candidate found at all, a candidate
+    found but never hosted, a candidate hosted but vision-rejected) looked
+    identical to every caller and to the human staring at the roster panel.
+    This now classifies which of those happened and persists it via
+    _record_reference_miss (see static_reference_misses) before returning
+    False, and clears any prior miss the instant a machine verifies."""
+    candidates = await _gather_reference_candidates(machine, aliases, machine)
     mkey = _machine_key(machine)
+    if not candidates:
+        await _record_reference_miss(tenant_id, video_id, machine, REASON_NO_CANDIDATES)
+        return False
+    hosted_any = False
     for idx, (cand, trusted) in enumerate(candidates):
         hosted = await _host_reference(cand, video_id, tenant_id, f"roster{roster_index:02d}_{idx}")
         if not hosted:
             continue
-        if await _vision_confirms(tenant_id, hosted, machine, None, trusted_source=trusted):
+        hosted_any = True
+        if await _vision_confirms(tenant_id, hosted, machine, aliases, trusted_source=trusted):
             await execute(
                 """INSERT INTO static_reference_cache
                        (tenant_id, machine_key, machine, hosted_url, source_url)
@@ -1996,7 +2202,11 @@ async def _prefetch_one_machine(tenant_id: str, video_id: str, machine: str,
                    DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
                                  verified_at=now()""",
                 tenant_id, mkey, machine[:200], hosted, cand)
+            await _clear_reference_miss(tenant_id, video_id, machine)
             return True
+    await _record_reference_miss(
+        tenant_id, video_id, machine,
+        REASON_VISION_REJECTED if hosted_any else REASON_FETCH_FAILED)
     return False
 
 
@@ -2039,42 +2249,62 @@ async def seed_reference_from_url(video_id: str, tenant_id: str, machine: str,
            DO UPDATE SET machine=$3, hosted_url=$4, source_url=$5,
                          verified_at=now()""",
         tenant_id, mkey, machine[:200], hosted, url)
+    # C8: a manually-seeded photo resolves this video's open miss (if any)
+    # exactly like an automated prefetch success does — same clear helper,
+    # so the panel stops attributing a reason to a machine that's now fine.
+    await _clear_reference_miss(tenant_id, video_id, machine)
     return {"status": "verified", "hosted_url": hosted, "source_url": url}
 
 
 async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
     """Roster-time reference prefetch (C3). Reads the video's LOCKED machine
-    roster (pipeline_executor._machine_documentary_hold_roster — the same
-    roster the orchestrator/dashboard/repair endpoints already use) and, for
-    every machine not already in static_reference_cache, runs the full
-    lookup+verify+host+cache chain. Serial per machine, on purpose: _wm_get's
+    roster — via pipeline_executor._machine_documentary_hold_roster_entries,
+    which gates on the exact same conditions as
+    _machine_documentary_hold_roster (the flat-string accessor the
+    orchestrator/dashboard/repair endpoints use) but keeps each entry's
+    derived aliases alongside its UNCHANGED display name (see
+    pipeline_executor._unit_roster_aliases) — and, for every machine not
+    already in static_reference_cache, runs the full lookup+verify+host+
+    cache chain WITH those aliases. Serial per machine, on purpose: _wm_get's
     politeness throttle is a single process-global gate regardless of how
     many machines call it concurrently, so parallelizing here would only
     interleave log lines, not buy real concurrency. One machine's exception
     is caught and logged here — it can never abort the sweep for the rest
     of the roster. Never raises; every outcome is reported in the return
     dict for the caller (or a future roster-dashboard reference-status read)
-    to inspect."""
+    to inspect.
+
+    C5 (2026-07-29): an entry pipeline_executor classifies as `never_built`
+    (see _roster_entry_never_built — a cancelled programme with no physical
+    unit ever completed, e.g. "CVA-01 class") is never handed to
+    _prefetch_one_machine at all. There is nothing a Wikimedia search or a
+    paid vision check could ever find for it, so classification happens
+    BEFORE any lookup is attempted: REASON_NEVER_BUILT is recorded directly
+    and the machine is skipped, which also means this is the ONE miss
+    reason that costs zero real spend to produce — every other reason is
+    discovered only after the full candidate-gather + vision chain runs."""
     # Lazy import: static_docu <-> pipeline_executor is a two-way relationship
     # (pipeline_executor already imports static_docu lazily, e.g. at its own
     # generate_static_images_for_video call site) — importing at module top
     # either direction would risk a circular import given pipeline_executor's
     # size and reach.
-    from pipeline_executor import _machine_documentary_hold_roster
+    from pipeline_executor import _machine_documentary_hold_roster_entries
 
     video = await fetch_one(
         "SELECT id, render_mode, research_payload FROM videos "
         "WHERE id=$1 AND tenant_id=$2 AND deleted_at IS NULL", video_id, tenant_id)
     if not video:
         return {"status": "failed", "error": "video not found"}
-    roster = _machine_documentary_hold_roster(video)
-    if not roster:
+    entries = _machine_documentary_hold_roster_entries(video)
+    if not entries:
         return {"status": "skipped", "message": "no locked static-docu machine roster"}
 
     await _ensure_ref_cache_schema()
 
-    verified, missed = 0, 0
-    for i, machine in enumerate(roster):
+    verified, missed, never_built = 0, 0, 0
+    for i, entry in enumerate(entries):
+        machine = entry["name"]
+        aliases = entry.get("aliases") or []
         mkey = _machine_key(machine)
         try:
             cached = await fetch_one(
@@ -2082,8 +2312,29 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
                 "WHERE tenant_id=$1 AND machine_key=$2", tenant_id, mkey)
             if cached:
                 verified += 1
+                # C8: this machine already carries a tenant-global verified
+                # reference (perhaps seeded/prefetched via a different
+                # video) — any stale miss reason recorded against THIS
+                # video no longer applies.
+                await _clear_reference_miss(tenant_id, video_id, machine)
                 continue
-            if await _prefetch_one_machine(tenant_id, video_id, machine, i):
+            if entry.get("never_built"):
+                # C5: structurally can never have a photograph — skip the
+                # ENTIRE candidate-gather + host + vision chain (real
+                # Wikimedia lookups and a paid vision call per candidate)
+                # rather than let it run and fail. Checked AFTER the cache
+                # lookup above so a manually-seeded/prefetched-elsewhere
+                # photo (proof the classification was wrong for this
+                # tenant) always wins over the classifier.
+                never_built += 1
+                await _record_reference_miss(tenant_id, video_id, machine, REASON_NEVER_BUILT)
+                _logger.info(
+                    "[prefetch-roster-ref] video=%s machine=%r classified "
+                    "never-built (cancelled, no unit ever completed) — "
+                    "skipping lookup entirely, no spend incurred",
+                    video_id, machine)
+                continue
+            if await _prefetch_one_machine(tenant_id, video_id, machine, i, aliases=aliases):
                 verified += 1
             else:
                 missed += 1
@@ -2096,25 +2347,205 @@ async def prefetch_roster_references(video_id: str, tenant_id: str) -> dict:
             _logger.warning(
                 "[prefetch-roster-ref] video=%s machine=%r prefetch failed",
                 video_id, machine, exc_info=True)
+            # C8: _prefetch_one_machine records its OWN reason for a clean
+            # miss, but an exception can escape it (or the cache-lookup
+            # above) before that ever happens — record one here too so no
+            # miss is ever silently unexplained.
+            await _record_reference_miss(tenant_id, video_id, machine, REASON_ERROR)
 
     _logger.info(
-        "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d",
-        video_id, len(roster), verified, missed)
-    return {"status": "completed", "roster_count": len(roster),
-            "verified": verified, "missed": missed}
+        "[prefetch-roster-ref] video=%s roster=%d verified=%d missed=%d never_built=%d",
+        video_id, len(entries), verified, missed, never_built)
+    return {"status": "completed", "roster_count": len(entries),
+            "verified": verified, "missed": missed, "never_built": never_built}
+
+
+# --- C12: durable registration so a restart mid-sweep is recoverable ------
+#
+# Problem (found by a 2026-07-29 audit): dispatch_roster_prefetch below used
+# to call a bare asyncio.create_task(prefetch_roster_references(...)) with
+# NO row in the background_tasks table. The repo's own reapers —
+# routes/pipeline.py's recover_stale_tasks (API startup) and
+# reap_stale_running_tasks (periodic timer) — operate purely by SQL over
+# background_tasks and are task-type-agnostic: they cannot see, retry, or
+# even know about a task that never wrote a row there. A restart or
+# redeploy mid-sweep silently dropped the fetch with zero record — a
+# 23-machine sweep takes ~10 minutes, and deploys are more frequent than
+# that. This reproduced the exact 2026-07-27 incident (roster saved, photos
+# never arrive, a human has to notice) via a deploy race instead of the
+# gate-ordering bug C1+C2 already fixed.
+#
+# Fix: register the sweep under its own task_type ('roster_prefetch') in
+# background_tasks before running it, and close the row out on completion —
+# the same table/columns/lifecycle main.py's custom_film_runtime/
+# custom_film_director outbox rows already use (see main.py's
+# _dispatch_pending_custom_film_runtime/_director), just with no arq job_id
+# since this task type has no worker.py handler — it always runs in-process
+# via asyncio.create_task, on both the original dispatch and a resume.
+#
+# Deliberately NOT reusing routes/pipeline.py's _db_persist_task/
+# _set_task_status: those key their "already running?" check off
+# (tenant_id, video_id) ALONE, no task_type filter, and drive the
+# in-memory _running_tasks dict that both _is_task_active's "main" lane
+# exclusivity gate and the roster-recheck endpoint's live task-status
+# polling (commit f615772a) depend on. Writing into that same slot from
+# here — fired from deep inside run_research/accept_submitted_research, not
+# a request handler — would race whatever status those flows are ALSO
+# reporting for this exact video_id (e.g. clobbering "research complete"
+# with "sweeping references", or vice versa) and could wedge the main-lane
+# busy gate. A dedicated task_type + a direct INSERT/UPDATE against
+# background_tasks sidesteps that: visible to the task-type-agnostic
+# reapers (all durability needs), invisible to the in-memory main-lane gate
+# and the recheck endpoint's polling (so f615772a's UX is untouched).
+#
+# Recovery needs no bespoke bookkeeping: recover_stale_tasks() already flips
+# any 'running' row to 'failed' with error_message='Server restarted — task
+# interrupted' at every API startup, task-type-agnostic. This module's
+# resume_interrupted_roster_prefetches() (called from main.py's lifespan,
+# mirroring _dispatch_pending_custom_film_runtime) scans for exactly that
+# marker under task_type='roster_prefetch' and re-dispatches — cheaply and
+# safely, because prefetch_roster_references already skips any machine
+# already in static_reference_cache, so a resumed sweep only redoes the
+# machines still outstanding when the restart hit.
+
+_ROSTER_PREFETCH_TASK_TYPE = "roster_prefetch"
+_ROSTER_PREFETCH_RESTART_MESSAGE = "Server restarted — task interrupted"
+_ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS = 5
+
+
+async def _run_tracked_roster_prefetch(video_id: str, tenant_id: str, *, attempt: int = 1) -> None:
+    """Runs prefetch_roster_references wrapped in a background_tasks row
+    (task_type='roster_prefetch') so an interrupted sweep is detectable and
+    resumable — see the C12 note above. This is the ONE coroutine
+    dispatch_roster_prefetch and resume_interrupted_roster_prefetches both
+    schedule via asyncio.create_task; never raises out of itself since it
+    always runs detached (an escaped exception here would only ever surface
+    as an "exception was never retrieved" log line, never to a caller)."""
+    task_id = None
+    try:
+        row = await fetch_one(
+            """INSERT INTO background_tasks
+                   (tenant_id, video_id, task_type, status, message, started_at, attempt)
+               VALUES ($1, $2, $3, 'running', $4, now(), $5)
+               RETURNING id""",
+            tenant_id, video_id, _ROSTER_PREFETCH_TASK_TYPE,
+            "Sweeping roster reference photos", attempt,
+        )
+        task_id = row.get("id") if row else None
+    except Exception:  # noqa: BLE001 — registration failure must not block the sweep
+        _logger.warning(
+            "[prefetch-roster-ref] could not register background_tasks row "
+            "for video=%s (sweep still runs, just undurably this time)",
+            video_id, exc_info=True)
+
+    result_status, message = "completed", None
+    try:
+        result = await prefetch_roster_references(video_id, tenant_id)
+        result_status = result.get("status") or "completed"
+        if result_status == "completed":
+            message = f"{result.get('verified', 0)} verified, {result.get('missed', 0)} missed"
+        elif result_status == "skipped":
+            message = result.get("message") or "Nothing to prefetch for this video"
+        else:  # prefetch_roster_references' own "failed" (e.g. video not found)
+            message = result.get("error") or "Roster prefetch failed"
+    except Exception as exc:  # noqa: BLE001 — never let the tracking wrapper blow up
+        result_status = "failed"
+        message = str(exc)
+        _logger.warning(
+            "[prefetch-roster-ref] tracked sweep failed for video=%s",
+            video_id, exc_info=True)
+
+    if task_id:
+        # background_tasks.status CHECK only allows pending/running/
+        # completed/failed/cancelled — "skipped" collapses into
+        # "completed" (it did finish, just with nothing to do), same
+        # normalization routes/pipeline.py's _set_task_status applies.
+        db_status = "failed" if result_status == "failed" else "completed"
+        try:
+            await execute(
+                """UPDATE background_tasks
+                       SET status=$1, message=$2, completed_at=now()
+                   WHERE id=$3""",
+                db_status, message, task_id,
+            )
+        except Exception:  # noqa: BLE001 — best-effort close-out
+            _logger.debug(
+                "[prefetch-roster-ref] could not close out background_tasks "
+                "row for video=%s", video_id, exc_info=True)
+
+
+async def resume_interrupted_roster_prefetches() -> int:
+    """Called once at API startup (see main.py's lifespan, right after
+    routes.pipeline.recover_stale_tasks flips every stale 'running' row to
+    'failed') — finds roster-prefetch rows THIS SAME startup pass just
+    interrupted and re-dispatches them. prefetch_roster_references is
+    naturally idempotent (skips any machine already cached), so replaying
+    the whole roster is cheap, not a full re-sweep — no per-machine resume
+    bookkeeping needed, exactly per the C12 design note.
+
+    Scoped to rows completed in the last 10 minutes (same window main.py's
+    custom_film stale-task recovery uses) so a long-dead row from a much
+    earlier crash isn't silently resurrected on every future restart.
+    Capped at _ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS so a roster that keeps
+    genuinely failing (not just being interrupted) stops auto-retrying
+    instead of looping across restarts forever. Never raises — startup must
+    never block on this. Returns the number of sweeps resumed."""
+    resumed = 0
+    try:
+        rows = await fetch_all(
+            """SELECT tenant_id, video_id, COALESCE(attempt, 1) AS attempt
+               FROM background_tasks
+               WHERE task_type = $1 AND status = 'failed'
+                 AND error_message = $2
+                 AND completed_at >= now() - interval '10 minutes'""",
+            _ROSTER_PREFETCH_TASK_TYPE, _ROSTER_PREFETCH_RESTART_MESSAGE,
+        )
+    except Exception:  # noqa: BLE001 — startup must never block on this scan
+        _logger.warning(
+            "[prefetch-roster-ref] resume scan failed (non-blocking)", exc_info=True)
+        return 0
+
+    import asyncio
+    for row in rows or []:
+        attempt = int(row.get("attempt") or 1)
+        video_id = str(row.get("video_id") or "")
+        tenant_id = str(row.get("tenant_id") or "")
+        if not video_id or not tenant_id:
+            continue
+        if attempt >= _ROSTER_PREFETCH_MAX_RESUME_ATTEMPTS:
+            _logger.warning(
+                "[prefetch-roster-ref] not resuming video=%s — already at "
+                "%d resume attempts", video_id, attempt)
+            continue
+        try:
+            asyncio.create_task(
+                _run_tracked_roster_prefetch(video_id, tenant_id, attempt=attempt + 1))
+            resumed += 1
+            _logger.info(
+                "[prefetch-roster-ref] resumed interrupted sweep for "
+                "video=%s (attempt %d)", video_id, attempt + 1)
+        except Exception:  # noqa: BLE001 — one video's resume must never block others
+            _logger.warning(
+                "[prefetch-roster-ref] could not resume sweep for video=%s",
+                video_id, exc_info=True)
+    return resumed
 
 
 def dispatch_roster_prefetch(video: Optional[dict], video_id: str, tenant_id: str) -> bool:
-    """Fire-and-forget hook: schedule prefetch_roster_references as a
-    background task the instant research lands for a static-docu video.
-    Called from BOTH research-completion seams — the paid `research` verb
+    """Fire-and-forget hook: schedule a durable, trackable reference-photo
+    sweep the instant research lands for a static-docu video. Called from
+    BOTH research-completion seams — the paid `research` verb
     (pipeline_executor.PipelineExecutor.run_research) and the free
     `submit_research` MCP ingest (research_ingest.accept_submitted_research)
     — right before their own success return, so a single line at each call
     site is all either seam needs.
 
-    Uses the repo's existing fire-and-forget pattern (asyncio.create_task —
-    see autopilot_launch.py, routes/queue.py, main.py's startup tasks) rather
+    Schedules _run_tracked_roster_prefetch (C12), not bare
+    prefetch_roster_references, so the sweep registers a background_tasks
+    row the repo's existing reapers/startup-recovery can see (see that
+    function's docstring for the full durability design). Uses the repo's
+    existing fire-and-forget pattern (asyncio.create_task — see
+    autopilot_launch.py, routes/queue.py, main.py's startup tasks) rather
     than FastAPI's BackgroundTasks, since neither call site is guaranteed to
     be inside a request handler that owns a BackgroundTasks instance.
 
@@ -2126,7 +2557,7 @@ def dispatch_roster_prefetch(video: Optional[dict], video_id: str, tenant_id: st
         return False
     try:
         import asyncio
-        asyncio.create_task(prefetch_roster_references(video_id, tenant_id))
+        asyncio.create_task(_run_tracked_roster_prefetch(video_id, tenant_id))
         return True
     except Exception:  # noqa: BLE001 — a dispatch failure must never fail research
         _logger.warning(
