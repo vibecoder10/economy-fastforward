@@ -31,9 +31,9 @@ they extend rather than replace.
 - **The camera resolves in screen space** — L0, L5, L10, L19
 - **Space and geography hold across shots** — L1, L9, L13, L14, L15, L16
 - **The set is defined before it is shot** — L3, L7, L8, L11, L20
-- **People are specified, not assumed** — L6, L12, L17
+- **People are specified, not assumed** — L6, L12, L17, L22
 - **Action is legal** — L4
-- **Panel discipline** — L2
+- **Panel discipline** — L2, L21
 - **Laws that belong to the script** — S1-S5, in `STORY-LAWS.md`
 
 ---
@@ -188,6 +188,26 @@ the lens, travels alongside.
 applied to a scene where a character wakes, crosses a room and runs down a corridor.
 It could not express a character leaving a room, so the exit silently vanished from
 the board.*
+
+**L21 — A BOARD CANNOT SHOW DURATION.** A still panel can show a moment, never a
+length of time. If a beat's content is "time passes and nothing changes," no panel
+can carry it: never spend a panel on an identical repeat of an earlier one. Note
+the hold for the motion and edit layer, and use the panel to escalate instead —
+same subject, closer or wider, so the sheet gains information rather than
+repeating it.
+*Provenance: two panels of a nine-panel sheet were deliberately specified as
+identical, to express a character's stillness lasting. They rendered identical
+exactly as instructed — proving a nested frame can be matched across panels — and
+the repetition read as waste, because the beat was a duration and a frame cannot
+hold one.*
+
+**L22 — STATE GROUP ARRANGEMENT PER CAMERA POSITION.** A headcount alone does not
+hold. State who sits or stands where AS SEEN FROM THIS CAMERA, and remember that a
+reverse angle reads the order backwards. When the arrangement is stated once from
+the front and never restated for the opposing angle, the model must work the order
+out for itself and quietly drops a figure.
+*Provenance: a reverse wide instructed with an explicit "all five" still rendered
+four, because the seating order had only ever been given from the front-on side.*
 
 ---
 
