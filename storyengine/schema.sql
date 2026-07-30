@@ -466,6 +466,13 @@ CREATE TABLE assets (
   -- PATCH /api/assets/{id}/video-prompt clears this back to NULL.
   motion_gate_status TEXT,
 
+  -- D9-1 (migration 147, Custom Film director ShotDraft harvest): per-shot
+  -- narrative-purpose signal parsed from the planner's own "PURPOSE: <kind>
+  -- | <text>" row (storyboard.coverage.parse_coverage). NULL for a shot the
+  -- planner didn't tag or a row generated before this migration.
+  purpose_kind TEXT,
+  shot_purpose TEXT,
+
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
