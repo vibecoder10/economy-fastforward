@@ -1799,7 +1799,15 @@ _SUBMIT_SCRIPT_TOOL: dict[str, Any] = {
         "travel, the arrival. Don't just end one scene's text and start "
         "the next scene in a different place with nothing narrated between "
         "them; a location change with no transit narrated anywhere nearby "
-        "comes back as an advisory warning (never a rejection)."
+        "comes back as an advisory warning (never a rejection).\n\n"
+        "STORY LAW S6 — THE SCRIPT IS THE ORIGIN OF TRUTH: whatever you "
+        "submit here becomes this video's canonical script, and every "
+        "downstream artifact (cast, environments, boards) is generated FROM "
+        "it. Write the full truth into your scenes — every character, "
+        "everything about how they look or where they are that the story "
+        "needs — rather than assuming an existing cast sheet or environment "
+        "design still covers what you leave out; anything built from an "
+        "older script is treated as stale the moment this submission lands."
     ),
     "inputSchema": {
         "type": "object",

@@ -221,13 +221,14 @@ def test_resolve_prompt_appends_standing_preferences_even_with_tenant_override()
 def test_resolve_prompt_appends_standing_preferences_even_with_per_video_override():
     idc = _identity(standing_preferences=_PREFS_BLOCK)
     out = resolve_prompt(per_video="PER-VIDEO wins", tenant="TENANT default", prompt_key="script", identity=idc)
-    # D6-3/D6-4: STORY-LAWS S3 and S1 ride along the SAME way
+    # D6-3/D6-4/D7-6: STORY-LAWS S3, S1 and S6 ride along the SAME way
     # standing_preferences does — appended right after the chosen source,
     # in that order, before standing_preferences.
     import story_laws
     assert out == (
         "PER-VIDEO wins" + "\n\n" + story_laws.SCENE_LOCATION_LAW
-        + "\n\n" + story_laws.LOCATION_TRANSIT_LAW + _PREFS_BLOCK
+        + "\n\n" + story_laws.LOCATION_TRANSIT_LAW
+        + "\n\n" + story_laws.SCRIPT_IS_SOURCE_OF_TRUTH_LAW + _PREFS_BLOCK
     )
 
 

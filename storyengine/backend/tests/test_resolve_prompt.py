@@ -38,17 +38,19 @@ def test_per_video_override_wins_over_tenant():
         prompt_key="script",
         identity=idc,
     )
-    # D6-3/D6-4: the override still wins outright over the tenant default,
-    # but STORY-LAWS S3 and S1 ride along after it, in that order (same seam
-    # standing_preferences uses) — a customized script prompt must not
-    # silently opt out of either law. See tests/test_d6_3_story_law_s3.py
-    # and tests/test_d6_4_story_law_s1.py for direct coverage of each
+    # D6-3/D6-4/D7-6: the override still wins outright over the tenant
+    # default, but STORY-LAWS S3, S1 and S6 ride along after it, in that
+    # order (same seam standing_preferences uses) — a customized script
+    # prompt must not silently opt out of any of them. See
+    # tests/test_d6_3_story_law_s3.py, tests/test_d6_4_story_law_s1.py and
+    # tests/test_d7_6_story_law_s6_prompt.py for direct coverage of each
     # append; this only asserts the override still wins the FIRST slot in
     # precedence.
     import story_laws
     assert out == (
         "PER-VIDEO wins" + "\n\n" + story_laws.SCENE_LOCATION_LAW
         + "\n\n" + story_laws.LOCATION_TRANSIT_LAW
+        + "\n\n" + story_laws.SCRIPT_IS_SOURCE_OF_TRUTH_LAW
     )
 
 

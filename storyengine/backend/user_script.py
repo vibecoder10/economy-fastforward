@@ -16,6 +16,16 @@ critic a platform-generated script faces (decisions.md 2026-07-19
 MCP-economics entry: "the rules engine is the trust boundary that makes
 externally-written content safe to accept"). See that function's docstring
 for the accept/reject design.
+
+D7-6 (STORY-LAWS S6 — THE SCRIPT IS THE ORIGIN OF TRUTH): whatever text is
+saved through either door in this module becomes the video's canonical
+``videos.script``, and everything downstream (cast, environments, boards) is
+generated FROM it, never the reverse — so a cast/environment/board already
+built from an OLDER script version is expected to go stale the moment this
+text lands, not to silently keep matching content the new script no longer
+contains. (The mechanical side of that contract — the hash compare and the
+stale-flagging — lives in routes/videos.py's sync_video_script chain, D7-2/
+D7-3; this is the same rule stated for a human reader of this module.)
 """
 
 from __future__ import annotations
@@ -309,6 +319,14 @@ async def accept_external_script(
     human creator's typed-in text the "creator's word is final" contract was
     built for — so it gets the SAME critic every platform script faces,
     verdict-only, no edit loop:
+
+    STORY-LAWS S6: an accepted submission becomes this video's canonical
+    script, and any cast/environment/board already built from a PRIOR script
+    version is expected to go stale against it, not to silently keep
+    matching content the accepted text no longer contains — the submitting
+    agent should write the full truth (every character, every place) into
+    the scenes it submits rather than assuming an existing cast/environment
+    still covers what it leaves out.
 
       - 'pass' (including WARN/GUIDANCE-severity rule failures that never
         flip the verdict — see ``script_quality._apply_rule_severity``):
