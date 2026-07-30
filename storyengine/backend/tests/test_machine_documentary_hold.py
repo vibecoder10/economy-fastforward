@@ -1420,6 +1420,20 @@ def test_naval_gather_context_detects_ship_titles_and_machines():
     assert pe._is_naval_gather_context("Every US Strategic Bomber Ever Built", "Boeing XB-15") is False
 
 
+def test_naval_gather_context_word_boundary_matching():
+    # Substring "ship" should not match within words like "championship", "friendship"
+    assert pe._is_naval_gather_context("The Championship Chess Machine", "") is False
+    assert pe._is_naval_gather_context("Friendship Bridge Crossing", "") is False
+    # Standalone "ship" should match
+    assert pe._is_naval_gather_context("Every Ship in the Royal Navy", "") is True
+    # Whole-word "battleship" should match
+    assert pe._is_naval_gather_context("Battleship Yamato", "") is True
+    # Whole-word "carrier" (existing term) should match
+    assert pe._is_naval_gather_context("Aircraft Carrier Evolution", "") is True
+    # "warship" should match (newly added term)
+    assert pe._is_naval_gather_context("Famous Warships of WWII", "") is True
+
+
 def test_gather_verified_machine_source_package_excludes_iwm_and_adds_naval_domain_query(monkeypatch):
     import httpx
 
