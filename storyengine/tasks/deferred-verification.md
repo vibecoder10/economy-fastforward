@@ -1027,3 +1027,93 @@ RECIPE:
      pacing complaint in soft_warnings and hard_warnings empty.
   3. Confirm via: se db "SELECT status, research_payload->'unit_roster_validation'
      FROM videos WHERE id='<video id>';"
+
+## D6-1 — canonical cast/style/set inputs inserted verbatim (2026-07-30)
+
+Migration 142 (`video_characters.identity_tag`, `video_environments.material_map`),
+the `_resolve_style` precedence contract, the two live L28/L29 bug fixes in
+`_sheet_header`/`_plan_sheet_prompts`, the L3/L28/L29 hard gates
+(`SheetPromptContractViolation`), the L20 canonical-material-map resolver
+(`_canonical_material_line`), the L6 identity-tag preference in
+`load_character_bible`, and the redraw_asset_image repair-leg extension were all
+proven at unit/function level (34 tests, `tests/functional/test_d6_1_canonical_
+inputs.py` + the pre-existing `test_board_laws_sheet_and_quality_rules.py`) —
+zero spend, no DB. See the D6-1 chunk report for the stash-proof result and the
+before/after emitted-prompt evidence.
+
+### 1. Migration 142 — never applied to any real database
+PROOF LEVEL REACHED IN SANDBOX: static review only (read against migrations 046,
+051, 115's exact idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` shape) — no
+local Postgres was available in this worktree/session to actually run it, and prod
+is off-limits per this chunk's zero-spend/read-only constraint.
+NOT PROVEN: the migration runs clean against the real schema, or that
+`COMMENT ON COLUMN` succeeds against prod's actual grants.
+RECIPE:
+  1. `se db "SELECT column_name FROM information_schema.columns WHERE
+     table_name='video_characters' AND column_name='identity_tag';"` — expect no
+     rows (pre-migration state), confirming the column doesn't already exist under
+     a different name.
+  2. Apply migrations/142_canonical_inputs.sql through this project's normal
+     migration runner (NOT raw `se db`, which is SELECT-only per this chunk's
+     cost cap) in a real deploy.
+  3. `se db "SELECT identity_tag FROM video_characters LIMIT 1;"` and
+     `se db "SELECT material_map FROM video_environments LIMIT 1;"` — expect both
+     to return NULL for every existing row (the "existing videos keep working with
+     NULLs" contract), not an error.
+
+### 2. A real board draw with the canonical fields populated — never drawn
+PROOF LEVEL REACHED IN SANDBOX: the composer functions were proven with
+hand-built fixture data (`_canonical_material_line`, `_character_identity_line`
+via `load_character_bible`'s new identity_tag preference, `_sheet_header`'s
+conditional reference clause) — never against a real video with real
+`video_characters.identity_tag` / `video_environments.material_map` values and a
+real GPT Image 2 draw. This chunk's cost cap forbids spending on this.
+NOT PROVEN: an actual drawn board reads the canonical cast tag / material map
+correctly end-to-end through the live app, or that PATCH
+/api/videos/{id}/characters/{id} and /environments/{id} genuinely persist
+identity_tag/material_map through a live server (only reviewed as code, not
+exercised against a running FastAPI app + DB).
+RECIPE:
+  1. On a NEW test video (never 686b4651 — that video is frozen, read-only, no
+     exceptions), design + approve one character and one environment.
+  2. PATCH /api/videos/{id}/characters/{char_id} with
+     {"identity_tag": "red jacket, undercut, mid-20s"}; confirm 200 + the field
+     round-trips on GET.
+  3. PATCH /api/videos/{id}/environments/{env_id} with
+     {"material_map": "the wall is glass from floor to shoulder height; above that
+     it is solid metal"}; confirm 200 + round-trip.
+  4. Generate a storyboard sheet for one scene in that location. EXPECTED: the
+     persisted `scripts.storyboard_prompts` blob contains the identity_tag text
+     verbatim in the CHARACTER block and the material_map text verbatim in the
+     MATERIAL MAP block — NOT the planner LLM's own paraphrase of either.
+  5. Redraw one picture in that scene (`redraw_asset_image` — a paid GPT Image 2
+     call, quote the ~$0.05 cost and get a yes first). EXPECTED: the same
+     identity_tag/material_map text is echoed in the logged draw prompt (no
+     progress/log currently surfaces the exact composed redraw prompt to the UI —
+     verify via a temporary print or by reading assets.image_prompt's neighbor
+     state before/after, since the composed prompt itself isn't persisted anywhere
+     for redraws).
+
+### 3. Known, documented (not silently hidden) gaps — not bugs, just unclosed
+  - `_resolve_style` does not consult `style_preset_id`/`production_style_id` —
+    a video whose ONLY style signal is a chosen preset (no image_style_override/
+    visual_style text) gets the sheet composer's neutral photoreal default while
+    the real pictures path (pipeline_executor._resolve_visual_profile_id) renders
+    in the chosen preset engine. See `_resolve_style`'s docstring for the full
+    trace. Fixing it is a separate, scoped chunk (unify or mirror the two
+    resolvers), not attempted here.
+  - `_canonical_material_line` for a multi-location scene only emits a clause for
+    locations that HAVE an authored `material_map`; a location with none is
+    simply omitted from the MATERIAL MAP block (not backfilled from the LLM's
+    line) rather than mixing a canonical clause and an LLM clause in the same
+    block. Verify by authoring `material_map` for only one of two locations in a
+    multi-location scene and confirming the MATERIAL MAP block names only that
+    one location.
+  - The canonical material-map WIN is wired into `generate_storyboard_sheet_for_
+    scene` (the SHEET PREVIEW path) and `redraw_asset_image` (the repair leg),
+    but NOT into `run_coverage` in `skills/video-pipeline/storyboard/coverage.py`
+    (the real per-shot PICTURES path's own MATERIAL MAP LOCK stamp, which still
+    reads only `parse_material_map(directive_text)` — the LLM's line). A video
+    whose sheet preview shows the canonical map correctly can still have its real
+    drawn pictures stamped with the LLM's paraphrase instead. This is the
+    concrete "where I would split it" boundary for a D6-1b follow-up.
