@@ -376,7 +376,27 @@ gate but no repair leg survives until the first redraw. All three, or it is pros
 
 ## Status
 
-These laws are proven in prose and NOT yet implemented in any planner. The acceptance
-target for that build is
-`tasks/evidence/d3-64-fixes/scene1_board_prompt_CORRECTED_v3.txt` — a planner should
-emit that shape unaided. Until then, generated boards do not obey these laws.
+Partially implemented as of 2026-07-29, and deployed to production (migrations 142, 143, 144 applied
+2026-07-30 04:02Z).
+
+Laws with live code, verified by an independent reviewer: L3, L6, L11, L12, L15, L16, L17, L19, L20,
+L22, L28, L29 all have a gate or a repair leg or both. L16 and L22 are genuinely CALCULATED rather
+than instructed, which is what BOARD-PLANNER-ARCHITECTURE.md asked for. L18 has a gate and
+deliberately no repair leg, because a naive stamp would contradict that law's own "shot size changes"
+clause. L23 to L26 have a renderer (`format_boundary_blocks`) and a written plan
+(`BOUNDARY-PASS-PLAN.md`) but nothing yet PRODUCES the boundary records, so those four are not live.
+
+Known gaps, stated plainly rather than left implied:
+- The canonical set and material data reaches the $0.05 sheet PREVIEW path but NOT yet the real
+  per-shot pictures path, where `run_coverage` still reads the planner's own `[MATERIAL|]` line. Filed
+  as chunk D6-1c and it BLOCKS the proof run, because a dry run that inspects only the preview would
+  report compliant while the pictures actually paid for still diverge.
+- L29 remains live for preset-only videos, whose style resolves through a separate mechanism that the
+  style resolver never touches. Filed as D6-1d.
+- Every canonical column is NULL for all existing rows, so the fallback path is the only path running
+  in production today. The laws are enforceable, not yet enforced on real data.
+
+The acceptance target for the planner build is unchanged:
+`tasks/evidence/d3-64-fixes/scene1_board_prompt_CORRECTED_v3.txt`, the sheet Ryan scored 9 out of 9. A
+planner should emit that shape unaided. That has NOT been demonstrated yet - it is chunk D6-6a, a $0
+dry run, followed by D6-6b, one paid board, which needs Ryan's explicit approval.
