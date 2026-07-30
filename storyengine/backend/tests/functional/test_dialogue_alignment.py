@@ -37,6 +37,7 @@ from scripts.coverage_to_app import (  # noqa: E402
     _dialogue_turns,
     _reconcile_moment_dialogue,
     _match_scene_env,
+    _norm_env_text,
 )
 from clip_dialogue import match_assigned  # noqa: E402
 
@@ -402,6 +403,130 @@ def test_match_scene_env_set_header_wins_over_a_passing_mention_of_another_locat
         _VIDEO_686B4651_ENVS,
     )
     assert env["name"] == "Elite viewing hall", env
+
+
+# ── D6-6b: nested-frame mention outscores the scene's own declared set ──
+# Video 8d90df90-be0f-4328-b9d3-20f6bb5b71a6 scene 4 (the elites scene),
+# verbatim: environments from `se db` (video_environments ORDER BY sort:
+# Pod=1, Corridor=2, Elite Viewing Hall=3), scene_text from the scripts row,
+# and the [SET|] header + the one nested-frame INSERT shot from the exact
+# coverage_directive the D6-6a dry run planned (both trimmed to the parts
+# that decide the match — the full directive is ~6.8kB of setups).
+#
+# The third instance of the "a scene legitimately names ANOTHER location"
+# bug class, and the first that neither prior fix covers. Scene 4's own
+# header declares The Elite Viewing Hall, and its INSERT shot correctly
+# describes what is ON the hall's giant screen — Nyla's pod (a BOARD-LAWS
+# L11 nested frame: normal, expected, correct content). Phrase counting sees
+# only totals: "pod" twice (2*3=6) beats "elite viewing hall" once (1*3=3),
+# so the scene matched the POD and the pod's material_map got stamped into
+# the emitted board prompt on a scene set in a solid-walled hall.
+#
+# Note what does NOT save it here. No score was inflated (both prior
+# regressions above turn on inflation), so the hyphen fix is irrelevant —
+# the counts are honest and the wrong one is genuinely higher. And
+# _SET_HEADER_ENV_RE never fires: this header is "Name, prose…" with no
+# name/description colon, its first colon ~800 chars in ("a permanent
+# feature of this set:"), far past that pattern's 80-char reach.
+_VIDEO_8D90DF90_ENVS = [
+    {"name": "Pod", "description": "d"},
+    {"name": "Corridor", "description": "d"},
+    {"name": "Elite Viewing Hall", "description": "d"},
+]
+_VIDEO_8D90DF90_SCENE_4_DIRECTIVE = (
+    "[SET | The Elite Viewing Hall, a private theatre high above the warren. "
+    "Black ornamental walls with gold accents, arched alcoves holding lit "
+    "sconces and decorative urns, a chandelier medallion glowing overhead, "
+    "deep leather armchairs in a single curved front row with gold side "
+    "tables and brass candleholders between them, a low brass railing at the "
+    "base of the screen. The screen is a permanent feature of this set: a "
+    "single curved screen the size of a building filling frame-CENTRE, always "
+    "on, always showing a live feed of the underground warren below. No "
+    "character from the underground is ever physically present in this hall; "
+    "they appear only as picture on the screen.]\n"
+    "[MOMENT 2 | Gold Woman points her glass at Nyla on the screen]\n"
+    "[INSERT]: (SETUP D) the feed fills the whole panel: the grid of stacked "
+    "bubble-pods, and picked out nearer the centre one lit pod holding Nyla "
+    "standing with one palm raised flat against the curve of her pod, tiny in "
+    "the vast grid; no hall furniture and no elites in frame."
+)
+_VIDEO_8D90DF90_SCENE_4_TEXT = (
+    "Far above, the elites gather each night around a screen the size of a "
+    "building. They watch the bubbles below like weather, like pets. \"Look at "
+    "this one,\" a woman in gold says, pointing her glass at Nyla. \"She talks "
+    "to the ceiling. How sweet.\" The room laughs softly. \"They never look "
+    "up,\" an old man smiles. \"That is what makes it fun.\" It is their "
+    "favorite show, and no one below knows they are the cast."
+)
+
+
+def test_match_scene_env_nested_frame_mention_never_beats_the_declared_set():
+    """The live D6-6a repro. Pre-fix this returns Pod (score 6 vs the hall's
+    3); post-fix the header's own declaration settles it before phrase
+    scoring ever runs."""
+    env = _match_scene_env(
+        _VIDEO_8D90DF90_SCENE_4_DIRECTIVE + " " + _VIDEO_8D90DF90_SCENE_4_TEXT,
+        _VIDEO_8D90DF90_ENVS,
+    )
+    assert env["name"] == "Elite Viewing Hall", env
+
+
+def test_match_scene_env_declared_set_wins_even_when_phrase_count_disagrees():
+    """Pins the PRECEDENCE, not just the outcome: the losing environment must
+    genuinely out-count the winner on the phrase score, otherwise this test
+    would still pass with the header check deleted. Asserts the scoring the
+    header now overrides is really stacked the wrong way."""
+    text = _VIDEO_8D90DF90_SCENE_4_DIRECTIVE + " " + _VIDEO_8D90DF90_SCENE_4_TEXT
+    low = f" {_norm_env_text(text)} "
+
+    def _score(name):
+        return low.count(f" {_norm_env_text(name)} ") * 3
+
+    assert _score("Pod") > _score("Elite Viewing Hall"), (
+        _score("Pod"), _score("Elite Viewing Hall"))
+    assert _match_scene_env(text, _VIDEO_8D90DF90_ENVS)["name"] == "Elite Viewing Hall"
+
+
+def test_match_scene_env_header_declaration_beats_a_later_mention_in_that_same_header():
+    """The header pass reads only the OPENING of a header body, so a passing
+    mention of another location INSIDE the set description can't hijack it
+    either — 686b4651 scene 2's shape ("…screen currently displaying a live
+    feed of the underground bubble-pod warren", hundreds of chars into the
+    scene's own header). Here the exact-colon check is deliberately defeated
+    (leading "The", so it can't settle this) to force the new pass to be the
+    one deciding."""
+    envs = [
+        {"name": "Underground bubble-pod warren", "description": "d"},
+        {"name": "Elite viewing hall", "description": "d"},
+    ]
+    text = (
+        "[SET | The Elite viewing hall, a private theatre. Black ornamental "
+        "walls with gold accents, arched alcoves with sconces, leather "
+        "armchairs in curved rows with brass candleholders and gold side "
+        "tables between them, a railing at the base of the massive curved "
+        "screen -- screen currently displaying a live feed of the underground "
+        "bubble-pod warren.]"
+    )
+    env = _match_scene_env(text, envs)
+    assert env["name"] == "Elite viewing hall", env
+
+
+def test_match_scene_env_locset_key_declares_the_location_too():
+    """L3 multi-location plans declare each location as a [LOCSET | <name> |
+    <text>] key rather than a single [SET|] line. Those keys are the same
+    kind of structural declaration, so they must outrank phrase counting the
+    same way — here "Pod" is mentioned twice as nested-screen content and
+    would otherwise win outright."""
+    envs = [{"name": "Pod", "description": "d"},
+            {"name": "Elite Viewing Hall", "description": "d"}]
+    text = (
+        "[LOCSET | Elite Viewing Hall | black ornamental walls, a curved "
+        "screen the size of a building.]\n"
+        "[INSERT]: the feed shows one lit pod holding Nyla, her palm flat "
+        "against the curve of her pod."
+    )
+    env = _match_scene_env(text, envs)
+    assert env["name"] == "Elite Viewing Hall", env
 
 
 def test_match_scene_env_hyphen_inside_a_compound_word_is_not_a_title_separator():

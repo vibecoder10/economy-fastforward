@@ -454,6 +454,77 @@ def _canonical_material_line(envs: list[dict], location_sets: dict,
 # structural signal beats generic phrase-counting over the whole text.
 _SET_HEADER_ENV_RE = re.compile(r"\[SET\s*\|\s*([^:\]]{1,80}):", re.IGNORECASE)
 
+# How far into a [SET|]/[LOCSET|] header body (in NORMALIZED characters, i.e.
+# after _norm_env_text collapses punctuation) an approved environment's name
+# may start and still count as "this header is declaring that location".
+# A header names its own location up front — "The Elite Viewing Hall, a
+# private theatre high above the warren. Black ornamental walls…" puts it at
+# index 4. Anything deeper than this is description, not declaration, and
+# description is exactly where a passing mention of ANOTHER location lives
+# ("…the screen currently displaying a live feed of the underground
+# bubble-pod warren", ~330 chars into 686b4651 scene 2's own header). 120 is
+# wide enough for a leading article plus a long location name, and far too
+# narrow to reach a nested-frame mention buried in the set description.
+_HEADER_NAME_WINDOW = 120
+
+
+def _env_named_in_header_opening(text: str, envs: list[dict]) -> dict | None:
+    """The approved environment this scene's own [SET|]/[LOCSET|] header
+    DECLARES, or None when no header names an approved one.
+
+    Structural, not statistical: unlike phrase-counting over the whole scene
+    text, this only ever reads the planner's own location-declaring headers,
+    and only their opening _HEADER_NAME_WINDOW characters — the slot where a
+    header states which room the camera is standing in. It is deliberately
+    blind to the rest of the text, so no amount of legitimate in-scene
+    mention of a DIFFERENT location (a screen showing somewhere else) can
+    reach it.
+
+    Tolerates the two header shapes the planner actually emits, which is the
+    whole point of this pass over the exact-match check above it:
+      * "[SET | Elite Viewing Hall: black ornamental walls…]" — name, colon,
+        description (what _SET_HEADER_ENV_RE handles).
+      * "[SET | The Elite Viewing Hall, a private theatre high above the
+        warren. Black ornamental walls…]" — a leading article, then the name,
+        then comma-joined prose with no name/description colon at all. Live
+        on video 8d90df90 scene 4. _SET_HEADER_ENV_RE cannot see this one:
+        its `[^:\\]]{1,80}` can only reach a colon within 80 chars, and this
+        header's first colon is ~800 chars in ("…a permanent feature of this
+        set: a single curved screen…"), so it returned no match whatsoever
+        and the whole header signal was silently skipped.
+
+    Earliest start wins (ties broken by the longer name): a header opens with
+    its own location, so the first approved name to appear in that opening
+    window is the declared one."""
+    heads = []
+    set_body = parse_set_dressing(text or "")
+    if set_body:
+        heads.append(set_body)
+    # L3 multi-location plans declare each location as a [LOCSET | <name> |
+    # <text>] KEY. Those keys are the same kind of structural declaration as
+    # a [SET|] opening, so read them the same way — a scene that names its
+    # locations outright should never be handed to phrase-counting. The
+    # FIRST key that resolves to an approved environment wins (dict order is
+    # the order they appear in the plan — parse_location_sets preserves it).
+    heads.extend(parse_location_sets(text or "").keys())
+
+    for head in heads:
+        padded = f" {_norm_env_text(head)} "
+        best, best_at = None, None
+        for e in envs:
+            n = _norm_env_text(e.get("name") or "")
+            if not n:
+                continue
+            at = padded.find(f" {n} ")
+            if at < 0 or at > _HEADER_NAME_WINDOW:
+                continue
+            if best_at is None or at < best_at or (at == best_at and len(n) > len(
+                    _norm_env_text(best.get("name") or ""))):
+                best, best_at = e, at
+        if best:
+            return best
+    return None
+
 
 def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
     """Pick the ONE approved environment this scene lives in.
@@ -508,7 +579,44 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
          kitchen — cram session" at sort=0 and "Community cooking class
          kitchen" at sort=1, and scene 2 genuinely is the home kitchen — so
          this is both the deterministic AND the empirically correct choice
-         here, unlike (2)."""
+         here, unlike (2).
+
+    D6-6b: a scene's OWN declared location now settles the match even when
+    the header doesn't spell it in the one exact shape _SET_HEADER_ENV_RE
+    can read — see _env_named_in_header_opening above. The third instance of
+    the same bug class, found live 2026-07-30 on video 8d90df90 scene 4
+    (envs: Pod, Corridor, Elite Viewing Hall). That scene's own header says
+    "[SET | The Elite Viewing Hall, a private theatre high above the
+    warren…]" and its ONE INSERT shot correctly describes what is ON the
+    hall's screen — "one lit pod holding Nyla… the curve of her pod" (a
+    BOARD-LAWS L11 nested frame: normal, expected, correct content). Phrase
+    counting has no concept of "this mention is inside a nested frame, not
+    the scene's own physical location", so "Pod" scored 2*3=6 against "Elite
+    Viewing Hall"'s 1*3=3 and the scene was matched to the POD. The
+    consequence is not cosmetic: video_environments.material_map for the
+    WRONG environment got stamped into the emitted board-sheet prompt (the
+    MATERIAL MAP block read the pod's clear-glass/white-shell text on a
+    scene set in a solid-walled hall), and generate_coverage_for_video
+    derives its matched_env from this same call, so the real per-shot
+    pictures path inherits the same wrong lock.
+
+    Note the two prior fixes did NOT cover this: the 686b4651 hyphen fix
+    closed one specific way a passing mention's score got INFLATED, and the
+    exact-header check only fires when the header names an approved
+    environment verbatim before a colon. Here the score was never inflated
+    (two honest "pod" mentions genuinely outnumber one "Elite Viewing Hall")
+    and the header check never fired at all. The general lesson, now
+    encoded: when the planner has DECLARED this scene's location, that
+    declaration wins outright — phrase-counting the body text is only ever
+    the guess we fall back to when nothing was declared.
+
+    KNOWN LIMIT, stated rather than papered over: when a header exists but
+    names a location with no approved video_environments row (the planner
+    invented a name, or the creator renamed the environment after
+    planning), there is nothing to return and the match still falls through
+    to phrase scoring — with the same nested-frame blind spot. Closing that
+    needs fuzzy name reconciliation between planner prose and approved rows,
+    which is its own chunk."""
     if not envs:
         return None
     if len(envs) == 1:
@@ -535,6 +643,14 @@ def _match_scene_env(text: str, envs: list[dict]) -> dict | None:
         for e in envs:
             if declared and _norm_env_text(e["name"] or "") == declared:
                 return e
+    # SAME structural signal, one step looser: the header declares this
+    # scene's location but not in that one exact "Name: description" shape —
+    # a leading article, or comma-joined prose with no name/description
+    # colon at all. Still a DECLARATION, so it still beats phrase-counting
+    # the body text (D6-6b, video 8d90df90 scene 4 — see the docstring).
+    declared_env = _env_named_in_header_opening(text or "", envs)
+    if declared_env:
+        return declared_env
     low_text = f" {_norm_env_text(text)} "
 
     def _phrase_count(phrase: str) -> int:
