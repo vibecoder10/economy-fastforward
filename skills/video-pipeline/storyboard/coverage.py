@@ -400,6 +400,17 @@ is physically in the frame — never as a heading, a directive, or a note bolted
 the sentence. The only bracketed/parenthetical tags a panel description may carry are the \
 existing structural ones this scene's format already defines — "(SETUP X)", "(REACTION)", \
 "(INSERT)", "(BRIDGE)" — never a new one invented to hold a fact that belongs in prose.
+24) STATE WHY EVERY SHOT EXISTS, ON ITS OWN ROW, NEVER INSIDE THE SENTENCE. Immediately under \
+EVERY MASTER and ANGLE line, add its own row: `PURPOSE: <kind> | <why this shot exists, one short \
+clause>`. <kind> is exactly ONE of: story, action, information, emotion, spatial — pick whichever \
+is closest, never invent a new word. The clause after the pipe is a plain reason a human would \
+recognize — what this shot is FOR, not what it shows (the description above it already shows \
+that) — e.g. "shows how Ryan gets from the pod to the corridor", "the audience needs to see her \
+decide before she moves", "proves the corridor is genuinely empty before the reveal". This is \
+bookkeeping for the edit, never for the frame: it lives on its OWN line, is stripped before the \
+shot ever reaches the image drawer, and must NEVER be folded into the MASTER/ANGLE sentence \
+itself — rule 23 above already forbids inventing a new bracket/tag inside a panel description, and \
+a PURPOSE row is exactly the kind of labelled fact that rule exists to keep out of the artwork.
 </rules>
 
 <output_format>
@@ -449,9 +460,13 @@ left-of-center looking frame-RIGHT, spreading both hands flat on the island." NE
 blocking in world space ("at the left end of the island", "his left") — the drawing model \
 cannot do camera geometry; give it the finished frame. Only a shot with genuinely nobody in it \
 may open with the set, and it must say "Empty of people" explicitly.
+PURPOSE: <kind> | <why THIS shot exists, one short clause> (rule 24 — its OWN row, right under \
+the MASTER line above, kind is one of story/action/information/emotion/spatial)
 - ANGLE [shot_type]: same instant, different camera — same format: setup letter, then frame \
 placement + eyeline, then what the new framing emphasises. The axis still holds.
+PURPOSE: <kind> | <why THIS angle exists> (rule 24 — every MASTER and ANGLE gets its own row)
 - ANGLE [shot_type]: ...
+PURPOSE: <kind> | ...
 
 shot_type is one of: {SHOT_TYPES}.
 Give each moment ONE MASTER plus {angles_min}-{angles_max} ANGLES.
@@ -960,6 +975,27 @@ _SHOT_RE = re.compile(
 # The line the planner assigned to a speaking moment: `LINE: Dad | "exact words"`.
 _LINE_RE = re.compile(r'(?im)^\s*\*{0,2}\s*LINE\s*:\s*([^|"\n]+?)\s*\|\s*"([^"]+)"')
 
+# D9-1 (film-studio audit harvest): a per-shot "why this shot exists" tag,
+# mirroring backend/custom_film_director.py's ShotDraft fields — progression_kinds
+# (enum: story/action/information/emotion/spatial) and narrative_purpose (free
+# prose). Written as its OWN metadata row directly under a shot's own dash
+# line — same two-part "LABEL: part1 | part2" grammar as LINE: above, just
+# per-shot instead of per-moment — e.g. "PURPOSE: spatial | shows how Ryan
+# gets from the pod to the corridor". Deliberately NEVER folded into the
+# shot's own description sentence: rule 23/L27 (INSTRUCTIONS ARE NOT CAPTIONS)
+# forbids inventing a new bracket/tag inside a panel description (a labelled
+# fact there gets absorbed into the caption strip and baked onto the artwork
+# verbatim, proven live) — and this text is prose-length, not a short
+# structural token like "(REACTION)", so the risk is real. _SHOT_RE's capture
+# swallows everything up to the next shot/moment marker (DOTALL), so a
+# PURPOSE row sitting right after a shot's own dash line lands at the TAIL of
+# THIS shot's own captured text — matched here at the end (\Z) and stripped
+# before the description is stored. A directive with no PURPOSE line (every
+# directive before this chunk) matches nothing: parse_coverage's output is
+# byte-identical to before this chunk existed.
+_PURPOSE_LINE_RE = re.compile(
+    r"\n\s*\*{0,2}\s*PURPOSE\s*\*{0,2}\s*:\s*([a-z]+)\s*\|\s*(.+?)\s*\Z", re.IGNORECASE | re.DOTALL)
+
 
 def parse_coverage(directive_text: str) -> list[dict]:
     """Parse the coverage plan into moments. Each moment: {moment_number, summary,
@@ -969,7 +1005,13 @@ def parse_coverage(directive_text: str) -> list[dict]:
     whose [MOMENT n | ...] header carries a "LOCATION: <name> | " prefix — None
     for every scene parsed before this law existed, and for any single-location
     scene going forward (byte-compatible: nothing about a legacy plan's parse
-    output changes)."""
+    output changes).
+
+    Each shot dict also carries purpose_kind/shot_purpose (D9-1) — parsed from
+    that shot's own trailing "PURPOSE: <kind> | <text>" row (_PURPOSE_LINE_RE),
+    both None when the row is absent (every plan before this chunk, and any
+    shot the planner didn't tag going forward — WARN-only per D6 Ruling 1,
+    never a hard gate, see check_shot_purpose_present)."""
     heads = list(_MOMENT_RE.finditer(directive_text))
     moments: list[dict] = []
     for i, h in enumerate(heads):
@@ -984,7 +1026,18 @@ def parse_coverage(directive_text: str) -> list[dict]:
             # separator rides into the description and then into every image
             # prompt downstream. Strip separator-only trailing lines.
             desc = re.sub(r"(?:\s*\n\s*[-—*_]{3,}\s*)+$", "", m.group(3)).strip()
-            shot = {"shot_type": m.group(2).strip().upper(), "description": desc}
+            # D9-1: peel the shot's own trailing PURPOSE row (if any) off the
+            # end BEFORE it's treated as final description text — see
+            # _PURPOSE_LINE_RE's docstring above for why this must never
+            # reach the image draw prompt.
+            purpose_kind, shot_purpose = None, None
+            pm = _PURPOSE_LINE_RE.search(desc)
+            if pm:
+                purpose_kind = pm.group(1).strip().lower()
+                shot_purpose = pm.group(2).strip()
+                desc = desc[:pm.start()].rstrip()
+            shot = {"shot_type": m.group(2).strip().upper(), "description": desc,
+                    "purpose_kind": purpose_kind, "shot_purpose": shot_purpose}
             if m.group(1).upper() == "MASTER" and master is None:
                 master = shot
             else:
@@ -1784,6 +1837,39 @@ def check_discovery_object_unremarked(moments: list[dict]) -> int:
     return warnings
 
 
+def check_shot_purpose_present(moments: list[dict]) -> int:
+    """D9-1 (film-studio audit harvest): the dormant Custom Film director's
+    ShotDraft HARD-requires narrative_purpose + progression_kinds on every
+    shot (backend/custom_film_director.py:279-284) — the flagship coverage
+    pipeline planned shots with no motivation at all ({shot_type,
+    description} only). Ryan's ruling on the audit: harvest that schema into
+    the flagship, but per the standing D6 Ruling 1 (a gate may only be HARD
+    when it compares against something CANONICAL) this stays WARN-only —
+    there is no canonical "correct" purpose to compare a shot's prose
+    against, only whether the planner stated one at all.
+
+    Flags any shot (master or angle) with no parsed purpose_kind AND no
+    shot_purpose (the coverage system prompt's per-shot "PURPOSE: <kind> |
+    <text>" row, extracted by parse_coverage — see _PURPOSE_LINE_RE). This
+    WILL trip on every plan from before this chunk existed (the row simply
+    never appears) and on any code-synthesized filler shot (a floor-added
+    REACTION/INSERT/re-establish from enforce_reaction_insert_floors, which
+    has no LLM-authored prose to draw a purpose from) — that is the intended
+    signal, not a false positive: exactly the shots nobody stated a reason
+    for. Warning-only, same 'worth a human glance, not a hard failure'
+    discipline as every check_* above."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            if not (shot.get("purpose_kind") or shot.get("shot_purpose")):
+                warnings += 1
+                print(f"  ⚠️ shot-purpose check (D9-1): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) carries no PURPOSE: line — no stated "
+                      "narrative_purpose/progression_kind for this shot — worth a human glance, "
+                      "not a hard failure", flush=True)
+    return warnings
+
+
 # =============================================================================
 # D6-2 REPAIR LEGS — BOARD-LAWS.md L11, L12, L15, L16, L17, L19, L22. Every
 # law here previously had a PROMPT leg (the coverage system prompt, rules
@@ -2187,6 +2273,12 @@ def enforce_setup_variety(flat_shots: list[dict], max_consecutive: int = 2) -> i
                     a, b = flat_shots[k], flat_shots[swap_with]
                     a["shot_type"], b["shot_type"] = b["shot_type"], a["shot_type"]
                     a["description"], b["description"] = b["description"], a["description"]
+                    # D9-1: purpose_kind/shot_purpose describe WHAT a shot shows
+                    # and WHY — they travel with the content, not the position,
+                    # or a swap would leave a shot's stated purpose describing a
+                    # framing/action that no longer lives there.
+                    a["purpose_kind"], b["purpose_kind"] = b.get("purpose_kind"), a.get("purpose_kind")
+                    a["shot_purpose"], b["shot_purpose"] = b.get("shot_purpose"), a.get("shot_purpose")
                     if "setup_id" in a or "setup_id" in b:
                         a["setup_id"], b["setup_id"] = b.get("setup_id"), a.get("setup_id")
                     families[k], families[swap_with] = families[swap_with], families[k]
@@ -3170,7 +3262,15 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                # assets.group_arrangement. None for a shot with no group/
                # location signal, unchanged from before this column existed.
                "shot_location": m.get("shot_location"),
-               "group_arrangement": m.get("group_arrangement")}]
+               "group_arrangement": m.get("group_arrangement"),
+               # D9-1 (migration 147): the per-shot narrative-purpose signal
+               # parse_coverage extracted from this shot's own "PURPOSE: ..."
+               # row — threaded through here so store_scene can write it into
+               # assets.purpose_kind / assets.shot_purpose. None for a shot
+               # the planner didn't tag (every shot before this chunk, and
+               # any floor-added filler shot going forward).
+               "purpose_kind": m.get("purpose_kind"),
+               "shot_purpose": m.get("shot_purpose")}]
     angle_base = cast_refs + [master_url] + ([env_url] if env_url else [])
 
     async def _angle(a):
@@ -3192,7 +3292,10 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
                 "duration_seconds": a.get("duration_seconds"),
                 # D6-2 (migration 143) — see the master frame's dict above.
                 "shot_location": a.get("shot_location"),
-                "group_arrangement": a.get("group_arrangement")} if url else None
+                "group_arrangement": a.get("group_arrangement"),
+                # D9-1 (migration 147) — see the master frame's dict above.
+                "purpose_kind": a.get("purpose_kind"),
+                "shot_purpose": a.get("shot_purpose")} if url else None
 
     # All angles share the same master ref → draw them concurrently (capped by sem).
     # return_exceptions: one bad angle degrades to fewer angles, never kills the moment.
@@ -3558,6 +3661,9 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     check_population_specified(moments)
     check_attention_orientation_stated(moments)
     check_discovery_object_unremarked(moments)
+    # D9-1 (film-studio audit harvest): a shot with no stated narrative
+    # purpose — same warning-only discipline as every check_* above.
+    check_shot_purpose_present(moments)
 
     # D6-2 (migration 143, storyengine/backend/migrations/143_per_shot_
     # location_and_arrangement.sql): persist the per-moment location — which

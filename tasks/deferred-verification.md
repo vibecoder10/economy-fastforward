@@ -324,3 +324,90 @@ normalization concern at all. Porting the three GAP-1 capabilities there would n
 real failure mode in that code. Flagging instead of silently dropping: if Ryan wants a
 Wayback-image fallback for `_host_reference` (e.g. when a Commons file 404s), that is a distinct,
 separately-scoped follow-up, not part of this chunk's Definition of Complete.
+
+---
+
+## D9-1 shot-purpose harvest (branch `d9-1-shot-purpose`) — apply migration 147 on next deploy window; confirm the PURPOSE tag actually shows up in a real plan
+
+**Built and tested in a worktree only — migration 147 was NOT applied to prod this session**
+(no prod-migration writes allowed from a build-only chunk). Same auto-apply mechanism as every
+prior migration (`main.py`'s startup hook, tracked in `_migrations`, warn-not-fail on a per-file
+error) — the "deferred" part is confirming it actually landed AND that a real planner call
+actually emits the new PURPOSE row (a prompt-only change; no test in this chunk calls the real
+Claude API):
+
+```bash
+# 1. Lock the deploy window first (see storyengine/CLAUDE.md's VPS coordination rule), then
+#    deploy this branch normally: push main, then
+#    scripts/se.sh deploy <session-name> [--with-frontend]
+
+# 2. Confirm the migration actually ran
+se logs backend 200 | grep "147_shot_purpose"
+# Expect: "Migration applied: 147_shot_purpose.sql"
+se db "SELECT filename FROM _migrations WHERE filename = '147_shot_purpose.sql'"
+# Expect exactly 1 row.
+
+# 3. Verify the columns exist
+se db "SELECT column_name FROM information_schema.columns WHERE table_name = 'assets' \
+  AND column_name IN ('purpose_kind', 'shot_purpose')"
+# Expect 2 rows.
+
+# 4. Plan ONE real scene's coverage (sheet-preview planning, no spend — Scenes page ->
+#    "plan the shots" / plan_only path) and read the raw directive.txt/coverage_directive
+#    back out:
+se db "SELECT coverage_directive FROM scripts WHERE video_id='<id>' AND scene=<n>"
+# Confirm the planner ACTUALLY wrote "PURPOSE: <kind> | <text>" rows under real MASTER/ANGLE
+# lines — this chunk only proves the PARSER handles the tag correctly if the LLM writes it;
+# it does not prove Claude reliably follows a brand-new prompt rule on its first live call.
+# If PURPOSE rows are sparse/absent on a real plan, check_shot_purpose_present's WARN log line
+# ("shot-purpose check (D9-1): ... carries no PURPOSE: line") should be showing up in
+# `se logs backend` around that plan's generation — confirms the WARN gate itself is live,
+# even if the prompt compliance needs a follow-up nudge.
+
+# 5. Draw that same scene's real pictures (spend gate — confirm cost with Ryan first) and
+#    confirm the columns actually populate:
+se db "SELECT scene, image_index, purpose_kind, shot_purpose FROM assets \
+  WHERE video_id='<id>' AND scene=<n> AND generation_method='coverage' ORDER BY image_index"
+# Expect purpose_kind/shot_purpose populated (non-NULL) for shots whose PURPOSE row survived
+# step 4's plan, NULL for any shot the planner didn't tag (floor-added REACTION/INSERT shots,
+# or a plain miss) — NULL here is not itself a bug, see step 4.
+```
+
+**What IS verified (code-level + full local test suite passes, not live prod):**
+`skills/video-pipeline/tests/test_d9_1_shot_purpose.py` (11 tests) covers `parse_coverage`'s
+extraction of the per-shot `PURPOSE: <kind> | <text>` row (master and angle independently, bold
+markdown tolerated, kind lowercased), the row never surviving into the stored `description` (the
+whole reason it lives on its own line — rule 23/L27, INSTRUCTIONS ARE NOT CAPTIONS), BACKWARD
+COMPATIBILITY against `SAMPLE` — the exact pre-existing fixture `test_coverage.py` already used
+before this chunk — parsing byte-identical on `shot_type`/`description` with purpose fields simply
+`None`, the new `check_shot_purpose_present` WARN gate (silent when every shot is tagged, flags
+exactly the untagged ones, flags all 5 shots on the legacy `SAMPLE` fixture with no crash),
+`generate_coverage_frames` threading `purpose_kind`/`shot_purpose` onto its frame dicts AND proof
+the purpose text never reaches the actual image-generation prompt string (a planted marker string
+in `shot_purpose` is asserted absent from the prompt `_gen_ref` receives), `enforce_setup_variety`'s
+content-swap carrying purpose fields along with `shot_type`/`description` (so a swap never leaves
+a shot's stated purpose describing a framing that moved elsewhere), and `plan_moments_deterministic`
+(the ONE shared parse->budget->floors->variety pipeline both the sheet-preview planning path and
+the real-pictures path call) preserving purpose fields end to end including a floor-added filler
+shot correctly landing with none. `storyengine/backend/tests/functional/
+test_d9_1_shot_purpose_stamp.py` (3 tests) proves `store_scene`'s INSERT actually stamps
+`purpose_kind`/`shot_purpose` from a frame dict's fields (present, NULL-default, and independently
+per-shot within one moment) — the sheet-preview planning path never inserts an asset row at all
+("Storyboard SHEETS are a preview, not an asset row" is coverage_to_app.py's own comment, confirmed
+by reading it — nothing to stamp there), so `store_scene` is the one real stamping site and both
+paths feed it identical parsed fields via the shared `plan_moments_deterministic`. Real stash-proof
+(patch-file technique, never `git stash`, per tasks/lessons.md's fleet rule): `git diff --cached`
+of the full chunk saved to a patch, reverse-applied cleanly (`git apply -R`, working tree confirmed
+clean after), pipeline suite (`test_board_laws.py` + `test_d6_2_repair_stamps.py` + `test_coverage.py`)
+still 150/150 passing reverted (new D9-1 test files gone with the revert, no orphaned failures),
+full backend suite (`./venv/bin/python -m pytest tests/ -q`, main checkout's venv binary against
+worktree code) 29 failed / 3867 passed reverted vs 29 failed / 3882 passed applied (the +15 are
+this chunk's own new tests) — sorted FAILED sets byte-identical (diffed, empty output), then the
+patch forward-applied cleanly to restore the chunk. `schema.sql`'s `assets` table updated with the
+2 new columns (with a note: `assets.shot_location`/`assets.group_arrangement` from migration 143
+were ALREADY missing from `schema.sql` before this chunk touched it — a pre-existing drift, not
+something this chunk introduced or fixed; flagged separately, not folded into this migration).
+What is NOT verified: the migration actually running against the real Supabase Postgres instance,
+whether Claude reliably follows the new PURPOSE-row prompt rule on a real, unseen scene (prompt
+compliance is never provable from a parser unit test — that's what step 4 above is for), and a
+real `assets.purpose_kind`/`shot_purpose` value landing from an actual paid coverage-picture draw.
