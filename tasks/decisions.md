@@ -847,3 +847,9 @@ without creating a parallel production pipeline.
 **Consequence:** Only `accepted` unlocks the next scene. Local synthetic playback may
 remain available after rejection as comparison evidence, but it is acceptance evidence
 only when the assembly hash is current and the scene is assembled or accepted.
+
+## 2026-07-30 - Film-studio program rulings (Ryan, maestro session)
+- Decision: Custom Film gets HARVESTED into the flagship coverage pipeline, not promoted. Context: the 22-point audit showed Custom Film has the strongest schemas (locks, state chain, per-shot purpose) but zero production rows, while coverage is the flagship. Alternatives: promote Custom Film as the data model (long migration under live users), or park it. Why this won: no migration risk, main stays deployable, the engineering value still gets captured piece by piece (phase D9).
+- Decision: Program scope is the FULL gap list (phases D8-D14 appended to loop-checklist.md). Context: Ryan - "I just want everything, so whatever it takes to make it all work, and have a clear plan to chew through."
+- Decision: Frame-arbiter rollout is Ryan's tenant only (f6839de2), hard per-video budget cap, cost quoted before enabling; auto-redraw sits behind its own sub-flag, DEFAULT OFF, until eval chunk D5-A3b-2 graduates. Alternatives: warn-only for all tenants; build-but-leave-off.
+- Decision: Deploys are HELD until Ryan gives a window - another live session is working the DVSU roster loop on the same VPS. All build work happens in worktrees meanwhile.
