@@ -32,6 +32,7 @@ they extend rather than replace.
 - **Space and geography hold across shots** — L1, L9, L13, L14, L15, L16
 - **The set is defined before it is shot** — L3, L7, L8, L11, L20
 - **People are specified, not assumed** — L6, L12, L17, L22
+- **Inputs must be real** — L28, L29
 - **Action is legal** — L4
 - **Panel discipline** — L2, L21, L27
 - **Scene boundaries: the cut between sheets** — L23, L24, L25, L26
@@ -227,6 +228,29 @@ contain and that nothing else ever appears there.
 CAMERA (REVERSED): ..." inside a panel brief was rendered verbatim into that panel's
 caption strip. The instruction worked — the headcount held — and it printed itself
 onto the artwork.*
+
+**L28 — NEVER ASSERT AN INPUT THAT IS NOT ATTACHED.** A prompt that says "match the
+attached reference images" when nothing is attached does not merely fail to
+constrain the drawer — it licenses invention and makes the invention confident,
+because the model believes it is matching something. Either attach the references,
+or describe what to draw instead. The same applies to any claimed input: a style
+reference, a previous panel, a cast sheet. Assert only what is genuinely in the
+call.
+*Provenance: an emitted board prompt instructed "Draw every character consistently
+across every panel, matching their appearance to the attached reference images"
+while the characters never reached the call; the model invented a cast and drew it
+consistently, which reads as deliberate and is impossible to notice from the prompt
+text alone.*
+
+**L29 — DECLARE ONE STYLE, ONCE.** The style is the single most visible property of
+a frame and must be stated exactly once, from one source of truth, with nothing that
+contradicts it. A prompt carrying two style claims lets the model choose, and it will
+choose the one you did not want.
+*Provenance: the same emitted prompt described "a storyboard sheet for an ANIMATED
+scene" and, two sentences later, "the same art style, Photorealistic, cinematic film
+still." The model resolved the contradiction toward photorealism, so an animated
+film's board came back live-action — a defect invisible in the law text and obvious
+in the picture.*
 
 ---
 
