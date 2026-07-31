@@ -1824,3 +1824,85 @@ names, unrelated pre-existing failures).
     planted or organic contradiction in a real script surfaces as a
     `failing_gates` entry a human would recognize as correct — same bar the
     existing hook/causality/escalation/payoff gates are already held to.
+
+# Deferred verification — D9-4 (forbidden_drift made live: prompts + judge rubric)
+
+- [x] **$0 verification — done.** Both consumption points wired, tested,
+  proven byte-identical when forbidden_drift is NULL/absent:
+  - PROMPTS (`backend/scripts/coverage_to_app.py`): `_never_clause`/
+    `_character_tag` (new, D9-4) feed `load_character_bible` ->
+    `_character_identity_line` (board-sheet CHARACTER lines) and
+    `redraw_asset_image`'s inline CHARACTER-block composer — the SAME two
+    points D9-2's face_body_lock/wardrobe_lock already reach. Populated
+    forbidden_drift renders verbatim as a trailing " NEVER: ..." clause;
+    NULL is byte-identical (proven directly against the pre-chunk shape,
+    not just "no exception").
+  - JUDGE RUBRIC (`backend/frame_arbiter.py` + `backend/frame_arbiter_hook.py`):
+    `compose_character_drift_text` (new) composes forbidden_drift into
+    "flag as MODEL_DEFECT if: <entry>" check items; `_board_rubric_prompt`
+    (the board station `judge_board_sheet` uses — the ONE thing
+    `frame_arbiter_hook.run_after_storyboard_sheet` actually calls per its
+    own docstring) gains an optional CHARACTER DRIFT CONSTRAINTS section +
+    a 5th judge instruction, gated on a non-empty `character_drift_text`.
+    The hook's `_fetch_character_drift_text` (new DB read, fail-soft) is
+    threaded in via an OPTIONAL `sheet["character_drift_text"]` key — the
+    SAME dict `spec_text`/`image_url` already ride in on — deliberately
+    NOT a new `judge_fn` parameter, so `run_after_storyboard_sheet`'s call
+    site (`judge_fn(tenant_id, video_id, scene, sheet)`) is untouched and
+    every existing 4-positional-arg fake judge_fn in
+    test_d5_a6_arbiter_hook.py / test_d8_3b_findings_persist.py still
+    works unmodified. parse_verdict's reply format (CLASSIFICATION/
+    FAILURE_CLASS/... block) is untouched — only the judge CRITERIA text
+    gained a conditional section, per D9-5's sweep ruling.
+  - New test file `backend/tests/functional/test_d9_4_forbidden_drift.py`
+    (34 tests): helper unit tests, load_character_bible/_character_
+    identity_line/redraw_asset_image byte-identical + populated proofs,
+    compose_character_drift_text unit tests, _board_rubric_prompt
+    byte-identical + populated proofs, judge_board_sheet prompt-assembly
+    proof (including a DI-seam-signature-unchanged proof), and
+    frame_arbiter_hook's `_fetch_character_drift_text`/`_fetch_scene_sheets`
+    DB-read + fail-soft + conditional-attach proofs. `test_d9_2_character_
+    locks.py`, `test_d5_a6_arbiter_hook.py`, `test_d8_3b_findings_persist.py`
+    all pass UNMODIFIED. Full backend suite reverted-vs-applied (worktree
+    at commit 466c517c vs this branch) sorted FAILED sets are byte-identical
+    — one single pre-existing failure both sides
+    (`test_youtube_oauth_diagnostics_reports_missing_config_without_secret_
+    values`, unrelated to this chunk), 4085 -> 4119 passed (the +34 delta is
+    exactly this chunk's own new test file), 4 skipped both sides. Fresh-
+    worktree gitignored `backend/venv`, `remotion-video/node_modules`, and
+    `remotion-video/public` (which contains `motion-audio`) were symlinked
+    from the main checkout for this verification run, per D12-1's finding
+    that most "pre-existing failures" in a bare fresh worktree are missing-
+    artifact noise, not real failures — confirmed here too (only the one
+    real pre-existing failure showed up, both reverted and applied).
+    Guard-neuter stash-proofs (in-place edit + real AssertionError + revert,
+    never `git stash`) ran on all four conditional guards this chunk added
+    (`_never_clause`'s empty check, `_board_rubric_prompt`'s
+    `character_drift_text` context-block gate, `judge_board_sheet`'s
+    sheet-dict read, `_fetch_scene_sheets`'s conditional-attach gate) — each
+    neuter produced the expected real test failure(s), then was reverted;
+    `git diff` + `grep STASH-PROOF` confirm no neuter markers remain.
+
+- [ ] **Live proof deferred (real spend: cast-approval vision pass already
+      populates forbidden_drift per D9-2 — one board-sheet generation +
+      one arbiter judge call on a video with a populated
+      video_characters.forbidden_drift row; cents of spend, no separate
+      video/voice cost).** Recipe:
+  1. Approve a cast on a real video so D9-2's vision pass populates
+     `forbidden_drift` (`se db "SELECT name, forbidden_drift FROM
+     video_characters WHERE video_id='<id>'"` to confirm it's non-NULL).
+  2. Generate a board sheet or redraw a picture for that video/scene and
+     grep the backend log / captured prompt for " NEVER: " — confirm the
+     character's real forbidden_drift text appears verbatim in the
+     CHARACTER block.
+  3. With `FRAME_ARBITER_A6_ENABLED`/`FRAME_ARBITER_A6_VIDEO_ID`/
+     `FRAME_ARBITER_A6_SCENE` set to that video/scene, trigger a board-sheet
+     judge pass and inspect the assembled judge prompt (log it once,
+     temporarily) for the "CHARACTER DRIFT CONSTRAINTS" section and the
+     "flag as MODEL_DEFECT if: <name>: <entry>" lines.
+  4. If feasible, stage a panel that actually violates a drift constraint
+     (e.g. redraw with hair recolored) and confirm the judge classifies it
+     MODEL_DEFECT with a failure_class naming the drift, not a generic tag.
+  - Expected result: forbidden_drift reaches both surfaces with real data,
+    unmodified from the column, and a genuine violation gets caught by the
+    judge — not just the $0 plumbing proof above.
