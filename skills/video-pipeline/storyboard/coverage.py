@@ -3331,27 +3331,186 @@ def enforce_reaction_insert_floors(moments: list, set_line: str | None = None,
 # one source of truth for what counts as wide/medium/closeup.
 _COMPOSITION_DURATION_SECONDS = {"wide": 3.5, "medium": 2.5, "closeup": 1.6}
 
+# =============================================================================
+# GENRE-AWARE PACING (D12-1) — cut-rhythm multiplier on top of the
+# composition default above, keyed by genre FAMILY. A "wide" isn't always
+# 3.5s: an action scene should hold it for less, a contemplative one for
+# more. Multiplies _COMPOSITION_DURATION_SECONDS' base value; NEVER applied
+# to a speaking shot (stamp_shot_durations already skips those below —
+# length comes from measured speech, genre has no say in it).
+#
+#   action_thriller  0.75x — faster cuts, shorter holds (chases, heists, war)
+#   drama             1.0x — the historical default; also the catch-all for
+#                             any genre text that matches no family below
+#   emotional         1.3x — longer takes, holds on the frame (romance,
+#                             slice-of-life, coming-of-age)
+#   mystery_suspense  1.15x — a bit slower than drama, biased toward the
+#                             slow reveal (a mystery earns its wide)
+#   comedy            1.0x — SAME duration as drama. Comedy's real pacing
+#                             signal is reaction-shot FREQUENCY, not hold
+#                             length — see the note in
+#                             _genre_pacing_multiplier below for why that
+#                             isn't wired up in this chunk.
+#
+# Genre text is free-form LLM output (story_bible_native.py's own genre
+# prompt: "one or two words, e.g. 'geopolitical thriller', 'explainer'"),
+# not a fixed enum — so resolution is substring-keyword matching against
+# _GENRE_FAMILY_KEYWORDS below, case-insensitive, never exact-match only.
+# Absent OR unrecognized genre text -> multiplier 1.0 EXACTLY. That is the
+# invariant this feature must never break: every video without a D10-2ab
+# native story bible (every video predating it, or one whose bible produced
+# no narrative section) gets byte-identical durations to pre-D12-1 output —
+# literally the same float, not merely "close to 1.0".
+# =============================================================================
+GENRE_PACING = {
+    "action_thriller": 0.75,
+    "drama": 1.0,
+    "emotional": 1.3,
+    "mystery_suspense": 1.15,
+    "comedy": 1.0,
+}
 
-def stamp_shot_durations(moments: list) -> int:
+# Checked in THIS order — a family earlier in the dict wins a substring
+# match over one later (e.g. "psychological thriller" matches mystery_
+# suspense's own entry before it ever reaches action_thriller's plain
+# "thriller" keyword; "melodrama" matches emotional before drama's bare
+# "drama" substring would). Order encodes priority, not alphabetical
+# convenience — do not reorder without re-checking the overlap cases in
+# test_coverage.py's D12-1 section.
+_GENRE_FAMILY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "mystery_suspense": (
+        "mystery", "suspense", "noir", "detective", "whodunit", "whodunnit",
+        "true crime", "psychological thriller", "psychological suspense",
+    ),
+    "comedy": (
+        "comedy", "comedic", "satire", "sitcom", "parody", "farce",
+    ),
+    "emotional": (
+        "emotional", "contemplative", "romance", "romantic", "melodrama",
+        "slice of life", "slice-of-life", "coming-of-age", "coming of age",
+        "tearjerker",
+    ),
+    "action_thriller": (
+        "action", "thriller", "war", "heist", "spy", "espionage", "military",
+        "chase", "crime thriller",
+    ),
+    "drama": (
+        "drama", "dialogue-driven", "dialogue driven", "biography", "biopic",
+    ),
+}
+
+
+def _genre_pacing_multiplier(genre: str | None) -> float:
+    """D12-1: resolve free-text `genre` (story_bible.narrative.genre — see
+    _genre_pacing_signal below for where callers read it from, and the
+    module comment above GENRE_PACING for the family table) to a duration
+    multiplier via _GENRE_FAMILY_KEYWORDS' case-insensitive substring
+    match. None, empty, non-string, or text matching no family's keywords
+    all return 1.0 EXACTLY — the byte-identical default (see GENRE_PACING's
+    docstring for why that must be exact, not approximate).
+
+    Comedy scope decision (D12-1): comedy's real pacing signal is
+    reaction-shot FREQUENCY (cutting to the listener's face for the laugh),
+    not hold length — but enforce_reaction_insert_floors (this module,
+    above) exposes no per-call frequency knob today, only the module
+    constant _REACTION_TURNS_PER_SHOT, and adding one means rebuilding that
+    floor's call contract, which this chunk's brief explicitly rules out
+    ("do NOT rebuild the floors"). Comedy is therefore guidance-only here:
+    multiplier 1.0, identical to drama, until a future chunk exposes a real
+    knob."""
+    if not genre or not isinstance(genre, str):
+        return 1.0
+    g = genre.strip().lower()
+    if not g:
+        return 1.0
+    for family, keywords in _GENRE_FAMILY_KEYWORDS.items():
+        if any(kw in g for kw in keywords):
+            return GENRE_PACING.get(family, 1.0)
+    return 1.0
+
+
+_MIN_SHOT_DURATION_SECONDS = 1.0
+_MAX_SHOT_DURATION_SECONDS = 6.0
+
+
+def _clamp_shot_duration(seconds: float) -> float:
+    """D12-1 safety net: no genre multiplier (today's set, or a future
+    tweak) can push a stamped duration outside [1.0, 6.0]s — under a second
+    reads as a flash-cut glitch, over six as a stalled frame. Today's
+    actual range (0.75x * 1.6s closeup = 1.2s .. 1.3x * 3.5s wide = 4.55s)
+    never touches either bound; this exists for the NEXT multiplier someone
+    adds, not because the current table needs it."""
+    return max(_MIN_SHOT_DURATION_SECONDS, min(_MAX_SHOT_DURATION_SECONDS, seconds))
+
+
+def stamp_shot_durations(moments: list, genre: str | None = None) -> int:
     """Stamp shot["duration_seconds"] on every SILENT shot in `moments` —
     every angle, and every master EXCEPT a speaking moment's master (that
     one's clip-length comes from measured speech at animate/assemble time,
     never from this table). Idempotent (safe to call more than once; always
-    overwrites with the same deterministic value for a given shot_type).
+    overwrites with the same deterministic value for a given shot_type and
+    genre).
+
+    genre (D12-1): the video's story_bible narrative genre — see
+    _genre_pacing_signal (below, this module) for where run_coverage reads
+    it from. Multiplies the composition base duration by GENRE_PACING's
+    family factor (via _genre_pacing_multiplier), then clamps to
+    [1.0, 6.0]s (_clamp_shot_duration). None (the default, and every call
+    site before D12-1) resolves to multiplier 1.0, and 1.0x times any of
+    today's three base values stays exactly that value (float identity,
+    `x * 1.0 == x`, and the clamp is a no-op inside [1.6, 3.5]) — so every
+    existing caller and every video without a genre signal gets
+    byte-identical output to before this feature.
+
     Returns how many shots were stamped."""
+    mult = _genre_pacing_multiplier(genre)
     n = 0
     for moment in moments:
         speaking = bool(moment.get("speaker") and moment.get("line"))
         m = moment.get("master")
         if m and not speaking:
-            m["duration_seconds"] = _COMPOSITION_DURATION_SECONDS.get(
+            base = _COMPOSITION_DURATION_SECONDS.get(
                 _SHOT_TYPE_COMPOSITION.get((m.get("shot_type") or "").upper(), "medium"), 2.5)
+            m["duration_seconds"] = _clamp_shot_duration(base * mult)
             n += 1
         for a in moment.get("angles") or []:
-            a["duration_seconds"] = _COMPOSITION_DURATION_SECONDS.get(
+            base = _COMPOSITION_DURATION_SECONDS.get(
                 _SHOT_TYPE_COMPOSITION.get((a.get("shot_type") or "").upper(), "medium"), 2.5)
+            a["duration_seconds"] = _clamp_shot_duration(base * mult)
             n += 1
     return n
+
+
+# =============================================================================
+# D10-3c: genre accessor — reads run_coverage's OWN story_bible param.
+# =============================================================================
+# scene_aware_bible (D10-3a, storyengine/backend/scripts/coverage_to_app.py)
+# already attaches a `narrative` dict (genre/tone/themes/..., off
+# videos.story_bible.narrative — D10-2ab, backend/story_bible_native.py)
+# onto the SAME bible object every real caller threads into run_coverage as
+# `story_bible` (coverage_to_app.generate_coverage_for_video passes
+# `story_bible=bible` at both of its run_coverage call sites, unchanged by
+# this chunk). So genre is ALREADY inside this module by the time
+# run_coverage runs — this file never imports storyengine/backend to get
+# it; the value flows IN via the existing parameter, not the reverse, so
+# skills/video-pipeline stays backend-agnostic. A story_bible with no
+# narrative section (every video before D10-2ab, or one whose bible
+# produced none) returns None below, same as no story_bible at all.
+#
+# tone (story_bible['narrative']['tone']) is NOT threaded by this accessor:
+# GENRE_PACING (D12-1) keys off genre only, so a tone value nothing
+# consumes would be dead weight. Any future pacing rule that wants tone can
+# read story_bible['narrative']['tone'] directly — same dict, same key,
+# no new plumbing required.
+def _genre_pacing_signal(story_bible: dict | None) -> str | None:
+    """This video's genre off story_bible['narrative']['genre'], or None
+    when story_bible is absent, carries no narrative section, or genre is
+    empty/non-string. Feeds stamp_shot_durations' GENRE_PACING (D12-1)."""
+    narrative = (story_bible or {}).get("narrative")
+    if not isinstance(narrative, dict):
+        return None
+    genre = narrative.get("genre")
+    return genre.strip() if isinstance(genre, str) and genre.strip() else None
 
 
 # =============================================================================
@@ -4542,7 +4701,17 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # fixed narration block evenly. Runs AFTER the floors above so any
     # floor-added shot gets stamped too. Speaking masters are skipped —
     # their clip length comes from measured speech at assemble time.
-    n_durations = stamp_shot_durations(moments)
+    #
+    # D10-3c/D12-1: `story_bible` (this function's own parameter — see its
+    # docstring above) already carries `narrative.genre` when
+    # scene_aware_bible (coverage_to_app.py, D10-3a) attached one;
+    # _genre_pacing_signal reads it straight off — no new run_coverage
+    # parameter needed. GENRE_PACING then scales the base duration above by
+    # the genre family's cut-rhythm factor. A video with no genre signal
+    # gets genre=None here, which resolves to multiplier 1.0 — byte-
+    # identical to pre-D12-1 durations.
+    genre = _genre_pacing_signal(story_bible)
+    n_durations = stamp_shot_durations(moments, genre=genre)
     if n_durations:
         print(f"  ⏱️ target durations stamped on {n_durations} silent shot(s)", flush=True)
 

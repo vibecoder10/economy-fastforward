@@ -28,6 +28,8 @@ from storyboard.coverage import (  # noqa: E402
     _parse_setup_kit, _facing_family, _no_people_families,
     _insert_subject_hint, _insert_desc_violation, _INSERT_FRAMING_CLAUSE,
     _INSERT_FALLBACK_SUBJECT, _carries_facing_law, check_facing_law_compliance,
+    GENRE_PACING, _genre_pacing_multiplier, _clamp_shot_duration,
+    _genre_pacing_signal, _MIN_SHOT_DURATION_SECONDS, _MAX_SHOT_DURATION_SECONDS,
 )
 
 SAMPLE = """\
@@ -1547,6 +1549,180 @@ def test_stamp_shot_durations_is_idempotent():
 
 
 # =============================================================================
+# D12-1: genre-aware pacing multiplier on top of C3 item 4's base durations
+# =============================================================================
+
+def _silent_moments():
+    """One silent moment (master + 3 angles covering all three composition
+    buckets) plus one speaking moment (master carries a line; its angle is
+    silent) — the same shape test_stamp_shot_durations_by_shot_size_and_
+    skips_speaking_master uses above, reused here so genre-multiplier tests
+    exercise wide/medium/closeup AND the speaking-master skip together."""
+    return [
+        {"master": {"shot_type": "WS", "description": "wide establishing"},
+         "angles": [
+             {"shot_type": "OTS", "description": "medium OTS"},
+             {"shot_type": "CU", "description": "close"},
+         ], "speaker": None, "line": None},
+        {"master": {"shot_type": "MCU", "description": "Ryan speaks"},
+         "angles": [{"shot_type": "CU", "description": "reaction on the listener"}],
+         "speaker": "Ryan", "line": "Hello there."},
+    ]
+
+
+def test_genre_pacing_absent_or_unknown_genre_is_byte_identical_to_no_genre():
+    """THE key test (D12-1 brief): no genre, an empty genre, and a genre
+    string that matches no family must all produce EXACTLY the same
+    duration_seconds as stamp_shot_durations(moments) with no genre kwarg
+    at all — literally the same float, not merely close."""
+    baseline = _silent_moments()
+    stamp_shot_durations(baseline)
+    base_values = [baseline[0]["master"]["duration_seconds"],
+                   baseline[0]["angles"][0]["duration_seconds"],
+                   baseline[0]["angles"][1]["duration_seconds"],
+                   baseline[1]["angles"][0]["duration_seconds"]]
+    assert base_values == [3.5, 2.5, 1.6, 1.6]
+
+    for genre in (None, "", "   ", "space opera", "explainer", "documentary"):
+        m = _silent_moments()
+        stamp_shot_durations(m, genre=genre)
+        values = [m[0]["master"]["duration_seconds"],
+                  m[0]["angles"][0]["duration_seconds"],
+                  m[0]["angles"][1]["duration_seconds"],
+                  m[1]["angles"][0]["duration_seconds"]]
+        assert values == base_values, f"genre={genre!r} must be byte-identical to no genre"
+        assert "duration_seconds" not in m[1]["master"], \
+            "a speaking master must never get a stamped target, genre or not"
+
+
+def test_genre_pacing_action_thriller_shortens_non_speaking_durations():
+    """action/thriller family -> 0.75x, applied only to the silent shots."""
+    m = _silent_moments()
+    stamp_shot_durations(m, genre="geopolitical thriller")
+    assert m[0]["master"]["duration_seconds"] == 3.5 * 0.75
+    assert m[0]["angles"][0]["duration_seconds"] == 2.5 * 0.75
+    assert m[0]["angles"][1]["duration_seconds"] == 1.6 * 0.75
+    assert "duration_seconds" not in m[1]["master"], \
+        "speaking master must be unaffected by genre"
+    assert m[1]["angles"][0]["duration_seconds"] == 1.6 * 0.75, \
+        "the speaking moment's SILENT angle still gets the genre multiplier"
+
+
+def test_genre_pacing_emotional_lengthens_non_speaking_durations():
+    """emotional/contemplative family -> 1.3x."""
+    m = _silent_moments()
+    stamp_shot_durations(m, genre="a slow-burn romance")
+    assert m[0]["master"]["duration_seconds"] == 3.5 * 1.3
+    assert m[0]["angles"][0]["duration_seconds"] == 2.5 * 1.3
+    assert m[0]["angles"][1]["duration_seconds"] == 1.6 * 1.3
+    assert "duration_seconds" not in m[1]["master"]
+    assert m[1]["angles"][0]["duration_seconds"] == 1.6 * 1.3
+
+
+def test_genre_pacing_mystery_suspense_slow_reveal_bias():
+    """mystery/suspense family -> 1.15x, and a 'psychological thriller'
+    genre resolves to mystery_suspense (checked before action_thriller's
+    plain 'thriller' keyword) — the overlap-priority case documented on
+    _GENRE_FAMILY_KEYWORDS."""
+    m = _silent_moments()
+    stamp_shot_durations(m, genre="psychological thriller")
+    assert m[0]["master"]["duration_seconds"] == 3.5 * 1.15
+    assert _genre_pacing_multiplier("Cozy Mystery") == GENRE_PACING["mystery_suspense"]
+    assert _genre_pacing_multiplier("noir detective story") == GENRE_PACING["mystery_suspense"]
+
+
+def test_genre_pacing_comedy_is_drama_rate_not_reaction_rewired():
+    """comedy -> 1.0x, same as drama — this chunk documents comedy as
+    reaction-weighted GUIDANCE ONLY (no frequency knob exists on
+    enforce_reaction_insert_floors to nudge), so its duration multiplier
+    must equal drama's exactly."""
+    assert GENRE_PACING["comedy"] == GENRE_PACING["drama"] == 1.0
+    m = _silent_moments()
+    stamp_shot_durations(m, genre="dark comedy")
+    assert m[0]["master"]["duration_seconds"] == 3.5
+    assert m[0]["angles"][0]["duration_seconds"] == 2.5
+
+
+def test_genre_pacing_case_insensitive_and_whitespace_tolerant():
+    m = _silent_moments()
+    stamp_shot_durations(m, genre="  ACTION Thriller  ")
+    assert m[0]["master"]["duration_seconds"] == 3.5 * 0.75
+
+
+def test_genre_pacing_synonym_family_mapping():
+    """A representative sample per family, including the exact synonym the
+    D12-1 brief calls out ('sci-fi thriller' -> action/thriller)."""
+    cases = {
+        "sci-fi thriller": "action_thriller",
+        "heist movie": "action_thriller",
+        "war drama": "action_thriller",  # "war" keyword wins over bare "drama"
+        "cozy mystery": "mystery_suspense",
+        "true crime": "mystery_suspense",
+        "coming-of-age drama": "emotional",  # emotional checked before drama
+        "melodrama": "emotional",  # not the bare "drama" family
+        "sitcom": "comedy",
+        "satire": "comedy",
+        "biopic": "drama",
+        "dialogue-driven drama": "drama",
+    }
+    for genre, family in cases.items():
+        assert _genre_pacing_multiplier(genre) == GENRE_PACING[family], \
+            f"{genre!r} expected family {family!r}"
+
+
+def test_genre_pacing_multiplier_pure_function_matches_documented_table():
+    assert _genre_pacing_multiplier(None) == 1.0
+    assert _genre_pacing_multiplier("") == 1.0
+    assert _genre_pacing_multiplier(123) == 1.0  # non-string input, never raises
+    assert _genre_pacing_multiplier("action") == GENRE_PACING["action_thriller"]
+    assert _genre_pacing_multiplier("thriller") == GENRE_PACING["action_thriller"]
+    assert _genre_pacing_multiplier("drama") == GENRE_PACING["drama"]
+    assert _genre_pacing_multiplier("emotional") == GENRE_PACING["emotional"]
+    assert _genre_pacing_multiplier("mystery") == GENRE_PACING["mystery_suspense"]
+    assert _genre_pacing_multiplier("comedy") == GENRE_PACING["comedy"]
+
+
+def test_clamp_shot_duration_enforces_both_bounds():
+    """Direct proof the clamp fires at both ends — today's real multiplier
+    set never reaches these extremes (max 4.55s, min 1.2s), so this drives
+    _clamp_shot_duration directly rather than through GENRE_PACING."""
+    assert _clamp_shot_duration(0.1) == _MIN_SHOT_DURATION_SECONDS == 1.0
+    assert _clamp_shot_duration(-5.0) == 1.0
+    assert _clamp_shot_duration(50.0) == _MAX_SHOT_DURATION_SECONDS == 6.0
+    assert _clamp_shot_duration(3.0) == 3.0, "a value already inside bounds passes through unchanged"
+    assert _clamp_shot_duration(1.0) == 1.0, "the floor itself is inclusive"
+    assert _clamp_shot_duration(6.0) == 6.0, "the ceiling itself is inclusive"
+
+
+def test_genre_pacing_signal_reads_story_bible_narrative_genre():
+    """D10-3c accessor: story_bible['narrative']['genre'] in, stripped genre
+    out; every malformed/absent shape degrades to None (never raises)."""
+    assert _genre_pacing_signal({"narrative": {"genre": "  Heist Thriller  "}}) == "Heist Thriller"
+    assert _genre_pacing_signal({"narrative": {"tone": "tense"}}) is None  # no genre key
+    assert _genre_pacing_signal({"narrative": {}}) is None
+    assert _genre_pacing_signal({"narrative": "not a dict"}) is None
+    assert _genre_pacing_signal({}) is None
+    assert _genre_pacing_signal(None) is None
+    assert _genre_pacing_signal({"characters": []}) is None  # a real bible shape, no narrative
+
+
+def test_genre_pacing_signal_feeds_stamp_shot_durations_end_to_end():
+    """The full D10-3c -> D12-1 chain: a story_bible with a narrative.genre
+    resolves through _genre_pacing_signal into stamp_shot_durations'
+    multiplier, exactly as run_coverage now wires it."""
+    story_bible = {"narrative": {"genre": "action thriller", "tone": "tense"}}
+    m = _silent_moments()
+    genre = _genre_pacing_signal(story_bible)
+    stamp_shot_durations(m, genre=genre)
+    assert m[0]["master"]["duration_seconds"] == 3.5 * 0.75
+
+    m2 = _silent_moments()
+    genre2 = _genre_pacing_signal(None)  # no story bible at all — every video before D10-2ab
+    stamp_shot_durations(m2, genre=genre2)
+    assert m2[0]["master"]["duration_seconds"] == 3.5
+
+
+# =============================================================================
 # C7 fix (a): sheet/pictures divergence — plan_moments_deterministic is the
 # ONE shared pipeline (parse -> budget -> floors -> variety) both the sheet-
 # planning path (coverage_to_app.py) and the real pictures path (run_coverage)
@@ -1938,6 +2114,17 @@ if __name__ == "__main__":
     test_floors_leave_violation_logged_when_no_safe_conversion_exists()
     test_stamp_shot_durations_by_shot_size_and_skips_speaking_master()
     test_stamp_shot_durations_is_idempotent()
+    test_genre_pacing_absent_or_unknown_genre_is_byte_identical_to_no_genre()
+    test_genre_pacing_action_thriller_shortens_non_speaking_durations()
+    test_genre_pacing_emotional_lengthens_non_speaking_durations()
+    test_genre_pacing_mystery_suspense_slow_reveal_bias()
+    test_genre_pacing_comedy_is_drama_rate_not_reaction_rewired()
+    test_genre_pacing_case_insensitive_and_whitespace_tolerant()
+    test_genre_pacing_synonym_family_mapping()
+    test_genre_pacing_multiplier_pure_function_matches_documented_table()
+    test_clamp_shot_duration_enforces_both_bounds()
+    test_genre_pacing_signal_reads_story_bible_narrative_genre()
+    test_genre_pacing_signal_feeds_stamp_shot_durations_end_to_end()
     test_plan_moments_deterministic_matches_manual_pipeline_when_a_floor_fires()
     test_plan_moments_deterministic_matches_manual_pipeline_when_a_variety_swap_fires()
     test_board_anchor_skips_on_legacy_panel_count_mismatch()
