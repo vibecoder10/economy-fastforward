@@ -62,6 +62,7 @@ from storage import upload_from_url
 import engine_templates
 from identity import IdentityContext, build_identity_context
 import clip_asset_claims
+import provider_dialect
 
 import logging
 _logger = logging.getLogger(__name__)
@@ -14283,41 +14284,15 @@ scenes."""
             # the per-clip selector below picks the smallest tier that fits.
             durations = sorted(profile.durations) or [6]
 
-            # Seedance is a drop-in animator with the same call shape as Grok
-            # (img, prompt, duration, extra_image_urls). Veo keeps its own branch below.
+            # D13-1 (provider-dialect adapter): which client method a shot's
+            # prompt/kwargs get shaped for — Grok vs Seedance vs Veo — is now
+            # provider_dialect.dialect_for_model(mid), consulted per resolved
+            # per-row model inside _animate_recover below and the
+            # non-speaking branch's Veo dispatch. Swapping a scene's engine
+            # (resolve_clip_model()) no longer needs a picker function here —
+            # see backend/provider_dialect.py.
             _vaspect = (video.get("aspect_ratio") or "16:9")
             _vres = (video.get("video_resolution") or "720p")
-
-            def _animate_for(mid: str):
-                """Per-scene animator picker (checklist §1.2/C13). Same
-                seedance-vs-grok branch the video-level `model_id` used to
-                pick ONCE for the whole run, now callable per resolved
-                per-row model so a scene routed to a different wired model
-                (resolve_clip_model()) animates through ITS OWN engine
-                instead of whichever one happens to be the video's."""
-                if mid.startswith("seedance"):
-                    def _fn(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
-                        return client.generate_video_seedance(
-                            img, prompt, duration=duration,
-                            extra_image_urls=extra_image_urls, aspect_ratio=_vaspect,
-                            task_id_out=task_id_out)
-                    return _fn
-                # Pass the video's aspect + resolution to Grok — without aspect it
-                # crops every clip to vertical (16:9 came out 9:16); resolution is
-                # the quality selector (480p / 720p).
-                def _fn(img, prompt, duration=6, extra_image_urls=None, task_id_out=None):
-                    return client.generate_video(
-                        img, prompt, duration=duration,
-                        extra_image_urls=extra_image_urls,
-                        aspect_ratio=_vaspect, resolution=_vres,
-                        task_id_out=task_id_out)
-                return _fn
-
-            # Byte-identical default: the video-level model's animator,
-            # exactly as it was before C13 (used whenever a row's resolved
-            # model equals the video-level one — including every video
-            # whose assets carry no routing at all).
-            animate = _animate_for(model_id)
 
             # Grok takes up to 7 reference images (@image1, @image2... in the
             # prompt): @image1 = the panel, @image2 = the labeled cast sheet.
@@ -14353,30 +14328,12 @@ scenes."""
                 from vault import get_secret
                 xi_key = await get_secret("elevenlabs_api_key", self.tenant_id)
 
-            def _decorate(core_prompt: str) -> str:
-                # @image1 is the GROUND TRUTH for this shot, and the
-                # constraints LEAD the prompt (early instructions win — the
-                # trailing version still let Grok invent a toddler on a
-                # panel that doesn't show Tom). References can only lock
-                # characters who are IN the picture; off-screen characters
-                # must stay off-screen.
-                p = ("Animate @image1 exactly as shown: same characters, same faces, ages,"
-                     " heights, proportions and clothing. NEVER introduce a character who"
-                     " is not visible in @image1 — if someone is off-screen, only hands or"
-                     " feet may enter the frame.")
-                if sheet:
-                    p += (f" @image2 is the official cast sheet"
-                          + (f" ({cast_names})" if cast_names else "")
-                          + " — anyone visible in @image1 must match it precisely.")
-                if style_note:
-                    p += f" Art style: {style_note}"
-                p += f" Motion: {core_prompt}"
-                if section_camera_mode:
-                    p += (
-                        f" Use the approved {section_camera_mode} camera grammar "
-                        f"for this exact {section_exact_seconds}-second section."
-                    )
-                return p
+            # D13-1: the @image1/@image2 Grok-dialect decoration that used to
+            # live in a local _decorate() here moved verbatim to
+            # provider_dialect.decorate_grok_prompt — called from inside
+            # _animate_recover below (grok/seedance) and the non-speaking
+            # branch's Veo dispatch (which calls provider_dialect.build_call
+            # directly and gets the RAW prompt back, undecorated).
 
             # 💬 cards speak: map this video's tagged dialogue lines to cards.
             # A tap never dead-ends — scenes whose lines aren't voiced yet get
@@ -14421,20 +14378,43 @@ scenes."""
             async def _gen(coro):
                 return await asyncio.wait_for(coro, CLIP_DEADLINE)
 
-            async def _animate_recover(r, image_url, full_prompt, clip_dur, animate_fn=None, task_id_out=None):
-                """Generate the clip; if Grok's content filter (failCode 430) flags
-                the frame, redraw the shot with a safer wholesome framing and retry
-                ONCE. Returns (clip_url_or_None, image_url_actually_used).
+            async def _animate_recover(r, image_url, core_prompt, clip_dur, row_model_id=None, task_id_out=None):
+                """Generate the clip through the provider-dialect adapter
+                (D13-1: provider_dialect.build_call — grok/seedance share the
+                @imageN decoration, each gets its own kwarg shape); if
+                Grok's content filter (failCode 430) flags the frame, redraw
+                the shot with a safer wholesome framing and retry ONCE.
+                Returns (clip_url_or_None, image_url_actually_used).
 
-                ``animate_fn`` (checklist §1.2/C13): the per-row resolved
-                animator (see ``_animate_for``/``resolve_clip_model`` in
-                ``_one`` below); defaults to the video-level ``animate`` so
-                any caller that doesn't pass one keeps the pre-C13 behavior."""
-                animate_fn = animate_fn or animate
-                extra = [_proxy_url(sheet)] if sheet else None
+                ``row_model_id`` (checklist §1.2/C13): the per-row resolved
+                model (see ``resolve_clip_model`` in ``_one`` below);
+                defaults to the video-level ``model_id`` so any caller that
+                doesn't pass one keeps the pre-C13 behavior. NEVER a Veo id
+                in practice — the non-speaking branch's Veo case is
+                dispatched separately below (no content-policy retry there,
+                unchanged from pre-D13-1), and the speaking branch forces a
+                Veo-routed row back to Grok/Seedance before reaching here."""
+                row_model_id = row_model_id or model_id
+                extra = [_proxy_url(sheet)] if sheet else []
+
+                async def _call(img):
+                    call = provider_dialect.build_call(
+                        row_model_id,
+                        provider_dialect.ClipDialectRequest(
+                            core_prompt=core_prompt, image_url=img, duration=clip_dur,
+                            aspect_ratio=_vaspect, resolution=_vres,
+                            reference_image_urls=extra, cast_names=cast_names,
+                            style_note=style_note, camera_mode=section_camera_mode,
+                            camera_seconds=section_exact_seconds, task_id_out=task_id_out,
+                        ),
+                    )
+                    fn = getattr(client, call.method)
+                    if call.method == "generate_video_veo":
+                        return await fn(call.prompt, **call.kwargs)
+                    return await fn(img, call.prompt, **call.kwargs)
+
                 try:
-                    return (await _gen(animate_fn(image_url, full_prompt, duration=clip_dur,
-                                               extra_image_urls=extra, task_id_out=task_id_out)), image_url)
+                    return (await _gen(_call(image_url)), image_url)
                 except Exception as e:
                     if CONTENT_POLICY_MARKER not in str(e):
                         raise  # not a content block — let _safe_one count it failed
@@ -14454,8 +14434,7 @@ scenes."""
                     new_img = _proxy_url((nr or {}).get("drive_image_url")
                                          or (nr or {}).get("image_url") or image_url)
                     try:
-                        return (await _gen(animate_fn(new_img, full_prompt, duration=clip_dur,
-                                                   extra_image_urls=extra, task_id_out=task_id_out)), new_img)
+                        return (await _gen(_call(new_img)), new_img)
                     except Exception as e2:
                         if CONTENT_POLICY_MARKER in str(e2):
                             print(f"[clips] S{sc}.{idx} still flagged after safe redraw — giving up",
@@ -14501,9 +14480,8 @@ scenes."""
                     if row_model_id != model_id:
                         row_profile = MODEL_REGISTRY.get(row_model_id) or profile
                         row_durations = sorted(row_profile.durations) or durations
-                        row_animate = _animate_for(row_model_id)
                     else:
-                        row_profile, row_durations, row_animate = profile, durations, animate
+                        row_profile, row_durations = profile, durations
                     # Fresh per-clip box (not a shared attribute on `client`) so
                     # concurrent clips never clobber each other's Kie taskId —
                     # generation_ledger traceability (checklist §0.3a / C07).
@@ -14569,13 +14547,12 @@ scenes."""
                         effective_model_id = row_model_id
                         if not clip_url:
                             # Grok speaking path — the only speaking animator.
-                            # _animate_for() has NO Veo case — this leg can
-                            # only ever really run Seedance (if routed there)
-                            # or Grok (every other id, INCLUDING any Veo id —
-                            # its closure silently falls through to Grok's own
-                            # generate_video call). Before C13 this was a
-                            # narrower pre-existing gap (only reachable if the
-                            # whole VIDEO's own default model was Veo); C13's
+                            # The provider-dialect adapter has NO Veo case for
+                            # a speaking shot — this leg can only ever really
+                            # run Seedance (if routed there) or Grok (every
+                            # other id). Before C13 this was a narrower
+                            # pre-existing gap (only reachable if the whole
+                            # VIDEO's own default model was Veo); C13's
                             # per-scene routing widens the surface (a shot can
                             # now be routed to Veo by purpose alone), so fix
                             # it here: force the row to the engine this leg
@@ -14588,7 +14565,6 @@ scenes."""
                                 row_model_id = DEFAULT_VIDEO_MODEL
                                 row_profile = MODEL_REGISTRY[DEFAULT_VIDEO_MODEL]
                                 row_durations = sorted(row_profile.durations) or durations
-                                row_animate = _animate_for(row_model_id)
                             effective_model_id = row_model_id
                             # A coverage master already has a WRITTEN motion
                             # prompt with its line embedded — keep that
@@ -14600,7 +14576,6 @@ scenes."""
                                 core = vp
                             else:
                                 core = speaking_prompt(lines, tone=channel_tone)
-                            prompt = _decorate(core)
                             # The whole spoken line has to fit inside the clip,
                             # or Grok cuts it off. native = Grok times its own
                             # speech; voice_over = the synthesized line's
@@ -14611,8 +14586,11 @@ scenes."""
                                 need = (sum(float(l.get("duration") or 2.0) for l in lines)
                                         + DIALOGUE_VOICE_LEAD_SECONDS)
                             clip_dur = pick_clip_duration(need, row_durations)
+                            # _animate_recover shapes+decorates `core` via
+                            # provider_dialect.build_call (D13-1) — no
+                            # separate _decorate() call needed here anymore.
                             clip_url, img = await _animate_recover(
-                                r, img, prompt, clip_dur, row_animate, task_id_out=task_id_box)
+                                r, img, core, clip_dur, row_model_id, task_id_out=task_id_box)
                             clip_cost = clip_cost_for(row_profile.cost_per_clip, clip_dur)
                     else:
                         # Motion prompt from the video-scripts stage; a tapped
@@ -14654,12 +14632,24 @@ scenes."""
                         clip_dur = pick_clip_duration(max(spoken_secs, seg_dur), row_durations)
                         if row_model_id.startswith("veo-3.1"):
                             veo_model = client.VEO_MODEL_QUALITY if row_model_id.endswith("quality") else client.VEO_MODEL_FAST
+                            # D13-1: provider_dialect.build_call's "veo"
+                            # dialect returns the RAW (undecorated) prompt +
+                            # the image_url=/model= kwarg shape — moved
+                            # verbatim from this inline branch.
+                            veo_call = provider_dialect.build_call(
+                                row_model_id,
+                                provider_dialect.ClipDialectRequest(
+                                    core_prompt=prompt, image_url=img, duration=clip_dur,
+                                    aspect_ratio=_vaspect, resolution=_vres,
+                                    veo_model=veo_model, task_id_out=task_id_box,
+                                ),
+                            )
                             clip_url = await _gen(client.generate_video_veo(
-                                prompt, image_url=img, model=veo_model, task_id_out=task_id_box))
+                                veo_call.prompt, **veo_call.kwargs))
                             clip_dur = row_profile.durations[0]
                         else:
                             clip_url, img = await _animate_recover(
-                                r, img, _decorate(prompt), clip_dur, row_animate, task_id_out=task_id_box)
+                                r, img, prompt, clip_dur, row_model_id, task_id_out=task_id_box)
                         clip_cost = clip_cost_for(row_profile.cost_per_clip, clip_dur)
                         # This branch has a real Veo case (above) — row_model_id
                         # always names the engine that actually ran here.
