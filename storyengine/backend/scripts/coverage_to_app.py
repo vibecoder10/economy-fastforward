@@ -82,6 +82,16 @@ from storyboard.coverage import (  # noqa: E402
     parse_set_dressing, parse_axis_line, parse_setups_line, panels_per_sheet_for,
     sheet_chunk_sizes, _STYLE_LOCK, _STYLE_LOCK_HYGIENE, _INLINE_TAG_RE,
     plan_moments_deterministic,
+    # D12-3 (board rhythm report): the SAME pure report function
+    # check_shot_size_rhythm/check_lens_rhythm/check_purpose_monotony draw
+    # their sequences from — the sheet-preview surface below calls it
+    # directly on the same `moments` this scope already computed via
+    # plan_moments_deterministic, so a rhythm note here can never disagree
+    # with what run_coverage's own warn checks would flag at draw time. The
+    # three thresholds are imported too (never re-guessed) so "worth a
+    # glance" here means EXACTLY what the warn checks would have flagged.
+    build_rhythm_report,
+    _SHOT_SIZE_RUN_THRESHOLD, _LENS_RUN_THRESHOLD, _PURPOSE_RUN_THRESHOLD,
     # BOARD LAWS (storyengine/BOARD-LAWS.md): multi-location/material-map
     # directive parsing (L3/L20) and the shared motion detector (L4) — the
     # SAME functions run_coverage's own repair-leg locks call, so the sheet
@@ -2576,6 +2586,44 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
     return prompts
 
 
+def _rhythm_notes_for_scene(scene_number, moments: list) -> list:
+    """D12-3 (board rhythm report): PURE (no DB, no printing, no mutation) —
+    build_rhythm_report(moments) turned into 0-3 SHORT human-readable lines
+    for the sheet-preview surface, one per dimension (shot-size/lens/
+    purpose), each gated behind the EXACT threshold
+    check_shot_size_rhythm/check_lens_rhythm/check_purpose_monotony use
+    (imported, never re-guessed) — so "worth a glance" here means precisely
+    what the warn checks would flag at draw time, never a looser or
+    stricter bar. Returns [] whenever the scene's rhythm never crosses a
+    threshold (every field absent, per D12-3's tolerant-of-None contract, or
+    genuinely varied coverage) — the caller only ever adds the additive
+    "rhythm_notes" key to its return dict when this list is non-empty, so a
+    scene with nothing to say leaves today's payload byte-identical.
+
+    Factored out of generate_storyboard_sheet_for_scene as its own function
+    (rather than inlined in that DB-bound async loop) so it's independently
+    unit-testable with a plain moments list — no DB mocking required."""
+    notes = []
+    report = build_rhythm_report(moments)
+    size_run = report.get("longest_size_run")
+    if size_run and size_run["length"] > _SHOT_SIZE_RUN_THRESHOLD:
+        notes.append(
+            f"Scene {scene_number}: {size_run['length']} {size_run['shot_type']} shots in a row "
+            f"starting moment {size_run['start_moment']} — worth a glance for visual variety.")
+    lens_run = report.get("longest_lens_run")
+    if lens_run and lens_run["length"] > _LENS_RUN_THRESHOLD:
+        notes.append(
+            f"Scene {scene_number}: {lens_run['length']} shots in a row at {lens_run['lens_mm']}mm "
+            f"starting moment {lens_run['start_moment']} — worth a glance for lens variety.")
+    purpose_run = report.get("longest_purpose_run")
+    if purpose_run and purpose_run["length"] > _PURPOSE_RUN_THRESHOLD:
+        notes.append(
+            f"Scene {scene_number}: {purpose_run['length']} shots in a row with purpose "
+            f"'{purpose_run['purpose_kind']}' starting moment {purpose_run['start_moment']} "
+            "— worth a glance for narrative variety.")
+    return notes
+
+
 async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, beat=None,
                                               plan_only=False, progress=None):
     """The STORYBOARD GATE (Ryan's design): run the REAL coverage planner for
@@ -2818,6 +2866,15 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
 
     done = 0
     total_shots = 0
+    # D12-3 (board rhythm report): human-readable "worth a glance" lines
+    # collected per scene (never a hard failure — same discipline as the
+    # underlying warn checks). Stays empty (and the additive
+    # "rhythm_notes" key is never added to the return dict below) unless
+    # build_rhythm_report actually finds a run past the same threshold
+    # check_shot_size_rhythm/check_lens_rhythm/check_purpose_monotony use —
+    # so a legacy plan or a scene with genuinely varied coverage leaves
+    # today's payload byte-identical.
+    rhythm_notes: list = []
     # D6-1b (independent-verifier finding #3 — "a raised gate reports
     # success with zero boards drawn"): a SheetPromptContractViolation
     # caught below used to just `continue` — no board attempt, no
@@ -2877,6 +2934,12 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
         # being deterministic, lands identically.
         _reconcile_moment_dialogue(moments, s["scene_text"] or "")
         shot_count = sum(1 + len(m.get("angles") or []) for m in moments)
+
+        # D12-3 (board rhythm report): a PURE read of this scene's already-
+        # computed `moments` — never a second parse, never mutates anything.
+        # See _rhythm_notes_for_scene's own docstring for exactly which runs
+        # become a note.
+        rhythm_notes.extend(_rhythm_notes_for_scene(sc, moments))
 
         # D6-1: env matched HERE (moved up from just before the draw loop)
         # so the canonical per-location material map (L20) can be resolved
@@ -3196,6 +3259,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                f"first {_previewed} on {ok} board(s){sweep_note}")
         else:
             _p(f"Scene {sc}: storyboard ready — {shot_count} shots on {ok} board(s){sweep_note}")
+    # D12-3 (board rhythm report): additive-only — an EMPTY rhythm_notes
+    # list means this key is never added at all, so every "completed"
+    # return below is byte-identical to before this chunk on a scene (or
+    # legacy plan) whose rhythm never crossed a warn threshold. Never added
+    # to the "failed" (all-blocked) return just below — that path never
+    # reaches this point, so it's untouched. routes/pipeline.py's caller
+    # only ever reads .get("status")/.get("message")/.get("error") off this
+    # dict (see the surface's own note in the storyboard.coverage import
+    # block above), so an unknown extra key here is inert until a future
+    # caller chooses to read it — never forwarded anywhere today.
+    _extra = {"rhythm_notes": rhythm_notes} if rhythm_notes else {}
     # D6-1b: honest status/message when one or more scenes were blocked by a
     # hard gate (SheetPromptContractViolation) before any board was even
     # attempted for them — see blocked_scenes' own comment above. Same
@@ -3223,14 +3297,17 @@ async def generate_storyboard_sheet_for_scene(video_id, tenant_id, scene=None, b
                "Review the sheets; 'Generate pictures' draws exactly this plan.")
         return {"status": "completed",
                 "message": f"{base} {len(blocked_scenes)} scene(s) blocked by a hard gate and "
-                           f"got NO boards — {_blocked_detail}"}
+                           f"got NO boards — {_blocked_detail}",
+                **_extra}
     if plan_only:
         return {"status": "completed",
                 "message": (f"Shot plan ready for {done} scene(s) — {total_shots} shot(s), "
-                            "nothing drawn. Review the plan, then draw boards one at a time.")}
+                            "nothing drawn. Review the plan, then draw boards one at a time."),
+                **_extra}
     return {"status": "completed",
             "message": (f"Storyboard ready for {done} scene(s) — {total_shots} planned shot(s). "
-                        "Review the sheets; 'Generate pictures' draws exactly this plan.")}
+                        "Review the sheets; 'Generate pictures' draws exactly this plan."),
+            **_extra}
 
 
 # When grok's content filter flags a frame (usually a tight over-the-shoulder or
