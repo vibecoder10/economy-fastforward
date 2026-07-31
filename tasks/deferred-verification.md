@@ -2210,3 +2210,58 @@ worktree, not part of the change.
   (`storyengine/backend/custom_film_scene_storyboards.py`) was found during
   the dialect-surface sweep and is explicitly OUT OF SCOPE per the sweep
   ruling (dormant subsystem) — noted, not touched, not tested.
+
+---
+
+## D12-3: board rhythm report (skills/video-pipeline/storyboard/coverage.py + storyengine/backend/scripts/coverage_to_app.py)
+
+- **What was built:** `build_rhythm_report(moments)` — a pure, no-printing, no-mutation function
+  returning `{shot_type_counts, longest_size_run, longest_lens_run, longest_purpose_run,
+  archetype_diversity, transition_mix}` — plus three warn-only checks in the existing check_*
+  family style (`check_shot_size_rhythm` >2 consecutive identical `shot_type` on non-INSERT shots,
+  `check_lens_rhythm` >3 consecutive identical `lens_mm`, `check_purpose_monotony` >3 consecutive
+  identical `purpose_kind`), wired into `run_coverage`'s post-parse block right after
+  `check_shot_dp_valid`. Surface: `coverage_to_app.py`'s sheet-preview path
+  (`generate_storyboard_sheet_for_scene`) gained a pure helper `_rhythm_notes_for_scene(scene,
+  moments)` (factored out for DB-free unit testing) that turns the report into 0-3 short
+  human-readable lines, additively attached as `"rhythm_notes"` on the function's return dict ONLY
+  when non-empty — `routes/pipeline.py:1671-1673` reads only `.get("status")`/`.get("message")`/
+  `.get("error")` off that dict (confirmed by reading the call site), so the new key is inert
+  today, never forwarded to the frontend, purely additive.
+- **Stash-proof used:** patch-file, never `git stash` — `git diff` on the two touched files saved
+  to a scratchpad patch, `git apply -R` to revert in place (the two new test files moved aside for
+  the reverted run so they don't ImportError-fail collection), full backend suite run, `git apply`
+  to reforward, test files moved back. Reverted: 1 failed (`test_youtube_oauth_diagnostics_
+  reports_missing_config_without_secret_values`, the known pre-existing failure) / 4118 passed / 4
+  skipped. Applied (with this chunk's 7 new backend surface tests present): 1 failed / 4125 passed
+  (4118 + 7) / 4 skipped. Sorted FAILED-test-name sets diffed byte-identical (empty diff).
+- **Worktree scaffolding (temporary, deleted after use, per D12-1/D9-3b's own documented trick):**
+  this worktree had no `backend/venv`, `remotion-video/node_modules`, or `remotion-video/public` of
+  its own — all three were symlinked from the MAIN checkout to run the real backend venv's pytest
+  against this worktree's code, then the three symlinks were removed immediately after (`git
+  status --short` confirmed untracked/absent before, during, and after — never staged, never part
+  of the diff).
+- **Pipeline suite (own measurement, no prior-chunk baseline number to match):** every test file
+  that imports `storyboard.coverage` (`test_board_laws.py`, `test_coverage.py`,
+  `test_d11_1_shot_archetype.py`, `test_d11_2_shot_dp.py`, `test_d12_3_board_rhythm.py` (new, 25
+  tests), `test_d6_2_repair_stamps.py`, `test_d9_1_shot_purpose.py`,
+  `test_d9_6_7_transition_causality.py`, `test_prop_manifest.py`) run together: 304 passed, 0
+  failed. `tests/test_ctr_12h_tracking.py` and `tests/test_sound_curation.py` fail at COLLECTION
+  (`ModuleNotFoundError` on `performance_tracker`/`sound_prompt_bot`) when the bare `tests/`
+  directory is run as a whole — pre-existing, unrelated to this chunk (confirmed: neither file
+  imports `storyboard.coverage` or anything this chunk touched), and per this repo's own
+  `tests/conftest.py`-isolation note in CLAUDE.md, per-file/per-family runs are the reliable
+  signal, not the bare-directory run. `image_prompts/engine/tests/` (18 failed) and
+  `render/audio_sync/tests/` (4 failed, OPENAI_API_KEY-shaped) were also run for completeness —
+  both pre-existing and structurally unrelated (grepped: zero references to `storyboard` in either
+  failing test file).
+- **What is NOT verified:** a real end-to-end call to `generate_storyboard_sheet_for_scene` against
+  a live Supabase/Kie backend actually returning a `rhythm_notes` key in its JSON response (no
+  live DB/API access from this Mac — same standing gap every prior coverage_to_app.py chunk's own
+  entry above names); whether a future frontend surface should actually RENDER `rhythm_notes`
+  to the creator (out of scope per the brief — "frontend untouched, it simply ignores unknown
+  fields" — this chunk only proves the field is additive and inert, not that anyone reads it yet);
+  and `run_coverage`'s three new checks were proved via direct unit calls (same pattern every
+  other check_* function in this file uses) rather than via a full paid `run_coverage()` invocation
+  with a real image client, since that would cost money for zero additional signal on pure warn-log
+  logic.

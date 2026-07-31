@@ -2477,6 +2477,263 @@ def check_shot_dp_valid(moments: list[dict]) -> int:
 
 
 # =============================================================================
+# D12-3 (board rhythm report): visual-RHYTHM checks — shot-size runs, lens
+# repetition, purpose-kind monotony — read the SAME structured per-shot data
+# D9-1 (purpose_kind)/D9-6 (transition_kind)/D11-1 (shot_archetype)/D11-2
+# (lens_mm) harvested. Distinct from enforce_setup_variety's CAMERA-SETUP-
+# family cap (with its own repair leg, below) — that one already covers
+# camera-position variety; these three dimensions are untouched by it and
+# nothing before this chunk reported on them at all. Same warning-only,
+# "worth a human glance, not a hard failure" discipline as every check_*
+# above: never blocks, never rewrites a shot, just counts and logs loudly.
+# build_rhythm_report itself is a PURE function (no printing, no mutation)
+# that the three checks below and coverage_to_app.py's sheet-preview surface
+# both draw on (the three checks reuse its own sequence helpers), so the
+# report and the warnings can never silently disagree on what "the longest
+# run was".
+# =============================================================================
+
+_SHOT_SIZE_RUN_THRESHOLD = 2   # >2 consecutive identical shot_type (3rd+ shot) trips the check
+_LENS_RUN_THRESHOLD = 3        # >3 consecutive identical lens_mm (4th+ shot) trips the check
+_PURPOSE_RUN_THRESHOLD = 3     # >3 consecutive identical purpose_kind (4th+ shot) trips the check
+
+
+def _rhythm_size_sequence(moments: list[dict]) -> list[tuple]:
+    """(moment_number, shot_type) for every shot in scene draw order,
+    EXCLUDING shot_type == "INSERT" (SHOT_TYPES' own dedicated punctuation-
+    shot value — see the module's SHOT_TYPES constant and the planner
+    grammar's "(SETUP E)(INSERT) ..." example at rule 5f; the CODE-added
+    insert floor also always stamps shot_type="INSERT", see
+    enforce_reaction_insert_floors' `_place(target_mi, "INSERT", ...)` call)
+    and any shot with no shot_type at all (a legacy/malformed row). An
+    excluded shot is fully ABSENT from the sequence — it neither extends nor
+    breaks a neighboring run — mirroring how _carries_facing_law excludes an
+    INSERT-tagged shot from rule 5g's face-visibility requirement entirely
+    rather than merely skipping it in place: an INSERT's framing is a
+    deliberate detail-punctuation choice, not part of the coverage's
+    visual-size rhythm. REACTION shots are deliberately NOT excluded here —
+    unlike INSERT, nothing else in this module exempts a REACTION shot from
+    a shot-type-shaped check (_carries_facing_law actively INCLUDES it), so
+    this doesn't invent a new exemption for it either."""
+    seq = []
+    for m in moments:
+        mn = m.get("moment_number")
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            st = (shot.get("shot_type") or "").upper()
+            if not st or st == "INSERT":
+                continue
+            seq.append((mn, st))
+    return seq
+
+
+def _rhythm_lens_sequence(moments: list[dict]) -> list[tuple]:
+    """(moment_number, lens_mm) for every shot with a parsed lens_mm (D11-2,
+    rule 28 — optional, its own DP row). A shot with no lens_mm is ABSENT
+    from the sequence, same non-extend-non-break reasoning as
+    _rhythm_size_sequence — a legacy plan (predates D11-2) or any shot the
+    planner simply didn't tag can never produce a false run."""
+    seq = []
+    for m in moments:
+        mn = m.get("moment_number")
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            lens_mm = shot.get("lens_mm")
+            if lens_mm is None:
+                continue
+            seq.append((mn, lens_mm))
+    return seq
+
+
+def _rhythm_purpose_sequence(moments: list[dict]) -> list[tuple]:
+    """(moment_number, purpose_kind) for every shot with a parsed
+    purpose_kind (D9-1, rule 24 — optional in the sense that a legacy plan
+    has none; check_shot_purpose_present above is the gate that flags a
+    CURRENT-era plan for omitting it). Same absence-not-break reasoning as
+    the two sequences above."""
+    seq = []
+    for m in moments:
+        mn = m.get("moment_number")
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            purpose_kind = shot.get("purpose_kind")
+            if not purpose_kind:
+                continue
+            seq.append((mn, purpose_kind))
+    return seq
+
+
+def _longest_run(sequence: list[tuple], value_key: str) -> dict | None:
+    """The longest maximal run of consecutive equal values in `sequence` (a
+    list of (moment_number, value) pairs already filtered to the values a
+    dimension cares about — see the three _rhythm_*_sequence functions
+    above). Returns None for an empty sequence (every field on this
+    dimension absent — the legacy-plan case), else {value_key: <value>,
+    "length": <int>, "start_moment": <moment_number the run started at>}.
+    Ties keep the FIRST (earliest) longest run, matching how a human
+    scanning the scene top-to-bottom would find it."""
+    if not sequence:
+        return None
+    best_len, best_value, best_start = 0, None, None
+    i, n = 0, len(sequence)
+    while i < n:
+        value = sequence[i][1]
+        j = i
+        while j < n and sequence[j][1] == value:
+            j += 1
+        run_len = j - i
+        if run_len > best_len:
+            best_len, best_value, best_start = run_len, value, sequence[i][0]
+        i = j
+    return {value_key: best_value, "length": best_len, "start_moment": best_start}
+
+
+def build_rhythm_report(moments: list[dict]) -> dict:
+    """D12-3 (board rhythm report): a compact, PURE (no printing, no
+    mutation) summary of this scene's plan-level visual rhythm — shot-size
+    runs, lens repetition, purpose-kind monotony, archetype variety,
+    transition-kind mix. Nothing before this chunk reported on ANY of this,
+    even though the structured per-shot data has existed since D9-1/D9-6/
+    D11-1/D11-2. Distinct from enforce_setup_variety's CAMERA-SETUP-family
+    repair above — this never touches or reorders a shot, it only reports.
+
+    Tolerant of every field being None (a legacy plan predating D9-1/D9-6/
+    D11-1/D11-2, or any plan where the planner simply never wrote a given
+    optional row): each dimension's sequence helper drops an absent shot
+    from consideration entirely, so an all-absent scene reports None/empty
+    for every dimension that depends on that field — never a crash, never a
+    false run.
+
+    Returns a dict:
+      shot_type_counts: {shot_type: count} across EVERY shot (INSERT
+        included — a genuine tally of the scene's shot-size mix, distinct
+        from longest_size_run's INSERT-excluded rhythm reading below).
+      longest_size_run: {"shot_type", "length", "start_moment"} or None —
+        the longest consecutive run of the SAME shot_type among non-INSERT
+        shots (_rhythm_size_sequence); the exact sequence
+        check_shot_size_rhythm below flags against _SHOT_SIZE_RUN_THRESHOLD.
+      longest_lens_run: {"lens_mm", "length", "start_moment"} or None — same
+        shape, over shots with a parsed lens_mm (D11-2).
+      longest_purpose_run: {"purpose_kind", "length", "start_moment"} or
+        None — same shape, over shots with a parsed purpose_kind (D9-1).
+      archetype_diversity: {"distinct", "total"} — how many DIFFERENT
+        shot_archetype ids (D11-1) appear across how many TOTAL tagged
+        shots; {"distinct": 0, "total": 0} when no shot carries one. Counts
+        whatever id was WRITTEN, valid or not — check_shot_archetype_valid
+        above is the one place catalog validity is judged, never here.
+      transition_mix: {transition_kind: count} (D9-6) across every shot
+        that stated one; {} when none did."""
+    size_seq = _rhythm_size_sequence(moments)
+    lens_seq = _rhythm_lens_sequence(moments)
+    purpose_seq = _rhythm_purpose_sequence(moments)
+
+    shot_type_counts: dict = {}
+    archetype_total = 0
+    archetype_distinct: set = set()
+    transition_counts: dict = {}
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            st = (shot.get("shot_type") or "").upper()
+            if st:
+                shot_type_counts[st] = shot_type_counts.get(st, 0) + 1
+            archetype_id = shot.get("shot_archetype")
+            if archetype_id:
+                archetype_total += 1
+                archetype_distinct.add(archetype_id)
+            transition_kind = shot.get("transition_kind")
+            if transition_kind:
+                transition_counts[transition_kind] = transition_counts.get(transition_kind, 0) + 1
+
+    return {
+        "shot_type_counts": shot_type_counts,
+        "longest_size_run": _longest_run(size_seq, "shot_type"),
+        "longest_lens_run": _longest_run(lens_seq, "lens_mm"),
+        "longest_purpose_run": _longest_run(purpose_seq, "purpose_kind"),
+        "archetype_diversity": {"distinct": len(archetype_distinct), "total": archetype_total},
+        "transition_mix": transition_counts,
+    }
+
+
+def check_shot_size_rhythm(moments: list[dict]) -> int:
+    """D12-3: flags every shot beyond _SHOT_SIZE_RUN_THRESHOLD (2) in a run
+    of consecutive identical shot_type among non-INSERT shots (see
+    _rhythm_size_sequence — an INSERT punctuation shot is excluded from the
+    run entirely, mirroring how _carries_facing_law exempts an INSERT-tagged
+    shot from rule 5g). Same run-detection algorithm as enforce_setup_
+    variety's CAMERA-SETUP-family cap above, but WARN-only — no swap, no
+    repair, just a loud log, same 'worth a human glance, not a hard failure'
+    discipline as every check_* above. A run of length <= 2 never fires; a
+    run of length N > 2 fires N-2 warnings, one per shot past the cap
+    (mirrors enforce_setup_variety's own per-offender counting)."""
+    warnings = 0
+    seq = _rhythm_size_sequence(moments)
+    i, n = 0, len(seq)
+    while i < n:
+        shot_type = seq[i][1]
+        j = i
+        while j < n and seq[j][1] == shot_type:
+            j += 1
+        run_len = j - i
+        if run_len > _SHOT_SIZE_RUN_THRESHOLD:
+            for k in range(i + _SHOT_SIZE_RUN_THRESHOLD, j):
+                warnings += 1
+                print(f"  ⚠️ shot-size rhythm check (D12-3): moment {seq[k][0]} continues a "
+                      f"{run_len}-shot run of {shot_type} in a row (non-INSERT) — worth a human "
+                      "glance, not a hard failure", flush=True)
+        i = j
+    return warnings
+
+
+def check_lens_rhythm(moments: list[dict]) -> int:
+    """D12-3 companion check: same run-detection algorithm as
+    check_shot_size_rhythm, over lens_mm (D11-2, rule 28 — optional) instead
+    of shot_type, threshold _LENS_RUN_THRESHOLD (3). A shot with no lens_mm
+    is absent from the sequence (see _rhythm_lens_sequence) — never flagged,
+    never breaks a neighboring run — so a legacy plan or any scene that
+    simply never uses the DP row stays completely silent."""
+    warnings = 0
+    seq = _rhythm_lens_sequence(moments)
+    i, n = 0, len(seq)
+    while i < n:
+        lens_mm = seq[i][1]
+        j = i
+        while j < n and seq[j][1] == lens_mm:
+            j += 1
+        run_len = j - i
+        if run_len > _LENS_RUN_THRESHOLD:
+            for k in range(i + _LENS_RUN_THRESHOLD, j):
+                warnings += 1
+                print(f"  ⚠️ lens rhythm check (D12-3): moment {seq[k][0]} continues a "
+                      f"{run_len}-shot run of {lens_mm}mm in a row — worth a human glance, "
+                      "not a hard failure", flush=True)
+        i = j
+    return warnings
+
+
+def check_purpose_monotony(moments: list[dict]) -> int:
+    """D12-3 companion check: same run-detection algorithm again, over
+    purpose_kind (D9-1, rule 24 — optional) instead of shot_type, threshold
+    _PURPOSE_RUN_THRESHOLD (3). A shot with no purpose_kind is absent from
+    the sequence (see _rhythm_purpose_sequence) — never flagged, never
+    breaks a neighboring run — so a legacy plan or any scene that simply
+    never uses the PURPOSE row stays completely silent."""
+    warnings = 0
+    seq = _rhythm_purpose_sequence(moments)
+    i, n = 0, len(seq)
+    while i < n:
+        purpose_kind = seq[i][1]
+        j = i
+        while j < n and seq[j][1] == purpose_kind:
+            j += 1
+        run_len = j - i
+        if run_len > _PURPOSE_RUN_THRESHOLD:
+            for k in range(i + _PURPOSE_RUN_THRESHOLD, j):
+                warnings += 1
+                print(f"  ⚠️ purpose monotony check (D12-3): moment {seq[k][0]} continues a "
+                      f"{run_len}-shot run of purpose '{purpose_kind}' in a row — worth a human "
+                      "glance, not a hard failure", flush=True)
+        i = j
+    return warnings
+
+
+# =============================================================================
 # D6-2 REPAIR LEGS — BOARD-LAWS.md L11, L12, L15, L16, L17, L19, L22. Every
 # law here previously had a PROMPT leg (the coverage system prompt, rules
 # 12/14-20 above) and, for some, a warning-only GATE — and NOTHING else, so
@@ -4513,6 +4770,14 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # a malformed lens value — same warning-only discipline; absence is never
     # flagged since the row is optional (rule 28).
     check_shot_dp_valid(moments)
+    # D12-3 (board rhythm report): a shot-size run, a lens-value run, or a
+    # purpose-kind run beyond its own threshold — same warning-only
+    # discipline; a shot missing the field it checks is absent from the
+    # run entirely, so a legacy plan (or a plan that just never wrote a
+    # given optional row) stays silent, same reasoning as D9-1/D11-2 above.
+    check_shot_size_rhythm(moments)
+    check_lens_rhythm(moments)
+    check_purpose_monotony(moments)
 
     # D6-2 (migration 143, storyengine/backend/migrations/143_per_shot_
     # location_and_arrangement.sql): persist the per-moment location — which
