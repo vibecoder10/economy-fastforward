@@ -1712,7 +1712,14 @@ ALTER TABLE channel_video_retention ENABLE ROW LEVEL SECURITY;
 -- via table ownership + BYPASSRLS (see migration 083 for the proof).
 
 -- ---------------------------------------------------------------------------
--- MACHINE_RESEARCH_CARDS (migration 081_machine_research_cards.sql)
+-- MACHINE_RESEARCH_CARDS (migration 081_machine_research_cards.sql;
+-- identity moved from machine_key to roster_index in migration
+-- 153_machine_research_cards_roster_index_identity.sql - machine_key is a
+-- normalized derivation (_normalized_unit_code) that two DISTINCT locked
+-- roster entries can legitimately share, e.g. "Audacious class / Malta
+-- class" and "CVA-01 class" both normalize to CVA01. roster_index is the
+-- locked roster's own 1:1 slot number and is the real row identity;
+-- machine_key stays populated as a plain indexed informational column.)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS machine_research_cards (
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -1727,11 +1734,10 @@ CREATE TABLE IF NOT EXISTS machine_research_cards (
   -- Live composite FK ties (tenant_id, video_id) to videos(tenant_id, id);
   -- simplified here to a single-column reference for readability.
   FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
-  PRIMARY KEY (tenant_id, video_id, machine_key),
-  UNIQUE (tenant_id, video_id, roster_index)
+  PRIMARY KEY (tenant_id, video_id, roster_index)
 );
-CREATE INDEX machine_research_cards_video_order_idx
-  ON machine_research_cards(tenant_id, video_id, roster_index);
+CREATE INDEX machine_research_cards_machine_key_idx
+  ON machine_research_cards(tenant_id, video_id, machine_key);
 
 ALTER TABLE machine_research_cards ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Tenant isolation" ON machine_research_cards FOR ALL TO authenticated

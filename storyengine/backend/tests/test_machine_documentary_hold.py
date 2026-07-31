@@ -5113,7 +5113,7 @@ def test_target_machine_preview_canonicalizes_ui_label_and_filters_unrelated_loa
     assert fetch_calls == [
         # Readiness enrichment reads the stored per-card verdicts so the response
         # payload carries card.readiness (single backend-owned readiness source).
-        ("SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2", ("tenant-test", "video-test")),
+        ("SELECT machine_key, roster_index, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2", ("tenant-test", "video-test")),
         ("SELECT voice_id FROM scripts WHERE video_id = $1 AND tenant_id = $2 LIMIT 1", ("video-test", "tenant-test")),
         # Checklist C46c: resolved once per script-hold run, byte-identical
         # fallback ({}) when the tenant has no seeded quality_rules rows.
@@ -6474,7 +6474,7 @@ def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkey
     assert "card" not in write_query.replace("machine_research_cards", "")
     assert write_args[0] == "tenant-test"
     assert write_args[1] == "video-test"
-    assert write_args[2] == "XB15"
+    assert write_args[2] == 1  # roster_index of "Boeing XB-15" (migration 153's row identity)
     assert json.loads(write_args[3])["passed"] is True
 
 
@@ -6483,9 +6483,10 @@ def test_machine_preview_readiness_persists_fresh_verdict_and_serves_it(monkeypa
 
     The stored validation says passed=True while the live strict referee fails
     the card. The no-spend readiness check must (1) issue a validation-only
-    UPDATE on machine_research_cards keyed by tenant/video/machine_key - never
-    an INSERT, never the card column - and (2) serve card.readiness matching
-    the LIVE verdict, not the stale stored one, so badge and toast agree."""
+    UPDATE on machine_research_cards keyed by tenant/video/roster_index
+    (migration 153's row identity) - never an INSERT, never the card column -
+    and (2) serve card.readiness matching the LIVE verdict, not the stale
+    stored one, so badge and toast agree."""
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
     segments = _evidence_segments()
     # Break exactly one strict rule: engineering_thesis below the 4-spoken-word minimum.
@@ -6549,7 +6550,7 @@ def test_machine_preview_readiness_persists_fresh_verdict_and_serves_it(monkeypa
     assert "card" not in write_query.replace("machine_research_cards", "")
     assert write_args[0] == "tenant-test"
     assert write_args[1] == "video-test"
-    assert write_args[2] == "XB15"
+    assert write_args[2] == 1  # roster_index of "Boeing XB-15" (migration 153's row identity)
     assert json.loads(write_args[3]) == {
         "machine": "Boeing XB-15",
         "passed": False,
@@ -7263,7 +7264,8 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
         )
     )
 
-    assert fetch_calls[0][1:] == ("tenant-test", "video-test", "B52")
+    # roster_index of "Boeing B-52 Stratofortress" in roster_names (migration 153's row identity).
+    assert fetch_calls[0][1:] == ("tenant-test", "video-test", 2)
     assert len(fake_anthropic.prompts) == 1
     prompt = fake_anthropic.prompts[0]
     assert "LOCKED SELECTED MACHINE: Boeing B-52 Stratofortress" in prompt
@@ -8313,8 +8315,8 @@ def test_compact_card_read_preserves_schema_v3_four_beat_evidence(monkeypatch):
     }
 
     async def fake_fetch_all(query, *args):
-        assert "machine_key = $3" in query
-        assert args == ("tenant-a", "video-a", "XB15")
+        assert "roster_index = $3" in query
+        assert args == ("tenant-a", "video-a", 1)
         return [{
             "machine_key": "XB15",
             "machine_name": machine,
