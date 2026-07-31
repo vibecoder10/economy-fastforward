@@ -4022,3 +4022,50 @@ stand unchanged.
   failures (this worktree has no `remotion-video/node_modules` symlinked in, unrelated to
   this chunk). `py_compile` clean on both changed files.
 
+# Deferred verification — G14 (tier floor demoted to advisory; amends the G13 KGV retry recipe above)
+
+- **Ryan's ruling, decisions.md 2026-07-31:** the research referee's Tier 1-2 source
+  requirement drops from HARD BLOCK to advisory note. Wikipedia-grade (Tier 3-4) sources
+  may carry a card. Card writing proceeds regardless of tier; the anti-hallucination
+  grounding core (excerpt-verbatim-in-fetched-text matching, url/locator matching, capture
+  method, machine-identity checks) is untouched and still hard-blocks.
+- **Amendment to the G13 KGV live retry recipe (item 4, immediately above in this file):**
+  that recipe's "Expected outcome per machine" was written when a missing/off-topic Tier 1-2
+  source could still leave `machine_research_cards.validation.passed = false` even after the
+  G13 excerpt-relevance fix. That is no longer the live expectation. Re-reading it against
+  the current code: for all 5 KGV machines (Howe, Prince of Wales, King George V, and the
+  other two in that roster), `machine_research_cards.validation.passed` should now read
+  `true` even if none of the 5 ever turns up a genuinely on-topic Tier 1-2 primary/museum
+  source — a missing or off-topic Tier 1-2 source now only produces an advisory-tagged
+  warning (`tier_floor_advisory` and/or `caution_only_sources_advisory` in
+  `validation.warnings`, both prefixed `"advisory: "`), never a blocking one. If any of the
+  5 still reads `passed: false` after a real re-run, the warnings list should contain ONLY
+  non-tier-floor entries (missing/untraceable Anton slot coverage, excerpt-not-found grounding
+  failures, unsupported capture method, etc.) — a warning naming only a Tier 1-2/caution gap
+  is now a bug, not an expected pass condition.
+- **G8b attempt-bound note (unchanged by G14, restated since the KGV recipe references it):**
+  the `research_payload.roster_loop_attempts` / `actions.py` `_MAX_AUTO_ATTEMPTS = 2` round
+  guard from G8b still applies exactly as documented in the G13 entry above — a machine
+  already recorded as failed once on video `d05efae3-46f8-4ee3-b690-849c3ca31fbc` still gets
+  only ONE more automatic retry via the autobuild loop before parking as "needs manual
+  one-machine research." G14 does not touch this bound; it only changes whether a tier-only
+  gap counts as a "failed" attempt in the first place — since tier gaps no longer block,
+  fewer machines should burn an attempt on a tier-only rejection now, but a machine that
+  still fails for a genuine (non-tier) reason still consumes an attempt exactly as before.
+- **Not independently re-verified live** — same zero-paid-call constraint as G13; this is a
+  documentation amendment to the existing deferred recipe, not a new paid re-run. Whoever
+  next runs the real KGV re-verification should read this note alongside the G13 recipe
+  above, not the G13 recipe alone (its step-4 expected outcome is superseded by the
+  paragraph above).
+- **G14 own verification (offline, this chunk):** file-copy swap-proof (never git stash) —
+  `pipeline_executor.py` reverted to `git show HEAD:...` (pre-G14, i.e. the merged G13 tip)
+  while the 5 new/updated G14 tests stayed in place; 4 of 5 fail against the pre-change code
+  (the 5th, a "non-tier warnings still block" regression guard, correctly passes on both,
+  since it asserts behavior G14 did not change) — restored, all 5 pass. Full suite
+  (`./venv/bin/python -m pytest tests/ -q`) run against the full pre-G14 trio (code + both
+  test files) and again against the full post-G14 trio: sorted `FAILED` line sets are
+  byte-identical (28 pre-existing `test_custom_film_remotion.py` failures, same env gap as
+  G13 — missing `remotion-video/node_modules` font assets in this worktree, unrelated to
+  research cards). 4185 passed / 28 failed / 4 skipped post-G14 (4180 passed pre-G14, +5 new
+  tests, zero regressions). `py_compile` clean on all three changed files.
+
