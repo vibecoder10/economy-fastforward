@@ -314,6 +314,132 @@ def test_structured_repair_feedback_states_specificity_and_apostrophe_rules():
     assert "last word" in repair_prompt
 
 
+# ---------------------------------------------------------------------------
+# G14, 2026-07-31 (Ryan's ruling, decisions.md): the research referee's
+# Tier 1-2 source requirement drops from HARD BLOCK to advisory note -
+# Wikipedia-grade (Tier 3-4) sources may carry a card. The anti-hallucination
+# core (excerpt-verbatim-in-fetched-text grounding) stays untouched. These
+# three tests are the end-to-end (real _run_unit_research_hold, fake
+# Anthropic client, zero paid calls) proof for the three load-bearing claims:
+# card writing proceeds and a correctly-grounded card PASSES with an advisory
+# note; a fabricated claim still FAILS; the automated repair loop no longer
+# spends a paid round chasing the now-dead tier rule.
+# ---------------------------------------------------------------------------
+
+_DUKE_OF_YORK_SOURCE_URLS = (
+    "https://www.thisdayinaviation.com/tag/boeing-xb-15",  # Tier 3 reference/secondary
+    "https://en.wikipedia.org/wiki/Boeing_XB-15",           # Tier 4 caution/general (Wikipedia)
+)
+
+
+def test_g14_zero_tier_one_two_source_package_still_writes_and_passes_with_advisory():
+    """Duke-of-York-shaped fixture: zero Tier 1-2 sources anywhere, only
+    on-topic Tier 3/4 excerpts with verbatim-matchable text. Before G14 this
+    package failed BEFORE the LLM was ever called ("Verified source package
+    needs at least one Tier 1-2 primary/authoritative source before Claude
+    can write a card."). Card writing must now proceed on the first attempt
+    (zero repair rounds) and the card must PASS, carrying an advisory note."""
+    segments = _base_segments()
+    for index, seg in enumerate(segments):
+        seg["source_url"] = _DUKE_OF_YORK_SOURCE_URLS[index % 2]
+    package = _base_package(segments)
+    card = _base_card(segments)
+
+    result, fake_anthropic = _run_hold(card, package, max_calls=1)
+
+    assert fake_anthropic.calls == 1, (
+        "card writing must proceed on the first attempt - the pre-card Tier "
+        "1-2 hard block must no longer stop the writer before the LLM call"
+    )
+    validation = result["unit_research_hold_validation"]
+    assert validation["passed"] is True
+    assert validation["target_machine_passed"] is True
+    unit = validation["units"][0]
+    assert unit["passed"] is True
+    assert any(
+        "tier_floor_advisory" in w or "caution_only_sources_advisory" in w
+        for w in unit["warnings"]
+    ), "a correctly-grounded Tier 3-4-only card must still carry a visible advisory note"
+    assert all(str(w).startswith(pe._ADVISORY_PREFIX) for w in unit["warnings"]), (
+        "every warning surviving on this clean Tier 3-4 fixture must be advisory-only"
+    )
+
+
+def test_g14_fabricated_excerpt_still_fails_even_with_tier_floor_advisory():
+    """THE anti-hallucination guard: a card claiming source text that was
+    never fetched must still FAIL end-to-end, tier floor demoted or not.
+    Same zero-Tier-1-2 package as above (so every tier warning present is
+    advisory-only noise), but one segment's source_excerpt is invented and
+    points at a locator/excerpt_id that exists nowhere in the verified
+    package - _clamp_card_excerpts_to_verified_sources cannot silently heal
+    it by matching locator or text, so the referee's verbatim-in-fetched-text
+    check is the only thing standing between this claim and the card - and
+    it must hold."""
+    segments = _base_segments()
+    for index, seg in enumerate(segments):
+        seg["source_url"] = _DUKE_OF_YORK_SOURCE_URLS[index % 2]
+    package = _base_package(segments)
+    card = _base_card(segments)
+    for seg in card["evidence_segments"]:
+        if seg["evidence_id"] == "E-TRADEOFF":
+            seg["claim"] = "Tradeoff claim states exactly 47 units were built in 1962, a number never fetched."
+            seg["source_excerpt"] = seg["claim"]
+            seg["locator"] = "FABRICATED-LOCATOR-99"
+            seg["source_excerpt_id"] = "FABRICATED-99"
+
+    result, fake_anthropic = _run_hold(card, package, max_calls=3)
+
+    validation = result["unit_research_hold_validation"]
+    assert validation["passed"] is False
+    unit = validation["units"][0]
+    assert unit["passed"] is False
+    assert any(
+        "E-TRADEOFF" in w and "not found in verified fetched source text" in w
+        for w in unit["warnings"]
+    )
+    # This is a genuinely BLOCKING failure, not an advisory note.
+    assert pe._blocking_warnings(unit["warnings"]) != []
+
+
+def test_g14_structured_repair_feedback_demotes_tier_four_only_to_optional_improvement():
+    """The G2 structured repair feedback used to name 'required beats never
+    on Tier-4 rows' as a must-fix NAMED FIX rule - G14 demotes it to a
+    preference hint so paid repair rounds stop chasing a dead rule. Forces a
+    REAL repair round via a genuine, non-tier problem (a missing required
+    beat) so the prompt can be inspected, while a SEPARATE required beat
+    (reality) sits on a Tier-4-only source with no better alternative in the
+    package - the old must-fix language for that beat must be gone."""
+    segments = _base_segments()
+    package = _base_package(segments)  # default Tier 2 (airandspace.si.edu) elsewhere
+    for seg in segments:
+        if seg["evidence_id"] == "E-REALITY":
+            seg["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    for item in package["candidate_excerpts"]:
+        if item["excerpt_id"] == "S4-E1":  # E-REALITY's own package row
+            item["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    card = _base_card(segments)
+    card["evidence_segments"] = [s for s in card["evidence_segments"] if s["kind"] != "tradeoff"]
+
+    result, fake_anthropic = _run_hold(card, package, max_calls=3)
+
+    assert fake_anthropic.calls >= 2, "the missing tradeoff slot must still force a real paid repair round"
+    repair_prompt = fake_anthropic.prompts[1]
+    # The "Warnings:" summary line only carries BLOCKING warnings now.
+    assert "Warnings: evidence_segments missing required Anton slots for: tradeoff" in repair_prompt
+    assert "tier_floor_advisory" not in repair_prompt.split("\n")[0]
+    # Genuine, non-tier fix: still a must-fix NAMED FIX directive.
+    assert "NAMED FIX - missing required beat 'tradeoff'" in repair_prompt
+    # The tier-floor-only required beat: no longer a NAMED FIX anywhere in the prompt.
+    assert "NAMED FIX - required beat 'reality'" not in repair_prompt
+    assert not any(
+        line.startswith("NAMED FIX") and "reality" in line
+        for line in repair_prompt.split("\n")
+    )
+    # It still surfaces - as an explicitly optional, non-blocking improvement.
+    assert "OPTIONAL IMPROVEMENT (not required to pass) - required beat 'reality'" in repair_prompt
+    assert result["unit_research_hold_validation"]["passed"] is False  # the real (tradeoff) gap is still unfixed
+
+
 def test_d48_style_pennant_no_longer_flagged_as_unsupported_designation():
     """G2 (D48) fix: a class-style machine's OWN display name often carries a
     bracketed pennant ("HMS Illustrious (D48) ... class"). _unit_code has no

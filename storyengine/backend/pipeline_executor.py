@@ -1171,7 +1171,13 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
                 + ", ".join(traceable_coverage.get("required_slots") or [])
             )
         if tier_four_only_slots:
+            # G14, 2026-07-31 (Ryan's ruling, decisions.md): a required beat
+            # resting only on Tier 4/caution excerpts no longer blocks card
+            # writing - it is worth flagging for review, not refusing the
+            # card. _blocking_warnings() strips this advisory-prefixed
+            # message; only genuinely blocking errors stop the writer.
             errors.append(
+                _ADVISORY_PREFIX + "[caution_only_sources_advisory] "
                 "Verified source package cannot support required Anton slot(s) only with Tier 4/caution excerpts: "
                 + ", ".join(sorted(tier_four_only_slots))
             )
@@ -1220,10 +1226,27 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
     )
     if len(source_urls) < 2:
         errors.append("Verified source package needs excerpts from at least two distinct source URLs.")
+    # G14, 2026-07-31 (Ryan's ruling, decisions.md): the tier floor drops from
+    # HARD BLOCK to advisory. "The accurate Wikipedia article is sitting
+    # right there, let it carry the card" - Wikipedia-grade (Tier 3-4)
+    # sources may now carry a card on their own. These two package-wide
+    # floors are the ONLY entries in this function demoted; every other
+    # error here (excerpt count, slot coverage, traceability, distinct
+    # excerpts, capture method, source-selection provenance) is unrelated to
+    # tier and stays a hard block. A pure-Tier-4 package (zero non-caution
+    # sources anywhere) gets the louder caution_only_sources_advisory tag; a
+    # package missing only the top Tier 1-2 primary/authoritative bar (but
+    # holding Tier 3 reference sources) gets tier_floor_advisory.
     if not non_caution_urls:
-        errors.append("Verified source package needs at least one non-caution source before Claude can write a card.")
+        errors.append(
+            _ADVISORY_PREFIX + "[caution_only_sources_advisory] "
+            "Verified source package needs at least one non-caution source before Claude can write a card."
+        )
     if not authoritative_urls:
-        errors.append("Verified source package needs at least one Tier 1-2 primary/authoritative source before Claude can write a card.")
+        errors.append(
+            _ADVISORY_PREFIX + "[tier_floor_advisory] "
+            "Verified source package needs at least one Tier 1-2 primary/authoritative source before Claude can write a card."
+        )
     if missing_capture_method_count:
         errors.append(
             f"Verified source package has {missing_capture_method_count} exact excerpt(s) without source capture method."
@@ -1718,7 +1741,10 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
     for role, source_rows in required_slot_sources.items():
         if source_rows and all(tier >= 4 for _evidence_id, tier, _excerpt_id in source_rows):
             evidence_ids = ", ".join(evidence_id for evidence_id, _tier, _excerpt_id in source_rows)
+            # G14, 2026-07-31: tier floor demoted to advisory - see the note
+            # on _verified_machine_source_package_quality_errors.
             warnings.append(
+                _ADVISORY_PREFIX + "[caution_only_sources_advisory] "
                 f"required Anton slot {role} uses only Tier 4/caution sources: {evidence_ids}"
             )
     required_slots = [
@@ -1744,8 +1770,14 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
                 "research card must select distinct raw source excerpts for required Anton slots: "
                 + ", ".join(required_slots)
             )
+    # G14, 2026-07-31 (Ryan's ruling, decisions.md): tier floor demoted to
+    # advisory - card writing/passing no longer requires a Tier 1-2 source.
+    # See the matching note on _verified_machine_source_package_quality_errors.
     if selected_source_tiers and all(tier > 2 for tier in selected_source_tiers.values()):
-        warnings.append("research card evidence needs at least one selected Tier 1-2 primary/authoritative source")
+        warnings.append(
+            _ADVISORY_PREFIX + "[tier_floor_advisory] "
+            "research card evidence needs at least one selected Tier 1-2 primary/authoritative source"
+        )
     for field_name, label in (
         ("timeframe_evidence_ids", "timeframe"),
         ("visual_identity_evidence_ids", "visual_identity"),
@@ -1757,7 +1789,10 @@ def _validate_card_against_verified_sources(card: dict, package: Optional[dict])
         ]
         matched_tiers = [selected_source_tiers[item] for item in evidence_ids if item in selected_source_tiers]
         if matched_tiers and all(tier >= 4 for tier in matched_tiers):
-            warnings.append(f"{label} uses only Tier 4/caution sources: " + ", ".join(evidence_ids))
+            warnings.append(
+                _ADVISORY_PREFIX + "[caution_only_sources_advisory] "
+                f"{label} uses only Tier 4/caution sources: " + ", ".join(evidence_ids)
+            )
     rationale = " ".join(str((card or {}).get("why_this_unit_deserves_a_paragraph") or "").split())
     if rationale:
         rationale_for_numbers = rationale
@@ -2909,11 +2944,15 @@ def _cited_evidence_tier_warning(
     cited_ids: list[str],
     evidence_by_id: dict[str, dict],
 ) -> list[str]:
-    """Mirror the UI readiness gate: a card field cited only by Tier-4 sources is not ready.
+    """Flag (advisory, not blocking) a card field cited only by Tier-4 sources.
 
-    Without this warning the one repair pass never hears about the tier problem,
-    so the backend saves a card the Research/Script tabs then refuse to run
-    (frontend machineResearchCardStatus 'Tier 4-only · preview blocked')."""
+    G14, 2026-07-31 (Ryan's ruling, decisions.md): the tier floor demoted
+    from hard block to advisory - Wikipedia-grade (Tier 3-4) sources may now
+    carry a card. This warning still surfaces so the field is visible for
+    review, but _blocking_warnings() strips it before any pass/fail or
+    repair-round decision. NOTE: the frontend's own
+    machineResearchCardStatus 'Tier 4-only · preview blocked' gate is a
+    separate, frontend-owned check this backend change does not touch."""
     tiers = [
         _source_tier_number(evidence_by_id[item])
         for item in cited_ids
@@ -2922,6 +2961,7 @@ def _cited_evidence_tier_warning(
     tiers = [tier for tier in tiers if tier > 0]
     if tiers and all(tier >= 4 for tier in tiers):
         return [
+            _ADVISORY_PREFIX + "[caution_only_sources_advisory] "
             f"{field}_evidence_ids cite Tier 4/caution sources only; cite at least one Tier 1-3 excerpt for {field}"
         ]
     return []
@@ -3550,9 +3590,18 @@ def _research_card_contract_warnings(
                 and str(segment.get("source_url") or segment.get("url") or "").strip()
             ) if tier > 0
         ]
-        # Mirror the UI's "Research card needs selected Tier 1-2 evidence" gate.
+        # G14, 2026-07-31 (Ryan's ruling, decisions.md): tier floor demoted
+        # from hard block to advisory - Wikipedia-grade (Tier 3-4) sources
+        # may carry a card. Was: "Mirror the UI's 'Research card needs
+        # selected Tier 1-2 evidence' gate." _blocking_warnings() strips
+        # this before any pass/fail decision; the anti-hallucination
+        # grounding checks above (evidence_errors) are untouched and still
+        # hard-block.
         if sourced_tiers and all(tier > 2 for tier in sourced_tiers):
-            warnings.append("evidence_segments cite no Tier 1-2 source; cite at least one Tier 1-2 excerpt")
+            warnings.append(
+                _ADVISORY_PREFIX + "[tier_floor_advisory] "
+                "evidence_segments cite no Tier 1-2 source; cite at least one Tier 1-2 excerpt"
+            )
     # B2: a bare tag is only honored with hunt evidence.
     if card.get("deliberately_bare") is True and not _bare_tag_is_valid(card):
         warnings.append(
@@ -3844,12 +3893,17 @@ def _merge_card_into_review_cards(existing_cards: list, card: dict, machine: str
 
 
 def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: list[str]) -> dict:
-    """Update one machine's entry inside unit_research_hold_validation."""
+    """Update one machine's entry inside unit_research_hold_validation.
+
+    G14, 2026-07-31: passed is computed from BLOCKING warnings only; the
+    full `warnings` list (advisory notes included, e.g. tier_floor_advisory)
+    is still stored so it stays visible to the caller/UI."""
     validation = payload.get("unit_research_hold_validation")
     validation = dict(validation) if isinstance(validation, dict) else {}
     units = [dict(unit) for unit in (validation.get("units") or []) if isinstance(unit, dict)]
     code = _normalized_unit_code(machine)
-    entry = {"machine": machine, "passed": not warnings, "warnings": list(warnings)}
+    blocking = _blocking_warnings(warnings)
+    entry = {"machine": machine, "passed": not blocking, "warnings": list(warnings)}
     replaced = False
     for index, unit in enumerate(units):
         if _normalized_unit_code(str(unit.get("machine") or "")) == code:
@@ -3862,7 +3916,7 @@ def _hold_validation_with_unit_verdict(payload: dict, machine: str, warnings: li
     validation["passed"] = bool(units) and all(unit.get("passed") for unit in units)
     validation["in_progress"] = False
     validation["target_machine"] = machine
-    validation["target_machine_passed"] = not warnings
+    validation["target_machine_passed"] = not blocking
     return validation
 
 
@@ -3974,7 +4028,7 @@ def _segment_surgery_plan(card: Optional[dict], package: Optional[dict], machine
             if replacement is not None and str(replacement.get("excerpt_id") or "") in planned_excerpts:
                 replacement = None
             if replacement is None:
-                plan["blocked"].append({"role": role, "evidence_id": segment.get("evidence_id")})
+                plan["blocked"].append({"role": role, "evidence_id": segment.get("evidence_id"), "reason": "mismatch"})
                 continue
         plan["rekinds"].append({
             "segment": segment,
@@ -3983,15 +4037,21 @@ def _segment_surgery_plan(card: Optional[dict], package: Optional[dict], machine
             "new_kind": hints[0],
         })
         if replacement is not None:
-            plan["promotes"].append({"item": replacement, "kind": role})
+            plan["promotes"].append({"item": replacement, "kind": role, "reason": "mismatch"})
             planned_excerpts.add(str(replacement.get("excerpt_id") or ""))
+    # G14, 2026-07-31: tier4_only-required-slot promotes/blocks are tagged
+    # "reason": "tier4_only" so _structured_repair_feedback can route them
+    # to a PREFERENCE hint (optional upgrade) instead of a must-fix NAMED
+    # FIX directive - the underlying rule (a required beat resting only on
+    # Tier 4/caution sources) is advisory now, not blocking. Mismatch-driven
+    # entries above are a genuine structural/grounding fix and stay must-fix.
     for slot in _tier4_only_required_slots(card):
         item = _promotable_slot_excerpt(package, card, slot, machine)
         if item is not None and str(item.get("excerpt_id") or "") not in planned_excerpts:
-            plan["promotes"].append({"item": item, "kind": slot})
+            plan["promotes"].append({"item": item, "kind": slot, "reason": "tier4_only"})
             planned_excerpts.add(str(item.get("excerpt_id") or ""))
         elif item is None:
-            plan["blocked"].append({"role": slot, "evidence_id": None})
+            plan["blocked"].append({"role": slot, "evidence_id": None, "reason": "tier4_only"})
     return plan
 
 
@@ -7859,9 +7919,12 @@ class PipelineExecutor:
         cache_key = _verified_source_cache_key(machine)
         cached = ((payload or {}).get("machine_raw_source_packages") or {}).get(cache_key)
         cached = _verified_machine_source_package_with_anton_metadata(cached, machine)
+        # G14, 2026-07-31: an advisory-only tier gap (e.g. no Tier 1-2 source)
+        # must not defeat cache reuse - that would silently re-spend a paid
+        # Tavily search on every call for a package that's otherwise fine.
         if (
             _verified_machine_source_package_ready(cached)
-            and not _verified_machine_source_package_quality_errors(cached, machine)
+            and not _blocking_warnings(_verified_machine_source_package_quality_errors(cached, machine))
             and not _verified_machine_source_package_identity_errors(cached, machine)
         ):
             return cached
@@ -8138,8 +8201,15 @@ class PipelineExecutor:
             machine,
         )
         quality_errors = _verified_machine_source_package_quality_errors(package, machine)
-        if quality_errors:
+        # G14, 2026-07-31: package["passed"] is what _verified_machine_source_
+        # package_ready() gates on everywhere - it must only go False for a
+        # genuinely BLOCKING quality error, or the (now advisory) tier-only
+        # gaps demoted above would still hard-block card writing through
+        # this back door. Advisory-only errors still get recorded in
+        # package["errors"] for visibility.
+        if _blocking_warnings(quality_errors):
             package["passed"] = False
+        if quality_errors:
             package["errors"] = list(dict.fromkeys(errors + quality_errors))
         if not package["passed"] and not package["errors"]:
             package["errors"] = [
@@ -9406,18 +9476,22 @@ class PipelineExecutor:
                  )""",
             ctx["code"], video_id, self.tenant_id, ctx["snapshot"],
         )
+        # G14, 2026-07-31: passed reflects BLOCKING warnings only; the stored
+        # warnings list keeps advisory notes (e.g. tier_floor_advisory) visible.
         await self._upsert_machine_research_card(
             video_id, machine, ctx["roster_index"], card,
-            {"machine": machine, "passed": not warnings, "warnings": list(warnings), "repair_verb": verb},
+            {"machine": machine, "passed": not _blocking_warnings(warnings), "warnings": list(warnings), "repair_verb": verb},
         )
         return ""
 
     def _repair_response(self, ctx: dict, verb: str, warnings: list[str], extra: Optional[dict] = None) -> dict:
+        # G14, 2026-07-31: same blocking-only passed rule as everywhere else.
+        blocking = _blocking_warnings(warnings)
         response = {
-            "status": "completed" if not warnings else "needs_review",
+            "status": "completed" if not blocking else "needs_review",
             "machine": ctx["machine"],
             "verb": verb,
-            "passed": not warnings,
+            "passed": not blocking,
             "warnings": list(warnings),
         }
         if extra:
@@ -9479,7 +9553,7 @@ class PipelineExecutor:
         await self._log_activity(
             "Research Agent", video_id, "completed",
             f"promote_excerpt {segment['source_excerpt_id']} -> {ctx['machine']} "
-            + ("(card passes)" if not warnings else f"({len(warnings)} warnings remain)"),
+            + ("(card passes)" if not _blocking_warnings(warnings) else f"({len(warnings)} warnings remain)"),
         )
         return self._repair_response(ctx, "promote_excerpt", warnings, {
             "promoted_evidence_id": segment["evidence_id"],
@@ -9538,7 +9612,7 @@ class PipelineExecutor:
         await self._log_activity(
             "Research Agent", video_id, "completed",
             f"rekind_segments -> {machine_name}: " + "; ".join(changes[:4])
-            + (" (card passes)" if not warnings else f" ({len(warnings)} warnings remain)"),
+            + (" (card passes)" if not _blocking_warnings(warnings) else f" ({len(warnings)} warnings remain)"),
         )
         return self._repair_response(ctx, "rekind_segments", warnings, {
             "changes": changes,
@@ -9629,7 +9703,7 @@ class PipelineExecutor:
         await self._log_activity(
             "Research Agent", video_id, "completed",
             f"rewrite_field {field} -> {ctx['machine']} "
-            + ("(card passes)" if not warnings else f"({len(warnings)} warnings remain)"),
+            + ("(card passes)" if not _blocking_warnings(warnings) else f"({len(warnings)} warnings remain)"),
         )
         return self._repair_response(ctx, "rewrite_field", warnings, {
             "field": field,
@@ -9819,11 +9893,11 @@ class PipelineExecutor:
             if isinstance(item, dict) and str(item.get("text") or "").strip()
         ]) >= 6
         fresh_quality_errors = _verified_machine_source_package_quality_errors(merged, machine_name)
-        if fresh_quality_errors:
+        # G14, 2026-07-31: same fix as _gather_verified_machine_source_package
+        # - only a genuinely blocking quality error may flip passed to False.
+        if _blocking_warnings(fresh_quality_errors):
             merged["passed"] = False
-            merged["errors"] = list(dict.fromkeys(errors + fresh_quality_errors))
-        else:
-            merged["errors"] = []
+        merged["errors"] = list(dict.fromkeys(errors + fresh_quality_errors)) if fresh_quality_errors else []
         checkpoint = await self._checkpoint_machine_raw_source_package(
             video_id, ctx["code"], merged, ctx["snapshot"]
         )
@@ -9925,7 +9999,7 @@ class PipelineExecutor:
             return {"status": "failed", "error": error}
         await self._log_activity(
             "Research Agent", video_id, "completed",
-            f"mark_bare -> {ctx['machine']} " + ("(card passes)" if not warnings else f"({len(warnings)} warnings remain)"),
+            f"mark_bare -> {ctx['machine']} " + ("(card passes)" if not _blocking_warnings(warnings) else f"({len(warnings)} warnings remain)"),
         )
         return self._repair_response(ctx, "mark_bare", warnings, {
             "gap_hunt_summary": summary,
@@ -10811,19 +10885,30 @@ class PipelineExecutor:
             target_card: dict,
             warnings_list: list[str],
             package: Optional[dict],
-        ) -> list[str]:
+        ) -> tuple[list[str], list[str]]:
             """Turn raw referee warning strings into NAMED, per-failure fix
             directives for the repair prompt: which segment, which row to
-            re-cite (a hinted Tier 1-3 row for that beat), and the exact
-            contract rules the model must satisfy. Reuses the SAME
-            structural analysis the interactive Repair-button path already
-            has (_segment_surgery_plan / _promotable_slot_excerpt), which the
-            automated per-machine loop below never consulted - this is the
-            gap that made a human coordinator spell these fixes out by hand
-            this week instead of the pipeline converging on its own."""
+            re-cite, and the exact contract rules the model must satisfy.
+            Reuses the SAME structural analysis the interactive Repair-button
+            path already has (_segment_surgery_plan / _promotable_slot_excerpt),
+            which the automated per-machine loop below never consulted - this
+            is the gap that made a human coordinator spell these fixes out by
+            hand this week instead of the pipeline converging on its own.
+
+            Returns (directives, preference_hints). G14, 2026-07-31 (Ryan's
+            ruling, decisions.md): the tier floor demoted from hard block to
+            advisory, so a required beat resting only on Tier 4/caution
+            sources is no longer a rule a paid repair round must chase - it
+            is now a PREFERENCE hint (an available upgrade), never a NAMED
+            FIX. Only _segment_surgery_plan entries tagged
+            reason=="tier4_only" route here; genuine structural fixes
+            (slot-hint mismatches, missing required Anton slot coverage,
+            invalid kinds, ungrounded/unspecific fields) stay must-fix
+            directives - none of those are tier rules."""
             directives: list[str] = []
+            preference_hints: list[str] = []
             if not isinstance(target_card, dict):
-                return directives
+                return directives, preference_hints
             machine_display = _unit_display_name(machine_name) or machine_name
             display_tokens = machine_display.split()
             last_token = display_tokens[-1] if display_tokens else ""
@@ -10839,17 +10924,26 @@ class PipelineExecutor:
                 )
             for promote in surgery.get("promotes") or []:
                 item = promote.get("item") or {}
-                directives.append(
+                text = (
+                    f"required beat '{promote.get('kind')}': a stronger evidence segment is available citing "
+                    f"excerpt {item.get('excerpt_id')} ({item.get('source_title') or item.get('source_url')}, "
+                    f"Tier {_source_tier_number(item)}) - it is hinted for this beat and is not Tier 4/caution."
+                    if promote.get("reason") == "tier4_only" else
                     f"required beat '{promote.get('kind')}': add a NEW evidence segment citing excerpt "
                     f"{item.get('excerpt_id')} ({item.get('source_title') or item.get('source_url')}, "
                     f"Tier {_source_tier_number(item)}) - it is hinted for this beat and is not Tier 4/caution."
                 )
+                (preference_hints if promote.get("reason") == "tier4_only" else directives).append(text)
             for blocked in surgery.get("blocked") or []:
-                directives.append(
+                text = (
+                    f"required beat '{blocked.get('role')}' has no promotable Tier 1-3 excerpt in this "
+                    "machine's verified package - Tier 4/caution support is acceptable now; no action required."
+                    if blocked.get("reason") == "tier4_only" else
                     f"required beat '{blocked.get('role')}' has no promotable Tier 1-3 excerpt in this "
                     "machine's verified package - soften or omit a specific claim for this beat rather than "
                     "inventing one."
                 )
+                (preference_hints if blocked.get("reason") == "tier4_only" else directives).append(text)
             already_named_slots = {p.get("kind") for p in (surgery.get("promotes") or [])}
             missing_warning = next(
                 (w for w in warnings_list if "missing required Anton slots for" in w), ""
@@ -10911,7 +11005,7 @@ class PipelineExecutor:
                         "apostrophes, so \"Attacker's\" leaves a stray token 's' that fails grounding - write "
                         "\"HMS Attacker in her first mission\", never \"HMS Attacker's first mission\"."
                     )
-            return directives
+            return directives, preference_hints
 
         def _full_research_validation(cards: list[dict]) -> tuple[list[dict], bool]:
             cards_by_roster_code: dict[str, dict] = {}
@@ -10948,7 +11042,8 @@ class PipelineExecutor:
                         if isinstance(dropped, dict) and dropped.get("warnings")
                         else ["missing saved one-machine research card"]
                     )
-                units.append({"machine": roster_machine, "passed": not warnings, "warnings": warnings})
+                # G14, 2026-07-31: passed reflects BLOCKING warnings only.
+                units.append({"machine": roster_machine, "passed": not _blocking_warnings(warnings), "warnings": warnings})
             uniqueness_warnings = _roster_story_uniqueness_warnings(roster, cards_by_roster_code)
             if uniqueness_warnings:
                 for unit in units:
@@ -11058,11 +11153,21 @@ class PipelineExecutor:
                 _verified_machine_source_package_quality_errors(verified_source_package, target_machine or "")
                 + _verified_machine_source_package_identity_errors(verified_source_package, target_machine or "")
             )
-            if not _verified_machine_source_package_ready(verified_source_package) or source_package_errors:
-                messages = [
+            # G14, 2026-07-31 (Ryan's ruling, decisions.md): THE pre-card hard
+            # block - "Verified source package needs at least one Tier 1-2
+            # primary/authoritative source before Claude can write a card"
+            # dropped from HARD BLOCK to advisory. Card writing below now
+            # proceeds on an advisory-only gap (e.g. Wikipedia-grade Tier 3-4
+            # sources with no Tier 1-2 primary source); only a genuinely
+            # blocking error (not ready, missing excerpts, untraceable
+            # slots, unsupported capture method, identity mismatch, etc.)
+            # still stops the writer here.
+            blocking_source_package_errors = _blocking_warnings(source_package_errors)
+            if not _verified_machine_source_package_ready(verified_source_package) or blocking_source_package_errors:
+                messages = _blocking_warnings([
                     str(item) for item in (verified_source_package.get("errors") or [])
                     if str(item).strip()
-                ] + source_package_errors
+                ]) + blocking_source_package_errors
                 msg = "; ".join(dict.fromkeys(messages))
                 msg = msg or "Verified one-machine internet research did not return enough exact source excerpts."
                 payload["unit_research_hold_validation"] = {
@@ -11134,7 +11239,9 @@ class PipelineExecutor:
                     _verified_source_package_for_machine(payload, machine),
                     require_source_package=True,
                 )
-                if not warnings:
+                # G14, 2026-07-31: an advisory-only warning (e.g. tier floor)
+                # must not force a perfectly good existing card to regenerate.
+                if not _blocking_warnings(warnings):
                     # Referee grades a copy; re-stamp provenance on the card we persist.
                     _stamp_card_segment_provenance(card, _verified_source_package_for_machine(payload, machine))
                     unit_cards.append(card)
@@ -11248,8 +11355,10 @@ class PipelineExecutor:
 
             # Up to two repair rounds: interacting contract rules (tier citations,
             # required memorable_fact, field-vs-kind) rarely converge in one shot.
+            # G14, 2026-07-31: gate on BLOCKING warnings only - an advisory-only
+            # tier gap must never spend a paid repair round chasing a dead rule.
             for _card_repair_round in range(2):
-                if not warnings:
+                if not _blocking_warnings(warnings):
                     break
                 # FREE pre-repair pass (pure string/dict ops, no model call,
                 # never consumes a paid repair round): re-anchor citations
@@ -11264,14 +11373,20 @@ class PipelineExecutor:
                 warnings = _card_warnings(
                     machine, card, machine_source_package, require_source_package=True,
                 )
-                if not warnings:
+                if not _blocking_warnings(warnings):
                     break
                 timeframe_hints = _timeframe_repair_hints(card, machine_source_package)
-                repair_directives = _structured_repair_feedback(machine, card, warnings, machine_source_package)
+                repair_directives, repair_preference_hints = _structured_repair_feedback(
+                    machine, card, warnings, machine_source_package
+                )
                 repair_prompt = (
                     f"Repair this ONE-machine research card for LOCKED MACHINE: {machine}.\n"
-                    f"Warnings: {'; '.join(warnings)}\n"
+                    f"Warnings: {'; '.join(_blocking_warnings(warnings))}\n"
                     + "".join(f"NAMED FIX - {directive}\n" for directive in repair_directives)
+                    + "".join(
+                        f"OPTIONAL IMPROVEMENT (not required to pass) - {hint}\n"
+                        for hint in repair_preference_hints
+                    )
                     + "".join(hint + "\n" for hint in timeframe_hints)
                     + f"{conversion_signal_line}"
                     "Return ONLY valid schema_version 3 JSON with the minimal required keys and evidence_segments array. "
@@ -11397,10 +11512,15 @@ class PipelineExecutor:
             if target_code:
                 card["source_package_key"] = target_code
             unit_cards.append(card)
-            validation_units.append({"machine": machine, "passed": not warnings, "warnings": warnings})
+            # G14, 2026-07-31: passed is computed from BLOCKING warnings only -
+            # an advisory-only tier note must not fail a correctly-grounded card.
+            # The full `warnings` list (advisory included) is still stored/shown.
+            blocking_warnings = _blocking_warnings(warnings)
+            validation_units.append({"machine": machine, "passed": not blocking_warnings, "warnings": warnings})
 
             if _json_uh.dumps(payload.get("unit_roster"), sort_keys=True, ensure_ascii=False) != locked_roster_snapshot:
                 warnings = ["locked unit_roster changed during per-machine research"]
+                blocking_warnings = warnings
                 validation_units[-1] = {"machine": machine, "passed": False, "warnings": warnings}
 
             # Durable checkpoint after each machine. A crash or later-machine
@@ -11412,11 +11532,11 @@ class PipelineExecutor:
                 if target_code else
                 unit_cards
             )
-            target_machine_passed = not warnings
+            target_machine_passed = not blocking_warnings
             full_validation_units, full_hold_passed = (
                 _full_research_validation(unit_cards)
                 if target_code else
-                (validation_units, not warnings and i == len(roster))
+                (validation_units, not blocking_warnings and i == len(roster))
             )
             if target_code:
                 target_machine_passed = next(
@@ -11429,7 +11549,7 @@ class PipelineExecutor:
                 )
             payload["unit_research_hold_validation"] = {
                 "passed": full_hold_passed,
-                "in_progress": False if target_code else not warnings and i < len(roster),
+                "in_progress": False if target_code else not blocking_warnings and i < len(roster),
                 "units": full_validation_units,
             }
             if target_code:

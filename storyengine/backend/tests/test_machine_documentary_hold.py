@@ -2213,6 +2213,142 @@ def test_timeframe_and_visual_identity_reject_tier4_only_citations():
     assert any("no Tier 1-2 source" in warning for warning in warnings)
 
 
+def test_g14_tier_floor_and_caution_only_gaps_all_advisory_not_blocking():
+    """G14, 2026-07-31 (Ryan's ruling, decisions.md): the research referee's
+    Tier 1-2 source requirement drops from HARD BLOCK to advisory note -
+    Wikipedia-grade (Tier 3-4) sources may carry a card. This enumerates
+    EVERY tier-floor rule that changed (same fixtures as the still-green
+    tests above this one, proving the raw warning TEXT is byte-identical -
+    only blocking status moved) and proves _blocking_warnings() empties out
+    for each one on its own."""
+    machine = "Boeing XB-15"
+
+    # 1) Package-level: zero Tier 1-2 anywhere (some Tier 3 reference source).
+    secondary_segments = _evidence_segments()
+    for index, segment in enumerate(secondary_segments):
+        segment["source_url"] = f"https://example-secondary.test/boeing-xb-15-{index}"
+    secondary_package = _verified_package_for_segments("Boeing XB-15", secondary_segments)
+    secondary_errors = pe._verified_machine_source_package_quality_errors(secondary_package)
+    assert any("Tier 1-2 primary/authoritative source" in e for e in secondary_errors)
+    assert pe._blocking_warnings(secondary_errors) == []
+
+    # 2) Package-level: every source is caution-tier (Wikipedia/YouTube) -
+    #    the pure-Tier-4 "Wikipedia-only" case Ryan named explicitly.
+    caution_segments = _evidence_segments()
+    for index, segment in enumerate(caution_segments):
+        segment["source_url"] = [
+            "https://en.wikipedia.org/wiki/Boeing_XB-15",
+            "https://www.youtube.com/watch?v=test",
+        ][index % 2]
+    caution_package = _verified_package_for_segments("Boeing XB-15", caution_segments)
+    caution_errors = pe._verified_machine_source_package_quality_errors(caution_package)
+    assert any("non-caution source" in e for e in caution_errors)
+    assert pe._blocking_warnings(caution_errors) == []
+
+    # 3) Package-level: a required Anton slot backed only by Tier 4/caution excerpts.
+    tier4_slot_segments = _evidence_segments()
+    for segment in tier4_slot_segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    tier4_slot_segments[0]["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    tier4_slot_package = _verified_package_for_segments("Boeing XB-15", tier4_slot_segments)
+    tier4_slot_errors = pe._verified_machine_source_package_quality_errors(tier4_slot_package, machine)
+    assert any("only with Tier 4/caution excerpts: original_problem" in e for e in tier4_slot_errors)
+    assert pe._blocking_warnings(tier4_slot_errors) == []
+
+    # 4) Card-level: a required Anton slot cited only by Tier 4/caution sources.
+    card_tier4_segments = _evidence_segments()
+    for segment in card_tier4_segments:
+        segment["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    card_tier4_package = _verified_package_for_segments("Boeing XB-15", card_tier4_segments)
+    card_tier4 = {"unit": machine, "evidence_segments": card_tier4_segments}
+    card_tier4_warnings = pe._validate_card_against_verified_sources(card_tier4, card_tier4_package)
+    assert any("Tier 4/caution source" in w for w in card_tier4_warnings)
+    assert pe._blocking_warnings(card_tier4_warnings) == []
+
+    # 5) Card-level: a timeframe/visual_identity FIELD cited only by Tier 4.
+    caution_field_segments = _evidence_segments()
+    for segment in caution_field_segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    caution_field_timeframe = copy.deepcopy(caution_field_segments[4])
+    caution_field_timeframe["evidence_id"] = "E-TIME-WIKI"
+    caution_field_timeframe["source_url"] = "https://en.wikipedia.org/wiki/Boeing_XB-15"
+    caution_field_segments.append(caution_field_timeframe)
+    caution_field_package = _verified_package_for_segments("Boeing XB-15", caution_field_segments)
+    caution_field_card = {
+        "unit": machine,
+        "timeframe_evidence_ids": ["E-TIME-WIKI"],
+        "visual_identity_evidence_ids": ["E-DECISION"],
+        "evidence_segments": caution_field_segments,
+    }
+    caution_field_warnings = pe._validate_card_against_verified_sources(caution_field_card, caution_field_package)
+    assert any("timeframe uses only Tier 4/caution sources" in w for w in caution_field_warnings)
+    assert pe._blocking_warnings(caution_field_warnings) == []
+
+    # 6) Card-level: _research_card_contract_warnings' own sourced_tiers gate
+    #    (no Tier 1-2 anywhere among the card's own cited evidence).
+    all_tier3 = copy.deepcopy(_evidence_segments())
+    for segment in all_tier3:
+        segment["source_url"] = "https://www.thisdayinaviation.com/tag/boeing-xb-15"
+    tier3_card = _valid_research_card(machine, segments=all_tier3)
+    tier3_warnings = pe._research_card_contract_warnings(machine, tier3_card)
+    assert any("no Tier 1-2 source" in w for w in tier3_warnings)
+    assert pe._blocking_warnings(tier3_warnings) == []
+
+    # 7) _cited_evidence_tier_warning (the UI-readiness-mirroring helper feeding
+    #    _visual_identity_warnings/_timeframe_warnings) demotes too.
+    evidence_by_id = {"E1": {"source_url": "https://en.wikipedia.org/wiki/X", "source_tier": 4}}
+    field_warning = pe._cited_evidence_tier_warning("timeframe", ["E1"], evidence_by_id)
+    assert any("Tier 4/caution sources only" in w for w in field_warning)
+    assert pe._blocking_warnings(field_warning) == []
+
+
+def test_g14_non_tier_warnings_are_unaffected_and_still_block():
+    """G14 companion to the enumeration above: prove the blocking set shrank
+    by EXACTLY the seven tier-floor rules and nothing else. Every one of
+    these non-tier checks must remain a plain (non-"advisory: "-prefixed)
+    warning that _blocking_warnings() keeps."""
+    machine = "Boeing XB-15"
+
+    # Excerpt-verbatim-in-fetched-text grounding (THE anti-hallucination wall).
+    segments = _evidence_segments()
+    package = _verified_package_for_segments(machine, segments)
+    card = {"unit": machine, "evidence_segments": copy.deepcopy(segments)}
+    for segment in card["evidence_segments"]:
+        if segment["evidence_id"] == "E-TRADEOFF":
+            segment["source_excerpt"] = "This exact sentence was never fetched from any source."
+            segment["locator"] = "FABRICATED-LOCATOR"
+            segment["source_excerpt_id"] = "FABRICATED-ID"
+    grounding_warnings = pe._validate_card_against_verified_sources(card, package)
+    assert any("was not found in verified fetched source text" in w for w in grounding_warnings)
+    assert not any(str(w).startswith(pe._ADVISORY_PREFIX) for w in grounding_warnings)
+    assert pe._blocking_warnings(grounding_warnings) != []
+
+    # Distinct source URLs (single-source package) - unrelated to tier.
+    single_source_segments = _evidence_segments()
+    for segment in single_source_segments:
+        segment["source_url"] = "https://airandspace.si.edu/collection-objects/boeing-xb-15"
+    single_source_package = _verified_package_for_segments(machine, single_source_segments)
+    single_source_errors = pe._verified_machine_source_package_quality_errors(single_source_package)
+    assert any("two distinct source URLs" in e for e in single_source_errors)
+    assert not any(str(e).startswith(pe._ADVISORY_PREFIX) for e in single_source_errors)
+    assert pe._blocking_warnings(single_source_errors) != []
+
+    # Unsupported/missing source capture method - unrelated to tier.
+    capture_package = _verified_package_for_segments(machine, _evidence_segments())
+    capture_package["candidate_excerpts"][0]["source_capture_method"] = "tavily_snippet"
+    capture_errors = pe._verified_machine_source_package_quality_errors(capture_package)
+    assert any("unsupported source capture method" in e for e in capture_errors)
+    assert pe._blocking_warnings(capture_errors) != []
+
+    # Missing required Anton slot coverage entirely (content, not tier).
+    missing_slot_card = _valid_research_card(
+        machine, segments=[s for s in _evidence_segments() if s["kind"] != "tradeoff"]
+    )
+    missing_slot_warnings = pe._research_card_contract_warnings(machine, missing_slot_card)
+    assert any("missing required Anton slots for" in w for w in missing_slot_warnings)
+    assert pe._blocking_warnings(missing_slot_warnings) != []
+
+
 def test_card_validation_requires_sourced_memorable_fact_slot(monkeypatch):
     roster = ["Boeing XB-15"]
     segments = [
