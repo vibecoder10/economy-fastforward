@@ -853,3 +853,20 @@ only when the assembly hash is current and the scene is assembled or accepted.
 - Decision: Program scope is the FULL gap list (phases D8-D14 appended to loop-checklist.md). Context: Ryan - "I just want everything, so whatever it takes to make it all work, and have a clear plan to chew through."
 - Decision: Frame-arbiter rollout is Ryan's tenant only (f6839de2), hard per-video budget cap, cost quoted before enabling; auto-redraw sits behind its own sub-flag, DEFAULT OFF, until eval chunk D5-A3b-2 graduates. Alternatives: warn-only for all tenants; build-but-leave-off.
 - Decision: Deploys are HELD until Ryan gives a window - another live session is working the DVSU roster loop on the same VPS. All build work happens in worktrees meanwhile.
+
+## 2026-07-31 - Tier floor demoted to advisory (Ryan, dvsu-bulletproof session)
+- Decision: the DVsU research referee's Tier 1-2 source requirement drops from a HARD
+  BLOCK to an advisory note. Wikipedia-grade (Tier 3-4) sources may carry a card's
+  paragraphs. The anti-hallucination core stays untouched: every claim must still match
+  text the pipeline itself fetched, verbatim, with server-side capture methods.
+- Context: the first fully hands-free roster research run (5 KGV battleships, video
+  d05efae3) was rejected 5/5 by the referee - every rejection was source-prestige
+  formalism, none was a false fact. Two ships were blocked from writing anything while
+  accurate on-topic Wikipedia articles sat fetched in their packages. Many prior
+  sessions (Claude + GPT) had been improving gate-appeasement (normalizers, queries,
+  repair prompts) instead of questioning the gate.
+- Alternatives: keep grinding on gather quality until Tier 1-2 sources are reliably
+  found for every machine type (G13 still ships - it helps - but stops being
+  load-bearing); or per-beat tier exceptions (more rulebook, same disease).
+- Why this won: Ryan's quality target is accurate research in the script, not archival
+  pedigree. The verbatim-grounding check alone already prevents invented facts.

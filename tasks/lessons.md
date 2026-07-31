@@ -668,3 +668,38 @@ of these were paid for in wasted clicks; together they make the pane fully usabl
 
 ## 2026-07-30 - git stash is ONE shared ref across all worktrees (real incident)
 Two concurrent workers ran stash-based stash-proofs in different worktrees of the same repo; the pops interleaved and each worker popped the OTHER's stash - foreign diffs landed in the wrong trees mid-test. Recovered via `git fsck --unreachable` (stash WIP commits dangle after a wrong pop). Rule: NEVER use `git stash` for stash-proof testing while parallel worktree sessions run. Use a patch file instead: `git diff > /tmp/chunk.patch && git checkout -- <files>`, run the tests, `git apply /tmp/chunk.patch`. Every worker brief that asks for a stash-proof must name this technique.
+
+## 2026-07-31 - Two lessons from the Veo 3.1 Lite first/last-frame test
+
+**1. Sampled stills CANNOT verify a video. (correction from Ryan)**
+I pulled 6 frames at ~1.5s intervals from an 8s clip, saw good composition in each,
+and reported "real weight transfer, not a dissolve." Ryan watched the actual video:
+the subject falls, then FLOATS IN DEAD AIR for ~3 seconds, then gets grabbed. Motion
+artifacts (floating, morphing, sliding, judder, padded holds) live BETWEEN sparse
+samples - stills are structurally incapable of showing them.
+Rule: never judge motion from sampled frames. Either watch it, or build a dense
+contact sheet (`-vf "select='not(mod(n,7))',scale=440:-1,tile=4x5"`) which shows
+the motion progression in one image and exposes floats/slides immediately. The
+contact sheet made all of it obvious in one look after the sparse stills hid it.
+
+**2. Veo 3.1 Lite first/last-frame is keyframe matching, NOT motion inference.**
+Given a start frame (mid-fall, reaching) and end frame (caught, hanging) over 8s,
+it nailed both endpoints and PADDED THE MIDDLE with a static hold rather than
+redistributing the action across the clip. It will not "read between the lines."
+Rule: only use first/last-frame interpolation when the real action naturally fills
+the whole clip length - slow turns, reveals, pushes, expression changes. For any
+shot with an impact beat (a catch, a hit, a landing), the model pads and the shot
+dies. Match clip duration to the action's true duration, or drive it with
+single-image i2v + a motion prompt so the model owns the timing instead of being
+pinned to a destination frame.
+Cost of the test: $0.20 ($0.025 x2 GPT Image 2 keyframes + $0.15 Veo 3.1 Lite 8s).
+
+## 2026-07-31 - Question the gate, don't appease it (Ryan's co-founder rule)
+Weeks of sessions (Claude and GPT) tuned normalizers, queries, and repair prompts to
+satisfy the research referee's Tier 1-2 source floor. First hands-free run: 5/5
+rejected, zero false facts - all prestige formalism. One plain paragraph to Ryan about
+the gate itself and he dropped the requirement in one message.
+THE RULE: when the same gate/spec eats 2+ rounds of fixes, stop and question the
+design. Bring Ryan: what keeps failing, why the design causes it, ONE recommended
+change, the tradeoff in plain words. Inherited gates from earlier sessions are not
+sacred. Silent grinding against a bad rule is the most expensive form of diligence.
