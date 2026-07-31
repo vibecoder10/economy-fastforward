@@ -861,6 +861,33 @@ async def youtube_connect(tenant: uuid.UUID = Depends(get_tenant_id)):
     return {"auth_url": auth_url}
 
 
+@router.get("/youtube/oauth-diagnostics")
+async def youtube_oauth_diagnostics(user: AuthUser = Depends(verify_token)):
+    """Report whether YouTube OAuth is configured, without leaking secret values.
+
+    Support/onboarding tool: lets a tenant admin (or us, debugging a stuck
+    connect flow) see WHICH required env vars are missing instead of just a
+    500 from /youtube/connect — while never echoing the actual
+    GOOGLE_OAUTH_CLIENT_ID/SECRET values back in the response.
+    """
+    missing_env = [
+        name
+        for name in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET")
+        if not os.getenv(name)
+    ]
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    redirect_uri = os.getenv("YOUTUBE_REDIRECT_URI", f"{frontend_url}/settings/youtube-callback")
+
+    return {
+        "ready": not missing_env,
+        "redirect_uri": redirect_uri,
+        "missing_env": missing_env,
+        "scope_mode": "read_only_channel_and_analytics",
+        "requires_google_verification": True,
+    }
+
+
 class YouTubeCallbackRequest(BaseModel):
     code: str
 

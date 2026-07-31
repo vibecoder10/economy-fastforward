@@ -3717,3 +3717,47 @@ worktree, not part of the change.
   with a real image client, since that would cost money for zero additional signal on pure warn-log
   logic.
 
+# Deferred verification — D14-2b (youtube_oauth_diagnostics test lock repair)
+
+- [ ] **Live "ready: true" path never exercised.** The archaeology: `git log -S
+  youtube_oauth_diagnostics` across all branches/history shows exactly one hit, the giant
+  `ed1d746a` "snapshot: VPS prod working tree" commit — it added
+  `tests/functional/test_youtube_oauth_diagnostics.py` (whole file, including
+  `test_youtube_oauth_diagnostics_reports_missing_config_without_secret_values`) but never added a
+  matching `youtube_oauth_diagnostics` function to `routes/google_auth.py`. So the helper never
+  accidentally regressed — it was never built. A same-day peer chunk (`87d52dbf`, "Discovery:
+  humanize the inner idea-generation error; refresh 13 stale test locks") had already triaged this
+  exact test and explicitly left it failing on purpose: "the one remaining failure is the orphaned
+  youtube_oauth_diagnostics test for an endpoint that has never existed — left failing deliberately
+  pending a product decision." This chunk was the product decision: added
+  `GET /api/auth/youtube/oauth-diagnostics` (`routes/google_auth.py`, `Depends(verify_token)`,
+  same DI pattern as `get_me`) reporting `ready`/`redirect_uri`/`missing_env`/`scope_mode`/
+  `requires_google_verification` without ever echoing `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET` values —
+  matching the test's asserted contract exactly. The test only patches env to the ALL-MISSING case
+  (`ready: False`); the `ready: True` branch (both env vars actually set, no missing_env) is
+  logically symmetric and trivial (same `os.getenv` reads, just non-empty) but was never called
+  against a live process — no curl, no browser hit, no prod env with real
+  `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET` set was reachable from this worktree.
+  Whoever wires a frontend caller to this endpoint should hit it once locally with real OAuth env
+  vars present and confirm `ready: true`, `missing_env: []`, and that `repr()` of the response still
+  never contains `client-`/a raw secret.
+- **Stash-proof used:** before/after suite runs, not a stash — the "before" state is the
+  pre-existing baseline every prior D14 chunk already measured (this exact test failing with
+  `AttributeError: module 'routes.google_auth' has no attribute 'youtube_oauth_diagnostics'`), and
+  re-running it clean in this worktree before editing reproduced that identically. "After" is the
+  full backend suite green.
+- **Full backend suite, this worktree (backend venv, `./venv/bin/python -m pytest tests/ -q`):
+  4178 passed, 4 skipped, 0 failed** — this was the only known real pre-existing failure at the
+  time this chunk started; suite is now fully green.
+- **Worktree scaffolding (temporary, deleted after use):** this worktree had no `backend/venv`,
+  `remotion-video/node_modules`, or `remotion-video/public` of its own — all three were symlinked
+  from the MAIN checkout to run the real backend venv's pytest against this worktree's code, then
+  removed immediately after (`git status --short` confirmed untracked/absent before, during, and
+  after — never staged, never part of the diff).
+- **Scope held to the brief:** only `routes/google_auth.py` was touched (new route, ~27 lines,
+  zero other functions edited) plus this file. The test file itself needed no change — its
+  assertions were already exactly satisfiable by a correctly-built helper. No `main.py` edit was
+  needed either: `google_auth.router` was already registered (`app.include_router(google_auth.router)`,
+  confirmed by grep) before this chunk, so the new route is live the moment the process restarts —
+  no additional wiring step exists to forget.
+
