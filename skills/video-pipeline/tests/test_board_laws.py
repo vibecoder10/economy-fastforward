@@ -32,6 +32,10 @@ from storyboard.coverage import (  # noqa: E402
     # D6-1c (L20, PICTURES path): canonical-material precedence + its
     # warn-only drift alarm — see their docstrings in storyboard/coverage.py
     canonical_material_line, check_material_map_consistency,
+    # D9-3b (migration 152, PICTURES path): canonical environment-locks
+    # precedence — the MATERIAL MAP LOCK section's ENVIRONMENT LOCKS
+    # sibling, see its docstring in storyboard/coverage.py
+    canonical_environment_locks_line,
 )
 from shared.channel_profile import load_profile  # noqa: E402
 
@@ -491,6 +495,145 @@ def test_run_coverage_material_map_canonical_wins_over_planner_prose(tmp_path):
     assert planner_prose not in corridor_desc
 
 
+def test_run_coverage_environment_locks_lock_applied(tmp_path):
+    """D9-3b: with canonical locks present for both locations in this
+    multi-location scene, the ENVIRONMENT LOCKS tail lands on every shot,
+    adjacent to (and after) the MATERIAL MAP LOCK tail."""
+    outdir = str(tmp_path)
+    canonical_envs = [
+        {"name": "Pod", "architecture_lock": "hexagonal glass cell, 3m diameter",
+         "lighting_time_weather_lock": "pre-dawn, cold blue rim light",
+         "palette_lock": "ice blue and white, no warm tones"},
+        {"name": "Corridor", "architecture_lock": "steel catwalk, 40m long",
+         "lighting_time_weather_lock": None, "palette_lock": "gunmetal grey"},
+    ]
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames_factory())), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and runs.", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=MULTI_LOCATION_MOTION_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+            canonical_envs=canonical_envs, matched_env=None,
+        ))
+    assert not out.get("error"), out
+    pod_desc = out["moments"][0]["master"]["description"]
+    corridor_desc = out["moments"][2]["master"]["description"]
+    assert "Environment locks, fixed for this whole set:" in pod_desc
+    assert "hexagonal glass cell" in pod_desc
+    assert "pre-dawn, cold blue rim light" in pod_desc
+    assert "ice blue and white" in pod_desc
+    assert "Environment locks, fixed for this whole set:" in corridor_desc
+    assert "steel catwalk" in corridor_desc
+    assert "gunmetal grey" in corridor_desc
+    # a partial extraction (Corridor's lighting_time_weather_lock is None)
+    # still contributes what it has — never blocked on the other two.
+    assert "; ; " not in corridor_desc
+    # ENVIRONMENT LOCKS lands AFTER Material map in the same shot, mirroring
+    # coverage_to_app._plan_sheet_prompts' block order.
+    assert pod_desc.index("Material map") < pod_desc.index("Environment locks")
+
+
+def test_run_coverage_environment_locks_null_canonical_unchanged(tmp_path):
+    """D9-3b NULL-safety proof: canonical_envs=None (every caller before
+    this chunk, and every production video today since video_environments'
+    three lock columns are NULL until an environment is re-approved post-
+    migration-152) draws the SAME description as before this chunk —
+    byte-identical, no ENVIRONMENT LOCKS text anywhere, because unlike
+    material_map there is no planner-LLM line to fall back to."""
+    outdir = str(tmp_path)
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames_factory())), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out_before = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and runs.", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=MULTI_LOCATION_MOTION_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+        ))
+    outdir2 = str(tmp_path / "again")
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames_factory())), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out_after = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and runs.", image_client=None, outdir=outdir2,
+            cast_url="https://cast.png", directive_text=MULTI_LOCATION_MOTION_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+            canonical_envs=None, matched_env=None,
+        ))
+    assert not out_before.get("error") and not out_after.get("error")
+    for m_before, m_after in zip(out_before["moments"], out_after["moments"]):
+        assert m_before["master"]["description"] == m_after["master"]["description"]
+        assert "Environment locks" not in m_after["master"]["description"]
+        for a_before, a_after in zip(m_before.get("angles") or [], m_after.get("angles") or []):
+            assert a_before["description"] == a_after["description"]
+
+
+def test_run_coverage_environment_locks_partial_row_all_null_omits_block(tmp_path):
+    """A matched environment row that exists but carries all three lock
+    columns NULL (every production row today, pre-re-approval) omits the
+    ENVIRONMENT LOCKS block entirely, same as canonical_envs=None."""
+    outdir = str(tmp_path)
+    canonical_envs = [
+        {"name": "Pod", "architecture_lock": None, "lighting_time_weather_lock": None, "palette_lock": None},
+        {"name": "Corridor", "architecture_lock": None, "lighting_time_weather_lock": None, "palette_lock": None},
+    ]
+    with patch("storyboard.coverage.resolve_cast_url", AsyncMock(return_value="https://cast.png")), \
+         patch("storyboard.coverage.generate_coverage_frames", AsyncMock(side_effect=_fake_frames_factory())), \
+         patch("storyboard.coverage._download", lambda url, path: None):
+        out = asyncio.run(run_coverage(
+            beat_text="Nyla wakes and runs.", image_client=None, outdir=outdir,
+            cast_url="https://cast.png", directive_text=MULTI_LOCATION_MOTION_DIRECTIVE,
+            max_moments=10, angles_max=4, max_frames=None,
+            canonical_envs=canonical_envs, matched_env=None,
+        ))
+    assert not out.get("error"), out
+    for m in out["moments"]:
+        assert "Environment locks" not in m["master"]["description"]
+
+
+def test_canonical_environment_locks_line_single_location_matched_env():
+    """Single-location scene (no LOCSET headers): the matched environment's
+    own joined locks win, no location_sets needed."""
+    envs = [{"name": "The Elite Viewing Hall", "architecture_lock": "curved amphitheater, 12 rows",
+             "lighting_time_weather_lock": "dim, screen-glow only", "palette_lock": "black and gold"}]
+    matched = envs[0]
+    result = canonical_environment_locks_line(envs, {}, matched)
+    assert result == "curved amphitheater, 12 rows; dim, screen-glow only; black and gold"
+
+
+def test_canonical_environment_locks_line_empty_when_no_canonical_row():
+    """NULL-safety at the unit level: no matching env, or all three lock
+    columns None (every production row today) -> "" every time, the exact
+    sentinel run_coverage's `if env_locks_line:` treats as 'omit the
+    block'."""
+    assert canonical_environment_locks_line([], {}, None) == ""
+    null_env = {"name": "Pod", "architecture_lock": None,
+                "lighting_time_weather_lock": None, "palette_lock": None}
+    assert canonical_environment_locks_line([null_env], {}, null_env) == ""
+    assert canonical_environment_locks_line(None, {"Pod": "..."}, None) == ""
+
+
+def test_canonical_environment_locks_line_locset_key_with_leading_article_still_matches():
+    """Mirrors test_canonical_material_line_locset_key_with_leading_article_
+    still_matches exactly, one clause over: a LOCSET key phrased with a
+    leading article ("The Elite Viewing Hall") must still resolve to its
+    own approved environment's locks, and neither location's locks leak
+    into or replace the other's."""
+    envs = [
+        {"name": "Pod", "architecture_lock": "POD ARCH: hexagonal glass cell",
+         "lighting_time_weather_lock": None, "palette_lock": None},
+        {"name": "Elite Viewing Hall", "architecture_lock": "HALL ARCH: curved amphitheater",
+         "lighting_time_weather_lock": None, "palette_lock": None},
+    ]
+    location_sets = {
+        "The Elite Viewing Hall": "black ornamental walls with gold accents",
+        "Pod": "the sealed glass bubble-pod",
+    }
+    result = canonical_environment_locks_line(envs, location_sets, None)
+    assert "HALL ARCH" in result, f"Hall's locks silently dropped: {result!r}"
+    assert "POD ARCH" in result, f"Pod's locks silently dropped: {result!r}"
+
+
 def test_canonical_material_line_single_location_matched_env():
     """Single-location scene (no LOCSET headers): the matched environment's
     own material_map wins, no location_sets needed."""
@@ -627,6 +770,9 @@ if __name__ == "__main__":
     test_canonical_material_line_empty_when_no_canonical_row()
     test_check_material_map_consistency_warns_only_never_raises_on_disagreement()
     test_check_material_map_consistency_silent_when_nothing_canonical()
+    test_canonical_environment_locks_line_single_location_matched_env()
+    test_canonical_environment_locks_line_empty_when_no_canonical_row()
+    test_canonical_environment_locks_line_locset_key_with_leading_article_still_matches()
     import tempfile
     with tempfile.TemporaryDirectory() as _td:
         import pathlib
@@ -637,4 +783,10 @@ if __name__ == "__main__":
         test_run_coverage_material_map_canonical_wins_over_planner_prose(_p)
         test_run_coverage_motion_capable_staging_lock_for_motion_scene(_p)
         test_run_coverage_planted_staging_lock_unaffected_for_planted_scene(_p)
+    with tempfile.TemporaryDirectory() as _td:
+        import pathlib
+        _p = pathlib.Path(_td)
+        test_run_coverage_environment_locks_lock_applied(_p)
+        test_run_coverage_environment_locks_null_canonical_unchanged(_p)
+        test_run_coverage_environment_locks_partial_row_all_null_omits_block(_p)
     print("ok — board laws (coverage.py) self-checks passed")
