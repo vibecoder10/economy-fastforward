@@ -46,7 +46,11 @@ from storyboard.bot import (  # noqa: E402  reuse, don't reinvent
     build_image_prompt_from_keyframe,
     render_prop_manifest,
 )
-from storyboard.shot_archetypes import format_archetype_menu, get_archetype  # noqa: E402
+from storyboard.shot_archetypes import (  # noqa: E402
+    compose_shot_cinematography,
+    format_archetype_menu,
+    get_archetype,
+)
 from shared.channel_profile import load_profile  # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 
@@ -304,13 +308,17 @@ per setup.
 11) FOUR CAMERA FACTS, EVERY PANEL, ALL SCREEN-RELATIVE (L5). Beyond the setup letter, every \
 MASTER and ANGLE line must make FOUR facts unambiguous, stated or directly inferable from the \
 sentence: (a) which side of any barrier (glass, a doorway, a screen) the lens is on, when the \
-scene has one; (b) the camera's height (bed height, eye height, low tilted up, standing height); \
-(c) what fraction of the frame the subject occupies (a tenth of the frame, fills the middle \
-third, fills the lower two-thirds); (d) FACE VISIBILITY AS AN EXPLICIT TERM — one of: to-lens, \
-three-quarter, profile, or from-behind. A close shot whose whole purpose is an expression must \
-use "to-lens" or "three-quarter", never leave visibility to be inferred from body direction alone \
-(rule 5g's face-readability requirement is fact (d)'s minimum bar on an expression beat, not a \
-separate rule).
+scene has one; (b) the camera's height (bed height, eye height, low tilted up, standing height) — \
+SKIP restating this fact in prose ONLY when this shot's own DP row (rule 28) already states \
+camera_height; the compiler prepends it mechanically from that row, and your own restatement \
+becomes a redundant duplicate it will not remove (rule 29); (c) what fraction of the frame the \
+subject occupies (a tenth of the frame, fills the middle third, fills the lower two-thirds); (d) \
+FACE VISIBILITY AS AN EXPLICIT TERM — one of: to-lens, three-quarter, profile, or from-behind. A \
+close shot whose whole purpose is an expression must use "to-lens" or "three-quarter", never leave \
+visibility to be inferred from body direction alone (rule 5g's face-readability requirement is \
+fact (d)'s minimum bar on an expression beat, not a separate rule). Facts (a), (c) and (d) have no \
+structured field yet — they stay in prose, every panel, exactly as this rule has always required, \
+DP row or not.
 12) A REPEATED SETUP NAMES WHAT IT PROGRESSES FROM (L9). When a setup letter repeats (the SAME \
 camera returns to cover a later beat of the same staging), its description must name the SAME \
 frame side, or the SAME surface, that the earlier panel with that letter established — "THAT SAME \
@@ -464,6 +472,21 @@ ARCHETYPE SYNERGY: when this shot also carries an ARCHETYPE row, that archetype'
 shot's specific staging genuinely calls for something else. Same discipline as rules 24-27: its OWN \
 row, never folded into the MASTER/ANGLE sentence — rule 23 already forbids inventing a new \
 bracket/tag inside a panel description.
+29) THE COMPILER OWNS CAMERA/COMPOSITION LANGUAGE FOR A TAGGED SHOT — YOUR SENTENCE OWNS SUBJECT \
+AND ACTION (D11-3). When you write an ARCHETYPE row (rule 27) and/or a DP row (rule 28) for a \
+shot, a MECHANICAL compiler downstream — never an LLM, never this model — prepends a deterministic \
+cinematography clause built directly FROM those rows onto your description before it ever reaches \
+the image drawer: the archetype's own composition guidance verbatim from the library above, plus \
+lens/camera-height/depth-of-field phrased from the DP row in fixed wording. That clause is \
+data-sourced, not prose you wrote — so for a shot that carries an ARCHETYPE and/or DP row, keep \
+your MASTER/ANGLE sentence to SUBJECT AND ACTION: who is here, what they are doing, the \
+wardrobe/prop identity locks rule 2 requires, and rule 11's facts (a)/(c)/(d), which still have no \
+structured field and must stay in prose regardless. Do not also write prose composition/lens/ \
+camera-height language the archetype or DP row already supplies — v1 of this compiler does NOT \
+deduplicate a description that repeats it anyway (no fuzzy matching), so a duplicated fact simply \
+reads TWICE: once as the compiler's clause, once in your own sentence. This rule changes nothing \
+about a shot you leave UNTAGGED (no ARCHETYPE, no DP row) — rule 11 stands complete and unchanged \
+for that shot: state all four camera facts in prose exactly as before this rule existed.
 </rules>
 
 <output_format>
@@ -2476,6 +2499,58 @@ def check_shot_dp_valid(moments: list[dict]) -> int:
     return warnings
 
 
+# D11-3 (mechanical prompt compiler, film-studio audit point 18 closure)
+# redundancy guard: v1 of compose_shot_cinematography does NOT attempt fuzzy
+# deduplication of a shot's own description against the compiled clause it
+# now leads with (see that function's docstring, storyboard/shot_archetypes.py,
+# and rule 29 in _coverage_system_prompt above) — a planner that disobeys
+# rule 29 and writes camera/composition prose anyway, on a shot that ALREADY
+# carries an ARCHETYPE and/or DP row, simply gets that fact stated TWICE in
+# the final prompt (once by the compiler's clause, once by its own
+# sentence). check_shot_camera_prose_redundant can't fix that — no dedup in
+# v1 — but it CAN flag it: a deliberately small, starter vocabulary scan,
+# not an exhaustive camera-language detector.
+_CAMERA_PROSE_LENS_RE = re.compile(r"\b\d{1,3}\s*mm\b", re.IGNORECASE)
+_CAMERA_PROSE_PHRASES = ("close-up", "close up", "wide shot")
+
+
+def check_shot_camera_prose_redundant(moments: list[dict]) -> int:
+    """D11-3: flags a shot whose OWN description (the planner-authored text,
+    already stripped of its PURPOSE/TRANSITION/CAUSED_BY/ARCHETYPE/DP
+    metadata rows by _strip_shot_metadata_rows — never the compiled clause,
+    which this function never sees and which is only ever prepended at
+    assembly time, downstream of every check in this module) contains an
+    obvious lens-mm pattern (``\\d{1,3}\\s*mm``) or one of a small set of
+    literal shot-size phrases (close-up, close up, wide shot) — a starter
+    list, deliberately incomplete (v1 limitation) — WHILE that shot ALSO
+    carries a shot_archetype and/or any DP field (lens_mm/camera_height/
+    dof). Same warning-only discipline as every check_shot_* above (D6
+    Ruling 1): this never blocks a draw, never rewrites the shot, only
+    counts and logs loudly.
+
+    An UNTAGGED shot (no archetype, no DP field) is never flagged here —
+    rule 11 already requires it to state its camera facts in prose, so
+    camera vocabulary in its description is expected, not redundant. Only a
+    TAGGED shot's prose is checked, because only a tagged shot actually gets
+    a compiler-authored clause prepended at assembly time to duplicate."""
+    warnings = 0
+    for m in moments:
+        for shot in [m["master"], *(m.get("angles") or [])]:
+            tagged = bool(shot.get("shot_archetype")) or any(
+                shot.get(k) is not None for k in ("lens_mm", "camera_height", "dof"))
+            if not tagged:
+                continue
+            desc = (shot.get("description") or "").lower()
+            hit = _CAMERA_PROSE_LENS_RE.search(desc) or any(p in desc for p in _CAMERA_PROSE_PHRASES)
+            if hit:
+                warnings += 1
+                print(f"  ⚠️ shot-camera-prose check (D11-3): moment {m.get('moment_number')} "
+                      f"({shot.get('shot_type')}) has an ARCHETYPE/DP row AND camera-vocabulary "
+                      "prose in its own description — the compiler already states this fact; "
+                      "consider trimming the prose per rule 29 (not a hard failure)", flush=True)
+    return warnings
+
+
 # =============================================================================
 # D12-3 (board rhythm report): visual-RHYTHM checks — shot-size runs, lens
 # repetition, purpose-kind monotony — read the SAME structured per-shot data
@@ -4171,6 +4246,28 @@ def plan_camera_moves(
     return planned
 
 
+def _shot_prompt_description(shot: dict) -> str:
+    """D11-3 (mechanical prompt compiler) assembly-point helper: PREPEND
+    this shot's compiled cinematography clause (compose_shot_cinematography,
+    storyboard.shot_archetypes) to its planner-authored description, ONLY
+    when that shot actually carries an archetype/DP field. A legacy shot
+    (or any shot the planner left untagged) gets compose_shot_cinematography's
+    "" back and this returns shot["description"] completely unchanged — the
+    exact same string, byte-identical, no wrapping, no stripping — which is
+    the whole point: every plan from before D11-1/D11-2 must draw exactly as
+    it always has.
+
+    This does NOT mutate `shot` — the stored/checked description
+    (shot["description"], and everything downstream that reads it: repair
+    legs, check_shot_camera_prose_redundant, assets.image_prompt via
+    store_scene) stays exactly what the planner wrote. Only the STRING
+    handed to build_image_prompt_from_keyframe at this function's two call
+    sites below carries the clause."""
+    clause = compose_shot_cinematography(shot)
+    desc = shot.get("description") or ""
+    return f"{clause} {desc}".strip() if clause else desc
+
+
 async def generate_coverage_frames(moment, cast_url, image_client, profile,
                                    env_url=None, aspect="16:9", resolution="1K", sem=None,
                                    model_override=None, setup_anchors=None,
@@ -4280,7 +4377,8 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
         m_anchor, m_ref = _board(m, board_is_last=not s_ref)
         master_refs = base + m_ref + s_ref
         master_prompt = (style_prefix
-                         + build_image_prompt_from_keyframe({"composition": m["description"]}, profile)
+                         + build_image_prompt_from_keyframe(
+                             {"composition": _shot_prompt_description(m)}, profile)
                          + _style_block_for(style_prefix, master_refs) + m_anchor + s_anchor)
         master_url, master_model = await _gen(master_prompt, master_refs)  # master first — angles anchor on it
     finally:
@@ -4351,7 +4449,8 @@ async def generate_coverage_frames(moment, cast_url, image_client, profile,
             a_anchor, a_ref = _board(a, board_is_last=not s_ref)
             angle_refs = angle_base + a_ref + s_ref
             ap = (style_prefix
-                  + build_image_prompt_from_keyframe({"composition": a["description"]}, profile)
+                  + build_image_prompt_from_keyframe(
+                      {"composition": _shot_prompt_description(a)}, profile)
                   + _SAME_SUBJECT + _style_block_for(style_prefix, angle_refs) + a_anchor + s_anchor)
             url, model_used = await _gen(ap, angle_refs)
         finally:
@@ -4770,6 +4869,12 @@ async def run_coverage(beat_text, image_client, *, outdir, cast_url=None, cast_p
     # a malformed lens value — same warning-only discipline; absence is never
     # flagged since the row is optional (rule 28).
     check_shot_dp_valid(moments)
+    # D11-3 (mechanical prompt compiler): a shot whose own description
+    # repeats camera/composition vocabulary the compiler ALREADY states from
+    # its ARCHETYPE/DP rows — same warning-only discipline; v1 does not
+    # deduplicate (see compose_shot_cinematography's docstring), this check
+    # only flags it for a human glance.
+    check_shot_camera_prose_redundant(moments)
     # D12-3 (board rhythm report): a shot-size run, a lens-value run, or a
     # purpose-kind run beyond its own threshold — same warning-only
     # discipline; a shot missing the field it checks is absent from the

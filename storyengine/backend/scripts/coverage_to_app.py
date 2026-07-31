@@ -133,6 +133,14 @@ async def _require_tenant_kie_key(tenant_id: str) -> str:
 # imports FROM (see coverage.py's own `from storyboard.bot import ...`) —
 # putting it here avoids a circular import.
 from storyboard.bot import render_prop_manifest                # noqa: E402
+# D11-3 (mechanical prompt compiler): the SAME pure clause-composer
+# generate_coverage_frames' assembly point now calls (coverage.py's
+# _shot_prompt_description) — imported directly from shot_archetypes.py
+# (not proxied through coverage.py) for the same reason render_prop_manifest
+# is imported directly from bot.py just above: it's a leaf module with no
+# coverage.py-specific knowledge, so both call sites here (_plan_sheet_
+# prompts and redraw_asset_image) read it straight from its own home.
+from storyboard.shot_archetypes import compose_shot_cinematography  # noqa: E402
 from shared.clients.image_client import ImageClient           # noqa: E402
 from shared.clients.image_model_router import generate_scene_image_for_model  # noqa: E402
 from shared.channel_profile import (  # noqa: E402
@@ -2465,10 +2473,35 @@ def _plan_sheet_prompts(moments: list, style_dir: str, panels_per_sheet: int = 9
         # Panel-brief visual description IS builder-authored text (C25a-fix9b):
         # neutralize risky-prop density before truncating.
         master_desc = _neutralize_risky_props(master.get("description"))
+        # D11-3 (mechanical prompt compiler): PREPEND this shot's compiled
+        # cinematography clause (from its archetype/DP fields, if any) so
+        # this PREVIEW panel shows exactly what the real picture step will
+        # draw — this function's own docstring's core promise ("same shots,
+        # same order... no LLM in between to drift"). compose_shot_
+        # cinematography returns "" for a shot with neither field (every
+        # legacy plan, and any untagged shot) — master_desc unchanged,
+        # byte-identical.
+        #
+        # shot_location is supplied via a throwaway merged dict, NEVER by
+        # mutating `master`/`a` (they're live entries of the caller's own
+        # `moments` list) — mirrors run_coverage's own
+        # `shot["shot_location"] = m.get("location")` stamp (coverage.py)
+        # so an ESTABLISHING archetype's clause interpolates the SAME
+        # location name the real draw would, keeping this preview and the
+        # real picture in lockstep (D6-2, migration 143 — plain data, never
+        # LLM prose written into the clause).
+        _master_clause = compose_shot_cinematography(
+            {**master, "shot_location": master.get("shot_location") or m.get("location")})
+        if _master_clause:
+            master_desc = f"{_master_clause} {master_desc}".strip()
         panels.append(f"[{len(panels) + 1}] M{n}{loc_tag} {master.get('shot_type', 'MS')} — "
                       f"{_trunc(master_desc, 300)}")
         for a in (m.get("angles") or []):
             angle_desc = _neutralize_risky_props(a.get("description"))
+            _angle_clause = compose_shot_cinematography(
+                {**a, "shot_location": a.get("shot_location") or m.get("location")})
+            if _angle_clause:
+                angle_desc = f"{_angle_clause} {angle_desc}".strip()
             panels.append(f"[{len(panels) + 1}] M{n}{loc_tag} ANGLE {a.get('shot_type', 'CU')} — "
                           f"{_trunc(angle_desc, 300)}")
     style_line = (style_dir or "").strip() or "Photorealistic, cinematic film still"
@@ -3393,6 +3426,7 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     a = await fetch_one(
         "SELECT a.id, a.scene, a.image_index, a.image_prompt, a.hero_shot, "
         "a.generation_method, a.group_arrangement, "
+        "a.shot_archetype, a.lens_mm, a.camera_height, a.dof, a.shot_location, "
         "COALESCE(v.aspect_ratio,'16:9') AS aspect, v.image_model_override, "
         "v.image_style_override, v.visual_style "
         "FROM assets a JOIN videos v ON v.id = a.video_id "
@@ -3404,6 +3438,32 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
         return {"status": "failed", "error": "this picture has no image prompt to redraw from"}
     if safe_reframe:
         prompt = SAFE_REFRAME_PREFIX + prompt
+
+    # D11-3 (mechanical prompt compiler) REPAIR LEG: same "fresh beats baked"
+    # pattern as every other repair leg in this function (see the L6/D9-2/
+    # D9-4 identity-tag block and the L20/D9-3 environment-lock block below
+    # for the same reasoning stated at length) — re-derive the
+    # cinematography clause from this asset's OWN shot_archetype/lens_mm/
+    # camera_height/dof/shot_location columns (migrations 149/150/143),
+    # fetched fresh above, rather than trusting anything baked into the
+    # stored image_prompt.
+    # assets.image_prompt is documented (a few lines up) as storing ONLY the
+    # shot's composition text — the clause was never part of it for ANY
+    # asset, including one drawn after this compiler shipped, so it must be
+    # recomposed here every time, never read back from storage.
+    #
+    # Deliberately a SEPARATE variable, prepended only in the final
+    # concatenation below — NEVER folded into `prompt` itself. `prompt` is
+    # read by the L16/L22 repair leg further down (_setup_id({"description":
+    # prompt}), the "(SETUP X)" tag match is ANCHORED at position 0) and by
+    # the group-arrangement dedup check (`garr not in prompt`); mutating
+    # `prompt` here would silently break both by moving the stored
+    # composition text's own leading tag out of position 0.
+    # compose_shot_cinematography returns "" for a shot with neither an
+    # archetype nor any DP field (the overwhelming majority, and every
+    # legacy asset) — cinematography_clause is "" in that case, and the
+    # final prompt is unchanged, byte-identical to before this chunk.
+    cinematography_clause = compose_shot_cinematography(a)
 
     # SAME TREATMENT AS THE BATCH DRAW (Ryan, 2026-07-21: "the redraw should
     # get the same treatment as the draw... telling it the style upfront so
@@ -3617,9 +3677,16 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # Reference + prompt ORDER now mirrors generate_coverage_frames' angle_base
     # + prompt assembly exactly: cast_refs + [master_url] + env_refs, and
     # style_prefix + composition + _SAME_SUBJECT + style_block + env_note.
+    # D11-3: the cinematography clause (computed fresh, above) leads `prompt`
+    # itself here — the ONLY place it's folded in — mirroring generate_
+    # coverage_frames' own "clause, then the shot's own description" order.
+    # "" when compose_shot_cinematography found no archetype/DP field:
+    # byte-identical to before this chunk.
     url, model_used = await generate_scene_image_for_model(
         ic, model_override,
-        style_prefix + cast_identity_note + prompt + master_note + _style_block + env_note
+        style_prefix + cast_identity_note
+        + (cinematography_clause + " " if cinematography_clause else "")
+        + prompt + master_note + _style_block + env_note
         + l16_l22_note,
         reference_urls=cast_refs + master_refs + env_refs,
         aspect_ratio=a["aspect"], task_id_out=task_id_box)
