@@ -616,3 +616,85 @@ parser unit test — that's what step 4 above is for); real `assets.transition_k
 whether the D12-2 render-layer consumption of `transition_kind` (explicitly out of scope for this
 chunk — data + warn checks only) will want the stored value in a different shape than "as
 authored, lowercased" once that chunk is built.
+
+---
+
+## G5: machine_research_cards roster-index identity + recovery replay — 2026-07-30
+
+**What shipped:** migration `149_machine_research_cards_roster_index_identity.sql` moves
+`machine_research_cards`' PRIMARY KEY from `(tenant_id, video_id, machine_key)` to `(tenant_id,
+video_id, roster_index)` — `machine_key` (`_normalized_unit_code(machine)`) is a lossy
+derivation two DISTINCT locked roster entries can share, e.g. roster item 9 ("Audacious class /
+Malta class") and item 13 ("CVA-01 class") on video `d2e37cd6-521a-43aa-a14d-ce096a783c1e` both
+normalize to `CVA01`, so the old `ON CONFLICT (tenant_id, video_id, machine_key)` let the second
+write silently clobber the first row. `_upsert_machine_research_card` / `_update_machine_research_
+validation` / `_load_machine_research_cards` / `enrich_research_payload_readiness` /
+`run_roster_orchestrator` / `roster_repair_dashboard` were all switched to roster_index as the
+real identity (`pipeline_executor.py`).
+
+### 1. Migration NOT applied to prod (build-only chunk, no prod-migration writes)
+
+Same pattern as migration 145/148 above: `main.py`'s `_run_pending_migrations()` auto-applies
+every unrun `.sql` file in `backend/migrations/` on the next backend restart/deploy (tracked in
+the `_migrations` table), so this does not need a manual apply step — verifying it landed after
+the next deploy matters more. Confirm with:
+
+```bash
+storyengine/scripts/se.sh db "SELECT filename, applied_at FROM _migrations WHERE filename = '149_machine_research_cards_roster_index_identity.sql'"
+```
+
+### 2. Recovery replay for the confirmed-damaged video — NOT run against prod by this chunk (read-only DB access only, per the G5 cost cap)
+
+Confirmed live (read-only, 2026-07-30): video `d2e37cd6-521a-43aa-a14d-ce096a783c1e`
+(tenant `561b872d-7b73-45e3-9c44-7f30c3566eda`, "Every British Aircraft Carrier Class Ever
+Built") has a 23-entry locked roster but only **21** `machine_research_cards` rows / 21 distinct
+`machine_key` values. Confirmed by reading `roster_index` for every stored row (`SELECT
+roster_index, machine_key, machine_name FROM machine_research_cards WHERE video_id = '...'
+ORDER BY roster_index`): **roster_index 9 and roster_index 21 are the two missing slots** - the
+"last write wins" clobber kept roster_index 13 (machine_key `CVA01`, "CVA-01 Queen Elizabeth
+class (1960s design) CVA-01 class") over roster_index 9 (same `CVA01`, "CVA-01 predecessors
+Audacious class / Malta class"), and kept roster_index 22 (machine_key
+`LENDLEASEESCORTCARRIERS`, "Lend-Lease escort carriers Ruler class (US-built)") over
+roster_index 21 (same key, "Lend-Lease escort carriers Attacker class (US-built)").
+`research_payload->unit_research_cards` still has all 23 entries intact (never keyed by
+machine_key), so `scripts/replay_research_cards.py` can recover both dropped rows once migration
+149 has been applied (the script's own upsert uses the same roster_index-keyed ON CONFLICT, so
+running it against the OLD schema would just repeat the original collision).
+
+**Exact invocation, once migration 149 is live on prod:**
+
+```bash
+# Dry run first - reports what WOULD change, writes nothing:
+python3 scripts/replay_research_cards.py \
+  --video-id d2e37cd6-521a-43aa-a14d-ce096a783c1e \
+  --tenant-id 561b872d-7b73-45e3-9c44-7f30c3566eda
+
+# Expected dry-run report: before=21, unchanged=21, recover=2 (roster slots 9 and 21 - the two
+# confirmed-missing roster_index values above), missing_card=0, after=23. Re-run the SELECT
+# above first if this has drifted (another session may have already repaired or re-researched
+# one of these two roster slots between this note and the actual apply).
+
+# Then actually write:
+python3 scripts/replay_research_cards.py \
+  --video-id d2e37cd6-521a-43aa-a14d-ce096a783c1e \
+  --tenant-id 561b872d-7b73-45e3-9c44-7f30c3566eda \
+  --apply --json
+```
+
+**Expected before/after row counts:** `machine_research_cards` rows for this video go from
+**21 -> 23**, `COUNT(DISTINCT machine_key)` stays **21** (both recovered rows legitimately share
+a machine_key with their surviving sibling — that's the whole point of the fix), verified via:
+
+```bash
+storyengine/scripts/se.sh db "SELECT COUNT(*) AS row_count, COUNT(DISTINCT machine_key) AS distinct_keys FROM machine_research_cards WHERE video_id = 'd2e37cd6-521a-43aa-a14d-ce096a783c1e'"
+# before: {"row_count": 21, "distinct_keys": 21}
+# after:  {"row_count": 23, "distinct_keys": 21}
+```
+
+What is NOT verified: the migration actually running against the real Supabase Postgres
+instance; the replay script actually invoked against prod (this chunk's cost cap was read-only
+SQL only — no prod writes of any kind); whether any OTHER video in prod has the same
+machine_key-collision damage (this chunk only confirmed and sized the one video named in the
+brief — a fleet-wide `SELECT video_id, COUNT(*) FROM machine_research_cards GROUP BY video_id
+HAVING COUNT(*) < (roster length)`-style sweep across all static_docu videos was out of scope
+and has not been run).

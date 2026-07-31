@@ -459,6 +459,31 @@ def _locked_roster_item_for_machine(roster: list[str], machine: str) -> Optional
     return None
 
 
+def _roster_index_for_identity(roster: list[str], identity: Any) -> Optional[int]:
+    """Resolve a card/machine identity to its 1-based slot in a locked roster.
+
+    This is the roster's real row identity (machine_research_cards migration
+    149 - see that migration for why machine_key alone cannot be trusted).
+    Exact display-name match first: unambiguous even when two DIFFERENT
+    roster entries derive the same _normalized_unit_code (e.g. "Audacious
+    class / Malta class" and "CVA-01 class" both normalize to CVA01, but
+    their display names never collide). Falls back to a code match only
+    when exactly one roster entry has that code."""
+    name = _unit_display_name(identity).strip().lower()
+    if name:
+        for index, machine in enumerate(roster or [], start=1):
+            if _unit_display_name(machine).strip().lower() == name:
+                return index
+    code = _normalized_unit_code(_unit_display_name(identity))
+    if not code:
+        return None
+    candidates = [
+        index for index, machine in enumerate(roster or [], start=1)
+        if _normalized_unit_code(machine) == code
+    ]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _research_source_for_machine(payload: dict, machine: str) -> tuple[str, str]:
     """Prefer one-machine card context; fall back to legacy video-level research."""
     import json
@@ -3461,19 +3486,29 @@ async def enrich_research_payload_readiness(tenant_id: str, video_id: str, resea
     research_payload runs through here so `unit_research_cards[].readiness` is
     always present and consistent (no flicker between enriched/unenriched shapes).
     readiness = {"passed": bool, "warnings": [str]} from machine_research_cards.validation,
-    matched by machine_key; a card with no stored verdict gets readiness = None.
-    Failed cards are NEVER dropped - their verdict and warnings are exactly what
-    the Research and Script tabs must display. Reads the compact verdict table
-    directly (not _load_machine_research_cards, which drops failed rows)."""
+    matched by roster_index (migration 149 - the row identity) via the
+    locked unit_roster: two roster entries can share a machine_key, so a
+    machine_key-only match would apply one machine's verdict to a different
+    machine's card. machine_key stays a fallback for the rare case a
+    payload's unit_roster is unavailable to resolve against. A card with no
+    stored verdict gets readiness = None. Failed cards are NEVER dropped -
+    their verdict and warnings are exactly what the Research and Script tabs
+    must display. Reads the compact verdict table directly (not
+    _load_machine_research_cards, which drops failed rows)."""
     if not isinstance(research_payload, dict):
         return research_payload
     cards = research_payload.get("unit_research_cards")
     if not isinstance(cards, list) or not cards:
         return research_payload
+    roster = [
+        _unit_display_name(item) for item in (research_payload.get("unit_roster") or [])
+        if _unit_display_name(item)
+    ]
+    verdict_by_index: dict[int, dict] = {}
     verdict_by_key: dict[str, dict] = {}
     try:
         rows = await fetch_all(
-            "SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
+            "SELECT machine_key, roster_index, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
             tenant_id, video_id,
         )
     except Exception as exc:  # compact table unavailable -> serve cards with readiness=None
@@ -3482,10 +3517,19 @@ async def enrich_research_payload_readiness(tenant_id: str, video_id: str, resea
     for row in rows or []:
         if not isinstance(row, dict):
             continue
-        key = _normalized_unit_code(str(row.get("machine_key") or ""))
         readiness = _card_readiness_from_validation(row.get("validation"))
-        if key and readiness is not None:
-            verdict_by_key[key] = readiness
+        if readiness is None:
+            continue
+        index = row.get("roster_index")
+        if isinstance(index, int):
+            verdict_by_index[index] = readiness
+        key = _normalized_unit_code(str(row.get("machine_key") or ""))
+        # Fallback-only: first-write-wins, and always overridden below
+        # whenever roster-index resolution succeeds, so this can never
+        # apply one colliding-pair member's verdict to the other once the
+        # roster is available to disambiguate them.
+        if key:
+            verdict_by_key.setdefault(key, readiness)
     enriched = dict(research_payload)
     new_cards: list[Any] = []
     for card in cards:
@@ -3496,9 +3540,13 @@ async def enrich_research_payload_readiness(tenant_id: str, video_id: str, resea
             card.get("unit") or card.get("machine") or card.get("machine_name")
             or card.get("name") or card.get("designation") or ""
         )
-        key = _normalized_unit_code(_unit_display_name(identity))
+        index = _roster_index_for_identity(roster, identity) if roster else None
         card = dict(card)
-        card["readiness"] = verdict_by_key.get(key)  # None when no stored verdict
+        if index is not None and index in verdict_by_index:
+            card["readiness"] = verdict_by_index[index]
+        else:
+            key = _normalized_unit_code(_unit_display_name(identity))
+            card["readiness"] = verdict_by_key.get(key)  # None when no stored verdict
         new_cards.append(card)
     enriched["unit_research_cards"] = new_cards
     return enriched
@@ -7929,70 +7977,69 @@ class PipelineExecutor:
         roster: Optional[list[str]] = None,
         target_machine: Optional[str] = None,
     ) -> dict:
-        """Merge trustworthy compact rows into legacy cards in locked-roster order."""
+        """Merge trustworthy compact rows into legacy cards in locked-roster order.
+
+        Keyed by roster_index (migration 149), not machine_key: two distinct
+        roster entries can normalize to the same machine_key, so a
+        machine_key-keyed merge would silently collapse two different
+        machines' cards into one (see _roster_index_for_identity)."""
         if not isinstance(payload, dict):
             payload = {}
         roster = roster or [
             _unit_display_name(item) for item in (payload.get("unit_roster") or [])
             if _unit_display_name(item)
         ]
-        target_key = _normalized_unit_code(_unit_display_name(target_machine or "")) if target_machine else ""
-        roster_by_key = {
-            _normalized_unit_code(machine): machine for machine in roster
-            if _normalized_unit_code(machine)
-        }
-        roster_index_by_key = {
-            _normalized_unit_code(machine): index for index, machine in enumerate(roster, start=1)
-            if _normalized_unit_code(machine)
-        }
-        if not roster_by_key:
+        if not roster:
             return payload
+        target_index = _roster_index_for_identity(roster, target_machine) if target_machine else None
         try:
-            if target_key:
+            if target_index:
                 rows = await fetch_all(
                     """SELECT machine_key, machine_name, roster_index, card, validation
                        FROM machine_research_cards
-                       WHERE tenant_id = $1 AND video_id = $2 AND machine_key = $3
-                       ORDER BY roster_index, machine_key""",
-                    self.tenant_id, video_id, target_key,
+                       WHERE tenant_id = $1 AND video_id = $2 AND roster_index = $3
+                       ORDER BY roster_index""",
+                    self.tenant_id, video_id, target_index,
                 )
             else:
                 rows = await fetch_all(
                     """SELECT machine_key, machine_name, roster_index, card, validation
                        FROM machine_research_cards
                        WHERE tenant_id = $1 AND video_id = $2
-                       ORDER BY roster_index, machine_key""",
+                       ORDER BY roster_index""",
                     self.tenant_id, video_id,
                 )
         except Exception as exc:  # migration-safe compatibility fallback
             _logger.warning("[machine-research] compact read unavailable: %s", str(exc)[:150])
             return payload
-        cards_by_key: dict[str, dict] = {}
+        cards_by_index: dict[int, dict] = {}
         for card in payload.get("unit_research_cards") or []:
             if not isinstance(card, dict):
                 continue
             identity = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
-            key = _normalized_unit_code(_unit_display_name(identity))
-            if key and key in roster_by_key:
-                cards_by_key[key] = card
+            index = _roster_index_for_identity(roster, identity)
+            if index:
+                cards_by_index[index] = card
         for row in rows:
             if not isinstance(row, dict) or not isinstance(row.get("card"), dict):
                 continue
-            metadata_key = _normalized_unit_code(str(row.get("machine_key") or ""))
+            row_index = row.get("roster_index")
+            if not isinstance(row_index, int) or row_index < 1 or row_index > len(roster):
+                continue
+            expected_key = _normalized_unit_code(roster[row_index - 1])
             name_key = _normalized_unit_code(str(row.get("machine_name") or ""))
             card = row["card"]
             identity = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
-            card_key = _normalized_unit_code(_unit_display_name(identity))
+            card_index = _roster_index_for_identity(roster, identity)
             validation = row.get("validation") or {}
             if (
-                not metadata_key or metadata_key not in roster_by_key
-                or metadata_key != name_key or metadata_key != card_key
-                or row.get("roster_index") != roster_index_by_key[metadata_key]
+                not expected_key or name_key != expected_key
+                or card_index != row_index
                 or (isinstance(validation, dict) and validation.get("passed") is False)
             ):
                 continue
-            cards_by_key[metadata_key] = card
-        cards = [cards_by_key[key] for key in roster_by_key if key in cards_by_key]
+            cards_by_index[row_index] = card
+        cards = [cards_by_index[index] for index in range(1, len(roster) + 1) if index in cards_by_index]
         hydrated = dict(payload)
         hydrated["unit_research_cards"] = cards
         return hydrated
@@ -8020,7 +8067,16 @@ class PipelineExecutor:
     async def _upsert_machine_research_card(
         self, video_id: str, machine: str, roster_index: int, card: dict, validation: dict
     ) -> None:
-        """Checkpoint one compact card under exact tenant/video/machine identity."""
+        """Checkpoint one compact card under exact tenant/video/roster-slot identity.
+
+        Keyed by roster_index (migration 149), not machine_key: two distinct
+        locked roster entries can legitimately normalize to the same
+        machine_key (e.g. two "-class" ship variants), so a machine_key
+        conflict target would let the second entry's write silently clobber
+        the first's row instead of the two coexisting. machine_key stays
+        populated on every write for the informational/no-collision lookups
+        that still use it, it just no longer decides row identity.
+        """
         import json
         machine_key = _normalized_unit_code(machine)
         if not machine_key:
@@ -8031,9 +8087,9 @@ class PipelineExecutor:
                  (tenant_id, video_id, machine_key, machine_name, roster_index, card, validation)
                SELECT $1, v.id, $3, $4, $5, $6::jsonb, $7::jsonb
                FROM videos v WHERE v.id = $2 AND v.tenant_id = $1
-               ON CONFLICT (tenant_id, video_id, machine_key) DO UPDATE SET
+               ON CONFLICT (tenant_id, video_id, roster_index) DO UPDATE SET
+                 machine_key = EXCLUDED.machine_key,
                  machine_name = EXCLUDED.machine_name,
-                 roster_index = EXCLUDED.roster_index,
                  card = EXCLUDED.card,
                  validation = EXCLUDED.validation,
                  updated_at = now()""",
@@ -8047,7 +8103,9 @@ class PipelineExecutor:
                 raise
             _logger.warning("[machine-research] compact write unavailable; legacy checkpoint retained: %s", str(exc)[:150])
 
-    async def _update_machine_research_validation(self, video_id: str, machine: str, validation: dict) -> None:
+    async def _update_machine_research_validation(
+        self, video_id: str, machine: str, roster_index: int, validation: dict
+    ) -> None:
         """Persist a fresh referee verdict for one stored card (validation column ONLY).
 
         Called from READ paths (the no-spend readiness check), so it is
@@ -8055,17 +8113,20 @@ class PipelineExecutor:
         text computed on a read. A card row that does not exist yet simply
         keeps readiness = null until a real save creates it. Fire-and-forget:
         a failed write logs and must never fail the caller's response. This is
-        how stale pre-change verdicts self-heal on the first readiness check."""
+        how stale pre-change verdicts self-heal on the first readiness check.
+
+        Scoped by roster_index (migration 149), not machine_key: two locked
+        roster entries can share a machine_key, and a machine_key-only WHERE
+        would refresh BOTH rows with one machine's verdict."""
         import json
-        machine_key = _normalized_unit_code(machine)
-        if not machine_key:
+        if not isinstance(roster_index, int) or roster_index < 1:
             return
         try:
             await execute(
                 """UPDATE machine_research_cards
                    SET validation = $4::jsonb, updated_at = now()
-                   WHERE tenant_id = $1 AND video_id = $2 AND machine_key = $3""",
-                self.tenant_id, video_id, machine_key, json.dumps(validation),
+                   WHERE tenant_id = $1 AND video_id = $2 AND roster_index = $3""",
+                self.tenant_id, video_id, roster_index, json.dumps(validation),
             )
         except Exception as exc:
             _logger.warning("[machine-research] readiness verdict refresh skipped: %s", str(exc)[:150])
@@ -9873,20 +9934,23 @@ class PipelineExecutor:
                     f"systemic failure: 3 machines in a row did not clear (stopped at {machine})"
                 )
                 break
-        # Full-roster readiness from the stored referee verdicts.
+        # Full-roster readiness from the stored referee verdicts. Keyed by
+        # roster_index (migration 149's row identity), not machine_key: two
+        # roster entries can share a machine_key, and a machine_key-keyed
+        # dict would collapse them onto one verdict.
         ready_count = 0
         try:
             rows = await fetch_all(
-                "SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
+                "SELECT roster_index, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
                 self.tenant_id, video_id,
             )
-            verdicts = {
-                _normalized_unit_code(str(row.get("machine_key") or "")): _card_readiness_from_validation(row.get("validation"))
-                for row in rows or [] if isinstance(row, dict)
+            verdicts_by_index = {
+                row.get("roster_index"): _card_readiness_from_validation(row.get("validation"))
+                for row in rows or [] if isinstance(row, dict) and isinstance(row.get("roster_index"), int)
             }
             ready_count = sum(
-                1 for item in roster
-                if (verdicts.get(_normalized_unit_code(item)) or {}).get("passed")
+                1 for index, _item in enumerate(roster, start=1)
+                if (verdicts_by_index.get(index) or {}).get("passed")
             )
         except Exception as exc:  # noqa: BLE001
             _logger.warning("[orchestrator] readiness recount unavailable: %s", str(exc)[:150])
@@ -9966,17 +10030,19 @@ class PipelineExecutor:
         if not roster:
             return {"status": "failed", "error": "No locked machine roster found"}
         payload = await self._load_machine_research_cards(video_id, payload, roster)
-        verdicts: dict[str, Optional[dict]] = {}
+        # Keyed by roster_index (migration 149's row identity), not
+        # machine_key: two roster entries can share a machine_key, and a
+        # machine_key-keyed dict would apply one machine's verdict to a
+        # different roster slot.
+        verdicts_by_index: dict[int, Optional[dict]] = {}
         try:
             rows = await fetch_all(
-                "SELECT machine_key, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
+                "SELECT roster_index, validation FROM machine_research_cards WHERE tenant_id = $1 AND video_id = $2",
                 self.tenant_id, video_id,
             )
             for row in rows or []:
-                if isinstance(row, dict):
-                    key = _normalized_unit_code(str(row.get("machine_key") or ""))
-                    if key:
-                        verdicts[key] = _card_readiness_from_validation(row.get("validation"))
+                if isinstance(row, dict) and isinstance(row.get("roster_index"), int):
+                    verdicts_by_index[row["roster_index"]] = _card_readiness_from_validation(row.get("validation"))
         except Exception as exc:  # noqa: BLE001
             _logger.warning("[orchestrator] dashboard verdict read unavailable: %s", str(exc)[:150])
         previews = payload.get("machine_script_previews")
@@ -10018,9 +10084,9 @@ class PipelineExecutor:
             _logger.warning("[orchestrator] dashboard miss-reason read unavailable: %s", str(exc)[:150])
         units: list[dict] = []
         ready_count = 0
-        for machine in roster:
+        for roster_position, machine in enumerate(roster, start=1):
             code = _normalized_unit_code(machine)
-            verdict = verdicts.get(code)
+            verdict = verdicts_by_index.get(roster_position)
             card = _research_card_for_machine(payload, machine)
             package = _verified_source_package_for_machine(payload, machine)
             if package is not None:
@@ -13195,6 +13261,7 @@ scenes."""
         await self._update_machine_research_validation(
             video_id,
             matched,
+            scene,
             {
                 "machine": matched,
                 "passed": not source_errors,
