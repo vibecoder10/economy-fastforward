@@ -46,20 +46,33 @@ transition_engine,config}.py:
     background over its transition_out duration, and the next scene
     independently fades in from black over its transition_in duration. So
     "crossfade" (0.4s, same-act) and "dip_to_black" (1.5s, act boundary) are
-    the SAME shape (fade through black) and differ ONLY in duration; there is
-    no true cross-dissolve anywhere in this composition. ffmpeg's
+    the SAME shape (fade through black) and differ ONLY in duration. ffmpeg's
     ``xfade=transition=fadeblack`` (fade-through-black — a DISTINCT named
     xfade transition from plain ``fade``, which is a true cross-dissolve/
     alpha blend and was verified NOT to match here: a red/blue test render
     with ``fade`` produced a visible purple blend frame mid-transition,
     confirming it mixes both clips rather than going through black) is the
-    exact match; we never use ``dissolve`` or plain ``fade``. The first scene fades in from black over 1.0s,
-    the last fades to black over 1.0s (Scene.tsx's ``fade_from_black`` /
-    ``fade_to_black`` transition types — same fade-through-black shape too).
-    A ``cut`` transition type (instant, no fade) is handled for
-    forward-compatibility even though transition_engine.py never emits one
-    today — joins at a ``cut`` boundary use the concat demuxer (stream copy,
-    no re-encode) instead of xfade.
+    exact match for every one of those types. The first scene fades in from
+    black over 1.0s, the last fades to black over 1.0s (Scene.tsx's
+    ``fade_from_black`` / ``fade_to_black`` transition types — same
+    fade-through-black shape too). A ``cut`` transition type (instant, no
+    fade) joins at that boundary via the concat demuxer (stream copy, no
+    re-encode) instead of xfade.
+
+    D12-2 adds two more distinct treatments, driven by transition_engine's
+    per-shot transition_kind (migration 148) instead of act/style alone:
+    ``crossfade`` is now also used (with its own duration) for the
+    location_cut and montage kinds — no new join style, the existing
+    fade-through-black xfade already covers it, distinguished only by
+    duration. ``dissolve`` (the memory kind) IS a new join style: unlike
+    every type above, this one genuinely uses plain ``xfade=transition=fade``
+    (the true cross-dissolve ruled out for the act/style-only types above) —
+    intentional this time, reserved for the one kind that wants a soft blend
+    rather than a dip through black. This only affects the ffmpeg engine
+    (``STATIC_RENDER_ENGINE=ffmpeg``); Scene.tsx has no true cross-dissolve
+    compositing, so on the default Remotion engine a ``dissolve`` type still
+    renders as a longer fade-through-black (duration-driven, same as every
+    non-cut type) — see Scene.tsx's transInType/transOutType handling.
 
 Engine selection: STATIC_RENDER_ENGINE env var, "remotion" (default) or
 "ffmpeg". Concurrency for the parallel per-scene renders: FFMPEG_RENDER_CONCURRENCY
@@ -95,10 +108,12 @@ _DEFAULT_HEIGHT = 1080
 _DEFAULT_CRF = 20
 _DEFAULT_PRESET = "veryfast"
 
-# Transition-out/in type strings (from transition_engine.determine_transition)
-# that render as a fade-through-black in Scene.tsx. Every type today maps
-# here except the not-yet-emitted "cut".
-_FADE_TYPES = {"crossfade", "dip_to_black", "fade_to_black", "fade_from_black"}
+# D12-2: join "style" (build_transition_plan's output) -> the xfade
+# `transition=` name used to render it. Anything not listed here (i.e. every
+# style except "dissolve") uses "fadeblack" — see build_transition_plan and
+# build_group_join_filter_complex.
+_XFADE_TRANSITION_BY_STYLE = {"dissolve": "fade"}
+_DEFAULT_XFADE_TRANSITION = "fadeblack"
 
 
 def render_engine() -> str:
@@ -227,7 +242,10 @@ def build_transition_plan(scenes: list[dict[str, Any]]) -> dict[str, Any]:
     Reads the transition_in/transition_out already assigned by
     assign_transitions (skills/video-pipeline) onto each scene — this
     function does not re-derive transition choice, only translates it into
-    an ffmpeg join style.
+    an ffmpeg join style ("cut" — concat demuxer, no filter edge; "fade" —
+    fade-through-black xfade, D12-2's location_cut/montage kinds included,
+    distinguished only by duration; "dissolve" — D12-2's memory kind, a true
+    cross-dissolve xfade instead of fade-through-black).
     """
     if not scenes:
         return {"joins": [], "lead_in_duration": 0.0, "lead_out_duration": 0.0}
@@ -236,8 +254,18 @@ def build_transition_plan(scenes: list[dict[str, Any]]) -> dict[str, Any]:
     for i in range(len(scenes) - 1):
         t = scenes[i].get("transition_out") or {}
         ttype = t.get("type", "crossfade")
-        style = "cut" if ttype == "cut" else "fade"
-        duration = float(t.get("duration") or 0.4)
+        if ttype == "cut":
+            style = "cut"
+        elif ttype == "dissolve":
+            style = "dissolve"
+        else:
+            style = "fade"
+        # D12-2: `or 0.4` would silently discard an explicit 0.0 (falsy in
+        # Python) — that used to be harmless because no type ever legitimately
+        # carried a zero duration, but HARD_CUT_DURATION now does (continuous/
+        # time_cut). Explicit None-check preserves it.
+        raw_duration = t.get("duration")
+        duration = float(raw_duration) if raw_duration is not None else 0.4
         joins.append({"from": i, "to": i + 1, "style": style, "duration": duration})
 
     lead_in = scenes[0].get("transition_in") or {}
@@ -274,8 +302,13 @@ def build_group_join_filter_complex(
     lead_out_duration: float,
 ) -> tuple[str, str, str]:
     """Build the filter_complex chaining xfade (video) + acrossfade (audio)
-    across one group of scenes (all joined by fades — no cuts inside a
-    group). Returns (filter_complex_string, final_video_label, final_audio_label).
+    across one group of scenes (all joined by "fade" or "dissolve" style —
+    no "cut" joins inside a group; see build_transition_plan/group_by_cuts).
+    Each boundary's xfade `transition=` name follows its own join's style
+    (D12-2: fadeblack for "fade", true cross-dissolve for "dissolve" — see
+    _XFADE_TRANSITION_BY_STYLE); acrossfade is unchanged either way — a
+    longer duration alone is what makes the memory kind's audio crossfade
+    "gentle". Returns (filter_complex_string, final_video_label, final_audio_label).
 
     `durations` is indexed by POSITION WITHIN THE GROUP (durations[0] is the
     duration of group_indices[0], etc.) — the caller passes only the group's
@@ -296,10 +329,13 @@ def build_group_join_filter_complex(
             scene_idx = group_indices[pos]
             join = joins_by_from[scene_idx]
             d = join["duration"]
+            xfade_transition = _XFADE_TRANSITION_BY_STYLE.get(
+                join.get("style"), _DEFAULT_XFADE_TRANSITION
+            )
             offset = max(0.0, running_duration - d)
             out_v, out_a = f"v{pos}", f"a{pos}"
             filters.append(
-                f"[{cur_v}][{pos + 1}:v]xfade=transition=fadeblack:duration={d:.3f}:"
+                f"[{cur_v}][{pos + 1}:v]xfade=transition={xfade_transition}:duration={d:.3f}:"
                 f"offset={offset:.3f}[{out_v}]"
             )
             filters.append(f"[{cur_a}][{pos + 1}:a]acrossfade=d={d:.3f}[{out_a}]")

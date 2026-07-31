@@ -1902,3 +1902,135 @@ machine_key-collision damage (this chunk only confirmed and sized the one video 
 brief — a fleet-wide `SELECT video_id, COUNT(*) FROM machine_research_cards GROUP BY video_id
 HAVING COUNT(*) < (roster length)`-style sweep across all static_docu videos was out of scope
 and has not been run).
+
+---
+
+## D12-2 — distinct render treatments per transition_kind (2026-07-30)
+
+**Scope:** transition_engine.determine_transition (skills/video-pipeline/render/audio_sync/) now
+maps assets.transition_kind (migration 148, D9-6 harvest — opening/continuous/time_cut/
+location_cut/montage/memory) to a distinct treatment where act-boundary/style-change don't already
+fire; render_static_ffmpeg.build_transition_plan/build_group_join_filter_complex (storyengine/
+backend/) honor two new join shapes (reused "cut"/"fade"; new "dissolve" — a true
+`xfade=transition=fade` cross-dissolve, distinct from the fade-through-black "fadeblack" every
+prior type used); render_static._gather_segments/_build_render_config thread assets.transition_kind
+from the DB row into the scene dicts determine_transition reads. render_stitch.py (grok-native
+concat) is untouched by design — literal concatenation, no transition grammar exists there to
+extend; documented as a standing limitation, not a gap of this chunk.
+
+**Threading trace (assets row -> render config -> transition):** render_static._gather_segments's
+assets SELECT now fetches `transition_kind`; each image dict in a segment's `images` list carries
+it through unchanged (`_images_for_segment` already passed the full dict, no change needed there);
+`_build_render_config` copies it onto each per-image scene dict it appends to `scenes` (key:
+`transition_kind`); `assign_transitions(scenes)` (unchanged call site) invokes
+`determine_transition(scenes[i], scenes[i+1])` per boundary, which reads
+`next_scene.get("transition_kind")` — the INCOMING shot's own kind, mirroring
+ShotDraft.transition_from_previous's semantics (the kind describes how THAT shot cuts in from the
+one before it, matching custom_film_director.py:288-291). `render_static_ffmpeg.build_transition_
+plan` then reads the resulting `transition_out.type`/`duration` off each scene dict (unchanged
+contract) and maps it to a join style; `build_group_join_filter_complex` picks the xfade
+`transition=` name per-boundary from that join's own `style` (`_XFADE_TRANSITION_BY_STYLE`), not a
+group-wide mode, so a "fade" boundary and a "dissolve" boundary can sit in the same fade-chain
+group with each keeping its own shape.
+
+**Treatment map** (skills/video-pipeline/render/audio_sync/config.py, all new constants):
+continuous/time_cut -> `{"type": "cut", "duration": HARD_CUT_DURATION=0.0}` (same hard-cut
+treatment for both — the spec draws no render distinction between them); location_cut ->
+`{"type": "crossfade", "duration": LOCATION_CUT_FADE=0.4}` (same shape/duration as today's generic
+default, kept as its own named constant for independent tuning); montage -> `{"type": "crossfade",
+"duration": MONTAGE_FADE=0.25}`; memory -> `{"type": "dissolve", "duration": MEMORY_DISSOLVE=0.8}`
+(the one genuinely new render treatment — true cross-dissolve in the ffmpeg engine). "opening" has
+no map entry by design: assign_transitions never routes the FIRST scene's transition_in through
+determine_transition at all (hardcoded fade_from_black), so nothing needed to special-case it;
+confirmed with a test asserting a stray "opening" kind still falls through to the generic default
+unchanged.
+
+**Precedence proof:** `test_act_change_wins_over_kind` and `test_style_change_wins_over_kind`
+(skills/video-pipeline/render/audio_sync/tests/test_transitions.py) construct a boundary with BOTH
+an act/style change AND a kind (e.g. act change + `transition_kind: "memory"`) and assert the
+dip_to_black/STYLE_CHANGE_FADE result wins, kind never consulted — matches the rule ordering in
+determine_transition's docstring (1: act, 2: style, 3: kind, 4: generic default) where kind sits
+strictly between style and the old generic fallback, never above either proven rule.
+
+**Absent-kind byte-identical proof:** three layers — (a) determine_transition:
+`test_absent_kind_is_byte_identical_to_pre_d12_2_behavior` / `test_null_kind_is_byte_identical_to_
+absent_kind` assert the exact pre-chunk dict; (b) assign_transitions:
+`test_full_scene_list_byte_identical_with_and_without_kind_key_present_but_null` diffs a full
+multi-scene plan built with the key omitted vs the key present-but-None, scene-by-scene equal; (c)
+render_static._build_render_config: `test_build_render_config_backward_compat_no_kind_anywhere`
+proves the real render-config builder (not a hand-built scene dict) produces the exact pre-D12-2
+generic-crossfade result when no asset row in the batch carries a kind — the realistic "every video
+before migration 148" case, since transition_kind is NULL on every pre-migration asset row.
+
+**A genuine bug found and fixed in the same diff:** render_static_ffmpeg.build_transition_plan's
+duration line was `float(t.get("duration") or 0.4)` — Python falsy-0.0 discards an EXPLICIT zero
+duration and silently substitutes 0.4. Harmless before this chunk (no type ever legitimately
+carried 0.0), but HARD_CUT_DURATION=0.0 now flows through this exact line for continuous/time_cut,
+so it was fixed to an explicit `is not None` check (surfaced by
+`test_build_transition_plan_kind_cut_type_still_maps_to_cut_style` failing with 0.4 instead of 0.0
+before the fix). The duration is not consumed downstream for "cut"-style joins today (group_by_cuts
+only reads `style`, never a cut join's duration inside the fade-chain filter builder), so this had
+no live behavioral consequence pre-fix, only a wrong value sitting in the plan dict — fixed anyway
+since the plan dict is exactly what this chunk's tests (and any future consumer) assert against.
+
+**Stash-proof method:** never used `git stash` or any in-place revert of this worktree's own
+tracked files. "Reverted" state = the untouched MAIN checkout
+(`/Users/ryanayler/economy-fastforward/storyengine` + its sibling `skills/video-pipeline` and
+`remotion-video`, confirmed clean of any change to the touched files via `git status --short`
+before starting) run with the SAME venv binary
+(`/Users/ryanayler/economy-fastforward/storyengine/backend/venv/bin/python`) the worktree tests
+also ran under. This is safer than an in-place patch/checkout cycle — zero risk to this branch's
+own git state — and mathematically equivalent, since main's backend/skills files at the commit this
+branch forked from ARE the pre-chunk code.
+
+**Full backend suite, reverted vs applied, sorted FAILED-test-name sets:** initial applied run
+showed 29 failures (28 in test_custom_film_remotion.py + 1 pre-existing) vs reverted's 1 — traced
+to a FRESH-WORKTREE ENVIRONMENT GAP, not a code regression: `custom_film_remotion.renderer_bundle_
+hash()` hashes real files under `remotion-video/node_modules/@fontsource/...` and
+`remotion-video/public/motion-audio/*.wav`, both entirely gitignored (`remotion-video/public/` line
+41 of root .gitignore; `remotion-video/node_modules/` via remotion-video/.gitignore) and therefore
+never materialized by `git worktree add` — present in the main checkout only because `npm install`
++ `scripts/generate-motion-audio.mjs` were run there at some point outside git. Confirmed root
+cause by symlinking both paths from the main checkout into the worktree (read-only, for
+verification only, removed again after — never committed, `git status --short` empty of them) and
+re-running: all 81 test_custom_film_remotion.py tests then passed. This is a standing gap for ANY
+worker in ANY fresh worktree touching that test file, unrelated to this or any specific chunk's
+diff — not something a python transitions-render chunk should fix (touches `custom_film_*`,
+explicitly out of scope). With the environment gap corrected for a true apples-to-apples run:
+reverted 1 failed / 4085 passed / 4 skipped vs applied 1 failed / 4108 passed / 4 skipped (delta
++23 = exactly this chunk's new test file, `tests/test_d12_2_transition_kind_render.py`); sorted
+FAILED-name sets diffed BYTE-IDENTICAL (`diff` exit 0) — both sides' one failure is
+`test_youtube_oauth_diagnostics.py::test_youtube_oauth_diagnostics_reports_missing_config_without_
+secret_values`, pre-existing (a missing `youtube_oauth_diagnostics` attribute on `routes.google_
+auth`, unrelated to rendering), confirmed present on the untouched main checkout too.
+
+**audio_sync suite, reverted vs applied:** `render/audio_sync/tests/test_run_audio_sync_keyless.py`
+makes REAL network calls to the OpenAI Whisper API (visible in captured output: real HTTP 401s
+against a fake key) and is demonstrably flaky independent of any code change — proven by running it
+in isolation twice on the UNMODIFIED main checkout and getting the SAME 4 failures both times, then
+running the byte-identical file (confirmed via `diff`, exit 0, on both the test file and
+`run_audio_sync.py` under test) on the worktree and getting a DIFFERENT 5-failure set depending on
+whether it ran alone or alongside the rest of the directory. It imports only `render.audio_sync.
+transcriber` and `render.run_audio_sync` — zero dependency on transition_engine.py or config.py, so
+this chunk cannot be the cause. Excluding that one pre-existing flaky file
+(`--ignore=render/audio_sync/tests/test_run_audio_sync_keyless.py`), the REST of the audio_sync
+suite is fully deterministic and byte-identical in shape: reverted 52 passed / 0 failed vs applied
+68 passed / 0 failed (delta +16 = exactly the new TestTransitionKindTreatments tests added to
+test_transitions.py). test_transitions.py alone: reverted 8 passed vs applied 24 passed (the same
++16), 0 failed either side.
+
+**What is NOT verified:** an actual rendered video frame — every assertion here is on constructed
+plan dicts / filtergraph strings, never a real ffmpeg or Remotion invocation (matches this chunk's
+$0 budget; a real eyeball pass on a rendered video with each kind belongs in the deploy-window
+verification pass, per the brief). The Remotion engine (default, `STATIC_RENDER_ENGINE=remotion`)
+was NOT modified — Scene.tsx has no true cross-dissolve compositing, so the memory kind's
+"dissolve" only becomes a literal cross-dissolve on the ffmpeg engine
+(`STATIC_RENDER_ENGINE=ffmpeg`); on Remotion it still renders as a longer fade-through-black
+(duration-driven from the same 0.8s, since Scene.tsx's opacity curve only special-cases "cut", not
+type-by-name — verified by reading Scene.tsx:403-426, not modified). Whether STATIC_RENDER_ENGINE=
+ffmpeg is even the production-default engine for any current customer video was not checked — if
+it isn't, this chunk's distinct treatments are real in the constructed plan but only visually
+distinct on a render that opts into the ffmpeg engine today. No migration, no planner/prompt
+changes (none needed — migration 148 and its planner-side TRANSITION line already ship, per the
+brief). No live DB read of a real video's assets.transition_kind values to confirm the planner is
+actually populating non-NULL kinds at the volume assumed — not checked from this Mac.

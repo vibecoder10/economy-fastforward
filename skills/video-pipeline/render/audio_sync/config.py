@@ -51,6 +51,31 @@ ACT_TRANSITION_BLACK: float = 1.5
 """Brief dip-to-black between acts."""
 
 # ---------------------------------------------------------------------------
+# D12-2: per-shot transition_kind treatments (skills/video-pipeline/render/
+# audio_sync/transition_engine.py's TRANSITION_KIND_TREATMENTS). Only reached
+# when neither an act change nor a style change fired (those two rules keep
+# precedence — see determine_transition's docstring) and the boundary's
+# incoming shot carries a transition_kind (migration 148,
+# assets.transition_kind). Taste-neutral defaults; tune here, not inline.
+# ---------------------------------------------------------------------------
+HARD_CUT_DURATION: float = 0.0
+"""continuous / time_cut kinds — instant cut, no fade (transition type 'cut')."""
+
+LOCATION_CUT_FADE: float = 0.4
+"""location_cut kind — quick crossfade. Same length as the generic default
+(CROSSFADE_DURATION) by design; kept as its own constant so it can be tuned
+independently later."""
+
+MONTAGE_FADE: float = 0.25
+"""montage kind — short, rhythmic crossfade (faster than the generic default)."""
+
+MEMORY_DISSOLVE: float = 0.8
+"""memory kind — long dissolve with a gentle audio crossfade (transition type
+'dissolve' — a true cross-dissolve in the ffmpeg render engine; the Remotion
+engine has no true-dissolve compositing today so it renders this as a longer
+fade-through-black, same shape as every other non-cut type)."""
+
+# ---------------------------------------------------------------------------
 # Alignment thresholds
 # ---------------------------------------------------------------------------
 MIN_MATCH_RATIO: float = 0.6

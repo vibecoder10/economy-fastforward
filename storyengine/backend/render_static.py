@@ -126,7 +126,8 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
             "put the voiceover under the images)."
         )
     images = await fetch_all(
-        "SELECT scene, image_index, image_url, generation_method, hero_shot, caption "
+        "SELECT scene, image_index, image_url, generation_method, hero_shot, caption, "
+        "transition_kind "
         "FROM assets WHERE video_id=$1 AND tenant_id=$2 AND image_url IS NOT NULL "
         "ORDER BY scene, image_index",
         video_id, tenant_id,
@@ -167,6 +168,13 @@ async def _gather_segments(video_id: str, tenant_id: str) -> list[dict]:
                 "image_url": img["image_url"],
                 "source_index": int(img.get("image_index") or local_index),
                 "caption": _parse_caption(img.get("caption")),
+                # D12-2: migration 148's per-shot cut-type signal, threaded
+                # through so _build_render_config can hand it to
+                # transition_engine.determine_transition. NULL for every row
+                # written before that migration and any shot the planner
+                # didn't tag — determine_transition's default (quick
+                # crossfade) is unaffected by a NULL/absent value here.
+                "transition_kind": img.get("transition_kind"),
             }
             for local_index, img in enumerate(picked, start=1)
         ]
@@ -246,6 +254,12 @@ def _build_render_config(video_id: str, segments: list[dict]) -> dict:
                 "image_path": f"Scene_{seg['scene']:02d}_{local_index:02d}.png",
                 "image_index": local_index,
                 "source_image_index": image.get("source_index") or local_index,
+                # D12-2: read by transition_engine.determine_transition (via
+                # assign_transitions below) to pick this boundary's
+                # treatment when this image is the INCOMING shot of a cut.
+                # None for every pre-migration-148 asset row — falls through
+                # to determine_transition's existing default unchanged.
+                "transition_kind": image.get("transition_kind"),
                 "display_start": view_start,
                 "display_end": view_end,
                 "display_duration": view_duration,
