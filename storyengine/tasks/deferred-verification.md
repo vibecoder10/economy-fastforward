@@ -3761,3 +3761,71 @@ worktree, not part of the change.
   confirmed by grep) before this chunk, so the new route is live the moment the process restarts —
   no additional wiring step exists to forget.
 
+
+## D11-3: mechanical prompt compiler (film-studio audit point 18 closure)
+
+- **What shipped:** `compose_shot_cinematography(shot)` in
+  `skills/video-pipeline/storyboard/shot_archetypes.py` — a PURE function translating a shot's
+  structured `shot_archetype`/`lens_mm`/`camera_height`/`dof` (D11-1/D11-2) fields into the
+  cinematography clause that now LEADS every draw prompt, at all three assembly points:
+  `coverage.py::generate_coverage_frames` (first-draw), `coverage_to_app.py::_plan_sheet_prompts`
+  (sheet-preview), and `coverage_to_app.py::redraw_asset_image` (redraw, with a freshly-added
+  `shot_archetype`/`lens_mm`/`camera_height`/`dof`/`shot_location` SELECT — migrations 149/150/143,
+  no new migration). A new rule 29 in the coverage system prompt tells the planner the compiler now
+  owns camera/composition language for a tagged shot; rule 11 is reconciled to point at it. A new
+  warn-only check, `check_shot_camera_prose_redundant`, flags a tagged shot whose own description
+  still repeats obvious camera vocabulary.
+- **Amendment mid-chunk (Ryan, cookie-cutter guard):** the clause stays craft-only (never
+  mood/lighting/palette — those keep flowing from existing channels), compact (at most two
+  sentences even with archetype+location+DP all present), and interpolates the shot's own
+  `shot_location` (D6-2/migration 143, plain data, never LLM prose) ONLY for the ESTABLISHING
+  archetype category, folded into the SAME sentence (never a third). Verified live: the identical
+  archetype drawn in two scenes with different mood/environment/genre profiles produces an
+  identical craft clause (except the interpolated location) and a completely different full prompt
+  — see `test_cookie_cutter_defense_same_archetype_two_scenes_different_full_prompts` in the new
+  pipeline test file.
+- **Byte-identical legacy proof:** every shot with neither a valid archetype nor any DP field
+  (every plan before D11-1/D11-2, and any untagged shot going forward) gets
+  `compose_shot_cinematography` returning `""` — the exact same description string flows through
+  all three assembly points unchanged. Proven directly at the REAL assembly points (not just the
+  helper level) for the SAMPLE/D9_1_ERA/D9_6_7_ERA directive-era fixtures, through
+  `generate_coverage_frames`, `_plan_sheet_prompts`, and a mocked `redraw_asset_image`.
+- **Planted-marker proof:** a marker planted into a monkeypatched catalog entry's `image_setup`
+  lands in the clause; a different marker planted into the shot's `description` never does —
+  `compose_shot_cinematography` never reads `shot["description"]` at all.
+- **Existing test updated (intentional behavior change, not a regression):**
+  `test_d11_2_shot_dp.py::test_generate_coverage_frames_dp_text_never_reaches_the_draw_prompt` was
+  renamed to `..._dp_row_syntax_never_reaches_the_draw_prompt` and its assertions flipped from
+  "lens_mm/camera_height values never appear in the prompt" (true when D11-2 shipped, since DP was
+  inert metadata) to "the raw `DP:` row syntax never appears, but the TRANSLATED values now do" —
+  this chunk's whole point is to start consuming those fields mechanically. The `if __name__ ==
+  "__main__":` block's call list was updated to match the renamed function.
+- **Pipeline suite (repo-root `python3`, `skills/video-pipeline && python3 -m pytest tests/ -q
+  --continue-on-collection-errors`):** reverted (main, unmodified) = 18 failed, 616 passed, 5
+  errors. Applied (this worktree, new test file excluded for a fair diff) = 18 failed, 616 passed,
+  5 errors. `diff` of the sorted FAILED/ERROR name sets: **empty — byte-identical.** All 18
+  failures + 5 collection errors are pre-existing environment issues (missing `sound_prompt_bot`
+  module, Haiku-mock assumptions in `test_music_selector.py`, an Airtable import error) unrelated
+  to this chunk. Full run including the new `test_d11_3_prompt_compiler.py` (33 tests): 649 passed.
+- **Full backend suite (backend venv, `./venv/bin/python -m pytest tests/ -q
+  --continue-on-collection-errors`):** reverted (main) = 4178 passed, 4 skipped, 0 failed. Applied
+  (this worktree, new assembly test file excluded for a fair diff) = 4178 passed, 4 skipped, 0
+  failed. Sorted FAILED/ERROR sets both empty — **byte-identical.** Full run including the new
+  `test_d11_3_prompt_compiler_assembly.py` (7 tests): 4185 passed, 4 skipped, 0 failed.
+- **Worktree scaffolding (temporary, deleted after use):** `backend/venv`, `remotion-video/
+  node_modules`, and `remotion-video/public` were symlinked from the MAIN checkout to run the real
+  backend venv's pytest and the pipeline's node/remotion-adjacent imports against this worktree's
+  code, then removed immediately after (`git status --short` confirmed absent/untracked before,
+  during, and after the redraw's SELECT/`_setup_id` regression check — never staged, never part of
+  the diff).
+- **v1 limitations, stated plainly:** (1) no fuzzy deduplication — a planner shot that disobeys
+  rule 29 and writes camera prose anyway on a tagged shot gets that fact stated twice (once by the
+  compiler, once by its own sentence); `check_shot_camera_prose_redundant` only flags a small,
+  deliberately incomplete starter vocabulary (a lens-mm pattern, "close-up", "wide shot"), warn-only.
+  (2) location interpolation only fires for the ESTABLISHING archetype category — a coverage/detail/
+  angle/composition/specialty shot never interpolates a location even when one is known, by design
+  (a location name reads as noise on a tight face shot). (3) a HANDFUL of the 45 catalog entries
+  (predating this chunk, from D11-1) embed an archetype-intrinsic optical trait in their own
+  `image_setup` text where the treatment defines the shot itself (silhouette's required backlight,
+  hero_shot's dramatic light, texture_detail's raking light) — this is catalog content, not
+  something this compiler invents, and reproducing it verbatim is the whole point.

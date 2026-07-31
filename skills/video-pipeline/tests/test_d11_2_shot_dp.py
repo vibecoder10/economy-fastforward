@@ -507,7 +507,24 @@ def test_generate_coverage_frames_threads_dp_fields_onto_frame_dicts():
     assert angle["dof"] == "shallow"
 
 
-def test_generate_coverage_frames_dp_text_never_reaches_the_draw_prompt():
+def test_generate_coverage_frames_dp_row_syntax_never_reaches_the_draw_prompt():
+    """UPDATED for D11-3 (mechanical prompt compiler): when this test was
+    written (D11-2), DP was pure inert metadata — nothing consumed it, so
+    "the raw values don't appear in the prompt" was a correct (if indirect)
+    proxy for "the row was stripped at parse time and nothing re-introduced
+    it". D11-3 is the chunk that INTENTIONALLY starts consuming these
+    fields: compose_shot_cinematography (storyboard/shot_archetypes.py)
+    translates them into fixed English phrasing, and this function's
+    assembly points now PREPEND that clause. So "24mm"/"overhead" NOW
+    appearing in the prompt is the whole point of that chunk, not a
+    regression — this test is narrowed to what it was actually protecting:
+    the raw ROW SYNTAX (the literal "DP:" label with its pipe-separated
+    slots) must never leak through, which remains true (it's stripped by
+    _strip_shot_metadata_rows before this function ever sees the shot dict,
+    unrelated to whether compose_shot_cinematography later translates the
+    values). See test_d11_3_prompt_compiler.py for the full compiler
+    coverage, including a planted-marker proof that the clause is sourced
+    from the archetype catalog/DP fields, never from the description."""
     moment = {
         "moment_number": 1,
         "master": {
@@ -522,9 +539,16 @@ def test_generate_coverage_frames_dp_text_never_reaches_the_draw_prompt():
         model_override="z-image"))
     assert frames is not None and len(frames) == 1
     prompt = ic.calls[0][1]
-    assert "overhead" not in prompt
-    assert "DP" not in prompt
-    assert "24mm" not in prompt
+    # The raw row syntax never appears — never did, never will (stripped at
+    # parse time, long before this function runs).
+    assert "DP:" not in prompt
+    assert "DP :" not in prompt
+    # D11-3: the compiled clause DOES now translate lens_mm/camera_height/
+    # dof into the prompt, deliberately — this is the mechanical-compiler
+    # chunk's whole point (Ryan: "are the prompts mechanically assembled
+    # from the database of the shot angles and cinematography language?").
+    assert "24mm" in prompt
+    assert "overhead" in prompt
 
 
 # =============================================================================
@@ -639,7 +663,7 @@ if __name__ == "__main__":
     test_check_shot_dp_valid_counts_independent_issues_on_same_shot()
     test_check_shot_dp_valid_flags_only_the_invalid_shot()
     test_generate_coverage_frames_threads_dp_fields_onto_frame_dicts()
-    test_generate_coverage_frames_dp_text_never_reaches_the_draw_prompt()
+    test_generate_coverage_frames_dp_row_syntax_never_reaches_the_draw_prompt()
     test_enforce_setup_variety_swaps_dp_fields_with_content()
     test_plan_moments_deterministic_preserves_dp_through_full_pipeline()
     print("ok — D11-2 shot-DP tests passed")

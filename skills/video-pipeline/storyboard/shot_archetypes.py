@@ -596,3 +596,170 @@ def format_archetype_menu() -> str:
             tail = f" (avoid when {a.avoid_when})" if a.avoid_when else ""
             lines.append(f"  {a.id} — {a.purpose}{tail}")
     return "\n".join(lines)
+
+
+# =============================================================================
+# D11-3 (mechanical prompt compiler — film-studio audit point 18 closure,
+# Ryan: "the prompt assembler was not really mechanical but really invented
+# from the ai — are the prompts mechanically assembled from the database of
+# the shot angles and cinematography language?"). Before this chunk,
+# shot_archetype/lens_mm/camera_height/dof (D11-1/D11-2) were parsed,
+# validated (warn-only) and PERSISTED, but never actually CONSUMED by prompt
+# assembly — the draw prompt's cinematography language was still 100% the
+# planner LLM's own prose, with these structured fields riding alongside as
+# inert metadata. compose_shot_cinematography is the fix: a PURE function
+# that translates those fields into the clause that LEADS the draw prompt,
+# every assembly point (skills/video-pipeline/storyboard/coverage.py's
+# generate_coverage_frames, storyengine/backend/scripts/coverage_to_app.py's
+# _plan_sheet_prompts and redraw_asset_image) now calls instead of drawing
+# straight from the planner's free prose.
+#
+# COOKIE-CUTTER GUARD (Ryan's amendment, same day): "make sure how it gets
+# assembled is strategic and not robotic, the last thing we want is a
+# cookie-cutter video." Three deliberate scope limits keep this true:
+#   1. CRAFT ONLY, NEVER SCENE MOOD. This function ADDS geometry/optics
+#      facts only — framing, lens, height, depth, plus the archetype's own
+#      composition guidance and (item 3, below) a plain location name — and
+#      NOTHING ELSE. It never invents mood, lighting, or palette language of
+#      its own; those keep flowing from the scene's own data (story-bible
+#      mood/tension, environment locks, channel color grade, genre) through
+#      their EXISTING channels (the <channel_style> block, the
+#      [MATERIAL|]/environment-lock lines, the planner's own prose) —
+#      channels this function never reads and never touches. Honest caveat:
+#      a HANDFUL of the 45 catalog entries above (predating this chunk, from
+#      D11-1) embed an archetype-INTRINSIC optical trait in their own
+#      image_setup text where the treatment defines the shot itself, not a
+#      per-scene choice this compiler is making — e.g. silhouette's required
+#      backlight, hero_shot's dramatic light, texture_detail's raking light.
+#      Those are catalog content (audited at D11-1, unchanged here), not
+#      output this function invents; verbatim reproduction is the whole
+#      point (see the planted-marker proof). The same archetype chosen in
+#      two different scenes still produces two DIFFERENT full prompts,
+#      because everything surrounding this clause (subject, style, palette,
+#      environment) differs even when the clause itself doesn't.
+#   2. COMPACT, NEVER DOMINANT. Target one-to-two sentences — the archetype
+#      segment plus the DP segment, nothing more. The shot's own AI-written
+#      subject/action sentence (rule 29's job for a tagged shot) stays the
+#      dominant content of the final prompt; this clause leads it, never
+#      swamps it.
+#   3. DATA-DRIVEN VARIETY, NEVER RANDOMIZED. Where a deterministic,
+#      non-prose signal is already available on the shot (shot_location —
+#      D6-2/migration 143, parsed from the moment's own "LOCATION: <name> |"
+#      header prefix, never LLM prose written INTO this clause), the
+#      ESTABLISHING category's clause interpolates it — "this is <name>" —
+#      so an establishing shot doesn't read as a context-free stock phrase
+#      across scenes that actually happen in different places. Absent a
+#      known location (every single-location scene, and every scene before
+#      D6-2 existed), or for any non-establishing archetype, no
+#      interpolation happens — same fields in, same clause out, always;
+#      variety comes from the DATA differing, never from chance.
+#   CHOICE DIVERSITY IS GUARDED ELSEWHERE, NOT HERE: whether a scene
+#   actually VARIES its shot archetypes/lenses/sizes shot-to-shot is
+#   coverage.py's job — enforce_setup_variety's consecutive-repeat-cap
+#   repair leg, the D12-3 rhythm checks (check_shot_size_rhythm/
+#   check_lens_rhythm/check_purpose_monotony), and build_rhythm_report's own
+#   archetype_diversity metric ({"distinct", "total"} distinct shot_archetype
+#   ids across a scene's tagged shots — coverage.py, ~line 2691). This
+#   function's job is to faithfully RENDER whatever shot was already chosen;
+#   it never chooses, diversifies, or judges one.
+#
+# Fixed-wording phrase tables for the DP segment — camera_height/dof VALUES
+# are validated elsewhere (coverage.py's CAMERA_HEIGHT_KINDS/DOF_KINDS +
+# check_shot_dp_valid, warn-only); this module only TRANSLATES a value into
+# a phrase, it never validates one, so an unrecognized value (already
+# flagged by that check) still renders — via the literal f-string fallback
+# below — rather than raising or silently vanishing. Every phrase is a fixed
+# constant string keyed on the exact word rule 28 teaches the planner to
+# write, so the lookup is one deterministic dict read, never a judgment call.
+_CAMERA_HEIGHT_PHRASE = {
+    "ground": "camera at ground level",
+    "low": "a low camera angle, tilted up",
+    "waist": "camera at waist height",
+    "chest": "camera at chest height",
+    "eye": "camera at eye level",
+    "high": "a high camera angle, looking down",
+    "overhead": "camera directly overhead",
+}
+_DOF_PHRASE = {
+    "shallow": "shallow depth of field, background soft",
+    "medium": "medium depth of field",
+    "deep": "deep focus, background sharp",
+}
+
+
+def compose_shot_cinematography(shot) -> str:
+    """PURE, deterministic translation of a shot's structured archetype/DP
+    fields (plus, optionally, its shot_location) into the CRAFT-ONLY
+    cinematography clause that leads its draw prompt. Same fields in,
+    byte-identical clause out, ALWAYS — no LLM call, no network, no
+    randomness, no clock, no mutation of `shot`. See the COOKIE-CUTTER GUARD
+    comment above this function for why the clause is scoped to geometry/
+    optics only (never mood/lighting/palette) and kept to one-to-two
+    sentences.
+
+    ``shot`` may be any mapping supporting ``.get()`` — a parsed coverage
+    shot dict (storyboard.coverage.parse_coverage's output, carrying
+    shot_archetype/lens_mm/camera_height/dof alongside description/
+    shot_type/etc.) or a freshly re-SELECTed ``assets`` DB row (redraw_
+    asset_image's fresh-beats-baked repair-leg pattern) — compose reads
+    only five keys, ignores everything else, and never touches
+    ``shot["description"]`` (the redundancy-guard check that scans THAT
+    field, check_shot_camera_prose_redundant in coverage.py, depends on
+    this function never seeing or being influenced by planner prose).
+
+    At most TWO segments (sentences), joined with ". " when both are
+    present — the compact budget the cookie-cutter guard's item 2 sets:
+      1. the shot's ARCHETYPE's own ``image_setup`` composition guidance,
+         verbatim from the 45-entry SHOT_ARCHETYPES catalog above — the
+         SAME text format_archetype_menu() shows the planner and
+         coverage.check_shot_archetype_valid validates against, now
+         finally CONSUMED instead of only carried as metadata. Absent (no
+         shot_archetype, or an id not in the catalog — already caught,
+         warn-only, by check_shot_archetype_valid) contributes nothing to
+         this segment. When this archetype is in CATEGORY_ESTABLISHING AND
+         shot["shot_location"] is a non-empty string, an em-dash clause —
+         "— this is <location>" — folds into this SAME sentence (never a
+         third segment) — the one deliberate interpolation point (the
+         cookie-cutter guard's item 3). Never fires for any other category,
+         and never invents a location that isn't already known data.
+      2. a DP (director-of-photography) phrase built from lens_mm/
+         camera_height/dof in FIXED wording (_CAMERA_HEIGHT_PHRASE/
+         _DOF_PHRASE above) — never the planner's own prose. Each of the
+         three parts is independently optional, exactly mirroring rule 28's
+         own "all three parts are independently optional" DP row grammar.
+
+    Returns "" when the shot has NEITHER a valid archetype NOR any DP
+    field — the byte-identical-legacy case every assembly point depends on:
+    a shot with no structured fields (every plan before D11-1/D11-2, and
+    any shot the planner simply didn't tag) gets nothing prepended to its
+    description, ever."""
+    segments = []
+
+    archetype = get_archetype(shot.get("shot_archetype"))
+    if archetype is not None:
+        archetype_segment = archetype.image_setup.strip().rstrip(". ")
+        # Interpolation folds into the SAME sentence (em dash, not a new
+        # period) so the compact "one-to-two sentences max" budget (segment
+        # 1 here, segment 2 the DP phrase below) never grows a third —
+        # see the COOKIE-CUTTER GUARD comment above this function.
+        location = (shot.get("shot_location") or "").strip()
+        if location and archetype.category == CATEGORY_ESTABLISHING:
+            archetype_segment = f"{archetype_segment} — this is {location}"
+        segments.append(archetype_segment)
+
+    dp_bits = []
+    lens_mm = shot.get("lens_mm")
+    if lens_mm is not None:
+        dp_bits.append(f"shot on a {lens_mm}mm lens")
+    camera_height = shot.get("camera_height")
+    if camera_height:
+        dp_bits.append(_CAMERA_HEIGHT_PHRASE.get(camera_height, f"camera at {camera_height} height"))
+    dof = shot.get("dof")
+    if dof:
+        dp_bits.append(_DOF_PHRASE.get(dof, f"{dof} depth of field"))
+    if dp_bits:
+        segments.append(", ".join(dp_bits))
+
+    if not segments:
+        return ""
+    return ". ".join(segments) + "."
