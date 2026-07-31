@@ -3761,3 +3761,70 @@ worktree, not part of the change.
   confirmed by grep) before this chunk, so the new route is live the moment the process restarts —
   no additional wiring step exists to forget.
 
+# Deferred verification — G8 (engine-side per-machine research loop)
+
+- [ ] **The real 5-ship paid run has never re-executed against this fix.** Live subject: video
+  `d05efae3-46f8-4ee3-b690-849c3ca31fbc` (a static_docu KGV-class build, capped, roster = 41 HMS
+  King George V, 53 HMS Prince of Wales, and 3 more) — this is the exact video the bug report was
+  filed against, still parked at `idea_logged` with no per-machine research. Recipe to close this
+  out for real: `se db "SELECT status, max_spend, total_cost, render_mode FROM videos WHERE id=
+  'd05efae3-46f8-4ee3-b690-849c3ca31fbc'"` to confirm current state, then trigger the SAME autobuild
+  chain that dead-ended it in prod (chat "keep building" / the build verb) and watch task-status via
+  `se logs backend` or the SSE stream for a `"Researching machine N/5: <ship>"` sequence instead of
+  a dead task. Expect either `ready_for_scripting` (all 5 pass) or a `needs_review` park message
+  naming whichever ships fail referee review — never a bare "Unit research-hold failed" dead end
+  again. Confirm in `se db "SELECT research_payload->'unit_research_hold_validation' FROM videos
+  WHERE id=...'"` that `passed` flips true machine-by-machine. **Cost cap for this task forbade any
+  paid Anthropic call**, so this is unverified against the real model, the real referee, and the
+  real per-video budget ledger (see next point) — only against fakes.
+- **The per-machine budget-cap re-check is real (reuses `SELECT max_spend, total_cost FROM videos`,
+  the same fields/pattern as the rest of make_autobuild_step), but per-machine research spend is
+  NOT recorded to `videos.total_cost` anywhere in `_run_unit_research_hold`/`run_one_machine_research`
+  today (confirmed by grep: zero `record_ledger_entry` calls in that whole code path, unlike
+  script/storyboard/image/clip/thumbnail generation, which all call it) — a PRE-EXISTING gap, not
+  introduced by this chunk (the untargeted bulk-hold path this replaces had the identical gap; so
+  does `run_roster_orchestrator`, which tracks its own separate `est_spend_usd` counter instead of
+  `total_cost` too). Practical effect: the cap re-check between machines will only ever fire if
+  SOME OTHER paid stage in the same build (voice, images, etc.) already pushed `total_cost` over the
+  cap before or during the roster loop — it will not by itself stop a runaway multi-machine research
+  pass whose own cost is what breaches the cap. Fixing that properly means wiring
+  `record_ledger_entry` into the per-machine research path with a real per-call cost estimate — out
+  of scope for this chunk (it's a metering gap in a different, pre-existing function, not the
+  autobuild wiring this chunk was asked to fix) but worth its own follow-up chunk.
+- **Referee continue-vs-abort choice tested only against fakes, not a real referee's actual failure
+  modes.** The loop continues past a `needs_review` machine to attempt the rest of the roster
+  (mirrors `run_roster_orchestrator`'s own design one level down, minus its 3-in-a-row circuit
+  breaker — see the test file's own docstring for the full rationale). Whether a REAL referee ever
+  produces a systemic failure mode (e.g. every machine fails because the shared source-package
+  gatherer itself is broken) that would burn through an entire large roster's worth of paid calls
+  before the (currently ledger-blind, see above) cap catches it, is unverified — the fakes can only
+  prove the CONTROL FLOW continues, not real-world failure correlation across machines.
+- **Full backend suite, this worktree (backend venv, `./venv/bin/python -m pytest tests/ -q`):
+  28 failed / 4150 passed / 4 skipped before this chunk's changes, 28 failed / 4156 passed (4150 +
+  6 new) / 4 skipped after — sorted FAILED-test-name sets diffed byte-identical (empty diff). All 28
+  are `tests/functional/test_custom_film_remotion.py` failing on "Custom Film Remotion local font
+  assets are missing" — this worktree has no `remotion-video/public`/`node_modules` symlinked in
+  from the main checkout (a prior chunk in this same worktree, D14-2b above, documented deleting
+  those exact symlinks after its own run), matching this chunk's brief's own named pre-existing gap
+  ("custom_film remotion in worktree venvs"). No oauth-diagnostics failures were present in either
+  run (D14-2b, above, already fixed that one in this worktree's history).
+- **Swap-proof used (never git stash, per this chunk's own hard rule):** `cp
+  storyengine/backend/actions.py /tmp/...`, `git show HEAD:storyengine/backend/actions.py >
+  /tmp/...-original.py`, swapped the ORIGINAL (pre-fix) file in via `cp`, reran the 6 new tests: 4
+  failed (`test_all_machines_pass_in_order_and_status_advances`,
+  `test_progress_messages_sequence_names_each_machine`,
+  `test_machine_2_failure_does_not_abort_remaining_roster`,
+  `test_budget_cap_reached_after_machine_one_stops_before_machine_two` — every test that exercises
+  the NEW loop) / 2 passed (the two "not this loop's job, byte-identical fallback" guard tests,
+  which are SUPPOSED to pass unchanged against the old code too, since they assert the pre-existing
+  behavior). Restored the fixed file via `cp` from the saved copy; all 6 passed again; `git status`
+  showed only the intended single-file diff at every point, never a stash.
+- **Scope held to the brief:** only `storyengine/backend/actions.py` was touched (one new nested
+  function, `_run_static_docu_roster_research`, plus the ~15-line call-site change in
+  `make_autobuild_step`'s static_docu branch) and one new test file,
+  `storyengine/backend/tests/functional/test_g8_roster_research_loop.py`. `pipeline_executor.py`
+  was read extensively but never edited — `run_one_machine_research`/`_run_unit_research_hold`/the
+  hallucination-safety gate are all reused exactly as they already exist; the bulk gate is never
+  bypassed, only walked around one verified machine at a time, same as a human clicking through
+  `/machine-research-one/{video_id}` would do by hand.
+

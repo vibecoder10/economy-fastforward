@@ -1242,6 +1242,104 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
         async def _progress(message: str):
             _set_task_status(video_id, "running", message, tenant_id=tenant_id)
 
+        async def _run_static_docu_roster_research() -> Optional[dict]:
+            """G8: run_research's roster-discovery + validation gate can pass while
+            the untargeted bulk per-machine hold INSIDE run_research is refused by
+            the hallucination-safety gate (pipeline_executor._run_unit_research_hold,
+            commit e945c762) because no verified per-machine card exists yet for a
+            fresh multi-unit roster. That gate is never bypassed here — it is the
+            exact same gate a human satisfies one machine at a time by clicking
+            through /machine-research-one/{video_id}. This walks the identical
+            locked roster, in the gate's own machine order (its persisted
+            unit_research_hold_validation.units — see _full_research_validation),
+            through ex.run_one_machine_research (-> _run_unit_research_hold with a
+            target_machine, the exact call that REST route makes) so the whole
+            roster clears hands-free instead of dead-ending the build.
+
+            Returns None when this isn't that case (roster validation itself
+            failed, or research never produced a per-machine breakdown at all —
+            e.g. a non-roster or single-machine static_docu video) so the caller
+            falls back to its normal research-failed message, byte-identical to
+            before this function existed. Otherwise returns
+            {"status": "ready_for_scripting"} once every machine passes, or
+            {"status": "paused"/"needs_review", "message": ...} when the loop
+            stopped early or finished with some machines still failing review.
+            """
+            import json as _json_roster
+
+            video_row = await ex._get_video(video_id) or {}
+            payload = video_row.get("research_payload") or {}
+            if isinstance(payload, str):
+                try:
+                    payload = _json_roster.loads(payload)
+                except (ValueError, TypeError):
+                    payload = {}
+            if not isinstance(payload, dict):
+                return None
+            roster_check = payload.get("unit_roster_validation")
+            if not (isinstance(roster_check, dict) and roster_check.get("passed")):
+                return None  # the roster itself is the problem — not this loop's job
+            hold_validation = payload.get("unit_research_hold_validation")
+            units = hold_validation.get("units") if isinstance(hold_validation, dict) else None
+            if not isinstance(units, list) or not units:
+                return None  # no locked roster (e.g. single-machine static_docu) — unchanged path
+            total = len(units)
+            pending = [
+                (position, str(unit.get("machine") or ""))
+                for position, unit in enumerate(units, start=1)
+                if isinstance(unit, dict) and not unit.get("passed") and str(unit.get("machine") or "").strip()
+            ]
+            if not pending:
+                return None  # every machine already reads passed but the gate still
+                # refused to advance — a real bug, not something this loop can fix blind.
+            done = total - len(pending)
+            failures: list[str] = []
+            for position, machine in pending:
+                # Same cap-check pattern as the rest of this autobuild chain
+                # (below, ~"cap = video.get('max_spend')"): re-read fresh so a
+                # ledger entry recorded by the PREVIOUS machine in THIS loop is
+                # honored before the NEXT machine starts, and a cap raised
+                # mid-run is picked up immediately too.
+                cap_row = await fetch_one(
+                    "SELECT max_spend, total_cost FROM videos WHERE id=$1 AND tenant_id=$2",
+                    video_id, tenant_id)
+                cap = (cap_row or {}).get("max_spend")
+                spent = float((cap_row or {}).get("total_cost") or 0)
+                if cap is not None and spent >= float(cap):
+                    return {
+                        "status": "paused",
+                        "message": (
+                            f"Paused — {done}/{total} machines researched, "
+                            f"${spent:.2f} spent against this video's ${float(cap):.2f} cap. "
+                            "Raise the cap (or clear it) and say \"keep going\" to continue."
+                        ),
+                    }
+                _set_task_status(
+                    video_id, "running",
+                    f"Researching machine {position}/{total}: {machine}",
+                    tenant_id=tenant_id)
+                result = await ex.run_one_machine_research(video_id, machine) or {}
+                if result.get("status") == "completed":
+                    done += 1
+                    continue
+                # needs_review or failed — keep walking the rest of the roster so
+                # one bad machine can't hide whether the others are fine too; the
+                # park message below then names every machine that needs a look
+                # in one pass instead of a fix-one/restart/find-the-next cycle.
+                warning = "; ".join(str(w) for w in (result.get("warnings") or [])) \
+                    or result.get("error") or "research did not pass review"
+                failures.append(f"{machine}: {warning}"[:220])
+            if failures:
+                return {
+                    "status": "needs_review",
+                    "message": (
+                        f"{done}/{total} machines researched; {len(failures)} still need review: "
+                        + "; ".join(failures)
+                    )[:1500],
+                }
+            await _advance("ready_for_scripting")
+            return {"status": "ready_for_scripting"}
+
         try:
             ex = PipelineExecutor(tenant_id)
             # Build-to-pictures skips the voiceover; if we're now finishing, lay it down first
@@ -1332,6 +1430,23 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                         r = await ex.run_research(video_id) or {}
                         if r.get("status") == "ready_for_scripting":
                             continue
+                        # G8: a multi-unit roster can pass discovery/validation
+                        # while run_research's own untargeted bulk per-machine
+                        # hold is refused by the hallucination-safety gate (no
+                        # verified card exists yet for any roster machine).
+                        # Walk the SAME locked roster through the safe verified
+                        # one-machine path instead of dead-ending the build —
+                        # see _run_static_docu_roster_research's own docstring.
+                        loop_result = await _run_static_docu_roster_research()
+                        if loop_result is not None:
+                            if loop_result.get("status") == "ready_for_scripting":
+                                continue
+                            terminal_status = "completed" if loop_result.get("status") == "paused" else loop_result.get("status")
+                            _set_task_status(
+                                video_id, terminal_status,
+                                loop_result.get("message") or "Roster research paused.",
+                                tenant_id=tenant_id)
+                            return
                         # Research failed — a static doc without facts is worse
                         # than no doc; stop instead of writing from thin air.
                         _set_task_status(video_id, "failed",
