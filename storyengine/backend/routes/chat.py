@@ -1187,6 +1187,101 @@ _USE_ANYWAY_RE = re.compile(
     re.I,
 )
 
+# G9 (diagnosed live 2026-07-30, video d05efae3-46f8-4ee3-b690-849c3ca31fbc):
+# a reply to a pending confirm_action card that is neither a bare "yes" nor a
+# bare "no" — e.g. "Before running: change the video title to exactly X -
+# nothing else in the title. Then go ahead." — used to fall straight through
+# to the general classifier with `pending` left untouched in `state`, which
+# then silently ran an unrelated verb (the real transcript: a stale
+# `budget_cap` re-fire) instead of ever resuming the action actually waiting
+# on a tap. The title edit was dropped entirely — actions.ACTIONS has no
+# title verb for the classifier to route it to — and the pending "Build the
+# video" card only ran after the creator retyped the request from scratch.
+#
+# Two small, deterministic (no model call) mechanisms close that hole — see
+# their use in _handle_copilot's pending_action handling and the classifier
+# fallthrough guard right before the paid/free action dispatch:
+#
+# 1. `_has_consent_tail` — a trailing "then go ahead"/"then run it"/"then do
+#    it"/"then proceed" is unambiguous consent for whatever else the message
+#    just asked; auto-resumes the pending action via the SAME
+#    _run_pending_action every yes-tap already goes through. Negated tails
+#    ("don't go ahead") are excluded so this stays a narrow, exact signal.
+# 2. `_extract_title_edit` / `_maybe_apply_title_edit` — the one concrete
+#    edit instruction the reproduction needed routed correctly: applied
+#    directly via the SAME free write routes/mcp.py's edit_publish_info tool
+#    uses (youtube_publish.save_seo), never through the paid-verb classifier.
+_CONSENT_TAIL_RE = re.compile(
+    r"\bthen\b\s*,?\s*(go\s*ahead|run\s*it|do\s*it|proceed)\s*[.!]*\s*$",
+    re.I,
+)
+_CONSENT_TAIL_NEGATED_RE = re.compile(
+    r"\b(don'?t|do\s+not|won'?t|will\s+not|never|not)\s+(go\s*ahead|run\s*it|do\s*it|proceed)\b",
+    re.I,
+)
+
+
+def _has_consent_tail(msg: str) -> bool:
+    """True when msg ends in an unambiguous "then go ahead"/"then run it"/
+    "then do it"/"then proceed" — deliberately narrow (an exact tail, not
+    free-form intent guessing) so it stays a deterministic check with no
+    model call; negated ("don't go ahead") is excluded."""
+    return bool(_CONSENT_TAIL_RE.search(msg)) and not _CONSENT_TAIL_NEGATED_RE.search(msg)
+
+
+_TITLE_EDIT_QUOTED_RE = re.compile(
+    r"\b(?:change|set|update|rename)\b\s+(?:the\s+)?(?:video\s+)?title\s+to\s+"
+    r"(?:exactly\s+)?[\"“‘']([^\"”’']+)[\"”’']",
+    re.I,
+)
+_TITLE_EDIT_BARE_RE = re.compile(
+    r"\b(?:change|set|update|rename)\b\s+(?:the\s+)?(?:video\s+)?title\s+to\s+"
+    r"(?:exactly\s+)?([^.!\n]+?)"
+    r"(?=\s*(?:[-–—]|\.|!|,?\s+then\b|,?\s+and\b|$))",
+    re.I,
+)
+
+
+def _extract_title_edit(msg: str) -> Optional[str]:
+    """The new title text from a 'change/set/update/rename the title to ...'
+    instruction, or None when msg carries no such instruction. Quoted form
+    tried first (unambiguous — exactly what the real broken transcript
+    sent); the bare/unquoted fallback stops at the first clause boundary
+    (' - ', '.', '!', ', then', ', and', or end of string) so it doesn't
+    swallow a trailing consent phrase or a second instruction riding in the
+    same message."""
+    m = _TITLE_EDIT_QUOTED_RE.search(msg)
+    if m:
+        return m.group(1).strip()
+    m = _TITLE_EDIT_BARE_RE.search(msg)
+    if m:
+        candidate = m.group(1).strip().strip("\"'“”‘’").strip()
+        return candidate or None
+    return None
+
+
+async def _maybe_apply_title_edit(tenant_id, video_id, msg: str) -> Optional[str]:
+    """Applies a recognized title-edit instruction immediately — free (title
+    metadata only, no generation spend), so no confirm card is needed — via
+    the SAME write path routes/mcp.py's edit_publish_info tool uses
+    (youtube_publish.save_seo), not a second parallel title-write mechanism.
+    Returns a short confirmation line for the chat reply, or None when msg
+    carries no title instruction at all (the overwhelmingly common case —
+    this must stay a complete no-op then). Fail-soft: a write error is
+    logged and swallowed rather than breaking the turn — the rest of the
+    reply (e.g. resuming a pending build) must still happen."""
+    new_title = _extract_title_edit(msg)
+    if not new_title:
+        return None
+    try:
+        from youtube_publish import save_seo as _save_seo
+
+        await _save_seo(video_id, tenant_id, title=new_title)
+    except Exception as e:  # noqa: BLE001 — a failed title write must never break the turn
+        logger.warning("copilot: title edit failed for video %s: %s", video_id, e)
+        return None
+    return f'Title updated to "{new_title}".'
+
 
 async def _log_classification_confidence(
     tenant_id,
@@ -1629,6 +1724,42 @@ def _confirm_card(
     return card
 
 
+async def _still_pending_card_reply(
+    tenant_id, video_id, pending: dict, _reply, prefix: str = "",
+):
+    """G9: re-present an already-open pending_action's confirm card exactly
+    as it was, instead of letting an unrelated reply silently drop or
+    replace it. Two call sites in _handle_copilot share this: (1) a
+    compound reply that carries no clear consent tail (see
+    `_has_consent_tail`), and (2) the general classifier deciding on some
+    OTHER action verb while a pending confirm is still waiting on a tap —
+    neither may silently run a different verb or lose the original one.
+
+    Deliberately does NOT touch `state["pending_action"]` — the caller owns
+    that; this only renders a NEW turn describing the SAME pending action.
+    Recomputes the cost quote live (`_estimate_cost`/`_cost_breakdown`/
+    `_budget_check`, the exact resolvers the original card used) rather than
+    caching a price on `pending` that could go stale between turns.
+    `prefix` (e.g. a `_maybe_apply_title_edit` confirmation) rides ahead of
+    the "Still waiting on" line when the reply also had a concrete edit to
+    report."""
+    verb = pending["verb"]
+    scene = pending.get("scene")
+    cfg = COPILOT_ACTIONS[verb]
+    what = cfg["label"] + (f" — scene {scene}" if scene is not None else "")
+    summary = await _copilot_summary(tenant_id, video_id)
+    if summary:
+        cost, cost_text = await _estimate_cost(tenant_id, video_id, verb, scene, summary)
+        breakdown = await _cost_breakdown(tenant_id, video_id, verb, scene, summary)
+        budget_warning = _budget_check(summary, cost)
+        card = _confirm_card(verb, scene, cost_text, breakdown, budget_warning)
+    else:
+        card = _confirm_card(verb, scene, "")
+    lead = f"{prefix} " if prefix else ""
+    text = f"{lead}Still waiting on: {what}. Tap below when you're ready, or tell me what to change."
+    return await _reply(text, cards=[card])
+
+
 async def _run_pending_action(
     tenant_id, video_id, pending: dict, background_tasks, caller: str = "chat"
 ) -> str:
@@ -2051,6 +2182,35 @@ async def _handle_copilot(
             "No problem — left it as it is. Tell me what you'd like instead."
         )
 
+    # --- G9: a reply that neither affirms nor denies a pending confirm card
+    # must never silently lose it (see the block comment above _CONSENT_TAIL_RE).
+    # Handle the reply's own concrete intent (currently: a title edit) THEN
+    # either auto-resume on a clear trailing consent phrase, or re-present the
+    # SAME pending card so it's never dropped. Both branches below RETURN —
+    # deliberately never falling through to the general classifier while a
+    # title edit was recognized, since that's the one path proven live to
+    # silently swallow it. A message with NO title edit and NO consent tail
+    # (e.g. a genuine unrelated question) still falls through below —
+    # answered normally by the classifier's kind=="read" path, which already
+    # leaves `pending_action` untouched; the classifier landing on some OTHER
+    # action verb instead is caught by the guard further down (right before
+    # the paid/free action dispatch) so it can never silently run over this
+    # still-open pending card either.
+    if pending:
+        title_line = await _maybe_apply_title_edit(tenant_id, video_id, msg)
+        if _has_consent_tail(msg):
+            state["pending_action"] = None
+            state["pending_script_review"] = None
+            run_line = await _run_pending_action(
+                tenant_id, video_id, pending, background_tasks
+            )
+            line = f"{title_line} {run_line}" if title_line else run_line
+            return await _reply(line)
+        if title_line:
+            return await _still_pending_card_reply(
+                tenant_id, video_id, pending, _reply, prefix=title_line
+            )
+
     summary = await _copilot_summary(tenant_id, video_id)
     if not summary:
         return await _reply(
@@ -2372,6 +2532,23 @@ async def _handle_copilot(
                 f"{summary['pics']} pictures, {summary['clips']} clips. Spent so far ~${summary['spent']:.2f}."
             )
         return await _reply(answer)
+
+    # --- G9: a pending confirm card is already waiting on a tap — a NEW
+    # action verb (whether free or paid) must never silently run out from
+    # under it, or silently replace it (the paid branch further down would
+    # otherwise overwrite `state["pending_action"]` with a brand-new pending
+    # dict, and a free verb would run immediately — either way the ORIGINAL
+    # card's own action never resumes and the creator is never told it's
+    # still waiting). This is exactly the "stale verb refire" class: an
+    # unrelated `budget_cap` classification silently ran instead of the
+    # pending "Build the video" card in the real transcript that diagnosed
+    # this. kind=="prompt"/"show"/"remember"/"forget"/"read" already
+    # returned above — none of them spend or touch pending_action — so only
+    # a genuine new ACTION verb reaches here.
+    if state.get("pending_action"):
+        return await _still_pending_card_reply(
+            tenant_id, video_id, state["pending_action"], _reply
+        )
 
     if verb not in COPILOT_ACTIONS or conf < COPILOT_CONFIDENCE:
         return await _reply(

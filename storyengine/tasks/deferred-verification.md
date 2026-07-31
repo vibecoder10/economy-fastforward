@@ -3908,4 +3908,56 @@ consecutive `make_autobuild_step` calls against a shared in-memory fake DB) prov
 and fails against dee6b6c8. Full suite after this fix: 28 failed (same pre-existing set) / 4157
 passed (+1) / 4 skipped. The ledger-metering gap and untested real paid run noted above still
 stand unchanged.
+# Deferred verification — G9 (chat approval dead-end: compound replies to a pending confirm card)
+
+- [ ] **Live UI walk never done — offline-only chunk by design (no paid API calls allowed).**
+  Recipe for whoever picks this up:
+  1. `scripts/se.sh devtoken` then run the frontend dev server against prod data
+     (launch.json `storyengine`), open a video's Director chat, and get it to a state
+     with a genuine pending `confirm_action` card showing (e.g. type "build it" on a
+     fresh video and stop before tapping the card).
+  2. Reply with a compound message that both asks for a real edit AND ends in consent —
+     e.g. `Before running: change the title to exactly "Test Title Please Ignore" - nothing
+     else. Then go ahead.` — and confirm in the UI: (a) the video's title actually changes
+     (check the header/dashboard), (b) the SAME turn shows both the title confirmation and
+     the build starting (no second "yes" needed), (c) `chat_conversations.state.pending_action`
+     is null afterward (`se db "SELECT state FROM chat_conversations WHERE video_id = '<id>'
+     ORDER BY updated_at DESC LIMIT 1"`).
+  3. Repeat step 2 without the "Then go ahead." tail — confirm the SAME confirm card
+     reappears with a "Still waiting on: Build the video" line, the title still updated,
+     and NOTHING started running (no task-status banner, no `background_tasks` row).
+  4. With a pending card open, ask a genuine unrelated question ("how much has this video
+     cost so far?") — confirm it gets answered AND the card is still there/tappable
+     afterward (reload the page to be sure it rehydrates from the transcript).
+  Not done here because every one of these paths can trigger a real classifier call
+  (`kie_unified`/`agent_brain`, tenant API keys) and, if step 2/3 is done wrong, real
+  generation spend — out of scope for an offline-only, no-paid-calls chunk. All four were
+  instead proven with an exact-transcript regression test (real DB rows pulled via `se db`
+  for video `d05efae3-46f8-4ee3-b690-849c3ca31fbc`, replayed through `chat._handle_copilot`
+  with the DB/classifier/claims layer stubbed) — see
+  `storyengine/backend/tests/functional/test_g9_pending_approval_survives_compound_replies.py`.
+- **Swap-proof used:** the primary reproduction test
+  (`test_compound_reply_applies_title_edit_and_resumes_pending_build`) was run against the
+  unmodified `HEAD` copy of `routes/chat.py` (swapped in via `git show HEAD:...` into the
+  worktree, suite re-run, original restored immediately after — `git status --short` clean
+  before/during/after) and **fails** there: the title write never happens and the pending
+  build never resumes (falls through to the classifier's own "I need an API key" fallback,
+  same dead end the real transcript hit). The three other new-behavior tests
+  (`test_compound_reply_without_consent_tail_represents_the_pending_card`,
+  `test_classifier_action_verb_does_not_override_a_pending_confirm`, and a manual variant of
+  the reproduction test) fail the same way pre-fix (either a clean assertion failure or an
+  `AttributeError` on a helper name that doesn't exist yet). The four bare-yes/no/button-tap/
+  unrelated-question tests pass identically on both the original and fixed `chat.py` — proof
+  those paths are untouched.
+- **Full backend suite, this worktree (backend venv, `./venv/bin/python -m pytest tests/ -q`):
+  28 failed, 4157 passed, 4 skipped**, both with and without this chunk's diff (`diff`'d the
+  exact `FAILED` line sets from both runs — byte-identical). All 28 are pre-existing
+  `tests/functional/test_custom_film_remotion.py` failures unrelated to chat.py — this
+  worktree, unlike the one D14-2b ran in, has no `remotion-video/node_modules` symlinked in
+  from the main checkout, so that file's real-renderer-CLI tests fail closed the same way
+  before and after this change. With the diff: 7 more tests pass (the new G9 file). `git
+  diff --stat` confirms only `storyengine/backend/routes/chat.py` changed (177 insertions,
+  0 deletions) plus the new test file — `actions.py`/`pipeline_executor.py` untouched, per
+  the chunk brief's file-ownership boundary with the concurrent actions.py/pipeline_executor.py
+  worker.
 
