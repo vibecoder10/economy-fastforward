@@ -1823,3 +1823,103 @@ MATERIAL MAP LOCK section should be extended to also read the three new keys now
 the scope call above); and whether skipping a WARN drift check entirely (no analogous check exists
 to mirror) is the right permanent posture once D9-4 (or a sibling chunk) revisits `forbidden_drift`
 consumption for characters — the two decisions should probably be made together, not separately.
+
+## D9-3b: environment locks threaded into run_coverage's FIRST-DRAW batch path (branch `d9-3b-batch-locks`) — closes the KNOWN GAP D9-3 flagged in its own entry above
+
+D9-3 harvested `video_environments.architecture_lock`/`lighting_time_weather_lock`/
+`palette_lock` (migration 152) and wired them into `coverage_to_app.py`'s sheet-PREVIEW path
+(`_plan_sheet_prompts`) and the redraw/repair leg (`redraw_asset_image`), but explicitly left
+`storyboard/coverage.py`'s `run_coverage()` — the FIRST-DRAW final-picture batch path — untouched,
+naming it as a known gap in its own entry above ("whether `coverage.py`'s own MATERIAL MAP LOCK
+section should be extended to also read the three new keys now flowing through `matched_env`").
+This chunk closes exactly that gap and nothing else.
+
+**What changed** (`skills/video-pipeline/storyboard/coverage.py` only, plus its test file):
+1. New `_env_locks_text(row)` — join-skip-empty helper, hand-mirrors
+   `coverage_to_app._env_locks_text` byte-for-byte (kept in sync, not imported: this module is the
+   one `coverage_to_app.py` imports FROM, never the reverse — the same boundary
+   `canonical_material_line` already respects for `material_map`).
+2. New `canonical_environment_locks_line(canonical_envs, location_sets, matched_env)` —
+   hand-mirrors `coverage_to_app._canonical_environment_locks_line`'s exact shape (same
+   multi-location LOCSET loop + single-location fallback, same whole-word `_find` matcher),
+   itself modeled one-to-one on `canonical_material_line` (D6-1c) one clause over.
+3. `run_coverage()`: a new ENVIRONMENT LOCKS block stamped into every shot's draw-prompt
+   description, immediately after the existing MATERIAL MAP LOCK block (`coverage.py` around the
+   line stamping "Material map, fixed for this whole set: ..."), using the EXACT phrasing D9-3's
+   own REPAIR LEG already uses in `redraw_asset_image` — "Environment locks, fixed for this whole
+   set: {joined locks}." — so the batch-drawn prompt and a later manual redraw of the same shot
+   read byte-identical lock text.
+
+**No new plumbing.** `run_coverage(canonical_envs=, matched_env=)` already existed (D6-1c) and
+`coverage_to_app.py`'s one call site that passes them (`generate_coverage_for_video`, ~line 4807)
+already sources both from `_approved_envs`/`_match_scene_env` — and `_approved_envs`'s SELECT was
+already extended to fetch all three lock columns by D9-3 itself. So the env dicts landing in
+`canonical_envs`/`matched_env` inside `run_coverage` already carried `architecture_lock`/
+`lighting_time_weather_lock`/`palette_lock` before this chunk touched anything; this chunk only
+added the READER. The CLI's `main()` (second `run_coverage` call site, ~line 5008) still passes
+neither kwarg — unchanged, exactly as D6-1c's material_map plumbing already left it.
+
+**Verification ($0, no live DB/API access from this Mac):**
+- Threading trace: `coverage_to_app.py:4830-4831` (`canonical_envs=envs, matched_env=env`, envs
+  from `_approved_envs` which SELECTs the three lock columns since D9-3) → `run_coverage`'s
+  `canonical_envs`/`matched_env` params (already existed) → new
+  `canonical_environment_locks_line(canonical_envs, location_sets, matched_env)` call → new
+  ENVIRONMENT LOCKS block → every shot's `description` field, which `store_scene`/`assets.
+  image_prompt` persist verbatim (unchanged downstream — same mechanism the SEQUENCE/FACING/
+  MATERIAL locks already ride on).
+- 6 new tests added to `skills/video-pipeline/tests/test_board_laws.py`: 3 unit tests on
+  `canonical_environment_locks_line` (single-location match, NULL/no-match → `""`, LOCSET key
+  with a leading article still resolves per-location without cross-contamination — mirrors the
+  three `canonical_material_line` unit tests exactly) and 3 `run_coverage` integration tests
+  (populated locks land on every shot, adjacent to and after Material map; `canonical_envs=None`
+  produces a description byte-identical to a sibling `run_coverage` call with the kwargs omitted
+  entirely and contains no "Environment locks" text anywhere; a matched env row with all three
+  lock columns NULL — every production row today, pre-re-approval — also omits the block). Ran
+  standalone (`python3 tests/test_board_laws.py`) and via pytest; the "🔒 environment-locks lock
+  applied" print line appears exactly once across the whole run, confirming it never fires for the
+  two NULL-locks tests.
+- `skills/video-pipeline` suite: `tests/test_coverage.py` + `tests/test_board_laws.py` +
+  `tests/test_d9_1_shot_purpose.py` + `tests/test_d9_6_7_transition_causality.py` +
+  `tests/test_d11_1_shot_archetype.py` + `tests/test_d11_2_shot_dp.py` = 241 passed (well above
+  the 179+ baseline named in this chunk's brief).
+- Full `skills/video-pipeline/tests/` sweep (excluding two pre-existing collection errors,
+  `test_ctr_12h_tracking.py`/`test_sound_curation.py`, both `ModuleNotFoundError` on unrelated
+  modules, present before this chunk touched anything): patch-file stash-proof (`git diff` saved to
+  a scratchpad patch, `git apply -R` to revert in place, run, `git apply` to reforward — never
+  `git stash`, per the fleet rule). Reverted: 18 failed / 585 passed. Applied: 18 failed / 591
+  passed (+6 = exactly this chunk's own new tests). Sorted FAILED-test-name sets diffed
+  byte-identical (empty diff, exit 0).
+- Full backend suite: this worktree has no `backend/venv` of its own (never provisioned here), so
+  — mirroring D12-1's node_modules/motion-audio scaffolding trick, stated here — `storyengine/
+  backend/venv` was a **temporary symlink** to the MAIN checkout's own `backend/venv` (`ln -s
+  /Users/ryanayler/economy-fastforward/storyengine/backend/venv venv`), used only to run
+  `./venv/bin/python -m pytest tests/ -q` against THIS worktree's code, then deleted immediately
+  after (`git status --short` before AND after the symlink existed is confirmed identical — the
+  symlink is untracked scaffolding, never staged, never part of the diff). Note for whoever reads
+  this next: because `venv` is now a broken/absent path again, `git check-ignore` on it behaved
+  inconsistently while the symlink existed (a directory-only gitignore pattern like `venv/` does
+  not match a *symlink* named `venv`, only a real directory — worth knowing if this trick is reused
+  and `git status` unexpectedly shows the symlink as untracked instead of ignored). Reverted: 29
+  failed / 4057 passed / 4 skipped. Applied: 29 failed / 4057 passed / 4 skipped (pass count
+  unchanged — this chunk added zero backend-suite tests, only pipeline-suite tests, since the
+  touched code lives entirely in `skills/video-pipeline/`). Sorted FAILED-test-name sets diffed
+  byte-identical (empty diff, exit 0) — all 29 failures are in `test_custom_film_remotion.py` and
+  `test_youtube_oauth_diagnostics.py`, the same pre-existing, unrelated set D9-3's own entry above
+  already named.
+
+**File-boundary discipline honored per this chunk's brief:** `git diff --stat` shows exactly 2
+files touched — `skills/video-pipeline/storyboard/coverage.py` and its test file
+`skills/video-pipeline/tests/test_board_laws.py`. `coverage_to_app.py` was read but NOT written
+(another worker was flagged as active in its character-block region); no migration, no parser/
+grammar changes, no route/frame_arbiter/render files touched.
+
+**What is NOT verified:** a real re-approved environment's harvested locks surviving unchanged
+into a REAL batch-drawn first-picture prompt end-to-end against live Supabase/Kie (no live DB/API
+access from this Mac — same standing gap D9-3's own entry names for its two paths); whether the
+CLI's `main()` (the second, un-wired `run_coverage` call site) should ALSO be threaded with
+`canonical_envs`/`matched_env` someday — it wasn't threaded for `material_map` either (D6-1c), so
+leaving it alone here is consistent with that precedent, not a new gap; and whether a WARN-only
+drift check (mirroring `check_material_map_consistency`) should exist for a canonical-locks-vs-
+prose disagreement — skipped deliberately, same reasoning D9-3's own entry gives (no planner-LLM
+`[LOCKS | ...]` line exists to compare against in the first place, so there is nothing for such a
+check to diff).
