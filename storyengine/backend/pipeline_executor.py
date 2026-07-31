@@ -119,6 +119,35 @@ def _target_machine_designation_codes(machine: str) -> set[str]:
     return {code for code in codes if code}
 
 
+# G16: ship-style DVsU rosters lock a LOCKED display name that often carries a
+# leading pennant/hull-number prefix ("53 HMS Prince of Wales", "41 HMS King
+# George V", "17 Duke of York", "79 Anson") - the roster's own bookkeeping
+# token, not part of the ship's name. A model naturally writes the name
+# without it ("HMS Prince of Wales"), and _unit_code's 4-token fallback then
+# glues the pennant into the very first token of the collapsed code, so an
+# exact/substring match against the un-prefixed name always missed. This is
+# the ship-name cousin of the G2 "(D48)" fix (same technique: scan the
+# display name for the extra token and add it to the allowed set) - only the
+# LEADING standalone digit token is optional, so a sibling with a different
+# name/pennant ("53 HMS King George V") is never pulled in by mistake.
+_LEADING_PENNANT_RE = re.compile(r"^\d+\s+")
+
+
+def _locked_machine_identity_codes(machine: str) -> set[str]:
+    """Normalized identity codes that legitimately identify a LOCKED machine.
+
+    Includes the code as written, plus - only when the display name opens
+    with a standalone leading digit/pennant token - the code with that one
+    token stripped. Never loosens anything else: a different machine's own
+    name/pennant still normalizes to a different code entirely."""
+    machine_text = str(machine or "")
+    codes = {_normalized_unit_code(machine_text)}
+    stripped = _LEADING_PENNANT_RE.sub("", machine_text, count=1)
+    if stripped != machine_text and stripped.strip():
+        codes.add(_normalized_unit_code(stripped))
+    return {code for code in codes if code}
+
+
 def _non_target_designation_codes(text: str, machine: str) -> list[str]:
     allowed = _target_machine_designation_codes(machine)
     if not allowed:
@@ -2817,6 +2846,43 @@ def _narrative_weight_target_warning(paragraph: str, plan: dict) -> Optional[str
     )
 
 
+# G16: single source of truth for the two content-shape rules that were
+# previously ONLY taught to the model after a paid failure (via the raw
+# warning string riding along in the repair prompt's "Warnings: ..." line).
+# The word lists below are what the validators actually match against, so
+# the writer-prompt rule lines built from them (see
+# _why_paragraph_writer_rule_line / _visual_identity_writer_rule_line, used
+# by _run_unit_research_hold's FIRST-pass prompt) can never drift from what
+# review enforces - change a word list here and the validator, the warning
+# text, and the writer prompt all move together.
+_ENGINEERING_DECISION_WORDS = (
+    "because", "but", "despite", "instead", "rather", "decision", "chose",
+    "choice", "balanced", "trade", "traded", "tradeoff", "tension",
+    "contrast", "proved", "validated", "failed", "solved", "created",
+    "answered", "sacrificed", "compromise", "consequence", "outpaced",
+    "survived", "needed", "requirement", "problem", "doctrine", "range",
+    "payload", "production", "speed", "endurance", "survivability",
+    "precision", "escort", "intercontinental",
+)
+_ENGINEERING_DECISION_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(word) for word in _ENGINEERING_DECISION_WORDS) + r")\b"
+)
+_WHY_PARAGRAPH_CONTENT_RULE = (
+    "why_this_unit_deserves_a_paragraph must name a concrete engineering decision, "
+    "problem, tradeoff, or consequence"
+)
+
+
+def _why_paragraph_writer_rule_line() -> str:
+    """Prompt-facing phrasing of the why_this_unit_deserves_a_paragraph
+    content rule, built from the SAME word list the validator matches."""
+    examples = ", ".join(_ENGINEERING_DECISION_WORDS[:14])
+    return (
+        f"- {_WHY_PARAGRAPH_CONTENT_RULE} - use language like {examples}, etc; "
+        "do not just say it mattered, was famous, or deserves a paragraph."
+    )
+
+
 def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
     import re as _re
 
@@ -2832,14 +2898,15 @@ def _paragraph_worth_warnings(machine: str, paragraph_worth: str) -> list[str]:
     )
     if any(_re.search(pattern, lower) for pattern in generic_patterns):
         warnings.append("why_this_unit_deserves_a_paragraph is generic; state the unique engineering idea no other roster machine can replace")
-    if not _re.search(
-        r"\b(?:because|but|despite|instead|rather|decision|chose|choice|balanced|trade|traded|tradeoff|tension|contrast|proved|validated|failed|solved|created|answered|sacrificed|compromise|consequence|outpaced|survived|needed|requirement|problem|doctrine|range|payload|production|speed|endurance|survivability|precision|escort|intercontinental)\b",
-        lower,
-    ):
-        warnings.append("why_this_unit_deserves_a_paragraph must name a concrete engineering decision, problem, tradeoff, or consequence")
-    machine_code = _normalized_unit_code(machine)
+    if not _ENGINEERING_DECISION_PATTERN.search(lower):
+        warnings.append(_WHY_PARAGRAPH_CONTENT_RULE)
+    machine_codes = _locked_machine_identity_codes(machine)
     normalized_text = _normalized_unit_code(text)
-    if machine_code and machine_code not in normalized_text and _unit_display_name(machine).split()[-1].lower() not in lower:
+    if (
+        machine_codes
+        and not any(code in normalized_text for code in machine_codes)
+        and _unit_display_name(machine).split()[-1].lower() not in lower
+    ):
         warnings.append("why_this_unit_deserves_a_paragraph must be specific to the locked machine")
     return warnings
 
@@ -3002,6 +3069,43 @@ def _all_segments_grounding_text(evidence: list[dict]) -> str:
     )
 
 
+# G16: single source of truth for the visual_identity content rule (see the
+# _ENGINEERING_DECISION_WORDS comment above _paragraph_worth_warnings for why
+# this is a module-level constant rather than an inline regex string - the
+# validator's own regex, the warning text, and the writer-prompt rule line
+# are all built from this one list so they can never drift apart).
+_VISUAL_IDENTITY_FEATURE_WORDS = (
+    "wing", "wings", "engine", "engines", "nose", "tail", "fuselage",
+    "cockpit", "canopy", "turret", "gun", "guns", "propeller", "propellers",
+    "landing gear", "pod", "pods", "bay", "swept", "delta", "straight",
+    "silhouette", "profile", "intake", "intakes", "exhaust", "boom", "booms",
+    # ship / carrier
+    "deck", "decks", "hull", "bow", "stern", "island", "mast", "masts",
+    "funnel", "funnels", "superstructure", "bridge", "keel", "catapult",
+    "catapults", "palisades", "derrick", "derricks", "crane", "cranes",
+    "hangar", "ramp",
+    # helicopter
+    "rotor", "rotors", "tailboom", "skids",
+    # armor / ground vehicle
+    "track", "tracks", "barrel", "chassis", "cab", "wheels", "armor",
+    "armour", "glacis", "hatch", "hatches",
+)
+_VISUAL_IDENTITY_FEATURE_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(word) for word in _VISUAL_IDENTITY_FEATURE_WORDS) + r")\b"
+)
+_VISUAL_IDENTITY_CONTENT_RULE = "visual_identity must include concrete visible machine features"
+
+
+def _visual_identity_writer_rule_line() -> str:
+    """Prompt-facing phrasing of the visual_identity content rule, built
+    from the SAME word list the validator matches."""
+    examples = ", ".join(_VISUAL_IDENTITY_FEATURE_WORDS[:14])
+    return (
+        f"- {_VISUAL_IDENTITY_CONTENT_RULE} - name specific visible parts (for example "
+        f"{examples}, etc), not generic praise like 'recognizable' or 'unmistakable' alone."
+    )
+
+
 def _visual_identity_warnings(
     machine: str,
     visual_identity: str,
@@ -3043,23 +3147,16 @@ def _visual_identity_warnings(
     # ships, helicopters, armor and ground vehicles too, so the vocabulary
     # carries each domain's visible anatomy. Additive: every previously
     # passing description still passes.
-    visible_feature_pattern = (
-        r"\b(?:wing|wings|engine|engines|nose|tail|fuselage|cockpit|canopy|turret|gun|guns|propeller|propellers|"
-        r"landing gear|pod|pods|bay|swept|delta|straight|silhouette|profile|intake|intakes|exhaust|boom|booms|"
-        # ship / carrier
-        r"deck|decks|hull|bow|stern|island|mast|masts|funnel|funnels|superstructure|bridge|keel|"
-        r"catapult|catapults|palisades|derrick|derricks|crane|cranes|hangar|ramp|"
-        # helicopter
-        r"rotor|rotors|tailboom|skids|"
-        # armor / ground vehicle
-        r"track|tracks|barrel|chassis|cab|wheels|armor|armour|glacis|hatch|hatches)\b"
-    )
-    if not _re.search(visible_feature_pattern, lower):
-        warnings.append("visual_identity must include concrete visible machine features")
+    if not _VISUAL_IDENTITY_FEATURE_PATTERN.search(lower):
+        warnings.append(_VISUAL_IDENTITY_CONTENT_RULE)
 
-    machine_code = _normalized_unit_code(machine)
+    machine_codes = _locked_machine_identity_codes(machine)
     normalized_text = _normalized_unit_code(text)
-    if machine_code and machine_code not in normalized_text and _unit_display_name(machine).split()[-1].lower() not in lower:
+    if (
+        machine_codes
+        and not any(code in normalized_text for code in machine_codes)
+        and _unit_display_name(machine).split()[-1].lower() not in lower
+    ):
         warnings.append("visual_identity must be specific to the locked machine")
 
     if not isinstance(evidence_ids, list) or not [item for item in evidence_ids if str(item).strip()]:
@@ -3145,9 +3242,13 @@ def _timeframe_warnings(
     ):
         warnings.append("timeframe must name a sourced date, era, or service period")
 
-    machine_code = _normalized_unit_code(machine)
+    machine_codes = _locked_machine_identity_codes(machine)
     normalized_text = _normalized_unit_code(text)
-    if machine_code and machine_code not in normalized_text and _unit_display_name(machine).split()[-1].lower() not in lower:
+    if (
+        machine_codes
+        and not any(code in normalized_text for code in machine_codes)
+        and _unit_display_name(machine).split()[-1].lower() not in lower
+    ):
         warnings.append("timeframe must be specific to the locked machine")
 
     if not isinstance(evidence_ids, list) or not [item for item in evidence_ids if str(item).strip()]:
@@ -3549,7 +3650,7 @@ def _research_card_contract_warnings(
         card.get("unit") or card.get("machine") or card.get("machine_name")
         or card.get("name") or card.get("designation") or ""
     )
-    if not card_unit or _normalized_unit_code(card_unit) != _normalized_unit_code(machine):
+    if not card_unit or _normalized_unit_code(card_unit) not in _locked_machine_identity_codes(machine):
         warnings.append(f"card unit does not match locked machine {machine}")
     if _spoken_word_count(str(card.get("engineering_thesis") or "").strip()) < 4:
         warnings.append("missing/weak engineering_thesis")
@@ -11302,6 +11403,9 @@ class PipelineExecutor:
                 "timeframe and visual_identity text must each name the locked machine's designation explicitly (for example start with it), and may use only factual words and numbers that appear inside the returned evidence_segments (any segment's claim or source_excerpt, not only the cited ones) - if no evidence segment contains the month name, do not write the month.\n"
                 "Optional key: narrative_weight with one of major, standard, or transitional. Use major for pivotal machines that deserve a richer paragraph near 120 words; transitional for prototypes, interim, limited, or minor bridge machines that should stay near 95 words.\n"
                 "Do NOT return legacy prose fields, script beats, source_notes, or high-risk-claim summaries; code derives compatibility fields from evidence_segments.\n"
+                "CONTENT-SHAPE RULES (review checks these before this card is accepted - satisfy them in this first draft, not after a repair round):\n"
+                f"{_why_paragraph_writer_rule_line()}\n"
+                f"{_visual_identity_writer_rule_line()}\n"
                 "EVIDENCE SEGMENT CONTRACT:\n"
                 "- Return 6-9 atomic evidence segments using Anton slot kinds only.\n"
                 "- Required four-beat slot kinds at least once: original_problem, engineering_decision, tradeoff, reality.\n"
