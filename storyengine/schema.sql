@@ -1669,7 +1669,7 @@ ALTER TABLE channel_video_retention ENABLE ROW LEVEL SECURITY;
 -- ---------------------------------------------------------------------------
 -- MACHINE_RESEARCH_CARDS (migration 081_machine_research_cards.sql;
 -- identity moved from machine_key to roster_index in migration
--- 149_machine_research_cards_roster_index_identity.sql - machine_key is a
+-- 153_machine_research_cards_roster_index_identity.sql - machine_key is a
 -- normalized derivation (_normalized_unit_code) that two DISTINCT locked
 -- roster entries can legitimately share, e.g. "Audacious class / Malta
 -- class" and "CVA-01 class" both normalize to CVA01. roster_index is the

@@ -621,7 +621,7 @@ authored, lowercased" once that chunk is built.
 
 ## G5: machine_research_cards roster-index identity + recovery replay — 2026-07-30
 
-**What shipped:** migration `149_machine_research_cards_roster_index_identity.sql` moves
+**What shipped:** migration `153_machine_research_cards_roster_index_identity.sql` moves
 `machine_research_cards`' PRIMARY KEY from `(tenant_id, video_id, machine_key)` to `(tenant_id,
 video_id, roster_index)` — `machine_key` (`_normalized_unit_code(machine)`) is a lossy
 derivation two DISTINCT locked roster entries can share, e.g. roster item 9 ("Audacious class /
@@ -640,7 +640,7 @@ the `_migrations` table), so this does not need a manual apply step — verifyin
 the next deploy matters more. Confirm with:
 
 ```bash
-storyengine/scripts/se.sh db "SELECT filename, applied_at FROM _migrations WHERE filename = '149_machine_research_cards_roster_index_identity.sql'"
+storyengine/scripts/se.sh db "SELECT filename, applied_at FROM _migrations WHERE filename = '153_machine_research_cards_roster_index_identity.sql'"
 ```
 
 ### 2. Recovery replay for the confirmed-damaged video — NOT run against prod by this chunk (read-only DB access only, per the G5 cost cap)
@@ -658,10 +658,10 @@ Audacious class / Malta class"), and kept roster_index 22 (machine_key
 roster_index 21 (same key, "Lend-Lease escort carriers Attacker class (US-built)").
 `research_payload->unit_research_cards` still has all 23 entries intact (never keyed by
 machine_key), so `scripts/replay_research_cards.py` can recover both dropped rows once migration
-149 has been applied (the script's own upsert uses the same roster_index-keyed ON CONFLICT, so
+153 has been applied (the script's own upsert uses the same roster_index-keyed ON CONFLICT, so
 running it against the OLD schema would just repeat the original collision).
 
-**Exact invocation, once migration 149 is live on prod:**
+**Exact invocation, once migration 153 is live on prod:**
 
 ```bash
 # Dry run first - reports what WOULD change, writes nothing:

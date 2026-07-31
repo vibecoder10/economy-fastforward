@@ -1,6 +1,6 @@
 """G5: machine_research_cards keyed by roster_index, not machine_key.
 
-Before migration 149_machine_research_cards_roster_index_identity.sql, the
+Before migration 153_machine_research_cards_roster_index_identity.sql, the
 table's PRIMARY KEY was (tenant_id, video_id, machine_key), and
 _upsert_machine_research_card's ON CONFLICT target matched. machine_key is
 _normalized_unit_code(_unit_display_name(machine)) - a lossy derivation two
@@ -47,7 +47,7 @@ def test_colliding_pair_shares_a_machine_key():
 
 class _RosterIndexKeyedTable:
     """In-memory simulation of machine_research_cards with the REAL (post
-    migration 149) PRIMARY KEY (tenant_id, video_id, roster_index) ON
+    migration 153) PRIMARY KEY (tenant_id, video_id, roster_index) ON
     CONFLICT semantics - executes the exact SQL string
     _upsert_machine_research_card issues, so a regression to the old
     conflict target is caught by the SQL shape, not just by row count."""

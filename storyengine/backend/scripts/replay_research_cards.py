@@ -1,8 +1,8 @@
 """Recovery tool for machine_research_cards rows dropped by a machine_key
 collision (the identity bug fixed by migration
-149_machine_research_cards_roster_index_identity.sql).
+153_machine_research_cards_roster_index_identity.sql).
 
-Before migration 149, machine_research_cards was upserted
+Before migration 153, machine_research_cards was upserted
 ON CONFLICT (tenant_id, video_id, machine_key) - but two DISTINCT locked
 roster entries can legitimately derive the same _normalized_unit_code, e.g.
   "Audacious class / Malta class"  -> CVA01
@@ -12,7 +12,7 @@ the two coexisting. The JSONB research_payload.unit_research_cards list was
 never keyed by machine_key (only this compact table was), so it still has
 every entry intact - this script re-derives the missing/wrong compact-table
 rows from that JSONB source of truth, keyed by roster_index (migration
-149's row identity), using the exact same resolver
+153's row identity), using the exact same resolver
 (pe._roster_index_for_identity) and upsert statement
 (pe._upsert_machine_research_card's SQL) production code uses, so it can
 never disagree with what the running backend would compute.
@@ -172,7 +172,7 @@ async def build_replay_plan(conn: Any, tenant_id: str, video_id: str) -> dict[st
 async def apply_replay_plan(conn: Any, tenant_id: str, video_id: str, plan: dict[str, Any]) -> int:
     """Write every 'recover' entry using the exact same upsert SQL
     _upsert_machine_research_card uses (ON CONFLICT on roster_index -
-    migration 149's row identity). Returns the number of rows written.
+    migration 153's row identity). Returns the number of rows written.
 
     `conn` needs only an async `execute(query, *args)` method.
     """
@@ -241,7 +241,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Recover machine_research_cards rows dropped by a machine_key collision (migration 149)."
+        description="Recover machine_research_cards rows dropped by a machine_key collision (migration 153)."
     )
     parser.add_argument("--video-id", required=True, help="Video UUID to repair.")
     parser.add_argument("--tenant-id", required=True, help="Tenant UUID that owns the video.")

@@ -463,7 +463,7 @@ def _roster_index_for_identity(roster: list[str], identity: Any) -> Optional[int
     """Resolve a card/machine identity to its 1-based slot in a locked roster.
 
     This is the roster's real row identity (machine_research_cards migration
-    149 - see that migration for why machine_key alone cannot be trusted).
+    153 - see that migration for why machine_key alone cannot be trusted).
     Exact display-name match first: unambiguous even when two DIFFERENT
     roster entries derive the same _normalized_unit_code (e.g. "Audacious
     class / Malta class" and "CVA-01 class" both normalize to CVA01, but
@@ -3486,7 +3486,7 @@ async def enrich_research_payload_readiness(tenant_id: str, video_id: str, resea
     research_payload runs through here so `unit_research_cards[].readiness` is
     always present and consistent (no flicker between enriched/unenriched shapes).
     readiness = {"passed": bool, "warnings": [str]} from machine_research_cards.validation,
-    matched by roster_index (migration 149 - the row identity) via the
+    matched by roster_index (migration 153 - the row identity) via the
     locked unit_roster: two roster entries can share a machine_key, so a
     machine_key-only match would apply one machine's verdict to a different
     machine's card. machine_key stays a fallback for the rare case a
@@ -7979,7 +7979,7 @@ class PipelineExecutor:
     ) -> dict:
         """Merge trustworthy compact rows into legacy cards in locked-roster order.
 
-        Keyed by roster_index (migration 149), not machine_key: two distinct
+        Keyed by roster_index (migration 153), not machine_key: two distinct
         roster entries can normalize to the same machine_key, so a
         machine_key-keyed merge would silently collapse two different
         machines' cards into one (see _roster_index_for_identity)."""
@@ -8069,7 +8069,7 @@ class PipelineExecutor:
     ) -> None:
         """Checkpoint one compact card under exact tenant/video/roster-slot identity.
 
-        Keyed by roster_index (migration 149), not machine_key: two distinct
+        Keyed by roster_index (migration 153), not machine_key: two distinct
         locked roster entries can legitimately normalize to the same
         machine_key (e.g. two "-class" ship variants), so a machine_key
         conflict target would let the second entry's write silently clobber
@@ -8115,7 +8115,7 @@ class PipelineExecutor:
         a failed write logs and must never fail the caller's response. This is
         how stale pre-change verdicts self-heal on the first readiness check.
 
-        Scoped by roster_index (migration 149), not machine_key: two locked
+        Scoped by roster_index (migration 153), not machine_key: two locked
         roster entries can share a machine_key, and a machine_key-only WHERE
         would refresh BOTH rows with one machine's verdict."""
         import json
@@ -9935,7 +9935,7 @@ class PipelineExecutor:
                 )
                 break
         # Full-roster readiness from the stored referee verdicts. Keyed by
-        # roster_index (migration 149's row identity), not machine_key: two
+        # roster_index (migration 153's row identity), not machine_key: two
         # roster entries can share a machine_key, and a machine_key-keyed
         # dict would collapse them onto one verdict.
         ready_count = 0
@@ -10030,7 +10030,7 @@ class PipelineExecutor:
         if not roster:
             return {"status": "failed", "error": "No locked machine roster found"}
         payload = await self._load_machine_research_cards(video_id, payload, roster)
-        # Keyed by roster_index (migration 149's row identity), not
+        # Keyed by roster_index (migration 153's row identity), not
         # machine_key: two roster entries can share a machine_key, and a
         # machine_key-keyed dict would apply one machine's verdict to a
         # different roster slot.

@@ -102,7 +102,7 @@ def test_colliding_pair_normalizes_to_the_same_machine_key():
 
 
 def test_replay_recovers_a_dropped_colliding_row(monkeypatch):
-    """Simulates the pre-migration-149 damage directly: the compact table has
+    """Simulates the pre-migration-153 damage directly: the compact table has
     only ONE row for the colliding pair (roster slot 2 present, slot 3 -
     silently clobbered by the old machine_key ON CONFLICT - missing), while
     research_payload.unit_research_cards still has both cards intact. Replay

@@ -6474,7 +6474,7 @@ def test_machine_preview_readiness_does_not_touch_generation_side_effects(monkey
     assert "card" not in write_query.replace("machine_research_cards", "")
     assert write_args[0] == "tenant-test"
     assert write_args[1] == "video-test"
-    assert write_args[2] == 1  # roster_index of "Boeing XB-15" (migration 149's row identity)
+    assert write_args[2] == 1  # roster_index of "Boeing XB-15" (migration 153's row identity)
     assert json.loads(write_args[3])["passed"] is True
 
 
@@ -6484,7 +6484,7 @@ def test_machine_preview_readiness_persists_fresh_verdict_and_serves_it(monkeypa
     The stored validation says passed=True while the live strict referee fails
     the card. The no-spend readiness check must (1) issue a validation-only
     UPDATE on machine_research_cards keyed by tenant/video/roster_index
-    (migration 149's row identity) - never an INSERT, never the card column -
+    (migration 153's row identity) - never an INSERT, never the card column -
     and (2) serve card.readiness matching the LIVE verdict, not the stale
     stored one, so badge and toast agree."""
     roster = ["Boeing XB-15", "Boeing B-17 Flying Fortress", "Consolidated B-24 Liberator"]
@@ -6550,7 +6550,7 @@ def test_machine_preview_readiness_persists_fresh_verdict_and_serves_it(monkeypa
     assert "card" not in write_query.replace("machine_research_cards", "")
     assert write_args[0] == "tenant-test"
     assert write_args[1] == "video-test"
-    assert write_args[2] == 1  # roster_index of "Boeing XB-15" (migration 149's row identity)
+    assert write_args[2] == 1  # roster_index of "Boeing XB-15" (migration 153's row identity)
     assert json.loads(write_args[3]) == {
         "machine": "Boeing XB-15",
         "passed": False,
@@ -7264,7 +7264,7 @@ def test_target_machine_research_uses_only_target_source_and_passes_mid_roster(m
         )
     )
 
-    # roster_index of "Boeing B-52 Stratofortress" in roster_names (migration 149's row identity).
+    # roster_index of "Boeing B-52 Stratofortress" in roster_names (migration 153's row identity).
     assert fetch_calls[0][1:] == ("tenant-test", "video-test", 2)
     assert len(fake_anthropic.prompts) == 1
     prompt = fake_anthropic.prompts[0]

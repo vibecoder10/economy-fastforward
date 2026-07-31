@@ -1,4 +1,4 @@
--- 149_machine_research_cards_roster_index_identity.sql
+-- 153_machine_research_cards_roster_index_identity.sql
 -- G5: roster-index keying for machine_research_cards.
 --
 -- The row identity was PRIMARY KEY (tenant_id, video_id, machine_key), where
