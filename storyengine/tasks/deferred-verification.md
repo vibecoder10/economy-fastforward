@@ -3961,3 +3961,64 @@ stand unchanged.
   the chunk brief's file-ownership boundary with the concurrent actions.py/pipeline_executor.py
   worker.
 
+# Deferred verification — G13 (ship-aware gather quality: KGV battleship rosters)
+
+- [ ] **Real paid re-run of video d05efae3 never done — offline-only chunk by design (no
+  Tavily/Anthropic spend allowed).** All three ranked fixes plus the bonus mislabel fix are
+  proven with unit/fixture tests only (real excerpt/URL shapes pulled read-only via
+  `scripts/se.sh db` from the actual failed packages, but no live Tavily/Anthropic call was
+  made in this chunk). Recipe for whoever runs the real re-verification:
+  1. Confirm the deploy landed: `se db "SELECT id FROM videos WHERE id =
+     'd05efae3-46f8-4ee3-b690-849c3ca31fbc'"` then check `se logs backend` for a clean
+     restart after `se deploy`.
+  2. Clear the 5 KGV machines' cached raw source packages so gather actually re-runs instead
+     of serving the stale cached (aircraft-templated, off-topic-tier) packages — the cache
+     check in `_gather_verified_machine_source_package` returns early whenever the cached
+     package already has zero quality errors, and 3 of the 5 (Howe, Prince of Wales, King
+     George V) currently DO read as `passed: true` at the package level despite being
+     referee-rejected downstream, so they will NOT auto-refresh on their own:
+     `se db --write "UPDATE videos SET research_payload = research_payload::jsonb #-
+     '{machine_raw_source_packages}' WHERE id = 'd05efae3-46f8-4ee3-b690-849c3ca31fbc'"`
+     (or scope to the 5 keys individually with `#-` if a wider reset is undesirable).
+  3. Trigger one-machine research for each of the 5 (`/machine-research-one` chat command,
+     or the roster-repair dashboard's per-machine "research" action) — this is the paid leg:
+     8-12 Tavily calls per machine now (naval queries + 3 grouped steering calls + at most 1
+     reworded retry, bounded by `_MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE = 15`), plus
+     one Anthropic card-write call per machine once the package gate passes.
+  4. Expected outcome per machine: `search_queries` in the saved
+     `machine_raw_source_packages[<key>]` contain naval vocabulary ("class battleship
+     displacement armament beam", "naval-history.net", "uboat.net",
+     "discovery.nationalarchives.gov.uk") and zero "USAF"/"wingspan"/"National Museum of the
+     United States Air Force" strings. `machine_research_cards.validation.passed` should be
+     `true` for all 5, or if still `false`, the warnings should no longer include a Tier 1-2
+     source whose only candidate excerpt is off-topic (spot-check by pulling the cited
+     `evidence_segments[].source_excerpt_id` back against `candidate_excerpts` and reading
+     the excerpt text).
+  5. **G8b interaction:** if step 3 is instead driven by re-running the full autobuild loop
+     (rather than the one-machine command directly), the G8b round guard
+     (`research_payload.roster_loop_attempts`, `actions.py` `_MAX_AUTO_ATTEMPTS = 2`) means a
+     machine already recorded as failed once on this video gets exactly ONE more automatic
+     retry attempt before being parked as "needs manual one-machine research" — check
+     `roster_loop_attempts` in `research_payload` first (`se db "SELECT research_payload::jsonb
+     -> 'roster_loop_attempts' FROM videos WHERE id = 'd05efae3-46f8-4ee3-b690-849c3ca31fbc'"`)
+     so a machine already at count 2 doesn't silently get skipped by the loop instead of
+     re-researched — use the direct one-machine command (step 3) to bypass that bound
+     entirely if needed.
+  Not done here because every one of these steps is real Tavily + Anthropic spend against a
+  production video, and the task brief's cost cap for this chunk was zero paid calls,
+  offline/mocked-HTTP tests only.
+- **Swap-proof used (file-copy, no git stash per the task's explicit prohibition):**
+  `git show HEAD:storyengine/backend/pipeline_executor.py` copied to the scratchpad and
+  diffed against the working copy (confirms every change is additive on top of the merge
+  base, nothing silently reverted) — the working copy differs from HEAD as expected and the
+  on-disk file matches the diffed copy (no accidental clobber). `git status --short` shows
+  only the two owned files (`pipeline_executor.py`, `tests/test_machine_documentary_hold.py`)
+  touched.
+- **Full backend suite, this worktree (backend venv, `./venv/bin/python -m pytest tests/ -q`):
+  28 failed, 4180 passed, 4 skipped** (before this chunk: 28 failed, 4171 passed, 4 skipped —
+  net +9 new/updated tests, zero regressions). The exact sorted `FAILED` line sets from
+  before and after this chunk's diff are byte-identical (`diff` on the two sorted lists
+  produced no output) — all 28 are pre-existing `tests/functional/test_custom_film_remotion.py`
+  failures (this worktree has no `remotion-video/node_modules` symlinked in, unrelated to
+  this chunk). `py_compile` clean on both changed files.
+

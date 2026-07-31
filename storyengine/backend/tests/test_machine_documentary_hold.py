@@ -261,6 +261,56 @@ def test_verified_machine_source_queries_cover_anton_research_slots():
     assert "pilot crew memoir oral history official inquiry unusual fact" in joined
 
 
+def test_verified_machine_source_queries_aircraft_snapshot_byte_identical():
+    """G13, 2026-07-31: the naval branch must never alter the aircraft query
+    set - this is the exact 8-string output frozen before G13's naval branch
+    was added, compared for full-list equality (not substrings)."""
+    queries = pe._verified_machine_source_queries(
+        "Every US Strategic Bomber Ever Built",
+        "Boeing XB-15",
+    )
+
+    assert queries == [
+        '"Boeing XB-15" official history',
+        '"Boeing XB-15" USAF fact sheet',
+        '"Boeing XB-15" National Museum of the United States Air Force',
+        '"Boeing XB-15" Boeing development design history',
+        '"Boeing XB-15" specifications range payload wingspan engines',
+        '"Boeing XB-15" production prototype built service operational history',
+        '"Boeing XB-15" design tradeoff limitation lessons learned test report',
+        '"Boeing XB-15" pilot crew memoir oral history official inquiry unusual fact',
+    ]
+
+
+def test_verified_machine_source_queries_naval_machine_uses_naval_vocabulary():
+    """G13, 2026-07-31: a ship gets naval-domain queries, not the aircraft
+    template - the real bug on video d05efae3 (all 5 KGV-class battleships):
+    '"32 HMS Howe" USAF fact sheet' and '"53 HMS Prince of Wales" National
+    Museum of the United States Air Force' were fired verbatim at Royal Navy
+    battleships and returned giant off-topic USAF/DoD PDFs."""
+    queries = pe._verified_machine_source_queries(
+        "Every Royal Navy Battleship Ever Built",
+        "32 HMS Howe",
+    )
+    joined = " ".join(queries).lower()
+
+    assert len(queries) == 8
+    assert len(queries) == len(set(queries))
+    assert all('"32 HMS Howe"' in query for query in queries)
+    # No aircraft vocabulary anywhere in the naval query set.
+    assert "usaf" not in joined
+    assert "wingspan" not in joined
+    assert "national museum of the united states air force" not in joined
+    # Naval vocabulary and embedded proven-fetchable domain names present.
+    assert "displacement" in joined
+    assert "armament" in joined
+    assert "beam" in joined
+    assert "commissioned" in joined
+    assert "naval-history.net" in joined
+    assert "uboat.net" in joined
+    assert "discovery.nationalarchives.gov.uk" in joined
+
+
 def test_machine_mentions_use_designation_boundaries():
     assert pe._mentions_machine("The Northrop B-2 Spirit entered service as a stealth bomber.", "B-2")
     assert pe._mentions_machine("The B2 bomber appears without a hyphen in this source.", "B-2")
@@ -1474,12 +1524,27 @@ def test_gather_verified_machine_source_package_excludes_iwm_and_adds_naval_doma
         )
     )
 
-    assert len(request_bodies) == 9  # the original 8 queries + 1 naval-domain-scoped call
+    # G13, 2026-07-31: 8 naval base queries + 3 domain-grouped steering calls
+    # (2-3 domains each, replacing the old single 6-domain-combined call) + 1
+    # reworded retry (every call here returns zero results, so zero Tier 1-2
+    # candidates ever accumulate and the retry always fires) = 12, within the
+    # 15-call bound.
+    assert len(request_bodies) == 12
     assert all("iwm.org.uk" in body["exclude_domains"] for body in request_bodies)
     naval_calls = [body for body in request_bodies if body.get("include_domains")]
-    assert len(naval_calls) == 1
-    assert set(naval_calls[0]["include_domains"]) == set(pe._PREFERRED_NAVAL_SOURCE_DOMAINS)
-    assert "iwm.org.uk" not in naval_calls[0]["include_domains"]
+    assert len(naval_calls) == len(pe._NAVAL_STEERING_DOMAIN_GROUPS)
+    covered_domains = {domain for body in naval_calls for domain in body["include_domains"]}
+    assert covered_domains == set(pe._PREFERRED_NAVAL_SOURCE_DOMAINS)
+    assert "iwm.org.uk" not in covered_domains
+    # The reworded retry pass is the one remaining call: no include_domains,
+    # and its query text is the dedicated retry wording (never one of the 8
+    # base naval queries or the repeated steering query text).
+    retry_calls = [
+        body for body in request_bodies
+        if not body.get("include_domains")
+        and body["query"] == pe._naval_reworded_retry_query("HMS Argus")
+    ]
+    assert len(retry_calls) == 1
 
 
 def test_gather_verified_machine_source_package_skips_naval_query_for_non_naval_machine(monkeypatch):
@@ -1525,6 +1590,156 @@ def test_gather_verified_machine_source_package_skips_naval_query_for_non_naval_
     assert len(request_bodies) == 8
     assert all("iwm.org.uk" in body["exclude_domains"] for body in request_bodies)
     assert not any(body.get("include_domains") for body in request_bodies)
+
+
+# G13, 2026-07-31: real off-topic Tier 1-2 excerpts pulled from the actually
+# stored (and actually referee-failed) machine_raw_source_packages on video
+# d05efae3-46f8-4ee3-b690-849c3ca31fbc (`se db`, read-only). Both satisfied
+# the OLD tier-floor check even though neither is genuinely about the locked
+# machine.
+_REAL_OFF_TOPIC_IWM_DIFFERENT_SHIP_EXCERPT = (
+    "\"India\" ### [William Charles Goldsmith](/lifestory/6163985) **Born** 1884 **Died** 1918 "
+    "Royal Navy 216889 Boy 2nd Class HMS Northampton Royal Navy 216889 Boy 1st Class HMS Northampton "
+    "Royal Navy 216889 Ordinary Seaman HMS Flora … ### [Charles Richard Kennett](/lifestory/6160417) "
+    "**Born** 1883 **Died** 1917 Royal Navy 213318 Boy 2nd Class HMS Northampton Royal Navy 213318 "
+    "Boy 1st Class HMS Northampton Royal Navy 213318 Ordinary Seaman HMS Victory … "
+    "### [Arthur William Martin](/lifestory/6168639) **Born** 1884 **Died** 1915 Royal Navy 221552 "
+    "Boy 2nd Class HMS \"Northampton\" Royal Navy 221552 Leading Seaman H.M.S."
+)
+_REAL_OFF_TOPIC_IWM_DIFFERENT_SHIP_URL = (
+    "https://livesofthefirstworldwar.iwm.org.uk/searchlives/field/unit/HMS%20Northampton/filter"
+)
+_REAL_OFF_TOPIC_HOWE_BIBLIOGRAPHY_EXCERPT = (
+    "Howe, Northwest Africa; ing, \"The War in the Mediterranean:' in Seizing the Initiative in the West "
+    "[United World War 11 German Military Studies, 24 States Army in World War II] (Washington, vols, Donald S."
+)
+_REAL_OFF_TOPIC_HOWE_USAF_URL = "https://media.defense.gov/2010/Sep/22/2001330044/-1/-1/0/AFD-100922-032.pdf"
+
+
+def _six_on_topic_naval_excerpts(machine: str, url: str) -> list[dict]:
+    sentences = [
+        f"{machine} was a King George V-class battleship of the Royal Navy.",
+        f"{machine} was commissioned and joined the fleet for service in the war.",
+        f"The battleship {machine} carried her main armament in twin and quad turrets.",
+        f"{machine} served with the Home Fleet aboard other Royal Navy warships.",
+        f"Crew aboard {machine} recalled the ship's service during the campaign.",
+        f"{machine} was later decommissioned after her wartime naval service.",
+    ]
+    return [
+        {
+            "excerpt_id": f"S1-E{index}",
+            "source_id": "S1",
+            "source_title": "On-topic reference",
+            "source_url": url,
+            "source_tier": 3,
+            "source_tier_label": "Tier 3 reference/secondary",
+            "source_capture_method": "fetched_page",
+            "source_variant_selection": {"selected_capture_method": "fetched_page"},
+            "locator": f"S1-E{index}",
+            "text": sentence,
+            "text_hash": f"test-{index}",
+        }
+        for index, sentence in enumerate(sentences, start=1)
+    ]
+
+
+def test_tier_floor_relevant_excerpt_rejects_real_off_topic_different_ship():
+    """The real iwm.org.uk excerpt is titled/about HMS Northampton and never
+    names Prince of Wales anywhere - it only satisfied the old check via the
+    generic "HMS" prefix, which _machine_mention_terms no longer treats as a
+    distinguishing term."""
+    assert not pe._mentions_machine(
+        _REAL_OFF_TOPIC_IWM_DIFFERENT_SHIP_EXCERPT, "53 HMS Prince of Wales"
+    )
+    assert not pe._tier_floor_relevant_excerpt(
+        _REAL_OFF_TOPIC_IWM_DIFFERENT_SHIP_EXCERPT, "53 HMS Prince of Wales"
+    )
+
+
+def test_tier_floor_relevant_excerpt_rejects_real_off_topic_bibliography_surname():
+    """The real USAF-PDF excerpt is a bibliography citation to a historian
+    named Howe ("Howe, Northwest Africa") - _mentions_machine still matches
+    on the surname, but no naval ship-context vocabulary is present, so the
+    stricter tier-floor check must reject it."""
+    assert pe._mentions_machine(_REAL_OFF_TOPIC_HOWE_BIBLIOGRAPHY_EXCERPT, "32 HMS Howe")
+    assert not pe._tier_floor_relevant_excerpt(_REAL_OFF_TOPIC_HOWE_BIBLIOGRAPHY_EXCERPT, "32 HMS Howe")
+
+
+def test_tier_floor_relevant_excerpt_accepts_genuine_on_topic_naval_excerpt():
+    on_topic = "HMS Howe was a King George V-class battleship that served with the Royal Navy fleet."
+    assert pe._tier_floor_relevant_excerpt(on_topic, "32 HMS Howe")
+
+
+def test_verified_source_package_quality_rejects_off_topic_iwm_different_ship_tier_floor():
+    machine = "53 HMS Prince of Wales"
+    package = {
+        "candidate_excerpts": _six_on_topic_naval_excerpts(machine, "https://example-secondary.test/pow")
+        + [{
+            "excerpt_id": "S2-E1",
+            "source_id": "S2",
+            "source_title": "Search for \"HMS Northampton\" in unit | Lives of the First World War",
+            "source_url": _REAL_OFF_TOPIC_IWM_DIFFERENT_SHIP_URL,
+            "source_tier": 2,
+            "source_tier_label": "Tier 2 museum/authoritative secondary",
+            "source_capture_method": "fetched_page",
+            "source_variant_selection": {"selected_capture_method": "fetched_page"},
+            "locator": "S2-E1",
+            "text": _REAL_OFF_TOPIC_IWM_DIFFERENT_SHIP_EXCERPT,
+            "text_hash": "test-offtopic",
+        }],
+    }
+
+    errors = pe._verified_machine_source_package_quality_errors(package, machine)
+
+    assert any("Tier 1-2 primary/authoritative source" in error for error in errors)
+
+
+def test_verified_source_package_quality_rejects_off_topic_howe_bibliography_tier_floor():
+    machine = "32 HMS Howe"
+    package = {
+        "candidate_excerpts": _six_on_topic_naval_excerpts(machine, "https://example-secondary.test/howe")
+        + [{
+            "excerpt_id": "S2-E1",
+            "source_id": "S2",
+            "source_title": "AFD-100922-032.pdf",
+            "source_url": _REAL_OFF_TOPIC_HOWE_USAF_URL,
+            "source_tier": 1,
+            "source_tier_label": "Tier 1 primary/official",
+            "source_capture_method": "tavily_raw_content",
+            "source_variant_selection": {"selected_capture_method": "tavily_raw_content"},
+            "locator": "S2-E1",
+            "text": _REAL_OFF_TOPIC_HOWE_BIBLIOGRAPHY_EXCERPT,
+            "text_hash": "test-offtopic-howe",
+        }],
+    }
+
+    errors = pe._verified_machine_source_package_quality_errors(package, machine)
+
+    assert any("Tier 1-2 primary/authoritative source" in error for error in errors)
+
+
+def test_verified_source_package_quality_accepts_genuine_on_topic_tier_1_2_excerpt():
+    machine = "32 HMS Howe"
+    package = {
+        "candidate_excerpts": _six_on_topic_naval_excerpts(machine, "https://example-secondary.test/howe")
+        + [{
+            "excerpt_id": "S2-E1",
+            "source_id": "S2",
+            "source_title": "HMS Howe official history",
+            "source_url": "https://www.rmg.co.uk/collections/objects/hms-howe",
+            "source_tier": 2,
+            "source_tier_label": "Tier 2 museum/authoritative secondary",
+            "source_capture_method": "fetched_page",
+            "source_variant_selection": {"selected_capture_method": "fetched_page"},
+            "locator": "S2-E1",
+            "text": "HMS Howe was a King George V-class battleship that served with the Royal Navy fleet.",
+            "text_hash": "test-ontopic-howe",
+        }],
+    }
+
+    errors = pe._verified_machine_source_package_quality_errors(package, machine)
+
+    assert not any("Tier 1-2 primary/authoritative source" in error for error in errors)
 
 
 def test_required_anton_slots_reject_tier_four_only_source_support():
@@ -2046,6 +2261,68 @@ def test_card_validation_requires_sourced_memorable_fact_slot(monkeypatch):
         "missing sourced memorable_fact evidence segment" in warning
         for warning in result["unit_research_hold_validation"]["units"][0]["warnings"]
     )
+
+
+def test_full_research_validation_names_real_referee_rejection_not_missing_card(monkeypatch):
+    """G13, 2026-07-31 (bonus fix): a machine whose card was saved and
+    REJECTED by the referee (validation.passed=False, with specific, named
+    warnings) must surface those real warnings, not the generic "missing
+    saved one-machine research card" - _load_machine_research_cards drops
+    referee-failed rows from unit_research_cards by design (many callers need
+    trustworthy-only cards), which used to make the aggregate check
+    (_run_unit_research_hold -> _full_research_validation) mislabel a
+    rejected card as never having been researched at all."""
+    roster = ["32 HMS Howe"]
+    real_rejection_warnings = [
+        "card unit does not match locked machine 32 HMS Howe",
+        "evidence_segments missing required Anton slots for: original_problem, engineering_decision, tradeoff, reality",
+    ]
+    compact_rows = [{
+        "machine_key": pe._normalized_unit_code("32 HMS Howe"),
+        "machine_name": "32 HMS Howe",
+        "roster_index": 1,
+        "card": {"unit": "32 HMS Howe"},  # referee-rejected; content irrelevant, it must be dropped
+        "validation": {"passed": False, "warnings": real_rejection_warnings},
+    }]
+    payload = {"unit_roster": roster, "unit_research_cards": []}
+    executor = pe.PipelineExecutor.__new__(pe.PipelineExecutor)
+    executor.tenant_id = "tenant-test"
+
+    class ForbiddenAnthropic:
+        async def generate(self, **_kwargs):
+            raise AssertionError("the early bulk-validation short-circuit must not reach an LLM call")
+
+    executor.__dict__["_pipeline"] = type("Pipeline", (), {"anthropic": ForbiddenAnthropic()})()
+
+    async def fake_fetch_all(*_args, **_kwargs):
+        return compact_rows
+
+    async def noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(pe, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(executor, "_log_activity", noop)
+
+    # First, the mechanism directly: the failed row is dropped from
+    # unit_research_cards (unchanged behavior) but its real verdict is
+    # stashed for callers that need to explain why.
+    loaded = asyncio.run(executor._load_machine_research_cards("video-a", payload, roster))
+    assert loaded["unit_research_cards"] == []
+    stash = loaded["_dropped_failed_research_card_validations"][pe._normalized_unit_code("32 HMS Howe")]
+    assert stash["warnings"] == real_rejection_warnings
+
+    # Then end-to-end through the aggregate consumer: no target_machine means
+    # _run_unit_research_hold hits the early bulk-validation short-circuit,
+    # which must report the REAL rejection reason for "32 HMS Howe", not the
+    # generic missing-card message.
+    result = asyncio.run(executor._run_unit_research_hold("video-a", "Title", payload, roster))
+
+    units = result["unit_research_hold_validation"]["units"]
+    assert len(units) == 1
+    assert units[0]["machine"] == "32 HMS Howe"
+    assert units[0]["passed"] is False
+    assert units[0]["warnings"] == real_rejection_warnings
+    assert "missing saved one-machine research card" not in units[0]["warnings"]
 
 
 def test_roster_story_uniqueness_flags_duplicate_engineering_ideas():

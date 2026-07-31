@@ -652,6 +652,23 @@ def _html_to_visible_text(raw_html: str) -> str:
     return " ".join(_html.unescape(text).split())
 
 
+# G13, 2026-07-31: generic naval type-prefix words ("HMS", "USS", ...) were
+# being added as standalone _mentions_machine terms the same way individual
+# name words are - so ANY page mentioning ANY ship with the same navy prefix
+# counted as "mentioning" every other ship in that navy's roster. Real
+# evidence (video d05efae3): an iwm.org.uk search-results page titled "Search
+# for 'HMS Northampton'" - a completely different ship - satisfied
+# _mentions_machine("...", "53 HMS Prince of Wales") on the bare word "hms"
+# alone; the excerpt never contained "prince" or "wales" anywhere. Excluding
+# these generic prefixes mirrors the existing aircraft-manufacturer
+# exclusion below (a page merely saying "Boeing" isn't evidence for a
+# specific Boeing aircraft either).
+_GENERIC_MACHINE_DESIGNATION_WORDS = frozenset({
+    "boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin",
+    "hms", "uss", "hmas", "hmcs", "hmnzs", "hmis", "rfa", "sms", "ijn", "rms", "ins",
+})
+
+
 def _machine_mention_terms(machine: str) -> set[str]:
     import re as _re
 
@@ -662,7 +679,7 @@ def _machine_mention_terms(machine: str) -> set[str]:
         terms.add(code.lower())
         terms.add(code.replace("-", "").lower())
     for word in _re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", machine_text):
-        if word.lower() not in {"boeing", "consolidated", "convair", "douglas", "northrop", "lockheed", "martin"}:
+        if word.lower() not in _GENERIC_MACHINE_DESIGNATION_WORDS:
             terms.add(word.lower())
     return {term for term in terms if term and len(term) >= 3}
 
@@ -1168,10 +1185,24 @@ def _verified_machine_source_package_quality_errors(package: Any, machine: str =
         for item in quality_candidates
         if str(item.get("source_url") or "").strip() and _source_tier_number(item) <= 3
     }
+    # G13, 2026-07-31: a Tier 1-2 DOMAIN classification alone used to satisfy
+    # this floor even when no candidate excerpt from that source was actually
+    # relevant (real evidence: PoW's only "Tier 2" was an iwm.org.uk page
+    # about HMS Northampton, a different ship; Howe's two "Tier 1" hits were
+    # a giant USAF PDF and a US Pacific Fleet roster that only mention Howe
+    # in passing). _tier_floor_relevant_excerpt requires the excerpt itself
+    # to be genuinely about the machine, not just filed under a Tier 1-2
+    # domain - guarded by `not machine` so callers that never pass a machine
+    # (several existing quality-error checks above) keep their prior,
+    # machine-agnostic behavior unchanged.
     authoritative_urls = {
         str(item.get("source_url") or "").strip()
         for item in quality_candidates
-        if str(item.get("source_url") or "").strip() and 1 <= _source_tier_number(item) <= 2
+        if (
+            str(item.get("source_url") or "").strip()
+            and 1 <= _source_tier_number(item) <= 2
+            and (not machine or _tier_floor_relevant_excerpt(str(item.get("text") or ""), machine))
+        )
     }
     unsupported_capture_methods = sorted({
         str(item.get("source_capture_method") or "").strip()
@@ -1442,7 +1473,19 @@ def _format_verified_machine_source_package(package: dict, machine: str = "") ->
 
 
 def _verified_machine_source_queries(title: str, machine: str) -> list[str]:
-    """Cost-bounded query set for one machine's exact raw-source package."""
+    """Cost-bounded query set for one machine's exact raw-source package.
+
+    G13, 2026-07-31: this set was fired byte-identical at every machine,
+    including ships - "USAF fact sheet" / "National Museum of the United
+    States Air Force" / "wingspan" queries against a Royal Navy battleship
+    (confirmed in all 5 KGV-class packages on video d05efae3) return junk:
+    huge unrelated USAF/DoD PDFs and Pacific Fleet rosters that happen to
+    contain the ship's name once, in passing. Naval machines now get a
+    naval-vocabulary query set instead (_verified_machine_naval_source_queries);
+    non-naval machines keep this exact aircraft set unchanged (regression
+    surface - see test_verified_machine_source_queries_aircraft_snapshot)."""
+    if _is_naval_gather_context(title, machine):
+        return _verified_machine_naval_source_queries(title, machine)
     manufacturer = " ".join(_unit_display_name(machine).split()[:1]).strip()
     return list(dict.fromkeys([
         f'"{machine}" official history',
@@ -1453,6 +1496,28 @@ def _verified_machine_source_queries(title: str, machine: str) -> list[str]:
         f'"{machine}" production prototype built service operational history',
         f'"{machine}" design tradeoff limitation lessons learned test report',
         f'"{machine}" pilot crew memoir oral history official inquiry unusual fact',
+    ]))[:8]
+
+
+def _verified_machine_naval_source_queries(title: str, machine: str) -> list[str]:
+    """Cost-bounded query set for one SHIP's exact raw-source package.
+
+    Same 8-query shape and cost bound as the aircraft set, but with naval
+    vocabulary (class/displacement/armament/beam/commissioned) and queries
+    that EMBED the DVsU research simulator's proven fetchable naval/
+    Commonwealth domains (tasks/evidence/dvsu-research-simulator/) - the
+    pattern that landed a Tier-1 National Archives hit for HMS Ark Royal -
+    instead of aircraft-only vocabulary ("USAF fact sheet", "wingspan") that
+    naval sources never satisfy."""
+    return list(dict.fromkeys([
+        f'"{machine}" official history commissioned',
+        f'"{machine}" class battleship displacement armament beam launched',
+        f'"{machine}" naval-history.net',
+        f'"{machine}" uboat.net',
+        f'"{machine}" service history war record engagement',
+        f'"{machine}" loss damage board of enquiry discovery.nationalarchives.gov.uk',
+        f'"{machine}" commissioned decommissioned scrapped fate',
+        f'"{machine}" crew veteran memoir account officer',
     ]))[:8]
 
 
@@ -1468,6 +1533,23 @@ _PREFERRED_NAVAL_SOURCE_DOMAINS = [
     "awm.gov.au", "rmg.co.uk", "gov.uk",
     "naval-encyclopedia.com", "naval-history.net", "uboat.net",
 ]
+# G13, 2026-07-31: one Tavily call covering all 6 preferred domains at once
+# (max_results=5) diluted every domain's share of results - Duke of York and
+# Anson got zero awm/rmg/gov.uk hits with no fetch errors, just not in the
+# combined top 5. Splitting into small grouped calls gives each domain pair
+# its own max_results=5 budget.
+_NAVAL_STEERING_DOMAIN_GROUPS = [
+    ["awm.gov.au", "rmg.co.uk"],
+    ["gov.uk", "naval-encyclopedia.com"],
+    ["naval-history.net", "uboat.net"],
+]
+# Cost bound for _gather_verified_machine_source_package's Tavily calls per
+# machine: 8 base queries + len(_NAVAL_STEERING_DOMAIN_GROUPS) grouped
+# steering calls (naval only) + at most 1 reworded retry pass = 12 for a
+# naval machine today; this constant is the hard ceiling regardless of how
+# either list grows later. Extra passes past the bound are skipped and
+# logged (never silently dropped).
+_MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE = 15
 _NAVAL_GATHER_CONTEXT_KEYWORDS = (
     "ship", "naval", "navy", "carrier", "cruiser", "destroyer", "frigate",
     "submarine", "vessel", "hms", "uss", "fleet", "corvette", "battleship",
@@ -1485,11 +1567,49 @@ def _is_naval_gather_context(title: str, machine: str) -> bool:
 
 
 def _naval_museum_domain_query(machine: str) -> str:
-    """One extra Tavily call, scoped via include_domains to the DVsU research
-    simulator's proven fetchable naval/Commonwealth anchors. Additive to
-    _verified_machine_source_queries, whose 8-query set and exact wording stay
+    """Steering-call query text, scoped per-group via include_domains to the
+    DVsU research simulator's proven fetchable naval/Commonwealth anchors.
+    Additive to _verified_machine_source_queries, whose query sets stay
     unchanged and regression-locked."""
     return f'"{machine}" history design service'
+
+
+def _naval_reworded_retry_query(machine: str) -> str:
+    """G13, 2026-07-31: one reworded, domain-unrestricted retry when the base
+    + domain-grouped steering passes still leave zero Tier 1-2 candidates.
+    Drops the include_domains restriction (it already found nothing) and
+    rewords away from the base set's phrasing so a differently-indexed page
+    can surface instead of repeating the same losing queries a third way."""
+    return f"{machine} Royal Navy warship history museum archive record"
+
+
+def _tier_floor_relevant_excerpt(text: str, machine: str) -> bool:
+    """Stricter relevance check for the Tier 1-2 tier-floor gate only (does
+    NOT replace the general _mentions_machine excerpt filter used elsewhere -
+    that stays as-is to avoid starving the six-mentions/Anton-slot checks).
+
+    A bare _mentions_machine hit is not proof a Tier 1-2 DOMAIN source is
+    actually ABOUT this machine. Real evidence (video d05efae3, HMS Howe):
+    the excerpt "Howe, Northwest Africa; ing, 'The War in the Mediterranean'"
+    is a bibliography citation to a historian named Howe - it matches
+    _mentions_machine on the surname alone, but names no ship, navy, or
+    battle. (The other real case - an iwm.org.uk page actually about a
+    different ship, "HMS Northampton", matching only on the generic "HMS"
+    prefix - is already excluded upstream by _machine_mention_terms dropping
+    generic naval prefixes, so _mentions_machine itself returns False for
+    it.) For naval machines, require the excerpt to also carry naval
+    ship-context vocabulary (_NAVAL_GATHER_CONTEXT_KEYWORDS) - genuine ship
+    history/service content overwhelmingly does. Non-naval machines are
+    unaffected (regression surface)."""
+    if not _mentions_machine(text, machine):
+        return False
+    if not _is_naval_gather_context("", machine):
+        return True
+    normalized = _normalized_source_text(text)
+    return any(
+        re.search(rf'\b{re.escape(keyword)}\b', normalized)
+        for keyword in _NAVAL_GATHER_CONTEXT_KEYWORDS
+    )
 
 
 def _validate_card_against_verified_sources(card: dict, package: Optional[dict]) -> list[str]:
@@ -7758,24 +7878,47 @@ class PipelineExecutor:
             }
 
         queries = _verified_machine_source_queries(title, machine)
+        is_naval = _is_naval_gather_context(title, machine)
 
         import httpx as _httpx
 
         search_results: list[dict] = []
         errors: list[str] = []
+        skipped_search_queries: list[str] = []
         headers = {"User-Agent": "StoryEngine/1.0 (verified source research)"}
         async with _httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
             search_passes = [(query, None) for query in queries]
             # GAP 1(c), 2026-07-30: iwm.org.uk 403s every automated fetch (curl,
             # WebFetch - all of it), so a search hit there can never become a
             # usable candidate; excluding it stops it burning a source slot on
-            # every single call. For a ship/naval machine, add one extra call
-            # scoped to the DVsU research simulator's proven fetchable
-            # Commonwealth/naval anchors (gather_brief_template.txt) so the
-            # roster's best sources are not all behind IWM's bot-wall.
-            if _is_naval_gather_context(title, machine):
-                search_passes.append((_naval_museum_domain_query(machine), list(_PREFERRED_NAVAL_SOURCE_DOMAINS)))
-            for query, include_domains in search_passes:
+            # every single call. For a ship/naval machine, add domain-grouped
+            # steering calls scoped to the DVsU research simulator's proven
+            # fetchable Commonwealth/naval anchors (gather_brief_template.txt)
+            # so the roster's best sources are not all behind IWM's bot-wall.
+            # G13, 2026-07-31: this used to be ONE call covering all 6 domains
+            # combined (max_results=5 diluted across every domain) - Duke of
+            # York and Anson got zero awm/rmg/gov.uk hits with no fetch
+            # errors, just not in that combined top 5. Grouped calls give
+            # each domain pair its own max_results=5 shot.
+            if is_naval:
+                for domain_group in _NAVAL_STEERING_DOMAIN_GROUPS:
+                    search_passes.append((_naval_museum_domain_query(machine), list(domain_group)))
+
+            # Cost bound: never exceed _MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE
+            # calls for this machine, base queries + steering + the reworded
+            # retry pass below combined. Anything trimmed is logged, never
+            # silently dropped.
+            retry_reserve = 1 if is_naval else 0
+            wave_budget = max(0, _MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE - retry_reserve)
+            if len(search_passes) > wave_budget:
+                skipped_search_queries = [query for query, _ in search_passes[wave_budget:]]
+                search_passes = search_passes[:wave_budget]
+
+            calls_used = 0
+
+            async def _run_search_pass(query: str, include_domains: Optional[list[str]]) -> None:
+                nonlocal calls_used
+                calls_used += 1
                 try:
                     body = {
                         "api_key": tavily_key,
@@ -7791,7 +7934,7 @@ class PipelineExecutor:
                     response = await client.post("https://api.tavily.com/search", json=body)
                     if response.status_code >= 400:
                         errors.append(f"Tavily search failed for {query}: HTTP {response.status_code}")
-                        continue
+                        return
                     for item in (response.json().get("results") or []):
                         if isinstance(item, dict) and item.get("url"):
                             item = dict(item)
@@ -7800,16 +7943,20 @@ class PipelineExecutor:
                 except Exception as exc:  # noqa: BLE001 - keep gathering from remaining queries.
                     errors.append(f"Tavily search failed for {query}: {str(exc)[:120]}")
 
+            for query, include_domains in search_passes:
+                await _run_search_pass(query, include_domains)
+
             sources: list[dict] = []
             candidate_excerpts: list[dict] = []
             search_result_audit: list[dict] = []
             seen_urls: set[str] = set()
-            for item in search_results:
+
+            async def _process_search_result(item: dict) -> None:
                 url = str(item.get("url") or "").strip()
                 title_text = str(item.get("title") or url).strip()
                 query = item.get("_query")
                 if not url:
-                    continue
+                    return
                 if url in seen_urls:
                     search_result_audit.append({
                         "url": url,
@@ -7818,7 +7965,7 @@ class PipelineExecutor:
                         "accepted": False,
                         "rejected_reason": "duplicate_url",
                     })
-                    continue
+                    return
                 seen_urls.add(url)
                 fetched_text = await self._fetch_source_text(client, url)
                 raw_content = str(item.get("raw_content") or "")
@@ -7882,7 +8029,7 @@ class PipelineExecutor:
                         "rejected_reason": "no_exact_text_variant",
                         "variants": variant_audit,
                     })
-                    continue
+                    return
                 _score, capture_method, source_text, excerpt_candidates = max(
                     source_variants,
                     key=lambda row: row[0],
@@ -7941,8 +8088,37 @@ class PipelineExecutor:
                     })
                     if len(candidate_excerpts) >= 60:
                         break
+
+            for item in search_results:
                 if len(candidate_excerpts) >= 60:
                     break
+                await _process_search_result(item)
+
+            # G13, 2026-07-31: naval steering (base queries + domain-grouped
+            # calls above) can still land zero Tier 1-2 candidates - Duke of
+            # York and Anson both did, with no fetch errors, the domains just
+            # never surfaced a museum/official hit in that pass. One reworded,
+            # domain-unrestricted retry, bounded by the same call budget,
+            # before giving up on a Tier 1-2 anchor for this machine.
+            if (
+                is_naval
+                and calls_used < _MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE
+                and not any(1 <= _source_tier_number(c) <= 2 for c in candidate_excerpts)
+            ):
+                retry_query = _naval_reworded_retry_query(machine)
+                pre_retry_count = len(search_results)
+                await _run_search_pass(retry_query, None)
+                for item in search_results[pre_retry_count:]:
+                    if len(candidate_excerpts) >= 60:
+                        break
+                    await _process_search_result(item)
+
+        if skipped_search_queries:
+            errors.append(
+                f"Verified source gathering skipped {len(skipped_search_queries)} "
+                f"quer(y/ies) past the {_MAX_VERIFIED_SOURCE_TAVILY_CALLS_PER_MACHINE}-call "
+                "budget: " + "; ".join(skipped_search_queries)
+            )
 
         package = {
             "passed": len(candidate_excerpts) >= 6,
@@ -8014,6 +8190,23 @@ class PipelineExecutor:
             _logger.warning("[machine-research] compact read unavailable: %s", str(exc)[:150])
             return payload
         cards_by_index: dict[int, dict] = {}
+        # G13, 2026-07-31 (bonus fix): a row here is dropped for two very
+        # different reasons - (a) it doesn't actually belong to this roster
+        # slot (stale/mismatched identity - a real "no card" case), or (b) it
+        # belongs here but the referee rejected it (validation.passed is
+        # False - a card EXISTS with a REAL, specific rejection reason).
+        # Both used to fall through the same `continue`, so a caller like
+        # _run_unit_research_hold's _full_research_validation, which only
+        # sees the post-drop unit_research_cards list, could not tell "never
+        # researched" from "researched and rejected" and reported the
+        # misleading "missing saved one-machine research card" for a machine
+        # that actually failed the referee with specific, named warnings
+        # (e.g. "evidence_segments missing required Anton slots for:
+        # original_problem, engineering_decision, tradeoff, reality").
+        # Stashing the real verdict here lets that caller name the real
+        # reason while every other caller's "trustworthy cards only" merge
+        # (cards_by_index / cards below) is completely unchanged.
+        dropped_failed_validations: dict[str, dict] = {}
         for card in payload.get("unit_research_cards") or []:
             if not isinstance(card, dict):
                 continue
@@ -8032,17 +8225,24 @@ class PipelineExecutor:
             card = row["card"]
             identity = card.get("unit") or card.get("machine") or card.get("name") or card.get("designation") or ""
             card_index = _roster_index_for_identity(roster, identity)
+            if not expected_key or name_key != expected_key or card_index != row_index:
+                continue
             validation = row.get("validation") or {}
-            if (
-                not expected_key or name_key != expected_key
-                or card_index != row_index
-                or (isinstance(validation, dict) and validation.get("passed") is False)
-            ):
+            if isinstance(validation, dict) and validation.get("passed") is False:
+                dropped_failed_validations[expected_key] = {
+                    "machine_name": str(row.get("machine_name") or roster[row_index - 1]),
+                    "roster_index": row_index,
+                    "warnings": [
+                        str(item).strip() for item in (validation.get("warnings") or []) if str(item).strip()
+                    ],
+                }
                 continue
             cards_by_index[row_index] = card
         cards = [cards_by_index[index] for index in range(1, len(roster) + 1) if index in cards_by_index]
         hydrated = dict(payload)
         hydrated["unit_research_cards"] = cards
+        if dropped_failed_validations:
+            hydrated["_dropped_failed_research_card_validations"] = dropped_failed_validations
         return hydrated
 
     @staticmethod
@@ -10726,15 +10926,28 @@ class PipelineExecutor:
             for roster_machine in roster:
                 code = _normalized_unit_code(roster_machine)
                 card = cards_by_roster_code.get(code)
-                warnings = (
-                    _card_warnings(
+                if card:
+                    warnings = _card_warnings(
                         roster_machine,
                         card,
                         _verified_source_package_for_machine(payload, roster_machine),
                         require_source_package=True,
                     )
-                    if card else ["missing saved one-machine research card"]
-                )
+                else:
+                    # G13, 2026-07-31 (bonus fix): a missing card here can
+                    # mean "never researched" OR "researched, saved, and the
+                    # referee rejected it" - _load_machine_research_cards
+                    # drops referee-failed rows from unit_research_cards by
+                    # design (many callers need trustworthy-only cards), but
+                    # stashes the real verdict so THIS aggregate check can
+                    # still name the real rejection reason instead of the
+                    # generic missing-card message.
+                    dropped = (payload.get("_dropped_failed_research_card_validations") or {}).get(code)
+                    warnings = (
+                        list(dropped["warnings"])
+                        if isinstance(dropped, dict) and dropped.get("warnings")
+                        else ["missing saved one-machine research card"]
+                    )
                 units.append({"machine": roster_machine, "passed": not warnings, "warnings": warnings})
             uniqueness_warnings = _roster_story_uniqueness_warnings(roster, cards_by_roster_code)
             if uniqueness_warnings:
