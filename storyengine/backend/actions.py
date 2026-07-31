@@ -1264,8 +1264,31 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             {"status": "ready_for_scripting"} once every machine passes, or
             {"status": "paused"/"needs_review", "message": ...} when the loop
             stopped early or finished with some machines still failing review.
+
+            G8b (independent-verification fix, commit dee6b6c8's blocker + test
+            gap): TWO safety properties on top of G8's original shape, both
+            required so a RETRIED build can never re-pay for work already done:
+
+            1. Round guard — research_payload.roster_loop_attempts (a plain
+               {machine_name: failure_count} object this function owns; nothing
+               in pipeline_executor.py reads or writes it) bounds how many times
+               ANY retry sequence will auto-re-research one machine. A machine
+               already at _MAX_AUTO_ATTEMPTS failed rounds is never called again
+               — it's parked by name ("needs manual one-machine research")
+               instead, so a build that keeps getting retried can't spend on
+               the same broken machine forever.
+            2. The caller (make_autobuild_step's static_docu branch, just below
+               this function) skips calling ex.run_research entirely once the
+               CURRENTLY PERSISTED payload already shows a passed roster gate —
+               this function is what a retry runs straight into instead. That
+               is what stops a retry from re-paying for roster DISCOVERY (a
+               full fresh AI pass that could come back differently shaped,
+               breaking the durable machine_research_cards identity match and
+               forcing already-passed machines back into "missing card").
             """
             import json as _json_roster
+
+            _MAX_AUTO_ATTEMPTS = 2
 
             video_row = await ex._get_video(video_id) or {}
             payload = video_row.get("research_payload") or {}
@@ -1292,9 +1315,49 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
             if not pending:
                 return None  # every machine already reads passed but the gate still
                 # refused to advance — a real bug, not something this loop can fix blind.
+
+            attempts_raw = payload.get("roster_loop_attempts")
+            attempts: dict[str, int] = dict(attempts_raw) if isinstance(attempts_raw, dict) else {}
+
+            async def _persist_attempts() -> None:
+                # Best-effort bookkeeping, same fail-soft shape as every other
+                # non-critical write in this file: a write miss only WEAKENS
+                # the round guard (a future round re-reads the old, lower
+                # count and allows one more auto-retry than intended) — it can
+                # never wrongly BLOCK a machine that hasn't actually failed
+                # _MAX_AUTO_ATTEMPTS times, since that would require a write
+                # that DID succeed. Targets one jsonb key only
+                # (roster_loop_attempts) so it never races or clobbers
+                # unit_research_cards / unit_research_hold_validation, which
+                # pipeline_executor.py's own checkpoints write concurrently
+                # (in wall-clock sequence, since this loop is single-threaded
+                # per video) to OTHER keys of the same research_payload.
+                try:
+                    await execute(
+                        """UPDATE videos SET research_payload = jsonb_set(
+                               COALESCE(research_payload::jsonb, '{}'::jsonb),
+                               '{roster_loop_attempts}', $1::jsonb, true
+                           ), updated_at = now()
+                           WHERE id=$2 AND tenant_id=$3""",
+                        _json_roster.dumps(attempts), video_id, tenant_id)
+                except Exception:  # noqa: BLE001
+                    pass
+
             done = total - len(pending)
             failures: list[str] = []
             for position, machine in pending:
+                prior_attempts = int(attempts.get(machine, 0) or 0)
+                if prior_attempts >= _MAX_AUTO_ATTEMPTS:
+                    # Round guard: this machine has already failed referee
+                    # review _MAX_AUTO_ATTEMPTS times across prior loop
+                    # executions — no further auto spend on it. It still gets
+                    # named in the park message so a human knows exactly what
+                    # needs a manual /machine-research-one look.
+                    failures.append(
+                        f"{machine}: needs manual one-machine research "
+                        f"(failed referee review {prior_attempts}x already)"
+                    )
+                    continue
                 # Same cap-check pattern as the rest of this autobuild chain
                 # (below, ~"cap = video.get('max_spend')"): re-read fresh so a
                 # ledger entry recorded by the PREVIOUS machine in THIS loop is
@@ -1329,6 +1392,8 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 warning = "; ".join(str(w) for w in (result.get("warnings") or [])) \
                     or result.get("error") or "research did not pass review"
                 failures.append(f"{machine}: {warning}"[:220])
+                attempts[machine] = prior_attempts + 1
+                await _persist_attempts()
             if failures:
                 return {
                     "status": "needs_review",
@@ -1424,19 +1489,52 @@ def make_autobuild_step(tenant_id, video_id: str, *, target: str = "pictures",
                 # verified research payload, and the factual gate depends on it.
                 if status in ("idea_logged", "approved"):
                     if (video.get("render_mode") or "") == "static_docu":
-                        _set_task_status(video_id, "running",
-                                         "Researching the topic (real web search)…",
-                                         tenant_id=tenant_id)
-                        r = await ex.run_research(video_id) or {}
-                        if r.get("status") == "ready_for_scripting":
-                            continue
+                        # G8b: a RETRIED/resumed build must never re-pay for
+                        # roster DISCOVERY once the roster already passed
+                        # validation. run_research always overwrites
+                        # research_payload wholesale with a brand-new AI
+                        # research pass (pipeline_executor.py's own
+                        # "UPDATE videos SET research_payload = $1"); calling
+                        # it again here on every retry would both waste that
+                        # full paid call AND risk the fresh pass coming back a
+                        # DIFFERENTLY-SHAPED roster, breaking the durable
+                        # machine_research_cards identity match and forcing
+                        # already-PASSED machines back into "missing card"
+                        # (independent-verification finding against commit
+                        # dee6b6c8). So: read the CURRENTLY PERSISTED payload
+                        # (already on hand — `video` this iteration's own
+                        # ex._get_video fetch) and only call run_research when
+                        # it does NOT already show a passed roster gate.
+                        existing_payload = video.get("research_payload") or {}
+                        if isinstance(existing_payload, str):
+                            import json as _json_existing
+                            try:
+                                existing_payload = _json_existing.loads(existing_payload)
+                            except (ValueError, TypeError):
+                                existing_payload = {}
+                        existing_roster_check = (
+                            existing_payload.get("unit_roster_validation")
+                            if isinstance(existing_payload, dict) else None
+                        )
+                        roster_already_locked = bool(
+                            isinstance(existing_roster_check, dict) and existing_roster_check.get("passed")
+                        )
+                        r: dict = {}
+                        if not roster_already_locked:
+                            _set_task_status(video_id, "running",
+                                             "Researching the topic (real web search)…",
+                                             tenant_id=tenant_id)
+                            r = await ex.run_research(video_id) or {}
+                            if r.get("status") == "ready_for_scripting":
+                                continue
                         # G8: a multi-unit roster can pass discovery/validation
                         # while run_research's own untargeted bulk per-machine
                         # hold is refused by the hallucination-safety gate (no
                         # verified card exists yet for any roster machine).
                         # Walk the SAME locked roster through the safe verified
                         # one-machine path instead of dead-ending the build —
-                        # see _run_static_docu_roster_research's own docstring.
+                        # see _run_static_docu_roster_research's own docstring
+                        # (also where the G8b round-guard bookkeeping lives).
                         loop_result = await _run_static_docu_roster_research()
                         if loop_result is not None:
                             if loop_result.get("status") == "ready_for_scripting":

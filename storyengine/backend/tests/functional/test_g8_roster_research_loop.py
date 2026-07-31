@@ -47,6 +47,20 @@ Covers:
       static_docu builds — and every non-static_docu build, which never
       reaches this branch at all — take the identical path as before.
 
+G8b (independent-verification fix against commit dee6b6c8) adds two more
+properties, covered near the bottom of this file by
+test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound
+(a THREE-run scenario against a shared in-memory _FakeVideoDB, not the
+single-shot fakes above):
+  (f) a retried/resumed build never re-calls ex.run_research once the
+      persisted payload already shows a passed roster gate — it goes
+      straight to the per-machine loop, and only the still-pending machine(s)
+      get called (zero calls for already-passed machines).
+  (g) a machine that fails referee review twice across retries is blocked
+      from further auto-research (research_payload.roster_loop_attempts) —
+      parked by name with "needs manual one-machine research" instead of a
+      3rd automatic paid attempt.
+
 No network, no real DB, no real Anthropic client: `pipeline_executor` and
 `routes.pipeline` are faked via sys.modules stubs (same pattern as
 test_autobuild_explicit_research_plan.py); `database.execute`/`fetch_one` are
@@ -357,6 +371,211 @@ def test_roster_validation_itself_failed_falls_back_to_original_failure_message(
     print("✅ test_roster_validation_itself_failed_falls_back_to_original_failure_message")
 
 
+# =============================================================================
+# G8b (independent-verification fix against commit dee6b6c8):
+#
+#   1. Retry double-spend blocker: a retried build re-entering idea_logged/
+#      approved must NEVER call ex.run_research again once the persisted
+#      payload already shows a passed roster gate — doing so re-pays for
+#      roster discovery and risks a differently-shaped fresh roster breaking
+#      the durable per-machine card match, forcing already-PASSED machines
+#      back into "missing card".
+#   2. Round guard: a machine that fails referee review _MAX_AUTO_ATTEMPTS
+#      times across retries is never auto-researched again — parked by name.
+#
+# The single-shot fakes above (a fresh _FakeExecutor + a static "what
+# run_research already persisted" row, built once per test) cannot exercise
+# either property: they only prove ONE call to make_autobuild_step. This
+# needs state that PERSISTS across two/three separate calls, which is what
+# _FakeVideoDB below provides — the exact test the original review missed.
+# =============================================================================
+
+class _FakeVideoDB:
+    """Minimal in-memory stand-in for one video's row, shared across
+    multiple _run_autobuild_against_db() calls so a later "retry" sees
+    exactly what an earlier run persisted — real make_autobuild_step/
+    _run_static_docu_roster_research read and write nothing this fake
+    doesn't model: status, max_spend/total_cost (the cap re-check),
+    research_payload (unit_roster_validation, unit_research_hold_validation,
+    roster_loop_attempts)."""
+
+    def __init__(self, roster):
+        self.roster = list(roster)
+        self.row = {
+            "status": "idea_logged", "render_mode": "static_docu",
+            "max_spend": None, "total_cost": 0.0,
+            "research_payload": {},
+        }
+
+    def seed_research_done(self):
+        """What ex.run_research's real persist does the FIRST time it runs:
+        roster discovery passed, bulk hold refused (fresh roster, no cards
+        yet) — every machine starts pending."""
+        self.row["research_payload"] = {
+            "unit_roster_validation": {"passed": True},
+            "unit_research_hold_validation": {
+                "passed": False,
+                "units": [{"machine": m, "passed": False} for m in self.roster],
+            },
+        }
+
+    def mark_machine(self, machine: str, passed: bool) -> None:
+        """What run_one_machine_research's real checkpoint does: rewrite the
+        FULL roster-wide units list (it recomputes _full_research_validation
+        over ALL cards, not just the target) with this one machine's verdict
+        updated, everything else untouched."""
+        payload = self.row.get("research_payload") or {}
+        hold = payload.get("unit_research_hold_validation") or {}
+        units = hold.get("units") or []
+        new_units = [
+            {**u, "passed": passed} if u.get("machine") == machine else dict(u)
+            for u in units
+        ]
+        hold["units"] = new_units
+        hold["passed"] = all(u.get("passed") for u in new_units)
+        payload["unit_research_hold_validation"] = hold
+        self.row["research_payload"] = payload
+
+
+class _FakeStatefulExecutor:
+    """Like _FakeExecutor above, but reads/writes a SHARED _FakeVideoDB
+    instead of owning its own snapshot — so state written by run N is
+    visible to run N+1, the thing a real retry depends on."""
+
+    def __init__(self, tenant_id, db: _FakeVideoDB, machine_outcome):
+        self.tenant_id = tenant_id
+        self.db = db
+        self.machine_outcome = machine_outcome  # callable(machine) -> result dict
+        self.calls = 0
+        self.machine_calls: list[str] = []
+        self.run_research_call_count = 0
+
+    async def _get_video(self, video_id):
+        self.calls += 1
+        if self.calls <= 2:
+            return dict(self.db.row)
+        # Outer loop's next iteration after a park/advance: stop cleanly.
+        return {"status": "ready_for_images", "render_mode": "static_docu"}
+
+    async def run_research(self, video_id):
+        self.run_research_call_count += 1
+        self.db.seed_research_done()
+        return {
+            "status": "failed",
+            "error": "Research gate failed; not advancing to scripting: Unit research-hold failed",
+        }
+
+    async def run_one_machine_research(self, video_id, machine):
+        self.machine_calls.append(machine)
+        result = dict(self.machine_outcome(machine))
+        self.db.mark_machine(machine, result.get("status") == "completed")
+        return result
+
+
+def _run_autobuild_against_db(db: _FakeVideoDB, machine_outcome):
+    """One make_autobuild_step() pass against the SHARED db — call this
+    again with the same `db` to simulate a retry/resume."""
+    holder = []
+
+    def _factory(tenant_id):
+        ex = _FakeStatefulExecutor(tenant_id, db, machine_outcome)
+        holder.append(ex)
+        return ex
+
+    fake_pe, fake_rp, statuses = _stub_pipeline_and_routes(_factory)
+
+    async def fake_execute(query, *args):
+        if "UPDATE videos SET status" in query and "jsonb_set" not in query:
+            db.row["status"] = args[0]
+        elif "roster_loop_attempts" in query:
+            import json as _json_db
+            payload = db.row.get("research_payload") or {}
+            payload["roster_loop_attempts"] = _json_db.loads(args[0])
+            db.row["research_payload"] = payload
+        return "UPDATE 1"
+
+    async def fake_fetch_one(query, *args):
+        if "pipeline_stages" in query:
+            return {"pipeline_stages": None}
+        if "SELECT status FROM videos" in query:
+            return {"status": db.row.get("status")}
+        if "max_spend, total_cost" in query:
+            return {"max_spend": db.row.get("max_spend"), "total_cost": db.row.get("total_cost") or 0.0}
+        return None
+
+    async def _fast_sleep(*_a, **_k):
+        return None
+
+    with patch.object(actions, "execute", fake_execute), \
+         patch.object(actions, "fetch_one", fake_fetch_one), \
+         patch.dict(sys.modules, {"pipeline_executor": fake_pe, "routes.pipeline": fake_rp}), \
+         patch("asyncio.sleep", _fast_sleep):
+        step = actions.make_autobuild_step(TENANT, VIDEO, target="pictures")
+        asyncio.run(step())
+    return holder[0], statuses
+
+
+def test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound():
+    """The exact scenario the independent-verification review asked for:
+
+    Run 1: fresh video, 3 machines. Machine A and C pass, Machine B fails
+    referee review. The build parks with a needs_review message naming B.
+
+    Run 2 (a retry/resume of the SAME video — same _FakeVideoDB, a fresh
+    make_autobuild_step() call): must NOT call ex.run_research again (the
+    roster already passed validation — G8b property 1), and must call
+    run_one_machine_research for Machine B ONLY — zero calls for the
+    already-passed A and C. Machine B fails again -> attempts[B] == 2.
+
+    Run 3: same again. Machine B has now failed _MAX_AUTO_ATTEMPTS (2) times
+    -> the round guard blocks it: run_one_machine_research is NOT called at
+    all this round (G8b property 2), and the park message says B needs
+    manual one-machine research.
+    """
+    db = _FakeVideoDB(_ROSTER)
+
+    def outcomes_b_always_fails(machine):
+        if machine == "Machine B":
+            return {"status": "needs_review", "warnings": ["dates not corroborated"]}
+        return {"status": "completed"}
+
+    # --- run 1 --------------------------------------------------------
+    ex1, statuses1 = _run_autobuild_against_db(db, outcomes_b_always_fails)
+    assert ex1.run_research_call_count == 1, "the very first pass must still discover the roster"
+    assert sorted(ex1.machine_calls) == _ROSTER, f"run 1 must attempt every machine, got {ex1.machine_calls}"
+    parked1 = [(s, m) for (s, m) in statuses1 if s == "needs_review"]
+    assert parked1 and "Machine B" in parked1[-1][1], statuses1
+    attempts_after_1 = (db.row["research_payload"].get("roster_loop_attempts") or {})
+    assert attempts_after_1.get("Machine B") == 1, attempts_after_1
+
+    # --- run 2: a retry of the SAME video ------------------------------
+    ex2, statuses2 = _run_autobuild_against_db(db, outcomes_b_always_fails)
+    assert ex2.run_research_call_count == 0, (
+        "a retry must NEVER re-call run_research once the roster already passed "
+        "(this is the double-spend blocker the independent review caught)"
+    )
+    assert ex2.machine_calls == ["Machine B"], (
+        f"a retry must re-research ONLY the failed machine, zero calls for the "
+        f"already-passed A/C, got {ex2.machine_calls}"
+    )
+    parked2 = [(s, m) for (s, m) in statuses2 if s == "needs_review"]
+    assert parked2 and "Machine B" in parked2[-1][1], statuses2
+    attempts_after_2 = (db.row["research_payload"].get("roster_loop_attempts") or {})
+    assert attempts_after_2.get("Machine B") == 2, attempts_after_2
+
+    # --- run 3: the attempt bound must now block Machine B entirely ---
+    ex3, statuses3 = _run_autobuild_against_db(db, outcomes_b_always_fails)
+    assert ex3.run_research_call_count == 0
+    assert ex3.machine_calls == [], (
+        f"the round guard must block Machine B WITHOUT calling run_one_machine_research "
+        f"a 3rd time, got {ex3.machine_calls}"
+    )
+    parked3 = [(s, m) for (s, m) in statuses3 if s == "needs_review"]
+    assert parked3, statuses3
+    assert "needs manual one-machine research" in parked3[-1][1], parked3[-1][1]
+    print("✅ test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound")
+
+
 if __name__ == "__main__":
     test_all_machines_pass_in_order_and_status_advances()
     test_progress_messages_sequence_names_each_machine()
@@ -364,4 +583,5 @@ if __name__ == "__main__":
     test_budget_cap_reached_after_machine_one_stops_before_machine_two()
     test_no_locked_roster_falls_back_to_original_failure_message()
     test_roster_validation_itself_failed_falls_back_to_original_failure_message()
+    test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound()
     print("All G8 roster-research-loop tests passed!")

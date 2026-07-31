@@ -3828,3 +3828,16 @@ worktree, not part of the change.
   bypassed, only walked around one verified machine at a time, same as a human clicking through
   `/machine-research-one/{video_id}` would do by hand.
 
+**G8b update (independent verification against dee6b6c8 caught a real gap, fixed same worktree):**
+a retried/resumed build unconditionally re-called `ex.run_research` — a full paid roster-discovery
+pass that wholesale-overwrites `research_payload`, risking a differently-shaped fresh roster and
+re-researching already-PASSED machines with no bound. Fixed: the static_docu branch now skips
+`run_research` entirely once the persisted payload already shows a passed roster gate, going
+straight to the per-machine loop; a new `research_payload.roster_loop_attempts` field bounds
+auto-retry to 2 failed rounds per machine before parking it as "needs manual one-machine research".
+New test `test_retry_only_re_researches_the_failed_machine_and_respects_attempt_bound` (3
+consecutive `make_autobuild_step` calls against a shared in-memory fake DB) proves both properties
+and fails against dee6b6c8. Full suite after this fix: 28 failed (same pre-existing set) / 4157
+passed (+1) / 4 skipped. The ledger-metering gap and untested real paid run noted above still
+stand unchanged.
+
