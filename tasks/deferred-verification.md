@@ -1902,3 +1902,77 @@ machine_key-collision damage (this chunk only confirmed and sized the one video 
 brief — a fleet-wide `SELECT video_id, COUNT(*) FROM machine_research_cards GROUP BY video_id
 HAVING COUNT(*) < (roster length)`-style sweep across all static_docu videos was out of scope
 and has not been run).
+
+## D13-1: provider-dialect adapter (backend/provider_dialect.py)
+
+**What shipped:** `backend/provider_dialect.py` — one adapter
+(`dialect_for_model`, `decorate_grok_prompt`, `build_call`) that turns a
+neutral `ClipDialectRequest` (prompt text, image url, ordered reference-image
+slots, motion/duration params) into a provider-shaped `ClipDialectCall`
+(final prompt string + kwargs dict) for whichever dialect a model id speaks
+(grok / seedance / veo). `pipeline_executor.py`'s `_animate_for` (picked
+which client method + kwarg shape to call), `_decorate` (Grok's
+`@image1`/`@image2` token decoration), and the inline Veo branch (raw prompt
++ `image_url=` kwarg shape) were DELETED and replaced with calls into this
+adapter — moved verbatim, not duplicated. `shared/clients/image_client.py`
+is untouched; the adapter only shapes the request, the client still executes
+it.
+
+**Verified ($0, build-only, this chunk's cost cap):**
+- Golden tests (`tests/functional/test_d13_1_provider_dialect_golden.py`, 6
+  cases) drive the REAL `PipelineExecutor.run_clip_generation` end-to-end
+  (DB/storage/ledger/network faked, shot-composition + dialect code real)
+  and assert byte-identical prompt strings + kwargs for grok (bare, +sheet,
+  +sheet+cast-names), seedance, and veo (fast + quality) — captured against
+  pipeline_executor.py AS IT EXISTED BEFORE this chunk, then re-run
+  unmodified after the refactor. All 6 pass in both states.
+- Adapter unit tests (`tests/functional/test_provider_dialect.py`, 12 cases).
+- Guard-neuter: `decorate_grok_prompt` short-circuited to return
+  `core_prompt` unwrapped -> 4/6 golden tests failed with a real
+  AssertionError (the 2 veo cases correctly kept passing, since veo never
+  decorates) -> reverted, all 18 pass again.
+- Full backend suite, reverted vs applied, sorted FAILED-test-name sets
+  compared byte-identical: reverted baseline (scaffolded — see below) is
+  4100 collected / 1 failed / 4095 passed / 4 skipped; applied state (with
+  this chunk's 2 new test files, +18 tests) is 4118 collected / 1 failed /
+  4113 passed / 4 skipped. Both FAILED sets are exactly
+  `{test_youtube_oauth_diagnostics_reports_missing_config_without_secret_
+  values}` — unrelated to clip generation, not touched by this chunk,
+  `diff`-confirmed identical.
+- Every pre-existing clip-generation/model-routing test file passed
+  unmodified against the refactored code: test_c13_clip_model_routing.py,
+  test_c25a_fix7_seedance_payload.py, test_per_card_parallel_clips_executor.py,
+  test_per_card_parallel_redraws_executor.py, test_scene_model_routing.py,
+  test_c17_draft_pass_and_finalize.py, test_c23_camera_presets.py,
+  test_motion_gate_fail_closed_clip_and_render.py, test_t5b_clip_failure_
+  marker.py, test_model_registry.py, test_dialogue_guard_laws.py,
+  test_c14_model_override_and_render_style.py — 125 passed, 0 failed.
+
+**Environment scaffolding needed to get a clean baseline (worktree-local,
+NOT committed):** `storyengine/backend/venv` symlinked from the main
+checkout's `backend/venv` (Python 3.11 venv with deps already installed —
+building a fresh one is slow and this worktree's fresh checkout has none);
+`remotion-video/public` and `remotion-video/node_modules` symlinked from the
+main checkout's `remotion-video/` (both entirely gitignored — without them,
+28 of the reverted baseline's tests in test_custom_film_remotion.py fail on
+missing `public/motion-audio/*.wav` fixtures and a missing pinned Remotion
+CLI; this matches the same "29 pre-existing failures are fresh-worktree
+environment artifacts" finding D12-1/D12-2 already recorded in
+tasks/loop-checklist.md). These three symlinks are untracked and must NOT be
+committed — they're local scaffolding for running tests in an isolated
+worktree, not part of the change.
+
+**NOT verified (out of this chunk's $0/build-only scope):**
+- No live provider call was made against Kie's real API for any of grok/
+  seedance/veo — the golden tests' fake image client only proves the
+  ARGUMENT SHAPE handed to `shared/clients/image_client.py`'s real method
+  signatures (`generate_video`/`generate_video_seedance`/`generate_video_veo`,
+  read directly from that file to build the fakes) matches what those
+  methods actually declare; it does not prove Kie accepts that payload today.
+- No frontend/UI touched or walked (this chunk is backend-only, no
+  user-visible surface changed).
+- Not deployed; not run on the VPS; not folded to main.
+- Custom Film's hardcoded `gpt-image-2` path
+  (`storyengine/backend/custom_film_scene_storyboards.py`) was found during
+  the dialect-surface sweep and is explicitly OUT OF SCOPE per the sweep
+  ruling (dormant subsystem) — noted, not touched, not tested.
