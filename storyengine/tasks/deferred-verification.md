@@ -4069,3 +4069,79 @@ stand unchanged.
   research cards). 4185 passed / 28 failed / 4 skipped post-G14 (4180 passed pre-G14, +5 new
   tests, zero regressions). `py_compile` clean on all three changed files.
 
+# Deferred verification — G16 (pennant-tolerant identity match + writer prompt carries content rules)
+
+- **What shipped:** (1) `_locked_machine_identity_codes()` — a locked machine's leading
+  standalone digit/pennant token ("53 HMS Prince of Wales") is now optional when matching a
+  card's `unit` field or a content field's specificity check against the locked name; a
+  sibling with its own different name/pennant ("53 HMS King George V") is never pulled in.
+  Applied at all four sites that compare a card/content string against the locked machine
+  name: the `"card unit does not match locked machine"` emitter
+  (`_research_card_contract_warnings`), and the "must be specific to the locked machine"
+  first-4-tokens/last-token check inside `_paragraph_worth_warnings`,
+  `_visual_identity_warnings`, and `_timeframe_warnings`. (2) The two content-shape warning
+  strings (`visual_identity must include concrete visible machine features` and
+  `why_this_unit_deserves_a_paragraph must name a concrete engineering decision, problem,
+  tradeoff, or consequence`) are now module-level constants (`_VISUAL_IDENTITY_CONTENT_RULE`,
+  `_WHY_PARAGRAPH_CONTENT_RULE`) built from the SAME word lists the validator regexes match
+  against (`_VISUAL_IDENTITY_FEATURE_WORDS`, `_ENGINEERING_DECISION_WORDS`); the validators
+  now emit these constants instead of retyped literals, and `_run_unit_research_hold`'s
+  FIRST-pass writer prompt embeds a new "CONTENT-SHAPE RULES" block
+  (`_visual_identity_writer_rule_line()` / `_why_paragraph_writer_rule_line()`) that states
+  both rules verbatim with example vocabulary pulled from those same word lists — a first
+  draft now sees the rules that used to arrive only via a paid repair round's raw warning text.
+- **Real evidence this fixes:** video `d05efae3-46f8-4ee3-b690-849c3ca31fbc`'s live 5-ship
+  run, card roster_index 2 (machine `"53 HMS Prince of Wales"`) blocked on `"card unit does
+  not match locked machine 53 HMS Prince of Wales"` because the model wrote the unit as `"HMS
+  Prince of Wales"` (no pennant) — same shape for the roster's other pennant-prefixed names
+  (`"41 HMS King George V"`, `"17 Duke of York"`, `"79 Anson"`, `"32 HMS Howe"`). Card
+  roster_index 1 blocked on the two content-shape warnings above.
+- **Live proof deferred — cost cap for this chunk was zero paid calls, offline/fixture tests
+  only.** `d05efae3-46f8-4ee3-b690-849c3ca31fbc`'s own machines are at the G8b
+  `roster_loop_attempts` bound (see the G13 entry above), so the real live proof for G16 is a
+  **FRESH 5-ship video**, not a retry of d05efae3. Recipe for whoever runs it next:
+  1. Create a new video via chat with a title that reads as an "All ..." roster prompt (the
+     `_title_needs_complete_roster` / `_title_is_broad_machine_roster` gate needs `every` /
+     `all` / `ever built` language plus a machine-roster noun to auto-select a 5-item
+     ship-with-pennant-style roster the way tonight's run did — e.g. something in the shape
+     of "All King George V-Class Battleships Ever Built" or similar naval roster framing).
+  2. Set a **$5 cost cap** on the video (this is real Tavily + Anthropic spend — confirm the
+     quote in the UI/chat before letting it run, per the money rule).
+  3. Run the build end to end (`mcp__storyengine__build` or the dashboard "Build" action) and
+     let the DVsU one-machine research-hold loop process all 5 roster entries.
+  4. **Expected outcome:** the video reaches `ready_for_scripting` with **5/5 research cards
+     passing** (`machine_research_cards.validation.passed = true` for all 5 roster rows,
+     `unit_research_hold_validation.passed = true` overall) — specifically, zero cards should
+     block on `"card unit does not match locked machine"` for a name that differs from the
+     locked roster entry only by a missing leading pennant/hull number, and zero cards should
+     block on `"visual_identity must include concrete visible machine features"` or
+     `"why_this_unit_deserves_a_paragraph must name a concrete engineering decision, problem,
+     tradeoff, or consequence"` on the FIRST research pass (a first-pass failure on either of
+     those two specific rules, after this fix, is a regression worth flagging even if a later
+     repair round recovers it).
+  5. If any card still fails, pull its `card.unit` and the roster's locked display name
+     (`se db "SELECT machine_name, card->>'unit', validation FROM machine_research_cards
+     WHERE tenant_id = ... AND video_id = '<new-video-id>' ORDER BY roster_index"`) and check
+     whether the mismatch is a genuinely different name (correct rejection) or a new
+     name-formatting drift this fix's pennant tolerance doesn't cover (e.g. a trailing
+     hull-number suffix instead of a leading one — out of scope for this chunk, worth its own
+     follow-up if seen).
+- **G16 own verification (offline, this chunk):** file-copy swap-proof (never git stash) —
+  `pipeline_executor.py` copied aside post-fix, then overwritten with `git show
+  HEAD:storyengine/backend/pipeline_executor.py` (pre-G16, the merged G14 tip) while the new
+  `tests/test_g16_pennant_identity_and_writer_rules.py` (10 tests) stayed in place: 7 of 10
+  fail against the pre-change code, including the two tests the brief specifically named —
+  `test_card_unit_matches_locked_machine_despite_missing_pennant_prefix` (the pennant-tolerance
+  emitter test) and `test_writer_prompt_rendering_teaches_both_content_rules_upfront` (the
+  rendered-prompt test). The 3 that pass on both sides are intentional non-regression checks
+  (exact-match-still-passes, sibling-still-rejected, and the field-specificity checks — the
+  last of which also passes pre-fix because the pre-existing last-token fallback already
+  covered these particular field-check cases; `_locked_machine_identity_codes` is unit-tested
+  directly to isolate the new code path from that overlap). Restored post-fix, all 10 pass.
+  Full suite (`./venv/bin/python -m pytest tests/ -q`) run against the full pre-G16 pair (code
+  reverted, test file moved out) and again against the full post-G16 pair: sorted `FAILED`
+  line sets are byte-identical (28 pre-existing `test_custom_film_remotion.py` failures, same
+  env gap as G13/G14 — missing `remotion-video/node_modules` in this worktree, unrelated).
+  4195 passed / 28 failed / 4 skipped post-G16 (4185 passed pre-G16, +10 new tests, zero
+  regressions). `py_compile` clean on both changed files.
+
