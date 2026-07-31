@@ -75,7 +75,7 @@ from typing import Any, Awaitable, Callable, Optional
 from arbiter_findings import record_finding_instances
 from arbiter_repair import rejudge_board_after_repair, repair_board_finding
 from database import fetch_all
-from frame_arbiter import judge_board_sheet
+from frame_arbiter import compose_character_drift_text, judge_board_sheet
 
 _logger = logging.getLogger(__name__)
 
@@ -168,12 +168,57 @@ async def _redraw_refused_reroll(
     }
 
 
+async def _fetch_character_drift_text(tenant_id: str, video_id: str) -> str:
+    """D9-4: video_characters.forbidden_drift (migration 151, harvested by
+    D9-2's approve_cast vision pass, STORED ONLY until this chunk) for every
+    character in this video that has it populated, composed into
+    frame_arbiter._board_rubric_prompt's expected check-item text via
+    frame_arbiter.compose_character_drift_text — the SAME "DB read here,
+    pure-text compose there" split _fetch_scene_sheets/_parse_sheet_panels
+    already use for spec_text.
+
+    Scoped by video_id only, not per-scene: video_characters carries no
+    scene-presence column (character<->scene presence is inferred from
+    script-text matching elsewhere — coverage_to_app.py's
+    _scenes_present_for — a heavier dependency this hook deliberately
+    doesn't pull in for a board-station QA pass). A named character's drift
+    constraint riding along on a scene they don't actually appear in is a
+    safe superset, not a false-positive risk: the judge is only asked to
+    flag it if a panel actually SHOWS that character violating it, so an
+    absent character's constraint simply never matches anything.
+
+    Fail-soft like every other DB read in this module (see
+    _fetch_scene_sheets's own "never raises" contract): any error returns
+    "" (no character drift constraints reach the judge that pass) rather
+    than ever blocking a board judgment."""
+    try:
+        rows = await fetch_all(
+            "SELECT name, forbidden_drift FROM video_characters "
+            "WHERE video_id = $1 AND tenant_id = $2 AND forbidden_drift IS NOT NULL "
+            "ORDER BY sort",
+            video_id, tenant_id,
+        )
+    except Exception:  # noqa: BLE001 — advisory: must never block a board judgment
+        return ""
+    return compose_character_drift_text(
+        [{"name": r.get("name"), "forbidden_drift": r.get("forbidden_drift")} for r in (rows or [])]
+    )
+
+
 async def _fetch_scene_sheets(tenant_id: str, video_id: str, scene: int) -> list[dict]:
     """Every DRAWN board sheet (beat 1..storyboard_beat_count that actually
     has a URL) for this one scene, straight off the same `scripts` row
     generate_storyboard_sheet_for_scene just wrote — the same spec_text
     (storyboard_prompts) frame_arbiter._parse_sheet_panels already knows how
-    to read. Returns [] for a scene with no drawn boards yet (never raises)."""
+    to read. Returns [] for a scene with no drawn boards yet (never raises).
+
+    D9-4: each returned sheet dict also carries "character_drift_text"
+    (via _fetch_character_drift_text above) — judge_board_sheet reads this
+    key straight off the sheet dict (see its own docstring), so no new
+    parameter is threaded through the judge_fn DI seam callers/tests use.
+    A video with no character forbidden_drift populated (every video before
+    this chunk) gets "" here, which keeps judge_board_sheet's assembled
+    prompt byte-identical to before this chunk."""
     rows = await fetch_all(
         "SELECT storyboard_1_url, storyboard_2_url, storyboard_3_url, "
         "storyboard_4_url, storyboard_5_url, storyboard_beat_count, "
@@ -191,6 +236,11 @@ async def _fetch_scene_sheets(tenant_id: str, video_id: str, scene: int) -> list
         url = row.get(f"storyboard_{beat}_url")
         if url:
             sheets.append({"image_url": url, "sheet_index": beat, "spec_text": spec_text})
+    if sheets:
+        character_drift_text = await _fetch_character_drift_text(tenant_id, video_id)
+        if character_drift_text:
+            for sheet in sheets:
+                sheet["character_drift_text"] = character_drift_text
     return sheets
 
 

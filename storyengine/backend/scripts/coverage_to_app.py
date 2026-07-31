@@ -974,6 +974,36 @@ def _identity_tag_or_locks(row: dict) -> str:
     return tag if tag else _locks_text(row)
 
 
+def _never_clause(forbidden_drift) -> str:
+    """D9-4 (migration 151's third harvested column, finally consumed):
+    video_characters.forbidden_drift is a newline-/semicolon-separated list
+    of named drift failures for ONE character (Custom Film's
+    CharacterLock.forbidden_drift, harvested at cast-approval time by the
+    SAME vision pass D9-2's face_body_lock/wardrobe_lock come from — see
+    migration 151's column comment). Read VERBATIM here — no LLM
+    re-interpretation, exactly the column text — and returned as a
+    leading-space " NEVER: <text>" clause so a caller can simply
+    concatenate it onto an existing identity tag/name with no extra
+    formatting. "" when NULL/blank, so a caller that appends this result
+    unconditionally is byte-identical to before this column was consumed."""
+    drift = (forbidden_drift or "").strip()
+    return f" NEVER: {drift}" if drift else ""
+
+
+def _character_tag(name: str, descriptor: str, forbidden_drift) -> str:
+    """D9-4 shared composer for BOTH consumption points this migration's
+    column comment names (load_character_bible's costume -> _character_
+    identity_line, and redraw_asset_image's inline CHARACTER-block
+    composer): "Name (descriptor)" when descriptor is populated, else just
+    "Name" (identical to each call site's own prior ad-hoc ternary), with
+    _never_clause's " NEVER: ..." appended when forbidden_drift is
+    populated. Always returns at least `name` — a character with NEITHER a
+    descriptor nor forbidden_drift renders exactly as before this column
+    existed."""
+    base = f"{name} ({descriptor})" if descriptor else name
+    return base + _never_clause(forbidden_drift)
+
+
 async def load_character_bible(vid, tenant):
     """Build a BINDING visual bible from the locked cast so the writer uses the SAME character
     appearance in every shot. The cast-sheet image alone does not lock the writer's words — the
@@ -1003,18 +1033,29 @@ async def load_character_bible(vid, tenant):
     per-shot draw prompt (final coverage pictures) — so fixing it here is
     the single place that reaches every prompt without touching either of
     those (out of scope this chunk). NULL locks => byte-identical to before
-    this migration."""
+    this migration.
+
+    D9-4: also carries the row's forbidden_drift straight through as its
+    own "forbidden_drift" key (NOT folded into costume -- _character_
+    identity_line appends it as a separate " NEVER: ..." clause via
+    _character_tag/_never_clause, verbatim, never truncated by _short like
+    costume is). NULL forbidden_drift leaves this key None, and
+    _never_clause's "" keeps _character_identity_line's output
+    byte-identical to before this column was consumed."""
     rows = await fetch_all(
-        "SELECT name, identity_tag, description, face_body_lock, wardrobe_lock "
+        "SELECT name, identity_tag, description, face_body_lock, wardrobe_lock, "
+        "forbidden_drift "
         "FROM video_characters WHERE video_id=$1 AND tenant_id=$2 "
         "AND (identity_tag IS NOT NULL OR description IS NOT NULL "
-        "OR face_body_lock IS NOT NULL OR wardrobe_lock IS NOT NULL) "
+        "OR face_body_lock IS NOT NULL OR wardrobe_lock IS NOT NULL "
+        "OR forbidden_drift IS NOT NULL) "
         "ORDER BY sort", vid, tenant)
     chars = []
     for r in rows:
         tag_or_locks = _identity_tag_or_locks(r)
         costume = tag_or_locks if tag_or_locks else (r.get("description") or "")
-        chars.append({"id": r["name"], "costume": costume, "scenes_present": []})
+        chars.append({"id": r["name"], "costume": costume,
+                      "forbidden_drift": r.get("forbidden_drift"), "scenes_present": []})
     return {"characters": chars} if chars else None
 
 
@@ -2166,7 +2207,17 @@ def _character_identity_line(bible: Optional[dict], scene_number) -> str:
     own "2-4 bible words" convention) so this never grows into the long
     wardrobe-paragraph shape rule 2 explicitly forbids. Returns "" when
     there's no bible or no characters resolve for this scene — the caller
-    treats that as "omit the CHARACTER block", matching today's behavior."""
+    treats that as "omit the CHARACTER block", matching today's behavior.
+
+    D9-4: each tag also gets forbidden_drift's " NEVER: ..." clause appended
+    (via _character_tag/_never_clause, same helper redraw_asset_image's
+    CHARACTER block uses) when the character's bible entry carries a
+    populated "forbidden_drift" key — read VERBATIM, never run through
+    _short's truncation (a drawing constraint must not be silently cut).
+    A bible entry with no "forbidden_drift" key (every bible built before
+    this chunk, and scene_aware_bible's LLM-extraction fallback path, which
+    never sets it) makes _never_clause return "", so this function's output
+    is byte-identical to before this chunk in that case."""
     if not bible or not bible.get("characters"):
         return ""
 
@@ -2185,7 +2236,7 @@ def _character_identity_line(bible: Optional[dict], scene_number) -> str:
         if not name:
             continue
         costume = _short(ch.get("costume") or ch.get("description") or "")
-        tags.append(f"{name} ({costume})" if costume else name)
+        tags.append(_character_tag(name, costume, ch.get("forbidden_drift")))
     return "; ".join(tags)
 
 
@@ -3293,7 +3344,8 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     kie_key = await _require_tenant_kie_key(tenant_id)
     ic = ImageClient(api_key=kie_key, tenant_id=tenant_id)
     crows = await fetch_all(
-        "SELECT name, identity_tag, reference_url, face_body_lock, wardrobe_lock "
+        "SELECT name, identity_tag, reference_url, face_body_lock, wardrobe_lock, "
+        "forbidden_drift "
         "FROM video_characters WHERE video_id=$1 "
         "AND tenant_id=$2 AND reference_url IS NOT NULL ORDER BY sort", video_id, tenant_id)
     cast_refs = [r["reference_url"] for r in crows]
@@ -3313,8 +3365,24 @@ async def redraw_asset_image(video_id, tenant_id, asset_id, progress=None, safe_
     # load_character_bible uses), so a redraw benefits from D9-2's lock
     # harvest exactly like a first draw does. identity_tag still wins when a
     # creator set one — same precedence rule as the bible composer above.
+    #
+    # D9-4 (migration 151's third column, finally consumed): each tag also
+    # gets forbidden_drift's " NEVER: ..." clause appended via the SAME
+    # _character_tag helper _character_identity_line uses, so a redraw's
+    # CHARACTER block warns against the identical drift failures a fresh
+    # board/coverage draw already does. A row is now included in _tags if
+    # it has EITHER an identity_tag/locks OR a forbidden_drift (previously
+    # only the former) — a character whose only signal is forbidden_drift
+    # still surfaces as "Name NEVER: ...". NULL forbidden_drift on every
+    # row (the common case, and every video predating migration 151) makes
+    # _character_tag's output identical to the old f"{name} ({...})"
+    # ternary, so this whole block is byte-identical to before this chunk.
     cast_identity_note = ""
-    _tags = [f"{r['name']} ({_identity_tag_or_locks(r)})" for r in crows if _identity_tag_or_locks(r)]
+    _tags = [
+        _character_tag(r["name"], _identity_tag_or_locks(r), r.get("forbidden_drift"))
+        for r in crows
+        if _identity_tag_or_locks(r) or (r.get("forbidden_drift") or "").strip()
+    ]
     if _tags:
         cast_identity_note = " CHARACTER — stated once, drawn identically: " + "; ".join(_tags) + "."
 

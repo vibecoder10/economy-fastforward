@@ -882,12 +882,61 @@ def _parse_sheet_panels(spec_text: str, sheet_index: int) -> tuple[Optional[str]
     return fixed_set, panels
 
 
-def _board_rubric_prompt(panels: list[dict], fixed_set: Optional[str]) -> str:
+_DRIFT_SPLIT_RE = re.compile(r"[;\n]+")
+
+
+def _character_drift_items(name: str, forbidden_drift) -> list[str]:
+    """D9-4: video_characters.forbidden_drift (migration 151) is a
+    newline-/semicolon-separated list of named drift failures for ONE
+    character — the exact shape its own column comment documents, the
+    same shape coverage_to_app.py's _locks_text/_never_clause read
+    verbatim on the prompt side. Splits on those SAME separators, trims
+    each item, drops empties, and prefixes the character's name so a
+    multi-character sheet's check items stay attributable. Pure text, no
+    LLM re-interpretation of the column's own words. [] for a NULL/blank
+    column."""
+    raw = (forbidden_drift or "").strip()
+    if not raw:
+        return []
+    return [f"{name}: {item.strip()}" for item in _DRIFT_SPLIT_RE.split(raw) if item.strip()]
+
+
+def compose_character_drift_text(characters: list[dict]) -> str:
+    """D9-4 judge-side carrier for migration 151's forbidden_drift column —
+    mirrors quality_rules.compose_rules_text's shape exactly (a joined
+    block of lines, "" when there is nothing to say) so it can be threaded
+    into a rubric prompt the SAME conditional way ACTIVE QUALITY RULES
+    already is (see _rubric_prompt/_scene_rubric_prompt's ``if rules_text``
+    blocks). ``characters`` is ``[{"name", "forbidden_drift"}, ...]`` — the
+    caller (frame_arbiter_hook.py's _fetch_character_drift_text) owns the
+    DB read; this function is pure text assembly, no I/O, so it's testable
+    without a database. "" when no character has any drift entries — the
+    caller then omits the whole CHARACTER DRIFT section, byte-identical to
+    before this chunk."""
+    items: list[str] = []
+    for c in characters or []:
+        items.extend(_character_drift_items((c or {}).get("name") or "", (c or {}).get("forbidden_drift")))
+    if not items:
+        return ""
+    return "\n".join(f"- flag as MODEL_DEFECT if: {item}" for item in items)
+
+
+def _board_rubric_prompt(panels: list[dict], fixed_set: Optional[str],
+                          character_drift_text: str = "") -> str:
     """Assembles the board station's rubric text — per-panel set
     correctness, facing law, angle/sequence readability, and duplicate-
     panel detection, using the exact same failure-class vocabulary and
     false-positive calibration line the scene-batch rubric uses (D5 A3b's
-    "same classification law" requirement)."""
+    "same classification law" requirement).
+
+    D9-4: ``character_drift_text`` (default "", composed by
+    ``compose_character_drift_text`` from migration 151's forbidden_drift
+    column) is an OPTIONAL extra check-item section, appended the same
+    conditional way ``_scene_rubric_prompt``'s ACTIVE QUALITY RULES block
+    already is — a context section plus one extra numbered judge
+    instruction, BOTH gated on the same non-empty check. "" (the default,
+    and every call before this chunk) means neither block is added and this
+    function's return value is byte-identical to before this chunk."""
     lines = [
         f"THIS SHEET HAS {len(panels)} PANELS, laid out in a grid, each "
         "carrying its own small printed panel-number label strip beneath "
@@ -901,9 +950,17 @@ def _board_rubric_prompt(panels: list[dict], fixed_set: Optional[str]) -> str:
         lines.append(
             f"PANEL {p['panel']} ({p['label']}, setup {p['setup']}) — expected set: {p['expected_set']}. Brief: {p['brief']}"
         )
+    if character_drift_text:
+        lines += [
+            "",
+            "CHARACTER DRIFT CONSTRAINTS (verbatim, from the locked cast — "
+            "flag ANY match against ANY panel showing that character):",
+            character_drift_text,
+        ]
+    judge_count = "FIVE" if character_drift_text else "FOUR"
     lines += [
         "",
-        "JUDGE THIS SHEET against FOUR things, per panel:",
+        f"JUDGE THIS SHEET against {judge_count} things, per panel:",
         "1. PER-PANEL SET CORRECTNESS — does the panel's drawn background/"
         "environment actually match its EXPECTED SET above? Name concrete "
         "objects/architecture you can see that belong to the WRONG "
@@ -927,6 +984,15 @@ def _board_rubric_prompt(panels: list[dict], fixed_set: Optional[str]) -> str:
         "what NEW information each panel adds over the previous one. Two "
         "panels with different SETUP letters/briefs that nonetheless read "
         "as the identical composition is a duplicate_setup defect.",
+    ]
+    if character_drift_text:
+        lines.append(
+            "5. CHARACTER DRIFT — does any panel show a character violating "
+            "one of the CHARACTER DRIFT CONSTRAINTS listed above? Flag it "
+            "MODEL_DEFECT (the constraint is a locked fact about that "
+            "character, not a directorial preference)."
+        )
+    lines += [
         "",
         _FAILURE_CLASS_VOCAB,
         "",
@@ -1007,12 +1073,24 @@ async def judge_board_sheet(
     the chunk report for why, and what A5/A6 should reconsider once real
     board-gate mileage exists).
 
+    D9-4: ``sheet`` may also carry an OPTIONAL ``"character_drift_text"``
+    key (composed by frame_arbiter_hook.py's own DB-backed
+    ``_fetch_character_drift_text`` + this module's
+    ``compose_character_drift_text``, migration 151's forbidden_drift
+    column) — read straight off the SAME dict ``spec_text``/``image_url``
+    already ride in on, deliberately not a new function parameter, so
+    every existing caller/test that builds a bare
+    ``{"image_url", "sheet_index", "spec_text"}`` dict (no such key) gets
+    ``.get(...) -> None -> ""`` and an assembled rubric prompt
+    byte-identical to before this chunk (see _board_rubric_prompt).
+
     Returns ``{"skipped": True, "reason": ..., "findings": [...]}`` (fail
     closed) or ``{"skipped": False, "sheet_index", "cost", "usage",
     "findings": [...]}`` — one finding dict per panel, same field shape as
     judge_frame's."""
     sheet_index = sheet.get("sheet_index", 1)
     spec_text = sheet.get("spec_text") or ""
+    character_drift_text = (sheet.get("character_drift_text") or "").strip()
     fixed_set, panels = _parse_sheet_panels(spec_text, sheet_index)
     if not panels:
         return {"skipped": True, "reason": "no_panel_spec", "sheet_index": sheet_index, "findings": []}
@@ -1035,7 +1113,7 @@ async def judge_board_sheet(
 
     content: list = [
         {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-        {"type": "text", "text": _board_rubric_prompt(panels, fixed_set)},
+        {"type": "text", "text": _board_rubric_prompt(panels, fixed_set, character_drift_text)},
     ]
 
     vision_caller = call_vision or _call_vision
