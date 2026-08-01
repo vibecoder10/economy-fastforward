@@ -148,6 +148,30 @@ def _locked_machine_identity_codes(machine: str) -> set[str]:
     return {code for code in codes if code}
 
 
+# G17: the research-card field checks (_paragraph_worth_warnings,
+# _visual_identity_warnings, _timeframe_warnings) already fall back to
+# ``_unit_display_name(machine).split()[-1]`` when no identity code matches
+# literally - the script-paragraph gate below reuses that exact technique.
+# One real roster shape breaks the bare fallback, though: a name that carries
+# ITS OWN trailing disambiguator ("HMS Ark Royal (91) Ark Royal (1937)" -
+# video d2e37cd6's roster has two ships named Ark Royal across its history),
+# whose last split token is the literal "(1937)" - a token no natural
+# voiceover paragraph ever writes verbatim. Stripping one trailing
+# purely-bracketed group first recovers the ship's real last name word
+# ("Royal") and is a no-op for every other roster entry (whose last word is
+# already the ship/class name, never a bracket).
+_TRAILING_BRACKET_GROUP_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _static_paragraph_identity_fallback_term(machine: str) -> str:
+    """Soft last-resort identity signal for a NATURAL paragraph (see above)."""
+    text = str(machine or "").strip()
+    stripped = _TRAILING_BRACKET_GROUP_RE.sub("", text).strip()
+    text = stripped or text
+    words = text.split()
+    return words[-1].lower() if words else ""
+
+
 def _non_target_designation_codes(text: str, machine: str) -> list[str]:
     allowed = _target_machine_designation_codes(machine)
     if not allowed:
@@ -255,6 +279,22 @@ _DVSU_DEFAULT_REGISTER = "spec_block"
 # Advisory channel: warn-severity law flags carry this prefix. They surface in
 # stored warnings for review but never block, never trigger a repair round.
 _ADVISORY_PREFIX = "advisory: "
+
+# G17: _validate_static_unit_paragraph enforces these two rules for every
+# paragraph, but the INVENTORY-mode first-pass write prompt (the `voice_rules`
+# block inside _run_static_script_hold) never stated either one - the
+# legacy single-shot prompt and the repair-round prompt both taught them, so
+# a fresh inventory-mode draft only ever learned them after failing once and
+# burning a paid repair round (the exact G16 "CONTENT-SHAPE RULES" lesson).
+# Shared constants so the prompt text can never drift from the rule it names.
+_STATIC_PARAGRAPH_NO_PRODUCTION_CUES_RULE = (
+    "No heading, markdown, bullets, labels, citations, JSON, b-roll cues, "
+    "thumbnail lines, or bracketed production notes - clean voiceover narration only."
+)
+_STATIC_PARAGRAPH_NO_CHRONOLOGY_RULE = (
+    "Do not write a chronological biography. Dates earn their place only when "
+    "they prove the engineering problem, decision, tradeoff, or reality."
+)
 
 
 def _blocking_warnings(warnings: list) -> list:
@@ -5949,7 +5989,13 @@ def _validate_machine_story_sentences(
             "a", "an", "and", "as", "but", "it", "its", "so", "that", "the",
             "these", "this", "those", "together",
         }
-        machine_code = _normalized_unit_code(machine)
+        # G17: widened to the same pennant-tolerant code SET used everywhere
+        # else (was a single exact-code equality check) - a defense-in-depth
+        # backstop for the rare entity candidate the `known_entity_text`
+        # substring check above doesn't already catch. Strictly a superset of
+        # the old check (the set always contains the old single code too), so
+        # this can only exclude MORE of the machine's own name, never less.
+        machine_codes = _locked_machine_identity_codes(machine)
         new_hard_entities: list[str] = []
         new_color_entities: list[str] = []
         for entity in closer_entity_candidates:
@@ -5962,7 +6008,7 @@ def _validate_machine_story_sentences(
                 continue
             if stripped_entity in known_entity_text:
                 continue
-            if machine_code and _normalized_unit_code(stripped_entity) == machine_code:
+            if machine_codes and _normalized_unit_code(stripped_entity) in machine_codes:
                 continue
             # B1(a): nationality/geographic color is editorial - advisory.
             if all(token.lower() in _GEOGRAPHIC_COLOR_WORDS for token in entity_tokens):
@@ -11865,10 +11911,25 @@ class PipelineExecutor:
                 _ADVISORY_PREFIX + f"word count {wc} in the {hard_min}-{warn_top} "
                 "warn band - confirm the entry is terse on purpose"
             )
-        normalized_text = re.sub(r"[^A-Z0-9]", "", text.upper())
-        if machine_code and machine_code not in normalized_text:
-            warnings.append(f"missing locked machine designation {machine_code}")
+        # G17: this used to require the machine's FULL glued 4-token code
+        # ("HMSARGUSI49ARGUS") to appear as one contiguous substring of the
+        # paragraph - i.e. the pennant/hull-number/duplicate-name tokens
+        # written with NOTHING between them. Real spoken narration never
+        # does that ("HMS Argus" or "the Audacious class" is how a paragraph
+        # actually names the locked machine), so this blocked every
+        # naturally-written paragraph in the real 23-carrier roster (video
+        # d2e37cd6). Reuse the SAME tolerant identity check the research-card
+        # fields already use (G16): the pennant-tolerant code set, OR the
+        # softer trailing-name-word fallback, never a fresh regex family.
+        normalized_text = _normalized_unit_code(text)
+        machine_codes = _locked_machine_identity_codes(machine)
         lower = text.lower()
+        if (
+            machine_codes
+            and not any(code in normalized_text for code in machine_codes)
+            and _static_paragraph_identity_fallback_term(machine) not in lower
+        ):
+            warnings.append(f"missing locked machine designation {machine_code}")
         meta_patterns = (
             r"\bas an ai\b", r"\bi can't\b", r"\bcannot verify\b",
             r"\bhere is\b", r"\bmarkdown\b",
@@ -12413,6 +12474,12 @@ class PipelineExecutor:
                     "- One terminal period per sentence: no semicolons, no internal periods, no abbreviations with dots.\n"
                     "- Avoid high-risk absolutes unless this sentence's evidence uses the exact word: first, only, largest, fastest, most, never.\n"
                     "- Vary sentence length for spoken delivery; never three long sentences in a row. No hype words, no Wikipedia-style existence openers, no ranked-list connectors, no However/Furthermore/Moreover starts.\n"
+                    # G17: these two rules were checker-side only for THIS
+                    # first-pass inventory prompt (already taught in the
+                    # legacy/repair prompts) - a fresh draft only learned them
+                    # after failing once. Shared constants, not re-typed text.
+                    f"- {_STATIC_PARAGRAPH_NO_PRODUCTION_CUES_RULE}\n"
+                    f"- {_STATIC_PARAGRAPH_NO_CHRONOLOGY_RULE}\n"
                     "- The paragraph should read like Anton: facts serve the engineering argument, not an encyclopedia checklist.\n"
                     f"- WORD BAND: hard floor {_ANTON_PARAGRAPH_HARD_MIN_WORDS}, hard ceiling {_ANTON_PARAGRAPH_HARD_MAX_WORDS}; aim for the register target. If a draft lands under the target, fold in one more planned fact rather than returning thin.\n"
                 )
