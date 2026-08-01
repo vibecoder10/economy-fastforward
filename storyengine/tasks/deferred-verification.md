@@ -4145,3 +4145,50 @@ stand unchanged.
   4195 passed / 28 failed / 4 skipped post-G16 (4185 passed pre-G16, +10 new tests, zero
   regressions). `py_compile` clean on both changed files.
 
+- **G17 (2026-08-01), the script-stage cousin — LIVE CHECK NEEDED:** fixed
+  `_validate_static_unit_paragraph`'s "missing locked machine designation" check (glued
+  4-token blob substring, no pennant tolerance, no last-token fallback — the exact G16 disease
+  one level downstream, on the final SCRIPT paragraph rather than the research card). All
+  offline tests pass against real roster fixtures pulled from video d2e37cd6-521a-43aa-a14d-
+  ce096a783c1e ("Every British Aircraft Carrier Class Ever Built") via `se db` — including the
+  sharpest real edge case, "HMS Ark Royal (91) Ark Royal (1937)" (two Ark Royals in this
+  roster's own history, so the NAME half carries its own trailing disambiguating bracket, not
+  just the designation half). **The one thing that cannot be verified offline: does the LIVE
+  model-written paragraph for each of the 23 real machines actually pass this gate on the
+  first or second round, with real Anthropic output rather than hand-written test fixtures?**
+  Recipe for whoever runs it next:
+  1. On this same video (d2e37cd6), run script card 1 (`run_machine_script_preview` /
+     `mcp__storyengine__script` preview, or the Script/Voice tab's "Run Script" button) for
+     **HMS Argus** specifically — the simplest single-ship entry and the one named in the
+     original bug report.
+  2. **Expected outcome:** the preview reaches `completed` with the paragraph passing
+     (`preview.passed = true`), and zero warnings starting with `"missing locked machine
+     designation"` — a first-pass failure on that exact message is a regression worth
+     flagging even if a later repair round recovers it.
+  3. Repeat for at least one CLASS-style entry (e.g. "Courageous, Glorious Courageous class"
+     or "CVA-01 predecessors Audacious class / Malta class") and, if time allows, the Ark
+     Royal (1937) entry specifically (roster_index 6) — the one this chunk's fallback fix was
+     built to unblock.
+  4. If any of these still fails on `"missing locked machine designation"`, pull the exact
+     model-written paragraph and the roster's locked display name (`se db "SELECT machine_key,
+     machine_name FROM machine_research_cards WHERE video_id = 'd2e37cd6-521a-43aa-a14d-
+     ce096a783c1e' ORDER BY roster_index"`) and check whether the paragraph genuinely never
+     names the machine at all (correct rejection) or names it in a shape this fix's tolerance
+     doesn't cover (e.g. neither the pennant-tolerant code nor the last-name-word fallback
+     matches — out of scope for this chunk, worth its own follow-up if seen).
+- **G17 own verification (offline, this chunk):** file-copy swap-proof (never git stash) —
+  `pipeline_executor.py` copied aside post-fix, then overwritten with `git show
+  HEAD:storyengine/backend/pipeline_executor.py` (pre-G17, the merged G16 tip) while the new
+  `tests/test_g17_script_paragraph_identity_tolerance.py` (8 tests) was moved out for the
+  baseline run, then restored: 5 of 8 fail against the pre-change code (the natural-paragraph-
+  passes tests, the Ark Royal edge case, the fallback-term unit test, the shared-constant
+  content check, and the end-to-end writer-prompt test); the 3 that pass on both sides are
+  intentional non-regression checks (sibling-still-rejected, the identity-codes-widening
+  superset check, and the exact-glued-code-still-passes regression). Full suite
+  (`./venv/bin/python -m pytest tests/ -q`) run against the full pre-G17 pair (code reverted,
+  new test file moved out) and again against the full post-G17 pair: sorted `FAILED` line sets
+  are byte-identical (28 pre-existing `test_custom_film_remotion.py` failures, same env gap as
+  G13/G14/G16 — missing Remotion font/asset files in this worktree, unrelated). 4203 passed /
+  28 failed / 4 skipped post-G17 (4195 passed pre-G17, +8 new tests, zero regressions).
+  `py_compile` clean.
+
