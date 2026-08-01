@@ -1,3 +1,261 @@
+# Loop: DVsU bulletproof API pipeline (G-phase)
+
+Owner: Ryan. Started 2026-07-30 (resumes HANDOFF.md at storyengine root - read it first).
+Orchestrated via maestro, session "dvsu-bulletproof". This section is THIS session's;
+the D7/D8 board-laws loop lower in this file belongs to another live session - hands off.
+
+## Definition of Complete (from HANDOFF.md 2026-07-30)
+1. A fresh test video with a small ship roster (5-ship, or clone d2e37cd6's shape) runs
+   research -> photos -> per-machine research through the pipeline's OWN API path only
+   (no MCP, no coordinator session, no sidecar files) and reaches ready_for_scripting
+   with all cards passing the referee - proven by driving the UI like a user and by
+   `se db` reads, not code inspection.
+2. Gatherer-fallback, repair-lesson, and normalizer behavior each pinned by offline
+   fixture tests.
+3. Any paid test run quoted to Ryan first; deploys only via the se deploy protocol
+   after Ryan's yes.
+
+## Assumptions (stated, not asked)
+- G1 -> G2 run SEQUENTIAL: both edit backend/pipeline_executor.py (hidden-edge rule).
+  G1 first per Ryan's kickoff. G3-PLAN is read-only and runs PARALLEL with G1.
+- GAP 3's deliverable this loop is a scoping plan for Ryan (tasks/GAP3-identity-plan.md),
+  NOT implementation - HANDOFF mandates its own GOAL.md planning pass with Ryan first.
+- The paid end-to-end proof run and any deploy are decision-chunks parked on Ryan.
+- Another session's workers are live in this checkout: my workers use git worktrees,
+  file-copy swaps for stash-proofs (NEVER git stash - fleet rule in lessons.md), and
+  never touch local main directly; merges happen only after a MERGE verdict here.
+
+## Chunks
+- [x] G1 (S) [B][V] DONE 2026-07-30, merged to local main 51d5a67c (union-resolved a
+      docs-only conflict in tasks/deferred-verification.md; code auto-merged clean).
+      Post-merge suite on main: 1 failed / 3929 passed - sole failure is pre-existing
+      test_youtube_oauth_diagnostics (AttributeError youtube_oauth_diagnostics missing
+      from routes.google_auth - NOT this loop's, flagged for the D7/D8 session/Ryan).
+      Gatherer fallbacks ported into the pipeline's gather step
+      (`_gather_verified_machine_source_package` ~7503 + static_docu reference fetch):
+      (a) tolerant per-excerpt normalizer - strip citation markers ("carrier.[9]"),
+      collapse orphan spaces before punctuation AND one-sided hyphen spaces
+      ("equipped- Hellcat"), fold smart quotes/dashes, NBSP; (b) fallback chain -
+      National Archives Discovery record -> its JSON API
+      (/API/records/v1/details/{id}, retry on empty 202), any failed URL -> REAL
+      Wayback snapshot via the availability API (never trust a claimed archive URL);
+      (c) source steering - prefer awm.gov.au, rmg.co.uk collection object pages,
+      .gov.uk, naval-encyclopedia.com, naval-history.net, uboat.net; iwm.org.uk 403s
+      all automation. Port FROM tasks/evidence/dvsu-research-simulator/build_package.py
+      (STATE.md first). Offline fixture tests for every listed quirk.
+- [x] G3-PLAN (S-Explore) [V] DONE 2026-07-30. Sweep confirmed the collision LIVE via
+      se db: 21 rows / 21 distinct machine_keys vs 23 payload entries on d2e37cd6,
+      overwritten roster indices exactly 9 (CVA01 pair) and 21 (LENDLEASEESCORTCARRIERS
+      pair); write path _upsert_machine_research_card pipeline_executor.py:7813-7841
+      ON CONFLICT DO UPDATE, benign today only because single-machine reads use the
+      un-deduped payload list. 8-deriver inventory with file:line + concrete breakage
+      each (~90 call sites on _normalized_unit_code alone). Key plan insight:
+      roster_index is already collision-free + UNIQUE, so Phase 0 = key the table by
+      roster_index + replay payload rows, no identity resolution needed. Plan doc for
+      Ryan: tasks/GAP3-identity-plan.md (phased 0/1/2, static_reference_cache stays
+      untouched). Sweep's honest gaps carried into the doc: frontend machine_key
+      coupling unchecked; "Willys MB"->mb not literally reproduced in code (risk-class
+      illustration, not a confirmed bug).
+      G1 STATUS 2026-07-30: built on branch worktree-agent-a1f27208dbdb55a0f commit
+      6dfc9c5c (+15 tests, empty with/without FAILED-line diff, py_compile clean).
+      Independent adversarial verify PASSED 4/4: capture_method set server-side only
+      (l.7634/7639), referee overwrites card-claimed methods (l.1540) and blocks
+      unmatched excerpts (l.1569, blocking per l.230), fallback text runs the same
+      normalizer+substring referee (l.1497-1521), exclude_domains unconditional +
+      naval pass append-only gated. static_docu deliberately untouched (Wikimedia
+      photo fetcher, zero overlap - worker judgment accepted). Merge to local main
+      in flight via Haiku grunt.
+- [x] G2 (S) [B][V] DONE 2026-07-30, commit 6e73c2df on worktree-agent-ac35b9bb3933bb3ff
+      (merge to local main in flight). 8 tests in test_repair_convergence.py incl. the
+      convergence-shaped one (drifted locator + inflection failure fully repaired, zero
+      paid rounds). Swap-proof 7/8 fail pre-G2 (1 sanity test passes both ways).
+      With/without suite diff empty (29 pre-existing FAILED on its base: custom_film
+      ffmpeg/font + oauth attr, both known). Adversarial verify PASSED 4/4: re-anchor
+      constrained to the machine's own fetched package + referee re-validates after
+      (10701-10704, 10799-10802); inflection swap is letters-only, evidence-sourced,
+      >=4 shared leading chars, count=1, loop bounded (1958, 2714-2725, 148-158);
+      designation widening scans machine.upper() only, sibling B-29 test still screens
+      (1568-1571); round-1-clean cards take byte-identical path (10788 guard first).
+      Key reuse: wired the EXISTING interactive Repair-button machinery
+      (_segment_surgery_plan/_promotable_slot_excerpt) into the automated loop.
+      Verifier's non-blocking coverage gap -> folded into G2b: second genuine
+      inflection-swap test; rekinds/blocked structured-feedback branch tests.
+      (~9937-10440, repair prompt ~10386): deterministic FREE pre-repair pass
+      (re-anchor citations by excerpt TEXT per reanchor_card.py; inflection-swap
+      grounding fixes); STRUCTURED named fixes in the repair prompt (segment, hinted
+      Tier 1-3 row, last-token rule, first-4-tokens specificity, never kind
+      "context"/"spec", required beats never Tier-4, apostrophe tokenization); fix or
+      document _unit_code's 4-token glob pennant "(D48)" quirk. Offline fixture tests.
+      BONUS mechanical fix (from G1 verify, same file so it rides this lane):
+      `_is_naval_gather_context` (~l.1451) uses substring `in` on "ship", so
+      "flagship"/"championship"/"friendship" titles spuriously trigger the extra
+      naval Tavily pass - make it word-boundary matching, one test.
+      G2 SCOPE NOTE 2026-07-30: G2's worktree branched from stale efc50bd8 (pre-G1),
+      caught by the worker itself via merge-base check. Items 1-3 proceed there
+      (independent region); item 4 moved to G2b. LESSON for every future brief:
+      worktree isolation can branch from a stale HEAD - briefs must state the
+      required base sha and tell the worker to verify merge-base FIRST and flag
+      before building.
+- [x] G2b (H) [B][V] DONE 2026-07-30, merged ba44fc62 (commit 6dbd4ca3). Word-boundary
+      fix for `_is_naval_gather_context` + battleship(s)/warship(s) added as explicit
+      whole-word terms; 6-assertion test (championship/friendship/flagship rejected,
+      ship/battleship/carrier/warship kept); swap-proof fail->pass shown. Post-merge
+      suite on main: 1 failed / 3983 passed (pre-existing oauth only).
+      ACCEPTED DEBT (honest skips, verifier had rated the gap non-blocking): second
+      genuine inflection-swap test (my commissioning/commissioned spec was unbuildable,
+      both stem to "commission" - a valid pair must be irregular with >=4 shared
+      leading chars); rekinds/blocked branch tests for _structured_repair_feedback
+      (fixture shape needs _segment_surgery_plan understanding - Sonnet-sized, not
+      Haiku). Both live only here; pick up if repair-loop work reopens.
+      G2 merge CONFIRMED on main as 9e6b3f81 (suite after: 1 failed / 3982 passed,
+      families clean).
+- [ ] G-DEC1 (decision - Ryan) ANSWERED 2026-07-30: "show me the price first."
+      Haiku price-check in flight; quote goes to Ryan, run only on his yes.
+- [ ] G-DEC2 (decision - Ryan) ANSWERED 2026-07-30: "deploy today" - ask him right
+      before the button, one bundled deploy (--with-frontend, ships both loops' main).
+      Sequence: G5 merges first, then push main, then se deploy, then /se-smoke.
+- [ ] G5 (S) [D][B][V] IN FLIGHT (promoted from GAP3 Phase 0, Ryan approved "build the
+      small fix now"): machine_research_cards identity moves to
+      (tenant_id, video_id, roster_index); machine_key demoted to informational;
+      migration + upsert conflict swap + reader audit + idempotent replay tool
+      (recovers the 2 dropped rows on d2e37cd6, prod run stays deferred).
+      Full GAP3 Phases 1-2 still wait for the /goal session.
+- [x] G-FINAL (S-Explore) [V] DONE 2026-07-30. Fresh-eyes audit verdict: every
+      in-sandbox DoC element MET. Reachability proven, not assumed: normalizer is the
+      actual comparison path (1497/1510), fallback chain fires exactly when
+      source_variants is empty (7816), free pre-repair + structured feedback run inside
+      the automated hold reachable via plain REST /machine-research-one (routes/
+      pipeline.py:973 - not MCP, not interactive-only). Convergence test drives the
+      real hold with a FakeAnthropic that RAISES past 1 call - zero-paid-rounds proof
+      is genuine. No un-mocked network in test files. Spec drops: none. Wikimedia
+      claim (static_docu untouched) verified correct for the automated path.
+      Suite on main: 1 failed / 3983 passed (pre-existing oauth only).
+- [x] G8 (S) [B][V] DONE 2026-07-31, merged db8fac63 (commits dee6b6c8 + G8b 16270ea0).
+      Suite on main after merge: 0 failed / 4192 passed (fully green - the oauth
+      failure was fixed by the other session meanwhile). Verify round 1 BLOCKED on
+      retry double-spend; G8b fixed it (skip run_research when roster already passed;
+      roster_loop_attempts round guard via targeted jsonb_set; 3-run stateful test:
+      retry re-researches ONLY the failed machine, third run parks it by name).
+      THE LAST MILE, found by the live test: the
+      autobuild chain dead-ends at the intentional bulk-generation safety gate
+      (e945c762, Jul 12: "Bulk DVsU machine-card generation is disabled for
+      hallucination safety") because nothing engine-side iterates roster entries
+      through the safe one-machine research path. The carrier video only worked
+      because the coordinator looped by hand. Fix: static_docu autobuild loops roster
+      entries through run_one_machine_research sequentially (full referee each),
+      cap-checked before each machine, per-machine progress messages, clear park
+      message naming failing machines. Gate itself stays. Evidence: video d05efae3
+      dispatched fine, Research Agent ran 13:48-13:51Z, roster found all 5 KGV ships,
+      then gate error killed the task and the user saw nothing.
+      G8 VERIFY 2026-07-31: BLOCKED on first pass - retried builds re-run run_research,
+      which wholesale-overwrites research_payload (executor 8985-9000), flipping ALL
+      machines back to pending = unbounded re-spend across retries. Bounced to the
+      worker as G8b (retry invariant + per-machine attempt bound + two-invocation
+      test). Verifier PASSED: chain-stop, stale-list, live cap re-read, unchanged
+      paths, test meaningfulness.
+- [ ] G15-candidate (S) [B] From G14 verify (non-blocking): _classify_repair_actions
+      (~4417-4526) and repair_targeted_fetch default-focus (~9730-9737)
+      substring-match "Tier 1-2" against UNFILTERED package_errors, so the paid
+      targeted-fetch repair ladder can chase an advisory-only tier gap - wasted
+      spend, never a re-block. Filter to blocking-only. Also from G14 gaps: frontend
+      machineResearchCardStatus still shows "Tier 4-only · preview blocked" (stale
+      gate wording post-G14); and the acceptable-looseness note: a required beat can
+      now rest on a genuinely-fetched but tangential machine-mentioning sentence
+      (advisory-flagged, cannot be fabricated) - reported to Ryan 2026-07-31.
+- [x] G13 (S) [B][V] DONE 2026-07-31, merged 423b8801, suite 0 failed / 4208 passed.
+      Also found+fixed the "HMS prefix matches any ship" root cause in
+      _machine_mention_terms. Aircraft queries pinned byte-identical by snapshot
+      test. Was: the fix G12's analysis ranked: (1)
+      domain-branched gather queries (naval templates + domain-embedded event
+      queries per the coordinator's pattern; aircraft queries byte-identical), (2)
+      per-domain steering + one reworded retry on zero-Tier12, bounded calls, (3)
+      tier floor requires excerpt-level machine relevance (kills off-topic
+      IWM/USN-PDF false Tier 1-2s), + bonus: failed-validation cards no longer
+      mislabeled "missing card" (8036-8040). Live retry after deploy: G8b bound
+      allows exactly one more auto attempt per machine.
+- [ ] G16 (S) [B][V] DEFINED 2026-07-31 after retry #2, PARKED on Ryan's call (tonight
+      vs next session). Retry result: ALL 5 ships now write cards (G13+G14 unblocked
+      Duke of York + Anson), tier warnings correctly advisory, but 0/5 pass on TWO
+      remaining hard classes, read from the real cards:
+      (1) IDENTITY-PREFIX FORMALISM: locked display names carry pennant prefixes
+      ("53 HMS Prince of Wales"); cards naturally write "HMS Prince of Wales" ->
+      "card unit does not match locked machine". Fix: identity match tolerates a
+      leading pennant/digit token (cousin of the (D48) fix).
+      (2) CONTENT-SHAPE RULES known only to the repair prompt: "visual_identity must
+      include concrete visible machine features", "why_this_unit... must name a
+      concrete engineering decision/problem/tradeoff/consequence". The WRITER prompt
+      never states them upfront, so round 1 always fails them and bounded repairs run
+      out. Fix: fold the G2 structured rules into the initial card-writing prompt.
+      ALSO: G8b attempt bound now parks these 5 - the live re-test needs either an
+      attempt-counter reset for d05efae3 or a fresh 5-ship video (cleaner).
+      Recorded spend note: videos.total_cost shows $0 for d05efae3 - confirms the
+      G10-candidate gap (research spend unrecorded); real provider spend today est.
+      $3-6 across both test videos, not readable from the DB.
+- [ ] G14 (S) [B][V] APPROVED BY RYAN 2026-07-31 ("okay noted, drop it then") - DONE
+      2026-07-31, merged 5ef52f1d, verified 5/5 (one acceptable looseness + one
+      spend-leak caveat -> G15-candidate). Was: QUEUED
+      BEHIND G13 (same file, hidden-edge rule). Demote the Tier 1-2 source floor from
+      HARD BLOCK to advisory note: kill the pre-card block ("Verified source package
+      needs at least one Tier 1-2 primary/authoritative source"), move tier-floor
+      warnings out of _blocking_warnings to advisory, align the G2 repair guidance
+      ("required beats never on Tier-4 rows" demotes too). KEEP UNCHANGED the entire
+      anti-hallucination core: excerpt-verbatim-in-fetched-text, url/locator match,
+      server-side capture methods. Load-bearing test: Duke-of-York-shaped fixture
+      (zero T1-2, on-topic T3-4) now writes and can pass; an ungrounded claim still
+      FAILS. Rationale: 5/5 rejections today were prestige/formalism, not false
+      facts; sessions have been appeasing the gate instead of questioning it.
+- [x] G12 (S-Explore) [V] DONE 2026-07-31 - LIVE TEST RESULT on d05efae3 (KGV):
+      the G8 loop ran all 5 machines hands-free and completed cleanly at 17:10Z -
+      orchestration PROVEN. But the referee rejected ALL FIVE: 41 KGV visual_identity
+      grounding, 53 PoW no Tier 1-2 source cited, 17 Duke of York + 79 Anson blocked
+      pre-card ("needs at least one Tier 1-2 primary/authoritative source"), 32 Howe
+      grounding mismatches + two real fetch failures (PDF parse error, SSL
+      cert-verify). So the API path's research QUALITY still fails where the
+      simulator passed 23/23 - the actual remaining gap. Analysis sweep dispatched:
+      why no Tier 1-2 sources (fallbacks not firing? steering queries? tier
+      classification? fetch robustness?) vs the simulator's method.
+      Mechanical findings to fix alongside: (a) pipeline_executor.py:8036-8040 drops
+      failed-validation card rows so aggregates mislabel "missing card" instead of
+      the real rejection; (b) park outcome stored as background task
+      status="completed" + video stays idea_logged - indistinguishable from success,
+      invisible in chat (stale banner); progress messages DID land (routes/
+      pipeline.py:443-480, single row overwritten in place) - frontend polling gap.
+- [ ] G11-candidate (H) [U] Frontend nit from G8 verify: ChatPipelineMap.tsx:326-341
+      hardcodes the "Needs review" step badge to step.key==="script" (comment claims
+      needs_review is set only by run_script - false once G8 lands). Research-stage
+      parks surface only via the generic amber banner. Small fix + tsc.
+- [ ] G9 (S) [B][V] IN FLIGHT 2026-07-31 - chat approval dead-end (Bug A, pre-existing):
+      routes/chat.py:2041-2052 _handle_copilot only resumes a pending confirm_action
+      on exact affirm/deny regex; a compound reply ("change the title... then go
+      ahead") falls through, the stale pending_action evaporates via the free-verb
+      path (2396-2408), and the user gets stale text instead of a build card. Fix +
+      transcript-shaped regression test; also route "change the video title to X" to
+      the title-edit verb (it was ignored entirely - video_title still holds the whole
+      first chat message).
+      DIAGNOSIS NOTE: both bugs pre-date today's deploy (verified git log -L/-S);
+      budget-cap logic itself is sound (actions.py:1310-1319 never fired at $0/$5).
+- [ ] G6-candidate (S) [B][V] NOT STARTED - live-test finding 2026-07-31: the DVsU
+      roster path triggers ONLY on a title regex (_is_complete_roster_topic,
+      research/agent.py:660-670: every/all/ever built/complete list/complete history).
+      A user asking for a bounded N-ship machine doc in plain words ("the 5 most
+      famous...") can NEVER reach the roster/card/referee path - proven live on video
+      c18589b3 (0 cards, ready_for_scripting in seconds). Same disease as GAP 3:
+      format should be DECLARED (by producer/create), not regex-guessed from a title.
+      Also: producer stuffed the whole chat message into video_title.
+- [ ] G7-candidate (S) [B][V] NOT STARTED - live-test finding 2026-07-31: NO default
+      per-video spend cap exists. c18589b3 got max_spend=NULL from chat creation; the
+      $20 "hard cap" on d2e37cd6 was a manually set max_spend, not a system default.
+      Spend on chat-created builds is bounded only by stage stop-points. Fix: default
+      max_spend on video creation + surface it in the producer's quote.
+- [ ] G4-candidate (S) [B][V] NOT STARTED - new finding from G-FINAL: the human
+      "Add photo" paste-a-URL path (`seed_reference_from_url`, static_docu.py:2276)
+      fetches arbitrary operator URLs with NO Wayback/NA fallback - a dead or
+      bot-walled pasted URL silently rejects with a generic "unreachable" instead of
+      falling back, unlike the text gatherer's new chain. Small, self-contained,
+      reuses G1's `_fetch_source_fallback_text`. Needs Ryan's nod on priority.
+
+---
+
 # Loop: static-docu roster reference-photo pipeline
 
 Owner: Ryan. Started 2026-07-29. Orchestrated via maestro.
@@ -1144,7 +1402,12 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   BOUNDARY-PASS-PLAN.md. Acceptance target: the plan must be capable of producing
   tasks/evidence/d3-64-fixes/TRANSITION-PLAN-example.txt. Migration 143 (reserved) if it
   proposes storage. PLAN ONLY. No dependency - PARALLEL with everything. DISPATCHED.
-- [ ] D6-6a [GATE - $0, NO SPEND] **RYAN'S RULE, 2026-07-29: "before any image is actually generated you will
+- [x] D6-6a [GATE - $0, NO SPEND - DONE 2026-07-30, CONDITIONAL PASS, $0.00 verified]
+  Video 8d90df90 (686b4651's tenant), 8 scenes authored, canonical identity_tag/material_map populated
+  and PROVEN to reach both paths' prompts byte-identical (L20 PRESENT-VERBATIM both paths; live re-runs
+  against real planner code with the paid seam stubbed; ledger 0 rows before AND after; 686b4651
+  untouched). Evidence commit 22ea7d28. CONDITIONS -> new chunk D6-6c/d/e below; D6-6b waits for them.
+  Old D6-6a text follows for the record: **RYAN'S RULE, 2026-07-29: "before any image is actually generated you will
   run the script system through the pipeline for a single storyboard and cross check the output against the rules
   to see if it will turn out correct."** So: author the corrected EIGHT-SCENE script onto a NEW video (take
   686b4651's six scene texts, split scene 1's text into three by hand - escape / run and dead end / return - and
@@ -1159,6 +1422,25 @@ STORY-LAWS.md S1-S5, HANDOFF.md backlog items 1-5.
   BOARD-PLANNER-ARCHITECTURE.md says it plainly - determinism in the prompt is not determinism in pixels, and the
   last proof run drew tube-shaped pods from text that said sphere. 6a passing means the words are right and the
   only remaining risk is the drawer, which is the sole part that needs money to test.
+- [x] D6-6c/d/e (S) [B][V] DONE 2026-07-30 (branch d6-6cde-prompt-fixes, commit b569e417): 6c bridge
+  exemption now ORs two structural signals (location change between kept moments + S1 transit vocabulary
+  in the moment summary) alongside the LLM tag, threaded identically into both draw paths; 6d style-lock
+  "attached reference" claim now conditioned on real per-shot refs (any(refs), so [None] counts as none);
+  6e material matching moved to whole-word containment - NOTE: original scene-4 symptom no longer
+  reproduces on current main (bd384402 landed first); fixed the reproducible sibling bug instead
+  (leading-article LOCSET names dropped their material). 6 stash-proofs, backend + pipeline failure sets
+  byte-identical, live $0 re-run recipes tail-appended to deferred-verification. Fold dispatched.
+  Original: THE THREE CONDITIONS from D6-6a's conditional pass, fixed before any paid board:
+  (6c) BRIDGE exemption in enforce_shot_budget fires only on the LLM's own "(BRIDGE)" tag - non-deterministic,
+  corridor payoff survived 1 of 3 live runs. Make bridge-ness DETERMINISTIC (derive from the transit
+  sentence / location change in the parsed structure; keep the tag as an extra signal, never the only one).
+  (6d) L28 gap: pictures path with allow_auto_cast_generation=False claims "the attached reference
+  image(s)" with nothing attached - condition the STYLE LOCK wording on actual attachments.
+  (6e) Sheet-preview pulls the WRONG environment's material text (scene 4 Hall got the Pod's material;
+  pictures path correct) - key material selection by the scene's own environment, test with two envs.
+  Unit-level stash-proofs in worktree; the live $0 VPS re-run goes to deferred-verification for the
+  deploy window (re-run both paths on video 8d90df90 scenes 1+4; expect corridor beat 3/3, safe L28
+  wording, Hall material on scene 4).
 - [ ] D6-6b [DECISION - MONEY] ONE proof board, max $0.20 (Ryan's authorised $1 has $0.80 already spent). Runs
   ONLY if D6-6a passes, and ONLY on Ryan's explicit go. Judged against BOARD-LAWS.md and STORY-LAWS.md. Script
   judged first, boards second, nothing paid until each stage passes. Video 686b4651 stays untouched; frame-level
@@ -1446,26 +1728,83 @@ per-scene precision.
   invalidation-triggered.
 
 ### Chunks
-- [ ] D7-1 (S) [D][B][V] HIGH - SECOND INDEPENDENT GAP, and the cheapest real fix. `_extract_cast` reads the CACHED
+- [x] D7-1 (S) [D][B][V] HIGH - SECOND INDEPENDENT GAP, and the cheapest real fix. `_extract_cast` reads the CACHED
   `videos.script`, but `update_scene_text` never syncs `videos.script` (only `rewrite_scene_text` and pull-from-drive
   do). So editing a scene does not even update the text the cast generator reads - a cast regenerated after an edit can
   still be built from stale text. Fix the sync, then verify `_extract_cast` sees the new text. Small, self-contained,
   and it removes a whole class of confusion. Do this first.
-- [ ] D7-2 (S) [D][B][V] Generalise the hash. Add `characters_hash` / `environments_hash` (same `_scene_text_hash`
+  DONE 2026-07-30: worktree commit 897f0a32 (branch d7-1-script-sync). Sync block copied verbatim from
+  rewrite_scene_text's own mechanism (routes/videos.py:2386-2391); new test chains update_scene_text ->
+  _extract_cast prompt (new text present, stale text absent); real stash-proof AssertionError; full-suite
+  failure SET byte-identical before/after (+2 passed). Fold to local main dispatched, NO push (deploys held).
+- [x] D7-1b (S) [B][V] DONE 2026-07-30 (worktree branch d7-1b-chat-sync): extracted shared helper
+  sync_video_script() in routes/videos.py (three call sites: update_scene_text, rewrite_scene_text,
+  chat.py's _apply_prompt_draft script branch); real stash-proofs; failure-set diff clean (only the 2 new
+  tests differ); full writer sweep - every other scripts.scene_text writer already syncs, and
+  supabase_adapter.update_script_record has ZERO callers (dead code, flagged not fixed). Fold dispatched.
+  Original: THIRD ungated writer, found by D7-1's sweep: routes/chat.py:2962-2968 - the chat
+  free-text script save writes scripts.scene_text with NO videos.script sync. Same fix pattern as D7-1
+  (copy rewrite_scene_text's sync block), same test shape. Also noted, lower priority/different owner:
+  supabase_adapter.update_script_record (legacy cron path) writes scene text with no sync - park unless
+  the legacy pipeline is actually in use.
+- [x] D7-2 (S) [D][B][V] DONE 2026-07-30 (branch d7-2-staleness-hash, commit 8fef6d70): characters_hash/
+  environments_hash on videos row (family-level, justified: whole-family regeneration semantics); flag
+  choke point inside sync_video_script + 3 inline writers; SECOND parallel cast path found and stamped
+  (pipeline_executor.run_characters); migration 145 extends BOTH status CHECK constraints ('stale' bucket);
+  advisory try/except so a flag can never block a save; 12 tests incl. no-DELETE proof; failure sets
+  byte-identical. Migration auto-applies on boot but only WARNS on failure - deploy-window recipe says
+  CONFIRM it landed. Fold dispatched. Original: Generalise the hash. Add `characters_hash` / `environments_hash` (same `_scene_text_hash`
   style, over the full `videos.script`). On EVERY scene-text write path - both endpoints plus pull-from-drive -
   recompute and compare, and on mismatch FLAG `video_characters.status` / `video_environments.status` (both already
   have a `status` column, matching the existing draft/approved vocabulary) rather than deleting anything.
   NON-DESTRUCTIVE by design: flag, never delete, because a wrong deletion costs real money in redraws.
-- [ ] D7-3 (S) [B][V] Extend `_clear_scene_downstream` to also clear `coverage_directive_hash`, and CALL IT from both
+- [x] D7-3 (S) [B][V] DONE 2026-07-30 (branch d7-3-invalidation, commit 215545ce): _clear_scene_downstream
+  extended with coverage_directive_hash=NULL and called advisorily from both scene-edit endpoints; no
+  destructive tension found (function only nulls pointers, never deletes rows); 5 tests, patch-file
+  stash-proofs (3 real AssertionErrors), failure sets byte-identical; survived + self-remediated the
+  stash collision (final diff = exactly its 2 files). Fold dispatched. Original: Extend `_clear_scene_downstream` to also clear `coverage_directive_hash`, and CALL IT from both
   scene-edit endpoints instead of leaving invalidation to the drive-pull path alone. Extend the existing function; do
   not write a fourth variant.
-- [ ] D7-4 (S) [U][V] Surface staleness where a human sees it. A flagged-stale cast or environment must be visible in
+- [x] D7-4 (S) [U][V] DONE 2026-07-30 (branch d7-4-staleness-ui, commit b369cf30): backend untouched
+  (status already flowed - verified, not assumed); stale badges + explanatory line on character and
+  environment cards; warning banner at the storyboard actions in ScenesWorkspaceTab for the
+  approved-then-edited case (gates check approved_at, never freshness); 'stale' added to both status
+  unions; all advisory, nothing blocked. tsc clean, build 34/34 routes. No component-test infra exists
+  (stated, not invented). Visual walk in deploy-window recipe. Fold dispatched.
+  Original: Surface staleness where a human sees it. A flagged-stale cast or environment must be visible in
   the UI before someone spends money redrawing from it. This is the leg that turns the flag into a saved dollar - a
   flag nobody sees is the same as no flag. Depends on D7-2.
-- [ ] D7-5 (H) [V] Apply law S6's three legs per STORY-LAWS.md's contract triangle: PROMPT (the law text reaches the
+- [x] D7-5 (H) [V] DONE 2026-07-30 (audit): GATE LANDED (hash compare-and-flag at sync choke point,
+  migration 145 constraints), REPAIR LANDED (stamp-on-generation x3 sites, regeneration-heals test,
+  D7-3 coverage-hash clear), PROMPT NOT LANDED - S6 law text exists only in STORY-LAWS.md, never
+  reaches any script-generation prompt; STORY-LAWS.md also lacks a landed-state status section.
+  Gap promoted to D7-6. Original: Apply law S6's three legs per STORY-LAWS.md's contract triangle: PROMPT (the law text reaches the
   relevant system prompts), GATE (the hash comparison above IS the deterministic gate - it compares canonical hashes,
   not prose, so it MAY be hard per the standing ruling), REPAIR (the flag survives a regeneration). Confirm each leg
   landed or admit which did not.
+- [x] D7-6 (S) [B][V] DONE 2026-07-30 (branch d7-6-s6-prompt, commit af52d9dd): SCRIPT_IS_SOURCE_OF_TRUTH_LAW
+  constant authored + injected at resolve_prompt (script key), _run_modeled_script inline prompt, MCP
+  submit_script tool description, user_script docstrings; STORY-LAWS.md Status entry added (all four S6
+  legs now recorded). 7 new tests + 2 hardcoded-concatenation tests updated; patch-file stash-proofs;
+  failure sets byte-identical after excluding the new tests. GAP FOUND -> D7-7 below. Fold dispatched.
+  Original: S6 PROMPT leg + doc status (from D7-5's audit): add the S6 law text constant to
+  backend/story_laws.py (condensed from STORY-LAWS.md S6, lines 150-171), inject alongside S1/S3 in
+  pipeline_executor.resolve_prompt and _run_modeled_script's inline prompt, and into user_script.py's
+  external-script acceptance surface; append a landed-state Status entry for S6 to STORY-LAWS.md
+  (gate+repair landed D7-2/D7-3, prompt landed here). Small, locations pinned by the audit.
+- [x] D7-7 (S) [B][V] DONE 2026-07-30 (branch d7-7-external-stale): both external-script writers now call
+  the staleness flag (bare call, helper self-wraps - matches both existing precedents); coverage-hash
+  question moot by construction (DELETE + re-INSERT yields NULL hash, proven by test); misleading
+  docstring fixed; 7 tests, real stash-proofs, failure sets byte-identical. PHASE D7 COMPLETE.
+  Fold dispatched. Original: FOURTH ungated stale-trigger, found by D7-6:
+- [ ] D7-8 (S) [B][V] LOW, pre-existing (noted by D7-7, park until convenient): assets and scripts are
+  keyed by (video_id, scene) with no FK; a replacement script with FEWER scenes leaves the removed scene
+  numbers' assets rows orphaned (not deleted, not cleared, still render in UI queries). Decide: clear
+  pointers on shrink (flag-not-delete law applies) or filter orphans at read time. user_script.py's set_user_script and
+  accept_external_script write videos.script directly WITHOUT calling _flag_stale_cast_and_environments -
+  an externally submitted script never flags the existing cast/environments stale (the exact S6 origin
+  scenario, and the exact door the D6-6a gate used). Wire the advisory flag call into both writers,
+  mirror D7-2's try/except pattern, test each path flips statuses to stale.
 
 ### Standing rulings that apply to this phase
 - A gate may only be HARD when the thing it compares against is CANONICAL. Prose-versus-prose must warn, never block.
@@ -1506,3 +1845,297 @@ plus the per-location material map (the pod's canonical architecture is written 
 the plan_only dry run, (4) cross-check the emitted prompt against BOARD-LAWS L0-L29 and STORY-LAWS S1-S6, inspecting
 BOTH the sheet-preview path and the real pictures path, not just the preview.
 Populating those records is free. Skipping it makes the whole gate theatre.
+
+---
+
+# Loop extension 2026-07-30 — FILM-STUDIO PROGRAM (D8-D14)
+
+Owner: Ryan. Orchestrated via maestro (Fable, 2026-07-30). Source: the 22-point "autonomous
+film studio" audit (5 Sonnet auditors, file:line evidence). Verdict: ~1 point fully built,
+18 partial, 3 missing; the strongest pieces (Custom Film contracts, frame arbiter) are
+built but dormant. This program extends the D-series - it does not replace D6-proof or D7.
+Leftover D6/D3 cleanups (D6-1d, D6-1e, D6-2b, D3-54..61) stay in their original sections
+and get folded into lanes opportunistically.
+
+## Ryan's rulings 2026-07-30 (do not relitigate)
+1. Custom Film: HARVEST pieces into the flagship coverage pipeline. No promotion, no migration.
+2. Scope: the full program - "everything, whatever it takes, a clear plan to chew through."
+3. Arbiter: Ryan's tenant only, hard per-video budget cap, cost quoted before enabling.
+   Auto-redraw stays behind its own sub-flag, DEFAULT OFF, until D5-A3b-2 graduates.
+4. Deploys: HELD. Build + verify in worktrees; nothing ships until Ryan gives a window.
+   Another LIVE session owns the DVSU roster loop (top of this file) - never touch its
+   section, never deploy, never restart prod services from this loop.
+
+## Definition of Complete (graded at D14, in Ryan's terms)
+1. Judged builds: arbiter judges frames on Ryan's tenant under a hard cap, defects
+   freeze/repair per the ladder, verdicts visible in the review feed.
+2. Laws enforce for real: new videos populate canonical columns so gates run the canonical
+   path, not the fallback; hard gates only vs canonical targets (D6 Ruling 1 stands).
+3. No more staleness: scene edits flag downstream cast/environments/coverage/assets
+   (S6/D7), visibly in the UI, before money is spent.
+4. Structured directing: every planned shot records purpose; characters/environments carry
+   lock-grade fields harvested from Custom Film; forbidden_drift reaches prompts + judge.
+5. Missing engines v1: native story bible (genre/stakes/arcs), shot-archetype library,
+   genre-aware pacing, distinct transition treatments, provider-neutral prompt dialect.
+6. Proof: one full video end-to-end under all of it, browser-walked with screenshots and
+   spend receipts; deployed only in Ryan-approved windows.
+
+## Lanes
+- Lane 1 (prod proof): D6-6a -> D6-6b [PARKED on Ryan's go] -> D7-2..D7-5.
+- Lane 2 (arbiter): D8-1 -> D8-2 [PARKED on deploy window] -> D8-3/D8-4.
+- Lane 3 (small code): D7-1 (no dependency on D6-6a, runs parallel now).
+- D9 -> D10 -> D11 -> D12 -> D13 sequential after their SWEEPs; D14 last.
+
+### Chunks (D8 ARBITER LIVE — FRAME-ARBITER-PLAN.md A6-A9 under Ryan's rulings)
+- [x] D8-1 (S) [B][V] Build the A6 wiring in a worktree: judge + fingerprint-freeze +
+  ledger metering behind a flag scoped to ONE scene of ONE test video on Ryan's tenant
+  (f6839de2). Auto-redraw behind a SEPARATE sub-flag, default OFF (A5 frozen per D5-A3b-2).
+  No deploy, no live run - the live-run recipe goes to deferred-verification (append at TAIL).
+  DONE 2026-07-30: worktree commit 88052ee9 (branch d8-1-arbiter-a6). New frame_arbiter_hook.py is the
+  only caller into the arbiter library; single call site at pipeline_executor.run_storyboard_sheet
+  (:14921-14953), converging on actions.py's storyboards verb - no forked path. Flags:
+  FRAME_ARBITER_A6_ENABLED / _VIDEO_ID / _SCENE / _REDRAW_ENABLED (all default off) +
+  FRAME_QA_SCENE_CAP/_VIDEO_CAP env overrides ($0.25/$0.50 defaults). 22 new tests, $0; failure SET
+  byte-identical vs stashed baseline (29 failed both ways); stash-proof via guard-neutering with real
+  AssertionErrors (new-module ImportError form correctly avoided). Live-run recipe tail-appended to
+  deferred-verification.md section 6. Fold to local main dispatched, NO push.
+- [ ] D8-2 [DECISION - DEPLOY + MONEY] In Ryan's deploy window: ship D8-1, run the flagged
+  scene live ONCE, read back actual ledger spend, confirm a repeat fingerprint freezes.
+  Quote the vision-call cost per scene BEFORE running.
+  QUOTED by D8-1 from the module's own pricing constants: judge-only pass = 1-5 sheets x $0.027-0.03
+  = $0.03-$0.15 per scene, under the $0.25 scene cap; a repair adds $0.05 + one $0.03 rejudge per
+  repaired sheet (only if the redraw sub-flag is also turned on).
+- [x] D8-3 (S) [U][V] A7 review-feed findings tab on frontend/src/app/review/page.tsx
+  (frame, reason, class, cost, fingerprint, freeze state; TASTE_QUESTION renders as a
+  decision card, never auto-acted). Sanity-check shape against D8-2's real data before done.
+  DONE 2026-07-30 (branch d8-3-review-feed, commit 7370e5db): GET /api/review/findings reads
+  arbiter_fingerprints (m139) + generation_ledger frame_qa rows (m140), tenant-scoped; Findings tab with
+  spend summary + TASTE_QUESTION decision cards (local expand only, no mutation); tsc clean, build passes,
+  3 new backend tests, failure set unchanged, real stash-proof. Live-shape sanity check deferred to
+  post-D8-2 (recipe in deferred-verification). Survived a cross-worktree git-stash collision (see
+  lessons.md 2026-07-30) - recovered via git fsck, re-verified before committing.
+- [x] D8-3b (S) [D][B][V] DONE 2026-07-30 (branch d8-3b-findings-persist, commit cb051030): new
+  arbiter_findings table (migration 146, RLS + indexes), field names mirror the judge dicts verbatim
+  with the reference/label mapping in ONE function; hook persists advisorily after judgment + rejudge
+  (skipped entries never persisted; ledger stays authoritative for spend); endpoint + tab render
+  instances. 14 new tests, 3 guard-neuter proofs, failure sets byte-identical, tsc + build clean.
+  MUST deploy before D8-2's first live run (same window). Fold dispatched.
+  Original: HONEST GAP found by D8-3: no per-instance findings table exists - A3/A3b judge
+  result dicts are never persisted past the HTTP response that produced them (confirmed via
+  task_store.db_persist_task), so the tab can only show fingerprints + ledger spend. Persist a findings
+  row per judgment (extend frame_arbiter_hook's write path + a migration), feed the tab the full
+  frame/reason/class detail. Needed for DoC #1 "verdicts visible". Depends on D8-1 (done); best landed
+  before D8-2 so the first live run persists its findings.
+- [ ] D8-4 (H) [D][V] A8 ruling wire-up: upsert_quality_rule rulings flow into prompt +
+  gate + repair in one commit; per-rule violation-count escalation.
+- [ ] D8-5 [DECISION] A9 rollout wider than one scene, still Ryan's tenant only. Widening
+  BEYOND his tenant is a new Ryan decision, not covered by ruling 3.
+- [ ] D8-6 [DECISION - PARKED] D5-A3b-2: needs Ryan as label authority on the 108 "facing"
+  fixture + a fresh eval budget quote. Auto-repair stays frozen until this graduates.
+
+### Chunks (D9 CUSTOM FILM HARVEST — schemas only, no migration of videos)
+- [x] D9-1 (S) [D][B][V] DONE 2026-07-30 (branch d9-1-shot-purpose, commit 792e0e8d): PURPOSE row
+  grammar (own line, never inline - rule 23/L27 forbids new inline tags, they bake onto artwork),
+  parse strips it before the draw prompt (planted-marker proof); purpose_kind 5-word enum +
+  free-text shot_purpose; migration 147 (no CHECK per Ruling 1); warn gate check_shot_purpose_present;
+  store_scene stamps both columns (the one real stamping site - sheet previews create no asset rows).
+  Backward-compat proven on the pre-existing SAMPLE fixture; pipeline suite 161/161, backend failure
+  sets byte-identical. Prompt-compliance on real scenes deferred to deploy window. Also found
+  pre-existing schema.sql drift for migration 143 columns - spun off as background task chip.
+  Fold dispatched. Original: Per-shot PURPOSE: planner records a motivation for every shot
+  (vocabulary from custom_film_director.py's progression_kinds + narrative_purpose:
+  reveal/tension/scale/emotion/geography/intro/transition/foreshadow); stored structured on
+  the parsed plan + assets; gate WARNS when absent (prose target -> warn per Ruling 1).
+- [x] D9-2 (S) [D][B][V] DONE 2026-07-30 (branch d9-2-character-locks, commits b326ae76+53e93eaa):
+  migration 151 (face_body_lock, wardrobe_lock, forbidden_drift on video_characters); approve_cast's
+  existing vision call extended to labeled format (one call, unchanged spend), best-effort parse with
+  exact legacy fallback; locks reach every prompt via the bible costume field. PRECEDENCE JUDGMENT
+  (endorsed, Ryan may override): identity_tag (manual) > locks (auto) > description (prose).
+  forbidden_drift stored only - consumption is D9-4. NULL-locks byte-identical proof; failure sets
+  byte-identical; populate-or-inert trap documented (re-approve 8d90df90 cast in deploy window).
+  Fold dispatched. Original: Character locks: lock-grade structured fields on video_characters
+  (face_body_lock, wardrobe_lock, forbidden_drift) modeled on CharacterLock; approve_cast
+  populates them from the approved pixels (extends its existing vision pass); sheet
+  composer inserts VERBATIM (D6-1 canonical pattern, including the populate-or-inert trap).
+- [x] D9-3 (S) [D][B][V] DONE 2026-07-30 (branch d9-3-environment-locks, commit 1fc90913): migration 152
+  (architecture/lighting_time_weather/palette locks; geography skipped - L3 covers it); approval's
+  existing vision call extended (zero new spend, single-call proven); canonical ENVIRONMENT LOCKS block
+  in sheet prompts + redraw leg; NULL-locks byte-identical proof; no WARN drift check added (nothing to
+  mirror - deliberate, same call as D9-2); failure sets byte-identical. Fold dispatched.
+  Original: Environment locks with canonical-insert.
+- [x] D9-3b (S) [B][V] DONE 2026-07-30 (branch d9-3b-batch-locks, commit fbb1ad14): env locks reach the
+  first-draw batch path via the existing canonical_envs/matched_env channel (no new plumbing); ENVIRONMENT
+  LOCKS tail phrased identically to the redraw leg; NULL byte-identical proof; 241 pipeline tests,
+  failure sets byte-identical both suites. Fold dispatched. Original: Follow-up from D9-3's known gap: the first-draw final-picture batch path
+  (run_coverage's MATERIAL MAP LOCK section in skills/video-pipeline/storyboard/coverage.py) does not
+  read the three new lock keys, though matched_env already carries them. Wire the locks in there with
+  the same NULL = byte-identical guarantee. Dispatch AFTER D12-1 folds (same file).
+- [x] D9-4 (S) [B][V] DONE 2026-07-30 (branch d9-4-forbidden-drift, commit bb58a9db): NEVER clauses in
+  CHARACTER blocks (board + redraw legs, verbatim); judge gets CHARACTER DRIFT CONSTRAINTS as
+  flag-as-MODEL_DEFECT items via the sheet-dict extension surface (correctly avoided breaking the
+  fixed judge_fn signature); fail-soft DB read in the hook; NULL byte-identical on both surfaces;
+  4 guard-neuter proofs; failure sets byte-identical (1 real pre-existing). PHASE D9 COMPLETE.
+  Fold dispatched. Original: forbidden_drift is DEAD DATA today.
+- [x] D9-5 (S) SWEEP DONE 2026-07-30. Rulings adopted: (1) transition taxonomy HARVEST NOW ->
+  D9-6 below; (2) caused_by causality HARVEST NOW -> D9-7 below; (3) StoryState-lite HARVEST LATER,
+  only after D9-1..4 observed in production, and consider scene_control's lighter prose
+  continuity_in/out shape first; (4) do NOT change the live arbiter judge's reply format - any
+  alignment with Custom Film's review booleans is a labeling/mapping exercise only; (5) FilmBible
+  fields routed to D10 (already covered by D10-1's narrative design). Full report in session.
+- [x] D9-6 (S) [D][B][V] DONE 2026-07-30 (bundled with D9-7, branch d9-67-transitions, commit 01288d33):
+  TRANSITION: <kind> | <bridge> row (rule 25), 4 warn checks, migration 148, store_scene stamps;
+  tail-peeling metadata extractor fixed a real capture-order bug; backward-compat proven for pre-D9-1
+  AND D9-1-era directives; pipeline suite 190 passing, backend failure sets byte-identical.
+  Original: Transition taxonomy harvest: transition_kind
+  (opening/continuous/time_cut/location_cut/montage/memory) + nullable continuity_bridge on assets,
+  planner emits per shot (additive to the directive grammar, backward-compatible parse), warn when
+  absent; feeds transition_engine.determine_transition so D12-2 has real per-cut signal. SEQUENTIAL
+  after D9-1 folds (same files); migration number pinned at dispatch.
+- [x] D9-7 (S) [D][B][V] DONE 2026-07-30 (see D9-6 above): CAUSED_BY: M<n>-MASTER/-ANGLE<k> row
+  (rule 26), single ref (flagship has no shot_key), deterministic dangling/forward-ref warn check.
+  Prompt compliance on real scenes deferred to deploy window. Original: Causality harvest: nullable
+  caused_by (earlier shot ref) on assets, planner
+  emits per shot, warn-only advisory check (first structured story_laws-style check). Bundle with
+  D9-6 in one worker/one migration if dispatched together.
+
+### Chunks (D10 NATIVE STORY BIBLE)
+- [x] D10-1 (S) SWEEP+PLAN DONE 2026-07-30: full reader/writer map produced - NO consumer does strict
+  schema validation (all .get key-access), so new top-level keys are safe; the one constraint is the
+  full-column replace at supabase_adapter.py:496 (generator must assemble everything). Design: ONE
+  extended generation call (two passes risk character-ID drift); new sections narrative{genre,tone,
+  themes,conflict,stakes,time_period,world_rules} / relationships[] / arcs{} keyed to legacy ids.
+  Report in session 2026-07-30; chunk list below replaces old D10-2/D10-3.
+- [x] D10-2ab (S) [B][V] DONE 2026-07-30 (branch d10-2ab-native-bible, commit 011182da): native
+  story_bible_native.py generates the whole bible in one call - legacy V2 scene_blocks schema ported
+  field-for-field (V1 visual_arc is dead in production, evidence-backed), plus narrative/relationships/
+  arcs with dangling-id dropping; run_story_bible now fetches scripts directly, calls the native module,
+  persists via direct tenant-scoped UPDATE (sys.path import + Airtable shim removed for this step only);
+  failure never reports completed. 31 tests, $0, byte-identical failure sets. Real-generation compliance
+  check deferred (~$0.02-0.05, in deploy window). Fold dispatched.
+  Original: Native generator + persistence (dispatched): new backend/story_bible_native.py
+  producing legacy keys byte-compatible PLUS narrative/relationships/arcs in one extended call;
+  pipeline_executor.run_story_bible (:15438-15484) calls it directly (no sys.path import, no
+  supabase_adapter shim - direct asyncpg UPDATE videos SET story_bible). Accept: legacy-key diff empty
+  vs legacy generator on the same script (stubbed LLM fixture); narrative sections non-empty;
+  test_characters.py + test_c66_production_guide.py pass unmodified. skills/video-pipeline untouched.
+- [x] D10-3a (S) [B][V] DONE 2026-07-30 (branch d10-3a-planner-narrative, commits 23819f38+26630ef7,
+  survived one bounce): <narrative>/<relationships> block threaded through board_rules_text into BOTH
+  planner call sites via one shared helper; byte-identical proofs against the real prompt builders;
+  guard-neuter stash-proof (10 real AssertionErrors across all layers); call-site-2 parity traced with
+  quoted lines - warn checks identical, directive persistence absent in BOTH paths pre-existing.
+  Fold dispatched. Original: Coverage planner reads narrative.
+- [ ] D10-3e (S) [B] LOW, parked (pre-existing, quantified by D10-3a): call-site-2 (pictures path with
+  no saved plan) never persists coverage_directive/hash, so such scenes re-plan (paid planner call)
+  every run. Fix = persist+stamp at site 2 mirroring site 1's streaming contract, minus the
+  storyboard_*_url nulling that doesn't apply. Wait until D7-era staleness branches are all folded.
+- [x] D10-3b (S) [B][V] DONE 2026-07-30 (branch d10-3b-critique-bible, commit ca97ec80): bible fetch
+  self-contained in critique_script (zero caller changes); story-structure addendum when narrative/arcs/
+  relationships present; byte-identical proofs against the literal judge constant for legacy/empty/
+  missing/db-down cases; arc contradictions flow through the existing @@@SCENE n@@@ edit loop; strict
+  Custom Film critic path correctly excluded (regression caught + fixed mid-build). 17 tests, failure
+  sets byte-identical. Fold dispatched. Original: Script critique reads arcs/relationships/conflict.
+- [x] D10-3c (S) [B][V] DONE 2026-07-30 (bundled with D12-1, branch d12-1-genre-pacing, commit 8bf73c53):
+  no new plumbing needed - story_bible already reaches run_coverage from both call sites; accessor
+  _genre_pacing_signal reads narrative.genre off the existing parameter, pipeline stays backend-agnostic.
+  Original: Pacing reads narrative.genre via a shared accessor.
+- [x] D10-3d (S) [D][V] DONE 2026-07-30 (branch d10-3d-docs, commit 02fb00fd): narrative summary lines
+  prepended to the channel-profile doc's bible section when parseable, byte-identical otherwise;
+  10 tests incl. never-raises sweep; guard-neuter proof; failure sets byte-identical.
+  Fold dispatched. Original: Docs + proof: optional narrative summary line.
+
+### Chunks (D11 SHOT ARCHETYPES + DP FIELDS)
+- [x] D11-1 (S) [B][V] DONE 2026-07-30 (branch d11-1-archetypes): shot_archetypes.py with 45 archetypes
+  in 6 categories (all 26 required named ones), ~1450-token menu injected into the planner prompt,
+  optional ARCHETYPE row (rule 27) via the shared tail-peeling extractor, warn-only id validation
+  (hard-eligible noted), migration 149 + store_scene stamp. Era fixtures byte-identical; pipeline
+  suite 217/217; backend failure sets byte-identical; self-caught tail-append mistake restored.
+  NOTE: canonical deferred-verification file is repo-root tasks/ per precedent - D14-0 consolidation
+  should merge INTO that one. Fold dispatched. Original: Shot-archetype catalog module.
+- [x] D11-2 (S) [D][B][V] DONE 2026-07-30 (branch d11-2-dp-fields, commit 4fc518c3): DP row (rule 28,
+  lens_mm/camera_height/dof with fixed vocabularies), 5th branch of the shared extractor, four-era
+  backward compat, warn-only validity check (absence never flagged - row optional), migration 150,
+  store_scene 32 params. PLUS: all stamp tests converted to name-keyed assertions (kills the recurring
+  negative-index fragility). Flagged: archetype typical_lens not yet surfaced in the planner menu
+  (guidance-only synergy - candidate micro-chunk for D12-3). Both suites' failure sets byte-identical.
+  Fold dispatched. Original: Per-shot DP fields as structured fields.
+
+- [x] D11-3 (S) [B][V] DONE 2026-07-30 (branch d11-3-prompt-compiler, commit 9aca635f; added from
+  Ryan's direct ask "are prompts mechanically assembled from the database?"): compose_shot_cinematography
+  pure compiler wired at all 3 assembly points (first-draw, sheet-preview, redraw); rule 29 + rule 11
+  reconciled; redundancy warn check; RYAN'S COOKIE-CUTTER AMENDMENT baked in - craft-only clause,
+  <=2 sentences, location interpolation only for establishing, mood/lighting stay scene-driven, proven
+  with a same-archetype-two-scenes comparison; planted-marker proofs both directions; backend 4178/0
+  both ways; one vacuous legacy assertion narrowed with reasoning. Fold dispatched.
+
+### Chunks (D12 EDITORIAL ENGINES)
+- [x] D12-1 (S) [B][V] DONE 2026-07-30 (branch d12-1-genre-pacing, commit 8bf73c53): GENRE_PACING table
+  (action 0.75x, drama 1.0x, emotional 1.3x, mystery 1.15x, comedy guidance-only 1.0x - no reaction
+  knob exists, floors untouched per fence), priority-ordered keyword families, unknown/absent = exactly
+  1.0 byte-identical, clamped 1.0-6.0s, speaking shots untouched. 11 tests; both suites byte-identical.
+  KEY FINDING: the "29 pre-existing backend failures" are mostly fresh-worktree environment artifacts
+  (gitignored node_modules + motion-audio wavs missing) - traced, scaffolded run shows 1 real
+  pre-existing failure. Also noted: test_coverage.py's __main__ block calls an undefined test
+  (pre-existing, harmless under pytest). Fold dispatched. Original: Genre-aware pacing.
+- [x] D12-2 (S) [B][V] DONE 2026-07-30 (branch d12-2-transitions-render, commit 5a83ba46, survived one
+  worker stall + resume): transition_kind threaded assets -> render config -> determine_transition
+  (incoming shot's kind, Custom Film semantics); map: continuous/time_cut hard cut, location_cut 0.4s
+  xfade, montage 0.25s, memory 0.8s TRUE dissolve (ffmpeg engine); act-boundary/style-change rules
+  still win (proven both directions); absent kind byte-identical at 3 layers; real latent bug fixed
+  (explicit 0.0 duration discarded as falsy). 39 new tests; failure sets byte-identical (1 real
+  pre-existing failure once worktree env artifacts scaffolded). Fold dispatched.
+  Original: Distinct transition treatments.
+- [ ] D12-2b (S) [B] LOW, parked: Remotion engine's Scene.tsx only special-cases "cut" by name, so
+  "dissolve" renders as a longer fade-through-black there; true cross-dissolve support in Scene.tsx
+  would complete the treatment parity. Also unchecked: which engine (ffmpeg vs Remotion) is the
+  production default per customer.
+- [x] D12-3 (S) [B][V] DONE 2026-07-30 (branch d12-3-rhythm, commit d4596266): build_rhythm_report +
+  three warn checks (size run >2 excl. INSERT per the file's only exemption precedent; lens run >3;
+  purpose run >3) sharing one set of sequence helpers so report and checks cannot disagree; rhythm_notes
+  additive key on the sheet-preview payload (frontend-safe, currently inert); 32 tests incl. planted
+  runs + legacy-silent proofs; failure sets byte-identical. LAST BUILD CHUNK - program build phase
+  complete. Fold dispatched. Original: Board rhythm report.
+- [ ] D12-4 (S) [B][V] Composition rubric (rule of thirds, silhouette clarity, negative
+  space) added to the arbiter judge as WARN-only criteria. Depends on D8-2 live.
+
+### Chunks (D13 PROVIDER DIALECT)
+- [x] D13-1 (S) [B][V] DONE 2026-07-30 (branch d13-1-provider-dialect, commit 6927e063): new
+  provider_dialect.py with one build_call entry point; _decorate moved verbatim, Veo branch absorbed,
+  retry path re-shapes per attempt; dialect surface fully mapped first (finding: Seedance shares Grok's
+  decoration but not kwargs; Veo never had the content-policy retry). 6 golden tests captured
+  PRE-refactor, byte-identical POST; guard-neuter discriminates correctly; 125/125 pre-existing clip
+  tests unmodified; failure sets identical (1 real pre-existing). PHASE D13 COMPLETE. Fold dispatched.
+  Original: Extract Grok @imageN decoration into one provider-dialect adapter.
+
+### Chunks (D14 PROOF + COMPLETE)
+- [x] D14-0 (H) [V] DONE 2026-07-30 (commit 9b37cb14): 35 sections consolidated into
+  storyengine/tasks/deferred-verification.md (3719 lines), root file replaced with a redirect pointer,
+  zero conflict markers. Original: Consolidate the TWO deferred-verification files (repo-root tasks/deferred-verification.md
+  and storyengine/tasks/deferred-verification.md - workers split their tail-appends across both today)
+  into ONE canonical file at storyengine/tasks/deferred-verification.md, preserving section order, with
+  a pointer left in the root file. Run only after all build chunks fold (both files are active
+  tail-append targets until then).
+- [ ] D14-1 [DECISION - MONEY] RESHAPED per Ryan 2026-07-30: not one big E2E video first - the proof
+  mechanism is THE SCENE LAB, a repeatable under-$1 iteration on ONE scene: (0) $0 plan-only dry run,
+  read the emitted words against the laws; (1) $0.05 one storyboard sheet; (2) ~$0.03 judge verdict
+  (findings land in the Review tab); (3) free word-fixes + optional $0.05 redraw; (4) ~$0.45-0.70
+  animate the 5 best shots; (5) watch, note drift, write corrections back as DATA (locks,
+  forbidden_drift, quality rules) so the next loop starts smarter. Total per loop ~$0.55-0.85.
+  D6-6b + D8-2 in the deploy window ARE iteration 1's steps 1-2. The full E2E video graduates from
+  whatever the Scene Lab converges on, quoted separately.
+- [x] D14-2 (S) [V] DONE 2026-07-30: fresh-eyes verifier (never saw the build) traced all decisive
+  wiring itself - criteria 1-5 BUILT-AND-PROVEN-IN-SANDBOX (hook called, parsers strip, flags gate,
+  columns read not just written, freeze/budget/persistence/UI all at real call sites; 266 pipeline +
+  3188 backend functional tests green); criterion 6 GAP as expected (live proof = the deploy window).
+  Verdict PARTIAL solely for criterion 6 + one pre-existing failing test flagged for triage -> D14-2b.
+  Original: Fresh-eyes Explore re-verifies the Definition of Complete.
+- [x] D14-2b (S) [B][V] DONE 2026-07-30 (branch d14-2b-oauth-triage, commit 7d52f953): archaeology proved
+  the helper NEVER existed (orphaned test from VPS snapshot ed1d746a; peer commit 87d52dbf had left it
+  "pending a product decision"). Decision made: built the minimal auth-gated GET
+  /api/auth/youtube/oauth-diagnostics (missing-env report, never echoes secrets). Backend suite now
+  FULLY GREEN: 4178 passed / 0 failed. PRODUCT CALL FLAGGED to Ryan in the completion report.
+  Original: Triage the one real failing test. test_youtube_oauth_diagnostics
+  asserts routes.google_auth.youtube_oauth_diagnostics which does not exist (AttributeError). Git
+  archaeology first: stale test for removed/renamed helper (update or remove the test) vs accidentally
+  dropped helper (restore it). Evidence-first, smallest correct fix.
+- [ ] D14-3 (H) [V] /se-smoke pass + deploys.log entries + completion report with an
+  explicit Complete / Partial / Not-complete verdict.

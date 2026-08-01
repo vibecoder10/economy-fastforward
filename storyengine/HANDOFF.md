@@ -27,6 +27,76 @@ the engine, in coordinator-side scripts. Your job is to move them IN. No cutting
   `test_visual_identity_cross_domain.py`, `test_source_tier_domains.py`,
   `test_ship_roster_shapes.py` (extended).
 
+## 2026-07-31 - DEPLOYED + LIVE TEST RAN + the real last mile found (G8/G9 in flight)
+Everything below (G1/G2/G2b/G5 + the D-session's work + migrations 146-153) is DEPLOYED
+to prod (c6a9ba5c, 13:19Z). Ship rescue ran: d2e37cd6 back to 23/23 cards, idempotent.
+The live user-path test (chat -> create -> approve -> research) then found, in order:
+- Roster path only triggers on title regex every/all/ever-built/complete-list (G6 chunk);
+  no default per-video spend cap exists (G7); a compound reply to an approval card
+  silently destroys it and title-edit requests are ignored (G9 IN FLIGHT, chat.py:2041);
+  and THE BIG ONE: the autobuild chain dead-ends at the Jul-12 bulk-generation safety
+  gate because nothing engine-side loops roster entries through the safe one-machine
+  research path - the carrier video only ever worked because the coordinator looped by
+  hand (G8 IN FLIGHT). Both G8/G9 briefs + full diagnosis in tasks/loop-checklist.md.
+- Test videos on prod: c18589b3 (wrong format, harmless, ~$0.75 max), d05efae3 (KGV,
+  $5 cap, roster discovered 5 ships, parked at the gate - the designated live subject
+  for G8's deferred verification; Ryan has approved re-running research on it).
+- After G8/G9 merge: needs a second deploy window (ask Ryan) + resume the live test on
+  d05efae3, then the ledger cost report.
+- BLOCKING, 23:27Z: **the workspace Anthropic API account is OUT OF CREDITS** - every
+  model call on prod fails ("credit balance is too low", request req_011Cdb16DNLx...).
+  ALL customer builds are dead until Ryan tops up (Anthropic console, Plans & Billing).
+  The final proof video (2709939d, "All 5 King George V Class Battleships Ever Built",
+  $5 cap) is created, approved, and cost $0 - it died pre-spend. Re-run = one build
+  click after top-up. G16 (pennant tolerance + writer-prompt rules) is DEPLOYED
+  (4a5da1de, deploy #4) but its live proof is pending that top-up. Chat UI showed the
+  customer NOTHING for this failure - the park/failure-visibility bug on the list
+  demonstrated live.
+- LATE UPDATE: three deploys shipped (final: 89d151cd, 19:58Z - G13 ship-aware gather
+  + G14 tier-floor-to-advisory per Ryan's decision in tasks/decisions.md). Retry #2 on
+  d05efae3: all 5 ships now WRITE cards (big step), 0/5 pass on exactly two remaining
+  hard classes -> chunk G16 in loop-checklist.md (pennant-prefix identity tolerance +
+  content-shape rules moved into the writer prompt). G8b attempt bound means the next
+  live proof needs a fresh 5-ship video. Stripe webhook crash found in passing
+  (billing.py:145, task chip spawned). Ryan's standing rule recorded in memory +
+  lessons.md: 2+ failed rounds against a gate = question the design, bring him the
+  issue + one fix.
+
+## 2026-07-30 late session - GAP 1 + GAP 2 SHIPPED to LOCAL main (not pushed, not deployed)
+Maestro loop "dvsu-bulletproof"; full evidence in tasks/loop-checklist.md top section.
+- **G1 gatherer fallbacks** merged 51d5a67c: tolerant normalizer now IS the referee's
+  comparison fold (_normalized_source_text, used at validate time 1497/1510); NA
+  Discovery JSON API (retry on empty 202) -> real Wayback availability-API fallback
+  fires exactly when live fetch + tavily_raw_content are both empty; iwm.org.uk in
+  exclude_domains on every Tavily call + one extra naval-scoped query for ship
+  contexts. +15 offline fixture tests. Adversarially verified: capture_method is
+  server-side only, referee overwrites card-claimed methods, so provenance cannot be
+  forged through the new methods.
+- **G2 repair convergence** merged 9e6b3f81: free deterministic pre-repair pass
+  (re-anchor by excerpt text + inflection swaps, ported from reanchor_card.py) runs
+  before each paid round and consumes none; repair prompt now gets NAMED per-failure
+  fixes by reusing the interactive Repair-button machinery (_segment_surgery_plan);
+  (D48) quirk fixed (allowed_designations also scans the display name). 8 tests incl.
+  a zero-paid-rounds convergence proof. Adversarially verified: re-anchor constrained
+  to the machine's own fetched package, referee re-validates from scratch after.
+- **G2b** merged ba44fc62: _is_naval_gather_context word-boundary matching
+  (championship/friendship/flagship no longer trigger; battleship/warship added as
+  explicit terms).
+- **GAP 3 NOT built, by design**: scoping plan for Ryan at tasks/GAP3-identity-plan.md
+  (collision confirmed live: 21 rows / 23 entries, indices 9+21 overwritten; Phase 0 =
+  key by roster_index + replay, decision pending).
+- **Fresh-eyes audit (G-FINAL)**: every in-sandbox DoC element MET; no spec drops, no
+  vacuous tests, no dead code. Suite on local main: 1 failed / 3983 passed - the one
+  failure is pre-existing test_youtube_oauth_diagnostics (routes.google_auth attr
+  missing), NOT this loop's.
+- **New finding, parked as G4-candidate**: seed_reference_from_url (static_docu.py:2276,
+  the human paste-a-URL photo path) has no fallback chain - dead/bot-walled pasted
+  URLs reject generically instead of trying Wayback.
+- **Ryan still owes** (see completion report + G-DEC chunks): yes/no on the paid 5-ship
+  proof run (quote from the estimator first, cap $20), the GAP3 plan call, a deploy
+  window (bundle with the D-session's parked deploy - nothing from either loop is on
+  prod yet).
+
 ## The mission: three gaps, in priority order
 
 ### GAP 1 - the pipeline's own web gatherer has no fallbacks (highest value)
@@ -135,6 +205,11 @@ a user and by `se db` reads, not by code inspection. Gatherer fallback + repair-
   Live-check recipes Ryan still owes: `tasks/deferred-verification.md`.
 
 ## Gotchas learned this session
+- **Agent worktree isolation can branch from a STALE head, not current local main.**
+  The G2 worker's worktree was based on efc50bd8 while main already had the G1 merge;
+  the worker caught it with `git merge-base --is-ancestor <required-sha> HEAD` before
+  building. Every worker brief must state the required base sha and make that check
+  step 0, with "merge the sha in, or stop and flag" as the remedy.
 - **Verify claims against real DB rows, not fixtures.** A never-built classifier passed 11 tests
   against an enriched fixture while doing literally nothing on the real row - the real CVA-01 has
   `status="cancelled-built"` (not `"cancelled"`) with `built_count="0 ships built"`. Pull the actual
