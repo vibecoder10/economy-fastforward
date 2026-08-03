@@ -2845,17 +2845,30 @@ def test_animated_video_with_roster_shape_still_runs_global_writer(monkeypatch):
 def test_word_gates_hard_80_warn_band_95_ceiling_170():
     """QD-6/QL-1 (approved): universal hard floor 80 and ceiling 170; 80-95 is
     an ADVISORY warn band (confirm terse on purpose); register bands are
-    guidance handled elsewhere. Supersedes the provisional 95-120 hard range."""
+    guidance handled elsewhere. Supersedes the provisional 95-120 hard range.
+
+    G18 (Ryan's ruling, 2026-08-01, real case: video d2e37cd6's HMS Argus
+    preview at 177/170 words - "7 words over isnt bad, i call that nit
+    picky") added a +/-10% GRACE band around each hard bound: a near-miss
+    (72-79 words under the floor, 171-187 over the ceiling) is advisory
+    only; only a real overshoot/undershoot beyond that still hard-blocks.
+    See test_g18_word_ceiling_grace_band.py for the exact-boundary matrix."""
     validate = pe.PipelineExecutor._validate_static_unit_paragraph
 
-    assert any("under the 80-word hard floor" in warning for warning in validate("XB-15", _words("XB-15", 79)))
+    assert any("under the 80-word hard floor" in warning for warning in validate("XB-15", _words("XB-15", 71)))
+    floor_grace = validate("XB-15", _words("XB-15", 75))
+    assert pe._blocking_warnings(floor_grace) == []
+    assert any(w.startswith("advisory: ") and "under the 80-word target" in w for w in floor_grace)
     warn_band = validate("XB-15", _words("XB-15", 85))
     assert pe._blocking_warnings(warn_band) == []
     assert any("warn band" in warning for warning in warn_band)
     assert validate("XB-15", _words("XB-15", 95)) == []
     assert validate("XB-15", _words("XB-15", 120)) == []
     assert pe._blocking_warnings(validate("XB-15", _words("XB-15", 170))) == []
-    assert any("over the 170-word hard ceiling" in warning for warning in validate("XB-15", _words("XB-15", 171)))
+    ceiling_grace = validate("XB-15", _words("XB-15", 177))
+    assert pe._blocking_warnings(ceiling_grace) == []
+    assert any(w.startswith("advisory: ") and "over the 170-word target" in w for w in ceiling_grace)
+    assert any("over the 170-word hard ceiling" in warning for warning in validate("XB-15", _words("XB-15", 190)))
     two_paragraphs = _words("XB-15", 48) + "\n\n" + _words("XB-15", 47)
     assert "must be exactly one paragraph" in validate("XB-15", two_paragraphs)
     assert validate("B52", _words("B-52", 95)) == []
@@ -5069,7 +5082,11 @@ def test_under_minimum_machine_paragraph_repairs_upward_and_saves_only_repaired_
         def __init__(self):
             self.prompts = []
             self.system_prompts = []
-            self.outputs = [_story_bundle("XB-15", 15), _story_bundle("XB-15", 20)]
+            # words_per_sentence=15 (75 words) used to be genuinely under the
+            # 80-word floor; G18's grace band now treats 72-79 as an advisory
+            # near-miss, not a repair-triggering violation, so this fixture
+            # uses 12 (60 words) to stay a REAL under-floor draft.
+            self.outputs = [_story_bundle("XB-15", 12), _story_bundle("XB-15", 20)]
 
         async def generate(self, **kwargs):
             self.prompts.append(kwargs["prompt"])
