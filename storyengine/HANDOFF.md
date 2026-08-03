@@ -1,4 +1,37 @@
-# HANDOFF - 2026-07-30 evening - MISSION: make the standalone API pipeline bulletproof
+# HANDOFF - updated 2026-08-03 - script stage in progress on the carrier video
+
+## CURRENT STATE (read this block first, ignore older sections below until needed)
+- Mission "bulletproof API pipeline" is DONE and deployed (research 23/23 on d2e37cd6,
+  full trail in tasks/loop-checklist.md G-section). Now in the SCRIPT stage of
+  "Every British Aircraft Carrier Class Ever Built" (d2e37cd6, tenant 561b872d).
+- Script cards written so far: Argus (good, 1 glitch phrase), Hermes (ship-ready),
+  Furious (passed referee but language broken - see G20 below). 20 carriers unwritten.
+- Ryan's quality rulings this stage (all in tasks/decisions.md): word-ceiling
+  near-misses are nits not blocks (G18, grace band deployed); language quality
+  matters - referee checks facts but "can't hear" grammar.
+- G20 language polish pass (cheap Haiku call fixes grammar, facts locked, referee
+  re-checks, discard-on-regression) deployed but went SILENT on first live run
+  (polished:false, no logs). G20b (hardened reply parsing - likely true culprit -
+  + loud outcome logging) merged 4b7b9063, deploy #8 in flight as of handoff.
+- SOLVED 2026-08-03 17:18Z, cause named by the new logging on a live Furious rerun:
+  `[polish] outcome=discarded_new_blocking detail=claim_map row 4 needs two
+  independent sources or a hedge for exact numerical detail(s): eighteen`.
+  The polish pass WORKS and the discard-protection worked as designed: polish
+  dropped the hedge word ("roughly eighteen-inch" -> unhedged), the referee
+  correctly flagged the now-exact number, fallback kept the draft.
+- NEXT (chunk G20c, first thing in the fresh session): one-line fix + test - the
+  polish prompt must treat hedge words guarding numbers (roughly/about/around/
+  some/over) as load-bearing facts, never removed. Same worktree pattern, merge,
+  deploy (ask Ryan), rerun Furious, expect outcome=applied + clean paragraph,
+  THEN Ryan's go on Run All Script Cards (~$1.50-3, video capped at $20... check
+  actual max_spend on d2e37cd6 first - it was NULL, consider setting one).
+- UI driving notes: dev server via launch.json 'storyengine' + se devtoken; JS
+  .click() opens dialogs but Confirm buttons need a full pointer-event sequence
+  (pattern in session; dialogs sometimes render off-viewport).
+- Parked backlog: G4/G6/G7/G10/G11/G15/G19 candidates + C13 + GAP3 plan
+  (tasks/GAP3-identity-plan.md) in tasks/loop-checklist.md; Stripe webhook chip.
+
+# OLDER: HANDOFF - 2026-07-30 evening - MISSION: make the standalone API pipeline bulletproof
 
 ## Read this first
 Ryan's explicit request (2026-07-30, repeated and firm): **the DVsU pipeline must run
@@ -43,7 +76,16 @@ The live user-path test (chat -> create -> approve -> research) then found, in o
   for G8's deferred verification; Ryan has approved re-running research on it).
 - After G8/G9 merge: needs a second deploy window (ask Ryan) + resume the live test on
   d05efae3, then the ledger cost report.
-- BLOCKING, 23:27Z: **the workspace Anthropic API account is OUT OF CREDITS** - every
+- RESOLVED 2026-08-01: Ryan topped up $10. Per his call, the live proof ran on the
+  REAL carrier video instead of a throwaway: the Repair All (Orchestrator) button on
+  d2e37cd6 walked the 4 needs-review cards cheapest-verb-first and finished ALL 23
+  research cards passing in ~5 min (2 fixed FREE by the G2 re-anchor pass on replay-
+  drifted citations, 2 via penny repairs). Video at ready_for_scripting, script cards
+  unlocked, seen in the UI. The DVsU research chapter of the carrier Bible is DONE,
+  by the engine alone, through the product UI. The 5-ship test video (2709939d) was
+  never run and can be deleted or kept as a spare test subject. Remaining candidates
+  (G4/G6/G7/G10/G11/G15, C13, GAP3 plan approval, Stripe chip) unchanged.
+- WAS BLOCKING, 23:27Z (now resolved): **the workspace Anthropic API account was OUT OF CREDITS** - every
   model call on prod fails ("credit balance is too low", request req_011Cdb16DNLx...).
   ALL customer builds are dead until Ryan tops up (Anthropic console, Plans & Billing).
   The final proof video (2709939d, "All 5 King George V Class Battleships Ever Built",

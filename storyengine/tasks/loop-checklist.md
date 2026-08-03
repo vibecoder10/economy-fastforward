@@ -153,6 +153,13 @@ the D7/D8 board-laws loop lower in this file belongs to another live session - h
       worker as G8b (retry invariant + per-machine attempt bound + two-invocation
       test). Verifier PASSED: chain-stop, stale-list, live cap re-read, unchanged
       paths, test meaningfulness.
+- [ ] G19-candidate (S) [B][U] Found 2026-08-03 during the Argus grace-band check:
+      stored script-preview verdicts go STALE when validator rules change (Argus
+      preview holds passed=false from the pre-G18 ceiling; the UI Check button
+      validates but does not re-persist the verdict, so the badge stays "Needs
+      review" even though the paragraph now passes current rules). Fix: Check
+      re-persists the recomputed verdict (free path), or verdicts store a rules
+      version and auto-invalidate.
 - [ ] G15-candidate (S) [B] From G14 verify (non-blocking): _classify_repair_actions
       (~4417-4526) and repair_targeted_fetch default-focus (~9730-9737)
       substring-match "Tier 1-2" against UNFILTERED package_errors, so the paid
