@@ -7746,6 +7746,31 @@ async def _polish_dvsu_paragraph_sentences(
     return {"sentences": polished, "reason": ""}
 
 
+# G20d: every row-scoped warning _validate_machine_story_sentences emits
+# starts with this exact prefix (checked against the validator's own f-string
+# call sites - "must be an object", "span is not present in paragraph",
+# "needs two independent sources...", etc. all share it). A warning that
+# does NOT match - paragraph-level ("paragraph missing required Anton slot
+# evidence: ...") or about the un-mapped closer sentence ("final sentence
+# must be paragraph-derived synthesis...") - can never be pinned to one
+# sentence, so it disqualifies the whole batch from salvage.
+_CLAIM_MAP_ROW_WARNING_RE = re.compile(r"^claim_map row (\d+)\b")
+
+
+def _claim_map_row_numbers_for_warnings(warnings) -> Optional[set[int]]:
+    """Returns the set of claim_map row numbers every warning in ``warnings``
+    names, or ``None`` the moment any single warning can't be attributed to
+    a row - an all-or-nothing gate, since a salvage that can't isolate every
+    regression to a sentence can't safely revert just that sentence."""
+    row_numbers: set[int] = set()
+    for warning in warnings:
+        match = _CLAIM_MAP_ROW_WARNING_RE.match(str(warning))
+        if not match:
+            return None
+        row_numbers.add(int(match.group(1)))
+    return row_numbers
+
+
 async def _apply_dvsu_language_polish(
     *,
     anthropic_client: Any,
@@ -7767,6 +7792,18 @@ async def _apply_dvsu_language_polish(
     provider error, a malformed reply, or a true no-op (identical text) all
     resolve to "keep the draft" the same way; only the audit-trail fields
     differ.
+
+    G20d: "discarded" is no longer paragraph-wide by default. A live run
+    proved one sentence's grammar fix (removing a stray "about" jammed
+    against an already-exempt year) can incidentally un-hedge an unrelated,
+    genuinely single-sourced number elsewhere in the SAME sentence, because
+    the referee's hedge check is sentence-scoped, not per-number - see
+    _claim_map_row_numbers_for_warnings. When every new blocking warning
+    names a specific claim_map row, only that row's sentence + claim_map
+    entry are reverted to the draft; every other polished sentence is kept.
+    The salvaged assembly is re-validated (belt): if it still regresses,
+    or if any new warning can't be pinned to a row (paragraph-level, or the
+    un-mapped closer sentence), the old wholesale discard is unchanged.
 
     G20b: every return path logs exactly ONE `[polish]` line naming the
     outcome (applied / noop_identical / discarded_new_blocking / any
@@ -7818,12 +7855,19 @@ async def _apply_dvsu_language_polish(
         # True no-op: nothing changed, so there is nothing to audit as a polish.
         return _done("noop_identical")
 
+    old_claim_map: list = []
+    # G20d: row number (1-indexed, matching the validator's own enumerate)
+    # -> the formula_sentences index it was remapped to. Only rows that got
+    # a clean exact-match remap are salvageable; a substring-span row (idx
+    # stays unmapped) can't be safely reverted by index, so it's absent here
+    # and any warning naming it disqualifies salvage for the whole batch.
+    row_sentence_index: dict[int, int] = {}
     if has_sentence_bundle:
         polished_bundle = dict(bundle)
         polished_bundle["formula_sentences"] = list(polished_sentences)
         old_claim_map = bundle.get("claim_map") if isinstance(bundle.get("claim_map"), list) else []
         new_claim_map = []
-        for row in old_claim_map:
+        for row_number, row in enumerate(old_claim_map, start=1):
             if not isinstance(row, dict):
                 new_claim_map.append(row)
                 continue
@@ -7842,6 +7886,7 @@ async def _apply_dvsu_language_polish(
                 idx = -1
             if 0 <= idx < len(polished_sentences):
                 new_row["span"] = polished_sentences[idx]
+                row_sentence_index[row_number] = idx
             new_claim_map.append(new_row)
         polished_bundle["claim_map"] = new_claim_map
         polished_paragraph, polished_warnings = _validate_machine_story_sentences(
@@ -7858,7 +7903,50 @@ async def _apply_dvsu_language_polish(
     polished_blocking = set(_blocking_warnings(polished_warnings))
     new_blocking = polished_blocking - draft_blocking
     if new_blocking:
-        # Polish made the blocking-warning set WORSE - discard, keep the draft.
+        # G20d: try a per-sentence salvage before the wholesale discard.
+        # Every new blocking warning must name a specific claim_map row, and
+        # that row must have a known sentence index (the exact-match remap
+        # above) - otherwise salvage is skipped and the old all-or-nothing
+        # discard below is unchanged.
+        offending_rows = _claim_map_row_numbers_for_warnings(new_blocking) if has_sentence_bundle else None
+        if offending_rows and all(row in row_sentence_index for row in offending_rows):
+            salvage_claim_map = [dict(row) if isinstance(row, dict) else row for row in new_claim_map]
+            salvage_sentences = list(polished_sentences)
+            for row_number in offending_rows:
+                idx = row_sentence_index[row_number]
+                salvage_claim_map[row_number - 1] = dict(old_claim_map[row_number - 1])
+                salvage_sentences[idx] = original_sentences[idx]
+            salvage_bundle = dict(polished_bundle)
+            salvage_bundle["formula_sentences"] = salvage_sentences
+            salvage_bundle["claim_map"] = salvage_claim_map
+            salvage_paragraph, salvage_warnings = _validate_machine_story_sentences(
+                machine, story_plan or {}, salvage_bundle, dvsu_rule_overrides,
+            )
+            salvage_blocking = set(_blocking_warnings(salvage_warnings))
+            # salvage_paragraph != normalized_paragraph guards the case where
+            # the ONLY sentence polish actually changed is also the ONLY one
+            # that regressed - reverting it leaves an assembly byte-identical
+            # to the draft, which is a no-op, not an "applied" change. Fall
+            # through to the same discard so the no-change contract (draft
+            # object identity, unchanged warnings) stays exactly what it was
+            # pre-G20d.
+            if not (salvage_blocking - draft_blocking) and salvage_paragraph != normalized_paragraph:
+                reverted = ",".join(str(number) for number in sorted(offending_rows))
+                _logger.info(
+                    "[polish] video=%s machine=%s outcome=applied detail=salvaged_rows=[%s] pre_polish=%r polished=%r",
+                    video_id, machine, reverted, normalized_paragraph[:200], salvage_paragraph[:200],
+                )
+                return {
+                    "paragraph": salvage_paragraph,
+                    "warnings": list(dict.fromkeys(salvage_warnings)),
+                    "bundle": salvage_bundle,
+                    "polished": True,
+                    "pre_polish_paragraph": normalized_paragraph,
+                }
+            # Belt: the salvaged assembly still regresses, or salvaging away
+            # the only real change leaves nothing to apply - either way, fall
+            # through to the same wholesale discard as an unattributable
+            # warning set.
         return _done("discarded_new_blocking", "; ".join(sorted(new_blocking))[:400])
 
     _logger.info(
